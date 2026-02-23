@@ -35,7 +35,7 @@ export default function App() {
               <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
             </Route>
             <Route element={<RootLayout />}>
-              <Route path="/" element={<HomePage />} />
+              <Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
               <Route
                 path="/matches"
                 element={

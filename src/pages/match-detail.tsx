@@ -190,7 +190,7 @@ export function MatchDetailPage() {
                 </Badge>
                 <EditMatchDialog
                   match={storedMatch}
-                  onSave={(updates) => setStoredMatch((m) => m ? { ...m, ...updates } : m)}
+                  onSave={(updates) => setStoredMatch((m) => m ? { ...m, ...updates, syncPoint: updates.syncPoint ?? undefined } : m)}
                 />
                 <DeleteMatchDialog
                   matchId={storedMatch.id}

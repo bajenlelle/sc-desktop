@@ -400,12 +400,12 @@ export function UploadZone() {
                     {filteredGames.length === 0 ? (
                       <p className="py-6 text-center text-sm text-slate-400">No games found.</p>
                     ) : (
-                      filteredGames.map((game) => (
+                      filteredGames.map((game: ScheduleGame) => (
                         <GameRow
                           key={game.uuid}
                           game={game}
-                          selected={selectedGame?.uuid === game.uuid}
-                          loading={fetchStatus === "loading" && selectedGame?.uuid === game.uuid}
+                          selected={false}
+                          loading={false}
                           onClick={() => handleSelectGame(game)}
                         />
                       ))
