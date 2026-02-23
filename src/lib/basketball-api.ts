@@ -20,13 +20,39 @@ export interface ScheduleGame {
   venueInfo: { name: string };
 }
 
-const SCHEDULE_URL =
-  "https://www.superettanherr.se/api/sports-v2/game-schedule" +
-  "?seasonUuid=ye02q4jwit&seriesUuid=qZn-4XdsoSWdh" +
-  "&gameTypeUuid=qZn-4XtW2vrrT&gamePlace=all&played=all";
+export interface League {
+  id: string;
+  name: string;
+  baseUrl: string;
+  scheduleParams: string;
+}
 
-export async function fetchSchedule(): Promise<ScheduleGame[]> {
-  const res = await fetch(SCHEDULE_URL, { headers: { Accept: "application/json" } });
+const COMMON_PARAMS = "seasonUuid=ye02q4jwit&gameTypeUuid=qZn-4XtW2vrrT&gamePlace=all&played=all";
+
+export const LEAGUES: League[] = [
+  {
+    id: "sbl-herr",
+    name: "SBL Herr",
+    baseUrl: "https://www.sblherr.se",
+    scheduleParams: `seriesUuid=qZn-4Xda9zkK3&${COMMON_PARAMS}`,
+  },
+  {
+    id: "sbl-dam",
+    name: "SBL Dam",
+    baseUrl: "https://www.sbldam.se",
+    scheduleParams: `seriesUuid=qZo-87H8Vw291&${COMMON_PARAMS}`,
+  },
+  {
+    id: "superettan-herr",
+    name: "Superettan Herr",
+    baseUrl: "https://www.superettanherr.se",
+    scheduleParams: `seriesUuid=qZn-4XdsoSWdh&${COMMON_PARAMS}`,
+  },
+];
+
+export async function fetchSchedule(baseUrl: string, scheduleParams: string): Promise<ScheduleGame[]> {
+  const url = `${baseUrl}/api/sports-v2/game-schedule?${scheduleParams}`;
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
   if (!res.ok) throw new Error("Failed to fetch schedule");
   const data = await res.json() as { gameInfo?: unknown[] };
 
@@ -44,12 +70,12 @@ const ACTIONABLE_TYPES = new Set([
 
 type RawEvent = Record<string, unknown>;
 
-export async function fetchBoxscore(gameId: string) {
+export async function fetchBoxscore(gameId: string, baseUrl: string) {
   const [statsRes, infoRes] = await Promise.all([
-    fetch(`https://www.superettanherr.se/api/gameday/player-stats/${gameId}`, {
+    fetch(`${baseUrl}/api/gameday/player-stats/${gameId}`, {
       headers: { Accept: "application/json" },
     }),
-    fetch(`https://www.superettanherr.se/api/sports-v2/game-info/${gameId}`, {
+    fetch(`${baseUrl}/api/sports-v2/game-info/${gameId}`, {
       headers: { Accept: "application/json" },
     }).catch(() => null),
   ]);
@@ -67,12 +93,12 @@ export async function fetchBoxscore(gameId: string) {
   return { ...(stats as object), date };
 }
 
-export async function fetchPlayByPlay(gameId: string): Promise<{
+export async function fetchPlayByPlay(gameId: string, baseUrl: string): Promise<{
   events: PlayByPlayEvent[];
   tipoffRealWorldTime: string | null;
 }> {
   const res = await fetch(
-    `https://www.superettanherr.se/api/gameday/play-by-play/${gameId}`,
+    `${baseUrl}/api/gameday/play-by-play/${gameId}`,
     { headers: { Accept: "application/json" } }
   );
 
@@ -114,7 +140,7 @@ export async function fetchPlayByPlay(gameId: string): Promise<{
       type: e.type as string,
       subType: (e.subType as string) ?? "",
       period: (e.period as number) ?? 0,
-      gameClockTime: (e.gameClockTime as string) ?? "",
+      gameClockTime: (e.gameClockTime as string) ?? (e.time as string) ?? "",
       realWorldTime: (e.realWorldTime as string) ?? "",
       isSuccessful: (e.isSuccessful as number) ?? 0,
       player: (e.player as PlayByPlayEvent["player"]) ?? null,

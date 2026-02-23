@@ -8,10 +8,11 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { saveMatch } from "@/lib/matches-db";
-import { fetchBoxscore, fetchPlayByPlay, fetchSchedule } from "@/lib/basketball-api";
-import type { ScheduleGame } from "@/lib/basketball-api";
+import { fetchBoxscore, fetchPlayByPlay, fetchSchedule, LEAGUES } from "@/lib/basketball-api";
+import type { ScheduleGame, League } from "@/lib/basketball-api";
 import type { StoredMatch, SyncPoint, PlayByPlayEvent } from "@/types/match";
 import { open } from "@tauri-apps/plugin-dialog";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 interface RosterEntry {
   jerseyNumber: string;
@@ -118,7 +119,8 @@ function GameRow({
 export function UploadZone() {
   const navigate = useNavigate();
 
-  // Schedule picker state
+  // League + schedule picker state
+  const [selectedLeague, setSelectedLeague] = useState<League>(LEAGUES[0]);
   const [scheduleGames, setScheduleGames] = useState<ScheduleGame[]>([]);
   const [scheduleStatus, setScheduleStatus] = useState<"loading" | "idle" | "error">("loading");
   const [searchQuery, setSearchQuery] = useState("");
@@ -147,7 +149,6 @@ export function UploadZone() {
   // Video state
   const [videoPath, setVideoPath] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
-  const [dragVideoFile, setDragVideoFile] = useState<File | null>(null);
 
   const [syncInput, setSyncInput] = useState("");
   const [submitStatus, setSubmitStatus] = useState<"idle" | "saving" | "error">("idle");
@@ -163,14 +164,42 @@ export function UploadZone() {
     }
   }, [animationDone, pendingNavigate, navigate]);
 
+  // Tauri native drag-drop — provides real filesystem paths unlike HTML5 File API
   useEffect(() => {
-    fetchSchedule()
+    const appWindow = getCurrentWebviewWindow();
+    const VIDEO_EXTS = ["mp4", "mov", "avi", "mkv", "webm", "m4v"];
+    let unlisten: (() => void) | undefined;
+
+    appWindow.onDragDropEvent((event) => {
+      const { type } = event.payload;
+      if (type === "enter" || type === "over") {
+        setDragActive(true);
+      } else if (type === "leave") {
+        setDragActive(false);
+      } else if (type === "drop") {
+        setDragActive(false);
+        const dropped = event.payload.paths.find((p) =>
+          VIDEO_EXTS.some((ext) => p.toLowerCase().endsWith(`.${ext}`))
+        );
+        if (dropped) {
+          setVideoPath(dropped);
+        }
+      }
+    }).then((fn) => { unlisten = fn; });
+
+    return () => { unlisten?.(); };
+  }, []);
+
+  useEffect(() => {
+    setScheduleStatus("loading");
+    setScheduleGames([]);
+    fetchSchedule(selectedLeague.baseUrl, selectedLeague.scheduleParams)
       .then((games) => {
         setScheduleGames(games);
         setScheduleStatus("idle");
       })
       .catch(() => setScheduleStatus("error"));
-  }, []);
+  }, [selectedLeague]);
 
   const filteredGames = scheduleGames.filter((g) => {
     const q = searchQuery.toLowerCase();
@@ -183,6 +212,13 @@ export function UploadZone() {
       new Date(g.rawStartDateTime).toLocaleDateString("sv-SE").includes(q)
     );
   });
+
+  function handleLeagueChange(league: League) {
+    if (league.id === selectedLeague.id) return;
+    setSelectedLeague(league);
+    setSelectedGame(null);
+    setSearchQuery("");
+  }
 
   async function handleSelectGame(game: ScheduleGame) {
     setSelectedGame(game);
@@ -203,8 +239,8 @@ export function UploadZone() {
 
     try {
       const [data, pbp] = await Promise.all([
-        fetchBoxscore(game.uuid),
-        fetchPlayByPlay(game.uuid).catch(() => null),
+        fetchBoxscore(game.uuid, selectedLeague.baseUrl),
+        fetchPlayByPlay(game.uuid, selectedLeague.baseUrl).catch(() => null),
       ]);
 
       const boxData = data as {
@@ -274,7 +310,6 @@ export function UploadZone() {
     });
     if (typeof result === "string") {
       setVideoPath(result);
-      setDragVideoFile(null);
     }
   }
 
@@ -353,6 +388,25 @@ export function UploadZone() {
         <StepLabel step={1} title="Pick a Game" />
         <Card>
           <CardContent className="p-4 space-y-3">
+            {/* League selector */}
+            <div className="flex rounded-lg border border-slate-200 dark:border-slate-700 p-1 gap-1">
+              {LEAGUES.map((league) => (
+                <button
+                  key={league.id}
+                  type="button"
+                  onClick={() => handleLeagueChange(league)}
+                  className={cn(
+                    "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-all",
+                    selectedLeague.id === league.id
+                      ? "bg-indigo-600 text-white shadow-sm"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
+                  )}
+                >
+                  {league.name}
+                </button>
+              ))}
+            </div>
+
             {selectedGame ? (
               <div className="flex items-center justify-between gap-3 rounded-lg bg-indigo-50 dark:bg-indigo-950 px-3 py-2.5">
                 <div className="flex flex-1 items-center gap-2 min-w-0">
@@ -462,28 +516,12 @@ export function UploadZone() {
                   "flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 transition-colors",
                   dragActive
                     ? "border-indigo-400 bg-indigo-50 dark:bg-indigo-950"
-                    : videoPath || dragVideoFile
+                    : videoPath
                       ? "border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950"
                       : "border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 hover:border-indigo-300 dark:hover:border-indigo-700"
                 )}
-                onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                onDragOver={(e) => e.preventDefault()}
                 onDragLeave={() => setDragActive(false)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setDragActive(false);
-                  const file = e.dataTransfer.files[0];
-                  if (file && file.type.startsWith("video/")) {
-                    const tauriPath = (file as unknown as { path?: string }).path;
-                    if (typeof tauriPath === "string") {
-                      // Tauri exposes the absolute path on dropped File objects
-                      setVideoPath(tauriPath);
-                      setDragVideoFile(null);
-                    } else {
-                      setDragVideoFile(file);
-                      setVideoPath(null);
-                    }
-                  }
-                }}
               >
                 {videoPath ? (
                   <>
@@ -496,21 +534,6 @@ export function UploadZone() {
                       type="button"
                       className="mt-2 text-xs text-slate-500 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
                       onClick={() => setVideoPath(null)}
-                    >
-                      <X className="mr-1 inline h-3 w-3" />
-                      Remove
-                    </button>
-                  </>
-                ) : dragVideoFile ? (
-                  <>
-                    <Film className="mb-3 h-8 w-8 text-emerald-500" />
-                    <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
-                      {dragVideoFile.name}
-                    </p>
-                    <button
-                      type="button"
-                      className="mt-2 text-xs text-slate-500 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
-                      onClick={() => setDragVideoFile(null)}
                     >
                       <X className="mr-1 inline h-3 w-3" />
                       Remove

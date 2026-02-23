@@ -15,6 +15,7 @@ import { ClipsView } from "@/components/clips-view";
 import { getMatchById } from "@/lib/mock-data";
 import { getMatch, updatePlaylists, updateVideoUrl } from "@/lib/matches-db";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import type { Match, Playlist, StoredMatch } from "@/types/match";
 
@@ -29,14 +30,6 @@ export function MatchDetailPage() {
   const [notFound, setNotFound] = useState(false);
   const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
-
-  const loadVideoFile = useCallback((file: File) => {
-    if (!file.type.startsWith("video/")) return;
-    setLocalVideoUrl((prev) => {
-      if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
-      return URL.createObjectURL(file);
-    });
-  }, []);
 
   const handlePickVideoFile = useCallback(async () => {
     const result = await openFileDialog({
@@ -56,40 +49,6 @@ export function MatchDetailPage() {
     }
   }, [matchId]);
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-  }, []);
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setDragActive(false);
-      const file = e.dataTransfer.files[0];
-      if (!file) return;
-      const tauriPath = (file as unknown as { path?: string }).path;
-      if (typeof tauriPath === "string") {
-        // Tauri exposes absolute path — use asset protocol and persist
-        setLocalVideoUrl((prev) => {
-          if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
-          return streamFileSrc(tauriPath);
-        });
-        updateVideoUrl(matchId, tauriPath).catch(() => {});
-        setStoredMatch((m) => m ? { ...m, videoUrl: tauriPath } : m);
-      } else {
-        loadVideoFile(file);
-      }
-    },
-    [loadVideoFile, matchId]
-  );
 
   useEffect(() => {
     return () => {
@@ -99,6 +58,37 @@ export function MatchDetailPage() {
       });
     };
   }, []);
+
+  // Tauri native drag-drop — provides real filesystem paths
+  useEffect(() => {
+    const appWindow = getCurrentWebviewWindow();
+    const VIDEO_EXTS = ["mp4", "mov", "avi", "mkv", "webm", "m4v"];
+    let unlisten: (() => void) | undefined;
+
+    appWindow.onDragDropEvent((event) => {
+      const { type } = event.payload;
+      if (type === "enter" || type === "over") {
+        setDragActive(true);
+      } else if (type === "leave") {
+        setDragActive(false);
+      } else if (type === "drop") {
+        setDragActive(false);
+        const dropped = event.payload.paths.find((p) =>
+          VIDEO_EXTS.some((ext) => p.toLowerCase().endsWith(`.${ext}`))
+        );
+        if (dropped) {
+          setLocalVideoUrl((prev) => {
+            if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+            return streamFileSrc(dropped);
+          });
+          updateVideoUrl(matchId, dropped).catch(() => {});
+          setStoredMatch((m) => m ? { ...m, videoUrl: dropped } : m);
+        }
+      }
+    }).then((fn) => { unlisten = fn; });
+
+    return () => { unlisten?.(); };
+  }, [matchId]);
 
   useEffect(() => {
     if (!storedMatch?.videoUrl || localVideoUrl) return;
@@ -249,9 +239,7 @@ export function MatchDetailPage() {
         {localVideoUrl ? (
           <div
             className="space-y-2"
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
+            onDragOver={(e) => e.preventDefault()}
           >
             {dragActive ? (
               <div className="flex aspect-video items-center justify-center rounded-lg border-2 border-dashed border-indigo-400 bg-indigo-50 dark:bg-indigo-950">
@@ -280,9 +268,7 @@ export function MatchDetailPage() {
                 ? "border-indigo-400 bg-indigo-50 dark:bg-indigo-950"
                 : "border-slate-300 bg-slate-50 hover:border-indigo-300 hover:bg-indigo-50/40 dark:border-slate-600 dark:bg-slate-900 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/30"
             }`}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
+            onDragOver={(e) => e.preventDefault()}
           >
             <FolderOpen className="h-9 w-9 text-slate-400 dark:text-slate-500" />
             <div className="text-center">

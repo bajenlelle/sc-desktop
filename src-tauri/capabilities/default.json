@@ -9,7 +9,9 @@
       "identifier": "http:default",
       "allow": [
         { "url": "https://*.supabase.co/**" },
-        { "url": "https://www.superettanherr.se/**" }
+        { "url": "https://www.superettanherr.se/**" },
+        { "url": "https://www.sblherr.se/**" },
+        { "url": "https://www.sbldam.se/**" }
       ]
     },
     "dialog:default",
