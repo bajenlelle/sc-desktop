@@ -1,0 +1,79 @@
+import { useState } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { deleteMatch } from "@/lib/matches-db";
+
+export function DeleteMatchDialog({
+  matchId,
+  matchTitle,
+  trigger,
+  onDeleted,
+}: {
+  matchId: string;
+  matchTitle: string;
+  trigger: React.ReactNode;
+  onDeleted: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function handleDelete() {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteMatch(matchId);
+      setOpen(false);
+      onDeleted();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete match.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Delete match?</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-slate-600 dark:text-slate-400">
+          This will permanently remove{" "}
+          <span className="font-semibold text-slate-900 dark:text-slate-100">
+            {matchTitle}
+          </span>{" "}
+          and all its events. This cannot be undone.
+        </p>
+        {deleteError && (
+          <p className="text-sm text-red-600 dark:text-red-400">{deleteError}</p>
+        )}
+        <div className="flex justify-end gap-2 pt-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setOpen(false)}
+            disabled={deleting}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            className="bg-red-600 hover:bg-red-700 text-white"
+            onClick={handleDelete}
+            disabled={deleting}
+          >
+            {deleting ? "Deleting…" : "Delete"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
