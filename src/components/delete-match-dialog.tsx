@@ -43,14 +43,14 @@ export function DeleteMatchDialog({
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>Delete match?</DialogTitle>
+          <DialogTitle>Delete session?</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-slate-600 dark:text-slate-400">
           This will permanently remove{" "}
           <span className="font-semibold text-slate-900 dark:text-slate-100">
             {matchTitle}
           </span>{" "}
-          and all its events. This cannot be undone.
+          and all its clips. This can&apos;t be undone.
         </p>
         {deleteError && (
           <p className="text-sm text-red-600 dark:text-red-400">{deleteError}</p>
@@ -70,7 +70,7 @@ export function DeleteMatchDialog({
             onClick={handleDelete}
             disabled={deleting}
           >
-            {deleting ? "Deleting…" : "Delete"}
+            {deleting ? "Deleting…" : "Delete session"}
           </Button>
         </div>
       </DialogContent>

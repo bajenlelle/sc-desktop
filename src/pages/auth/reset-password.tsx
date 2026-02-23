@@ -51,7 +51,7 @@ export function ResetPasswordPage() {
             <Activity className="h-5 w-5 text-white" />
           </div>
           <span className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-            SuperCoach<span className="text-indigo-600 dark:text-indigo-400">AI</span>
+            Scoutable
           </span>
         </div>
 

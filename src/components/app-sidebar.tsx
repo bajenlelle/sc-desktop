@@ -16,7 +16,7 @@ import { useAuth } from "@/lib/auth-context";
 import type { User } from "@supabase/supabase-js";
 
 const navItems = [
-  { label: "Matches", href: "/matches", icon: Trophy },
+  { label: "Sessions", href: "/matches", icon: Trophy },
   { label: "Playlists", href: "/playlists", icon: ListVideo },
 ];
 
@@ -106,7 +106,7 @@ export function AppSidebar() {
           <SidebarIconButton
             href="/upload"
             icon={Plus}
-            label="Import Match"
+            label="New Session"
             isActive={pathname === "/upload"}
             className="text-indigo-600 dark:text-indigo-400"
           />

@@ -309,11 +309,11 @@ export function PlaylistsPage() {
             <ListVideo className="h-8 w-8 text-slate-300 dark:text-slate-600" />
             <p className="text-sm font-medium text-slate-600 dark:text-slate-400">No playlists yet</p>
             <p className="text-xs text-slate-400 dark:text-slate-500">
-              Open a match and create playlists from the Clips tab.
+              Open a session and create playlists from the Clips tab.
             </p>
             <Link to="/matches" className="mt-2">
               <Button size="sm" variant="outline" className="text-xs">
-                Go to Matches
+                Go to Sessions
               </Button>
             </Link>
           </div>
@@ -442,7 +442,7 @@ export function PlaylistsPage() {
                 onClick={() => navigate(`/matches/${selected.match.id}`)}
               >
                 <ExternalLink className="h-3.5 w-3.5" />
-                Open in Match
+                Open Session
               </Button>
             </div>
 
@@ -454,14 +454,7 @@ export function PlaylistsPage() {
                 <VideoPlaceholder />
                 {noVideo && (
                   <p className="text-center text-xs text-slate-400 dark:text-slate-500">
-                    No video linked.{" "}
-                    <button
-                      type="button"
-                      className="underline hover:text-slate-600 dark:hover:text-slate-300"
-                      onClick={() => navigate(`/matches/${selected.match.id}`)}
-                    >
-                      Link a video in the match detail page.
-                    </button>
+                    No video linked. Add one in the session.
                   </p>
                 )}
               </div>
@@ -470,14 +463,7 @@ export function PlaylistsPage() {
             {/* No sync warning */}
             {noSync && (
               <div className="rounded-md bg-amber-50 dark:bg-amber-950 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300">
-                No sync point set — playback controls are disabled.{" "}
-                <button
-                  type="button"
-                  className="underline hover:text-amber-900 dark:hover:text-amber-100"
-                  onClick={() => navigate(`/matches/${selected.match.id}`)}
-                >
-                  Set one in the match detail page.
-                </button>
+                No sync point — set one in the session to enable playback controls.
               </div>
             )}
 

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Film, X, Loader2, Clock, Search, ChevronRight } from "lucide-react";
+import { GeneratingSession } from "@/components/generating-session";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -151,6 +152,16 @@ export function UploadZone() {
   const [syncInput, setSyncInput] = useState("");
   const [submitStatus, setSubmitStatus] = useState<"idle" | "saving" | "error">("idle");
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [generatingVisible, setGeneratingVisible] = useState(false);
+  const [animationDone, setAnimationDone] = useState(false);
+  const [pendingNavigate, setPendingNavigate] = useState<string | null>(null);
+
+  // Navigate once both the animation and the save are done
+  useEffect(() => {
+    if (animationDone && pendingNavigate) {
+      navigate(`/matches/${pendingNavigate}`);
+    }
+  }, [animationDone, pendingNavigate, navigate]);
 
   useEffect(() => {
     fetchSchedule()
@@ -269,12 +280,15 @@ export function UploadZone() {
 
   async function handleSubmit() {
     if (!selectedGame) {
-      setSubmitError("Please select a game first (Step 1).");
+      setSubmitError("Select a game first to continue.");
       return;
     }
 
     setSubmitError(null);
     setSubmitStatus("saving");
+    setGeneratingVisible(true);
+    setAnimationDone(false);
+    setPendingNavigate(null);
 
     let syncPoint: SyncPoint | undefined;
     if (syncInput && tipoffRealWorldTime) {
@@ -304,12 +318,13 @@ export function UploadZone() {
       await saveMatch(storedMatch);
     } catch (err) {
       setSubmitStatus("error");
+      setGeneratingVisible(false);
       setSubmitError(err instanceof Error ? err.message : "Failed to save match.");
       return;
     }
 
     setSubmitStatus("idle");
-    navigate(`/matches/${selectedGame.uuid}`);
+    setPendingNavigate(selectedGame.uuid);
   }
 
   const tipoffLocalHint = tipoffRealWorldTime
@@ -327,9 +342,9 @@ export function UploadZone() {
     <div className="mx-auto max-w-2xl space-y-8">
       {/* Page header */}
       <div>
-        <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">New Match</h2>
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">New Session</h2>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          Pick a completed game to import data, then optionally link a local video file.
+          Pick a game and link a video to build your Scoutable Session.
         </p>
       </div>
 
@@ -435,7 +450,7 @@ export function UploadZone() {
         <StepLabel
           step={2}
           title="Video & Sync"
-          subtitle="Enables local playback and seek-to-event"
+          subtitle="Link a video for local playback and event seeking"
         />
         <Card>
           <CardContent className="space-y-5 p-6">
@@ -596,12 +611,17 @@ export function UploadZone() {
         {submitStatus === "saving" ? (
           <>
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Saving…
+            Creating…
           </>
         ) : (
-          "Save & Open Match"
+          "Create Scoutable Session"
         )}
       </Button>
+
+      <GeneratingSession
+        isVisible={generatingVisible}
+        onComplete={() => setAnimationDone(true)}
+      />
     </div>
   );
 }

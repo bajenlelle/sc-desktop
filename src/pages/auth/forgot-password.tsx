@@ -48,7 +48,7 @@ export function ForgotPasswordPage() {
             <Activity className="h-5 w-5 text-white" />
           </div>
           <span className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-            SuperCoach<span className="text-indigo-600 dark:text-indigo-400">AI</span>
+            Scoutable
           </span>
         </div>
 
@@ -56,7 +56,7 @@ export function ForgotPasswordPage() {
           <CardHeader className="space-y-1">
             <CardTitle className="text-xl">Reset your password</CardTitle>
             <CardDescription>
-              Enter your email address and we&apos;ll send you a reset link.
+              Enter your email and we&apos;ll send you a reset link.
             </CardDescription>
           </CardHeader>
 

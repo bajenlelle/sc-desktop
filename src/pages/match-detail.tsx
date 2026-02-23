@@ -139,10 +139,10 @@ export function MatchDetailPage() {
     return (
       <div className="p-6">
         <div className="py-24 text-center">
-          <p className="text-slate-500 dark:text-slate-400">Match not found.</p>
+          <p className="text-slate-500 dark:text-slate-400">Session not found.</p>
           <Link to="/matches">
             <Button variant="ghost" size="sm" className="mt-4">
-              Back to Matches
+              Back to Sessions
             </Button>
           </Link>
         </div>
@@ -175,7 +175,7 @@ export function MatchDetailPage() {
           <Link to="/matches">
             <Button variant="ghost" size="sm" className="mb-3 gap-1.5 text-slate-600 dark:text-slate-400">
               <ArrowLeft className="h-4 w-4" />
-              Back to Matches
+              Back to Sessions
             </Button>
           </Link>
 
@@ -186,7 +186,7 @@ export function MatchDetailPage() {
                   {storedMatch.title}
                 </h1>
                 <Badge className="bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950">
-                  Imported
+                  Session
                 </Badge>
                 <EditMatchDialog
                   match={storedMatch}
@@ -199,7 +199,7 @@ export function MatchDetailPage() {
                     <button
                       type="button"
                       className="opacity-0 group-hover:opacity-100 transition-opacity rounded-md p-1 text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950"
-                      title="Delete match"
+                      title="Delete session"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -363,7 +363,7 @@ export function MatchDetailPage() {
         <Link to="/matches">
           <Button variant="ghost" size="sm" className="mb-3 gap-1.5 text-slate-600 dark:text-slate-400">
             <ArrowLeft className="h-4 w-4" />
-            Back to Matches
+            Back to Sessions
           </Button>
         </Link>
 

@@ -51,28 +51,28 @@ export function HomePage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-            Dashboard
+            Home
           </h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Welcome back. Here&apos;s an overview of your basketball analytics.
+            Welcome back. Here&apos;s what&apos;s in your library.
           </p>
         </div>
         <Link to="/upload">
           <Button className="gap-2 bg-indigo-600 hover:bg-indigo-700">
             <Plus className="h-4 w-4" />
-            Import New Match
+            New Session
           </Button>
         </Link>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <QuickStat
-          label="Total Matches"
+          label="Sessions"
           value={loading ? "—" : String(matches.length)}
           icon={Trophy}
         />
         <QuickStat
-          label="Synced"
+          label="With video"
           value={loading ? "—" : String(matchesWithSync)}
           icon={BarChart3}
         />
@@ -86,7 +86,7 @@ export function HomePage() {
       <div>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-            Recent Matches
+            Recent Sessions
           </h2>
           <Link to="/matches">
             <Button variant="ghost" size="sm" className="text-indigo-600 dark:text-indigo-400">
@@ -106,12 +106,12 @@ export function HomePage() {
           </div>
         ) : recentMatches.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 dark:border-slate-700 py-16 text-center">
-            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">No matches yet</p>
+            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">No sessions yet</p>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Import your first match to get started.
+              Create your first Scoutable Session to get started.
             </p>
             <Link to="/upload" className="mt-4">
-              <Button className="bg-indigo-600 hover:bg-indigo-700">Import your first match</Button>
+              <Button className="bg-indigo-600 hover:bg-indigo-700">New Session</Button>
             </Link>
           </div>
         ) : (

@@ -275,7 +275,7 @@ export function EditMatchDialog({ match, onSave }: EditMatchDialogProps) {
         <button
           type="button"
           className="opacity-0 group-hover:opacity-100 transition-opacity rounded-md p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-          title="Edit match"
+          title="Edit session"
         >
           <Pencil className="h-4 w-4" />
         </button>
@@ -283,7 +283,7 @@ export function EditMatchDialog({ match, onSave }: EditMatchDialogProps) {
 
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Edit Match</DialogTitle>
+          <DialogTitle>Edit Session</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-6 pt-2">

@@ -440,7 +440,7 @@ export function ClipsView({
           </div>
           {playlists.length === 0 ? (
             <p className="px-4 py-3 text-xs text-slate-400 dark:text-slate-500">
-              No playlists yet. Select clips below and create one.
+              No playlists yet. Select clips below to create one.
             </p>
           ) : (
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -664,7 +664,7 @@ export function ClipsView({
 
       {noSync && (
         <p className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-          No sync point set. Go back to the upload page and set a sync calibration point to enable video seeking.
+          No sync point set. Add one in the session to enable video seeking.
         </p>
       )}
 
