@@ -111,7 +111,7 @@ export function PlaylistsPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [preRoll, setPreRoll] = useState(10);
   const [postRoll, setPostRoll] = useState(3);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const queueRef = useRef<PlayByPlayEvent[]>([]);
@@ -256,7 +256,7 @@ export function PlaylistsPage() {
   // ---------------------------------------------------------------------------
 
   function toggleCollapse(matchId: string) {
-    setCollapsed((prev) => {
+    setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(matchId)) next.delete(matchId);
       else next.add(matchId);
@@ -320,7 +320,7 @@ export function PlaylistsPage() {
         ) : (
           <div className="py-2">
             {grouped.map(({ match, playlists }) => {
-              const isOpen = !collapsed.has(match.id);
+              const isOpen = expanded.has(match.id);
               return (
                 <div key={match.id} className="mb-2">
                   {/* Match group header */}
