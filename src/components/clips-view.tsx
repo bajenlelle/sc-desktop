@@ -89,7 +89,6 @@ function computeVideoTime(event: PlayByPlayEvent, sync: SyncPoint): number | nul
 }
 
 const EVENT_TYPE_OPTIONS = [
-  { value: "", label: "All types" },
   { value: "2pt-made", label: "2PT Made" },
   { value: "2pt-miss", label: "2PT Miss" },
   { value: "3pt-made", label: "3PT Made" },
@@ -103,8 +102,7 @@ const EVENT_TYPE_OPTIONS = [
   { value: "block", label: "Block" },
 ];
 
-function matchesTypeFilter(e: PlayByPlayEvent, filter: string): boolean {
-  if (!filter) return true;
+function matchesSingleType(e: PlayByPlayEvent, filter: string): boolean {
   const [type, outcome] = filter.split("-");
   if (e.type !== type) return false;
   if (outcome === "made") return e.isSuccessful === 1;
@@ -112,6 +110,92 @@ function matchesTypeFilter(e: PlayByPlayEvent, filter: string): boolean {
   if (type === "rebound") return e.type === "rebound";
   if (type === "foul") return e.type === "foul" || e.type === "foulon";
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// MultiSelectDropdown
+// ---------------------------------------------------------------------------
+
+function MultiSelectDropdown({
+  options,
+  selected,
+  onChange,
+  placeholder,
+}: {
+  options: { value: string; label: string }[];
+  selected: Set<string>;
+  onChange: (next: Set<string>) => void;
+  placeholder: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onMouseDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, []);
+
+  const label =
+    selected.size === 0
+      ? placeholder
+      : selected.size === 1
+      ? (options.find((o) => selected.has(o.value))?.label ?? placeholder)
+      : `${selected.size} selected`;
+
+  function toggle(value: string) {
+    const next = new Set(selected);
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+    onChange(next);
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`flex h-9 min-w-[130px] items-center justify-between gap-2 rounded-md border border-border bg-background px-3 text-sm hover:bg-muted/50 ${
+          selected.size > 0 ? "text-foreground" : "text-muted-foreground"
+        }`}
+      >
+        <span className="truncate">{label}</span>
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full z-20 mt-1 min-w-full rounded-md border border-border bg-popover shadow-md">
+          {selected.size > 0 && (
+            <button
+              type="button"
+              className="flex w-full items-center px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground border-b border-border"
+              onClick={() => onChange(new Set())}
+            >
+              Clear all
+            </button>
+          )}
+          <div className="max-h-60 overflow-y-auto py-1">
+            {options.map((o) => (
+              <label
+                key={o.value}
+                className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-sm hover:bg-muted/50"
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.has(o.value)}
+                  onChange={() => toggle(o.value)}
+                  className="h-3.5 w-3.5 accent-primary"
+                />
+                {o.label}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 type ClockSort = "none" | "asc" | "desc";
@@ -261,9 +345,9 @@ export function ClipsView({
     return jerseyByName.get(name) ?? null;
   }
 
-  const [filterType, setFilterType] = useState("");
-  const [filterTeam, setFilterTeam] = useState("");
-  const [filterPlayer, setFilterPlayer] = useState("");
+  const [filterTypes, setFilterTypes] = useState<Set<string>>(new Set());
+  const [filterTeams, setFilterTeams] = useState<Set<string>>(new Set());
+  const [filterPlayers, setFilterPlayers] = useState<Set<string>>(new Set());
   const [preRoll, setPreRoll] = useState(10);
   const [postRoll, setPostRoll] = useState(3);
 
@@ -312,9 +396,9 @@ export function ClipsView({
   ) as string[];
 
   const filtered = events.filter((e) => {
-    if (!matchesTypeFilter(e, filterType)) return false;
-    if (filterTeam && e.eventTeam?.teamName !== filterTeam) return false;
-    if (filterPlayer && playerName(e) !== filterPlayer) return false;
+    if (filterTypes.size > 0 && !Array.from(filterTypes).some((f) => matchesSingleType(e, f))) return false;
+    if (filterTeams.size > 0 && !filterTeams.has(e.eventTeam?.teamName ?? "")) return false;
+    if (filterPlayers.size > 0 && !filterPlayers.has(playerName(e))) return false;
     return true;
   });
 
@@ -345,7 +429,9 @@ export function ClipsView({
   // Clear selection when filters change (all-clips mode only)
   useEffect(() => {
     if (!activePlaylist) setSelectedIds(new Set());
-  }, [filterType, filterTeam, filterPlayer, activePlaylist]);
+    // Sets change identity on every update — this fires correctly on each filter change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterTypes, filterTeams, filterPlayers, activePlaylist]);
 
   // ---------------------------------------------------------------------------
   // Seek helper — reads pre/post roll and syncPoint from refs
@@ -683,35 +769,24 @@ export function ClipsView({
           {/* Type filter */}
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground">Event type</label>
-            <select
-              className="h-9 rounded-md border border-border bg-background px-2 text-sm text-foreground"
-              value={filterType}
-              onChange={(e) => setFilterType(e.target.value)}
-            >
-              {EVENT_TYPE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+            <MultiSelectDropdown
+              options={EVENT_TYPE_OPTIONS}
+              selected={filterTypes}
+              onChange={setFilterTypes}
+              placeholder="All types"
+            />
           </div>
 
           {/* Team filter */}
           {teams.length > 0 && (
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">Team</label>
-              <select
-                className="h-9 rounded-md border border-border bg-background px-2 text-sm text-foreground"
-                value={filterTeam}
-                onChange={(e) => setFilterTeam(e.target.value)}
-              >
-                <option value="">All teams</option>
-                {teams.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
+              <MultiSelectDropdown
+                options={teams.map((t) => ({ value: t, label: t }))}
+                selected={filterTeams}
+                onChange={setFilterTeams}
+                placeholder="All teams"
+              />
             </div>
           )}
 
@@ -719,18 +794,12 @@ export function ClipsView({
           {players.length > 0 && (
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">Player</label>
-              <select
-                className="h-9 rounded-md border border-border bg-background px-2 text-sm text-foreground"
-                value={filterPlayer}
-                onChange={(e) => setFilterPlayer(e.target.value)}
-              >
-                <option value="">All players</option>
-                {players.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
+              <MultiSelectDropdown
+                options={players.map((p) => ({ value: p, label: p }))}
+                selected={filterPlayers}
+                onChange={setFilterPlayers}
+                placeholder="All players"
+              />
             </div>
           )}
 
