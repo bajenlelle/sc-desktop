@@ -12,6 +12,7 @@ import { PlayerStatsTable } from "@/components/player-stats-table";
 import { EventTimeline } from "@/components/event-timeline";
 import { TeamOverview } from "@/components/team-overview";
 import { ClipsView } from "@/components/clips-view";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getMatchById } from "@/lib/mock-data";
 import { getMatch, updatePlaylists, updateVideoUrl } from "@/lib/matches-db";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
@@ -159,9 +160,9 @@ export function MatchDetailPage() {
     });
 
     return (
-      <div className="p-6">
-      <div className="space-y-6">
-        <div>
+      <div className="flex flex-col h-full overflow-hidden">
+        {/* Header */}
+        <div className="shrink-0 px-6 pt-6 pb-4">
           <Link to="/matches">
             <Button variant="ghost" size="sm" className="mb-3 gap-1.5 text-muted-foreground">
               <ArrowLeft className="h-4 w-4" />
@@ -235,100 +236,116 @@ export function MatchDetailPage() {
           </div>
         </div>
 
-        {/* Video — plays locally; drag-and-drop or click to select */}
-        {localVideoUrl ? (
-          <div
-            className="space-y-2"
-            onDragOver={(e) => e.preventDefault()}
-          >
-            {dragActive ? (
-              <div className="flex aspect-video items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10">
-                <p className="text-sm font-semibold text-primary">
-                  Drop to replace video
-                </p>
-              </div>
-            ) : (
-              <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
-            )}
-            <div className="flex items-center justify-end">
-              <button
-                type="button"
-                className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-                onClick={handlePickVideoFile}
-              >
-                <FolderOpen className="h-3.5 w-3.5" />
-                Change video file
-              </button>
+        {/* Resizable split — fills remaining height */}
+        <ResizablePanelGroup
+          direction="horizontal"
+          autoSaveId="match-detail-split"
+          className="flex-1 min-h-0 px-6 pb-6"
+        >
+          {/* LEFT: Tabs (Clips / Roster) */}
+          <ResizablePanel defaultSize={55} minSize={25}>
+            <div className="flex h-full flex-col overflow-y-auto pr-4">
+              <Tabs defaultValue="clips" className="space-y-4">
+                <TabsList className="grid w-full grid-cols-2 sm:w-auto sm:inline-grid">
+                  <TabsTrigger value="clips">Clips</TabsTrigger>
+                  <TabsTrigger value="roster">Roster</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="clips">
+                  <ClipsView
+                    events={storedMatch.events}
+                    syncPoint={storedMatch.syncPoint}
+                    videoRef={videoRef}
+                    homeTeamName={storedMatch.homeTeam.name}
+                    awayTeamName={storedMatch.awayTeam.name}
+                    homeRoster={storedMatch.homeRoster}
+                    awayRoster={storedMatch.awayRoster}
+                    playlists={storedMatch.playlists ?? []}
+                    onPlaylistsChange={async (p: Playlist[]) => {
+                      await updatePlaylists(matchId, p);
+                      setStoredMatch((m) => m ? { ...m, playlists: p } : m);
+                    }}
+                    videoAvailable={!!localVideoUrl}
+                  />
+                </TabsContent>
+
+                <TabsContent value="roster">
+                  <div className="grid gap-6 sm:grid-cols-2">
+                    <RosterCard
+                      teamName={storedMatch.homeTeam.name}
+                      color={storedMatch.homeTeam.color}
+                      players={storedMatch.homeRoster}
+                    />
+                    <RosterCard
+                      teamName={storedMatch.awayTeam.name}
+                      color={storedMatch.awayTeam.color}
+                      players={storedMatch.awayRoster}
+                    />
+                  </div>
+                </TabsContent>
+              </Tabs>
             </div>
-          </div>
-        ) : (
-          <div
-            className={`flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed py-14 transition-colors ${
-              dragActive
-                ? "border-primary bg-primary/10"
-                : "border-border bg-muted hover:border-primary/50 hover:bg-primary/5"
-            }`}
-            onDragOver={(e) => e.preventDefault()}
-          >
-            <FolderOpen className="h-9 w-9 text-muted-foreground" />
-            <div className="text-center">
-              <p className="text-sm font-semibold text-foreground/80">
-                {dragActive ? "Drop video file here" : "Video plays locally — drop a file or click to select"}
-              </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Your video stays on your machine, nothing is uploaded
-              </p>
-            </div>
-            <button
-              type="button"
-              className="mt-1 inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-              onClick={handlePickVideoFile}
+          </ResizablePanel>
+
+          <ResizableHandle />
+
+          {/* RIGHT: Video */}
+          <ResizablePanel defaultSize={45} minSize={25}>
+            <div
+              className="flex h-full flex-col gap-2 pl-4 space-y-2"
+              onDragOver={(e) => e.preventDefault()}
             >
-              Choose video file…
-            </button>
-          </div>
-        )}
-
-        <Tabs defaultValue="clips" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-2 sm:w-auto sm:inline-grid">
-            <TabsTrigger value="clips">Clips</TabsTrigger>
-            <TabsTrigger value="roster">Roster</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="clips">
-            <ClipsView
-              events={storedMatch.events}
-              syncPoint={storedMatch.syncPoint}
-              videoRef={videoRef}
-              homeTeamName={storedMatch.homeTeam.name}
-              awayTeamName={storedMatch.awayTeam.name}
-              homeRoster={storedMatch.homeRoster}
-              awayRoster={storedMatch.awayRoster}
-              playlists={storedMatch.playlists ?? []}
-              onPlaylistsChange={async (p: Playlist[]) => {
-                await updatePlaylists(matchId, p);
-                setStoredMatch((m) => m ? { ...m, playlists: p } : m);
-              }}
-              videoAvailable={!!localVideoUrl}
-            />
-          </TabsContent>
-
-          <TabsContent value="roster">
-            <div className="grid gap-6 sm:grid-cols-2">
-              <RosterCard
-                teamName={storedMatch.homeTeam.name}
-                color={storedMatch.homeTeam.color}
-                players={storedMatch.homeRoster}
-              />
-              <RosterCard
-                teamName={storedMatch.awayTeam.name}
-                color={storedMatch.awayTeam.color}
-                players={storedMatch.awayRoster}
-              />
+              {localVideoUrl ? (
+                <>
+                  {dragActive ? (
+                    <div className="flex aspect-video items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10">
+                      <p className="text-sm font-semibold text-primary">
+                        Drop to replace video
+                      </p>
+                    </div>
+                  ) : (
+                    <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
+                  )}
+                  <div className="flex items-center justify-end">
+                    <button
+                      type="button"
+                      className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                      onClick={handlePickVideoFile}
+                    >
+                      <FolderOpen className="h-3.5 w-3.5" />
+                      Change video file
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div
+                  className={`flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed py-14 transition-colors ${
+                    dragActive
+                      ? "border-primary bg-primary/10"
+                      : "border-border bg-muted hover:border-primary/50 hover:bg-primary/5"
+                  }`}
+                >
+                  <FolderOpen className="h-9 w-9 text-muted-foreground" />
+                  <div className="text-center">
+                    <p className="text-sm font-semibold text-foreground/80">
+                      {dragActive ? "Drop video file here" : "Video plays locally — drop a file or click to select"}
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Your video stays on your machine, nothing is uploaded
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="mt-1 inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                    onClick={handlePickVideoFile}
+                  >
+                    Choose video file…
+                  </button>
+                </div>
+              )}
             </div>
-          </TabsContent>
-        </Tabs>
-      </div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </div>
     );
   }

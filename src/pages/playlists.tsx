@@ -9,14 +9,17 @@ import {
   GripVertical,
   ListVideo,
   Play,
+  Search,
   SkipForward,
   Square,
+  X,
 } from "lucide-react";
 import { Reorder, useDragControls } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { VideoPlayer } from "@/components/video-player";
 import { VideoPlaceholder } from "@/components/video-placeholder";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { listMatches, updatePlaylists } from "@/lib/matches-db";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import type { Playlist, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
@@ -184,6 +187,7 @@ export function PlaylistsPage() {
   const [postRoll, setPostRoll] = useState(3);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [clockSort, setClockSort] = useState<ClockSort>("none");
+  const [search, setSearch] = useState("");
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const queueRef = useRef<PlayByPlayEvent[]>([]);
@@ -231,6 +235,20 @@ export function PlaylistsPage() {
   );
 
   const totalPlaylists = grouped.reduce((n, g) => n + g.playlists.length, 0);
+
+  const filteredGrouped = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return grouped;
+    return grouped
+      .map(({ match, playlists }) => {
+        const matchHits = match.title.toLowerCase().includes(q);
+        const filteredPlaylists = matchHits
+          ? playlists
+          : playlists.filter((p) => p.name.toLowerCase().includes(q));
+        return { match, playlists: filteredPlaylists };
+      })
+      .filter(({ playlists }) => playlists.length > 0);
+  }, [grouped, search]);
 
   // Reset clock sort when the selected playlist changes
   useEffect(() => { setClockSort("none"); }, [selected?.playlist.id]);
@@ -379,7 +397,7 @@ export function PlaylistsPage() {
     <div className="flex h-full overflow-hidden">
       {/* LEFT PANEL — playlist sidebar */}
       <div className="flex w-72 shrink-0 flex-col border-r border-border bg-card overflow-y-auto">
-        <div className="sticky top-0 z-10 border-b border-border bg-card px-4 py-3">
+        <div className="sticky top-0 z-10 border-b border-border bg-card px-4 py-3 space-y-2">
           <div className="flex items-center gap-2">
             <ListVideo className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-semibold text-foreground">
@@ -389,6 +407,25 @@ export function PlaylistsPage() {
               <span className="ml-auto rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                 {totalPlaylists}
               </span>
+            )}
+          </div>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Search sessions or playlists…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-7 w-full rounded-md border border-border bg-background pl-8 pr-7 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
             )}
           </div>
         </div>
@@ -416,10 +453,15 @@ export function PlaylistsPage() {
               </Button>
             </Link>
           </div>
+        ) : filteredGrouped.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+            <Search className="h-6 w-6 text-muted-foreground/40" />
+            <p className="text-sm text-muted-foreground">No matches for "{search}"</p>
+          </div>
         ) : (
           <div className="py-2">
-            {grouped.map(({ match, playlists }) => {
-              const isOpen = expanded.has(match.id);
+            {filteredGrouped.map(({ match, playlists }) => {
+              const isOpen = search.trim() ? true : expanded.has(match.id);
               return (
                 <div key={match.id} className="mb-2">
                   {/* Match group header */}
@@ -504,7 +546,7 @@ export function PlaylistsPage() {
       </div>
 
       {/* RIGHT PANEL — detail */}
-      <div className="flex flex-1 flex-col overflow-y-auto bg-background">
+      <div className="flex flex-1 flex-col overflow-hidden bg-background">
         {selected === null ? (
           /* Empty state */
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-12 text-center">
@@ -517,9 +559,9 @@ export function PlaylistsPage() {
             </p>
           </div>
         ) : (
-          <div className="flex flex-col gap-4 p-5">
+          <div className="flex flex-col gap-4 p-5 h-full">
             {/* Match badge + open link */}
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-none">
               <div className="flex min-w-0 flex-col">
                 <div className="flex items-center gap-1.5">
                   <span
@@ -545,116 +587,130 @@ export function PlaylistsPage() {
               </Button>
             </div>
 
-            {/* Video */}
-            {localVideoUrl ? (
-              <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
-            ) : (
-              <div className="space-y-2">
-                <VideoPlaceholder />
-                {noVideo && (
-                  <p className="text-center text-xs text-muted-foreground">
-                    No video linked. Add one in the session.
-                  </p>
+            {/* Side-by-side: controls + table on left, video on right */}
+            <ResizablePanelGroup direction="horizontal" autoSaveId="playlists-split" className="min-h-0 flex-1">
+              <ResizablePanel defaultSize={45} minSize={20}>
+              {/* LEFT: playback controls + clip table */}
+              <div className="flex h-full flex-col gap-3 overflow-y-auto pr-3">
+                {/* No sync warning */}
+                {noSync && (
+                  <div className="rounded-md bg-amber-50 dark:bg-amber-950 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300">
+                    No sync point — set one in the session to enable playback controls.
+                  </div>
                 )}
-              </div>
-            )}
 
-            {/* No sync warning */}
-            {noSync && (
-              <div className="rounded-md bg-amber-50 dark:bg-amber-950 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300">
-                No sync point — set one in the session to enable playback controls.
-              </div>
-            )}
-
-            {/* Playback controls */}
-            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-2.5">
-              <div className="flex items-center gap-1.5">
-                <label className="text-xs text-muted-foreground">Pre</label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={30}
-                  className="h-7 w-16 text-xs"
-                  value={preRoll}
-                  onChange={(e) => setPreRoll(Number(e.target.value))}
-                />
-                <label className="text-xs text-muted-foreground">Post</label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={60}
-                  className="h-7 w-16 text-xs"
-                  value={postRoll}
-                  onChange={(e) => setPostRoll(Number(e.target.value))}
-                />
-              </div>
-              <div className="ml-auto">
-                {isPlaying ? (
-                  <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={handleStop}>
-                    <Square className="h-3.5 w-3.5" />
-                    Stop
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm"
-                    className="h-8 gap-1.5"
-                    onClick={() => startQueue([...sortedEvents])}
-                    disabled={sortedEvents.length === 0 || noSync || noVideo}
-                  >
-                    <SkipForward className="h-3.5 w-3.5" />
-                    Play Playlist
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {/* Clip table */}
-            {sortedEvents.length === 0 ? (
-              <p className="py-8 text-center text-sm text-muted-foreground">
-                This playlist has no clips.
-              </p>
-            ) : (
-              <div className="overflow-hidden rounded-lg border border-border">
-                <table className="w-full text-sm">
-                  <thead className="border-b border-border bg-muted/80 text-xs font-medium text-muted-foreground">
-                    <tr>
-                      <th className="w-8" />
-                      <th className="px-4 py-2.5 text-left">Period</th>
-                      <th
-                        className="px-4 py-2.5 text-left cursor-pointer select-none hover:text-foreground"
-                        onClick={() => setClockSort((s) => s === "none" ? "asc" : s === "asc" ? "desc" : "none")}
+                {/* Playback controls */}
+                <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-2.5">
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-xs text-muted-foreground">Pre</label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={30}
+                      className="h-7 w-16 text-xs"
+                      value={preRoll}
+                      onChange={(e) => setPreRoll(Number(e.target.value))}
+                    />
+                    <label className="text-xs text-muted-foreground">Post</label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={60}
+                      className="h-7 w-16 text-xs"
+                      value={postRoll}
+                      onChange={(e) => setPostRoll(Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="ml-auto">
+                    {isPlaying ? (
+                      <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={handleStop}>
+                        <Square className="h-3.5 w-3.5" />
+                        Stop
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        className="h-8 gap-1.5"
+                        onClick={() => startQueue([...sortedEvents])}
+                        disabled={sortedEvents.length === 0 || noSync || noVideo}
                       >
-                        <span className="inline-flex items-center gap-1">
-                          Clock
-                          {clockSort === "asc" && <ArrowUp className="h-3 w-3" />}
-                          {clockSort === "desc" && <ArrowDown className="h-3 w-3" />}
-                        </span>
-                      </th>
-                      <th className="px-4 py-2.5 text-left">Event</th>
-                      <th className="px-4 py-2.5 text-left">Player</th>
-                      <th className="px-4 py-2.5 text-left">Team</th>
-                      <th className="px-4 py-2.5 text-left"></th>
-                    </tr>
-                  </thead>
-                  <Reorder.Group
-                    as="tbody"
-                    axis="y"
-                    values={sortedEvents}
-                    onReorder={handleReorder}
-                    className="divide-y divide-border bg-card"
-                  >
-                    {sortedEvents.map((event) => (
-                      <DraggableRow
-                        key={event.eventId}
-                        event={event}
-                        isActive={event.eventId === activeEventId}
-                        onClick={() => handleRowClick(event)}
-                      />
-                    ))}
-                  </Reorder.Group>
-                </table>
+                        <SkipForward className="h-3.5 w-3.5" />
+                        Play Playlist
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Clip table */}
+                {sortedEvents.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-muted-foreground">
+                    This playlist has no clips.
+                  </p>
+                ) : (
+                  <div className="overflow-hidden rounded-lg border border-border">
+                    <table className="w-full text-sm">
+                      <thead className="border-b border-border bg-muted/80 text-xs font-medium text-muted-foreground">
+                        <tr>
+                          <th className="w-8" />
+                          <th className="px-4 py-2.5 text-left">Period</th>
+                          <th
+                            className="px-4 py-2.5 text-left cursor-pointer select-none hover:text-foreground"
+                            onClick={() => setClockSort((s) => s === "none" ? "asc" : s === "asc" ? "desc" : "none")}
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              Clock
+                              {clockSort === "asc" && <ArrowUp className="h-3 w-3" />}
+                              {clockSort === "desc" && <ArrowDown className="h-3 w-3" />}
+                            </span>
+                          </th>
+                          <th className="px-4 py-2.5 text-left">Event</th>
+                          <th className="px-4 py-2.5 text-left">Player</th>
+                          <th className="px-4 py-2.5 text-left">Team</th>
+                          <th className="px-4 py-2.5 text-left"></th>
+                        </tr>
+                      </thead>
+                      <Reorder.Group
+                        as="tbody"
+                        axis="y"
+                        values={sortedEvents}
+                        onReorder={handleReorder}
+                        className="divide-y divide-border bg-card"
+                      >
+                        {sortedEvents.map((event) => (
+                          <DraggableRow
+                            key={event.eventId}
+                            event={event}
+                            isActive={event.eventId === activeEventId}
+                            onClick={() => handleRowClick(event)}
+                          />
+                        ))}
+                      </Reorder.Group>
+                    </table>
+                  </div>
+                )}
               </div>
-            )}
+              </ResizablePanel>
+
+              <ResizableHandle />
+
+              <ResizablePanel defaultSize={55} minSize={20}>
+              {/* RIGHT: video */}
+              <div className="flex h-full flex-col gap-2 pl-3 min-w-0">
+                {localVideoUrl ? (
+                  <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
+                ) : (
+                  <div className="space-y-2">
+                    <VideoPlaceholder />
+                    {noVideo && (
+                      <p className="text-center text-xs text-muted-foreground">
+                        No video linked. Add one in the session.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+              </ResizablePanel>
+            </ResizablePanelGroup>
           </div>
         )}
       </div>
