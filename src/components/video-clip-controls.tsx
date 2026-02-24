@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Pause, Play, RotateCcw, SkipBack, SkipForward, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -75,6 +75,24 @@ export function VideoClipControls({
       video.pause();
     }
   }
+
+  // Keep a ref to the latest togglePlayPause so the keydown listener never goes stale
+  const togglePlayPauseRef = useRef(togglePlayPause);
+  useLayoutEffect(() => { togglePlayPauseRef.current = togglePlayPause; });
+
+  // Global spacebar → play/pause (skip when focus is inside a text field)
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.code !== "Space") return;
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if ((e.target as HTMLElement).isContentEditable) return;
+      e.preventDefault();
+      togglePlayPauseRef.current();
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   return (
     <div className="flex items-center justify-center gap-0.5 rounded-xl border border-border bg-card px-3 py-2 shadow-sm">
