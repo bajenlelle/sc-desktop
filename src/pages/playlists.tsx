@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import {
   ArrowDown,
   ArrowUp,
@@ -177,6 +177,7 @@ function DraggableRow({
 
 export function PlaylistsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<PlaylistEntry | null>(null);
@@ -203,12 +204,24 @@ export function PlaylistsPage() {
     syncPointRef.current = selected?.match.syncPoint;
   }, [selected]);
 
-  // Load all matches on mount
+  // Load all matches on mount; restore playlist selection if returning from match detail
   useEffect(() => {
+    const restore = (location.state as { restore?: { matchId: string; playlistId: string } } | null)?.restore;
     listMatches()
-      .then(setMatches)
+      .then((loaded) => {
+        setMatches(loaded);
+        if (restore) {
+          const match = loaded.find((m) => m.id === restore.matchId);
+          const playlist = match?.playlists?.find((p) => p.id === restore.playlistId);
+          if (match && playlist) {
+            setSelected({ match, playlist });
+            setExpanded((prev) => new Set([...prev, match.id]));
+          }
+        }
+      })
       .catch(() => setMatches([]))
       .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Swap video source whenever the selected match changes
@@ -580,7 +593,9 @@ export function PlaylistsPage() {
                 size="sm"
                 variant="ghost"
                 className="shrink-0 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-                onClick={() => navigate(`/matches/${selected.match.id}`)}
+                onClick={() => navigate(`/matches/${selected.match.id}`, {
+                  state: { from: "/playlists", matchId: selected.match.id, playlistId: selected.playlist.id },
+                })}
               >
                 <ExternalLink className="h-3.5 w-3.5" />
                 Open Session

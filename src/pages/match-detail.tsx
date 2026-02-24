@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { ArrowLeft, Calendar, Clock, Film, FolderOpen, Trash2 } from "lucide-react";
 import { EditMatchDialog } from "@/components/edit-match-dialog";
 import { DeleteMatchDialog } from "@/components/delete-match-dialog";
@@ -23,7 +23,10 @@ import type { Match, Playlist, StoredMatch } from "@/types/match";
 export function MatchDetailPage() {
   const { id } = useParams<{ id: string }>();
   const matchId = id!;
-  const navigate = useNavigate();;
+  const navigate = useNavigate();
+  const location = useLocation();
+  const locationState = location.state as { from?: string; matchId?: string; playlistId?: string } | null;
+  const fromPlaylists = locationState?.from === "/playlists";
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [match, setMatch] = useState<Match | null>(null);
@@ -163,12 +166,23 @@ export function MatchDetailPage() {
       <div className="flex flex-col h-full overflow-hidden">
         {/* Header */}
         <div className="shrink-0 px-6 pt-6 pb-4">
-          <Link to="/matches">
-            <Button variant="ghost" size="sm" className="mb-3 gap-1.5 text-muted-foreground">
-              <ArrowLeft className="h-4 w-4" />
-              Back to Sessions
-            </Button>
-          </Link>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mb-3 gap-1.5 text-muted-foreground"
+            onClick={() => {
+              if (fromPlaylists) {
+                navigate("/playlists", {
+                  state: { restore: { matchId: locationState!.matchId, playlistId: locationState!.playlistId } },
+                });
+              } else {
+                navigate("/matches");
+              }
+            }}
+          >
+            <ArrowLeft className="h-4 w-4" />
+            {fromPlaylists ? "Back to Playlists" : "Back to Sessions"}
+          </Button>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
