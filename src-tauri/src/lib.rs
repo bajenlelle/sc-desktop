@@ -5,6 +5,72 @@ use http_range::HttpRange;
 use percent_encoding::percent_decode_str;
 use tauri::http::{Response, StatusCode};
 
+// ---------------------------------------------------------------------------
+// Export command
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+struct ClipSegment {
+    start: f64,
+    end: f64,
+}
+
+#[tauri::command]
+async fn export_playlist(
+    app: tauri::AppHandle,
+    video_path: String,
+    clips: Vec<ClipSegment>,
+    output_path: String,
+) -> Result<(), String> {
+    use tauri_plugin_shell::ShellExt;
+
+    if clips.is_empty() {
+        return Err("No clips to export".into());
+    }
+
+    // Build FFmpeg concat demuxer file
+    let mut concat_content = String::new();
+    for clip in &clips {
+        concat_content.push_str(&format!("file '{}'\n", video_path.replace('\'', "'\\''")));
+        concat_content.push_str(&format!("inpoint {:.3}\n", clip.start));
+        concat_content.push_str(&format!("outpoint {:.3}\n", clip.end));
+    }
+
+    // Write to temp file
+    let concat_path = std::env::temp_dir().join(format!(
+        "sc_export_{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    ));
+    std::fs::write(&concat_path, &concat_content).map_err(|e| e.to_string())?;
+
+    let output = app
+        .shell()
+        .sidecar("ffmpeg")
+        .map_err(|e| e.to_string())?
+        .args([
+            "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", concat_path.to_str().unwrap(),
+            "-c", "copy",
+            &output_path,
+        ])
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let _ = std::fs::remove_file(&concat_path);
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
 /// Maximum bytes returned per request via the stream:// protocol.
 /// Keeps memory usage bounded regardless of file size.
 const CHUNK_SIZE: u64 = 4 * 1024 * 1024; // 4 MiB
@@ -15,6 +81,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_shell::init())
         // Custom streaming protocol that handles large video files (>4 GB) correctly.
         // Tauri's built-in asset:// handler buffers the entire file for non-Range GET
         // requests, which causes OOM errors for 7–8 GB files. This protocol caps every
@@ -153,6 +220,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
+        .invoke_handler(tauri::generate_handler![export_playlist])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -283,6 +283,7 @@ export function MatchDetailPage() {
                     events={storedMatch.events}
                     syncPoint={storedMatch.syncPoint}
                     videoRef={videoRef}
+                    videoUrl={storedMatch.videoUrl}
                     onPlaybackChange={handlePlaybackChange}
                     homeTeamName={storedMatch.homeTeam.name}
                     awayTeamName={storedMatch.awayTeam.name}

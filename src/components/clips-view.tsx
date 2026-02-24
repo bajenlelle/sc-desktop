@@ -1,11 +1,13 @@
 "use client";
 
 import { RefObject, forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowUp, ChevronDown, GripVertical, ListPlus, Play, SkipForward, Square, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, ChevronDown, FileDown, GripVertical, ListPlus, Loader2, Play, SkipForward, Square, Trash2 } from "lucide-react";
 import { Reorder, useDragControls } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Playlist, PlayByPlayEvent, SyncPoint } from "@/types/match";
+import { exportPlaylist } from "@/lib/export";
+import { isLocalPath } from "@/lib/stream";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -308,6 +310,7 @@ interface ClipsViewProps {
   events: PlayByPlayEvent[];
   syncPoint: SyncPoint | undefined;
   videoRef: RefObject<HTMLVideoElement | null>;
+  videoUrl?: string;
   homeTeamName: string;
   awayTeamName: string;
   homeRoster?: RosterEntry[];
@@ -322,6 +325,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
   events,
   syncPoint,
   videoRef,
+  videoUrl,
   homeTeamName,
   awayTeamName,
   homeRoster = [],
@@ -381,6 +385,29 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
 
   // Clock sort
   const [clockSort, setClockSort] = useState<ClockSort>("none");
+
+  // Export
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  async function handleExport(eventsToExport: PlayByPlayEvent[], name: string) {
+    if (!videoUrl || !syncPoint) return;
+    setIsExporting(true);
+    setExportError(null);
+    try {
+      await exportPlaylist(videoUrl, eventsToExport, syncPoint, preRoll, postRoll, name);
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
+  const exportDisabledReason =
+    !videoUrl ? "No video loaded" :
+    !isLocalPath(videoUrl) ? "Export requires a local video file" :
+    !syncPoint ? "No sync point set" :
+    null;
 
   // Event lookup map for playlist resolution
   const eventMap = useMemo(() => new Map(events.map((e) => [e.eventId, e])), [events]);
@@ -847,7 +874,28 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                 Play Playlist
               </Button>
             )}
+            {isExporting ? (
+              <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Exporting…
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5"
+                onClick={() => handleExport(sortedDisplayEvents, activePlaylist?.name ?? "playlist")}
+                disabled={!!exportDisabledReason || sortedDisplayEvents.length === 0}
+                title={exportDisabledReason ?? "Export playlist as MP4"}
+              >
+                <FileDown className="h-3.5 w-3.5" />
+                Export
+              </Button>
+            )}
           </div>
+          {exportError && (
+            <p className="w-full text-xs text-red-500 mt-1">{exportError}</p>
+          )}
         </div>
       ) : (
         /* All-clips mode: filter + play-all controls */
@@ -933,6 +981,24 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
               >
                 <SkipForward className="h-3.5 w-3.5" />
                 Play All ({filtered.length})
+              </Button>
+            )}
+            {isExporting ? (
+              <Button size="sm" variant="outline" disabled className="gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Exporting…
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                onClick={() => handleExport(filtered, `${homeTeamName} vs ${awayTeamName}`)}
+                disabled={!!exportDisabledReason || filtered.length === 0}
+                title={exportDisabledReason ?? "Export visible clips as MP4"}
+              >
+                <FileDown className="h-3.5 w-3.5" />
+                Export ({filtered.length})
               </Button>
             )}
           </div>

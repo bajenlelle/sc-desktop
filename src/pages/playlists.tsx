@@ -6,8 +6,10 @@ import {
   ChevronDown,
   ChevronRight,
   ExternalLink,
+  FileDown,
   GripVertical,
   ListVideo,
+  Loader2,
   Play,
   Search,
   SkipForward,
@@ -23,6 +25,7 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/componen
 import { VideoClipControls } from "@/components/video-clip-controls";
 import { listMatches, updatePlaylists } from "@/lib/matches-db";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
+import { exportPlaylist } from "@/lib/export";
 import type { Playlist, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 
 // ---------------------------------------------------------------------------
@@ -191,6 +194,8 @@ export function PlaylistsPage() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [clockSort, setClockSort] = useState<ClockSort>("none");
   const [search, setSearch] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const queueRef = useRef<PlayByPlayEvent[]>([]);
@@ -448,6 +453,30 @@ export function PlaylistsPage() {
   }
 
   // ---------------------------------------------------------------------------
+  // Export
+  // ---------------------------------------------------------------------------
+
+  async function handleExport() {
+    if (!selected?.match.videoUrl || !selected.match.syncPoint) return;
+    setIsExporting(true);
+    setExportError(null);
+    try {
+      await exportPlaylist(
+        selected.match.videoUrl,
+        sortedEvents,
+        selected.match.syncPoint,
+        preRoll,
+        postRoll,
+        selected.playlist.name,
+      );
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Sidebar helpers
   // ---------------------------------------------------------------------------
 
@@ -467,6 +496,13 @@ export function PlaylistsPage() {
 
   const noSync = selected !== null && !selected.match.syncPoint;
   const noVideo = selected !== null && !selected.match.videoUrl;
+
+  const exportDisabledReason =
+    !localVideoUrl ? "No video loaded" :
+    !selected?.match.syncPoint ? "No sync point set" :
+    sortedEvents.length === 0 ? "Playlist is empty" :
+    selected?.match.videoUrl && !isLocalPath(selected.match.videoUrl) ? "Export requires a local video file" :
+    null;
 
   // ---------------------------------------------------------------------------
   // Render
@@ -702,7 +738,7 @@ export function PlaylistsPage() {
                       onChange={(e) => setPostRoll(Number(e.target.value))}
                     />
                   </div>
-                  <div className="ml-auto">
+                  <div className="ml-auto flex items-center gap-2">
                     {isPlaying ? (
                       <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={handleStop}>
                         <Square className="h-3.5 w-3.5" />
@@ -719,7 +755,28 @@ export function PlaylistsPage() {
                         Play Playlist
                       </Button>
                     )}
+                    {isExporting ? (
+                      <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Exporting…
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 gap-1.5"
+                        onClick={handleExport}
+                        disabled={!!exportDisabledReason}
+                        title={exportDisabledReason ?? "Export playlist as MP4"}
+                      >
+                        <FileDown className="h-3.5 w-3.5" />
+                        Export
+                      </Button>
+                    )}
                   </div>
+                  {exportError && (
+                    <p className="w-full text-xs text-red-500 mt-1">{exportError}</p>
+                  )}
                 </div>
 
                 {/* Clip table */}
