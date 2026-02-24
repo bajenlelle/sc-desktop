@@ -216,7 +216,6 @@ function DraggableClipsRow({
   event,
   isActive,
   isSelected,
-  syncPoint,
   jerseyNo,
   onRowClick,
   onToggleSelect,
@@ -225,14 +224,12 @@ function DraggableClipsRow({
   event: PlayByPlayEvent;
   isActive: boolean;
   isSelected: boolean;
-  syncPoint: SyncPoint | undefined;
   jerseyNo: string | null;
   onRowClick: () => void;
   onToggleSelect?: (ev: React.MouseEvent) => void;
   showCheckbox: boolean;
 }) {
   const controls = useDragControls();
-  const vt = syncPoint ? computeVideoTime(event, syncPoint) : null;
   const pName = playerName(event);
   return (
     <Reorder.Item
@@ -240,6 +237,7 @@ function DraggableClipsRow({
       value={event}
       dragListener={false}
       dragControls={controls}
+      data-event-id={event.eventId}
       className={`group cursor-pointer transition-colors hover:bg-muted/50 ${
         isActive ? "bg-primary/10" : ""
       } ${isSelected && !isActive ? "bg-primary/5" : ""}`}
@@ -285,11 +283,6 @@ function DraggableClipsRow({
       </td>
       <td className="px-4 py-2.5 text-muted-foreground">
         {event.eventTeam?.teamName ?? "—"}
-      </td>
-      <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
-        {vt !== null
-          ? `${Math.floor(vt / 60)}:${String(Math.floor(vt % 60)).padStart(2, "0")}`
-          : "—"}
       </td>
       <td className="px-4 py-2.5">
         <Play
@@ -465,28 +458,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
   // ---------------------------------------------------------------------------
   // Clip navigation helpers (exposed via ref)
   // ---------------------------------------------------------------------------
-  const queuePosition = activeEventId !== null
-    ? queueRef.current.findIndex((e) => e.eventId === activeEventId)
-    : -1;
-  const canPrev = queuePosition > 0;
-  const canNext = queuePosition >= 0 && queuePosition < queueRef.current.length - 1;
   const isQueueActive = activeEventId !== null;
-
-  const handleGoPrev = useCallback(() => {
-    const prevIdx = queueIdxRef.current - 1;
-    if (prevIdx < 0) return;
-    queueIdxRef.current = prevIdx;
-    const event = queueRef.current[prevIdx];
-    if (event) { setActiveEventId(event.eventId); seekToEvent(event); }
-  }, [seekToEvent]);
-
-  const handleGoNext = useCallback(() => {
-    const nextIdx = queueIdxRef.current + 1;
-    if (nextIdx >= queueRef.current.length) return;
-    queueIdxRef.current = nextIdx;
-    const event = queueRef.current[nextIdx];
-    if (event) { setActiveEventId(event.eventId); seekToEvent(event); }
-  }, [seekToEvent]);
 
   const handleReplay = useCallback(() => {
     const event = queueRef.current[queueIdxRef.current];
@@ -500,12 +472,6 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
     stop: handleStop,
     playAll: handlePlayAll,
   }));
-
-  // Notify parent of playback state changes
-  useEffect(() => {
-    onPlaybackChange?.(canPrev, canNext, isQueueActive);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canPrev, canNext, isQueueActive]);
 
   // ---------------------------------------------------------------------------
   // Seamless auto-advance via timeupdate
@@ -567,6 +533,71 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
     const queue = idx >= 0 ? sortedDisplayEvents.slice(idx) : [event];
     startQueue(queue);
   }
+
+  // Keep refs up-to-date for arrow key handler (avoids stale closures in global listener)
+  const _sortedDisplayEventsRef = useRef(sortedDisplayEvents);
+  _sortedDisplayEventsRef.current = sortedDisplayEvents;
+  const _activeEventIdRef = useRef(activeEventId);
+  _activeEventIdRef.current = activeEventId;
+  const _handleRowClickRef = useRef(handleRowClick);
+  _handleRowClickRef.current = handleRowClick;
+  const _handleReplayRef = useRef(handleReplay);
+  _handleReplayRef.current = handleReplay;
+
+  // Prev/next based on position in the visible list (same as ↑/↓ arrow keys)
+  const listPosition = activeEventId !== null
+    ? sortedDisplayEvents.findIndex((e) => e.eventId === activeEventId)
+    : -1;
+  const canPrev = listPosition > 0;
+  const canNext = listPosition >= 0 && listPosition < sortedDisplayEvents.length - 1;
+
+  const handleGoPrev = useCallback(() => {
+    const events = _sortedDisplayEventsRef.current;
+    const cur = events.findIndex((e) => e.eventId === _activeEventIdRef.current);
+    if (cur <= 0) return;
+    _handleRowClickRef.current(events[cur - 1]);
+  }, []);
+
+  const handleGoNext = useCallback(() => {
+    const events = _sortedDisplayEventsRef.current;
+    const cur = events.findIndex((e) => e.eventId === _activeEventIdRef.current);
+    if (cur === -1 || cur >= events.length - 1) return;
+    _handleRowClickRef.current(events[cur + 1]);
+  }, []);
+
+  // Notify parent of playback state changes
+  useEffect(() => {
+    onPlaybackChange?.(canPrev, canNext, isQueueActive);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canPrev, canNext, isQueueActive]);
+
+  // Global ↑/↓/← arrow keys → navigate clip list / replay
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.code !== "ArrowDown" && e.code !== "ArrowUp" && e.code !== "ArrowLeft") return;
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if ((e.target as HTMLElement).isContentEditable) return;
+      e.preventDefault();
+      if (e.code === "ArrowLeft") { _handleReplayRef.current(); return; }
+      const events = _sortedDisplayEventsRef.current;
+      if (events.length === 0) return;
+      const cur = events.findIndex((ev) => ev.eventId === _activeEventIdRef.current);
+      const next =
+        e.code === "ArrowDown"
+          ? cur === -1 ? 0 : Math.min(cur + 1, events.length - 1)
+          : cur === -1 ? events.length - 1 : Math.max(cur - 1, 0);
+      if (next !== cur || cur === -1) _handleRowClickRef.current(events[next]);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  // Scroll active row into view when activeEventId changes
+  useEffect(() => {
+    if (activeEventId === null) return;
+    document.querySelector(`[data-event-id="${activeEventId}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [activeEventId]);
 
   function handlePlayAll() {
     startQueue([...sortedDisplayEvents]);
@@ -1020,7 +1051,6 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                 <th className="px-4 py-2.5 text-left">Event</th>
                 <th className="px-4 py-2.5 text-left">Player</th>
                 <th className="px-4 py-2.5 text-left">Team</th>
-                <th className="px-4 py-2.5 text-left">Video time</th>
                 <th className="px-4 py-2.5 text-left"></th>
               </tr>
             </thead>
@@ -1038,7 +1068,6 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                     event={event}
                     isActive={event.eventId === activeEventId}
                     isSelected={selectedIds.has(event.eventId)}
-                    syncPoint={syncPoint}
                     jerseyNo={jerseyNumber(event)}
                     onRowClick={() => handleRowClick(event)}
                     onToggleSelect={onPlaylistsChange ? (ev) => toggleSelect(event.eventId, ev) : undefined}
@@ -1049,7 +1078,6 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
             ) : (
               <tbody className="divide-y divide-border">
                 {sortedDisplayEvents.map((event, idx) => {
-                  const vt = syncPoint ? computeVideoTime(event, syncPoint) : null;
                   const isActive = event.eventId === activeEventId;
                   const isSelected = selectedIds.has(event.eventId);
                   const pName = playerName(event);
@@ -1057,6 +1085,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                   return (
                     <tr
                       key={`${event.eventId}-${idx}`}
+                      data-event-id={event.eventId}
                       className={`cursor-pointer transition-colors hover:bg-muted/50 ${
                         isActive ? "bg-primary/10" : ""
                       } ${isSelected && !isActive ? "bg-primary/5" : ""}`}
@@ -1096,11 +1125,6 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                       </td>
                       <td className="px-4 py-2.5 text-muted-foreground">
                         {event.eventTeam?.teamName ?? "—"}
-                      </td>
-                      <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
-                        {vt !== null
-                          ? `${Math.floor(vt / 60)}:${String(Math.floor(vt % 60)).padStart(2, "0")}`
-                          : "—"}
                       </td>
                       <td className="px-4 py-2.5">
                         <Play

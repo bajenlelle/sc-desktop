@@ -133,6 +133,7 @@ function DraggableRow({
       value={event}
       dragListener={false}
       dragControls={controls}
+      data-event-id={event.eventId}
       className={`group cursor-pointer transition-colors hover:bg-muted/50 ${
         isActive ? "bg-primary/10" : ""
       }`}
@@ -312,29 +313,7 @@ export function PlaylistsPage() {
     video.currentTime = seekTo;
   }, []);
 
-  // Clip navigation
-  const queuePosition = activeEventId !== null
-    ? queueRef.current.findIndex((e) => e.eventId === activeEventId)
-    : -1;
-  const canPrev = queuePosition > 0;
-  const canNext = queuePosition >= 0 && queuePosition < queueRef.current.length - 1;
   const isQueueActive = activeEventId !== null;
-
-  const handlePrev = useCallback(() => {
-    const prevIdx = queueIdxRef.current - 1;
-    if (prevIdx < 0) return;
-    queueIdxRef.current = prevIdx;
-    const event = queueRef.current[prevIdx];
-    if (event) { setActiveEventId(event.eventId); seekToEvent(event); }
-  }, [seekToEvent]);
-
-  const handleNext = useCallback(() => {
-    const nextIdx = queueIdxRef.current + 1;
-    if (nextIdx >= queueRef.current.length) return;
-    queueIdxRef.current = nextIdx;
-    const event = queueRef.current[nextIdx];
-    if (event) { setActiveEventId(event.eventId); seekToEvent(event); }
-  }, [seekToEvent]);
 
   const handleReplay = useCallback(() => {
     const event = queueRef.current[queueIdxRef.current];
@@ -396,6 +375,63 @@ export function PlaylistsPage() {
     const queue = idx >= 0 ? sortedEvents.slice(idx) : [event];
     startQueue(queue);
   }
+
+  // Arrow-key clip navigation — refs so the listener never goes stale
+  const _sortedEventsRef = useRef(sortedEvents);
+  _sortedEventsRef.current = sortedEvents;
+  const _activeEventIdRef = useRef(activeEventId);
+  _activeEventIdRef.current = activeEventId;
+  const _handleRowClickRef = useRef(handleRowClick);
+  _handleRowClickRef.current = handleRowClick;
+  const _handleReplayRef = useRef(handleReplay);
+  _handleReplayRef.current = handleReplay;
+
+  // Prev/next based on position in the visible list (same as ↑/↓ arrow keys)
+  const listPosition = activeEventId !== null
+    ? sortedEvents.findIndex((e) => e.eventId === activeEventId)
+    : -1;
+  const canPrev = listPosition > 0;
+  const canNext = listPosition >= 0 && listPosition < sortedEvents.length - 1;
+
+  const handlePrev = useCallback(() => {
+    const events = _sortedEventsRef.current;
+    const cur = events.findIndex((e) => e.eventId === _activeEventIdRef.current);
+    if (cur <= 0) return;
+    _handleRowClickRef.current(events[cur - 1]);
+  }, []);
+
+  const handleNext = useCallback(() => {
+    const events = _sortedEventsRef.current;
+    const cur = events.findIndex((e) => e.eventId === _activeEventIdRef.current);
+    if (cur === -1 || cur >= events.length - 1) return;
+    _handleRowClickRef.current(events[cur + 1]);
+  }, []);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.code !== "ArrowDown" && e.code !== "ArrowUp" && e.code !== "ArrowLeft") return;
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if ((e.target as HTMLElement).isContentEditable) return;
+      e.preventDefault();
+      if (e.code === "ArrowLeft") { _handleReplayRef.current(); return; }
+      const events = _sortedEventsRef.current;
+      if (events.length === 0) return;
+      const cur = events.findIndex((ev) => ev.eventId === _activeEventIdRef.current);
+      const next = e.code === "ArrowDown"
+        ? cur === -1 ? 0 : Math.min(cur + 1, events.length - 1)
+        : cur === -1 ? events.length - 1 : Math.max(cur - 1, 0);
+      if (next !== cur || cur === -1) _handleRowClickRef.current(events[next]);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  // Scroll active row into view when it changes
+  useEffect(() => {
+    if (activeEventId === null) return;
+    document.querySelector(`[data-event-id="${activeEventId}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [activeEventId]);
 
   async function handleReorder(newEvents: PlayByPlayEvent[]) {
     if (!selected) return;
