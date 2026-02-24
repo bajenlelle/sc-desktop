@@ -1,7 +1,8 @@
 "use client";
 
 import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ChevronDown, ListPlus, Play, SkipForward, Square, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, ChevronDown, GripVertical, ListPlus, Play, SkipForward, Square, Trash2 } from "lucide-react";
+import { Reorder, useDragControls } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Playlist, PlayByPlayEvent, SyncPoint } from "@/types/match";
@@ -72,6 +73,13 @@ function formatGameClock(raw: string): string {
   return parts.slice(0, 2).join(":");
 }
 
+function parseGameClock(raw: string): number {
+  if (!raw || raw === "—") return -1;
+  const parts = raw.split(":");
+  if (parts.length < 2) return -1;
+  return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+}
+
 function computeVideoTime(event: PlayByPlayEvent, sync: SyncPoint): number | null {
   if (!event.realWorldTime || !sync.syncRealWorldTime) return null;
   const eventMs = new Date(event.realWorldTime).getTime();
@@ -104,6 +112,102 @@ function matchesTypeFilter(e: PlayByPlayEvent, filter: string): boolean {
   if (type === "rebound") return e.type === "rebound";
   if (type === "foul") return e.type === "foul" || e.type === "foulon";
   return true;
+}
+
+type ClockSort = "none" | "asc" | "desc";
+
+// ---------------------------------------------------------------------------
+// DraggableClipsRow (used in playlist view mode)
+// ---------------------------------------------------------------------------
+
+function DraggableClipsRow({
+  event,
+  isActive,
+  isSelected,
+  syncPoint,
+  jerseyNo,
+  onRowClick,
+  onToggleSelect,
+  showCheckbox,
+}: {
+  event: PlayByPlayEvent;
+  isActive: boolean;
+  isSelected: boolean;
+  syncPoint: SyncPoint | undefined;
+  jerseyNo: string | null;
+  onRowClick: () => void;
+  onToggleSelect?: (ev: React.MouseEvent) => void;
+  showCheckbox: boolean;
+}) {
+  const controls = useDragControls();
+  const vt = syncPoint ? computeVideoTime(event, syncPoint) : null;
+  const pName = playerName(event);
+  return (
+    <Reorder.Item
+      as="tr"
+      value={event}
+      dragListener={false}
+      dragControls={controls}
+      className={`group cursor-pointer transition-colors hover:bg-muted/50 ${
+        isActive ? "bg-primary/10" : ""
+      } ${isSelected && !isActive ? "bg-primary/5" : ""}`}
+      onClick={onRowClick}
+    >
+      <td className="w-8 px-2 py-2.5">
+        <span
+          className="flex cursor-grab items-center justify-center opacity-0 group-hover:opacity-60 transition-opacity active:cursor-grabbing"
+          onPointerDown={(e) => { e.preventDefault(); controls.start(e); }}
+        >
+          <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
+        </span>
+      </td>
+      {showCheckbox && (
+        <td className="w-8 px-3 py-2.5">
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => {}}
+            onClick={(ev) => onToggleSelect?.(ev)}
+            className="h-3.5 w-3.5 rounded border-border accent-primary"
+          />
+        </td>
+      )}
+      <td className="px-4 py-2.5 text-muted-foreground">Q{event.period}</td>
+      <td className="px-4 py-2.5 font-mono text-muted-foreground">
+        {formatGameClock(event.gameClockTime)}
+      </td>
+      <td className="px-4 py-2.5">
+        <span
+          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${eventBadgeColor(event)}`}
+        >
+          {eventLabel(event)}
+        </span>
+      </td>
+      <td className="px-4 py-2.5 text-foreground/80">
+        {jerseyNo !== null && (
+          <span className="mr-1.5 font-mono text-xs text-muted-foreground">
+            #{jerseyNo}
+          </span>
+        )}
+        {pName}
+      </td>
+      <td className="px-4 py-2.5 text-muted-foreground">
+        {event.eventTeam?.teamName ?? "—"}
+      </td>
+      <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
+        {vt !== null
+          ? `${Math.floor(vt / 60)}:${String(Math.floor(vt % 60)).padStart(2, "0")}`
+          : "—"}
+      </td>
+      <td className="px-4 py-2.5">
+        <Play
+          className={`h-3.5 w-3.5 ${
+            isActive ? "text-primary" : "text-muted-foreground/40"
+          }`}
+        />
+      </td>
+    </Reorder.Item>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -188,6 +292,9 @@ export function ClipsView({
   // Active playlist (playlist view mode)
   const [activePlaylist, setActivePlaylist] = useState<Playlist | null>(null);
 
+  // Clock sort
+  const [clockSort, setClockSort] = useState<ClockSort>("none");
+
   // Event lookup map for playlist resolution
   const eventMap = useMemo(() => new Map(events.map((e) => [e.eventId, e])), [events]);
 
@@ -221,6 +328,19 @@ export function ClipsView({
 
   // Events shown in the table — playlist view overrides filtered view
   const displayEvents = activePlaylist ? (playlistEvents ?? []) : filtered;
+
+  // Reset clock sort when switching playlists
+  useEffect(() => { setClockSort("none"); }, [activePlaylist?.id]);
+
+  const sortedDisplayEvents = useMemo(() => {
+    if (clockSort === "none") return displayEvents;
+    return [...displayEvents].sort((a, b) => {
+      const aT = parseGameClock(formatGameClock(a.gameClockTime));
+      const bT = parseGameClock(formatGameClock(b.gameClockTime));
+      // clock counts DOWN — "asc" = chronological = high clock first
+      return clockSort === "asc" ? bT - aT : aT - bT;
+    });
+  }, [displayEvents, clockSort]);
 
   // Clear selection when filters change (all-clips mode only)
   useEffect(() => {
@@ -302,13 +422,13 @@ export function ClipsView({
   }
 
   function handleRowClick(event: PlayByPlayEvent) {
-    const idx = displayEvents.findIndex((e) => e.eventId === event.eventId);
-    const queue = idx >= 0 ? displayEvents.slice(idx) : [event];
+    const idx = sortedDisplayEvents.findIndex((e) => e.eventId === event.eventId);
+    const queue = idx >= 0 ? sortedDisplayEvents.slice(idx) : [event];
     startQueue(queue);
   }
 
   function handlePlayAll() {
-    startQueue([...filtered]);
+    startQueue([...sortedDisplayEvents]);
   }
 
   function handleStop() {
@@ -318,6 +438,14 @@ export function ClipsView({
     setActiveEventId(null);
     clipEndRef.current = undefined;
     videoRef.current?.pause();
+  }
+
+  function handleReorderPlaylist(newEvents: PlayByPlayEvent[]) {
+    if (!activePlaylist || !onPlaylistsChange) return;
+    const newIds = newEvents.map((e) => e.eventId);
+    const updated = { ...activePlaylist, eventIds: newIds };
+    setActivePlaylist(updated);
+    onPlaylistsChange(playlists.map((p) => p.id === activePlaylist.id ? updated : p));
   }
 
   // ---------------------------------------------------------------------------
@@ -352,13 +480,13 @@ export function ClipsView({
   // Selection
   // ---------------------------------------------------------------------------
   const allSelected =
-    displayEvents.length > 0 && displayEvents.every((e) => selectedIds.has(e.eventId));
+    sortedDisplayEvents.length > 0 && sortedDisplayEvents.every((e) => selectedIds.has(e.eventId));
 
   function toggleSelectAll() {
     if (allSelected) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(displayEvents.map((e) => e.eventId)));
+      setSelectedIds(new Set(sortedDisplayEvents.map((e) => e.eventId)));
     }
   }
 
@@ -540,8 +668,8 @@ export function ClipsView({
               <Button
                 size="sm"
                 className="h-8 gap-1.5"
-                onClick={() => playlistEvents && startQueue([...playlistEvents])}
-                disabled={!playlistEvents || playlistEvents.length === 0 || noSync}
+                onClick={() => startQueue([...sortedDisplayEvents])}
+                disabled={sortedDisplayEvents.length === 0 || noSync}
               >
                 <SkipForward className="h-3.5 w-3.5" />
                 Play Playlist
@@ -734,7 +862,7 @@ export function ClipsView({
       )}
 
       {/* Event list */}
-      {displayEvents.length === 0 ? (
+      {sortedDisplayEvents.length === 0 ? (
         <p className="py-12 text-center text-sm text-muted-foreground">
           {activePlaylist ? "This playlist has no clips." : "No events match the current filters."}
         </p>
@@ -743,6 +871,7 @@ export function ClipsView({
           <table className="w-full text-sm">
             <thead className="border-b border-border bg-muted/50 text-xs font-medium text-muted-foreground">
               <tr>
+                {activePlaylist && <th className="w-8" />}
                 {onPlaylistsChange && (
                   <th className="w-8 px-3 py-2.5">
                     <input
@@ -754,7 +883,16 @@ export function ClipsView({
                   </th>
                 )}
                 <th className="px-4 py-2.5 text-left">Period</th>
-                <th className="px-4 py-2.5 text-left">Clock</th>
+                <th
+                  className="px-4 py-2.5 text-left cursor-pointer select-none hover:text-foreground"
+                  onClick={() => setClockSort((s) => s === "none" ? "asc" : s === "asc" ? "desc" : "none")}
+                >
+                  <span className="inline-flex items-center gap-1">
+                    Clock
+                    {clockSort === "asc" && <ArrowUp className="h-3 w-3" />}
+                    {clockSort === "desc" && <ArrowDown className="h-3 w-3" />}
+                  </span>
+                </th>
                 <th className="px-4 py-2.5 text-left">Event</th>
                 <th className="px-4 py-2.5 text-left">Player</th>
                 <th className="px-4 py-2.5 text-left">Team</th>
@@ -762,74 +900,98 @@ export function ClipsView({
                 <th className="px-4 py-2.5 text-left"></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border">
-              {displayEvents.map((event, idx) => {
-                const vt = syncPoint ? computeVideoTime(event, syncPoint) : null;
-                const isActive = event.eventId === activeEventId;
-                const isSelected = selectedIds.has(event.eventId);
-                const pName = playerName(event);
-                const pNo = jerseyNumber(event);
-                return (
-                  <tr
-                    key={`${event.eventId}-${idx}`}
-                    className={`cursor-pointer transition-colors hover:bg-muted/50 ${
-                      isActive ? "bg-primary/10" : ""
-                    } ${isSelected && !isActive ? "bg-primary/5" : ""}`}
-                    onClick={() => handleRowClick(event)}
-                  >
-                    {onPlaylistsChange && (
-                      <td className="w-8 px-3 py-2.5">
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => {}}
-                          onClick={(ev) => toggleSelect(event.eventId, ev)}
-                          className="h-3.5 w-3.5 rounded border-border accent-primary"
+            {activePlaylist ? (
+              <Reorder.Group
+                as="tbody"
+                axis="y"
+                values={sortedDisplayEvents}
+                onReorder={handleReorderPlaylist}
+                className="divide-y divide-border"
+              >
+                {sortedDisplayEvents.map((event) => (
+                  <DraggableClipsRow
+                    key={event.eventId}
+                    event={event}
+                    isActive={event.eventId === activeEventId}
+                    isSelected={selectedIds.has(event.eventId)}
+                    syncPoint={syncPoint}
+                    jerseyNo={jerseyNumber(event)}
+                    onRowClick={() => handleRowClick(event)}
+                    onToggleSelect={onPlaylistsChange ? (ev) => toggleSelect(event.eventId, ev) : undefined}
+                    showCheckbox={!!onPlaylistsChange}
+                  />
+                ))}
+              </Reorder.Group>
+            ) : (
+              <tbody className="divide-y divide-border">
+                {sortedDisplayEvents.map((event, idx) => {
+                  const vt = syncPoint ? computeVideoTime(event, syncPoint) : null;
+                  const isActive = event.eventId === activeEventId;
+                  const isSelected = selectedIds.has(event.eventId);
+                  const pName = playerName(event);
+                  const pNo = jerseyNumber(event);
+                  return (
+                    <tr
+                      key={`${event.eventId}-${idx}`}
+                      className={`cursor-pointer transition-colors hover:bg-muted/50 ${
+                        isActive ? "bg-primary/10" : ""
+                      } ${isSelected && !isActive ? "bg-primary/5" : ""}`}
+                      onClick={() => handleRowClick(event)}
+                    >
+                      {onPlaylistsChange && (
+                        <td className="w-8 px-3 py-2.5">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => {}}
+                            onClick={(ev) => toggleSelect(event.eventId, ev)}
+                            className="h-3.5 w-3.5 rounded border-border accent-primary"
+                          />
+                        </td>
+                      )}
+                      <td className="px-4 py-2.5 text-muted-foreground">
+                        Q{event.period}
+                      </td>
+                      <td className="px-4 py-2.5 font-mono text-muted-foreground">
+                        {formatGameClock(event.gameClockTime)}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${eventBadgeColor(event)}`}
+                        >
+                          {eventLabel(event)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-foreground/80">
+                        {pNo !== null && (
+                          <span className="mr-1.5 font-mono text-xs text-muted-foreground">
+                            #{pNo}
+                          </span>
+                        )}
+                        {pName}
+                      </td>
+                      <td className="px-4 py-2.5 text-muted-foreground">
+                        {event.eventTeam?.teamName ?? "—"}
+                      </td>
+                      <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
+                        {vt !== null
+                          ? `${Math.floor(vt / 60)}:${String(Math.floor(vt % 60)).padStart(2, "0")}`
+                          : "—"}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <Play
+                          className={`h-3.5 w-3.5 ${
+                            isActive
+                              ? "text-primary"
+                              : "text-muted-foreground/40"
+                          }`}
                         />
                       </td>
-                    )}
-                    <td className="px-4 py-2.5 text-muted-foreground">
-                      Q{event.period}
-                    </td>
-                    <td className="px-4 py-2.5 font-mono text-muted-foreground">
-                      {formatGameClock(event.gameClockTime)}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${eventBadgeColor(event)}`}
-                      >
-                        {eventLabel(event)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-foreground/80">
-                      {pNo !== null && (
-                        <span className="mr-1.5 font-mono text-xs text-muted-foreground">
-                          #{pNo}
-                        </span>
-                      )}
-                      {pName}
-                    </td>
-                    <td className="px-4 py-2.5 text-muted-foreground">
-                      {event.eventTeam?.teamName ?? "—"}
-                    </td>
-                    <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
-                      {vt !== null
-                        ? `${Math.floor(vt / 60)}:${String(Math.floor(vt % 60)).padStart(2, "0")}`
-                        : "—"}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <Play
-                        className={`h-3.5 w-3.5 ${
-                          isActive
-                            ? "text-primary"
-                            : "text-muted-foreground/40"
-                        }`}
-                      />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            )}
           </table>
         </div>
       )}

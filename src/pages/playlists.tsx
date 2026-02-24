@@ -1,19 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
+  ArrowDown,
+  ArrowUp,
   ChevronDown,
   ChevronRight,
   ExternalLink,
+  GripVertical,
   ListVideo,
   Play,
   SkipForward,
   Square,
 } from "lucide-react";
+import { Reorder, useDragControls } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { VideoPlayer } from "@/components/video-player";
 import { VideoPlaceholder } from "@/components/video-placeholder";
-import { listMatches } from "@/lib/matches-db";
+import { listMatches, updatePlaylists } from "@/lib/matches-db";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import type { Playlist, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 
@@ -91,11 +95,78 @@ function formatGameClock(raw: string): string {
   return parts.slice(0, 2).join(":");
 }
 
+function parseGameClock(raw: string): number {
+  if (!raw || raw === "—") return -1;
+  const parts = raw.split(":");
+  if (parts.length < 2) return -1;
+  return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
+type ClockSort = "none" | "asc" | "desc";
 type PlaylistEntry = { playlist: Playlist; match: StoredMatch };
+
+// ---------------------------------------------------------------------------
+// DraggableRow (used only in manual sort mode)
+// ---------------------------------------------------------------------------
+
+function DraggableRow({
+  event,
+  isActive,
+  onClick,
+}: {
+  event: PlayByPlayEvent;
+  isActive: boolean;
+  onClick: () => void;
+}) {
+  const controls = useDragControls();
+  return (
+    <Reorder.Item
+      as="tr"
+      value={event}
+      dragListener={false}
+      dragControls={controls}
+      className={`group cursor-pointer transition-colors hover:bg-muted/50 ${
+        isActive ? "bg-primary/10" : ""
+      }`}
+      onClick={onClick}
+    >
+      <td className="w-8 px-2 py-2.5">
+        <span
+          className="flex cursor-grab items-center justify-center opacity-0 group-hover:opacity-60 transition-opacity active:cursor-grabbing"
+          onPointerDown={(e) => { e.preventDefault(); controls.start(e); }}
+        >
+          <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
+        </span>
+      </td>
+      <td className="px-4 py-2.5 text-muted-foreground">Q{event.period}</td>
+      <td className="px-4 py-2.5 font-mono text-muted-foreground">
+        {formatGameClock(event.gameClockTime)}
+      </td>
+      <td className="px-4 py-2.5">
+        <span
+          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${eventBadgeColor(event)}`}
+        >
+          {eventLabel(event)}
+        </span>
+      </td>
+      <td className="px-4 py-2.5 text-foreground/80">{playerName(event)}</td>
+      <td className="px-4 py-2.5 text-muted-foreground">
+        {event.eventTeam?.teamName ?? "—"}
+      </td>
+      <td className="px-4 py-2.5">
+        <Play
+          className={`h-3.5 w-3.5 ${
+            isActive ? "text-primary fill-primary" : "text-muted-foreground/30"
+          }`}
+        />
+      </td>
+    </Reorder.Item>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -112,6 +183,7 @@ export function PlaylistsPage() {
   const [preRoll, setPreRoll] = useState(10);
   const [postRoll, setPostRoll] = useState(3);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [clockSort, setClockSort] = useState<ClockSort>("none");
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const queueRef = useRef<PlayByPlayEvent[]>([]);
@@ -160,6 +232,9 @@ export function PlaylistsPage() {
 
   const totalPlaylists = grouped.reduce((n, g) => n + g.playlists.length, 0);
 
+  // Reset clock sort when the selected playlist changes
+  useEffect(() => { setClockSort("none"); }, [selected?.playlist.id]);
+
   // Resolve playlist events in display order
   const playlistEvents = useMemo(() => {
     if (!selected) return [];
@@ -168,6 +243,16 @@ export function PlaylistsPage() {
       .map((id) => eventMap.get(id))
       .filter((e): e is PlayByPlayEvent => e !== undefined);
   }, [selected]);
+
+  const sortedEvents = useMemo(() => {
+    if (clockSort === "none") return playlistEvents;
+    return [...playlistEvents].sort((a, b) => {
+      const aT = parseGameClock(formatGameClock(a.gameClockTime));
+      const bT = parseGameClock(formatGameClock(b.gameClockTime));
+      // clock counts DOWN — "asc" = chronological = high clock first
+      return clockSort === "asc" ? bT - aT : aT - bT;
+    });
+  }, [playlistEvents, clockSort]);
 
   // ---------------------------------------------------------------------------
   // Playback
@@ -246,9 +331,23 @@ export function PlaylistsPage() {
   }
 
   function handleRowClick(event: PlayByPlayEvent) {
-    const idx = playlistEvents.findIndex((e) => e.eventId === event.eventId);
-    const queue = idx >= 0 ? playlistEvents.slice(idx) : [event];
+    const idx = sortedEvents.findIndex((e) => e.eventId === event.eventId);
+    const queue = idx >= 0 ? sortedEvents.slice(idx) : [event];
     startQueue(queue);
+  }
+
+  async function handleReorder(newEvents: PlayByPlayEvent[]) {
+    if (!selected) return;
+    const newIds = newEvents.map((e) => e.eventId);
+    const updatedPlaylist = { ...selected.playlist, eventIds: newIds };
+    const updatedPlaylists = (selected.match.playlists ?? []).map((p) =>
+      p.id === selected.playlist.id ? updatedPlaylist : p
+    );
+    setMatches((prev) =>
+      prev.map((m) => m.id === selected.match.id ? { ...m, playlists: updatedPlaylists } : m)
+    );
+    setSelected({ ...selected, playlist: updatedPlaylist });
+    await updatePlaylists(selected.match.id, updatedPlaylists);
   }
 
   // ---------------------------------------------------------------------------
@@ -499,8 +598,8 @@ export function PlaylistsPage() {
                   <Button
                     size="sm"
                     className="h-8 gap-1.5"
-                    onClick={() => startQueue([...playlistEvents])}
-                    disabled={playlistEvents.length === 0 || noSync || noVideo}
+                    onClick={() => startQueue([...sortedEvents])}
+                    disabled={sortedEvents.length === 0 || noSync || noVideo}
                   >
                     <SkipForward className="h-3.5 w-3.5" />
                     Play Playlist
@@ -510,7 +609,7 @@ export function PlaylistsPage() {
             </div>
 
             {/* Clip table */}
-            {playlistEvents.length === 0 ? (
+            {sortedEvents.length === 0 ? (
               <p className="py-8 text-center text-sm text-muted-foreground">
                 This playlist has no clips.
               </p>
@@ -519,57 +618,40 @@ export function PlaylistsPage() {
                 <table className="w-full text-sm">
                   <thead className="border-b border-border bg-muted/80 text-xs font-medium text-muted-foreground">
                     <tr>
+                      <th className="w-8" />
                       <th className="px-4 py-2.5 text-left">Period</th>
-                      <th className="px-4 py-2.5 text-left">Clock</th>
+                      <th
+                        className="px-4 py-2.5 text-left cursor-pointer select-none hover:text-foreground"
+                        onClick={() => setClockSort((s) => s === "none" ? "asc" : s === "asc" ? "desc" : "none")}
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          Clock
+                          {clockSort === "asc" && <ArrowUp className="h-3 w-3" />}
+                          {clockSort === "desc" && <ArrowDown className="h-3 w-3" />}
+                        </span>
+                      </th>
                       <th className="px-4 py-2.5 text-left">Event</th>
                       <th className="px-4 py-2.5 text-left">Player</th>
                       <th className="px-4 py-2.5 text-left">Team</th>
                       <th className="px-4 py-2.5 text-left"></th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-border bg-card">
-                    {playlistEvents.map((event, idx) => {
-                      const isActive = event.eventId === activeEventId;
-                      return (
-                        <tr
-                          key={`${event.eventId}-${idx}`}
-                          className={`cursor-pointer transition-colors hover:bg-muted/50 ${
-                            isActive ? "bg-primary/10" : ""
-                          }`}
-                          onClick={() => handleRowClick(event)}
-                        >
-                          <td className="px-4 py-2.5 text-muted-foreground">
-                            Q{event.period}
-                          </td>
-                          <td className="px-4 py-2.5 font-mono text-muted-foreground">
-                            {formatGameClock(event.gameClockTime)}
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <span
-                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${eventBadgeColor(event)}`}
-                            >
-                              {eventLabel(event)}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2.5 text-foreground/80">
-                            {playerName(event)}
-                          </td>
-                          <td className="px-4 py-2.5 text-muted-foreground">
-                            {event.eventTeam?.teamName ?? "—"}
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <Play
-                              className={`h-3.5 w-3.5 ${
-                                isActive
-                                  ? "text-primary fill-primary"
-                                  : "text-muted-foreground/30"
-                              }`}
-                            />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
+                  <Reorder.Group
+                    as="tbody"
+                    axis="y"
+                    values={sortedEvents}
+                    onReorder={handleReorder}
+                    className="divide-y divide-border bg-card"
+                  >
+                    {sortedEvents.map((event) => (
+                      <DraggableRow
+                        key={event.eventId}
+                        event={event}
+                        isActive={event.eventId === activeEventId}
+                        onClick={() => handleRowClick(event)}
+                      />
+                    ))}
+                  </Reorder.Group>
                 </table>
               </div>
             )}

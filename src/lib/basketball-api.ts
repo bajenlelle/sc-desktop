@@ -140,7 +140,7 @@ export async function fetchPlayByPlay(gameId: string, baseUrl: string): Promise<
       type: e.type as string,
       subType: (e.subType as string) ?? "",
       period: (e.period as number) ?? 0,
-      gameClockTime: (e.gameClockTime as string) ?? (e.time as string) ?? "",
+      gameClockTime: (e.gameClockTime as string) || (e.time as string) || "",
       realWorldTime: (e.realWorldTime as string) ?? "",
       isSuccessful: (e.isSuccessful as number) ?? 0,
       player: (e.player as PlayByPlayEvent["player"]) ?? null,
