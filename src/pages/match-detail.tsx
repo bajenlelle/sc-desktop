@@ -12,6 +12,8 @@ import { PlayerStatsTable } from "@/components/player-stats-table";
 import { EventTimeline } from "@/components/event-timeline";
 import { TeamOverview } from "@/components/team-overview";
 import { ClipsView } from "@/components/clips-view";
+import type { ClipsViewHandle } from "@/components/clips-view";
+import { VideoClipControls } from "@/components/video-clip-controls";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getMatchById } from "@/lib/mock-data";
 import { getMatch, updatePlaylists, updateVideoUrl } from "@/lib/matches-db";
@@ -29,6 +31,16 @@ export function MatchDetailPage() {
   const fromPlaylists = locationState?.from === "/playlists";
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const clipsViewRef = useRef<ClipsViewHandle | null>(null);
+  const [clipPlayback, setClipPlayback] = useState({ canPrev: false, canNext: false, isQueueActive: false });
+  const handlePlaybackChange = useCallback((canPrev: boolean, canNext: boolean, isQueueActive: boolean) => {
+    setClipPlayback((prev) =>
+      prev.canPrev === canPrev && prev.canNext === canNext && prev.isQueueActive === isQueueActive
+        ? prev
+        : { canPrev, canNext, isQueueActive }
+    );
+  }, []);
+
   const [match, setMatch] = useState<Match | null>(null);
   const [storedMatch, setStoredMatch] = useState<StoredMatch | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -267,9 +279,11 @@ export function MatchDetailPage() {
 
                 <TabsContent value="clips">
                   <ClipsView
+                    ref={clipsViewRef}
                     events={storedMatch.events}
                     syncPoint={storedMatch.syncPoint}
                     videoRef={videoRef}
+                    onPlaybackChange={handlePlaybackChange}
                     homeTeamName={storedMatch.homeTeam.name}
                     awayTeamName={storedMatch.awayTeam.name}
                     homeRoster={storedMatch.homeRoster}
@@ -320,6 +334,17 @@ export function MatchDetailPage() {
                   ) : (
                     <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
                   )}
+                  <VideoClipControls
+                    videoRef={videoRef}
+                    canPrev={clipPlayback.canPrev}
+                    canNext={clipPlayback.canNext}
+                    isQueueActive={clipPlayback.isQueueActive}
+                    onPrev={() => clipsViewRef.current?.goPrev()}
+                    onNext={() => clipsViewRef.current?.goNext()}
+                    onReplay={() => clipsViewRef.current?.replay()}
+                    onStop={() => clipsViewRef.current?.stop()}
+                    onPlayAll={() => clipsViewRef.current?.playAll()}
+                  />
                   <div className="flex items-center justify-end">
                     <button
                       type="button"

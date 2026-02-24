@@ -17,7 +17,6 @@ export function VideoPlayer({ src, videoRef }: VideoPlayerProps) {
         ref={videoRef}
         src={src}
         className="h-full w-full"
-        controls
         playsInline
       />
     </div>

@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { VideoPlayer } from "@/components/video-player";
 import { VideoPlaceholder } from "@/components/video-placeholder";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
+import { VideoClipControls } from "@/components/video-clip-controls";
 import { listMatches, updatePlaylists } from "@/lib/matches-db";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import type { Playlist, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
@@ -310,6 +311,35 @@ export function PlaylistsPage() {
     video.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
     video.currentTime = seekTo;
   }, []);
+
+  // Clip navigation
+  const queuePosition = activeEventId !== null
+    ? queueRef.current.findIndex((e) => e.eventId === activeEventId)
+    : -1;
+  const canPrev = queuePosition > 0;
+  const canNext = queuePosition >= 0 && queuePosition < queueRef.current.length - 1;
+  const isQueueActive = activeEventId !== null;
+
+  const handlePrev = useCallback(() => {
+    const prevIdx = queueIdxRef.current - 1;
+    if (prevIdx < 0) return;
+    queueIdxRef.current = prevIdx;
+    const event = queueRef.current[prevIdx];
+    if (event) { setActiveEventId(event.eventId); seekToEvent(event); }
+  }, [seekToEvent]);
+
+  const handleNext = useCallback(() => {
+    const nextIdx = queueIdxRef.current + 1;
+    if (nextIdx >= queueRef.current.length) return;
+    queueIdxRef.current = nextIdx;
+    const event = queueRef.current[nextIdx];
+    if (event) { setActiveEventId(event.eventId); seekToEvent(event); }
+  }, [seekToEvent]);
+
+  const handleReplay = useCallback(() => {
+    const event = queueRef.current[queueIdxRef.current];
+    if (event) seekToEvent(event);
+  }, [seekToEvent]);
 
   // Auto-advance via timeupdate — re-binds when video source changes
   useEffect(() => {
@@ -712,7 +742,20 @@ export function PlaylistsPage() {
               {/* RIGHT: video */}
               <div className="flex h-full flex-col gap-2 pl-3 min-w-0">
                 {localVideoUrl ? (
-                  <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
+                  <>
+                    <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
+                    <VideoClipControls
+                      videoRef={videoRef}
+                      canPrev={canPrev}
+                      canNext={canNext}
+                      isQueueActive={isQueueActive}
+                      onPrev={handlePrev}
+                      onNext={handleNext}
+                      onReplay={handleReplay}
+                      onStop={handleStop}
+                      onPlayAll={() => startQueue([...sortedEvents])}
+                    />
+                  </>
                 ) : (
                   <div className="space-y-2">
                     <VideoPlaceholder />

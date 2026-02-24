@@ -1,6 +1,6 @@
 "use client";
 
-import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { RefObject, forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowLeft, ArrowUp, ChevronDown, GripVertical, ListPlus, Play, SkipForward, Square, Trash2 } from "lucide-react";
 import { Reorder, useDragControls } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -200,6 +200,14 @@ function MultiSelectDropdown({
 
 type ClockSort = "none" | "asc" | "desc";
 
+export interface ClipsViewHandle {
+  goPrev(): void;
+  goNext(): void;
+  replay(): void;
+  stop(): void;
+  playAll(): void;
+}
+
 // ---------------------------------------------------------------------------
 // DraggableClipsRow (used in playlist view mode)
 // ---------------------------------------------------------------------------
@@ -314,9 +322,10 @@ interface ClipsViewProps {
   playlists?: Playlist[];
   onPlaylistsChange?: (p: Playlist[]) => void;
   videoAvailable?: boolean;
+  onPlaybackChange?: (canPrev: boolean, canNext: boolean, isQueueActive: boolean) => void;
 }
 
-export function ClipsView({
+export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function ClipsView({
   events,
   syncPoint,
   videoRef,
@@ -327,7 +336,8 @@ export function ClipsView({
   playlists = [],
   onPlaylistsChange,
   videoAvailable = false,
-}: ClipsViewProps) {
+  onPlaybackChange,
+}: ClipsViewProps, ref) {
   // Build a name → jersey number lookup from both rosters
   const jerseyByName = useMemo(() => {
     const map = new Map<string, string>();
@@ -451,6 +461,51 @@ export function ClipsView({
     },
     [videoRef]
   );
+
+  // ---------------------------------------------------------------------------
+  // Clip navigation helpers (exposed via ref)
+  // ---------------------------------------------------------------------------
+  const queuePosition = activeEventId !== null
+    ? queueRef.current.findIndex((e) => e.eventId === activeEventId)
+    : -1;
+  const canPrev = queuePosition > 0;
+  const canNext = queuePosition >= 0 && queuePosition < queueRef.current.length - 1;
+  const isQueueActive = activeEventId !== null;
+
+  const handleGoPrev = useCallback(() => {
+    const prevIdx = queueIdxRef.current - 1;
+    if (prevIdx < 0) return;
+    queueIdxRef.current = prevIdx;
+    const event = queueRef.current[prevIdx];
+    if (event) { setActiveEventId(event.eventId); seekToEvent(event); }
+  }, [seekToEvent]);
+
+  const handleGoNext = useCallback(() => {
+    const nextIdx = queueIdxRef.current + 1;
+    if (nextIdx >= queueRef.current.length) return;
+    queueIdxRef.current = nextIdx;
+    const event = queueRef.current[nextIdx];
+    if (event) { setActiveEventId(event.eventId); seekToEvent(event); }
+  }, [seekToEvent]);
+
+  const handleReplay = useCallback(() => {
+    const event = queueRef.current[queueIdxRef.current];
+    if (event) seekToEvent(event);
+  }, [seekToEvent]);
+
+  useImperativeHandle(ref, () => ({
+    goPrev: handleGoPrev,
+    goNext: handleGoNext,
+    replay: handleReplay,
+    stop: handleStop,
+    playAll: handlePlayAll,
+  }));
+
+  // Notify parent of playback state changes
+  useEffect(() => {
+    onPlaybackChange?.(canPrev, canNext, isQueueActive);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canPrev, canNext, isQueueActive]);
 
   // ---------------------------------------------------------------------------
   // Seamless auto-advance via timeupdate
@@ -1073,4 +1128,4 @@ export function ClipsView({
       )}
     </div>
   );
-}
+});
