@@ -30,13 +30,13 @@ function StepLabel({
 }) {
   return (
     <div className="flex items-center gap-3 px-1">
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-sm font-bold text-white">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
         {step}
       </span>
       <div>
-        <span className="text-base font-semibold text-slate-800 dark:text-slate-100">{title}</span>
+        <span className="text-base font-semibold text-foreground">{title}</span>
         {subtitle && (
-          <span className="ml-2 text-xs text-slate-400 dark:text-slate-500">{subtitle}</span>
+          <span className="ml-2 text-xs text-muted-foreground">{subtitle}</span>
         )}
       </div>
     </div>
@@ -82,35 +82,35 @@ function GameRow({
       className={cn(
         "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors",
         selected
-          ? "bg-indigo-50 dark:bg-indigo-950 ring-1 ring-indigo-300 dark:ring-indigo-700"
-          : "hover:bg-slate-50 dark:hover:bg-slate-800"
+          ? "bg-primary/10 ring-1 ring-primary/50"
+          : "hover:bg-muted"
       )}
     >
-      <div className="min-w-[80px] text-xs text-slate-400 dark:text-slate-500 shrink-0">{date}</div>
+      <div className="min-w-[80px] text-xs text-muted-foreground shrink-0">{date}</div>
       <div className="flex flex-1 items-center gap-2 min-w-0">
         {game.homeTeamInfo.icon && (
           <img src={game.homeTeamInfo.icon} alt="" className="h-5 w-5 shrink-0 object-contain" />
         )}
-        <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-200">
+        <span className="truncate text-sm font-medium text-foreground">
           {game.homeTeamInfo.names.short}
         </span>
-        <span className="shrink-0 text-xs font-bold text-slate-600 dark:text-slate-300">
+        <span className="shrink-0 text-xs font-bold text-foreground/80">
           {game.homeTeamInfo.score}–{game.awayTeamInfo.score}
         </span>
-        <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-200">
+        <span className="truncate text-sm font-medium text-foreground">
           {game.awayTeamInfo.names.short}
         </span>
         {game.awayTeamInfo.icon && (
           <img src={game.awayTeamInfo.icon} alt="" className="h-5 w-5 shrink-0 object-contain" />
         )}
       </div>
-      <div className="shrink-0 text-xs text-slate-400 dark:text-slate-500 hidden sm:block truncate max-w-[100px]">
+      <div className="shrink-0 text-xs text-muted-foreground hidden sm:block truncate max-w-[100px]">
         {game.venueInfo?.name}
       </div>
       {loading && selected ? (
-        <Loader2 className="h-4 w-4 animate-spin shrink-0 text-indigo-500" />
+        <Loader2 className="h-4 w-4 animate-spin shrink-0 text-primary" />
       ) : (
-        <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 dark:text-slate-600" />
+        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40" />
       )}
     </button>
   );
@@ -377,8 +377,8 @@ export function UploadZone() {
     <div className="mx-auto max-w-2xl space-y-8">
       {/* Page header */}
       <div>
-        <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">New Session</h2>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+        <h2 className="text-2xl font-bold text-foreground">New Session</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
           Pick a game and link a video to build your Scoutable Session.
         </p>
       </div>
@@ -389,7 +389,7 @@ export function UploadZone() {
         <Card>
           <CardContent className="p-4 space-y-3">
             {/* League selector */}
-            <div className="flex rounded-lg border border-slate-200 dark:border-slate-700 p-1 gap-1">
+            <div className="flex rounded-lg border border-border p-1 gap-1">
               {LEAGUES.map((league) => (
                 <button
                   key={league.id}
@@ -398,8 +398,8 @@ export function UploadZone() {
                   className={cn(
                     "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-all",
                     selectedLeague.id === league.id
-                      ? "bg-indigo-600 text-white shadow-sm"
-                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
                   )}
                 >
                   {league.name}
@@ -408,24 +408,24 @@ export function UploadZone() {
             </div>
 
             {selectedGame ? (
-              <div className="flex items-center justify-between gap-3 rounded-lg bg-indigo-50 dark:bg-indigo-950 px-3 py-2.5">
+              <div className="flex items-center justify-between gap-3 rounded-lg bg-primary/10 px-3 py-2.5">
                 <div className="flex flex-1 items-center gap-2 min-w-0">
                   {selectedGame.homeTeamInfo.icon && (
                     <img src={selectedGame.homeTeamInfo.icon} alt="" className="h-5 w-5 shrink-0 object-contain" />
                   )}
-                  <span className="truncate text-sm font-semibold text-slate-800 dark:text-slate-200">
+                  <span className="truncate text-sm font-semibold text-foreground">
                     {selectedGame.homeTeamInfo.names.short}
                   </span>
-                  <span className="shrink-0 text-xs font-bold text-slate-600 dark:text-slate-300">
+                  <span className="shrink-0 text-xs font-bold text-foreground/80">
                     {selectedGame.homeTeamInfo.score}–{selectedGame.awayTeamInfo.score}
                   </span>
-                  <span className="truncate text-sm font-semibold text-slate-800 dark:text-slate-200">
+                  <span className="truncate text-sm font-semibold text-foreground">
                     {selectedGame.awayTeamInfo.names.short}
                   </span>
                   {selectedGame.awayTeamInfo.icon && (
                     <img src={selectedGame.awayTeamInfo.icon} alt="" className="h-5 w-5 shrink-0 object-contain" />
                   )}
-                  <span className="text-xs text-slate-400 dark:text-slate-500 shrink-0 ml-1">
+                  <span className="text-xs text-muted-foreground shrink-0 ml-1">
                     {new Date(selectedGame.rawStartDateTime).toLocaleDateString("sv-SE")}
                   </span>
                 </div>
@@ -433,7 +433,7 @@ export function UploadZone() {
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="shrink-0 h-7 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                  className="shrink-0 h-7 text-xs text-muted-foreground hover:text-foreground"
                   onClick={() => setSelectedGame(null)}
                 >
                   Change
@@ -442,7 +442,7 @@ export function UploadZone() {
             ) : (
               <>
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     placeholder="Search by team or date…"
                     className="pl-9"
@@ -452,7 +452,7 @@ export function UploadZone() {
                 </div>
 
                 {scheduleStatus === "loading" && (
-                  <div className="flex items-center justify-center py-8 gap-2 text-slate-400">
+                  <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
                     <span className="text-sm">Loading schedule…</span>
                   </div>
@@ -465,9 +465,9 @@ export function UploadZone() {
                 )}
 
                 {scheduleStatus === "idle" && (
-                  <div className="max-h-72 overflow-y-auto rounded-md divide-y divide-slate-100 dark:divide-slate-800">
+                  <div className="max-h-72 overflow-y-auto rounded-md divide-y divide-border">
                     {filteredGames.length === 0 ? (
-                      <p className="py-6 text-center text-sm text-slate-400">No games found.</p>
+                      <p className="py-6 text-center text-sm text-muted-foreground">No games found.</p>
                     ) : (
                       filteredGames.map((game: ScheduleGame) => (
                         <GameRow
@@ -488,7 +488,7 @@ export function UploadZone() {
               <p className="text-xs text-red-500 dark:text-red-400">{fetchError}</p>
             )}
             {fetchStatus === "loading" && selectedGame && !selectedGame && (
-              <p className="text-xs text-slate-400">Fetching game data…</p>
+              <p className="text-xs text-muted-foreground">Fetching game data…</p>
             )}
             {playByPlayEvents.length > 0 && (
               <p className="text-xs text-emerald-600 dark:text-emerald-400">
@@ -515,10 +515,10 @@ export function UploadZone() {
                 className={cn(
                   "flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 transition-colors",
                   dragActive
-                    ? "border-indigo-400 bg-indigo-50 dark:bg-indigo-950"
+                    ? "border-primary bg-primary/10"
                     : videoPath
                       ? "border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950"
-                      : "border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 hover:border-indigo-300 dark:hover:border-indigo-700"
+                      : "border-border bg-muted/30 hover:border-primary/50 hover:bg-primary/5"
                 )}
                 onDragOver={(e) => e.preventDefault()}
                 onDragLeave={() => setDragActive(false)}
@@ -529,10 +529,10 @@ export function UploadZone() {
                     <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400 text-center break-all">
                       {basename(videoPath)}
                     </p>
-                    <p className="mt-1 text-xs text-slate-400 truncate max-w-full">{videoPath}</p>
+                    <p className="mt-1 text-xs text-muted-foreground truncate max-w-full">{videoPath}</p>
                     <button
                       type="button"
-                      className="mt-2 text-xs text-slate-500 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                      className="mt-2 text-xs text-muted-foreground hover:text-red-500 dark:hover:text-red-400 transition-colors"
                       onClick={() => setVideoPath(null)}
                     >
                       <X className="mr-1 inline h-3 w-3" />
@@ -541,11 +541,11 @@ export function UploadZone() {
                   </>
                 ) : (
                   <>
-                    <Film className="mb-3 h-8 w-8 text-slate-400 dark:text-slate-500" />
-                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                    <Film className="mb-3 h-8 w-8 text-muted-foreground" />
+                    <p className="text-sm font-semibold text-foreground/80">
                       {dragActive ? "Drop video file here" : "Choose or drop a video file"}
                     </p>
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    <p className="mt-1 text-xs text-muted-foreground">
                       MP4, MOV, AVI, MKV — plays locally, nothing is uploaded
                     </p>
                     <Button
@@ -565,7 +565,7 @@ export function UploadZone() {
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="text-xs text-slate-400 hover:text-slate-600"
+                  className="text-xs text-muted-foreground hover:text-foreground"
                   onClick={handlePickVideo}
                 >
                   Change file…
@@ -574,22 +574,22 @@ export function UploadZone() {
             </div>
 
             {/* Sync point */}
-            <div className="border-t border-slate-100 dark:border-slate-800 pt-4 space-y-3">
-              <p className="text-sm text-slate-500 dark:text-slate-400">
+            <div className="border-t border-border pt-4 space-y-3">
+              <p className="text-sm text-muted-foreground">
                 Enter the video timestamp (MM:SS) when the{" "}
-                <strong className="text-slate-700 dark:text-slate-300">tip-off</strong> occurs in
+                <strong className="text-foreground">tip-off</strong> occurs in
                 your recording. This one calibration point syncs every event to the correct video
                 position.
               </p>
               {tipoffLocalHint && (
-                <p className="flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400">
+                <p className="flex items-center gap-1.5 text-xs text-primary">
                   <Clock className="h-3.5 w-3.5" />
                   Tip-off real-world time was{" "}
                   <strong>{tipoffLocalHint}</strong> — find this moment in your video.
                 </p>
               )}
               {!tipoffRealWorldTime && (
-                <p className="text-xs text-slate-400 dark:text-slate-500">
+                <p className="text-xs text-muted-foreground">
                   Select a game to see the tip-off time hint.
                 </p>
               )}
@@ -627,7 +627,7 @@ export function UploadZone() {
 
       {/* Submit */}
       <Button
-        className="w-full bg-indigo-600 py-6 text-base font-semibold hover:bg-indigo-700"
+        className="w-full py-6 text-base font-semibold"
         onClick={handleSubmit}
         disabled={isSubmitting || !selectedGame}
       >

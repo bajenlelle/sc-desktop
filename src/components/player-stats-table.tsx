@@ -2,14 +2,6 @@
 
 import { useState } from "react";
 import { ArrowUpDown } from "lucide-react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import type { PlayerStats } from "@/types/match";
 import type { Team } from "@/types/match";
@@ -53,7 +45,7 @@ export function PlayerStatsTable({
   const teamColor = (teamId: string) =>
     teamId === homeTeam.id ? homeTeam.color : awayTeam.color;
 
-  const SortableHead = ({
+  function SortableTh({
     label,
     field,
     className,
@@ -61,85 +53,87 @@ export function PlayerStatsTable({
     label: string;
     field: SortKey;
     className?: string;
-  }) => (
-    <TableHead
-      className={cn("cursor-pointer select-none whitespace-nowrap", className)}
-      onClick={() => toggle(field)}
-    >
-      <span className="inline-flex items-center gap-1">
-        {label}
-        <ArrowUpDown className="h-3 w-3 text-slate-400 dark:text-slate-500" />
-      </span>
-    </TableHead>
-  );
+  }) {
+    return (
+      <th
+        className={cn("cursor-pointer select-none whitespace-nowrap px-4 py-2.5 text-left text-xs font-medium text-muted-foreground", className)}
+        onClick={() => toggle(field)}
+      >
+        <span className="inline-flex items-center gap-1">
+          {label}
+          <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
+        </span>
+      </th>
+    );
+  }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
-      <Table>
-        <TableHeader>
-          <TableRow className="bg-slate-50/80 dark:bg-slate-800/80">
-            <TableHead className="w-[200px]">Player</TableHead>
-            <TableHead className="text-center">#</TableHead>
-            <SortableHead label="Actions" field="totalActions" className="text-center" />
-            <SortableHead label="FG" field="shooting" className="text-center" />
-            <SortableHead label="3PT" field="shooting" className="text-center" />
-            <SortableHead label="FT" field="shooting" className="text-center" />
-            <SortableHead label="AST" field="assists" className="text-center" />
-            <SortableHead label="REB" field="rebounds" className="text-center" />
-            <SortableHead label="STL" field="steals" className="text-center" />
-            <SortableHead label="TO" field="turnovers" className="text-center" />
-            <SortableHead label="Success %" field="successRate" className="text-center" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
+    <div className="overflow-x-auto rounded-lg border border-border">
+      <table className="w-full text-sm tabular-nums">
+        <thead className="border-b border-border bg-muted/80">
+          <tr>
+            <th className="w-[200px] px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Player</th>
+            <th className="px-4 py-2.5 text-center text-xs font-medium text-muted-foreground">#</th>
+            <SortableTh label="Actions" field="totalActions" className="text-center" />
+            <SortableTh label="FG" field="shooting" className="text-center" />
+            <SortableTh label="3PT" field="shooting" className="text-center" />
+            <SortableTh label="FT" field="shooting" className="text-center" />
+            <SortableTh label="AST" field="assists" className="text-center" />
+            <SortableTh label="REB" field="rebounds" className="text-center" />
+            <SortableTh label="STL" field="steals" className="text-center" />
+            <SortableTh label="TO" field="turnovers" className="text-center" />
+            <SortableTh label="Success %" field="successRate" className="text-center" />
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border">
           {sorted.map((p) => (
-            <TableRow
+            <tr
               key={p.playerId}
-              className="transition-colors hover:bg-slate-50 dark:hover:bg-slate-800"
+              className="transition-colors hover:bg-muted"
             >
-              <TableCell>
+              <td className="px-4 py-2.5">
                 <div className="flex items-center gap-2">
                   <span
                     className="inline-block h-2.5 w-2.5 rounded-full"
                     style={{ backgroundColor: teamColor(p.teamId) }}
                   />
-                  <span className="font-medium text-slate-900 dark:text-slate-100">
+                  <span className="font-medium text-foreground">
                     {p.playerName}
                   </span>
                 </div>
-              </TableCell>
-              <TableCell className="text-center font-mono text-slate-600 dark:text-slate-400">
+              </td>
+              <td className="px-4 py-2.5 text-center font-mono text-muted-foreground">
                 {p.jerseyNumber}
-              </TableCell>
-              <TableCell className="text-center font-semibold">
+              </td>
+              <td className="px-4 py-2.5 text-center font-semibold">
                 {p.totalActions}
-              </TableCell>
-              <TableCell className="text-center text-sm">
+              </td>
+              <td className="px-4 py-2.5 text-center text-sm">
                 <span className="text-emerald-600 dark:text-emerald-400">{p.jumpShots.made}</span>
-                <span className="text-slate-300 dark:text-slate-600">/</span>
-                <span className="text-slate-500 dark:text-slate-400">
+                <span className="text-border">/</span>
+                <span className="text-muted-foreground">
                   {p.jumpShots.made + p.jumpShots.missed}
                 </span>
-              </TableCell>
-              <TableCell className="text-center text-sm">
+              </td>
+              <td className="px-4 py-2.5 text-center text-sm">
                 <span className="text-emerald-600 dark:text-emerald-400">{p.threePointers.made}</span>
-                <span className="text-slate-300 dark:text-slate-600">/</span>
-                <span className="text-slate-500 dark:text-slate-400">
+                <span className="text-border">/</span>
+                <span className="text-muted-foreground">
                   {p.threePointers.made + p.threePointers.missed}
                 </span>
-              </TableCell>
-              <TableCell className="text-center text-sm">
+              </td>
+              <td className="px-4 py-2.5 text-center text-sm">
                 <span className="text-emerald-600 dark:text-emerald-400">{p.freeThrows.made}</span>
-                <span className="text-slate-300 dark:text-slate-600">/</span>
-                <span className="text-slate-500 dark:text-slate-400">
+                <span className="text-border">/</span>
+                <span className="text-muted-foreground">
                   {p.freeThrows.made + p.freeThrows.missed}
                 </span>
-              </TableCell>
-              <TableCell className="text-center">{p.assists}</TableCell>
-              <TableCell className="text-center">{p.rebounds}</TableCell>
-              <TableCell className="text-center">{p.steals}</TableCell>
-              <TableCell className="text-center">{p.turnovers}</TableCell>
-              <TableCell className="text-center">
+              </td>
+              <td className="px-4 py-2.5 text-center">{p.assists}</td>
+              <td className="px-4 py-2.5 text-center">{p.rebounds}</td>
+              <td className="px-4 py-2.5 text-center">{p.steals}</td>
+              <td className="px-4 py-2.5 text-center">{p.turnovers}</td>
+              <td className="px-4 py-2.5 text-center">
                 <span
                   className={cn(
                     "inline-flex min-w-[48px] items-center justify-center rounded-full px-2.5 py-0.5 text-xs font-bold",
@@ -152,11 +146,11 @@ export function PlayerStatsTable({
                 >
                   {p.successRate}%
                 </span>
-              </TableCell>
-            </TableRow>
+              </td>
+            </tr>
           ))}
-        </TableBody>
-      </Table>
+        </tbody>
+      </table>
     </div>
   );
 }

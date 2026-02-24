@@ -19,12 +19,12 @@ function QuickStat({
   return (
     <Card>
       <CardContent className="flex items-center gap-4 p-5">
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-950">
-          <Icon className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
+          <Icon className="h-5 w-5 text-primary" />
         </div>
         <div>
-          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{value}</p>
-          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</p>
+          <p className="text-2xl font-bold text-foreground">{value}</p>
+          <p className="text-xs font-medium text-muted-foreground">{label}</p>
         </div>
       </CardContent>
     </Card>
@@ -50,15 +50,15 @@ export function HomePage() {
     <div className="space-y-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
             Home
           </h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          <p className="mt-1 text-sm text-muted-foreground">
             Welcome back. Here&apos;s what&apos;s in your library.
           </p>
         </div>
         <Link to="/upload">
-          <Button className="gap-2 bg-indigo-600 hover:bg-indigo-700">
+          <Button className="gap-2">
             <Plus className="h-4 w-4" />
             New Session
           </Button>
@@ -85,11 +85,11 @@ export function HomePage() {
 
       <div>
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+          <h2 className="text-lg font-semibold text-foreground">
             Recent Sessions
           </h2>
           <Link to="/matches">
-            <Button variant="ghost" size="sm" className="text-indigo-600 dark:text-indigo-400">
+            <Button variant="ghost" size="sm" className="text-primary">
               View all
             </Button>
           </Link>
@@ -100,18 +100,18 @@ export function HomePage() {
             {[0, 1, 2].map((i) => (
               <div
                 key={i}
-                className="h-40 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800"
+                className="h-40 animate-pulse rounded-xl bg-muted"
               />
             ))}
           </div>
         ) : recentMatches.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 dark:border-slate-700 py-16 text-center">
-            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">No sessions yet</p>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-16 text-center">
+            <p className="text-sm font-medium text-foreground">No sessions yet</p>
+            <p className="mt-1 text-sm text-muted-foreground">
               Create your first Scoutable Session to get started.
             </p>
             <Link to="/upload" className="mt-4">
-              <Button className="bg-indigo-600 hover:bg-indigo-700">New Session</Button>
+              <Button>New Session</Button>
             </Link>
           </div>
         ) : (

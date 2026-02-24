@@ -76,7 +76,7 @@ function eventBadgeColor(e: PlayByPlayEvent): string {
     case "foulon":
       return "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300";
     default:
-      return "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
+      return "bg-muted text-muted-foreground";
   }
 }
 
@@ -190,8 +190,9 @@ export function PlaylistsPage() {
     if (videoTime === null) return;
     const seekTo = Math.max(0, videoTime - preRollRef.current);
     clipEndRef.current = videoTime + postRollRef.current;
+    video.pause();
+    video.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
     video.currentTime = seekTo;
-    video.play().catch(() => {});
   }, []);
 
   // Auto-advance via timeupdate — re-binds when video source changes
@@ -218,8 +219,9 @@ export function PlaylistsPage() {
           if (videoTime !== null) {
             const seekTo = Math.max(0, videoTime - preRollRef.current);
             clipEndRef.current = videoTime + postRollRef.current;
+            video.pause();
+            video.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
             video.currentTime = seekTo;
-            video.play().catch(() => {});
           }
         }
       } else {
@@ -244,11 +246,9 @@ export function PlaylistsPage() {
   }
 
   function handleRowClick(event: PlayByPlayEvent) {
-    queueRef.current = [];
-    queueIdxRef.current = 0;
-    setIsPlaying(false);
-    setActiveEventId(event.eventId);
-    seekToEvent(event);
+    const idx = playlistEvents.findIndex((e) => e.eventId === event.eventId);
+    const queue = idx >= 0 ? playlistEvents.slice(idx) : [event];
+    startQueue(queue);
   }
 
   // ---------------------------------------------------------------------------
@@ -279,15 +279,15 @@ export function PlaylistsPage() {
   return (
     <div className="flex h-full overflow-hidden">
       {/* LEFT PANEL — playlist sidebar */}
-      <div className="flex w-72 shrink-0 flex-col border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-y-auto">
-        <div className="sticky top-0 z-10 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3">
+      <div className="flex w-72 shrink-0 flex-col border-r border-border bg-card overflow-y-auto">
+        <div className="sticky top-0 z-10 border-b border-border bg-card px-4 py-3">
           <div className="flex items-center gap-2">
-            <ListVideo className="h-4 w-4 text-slate-500 dark:text-slate-400" />
-            <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+            <ListVideo className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-semibold text-foreground">
               Playlists
             </span>
             {totalPlaylists > 0 && (
-              <span className="ml-auto rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+              <span className="ml-auto rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                 {totalPlaylists}
               </span>
             )}
@@ -298,17 +298,17 @@ export function PlaylistsPage() {
           <div className="space-y-3 p-4">
             {[0, 1].map((i) => (
               <div key={i} className="space-y-2">
-                <div className="h-3 w-3/4 animate-pulse rounded bg-slate-100 dark:bg-slate-800" />
-                <div className="h-2 w-1/2 animate-pulse rounded bg-slate-100 dark:bg-slate-800" />
-                <div className="h-8 w-full animate-pulse rounded bg-slate-100 dark:bg-slate-800" />
+                <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
+                <div className="h-2 w-1/2 animate-pulse rounded bg-muted" />
+                <div className="h-8 w-full animate-pulse rounded bg-muted" />
               </div>
             ))}
           </div>
         ) : grouped.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
-            <ListVideo className="h-8 w-8 text-slate-300 dark:text-slate-600" />
-            <p className="text-sm font-medium text-slate-600 dark:text-slate-400">No playlists yet</p>
-            <p className="text-xs text-slate-400 dark:text-slate-500">
+            <ListVideo className="h-8 w-8 text-muted-foreground/40" />
+            <p className="text-sm font-medium text-muted-foreground">No playlists yet</p>
+            <p className="text-xs text-muted-foreground/70">
               Open a session and create playlists from the Clips tab.
             </p>
             <Link to="/matches" className="mt-2">
@@ -326,20 +326,20 @@ export function PlaylistsPage() {
                   {/* Match group header */}
                   <button
                     type="button"
-                    className="flex w-full items-center gap-2 px-3 py-2.5 text-left bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition-colors"
+                    className="flex w-full items-center gap-2 px-3 py-2.5 text-left bg-muted/50 hover:bg-muted transition-colors"
                     onClick={() => toggleCollapse(match.id)}
                   >
                     {isOpen ? (
-                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     ) : (
-                      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     )}
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      <p className="truncate text-xs font-semibold text-foreground/80">
                         {match.title}
                       </p>
                       {match.date && (
-                        <p className="truncate text-xs text-slate-400 dark:text-slate-500">
+                        <p className="truncate text-xs text-muted-foreground">
                           {new Date(match.date).toLocaleDateString("sv-SE")}
                         </p>
                       )}
@@ -368,28 +368,28 @@ export function PlaylistsPage() {
                           <button
                             key={pl.id}
                             type="button"
-                            className={`flex w-full items-center justify-between border-l-2 pl-8 pr-4 py-1.5 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
+                            className={`flex w-full items-center justify-between border-l-2 pl-8 pr-4 py-1.5 text-left transition-colors hover:bg-muted/50 ${
                               isActive
-                                ? "border-l-indigo-500 bg-indigo-50 dark:bg-indigo-950/40"
-                                : "border-l-slate-200 dark:border-l-slate-700 hover:border-l-slate-300 dark:hover:border-l-slate-600"
+                                ? "border-l-primary bg-primary/10"
+                                : "border-l-border hover:border-l-border/80"
                             }`}
                             onClick={() => selectPlaylist({ playlist: pl, match })}
                           >
                             <div className="flex min-w-0 flex-1 items-center gap-1.5">
                               <ListVideo className={`h-3 w-3 shrink-0 ${
-                                isActive ? "text-indigo-500 dark:text-indigo-400" : "text-slate-400 dark:text-slate-500"
+                                isActive ? "text-primary" : "text-muted-foreground"
                               }`} />
                               <span
                                 className={`text-sm truncate ${
                                   isActive
-                                    ? "font-medium text-indigo-700 dark:text-indigo-300"
-                                    : "text-slate-600 dark:text-slate-400"
+                                    ? "font-medium text-primary"
+                                    : "text-muted-foreground"
                                 }`}
                               >
                                 {pl.name}
                               </span>
                             </div>
-                            <span className="ml-2 shrink-0 text-xs text-slate-400 dark:text-slate-500">
+                            <span className="ml-2 shrink-0 text-xs text-muted-foreground">
                               {pl.eventIds.length}
                             </span>
                           </button>
@@ -405,15 +405,15 @@ export function PlaylistsPage() {
       </div>
 
       {/* RIGHT PANEL — detail */}
-      <div className="flex flex-1 flex-col overflow-y-auto bg-slate-50 dark:bg-slate-950">
+      <div className="flex flex-1 flex-col overflow-y-auto bg-background">
         {selected === null ? (
           /* Empty state */
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-12 text-center">
-            <ListVideo className="h-10 w-10 text-slate-300 dark:text-slate-600" />
-            <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
+            <ListVideo className="h-10 w-10 text-muted-foreground/40" />
+            <p className="text-sm font-medium text-muted-foreground">
               Select a playlist
             </p>
-            <p className="text-sm text-slate-400 dark:text-slate-500">
+            <p className="text-sm text-muted-foreground/70">
               Choose a playlist from the left panel to watch its clips here.
             </p>
           </div>
@@ -427,18 +427,18 @@ export function PlaylistsPage() {
                     className="h-2 w-2 rounded-full shrink-0"
                     style={{ backgroundColor: selected.match.homeTeam.color || "#6366f1" }}
                   />
-                  <span className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                  <span className="text-xs text-muted-foreground truncate">
                     {selected.match.title}
                   </span>
                 </div>
-                <span className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
+                <span className="text-base font-semibold text-foreground truncate">
                   {selected.playlist.name}
                 </span>
               </div>
               <Button
                 size="sm"
                 variant="ghost"
-                className="shrink-0 gap-1.5 text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                className="shrink-0 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
                 onClick={() => navigate(`/matches/${selected.match.id}`)}
               >
                 <ExternalLink className="h-3.5 w-3.5" />
@@ -453,7 +453,7 @@ export function PlaylistsPage() {
               <div className="space-y-2">
                 <VideoPlaceholder />
                 {noVideo && (
-                  <p className="text-center text-xs text-slate-400 dark:text-slate-500">
+                  <p className="text-center text-xs text-muted-foreground">
                     No video linked. Add one in the session.
                   </p>
                 )}
@@ -468,9 +468,9 @@ export function PlaylistsPage() {
             )}
 
             {/* Playback controls */}
-            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-2.5">
+            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-2.5">
               <div className="flex items-center gap-1.5">
-                <label className="text-xs text-slate-500 dark:text-slate-400">Pre</label>
+                <label className="text-xs text-muted-foreground">Pre</label>
                 <Input
                   type="number"
                   min={0}
@@ -479,7 +479,7 @@ export function PlaylistsPage() {
                   value={preRoll}
                   onChange={(e) => setPreRoll(Number(e.target.value))}
                 />
-                <label className="text-xs text-slate-500 dark:text-slate-400">Post</label>
+                <label className="text-xs text-muted-foreground">Post</label>
                 <Input
                   type="number"
                   min={0}
@@ -498,7 +498,7 @@ export function PlaylistsPage() {
                 ) : (
                   <Button
                     size="sm"
-                    className="h-8 gap-1.5 bg-indigo-600 text-white hover:bg-indigo-700"
+                    className="h-8 gap-1.5"
                     onClick={() => startQueue([...playlistEvents])}
                     disabled={playlistEvents.length === 0 || noSync || noVideo}
                   >
@@ -511,13 +511,13 @@ export function PlaylistsPage() {
 
             {/* Clip table */}
             {playlistEvents.length === 0 ? (
-              <p className="py-8 text-center text-sm text-slate-400 dark:text-slate-500">
+              <p className="py-8 text-center text-sm text-muted-foreground">
                 This playlist has no clips.
               </p>
             ) : (
-              <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+              <div className="overflow-hidden rounded-lg border border-border">
                 <table className="w-full text-sm">
-                  <thead className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
+                  <thead className="border-b border-border bg-muted/80 text-xs font-medium text-muted-foreground">
                     <tr>
                       <th className="px-4 py-2.5 text-left">Period</th>
                       <th className="px-4 py-2.5 text-left">Clock</th>
@@ -527,21 +527,21 @@ export function PlaylistsPage() {
                       <th className="px-4 py-2.5 text-left"></th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                  <tbody className="divide-y divide-border bg-card">
                     {playlistEvents.map((event, idx) => {
                       const isActive = event.eventId === activeEventId;
                       return (
                         <tr
                           key={`${event.eventId}-${idx}`}
-                          className={`cursor-pointer transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
-                            isActive ? "bg-indigo-50 dark:bg-indigo-950/40" : ""
+                          className={`cursor-pointer transition-colors hover:bg-muted/50 ${
+                            isActive ? "bg-primary/10" : ""
                           }`}
                           onClick={() => handleRowClick(event)}
                         >
-                          <td className="px-4 py-2.5 text-slate-600 dark:text-slate-400">
+                          <td className="px-4 py-2.5 text-muted-foreground">
                             Q{event.period}
                           </td>
-                          <td className="px-4 py-2.5 font-mono text-slate-600 dark:text-slate-400">
+                          <td className="px-4 py-2.5 font-mono text-muted-foreground">
                             {formatGameClock(event.gameClockTime)}
                           </td>
                           <td className="px-4 py-2.5">
@@ -551,18 +551,18 @@ export function PlaylistsPage() {
                               {eventLabel(event)}
                             </span>
                           </td>
-                          <td className="px-4 py-2.5 text-slate-700 dark:text-slate-300">
+                          <td className="px-4 py-2.5 text-foreground/80">
                             {playerName(event)}
                           </td>
-                          <td className="px-4 py-2.5 text-slate-600 dark:text-slate-400">
+                          <td className="px-4 py-2.5 text-muted-foreground">
                             {event.eventTeam?.teamName ?? "—"}
                           </td>
                           <td className="px-4 py-2.5">
                             <Play
                               className={`h-3.5 w-3.5 ${
                                 isActive
-                                  ? "text-indigo-500 fill-indigo-500"
-                                  : "text-slate-300 dark:text-slate-600"
+                                  ? "text-primary fill-primary"
+                                  : "text-muted-foreground/30"
                               }`}
                             />
                           </td>

@@ -5,7 +5,6 @@ import {
   Trophy,
   ListVideo,
   Plus,
-  Settings,
   Sun,
   Moon,
   LogOut,
@@ -51,8 +50,8 @@ function SidebarIconButton({
         className={cn(
           "h-10 w-10 flex items-center justify-center rounded-lg transition-colors",
           isActive
-            ? "bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400"
-            : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100",
+            ? "bg-primary/10 text-primary"
+            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
           className
         )}
       >
@@ -75,12 +74,12 @@ export function AppSidebar() {
   }
 
   return (
-    <aside className="flex w-14 shrink-0 flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 h-screen">
+    <aside className="flex w-14 shrink-0 flex-col border-r border-sidebar-border bg-sidebar h-screen">
       {/* Logo */}
-      <div className="flex h-14 items-center justify-center border-b border-slate-200 dark:border-slate-800">
+      <div className="flex h-14 items-center justify-center border-b border-sidebar-border">
         <Link to="/">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600">
-            <Activity className="h-4 w-4 text-white" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+            <Activity className="h-4 w-4 text-primary-foreground" />
           </div>
         </Link>
       </div>
@@ -101,28 +100,20 @@ export function AppSidebar() {
       )}
 
       {/* Bottom utilities */}
-      <div className="mt-auto flex flex-col items-center gap-1 border-t border-slate-200 dark:border-slate-800 py-3">
+      <div className="mt-auto flex flex-col items-center gap-1 border-t border-sidebar-border py-3">
         {user && (
           <SidebarIconButton
             href="/upload"
             icon={Plus}
             label="New Session"
             isActive={pathname === "/upload"}
-            className="text-indigo-600 dark:text-indigo-400"
-          />
-        )}
-        {user && (
-          <SidebarIconButton
-            href="/settings"
-            icon={Settings}
-            label="Settings"
-            isActive={pathname === "/settings"}
+            className="text-primary"
           />
         )}
         <button
           type="button"
           title={resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-          className="relative h-10 w-10 flex items-center justify-center rounded-lg transition-colors text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100"
+          className="relative h-10 w-10 flex items-center justify-center rounded-lg transition-colors text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
         >
           <Sun className="h-5 w-5 rotate-0 scale-100 transition-transform dark:-rotate-90 dark:scale-0" />
@@ -130,7 +121,7 @@ export function AppSidebar() {
         </button>
         {user && (
           <div
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900 text-xs font-semibold text-indigo-700 dark:text-indigo-300"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary"
             title={user.email}
           >
             {getInitials(user)}
@@ -140,7 +131,7 @@ export function AppSidebar() {
           <button
             type="button"
             title="Sign out"
-            className="h-10 w-10 flex items-center justify-center rounded-lg transition-colors text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100"
+            className="h-10 w-10 flex items-center justify-center rounded-lg transition-colors text-muted-foreground hover:bg-accent hover:text-accent-foreground"
             onClick={handleSignOut}
           >
             <LogOut className="h-5 w-5" />

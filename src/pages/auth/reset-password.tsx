@@ -44,13 +44,13 @@ export function ResetPasswordPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-950 px-4">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center gap-2 text-center">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600">
-            <Activity className="h-5 w-5 text-white" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary">
+            <Activity className="h-5 w-5 text-primary-foreground" />
           </div>
-          <span className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+          <span className="text-xl font-bold tracking-tight text-foreground">
             Scoutable
           </span>
         </div>
@@ -92,7 +92,7 @@ export function ResetPasswordPage() {
               </div>
             </CardContent>
             <CardFooter className="pt-6">
-              <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700" disabled={loading}>
+              <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? "Updating…" : "Update password"}
               </Button>
             </CardFooter>

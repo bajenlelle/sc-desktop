@@ -40,7 +40,7 @@ function ColorPicker({
 }) {
   return (
     <div className="space-y-1.5">
-      <span className="text-xs text-slate-500 dark:text-slate-400">Team colour</span>
+      <span className="text-xs text-muted-foreground">Team colour</span>
       <div className="flex flex-wrap gap-2">
         {TEAM_COLORS.map((c) => (
           <button
@@ -51,9 +51,9 @@ function ColorPicker({
             className={cn(
               "h-7 w-7 rounded-full border-2 transition-transform hover:scale-110",
               value === c.hex
-                ? "border-indigo-500 ring-2 ring-indigo-400 ring-offset-1"
-                : "border-slate-300 dark:border-slate-600",
-              c.hex === "#ffffff" && "border-slate-300 dark:border-slate-500"
+                ? "border-primary ring-2 ring-primary/70 ring-offset-1"
+                : "border-border",
+              c.hex === "#ffffff" && "border-border"
             )}
             style={{ backgroundColor: c.hex }}
           />
@@ -108,12 +108,12 @@ function RosterTable({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">{label}</span>
+        <span className="text-sm font-semibold text-foreground/80">{label}</span>
         <Button
           type="button"
           variant="ghost"
           size="sm"
-          className="h-7 gap-1 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300"
+          className="h-7 gap-1 text-xs text-primary hover:text-primary/80"
           onClick={() => addRow(roster, setter)}
         >
           <Plus className="h-3.5 w-3.5" /> Add Player
@@ -139,7 +139,7 @@ function RosterTable({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400"
+                className="h-8 w-8 text-muted-foreground/60 hover:text-red-500 dark:hover:text-red-400"
                 onClick={() => removeRow(roster, setter, i)}
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -274,7 +274,7 @@ export function EditMatchDialog({ match, onSave }: EditMatchDialogProps) {
       <DialogTrigger asChild>
         <button
           type="button"
-          className="opacity-0 group-hover:opacity-100 transition-opacity rounded-md p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+          className="opacity-0 group-hover:opacity-100 transition-opacity rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-muted"
           title="Edit session"
         >
           <Pencil className="h-4 w-4" />
@@ -289,7 +289,7 @@ export function EditMatchDialog({ match, onSave }: EditMatchDialogProps) {
         <div className="space-y-6 pt-2">
           {/* Match info */}
           <section className="space-y-3">
-            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">Match</h3>
+            <h3 className="text-sm font-semibold text-foreground/80">Match</h3>
             <div className="space-y-2">
               <Label htmlFor="edit-title">Title</Label>
               <Input
@@ -311,17 +311,17 @@ export function EditMatchDialog({ match, onSave }: EditMatchDialogProps) {
 
           {/* Teams */}
           <section className="space-y-3">
-            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">Teams</h3>
+            <h3 className="text-sm font-semibold text-foreground/80">Teams</h3>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <span className="text-sm text-slate-600 dark:text-slate-400">
-                  {match.homeTeam.name} <span className="text-xs text-slate-400">(home)</span>
+                <span className="text-sm text-muted-foreground">
+                  {match.homeTeam.name} <span className="text-xs text-muted-foreground/60">(home)</span>
                 </span>
                 <ColorPicker value={homeColor} onChange={setHomeColor} />
               </div>
               <div className="space-y-2">
-                <span className="text-sm text-slate-600 dark:text-slate-400">
-                  {match.awayTeam.name} <span className="text-xs text-slate-400">(away)</span>
+                <span className="text-sm text-muted-foreground">
+                  {match.awayTeam.name} <span className="text-xs text-muted-foreground/60">(away)</span>
                 </span>
                 <ColorPicker value={awayColor} onChange={setAwayColor} />
               </div>
@@ -330,14 +330,14 @@ export function EditMatchDialog({ match, onSave }: EditMatchDialogProps) {
 
           {/* Video Sync */}
           <section className="space-y-3">
-            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">Video Sync</h3>
+            <h3 className="text-sm font-semibold text-foreground/80">Video Sync</h3>
             {syncHint ? (
-              <p className="text-xs text-indigo-600 dark:text-indigo-400">
+              <p className="text-xs text-primary">
                 Tip-off real-world time was <strong>{syncHint}</strong> — enter the video
                 timestamp for that moment.
               </p>
             ) : (
-              <p className="text-xs text-slate-400 dark:text-slate-500">
+              <p className="text-xs text-muted-foreground/60">
                 No tip-off time available (select a game with play-by-play data first).
               </p>
             )}
@@ -365,7 +365,7 @@ export function EditMatchDialog({ match, onSave }: EditMatchDialogProps) {
 
           {/* Rosters */}
           <section className="space-y-3">
-            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">Rosters</h3>
+            <h3 className="text-sm font-semibold text-foreground/80">Rosters</h3>
             <div className="grid gap-6 sm:grid-cols-2">
               <RosterTable
                 label={match.homeTeam.name || "Home"}
@@ -392,7 +392,6 @@ export function EditMatchDialog({ match, onSave }: EditMatchDialogProps) {
             </Button>
             <Button
               type="button"
-              className="bg-indigo-600 hover:bg-indigo-700"
               onClick={handleSave}
               disabled={saving}
             >

@@ -2,7 +2,7 @@ import { Play } from "lucide-react";
 
 export function VideoPlaceholder() {
   return (
-    <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-slate-900">
+    <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-card">
       {/* Subtle grid pattern */}
       <div
         className="absolute inset-0 opacity-5"
@@ -18,7 +18,7 @@ export function VideoPlaceholder() {
         <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/10 backdrop-blur-sm transition-colors hover:bg-white/20">
           <Play className="h-7 w-7 text-white" fill="white" />
         </div>
-        <p className="text-sm font-medium text-slate-400">
+        <p className="text-sm font-medium text-muted-foreground">
           Match video will appear here
         </p>
       </div>
@@ -26,7 +26,7 @@ export function VideoPlaceholder() {
       {/* Bottom bar */}
       <div className="absolute bottom-0 left-0 right-0 flex items-center gap-3 bg-gradient-to-t from-black/60 to-transparent px-4 py-3">
         <div className="h-1 flex-1 rounded-full bg-white/20">
-          <div className="h-1 w-1/3 rounded-full bg-indigo-500" />
+          <div className="h-1 w-1/3 rounded-full bg-primary" />
         </div>
         <span className="text-xs font-medium text-white/70">00:00 / 40:00</span>
       </div>

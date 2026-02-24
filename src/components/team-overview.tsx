@@ -27,13 +27,13 @@ function StatCard({
       <CardContent className="p-4">
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               {label}
             </p>
-            <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-slate-100">
+            <p className="mt-1 text-2xl font-bold text-foreground">
               {value}
               {suffix && (
-                <span className="text-lg font-semibold text-slate-400 dark:text-slate-500">
+                <span className="text-lg font-semibold text-muted-foreground">
                   {suffix}
                 </span>
               )}
@@ -68,13 +68,13 @@ function ProgressBar({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between text-sm">
-        <span className="font-semibold text-slate-700 dark:text-slate-300">{home}</span>
-        <span className="text-xs font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">
+        <span className="font-semibold text-foreground/80">{home}</span>
+        <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
           {label}
         </span>
-        <span className="font-semibold text-slate-700 dark:text-slate-300">{away}</span>
+        <span className="font-semibold text-foreground/80">{away}</span>
       </div>
-      <div className="flex h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+      <div className="flex h-2 overflow-hidden rounded-full bg-muted">
         <div
           className="transition-all"
           style={{
@@ -114,12 +114,12 @@ export function TeamOverview({
             className="h-4 w-4 rounded-full"
             style={{ backgroundColor: homeColor }}
           />
-          <span className="text-lg font-bold text-slate-900 dark:text-slate-100">
+          <span className="text-lg font-bold text-foreground">
             {home.teamName}
           </span>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-lg font-bold text-slate-900 dark:text-slate-100">
+          <span className="text-lg font-bold text-foreground">
             {away.teamName}
           </span>
           <span

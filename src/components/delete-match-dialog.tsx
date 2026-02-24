@@ -45,9 +45,9 @@ export function DeleteMatchDialog({
         <DialogHeader>
           <DialogTitle>Delete session?</DialogTitle>
         </DialogHeader>
-        <p className="text-sm text-slate-600 dark:text-slate-400">
+        <p className="text-sm text-muted-foreground">
           This will permanently remove{" "}
-          <span className="font-semibold text-slate-900 dark:text-slate-100">
+          <span className="font-semibold text-foreground">
             {matchTitle}
           </span>{" "}
           and all its clips. This can&apos;t be undone.

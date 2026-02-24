@@ -57,7 +57,7 @@ function eventBadgeColor(e: PlayByPlayEvent): string {
     case "foulon":
       return "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300";
     default:
-      return "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
+      return "bg-muted text-muted-foreground";
   }
 }
 
@@ -239,16 +239,15 @@ export function ClipsView({
       if (videoTime === null) return;
       const seekTo = Math.max(0, videoTime - preRollRef.current);
       clipEndRef.current = videoTime + postRollRef.current;
+      video.pause();
+      video.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
       video.currentTime = seekTo;
-      video.play().catch(() => {});
     },
     [videoRef]
   );
 
   // ---------------------------------------------------------------------------
-  // Seamless auto-advance via timeupdate (no setTimeout, no pause between clips)
-  // videoAvailable in deps ensures the effect re-runs once the video element
-  // is mounted (videoRef.current was null on initial mount).
+  // Seamless auto-advance via timeupdate
   // ---------------------------------------------------------------------------
   useEffect(() => {
     const video = videoRef.current;
@@ -273,8 +272,9 @@ export function ClipsView({
           if (videoTime !== null) {
             const seekTo = Math.max(0, videoTime - preRollRef.current);
             clipEndRef.current = videoTime + postRollRef.current;
+            video.pause();
+            video.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
             video.currentTime = seekTo;
-            video.play().catch(() => {});
           }
         }
       } else {
@@ -287,7 +287,7 @@ export function ClipsView({
 
     video.addEventListener("timeupdate", handleTimeUpdate);
     return () => video.removeEventListener("timeupdate", handleTimeUpdate);
-  }, [videoRef, videoAvailable]); // videoAvailable flip re-runs when video element appears
+  }, [videoRef, videoAvailable]);
 
   // ---------------------------------------------------------------------------
   // Playback control
@@ -302,11 +302,9 @@ export function ClipsView({
   }
 
   function handleRowClick(event: PlayByPlayEvent) {
-    queueRef.current = [];
-    queueIdxRef.current = 0;
-    setIsPlaying(false);
-    setActiveEventId(event.eventId);
-    seekToEvent(event);
+    const idx = displayEvents.findIndex((e) => e.eventId === event.eventId);
+    const queue = idx >= 0 ? displayEvents.slice(idx) : [event];
+    startQueue(queue);
   }
 
   function handlePlayAll() {
@@ -337,7 +335,6 @@ export function ClipsView({
     const queue = pl.eventIds
       .map((id) => eventMap.get(id))
       .filter((e): e is PlayByPlayEvent => e !== undefined);
-    // Reset queue state before starting so stop→start is clean
     queueRef.current = [];
     queueIdxRef.current = 0;
     clipEndRef.current = undefined;
@@ -432,29 +429,29 @@ export function ClipsView({
     <div className="space-y-4">
       {/* Saved Playlists — only shown in all-clips mode */}
       {!activePlaylist && (playlists.length > 0 || onPlaylistsChange) && (
-        <div className="rounded-lg border border-slate-200 dark:border-slate-700">
-          <div className="border-b border-slate-200 dark:border-slate-700 px-4 py-2.5">
-            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+        <div className="rounded-lg border border-border">
+          <div className="border-b border-border px-4 py-2.5">
+            <h3 className="text-sm font-semibold text-foreground/80">
               Saved Playlists
             </h3>
           </div>
           {playlists.length === 0 ? (
-            <p className="px-4 py-3 text-xs text-slate-400 dark:text-slate-500">
+            <p className="px-4 py-3 text-xs text-muted-foreground">
               No playlists yet. Select clips below to create one.
             </p>
           ) : (
-            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            <div className="divide-y divide-border">
               {playlists.map((pl) => (
                 <div
                   key={pl.id}
-                  className="flex cursor-pointer items-center justify-between px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                  className="flex cursor-pointer items-center justify-between px-4 py-2.5 hover:bg-muted/50"
                   onClick={() => handleOpenPlaylist(pl)}
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400">
+                    <span className="text-sm font-medium text-primary hover:underline">
                       {pl.name}
                     </span>
-                    <span className="text-xs text-slate-400">
+                    <span className="text-xs text-muted-foreground">
                       {pl.eventIds.length} clip{pl.eventIds.length !== 1 ? "s" : ""}
                     </span>
                   </div>
@@ -476,7 +473,7 @@ export function ClipsView({
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="h-7 w-7 p-0 text-slate-400 hover:text-red-500"
+                        className="h-7 w-7 p-0 text-muted-foreground hover:text-red-500"
                         onClick={() => handleDeletePlaylist(pl.id)}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -490,27 +487,24 @@ export function ClipsView({
         </div>
       )}
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Playlist mode: breadcrumb header + slim controls                    */}
-      {/* All-clips mode: filter controls                                     */}
-      {/* ------------------------------------------------------------------ */}
+      {/* Playlist mode header / All-clips filter controls */}
       {activePlaylist ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-indigo-100 bg-indigo-50 px-4 py-2.5 dark:border-indigo-900 dark:bg-indigo-950/40">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/10 px-4 py-2.5">
           {/* Left: back + playlist name */}
           <div className="flex items-center gap-3">
             <Button
               size="sm"
               variant="ghost"
-              className="h-7 gap-1 px-2 text-xs text-indigo-600 hover:bg-indigo-100 dark:text-indigo-400 dark:hover:bg-indigo-900"
+              className="h-7 gap-1 px-2 text-xs text-primary hover:bg-primary/10"
               onClick={handleExitPlaylistView}
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               All Clips
             </Button>
-            <span className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">
+            <span className="text-sm font-semibold text-primary">
               {activePlaylist.name}
             </span>
-            <span className="text-xs text-indigo-500 dark:text-indigo-400">
+            <span className="text-xs text-primary/70">
               {playlistEvents?.length ?? 0} clip{(playlistEvents?.length ?? 0) !== 1 ? "s" : ""}
             </span>
           </div>
@@ -518,7 +512,7 @@ export function ClipsView({
           {/* Right: pre/post roll + play/stop */}
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-1.5">
-              <label className="text-xs text-indigo-500 dark:text-indigo-400">Pre</label>
+              <label className="text-xs text-primary/70">Pre</label>
               <Input
                 type="number"
                 min={0}
@@ -527,7 +521,7 @@ export function ClipsView({
                 value={preRoll}
                 onChange={(e) => setPreRoll(Number(e.target.value))}
               />
-              <label className="text-xs text-indigo-500 dark:text-indigo-400">Post</label>
+              <label className="text-xs text-primary/70">Post</label>
               <Input
                 type="number"
                 min={0}
@@ -545,7 +539,7 @@ export function ClipsView({
             ) : (
               <Button
                 size="sm"
-                className="h-8 gap-1.5 bg-indigo-600 text-white hover:bg-indigo-700"
+                className="h-8 gap-1.5"
                 onClick={() => playlistEvents && startQueue([...playlistEvents])}
                 disabled={!playlistEvents || playlistEvents.length === 0 || noSync}
               >
@@ -560,9 +554,9 @@ export function ClipsView({
         <div className="flex flex-wrap items-end gap-3">
           {/* Type filter */}
           <div className="space-y-1">
-            <label className="text-xs text-slate-500 dark:text-slate-400">Event type</label>
+            <label className="text-xs text-muted-foreground">Event type</label>
             <select
-              className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              className="h-9 rounded-md border border-border bg-background px-2 text-sm text-foreground"
               value={filterType}
               onChange={(e) => setFilterType(e.target.value)}
             >
@@ -577,9 +571,9 @@ export function ClipsView({
           {/* Team filter */}
           {teams.length > 0 && (
             <div className="space-y-1">
-              <label className="text-xs text-slate-500 dark:text-slate-400">Team</label>
+              <label className="text-xs text-muted-foreground">Team</label>
               <select
-                className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                className="h-9 rounded-md border border-border bg-background px-2 text-sm text-foreground"
                 value={filterTeam}
                 onChange={(e) => setFilterTeam(e.target.value)}
               >
@@ -596,9 +590,9 @@ export function ClipsView({
           {/* Player filter */}
           {players.length > 0 && (
             <div className="space-y-1">
-              <label className="text-xs text-slate-500 dark:text-slate-400">Player</label>
+              <label className="text-xs text-muted-foreground">Player</label>
               <select
-                className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                className="h-9 rounded-md border border-border bg-background px-2 text-sm text-foreground"
                 value={filterPlayer}
                 onChange={(e) => setFilterPlayer(e.target.value)}
               >
@@ -614,7 +608,7 @@ export function ClipsView({
 
           {/* Pre/post roll */}
           <div className="space-y-1">
-            <label className="text-xs text-slate-500 dark:text-slate-400">Pre-roll (s)</label>
+            <label className="text-xs text-muted-foreground">Pre-roll (s)</label>
             <Input
               type="number"
               min={0}
@@ -625,7 +619,7 @@ export function ClipsView({
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs text-slate-500 dark:text-slate-400">Post-roll (s)</label>
+            <label className="text-xs text-muted-foreground">Post-roll (s)</label>
             <Input
               type="number"
               min={0}
@@ -650,7 +644,7 @@ export function ClipsView({
             ) : (
               <Button
                 size="sm"
-                className="gap-1.5 bg-indigo-600 text-white hover:bg-indigo-700"
+                className="gap-1.5"
                 onClick={handlePlayAll}
                 disabled={filtered.length === 0 || noSync}
               >
@@ -670,8 +664,8 @@ export function ClipsView({
 
       {/* Selection action bar */}
       {selectedIds.size > 0 && onPlaylistsChange && (
-        <div className="flex flex-wrap items-center gap-3 rounded-lg bg-indigo-50 px-4 py-2.5 dark:bg-indigo-950/40">
-          <span className="text-sm font-medium text-indigo-700 dark:text-indigo-300">
+        <div className="flex flex-wrap items-center gap-3 rounded-lg bg-primary/10 px-4 py-2.5">
+          <span className="text-sm font-medium text-primary">
             {selectedIds.size} clip{selectedIds.size !== 1 ? "s" : ""} selected
           </span>
           <div className="ml-auto flex items-center gap-2">
@@ -699,7 +693,7 @@ export function ClipsView({
                 />
                 <Button
                   size="sm"
-                  className="h-7 gap-1 bg-indigo-600 px-2 text-xs text-white hover:bg-indigo-700"
+                  className="h-7 gap-1 px-2 text-xs"
                   onClick={handleCreatePlaylist}
                   disabled={!newPlaylistName.trim()}
                 >
@@ -718,15 +712,15 @@ export function ClipsView({
                       <ChevronDown className="h-3 w-3" />
                     </Button>
                     {showAddToDropdown && (
-                      <div className="absolute right-0 z-10 mt-1 w-48 rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
+                      <div className="absolute right-0 z-10 mt-1 w-48 rounded-md border border-border bg-popover shadow-lg">
                         {playlists.map((pl) => (
                           <button
                             key={pl.id}
-                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
                             onClick={() => handleAddToPlaylist(pl)}
                           >
                             <span className="flex-1 truncate">{pl.name}</span>
-                            <span className="text-xs text-slate-400">{pl.eventIds.length}</span>
+                            <span className="text-xs text-muted-foreground">{pl.eventIds.length}</span>
                           </button>
                         ))}
                       </div>
@@ -741,13 +735,13 @@ export function ClipsView({
 
       {/* Event list */}
       {displayEvents.length === 0 ? (
-        <p className="py-12 text-center text-sm text-slate-500 dark:text-slate-400">
+        <p className="py-12 text-center text-sm text-muted-foreground">
           {activePlaylist ? "This playlist has no clips." : "No events match the current filters."}
         </p>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+        <div className="overflow-hidden rounded-lg border border-border">
           <table className="w-full text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
+            <thead className="border-b border-border bg-muted/50 text-xs font-medium text-muted-foreground">
               <tr>
                 {onPlaylistsChange && (
                   <th className="w-8 px-3 py-2.5">
@@ -755,7 +749,7 @@ export function ClipsView({
                       type="checkbox"
                       checked={allSelected}
                       onChange={toggleSelectAll}
-                      className="h-3.5 w-3.5 rounded border-slate-300 accent-indigo-600"
+                      className="h-3.5 w-3.5 rounded border-border accent-primary"
                     />
                   </th>
                 )}
@@ -768,7 +762,7 @@ export function ClipsView({
                 <th className="px-4 py-2.5 text-left"></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+            <tbody className="divide-y divide-border">
               {displayEvents.map((event, idx) => {
                 const vt = syncPoint ? computeVideoTime(event, syncPoint) : null;
                 const isActive = event.eventId === activeEventId;
@@ -778,9 +772,9 @@ export function ClipsView({
                 return (
                   <tr
                     key={`${event.eventId}-${idx}`}
-                    className={`cursor-pointer transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
-                      isActive ? "bg-indigo-50 dark:bg-indigo-950/40" : ""
-                    } ${isSelected && !isActive ? "bg-indigo-50/50 dark:bg-indigo-950/20" : ""}`}
+                    className={`cursor-pointer transition-colors hover:bg-muted/50 ${
+                      isActive ? "bg-primary/10" : ""
+                    } ${isSelected && !isActive ? "bg-primary/5" : ""}`}
                     onClick={() => handleRowClick(event)}
                   >
                     {onPlaylistsChange && (
@@ -790,14 +784,14 @@ export function ClipsView({
                           checked={isSelected}
                           onChange={() => {}}
                           onClick={(ev) => toggleSelect(event.eventId, ev)}
-                          className="h-3.5 w-3.5 rounded border-slate-300 accent-indigo-600"
+                          className="h-3.5 w-3.5 rounded border-border accent-primary"
                         />
                       </td>
                     )}
-                    <td className="px-4 py-2.5 text-slate-600 dark:text-slate-400">
+                    <td className="px-4 py-2.5 text-muted-foreground">
                       Q{event.period}
                     </td>
-                    <td className="px-4 py-2.5 font-mono text-slate-600 dark:text-slate-400">
+                    <td className="px-4 py-2.5 font-mono text-muted-foreground">
                       {formatGameClock(event.gameClockTime)}
                     </td>
                     <td className="px-4 py-2.5">
@@ -807,18 +801,18 @@ export function ClipsView({
                         {eventLabel(event)}
                       </span>
                     </td>
-                    <td className="px-4 py-2.5 text-slate-700 dark:text-slate-300">
+                    <td className="px-4 py-2.5 text-foreground/80">
                       {pNo !== null && (
-                        <span className="mr-1.5 font-mono text-xs text-slate-400">
+                        <span className="mr-1.5 font-mono text-xs text-muted-foreground">
                           #{pNo}
                         </span>
                       )}
                       {pName}
                     </td>
-                    <td className="px-4 py-2.5 text-slate-600 dark:text-slate-400">
+                    <td className="px-4 py-2.5 text-muted-foreground">
                       {event.eventTeam?.teamName ?? "—"}
                     </td>
-                    <td className="px-4 py-2.5 font-mono text-xs text-slate-500 dark:text-slate-400">
+                    <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
                       {vt !== null
                         ? `${Math.floor(vt / 60)}:${String(Math.floor(vt % 60)).padStart(2, "0")}`
                         : "—"}
@@ -827,8 +821,8 @@ export function ClipsView({
                       <Play
                         className={`h-3.5 w-3.5 ${
                           isActive
-                            ? "text-indigo-500"
-                            : "text-slate-300 dark:text-slate-600"
+                            ? "text-primary"
+                            : "text-muted-foreground/40"
                         }`}
                       />
                     </td>
@@ -842,7 +836,7 @@ export function ClipsView({
 
       {/* Fallback info when team names from events are empty */}
       {!activePlaylist && teams.length === 0 && (homeTeamName || awayTeamName) && (
-        <p className="text-xs text-slate-400 dark:text-slate-500">
+        <p className="text-xs text-muted-foreground">
           Teams: {homeTeamName} vs {awayTeamName}
         </p>
       )}

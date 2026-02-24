@@ -7,17 +7,17 @@ export function SettingsPage() {
   return (
     <div className="p-6 max-w-2xl space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">
           Settings
         </h1>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+        <p className="mt-1 text-sm text-muted-foreground">
           Configure your AI analytics preferences.
         </p>
       </div>
 
       <Card>
         <CardContent className="space-y-4 p-6">
-          <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+          <h2 className="text-base font-semibold text-foreground">
             API Configuration
           </h2>
           <div className="space-y-2">
@@ -36,7 +36,7 @@ export function SettingsPage() {
               placeholder="Enter your token"
             />
           </div>
-          <Button className="bg-indigo-600 hover:bg-indigo-700">
+          <Button>
             Save Settings
           </Button>
         </CardContent>
@@ -44,7 +44,7 @@ export function SettingsPage() {
 
       <Card>
         <CardContent className="space-y-4 p-6">
-          <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+          <h2 className="text-base font-semibold text-foreground">
             Detection Model
           </h2>
           <div className="space-y-2">
@@ -65,7 +65,7 @@ export function SettingsPage() {
               <Input id="iou" type="number" defaultValue="0.9" step="0.05" />
             </div>
           </div>
-          <Button className="bg-indigo-600 hover:bg-indigo-700">
+          <Button>
             Update Models
           </Button>
         </CardContent>

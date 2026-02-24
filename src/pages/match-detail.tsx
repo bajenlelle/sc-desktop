@@ -129,7 +129,7 @@ export function MatchDetailPage() {
     return (
       <div className="p-6">
         <div className="py-24 text-center">
-          <p className="text-slate-500 dark:text-slate-400">Session not found.</p>
+          <p className="text-muted-foreground">Session not found.</p>
           <Link to="/matches">
             <Button variant="ghost" size="sm" className="mt-4">
               Back to Sessions
@@ -144,7 +144,7 @@ export function MatchDetailPage() {
     return (
       <div className="p-6">
         <div className="py-24 text-center">
-          <p className="text-slate-500 dark:text-slate-400">Loading…</p>
+          <p className="text-muted-foreground">Loading…</p>
         </div>
       </div>
     );
@@ -163,7 +163,7 @@ export function MatchDetailPage() {
       <div className="space-y-6">
         <div>
           <Link to="/matches">
-            <Button variant="ghost" size="sm" className="mb-3 gap-1.5 text-slate-600 dark:text-slate-400">
+            <Button variant="ghost" size="sm" className="mb-3 gap-1.5 text-muted-foreground">
               <ArrowLeft className="h-4 w-4" />
               Back to Sessions
             </Button>
@@ -172,7 +172,7 @@ export function MatchDetailPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="group flex items-center gap-3">
-                <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+                <h1 className="text-2xl font-bold tracking-tight text-foreground">
                   {storedMatch.title}
                 </h1>
                 <Badge className="bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950">
@@ -188,7 +188,7 @@ export function MatchDetailPage() {
                   trigger={
                     <button
                       type="button"
-                      className="opacity-0 group-hover:opacity-100 transition-opacity rounded-md p-1 text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity rounded-md p-1 text-muted-foreground hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950"
                       title="Delete session"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -197,7 +197,7 @@ export function MatchDetailPage() {
                   onDeleted={() => navigate("/matches")}
                 />
               </div>
-              <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-slate-500 dark:text-slate-400">
+              <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
                 <span className="flex items-center gap-1.5">
                   <Calendar className="h-3.5 w-3.5" />
                   {formattedDate}
@@ -221,7 +221,7 @@ export function MatchDetailPage() {
                 )}
                 {storedMatch.homeTeam.name}
               </div>
-              <span className="text-slate-300 dark:text-slate-600">vs</span>
+              <span className="text-border">vs</span>
               <div className="flex items-center gap-2">
                 {storedMatch.awayTeam.name}
                 {storedMatch.awayTeam.color && (
@@ -242,8 +242,8 @@ export function MatchDetailPage() {
             onDragOver={(e) => e.preventDefault()}
           >
             {dragActive ? (
-              <div className="flex aspect-video items-center justify-center rounded-lg border-2 border-dashed border-indigo-400 bg-indigo-50 dark:bg-indigo-950">
-                <p className="text-sm font-semibold text-indigo-600 dark:text-indigo-400">
+              <div className="flex aspect-video items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10">
+                <p className="text-sm font-semibold text-primary">
                   Drop to replace video
                 </p>
               </div>
@@ -253,7 +253,7 @@ export function MatchDetailPage() {
             <div className="flex items-center justify-end">
               <button
                 type="button"
-                className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
                 onClick={handlePickVideoFile}
               >
                 <FolderOpen className="h-3.5 w-3.5" />
@@ -265,23 +265,23 @@ export function MatchDetailPage() {
           <div
             className={`flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed py-14 transition-colors ${
               dragActive
-                ? "border-indigo-400 bg-indigo-50 dark:bg-indigo-950"
-                : "border-slate-300 bg-slate-50 hover:border-indigo-300 hover:bg-indigo-50/40 dark:border-slate-600 dark:bg-slate-900 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/30"
+                ? "border-primary bg-primary/10"
+                : "border-border bg-muted hover:border-primary/50 hover:bg-primary/5"
             }`}
             onDragOver={(e) => e.preventDefault()}
           >
-            <FolderOpen className="h-9 w-9 text-slate-400 dark:text-slate-500" />
+            <FolderOpen className="h-9 w-9 text-muted-foreground" />
             <div className="text-center">
-              <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+              <p className="text-sm font-semibold text-foreground/80">
                 {dragActive ? "Drop video file here" : "Video plays locally — drop a file or click to select"}
               </p>
-              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              <p className="mt-0.5 text-xs text-muted-foreground">
                 Your video stays on your machine, nothing is uploaded
               </p>
             </div>
             <button
               type="button"
-              className="mt-1 inline-flex h-9 items-center rounded-md bg-indigo-600 px-4 text-sm font-medium text-white hover:bg-indigo-700"
+              className="mt-1 inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
               onClick={handlePickVideoFile}
             >
               Choose video file…
@@ -347,7 +347,7 @@ export function MatchDetailPage() {
     <div className="space-y-6">
       <div>
         <Link to="/matches">
-          <Button variant="ghost" size="sm" className="mb-3 gap-1.5 text-slate-600 dark:text-slate-400">
+          <Button variant="ghost" size="sm" className="mb-3 gap-1.5 text-muted-foreground">
             <ArrowLeft className="h-4 w-4" />
             Back to Sessions
           </Button>
@@ -356,14 +356,14 @@ export function MatchDetailPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+              <h1 className="text-2xl font-bold tracking-tight text-foreground">
                 {m.title}
               </h1>
               <Badge className="bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950">
                 Completed
               </Badge>
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-slate-500 dark:text-slate-400">
+            <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
               <span className="flex items-center gap-1.5">
                 <Calendar className="h-3.5 w-3.5" />
                 {formattedDate}
@@ -388,7 +388,7 @@ export function MatchDetailPage() {
               <span className="h-4 w-4 rounded-full" style={{ backgroundColor: m.homeTeam.color }} />
               {m.homeTeam.name}
             </div>
-            <span className="text-slate-300 dark:text-slate-600">vs</span>
+            <span className="text-border">vs</span>
             <div className="flex items-center gap-2">
               {m.awayTeam.name}
               <span className="h-4 w-4 rounded-full" style={{ backgroundColor: m.awayTeam.color }} />
@@ -410,7 +410,7 @@ export function MatchDetailPage() {
           {m.playerStats && m.playerStats.length > 0 ? (
             <PlayerStatsTable stats={m.playerStats} homeTeam={m.homeTeam} awayTeam={m.awayTeam} />
           ) : (
-            <p className="py-12 text-center text-sm text-slate-500 dark:text-slate-400">No player stats available.</p>
+            <p className="py-12 text-center text-sm text-muted-foreground">No player stats available.</p>
           )}
         </TabsContent>
 
@@ -418,7 +418,7 @@ export function MatchDetailPage() {
           {m.events && m.events.length > 0 ? (
             <EventTimeline events={m.events} homeTeam={m.homeTeam} awayTeam={m.awayTeam} />
           ) : (
-            <p className="py-12 text-center text-sm text-slate-500 dark:text-slate-400">No events recorded.</p>
+            <p className="py-12 text-center text-sm text-muted-foreground">No events recorded.</p>
           )}
         </TabsContent>
 
@@ -431,7 +431,7 @@ export function MatchDetailPage() {
               awayColor={m.awayTeam.color}
             />
           ) : (
-            <p className="py-12 text-center text-sm text-slate-500 dark:text-slate-400">No team stats available.</p>
+            <p className="py-12 text-center text-sm text-muted-foreground">No team stats available.</p>
           )}
         </TabsContent>
       </Tabs>
@@ -450,20 +450,20 @@ function RosterCard({
   players: Array<{ jerseyNumber: string; playerName: string }>;
 }) {
   return (
-    <div className="rounded-lg border border-slate-200 dark:border-slate-700">
-      <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+    <div className="rounded-lg border border-border">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
         {color && (
           <span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: color }} />
         )}
-        <span className="font-semibold text-slate-800 dark:text-slate-100">{teamName}</span>
+        <span className="font-semibold text-foreground">{teamName}</span>
       </div>
-      <div className="divide-y divide-slate-100 dark:divide-slate-800">
+      <div className="divide-y divide-border">
         {players.map((p, i) => (
           <div key={i} className="flex items-center gap-3 px-4 py-2.5">
-            <span className="w-8 text-right font-mono text-xs text-slate-400">
+            <span className="w-8 text-right font-mono text-xs text-muted-foreground">
               #{p.jerseyNumber}
             </span>
-            <span className="text-sm text-slate-700 dark:text-slate-300">{p.playerName}</span>
+            <span className="text-sm text-foreground/80">{p.playerName}</span>
           </div>
         ))}
       </div>
