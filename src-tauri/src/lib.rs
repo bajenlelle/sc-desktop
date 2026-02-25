@@ -11,6 +11,7 @@ use tauri::http::{Response, StatusCode};
 
 #[derive(serde::Deserialize)]
 struct ClipSegment {
+    video_path: String,
     start: f64,
     end: f64,
 }
@@ -18,7 +19,6 @@ struct ClipSegment {
 #[tauri::command]
 async fn export_playlist(
     app: tauri::AppHandle,
-    video_path: String,
     clips: Vec<ClipSegment>,
     output_path: String,
 ) -> Result<(), String> {
@@ -31,7 +31,7 @@ async fn export_playlist(
     // Build FFmpeg concat demuxer file
     let mut concat_content = String::new();
     for clip in &clips {
-        concat_content.push_str(&format!("file '{}'\n", video_path.replace('\'', "'\\''")));
+        concat_content.push_str(&format!("file '{}'\n", clip.video_path.replace('\'', "'\\''")));
         concat_content.push_str(&format!("inpoint {:.3}\n", clip.start));
         concat_content.push_str(&format!("outpoint {:.3}\n", clip.end));
     }

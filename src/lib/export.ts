@@ -11,23 +11,34 @@ function computeVideoTime(event: PlayByPlayEvent, sync: SyncPoint): number | nul
   return sync.syncVideoTime + (eventMs - syncMs) / 1000;
 }
 
+export interface ExportItem {
+  videoPath: string;
+  event: PlayByPlayEvent;
+  syncPoint: SyncPoint;
+}
+
 export async function exportPlaylist(
-  videoUrl: string,
-  events: PlayByPlayEvent[],
-  syncPoint: SyncPoint,
+  items: ExportItem[],
   preRoll: number,
   postRoll: number,
   playlistName: string,
 ): Promise<void> {
-  if (!isLocalPath(videoUrl)) throw new Error("Export requires a local video file.");
+  for (const item of items) {
+    if (!isLocalPath(item.videoPath))
+      throw new Error("Export requires a local video file for every session.");
+  }
 
-  const clips = events
-    .map((e) => {
-      const t = computeVideoTime(e, syncPoint);
+  const clips = items
+    .map((item) => {
+      const t = computeVideoTime(item.event, item.syncPoint);
       if (t === null) return null;
-      return { start: Math.max(0, t - preRoll), end: t + postRoll };
+      return {
+        video_path: item.videoPath,
+        start: Math.max(0, t - preRoll),
+        end: t + postRoll,
+      };
     })
-    .filter((c): c is { start: number; end: number } => c !== null);
+    .filter((c): c is { video_path: string; start: number; end: number } => c !== null);
 
   if (clips.length === 0) throw new Error("No clips with valid video times.");
 
@@ -37,9 +48,5 @@ export async function exportPlaylist(
   });
   if (!outputPath) return; // user cancelled
 
-  await invoke<void>("export_playlist", {
-    videoPath: videoUrl,
-    clips,
-    outputPath,
-  });
+  await invoke<void>("export_playlist", { clips, outputPath });
 }

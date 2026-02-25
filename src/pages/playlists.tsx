@@ -25,7 +25,7 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/componen
 import { VideoClipControls } from "@/components/video-clip-controls";
 import { listMatches, updatePlaylists } from "@/lib/matches-db";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
-import { exportPlaylist } from "@/lib/export";
+import { exportPlaylist, type ExportItem } from "@/lib/export";
 import type { Playlist, PlaylistClip, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 
 // ---------------------------------------------------------------------------
@@ -531,18 +531,17 @@ export function PlaylistsPage() {
   // ---------------------------------------------------------------------------
 
   async function handleExport() {
-    if (!selected?.match.videoUrl || !selected.match.syncPoint) return;
     setIsExporting(true);
     setExportError(null);
     try {
-      await exportPlaylist(
-        selected.match.videoUrl,
-        sortedEvents.map((item) => item.event),
-        selected.match.syncPoint,
-        preRoll,
-        postRoll,
-        selected.playlist.name,
-      );
+      const items = sortedEvents
+        .map((item) => {
+          const m = matchLookup.get(item.matchId);
+          if (!m?.videoUrl || !m.syncPoint) return null;
+          return { videoPath: m.videoUrl, event: item.event, syncPoint: m.syncPoint } satisfies ExportItem;
+        })
+        .filter((x): x is ExportItem => x !== null);
+      await exportPlaylist(items, preRoll, postRoll, selected!.playlist.name);
     } catch (e) {
       setExportError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -571,13 +570,18 @@ export function PlaylistsPage() {
   const noSync = selected !== null && !selected.match.syncPoint;
   const noVideo = selected !== null && !selected.match.videoUrl;
 
-  const exportDisabledReason =
-    !localVideoUrl ? "No video loaded" :
-    !selected?.match.syncPoint ? "No sync point set" :
-    sortedEvents.length === 0 ? "Playlist is empty" :
-    isMultiMatch ? "Export not supported for cross-match playlists" :
-    selected?.match.videoUrl && !isLocalPath(selected.match.videoUrl) ? "Export requires a local video file" :
-    null;
+  const exportDisabledReason = (() => {
+    if (sortedEvents.length === 0) return "Playlist is empty";
+    const involvedMatchIds = new Set(sortedEvents.map((i) => i.matchId));
+    for (const mId of involvedMatchIds) {
+      const m = matchLookup.get(mId);
+      if (!m?.videoUrl || !isLocalPath(m.videoUrl))
+        return "All sessions need a local video file for export";
+      if (!m.syncPoint)
+        return "All sessions need a sync point for export";
+    }
+    return null;
+  })();
 
   // ---------------------------------------------------------------------------
   // Render

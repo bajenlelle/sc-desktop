@@ -6,7 +6,7 @@ import { Reorder, useDragControls } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Playlist, PlaylistClip, PlayByPlayEvent, SyncPoint } from "@/types/match";
-import { exportPlaylist } from "@/lib/export";
+import { exportPlaylist, type ExportItem } from "@/lib/export";
 import { isLocalPath } from "@/lib/stream";
 
 // ---------------------------------------------------------------------------
@@ -514,7 +514,12 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
     setIsExporting(true);
     setExportError(null);
     try {
-      await exportPlaylist(videoUrl, eventsToExport, syncPoint, preRoll, postRoll, name);
+      await exportPlaylist(
+        eventsToExport.map((e): ExportItem => ({ videoPath: videoUrl, event: e, syncPoint })),
+        preRoll,
+        postRoll,
+        name,
+      );
     } catch (e) {
       setExportError(e instanceof Error ? e.message : String(e));
     } finally {
