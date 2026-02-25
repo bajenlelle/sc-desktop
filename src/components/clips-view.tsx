@@ -31,8 +31,9 @@ function eventLabel(e: PlayByPlayEvent): string {
     case "steal":
       return "Steal";
     case "foul":
-    case "foulon":
       return "Foul";
+    case "foulon":
+      return "Foul Drawn";
     case "block":
       return "Block";
     case "assist":
@@ -208,6 +209,8 @@ export interface ClipsViewHandle {
   replay(): void;
   stop(): void;
   playAll(): void;
+  adjustPreOffset(delta: number): void;
+  adjustPostOffset(delta: number): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -219,6 +222,8 @@ function DraggableClipsRow({
   isActive,
   isSelected,
   jerseyNo,
+  preOffset,
+  postOffset,
   onRowClick,
   onToggleSelect,
   showCheckbox,
@@ -227,6 +232,8 @@ function DraggableClipsRow({
   isActive: boolean;
   isSelected: boolean;
   jerseyNo: string | null;
+  preOffset?: number;
+  postOffset?: number;
   onRowClick: () => void;
   onToggleSelect?: (ev: React.MouseEvent) => void;
   showCheckbox: boolean;
@@ -287,11 +294,21 @@ function DraggableClipsRow({
         {event.eventTeam?.teamName ?? "—"}
       </td>
       <td className="px-4 py-2.5">
-        <Play
-          className={`h-3.5 w-3.5 ${
-            isActive ? "text-primary" : "text-muted-foreground/40"
-          }`}
-        />
+        <div className="flex items-center gap-1">
+          <Play
+            className={`h-3.5 w-3.5 ${
+              isActive ? "text-primary" : "text-muted-foreground/40"
+            }`}
+          />
+          {((preOffset ?? 0) !== 0 || (postOffset ?? 0) !== 0) && (
+            <span
+              className="text-[10px] font-medium text-orange-400"
+              title={`Pre ${(preOffset ?? 0) >= 0 ? "+" : ""}${preOffset ?? 0}s / Post ${(postOffset ?? 0) >= 0 ? "+" : ""}${postOffset ?? 0}s`}
+            >
+              ±
+            </span>
+          )}
+        </div>
       </td>
     </Reorder.Item>
   );
@@ -418,7 +435,8 @@ interface ClipsViewProps {
   playlists?: Playlist[];
   onPlaylistsChange?: (p: Playlist[]) => void;
   videoAvailable?: boolean;
-  onPlaybackChange?: (canPrev: boolean, canNext: boolean, isQueueActive: boolean) => void;
+  onPlaybackChange?: (canPrev: boolean, canNext: boolean, isQueueActive: boolean, hasActivePlaylist: boolean) => void;
+  onActiveClipChange?: (pre: number, post: number) => void;
   allPlaylists?: Array<{ matchId: string; matchTitle: string; playlist: Playlist }>;
   onAddToExternalPlaylist?: (anchorMatchId: string, updatedPlaylists: Playlist[]) => Promise<void>;
 }
@@ -437,6 +455,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
   onPlaylistsChange,
   videoAvailable = false,
   onPlaybackChange,
+  onActiveClipChange,
   allPlaylists,
   onAddToExternalPlaylist,
 }: ClipsViewProps, ref) {
@@ -470,6 +489,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
   useEffect(() => { preRollRef.current = preRoll; }, [preRoll]);
   const postRollRef = useRef(postRoll);
   useEffect(() => { postRollRef.current = postRoll; }, [postRoll]);
+  const transientOffsetRef = useRef({ pre: 0, post: 0 });
 
   // Playback queue — mutable refs avoid stale-closure bugs in timeupdate
   const queueRef = useRef<PlayByPlayEvent[]>([]);
@@ -501,6 +521,8 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
 
   // Active playlist (playlist view mode)
   const [activePlaylist, setActivePlaylist] = useState<Playlist | null>(null);
+  const activePlaylistRef = useRef(activePlaylist);
+  useEffect(() => { activePlaylistRef.current = activePlaylist; }, [activePlaylist]);
 
   // Clock sort
   const [clockSort, setClockSort] = useState<ClockSort>("none");
@@ -515,7 +537,18 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
     setExportError(null);
     try {
       await exportPlaylist(
-        eventsToExport.map((e): ExportItem => ({ videoPath: videoUrl, event: e, syncPoint })),
+        eventsToExport.map((e): ExportItem => {
+          const clip = activePlaylistRef.current?.clips.find(
+            (c) => c.matchId === matchId && c.eventId === e.eventId
+          );
+          return {
+            videoPath: videoUrl,
+            event: e,
+            syncPoint,
+            preRollOffset: clip?.preRollOffset,
+            postRollOffset: clip?.postRollOffset,
+          };
+        }),
         preRoll,
         postRoll,
         name,
@@ -591,20 +624,29 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
   // ---------------------------------------------------------------------------
   // Seek helper — reads pre/post roll and syncPoint from refs
   // ---------------------------------------------------------------------------
+
+  function getClipOffset(eventId: number) {
+    const clip = activePlaylistRef.current?.clips.find(
+      (c) => c.matchId === matchId && c.eventId === eventId
+    );
+    return { pre: clip?.preRollOffset ?? 0, post: clip?.postRollOffset ?? 0 };
+  }
+
   const seekToEvent = useCallback(
-    (event: PlayByPlayEvent) => {
+    (event: PlayByPlayEvent, preOverride?: number, postOverride?: number) => {
       const sp = syncPointRef.current;
       const video = videoRef.current;
       if (!sp || !video) return;
       const videoTime = computeVideoTime(event, sp);
       if (videoTime === null) return;
-      const seekTo = Math.max(0, videoTime - preRollRef.current);
-      clipEndRef.current = videoTime + postRollRef.current;
+      const { pre, post } = getClipOffset(event.eventId);
+      const seekTo = Math.max(0, Math.min(videoTime, videoTime - preRollRef.current - (preOverride ?? pre)));
+      clipEndRef.current = Math.max(videoTime, videoTime + postRollRef.current + (postOverride ?? post));
       video.pause();
       video.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
       video.currentTime = seekTo;
     },
-    [videoRef]
+    [videoRef] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // ---------------------------------------------------------------------------
@@ -617,12 +659,16 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
     if (event) seekToEvent(event);
   }, [seekToEvent]);
 
+  const adjustActiveClipRef = useRef<(preDelta: number, postDelta: number) => void>(() => {});
+
   useImperativeHandle(ref, () => ({
     goPrev: handleGoPrev,
     goNext: handleGoNext,
     replay: handleReplay,
     stop: handleStop,
     playAll: handlePlayAll,
+    adjustPreOffset: (delta: number) => adjustActiveClipRef.current(delta, 0),
+    adjustPostOffset: (delta: number) => adjustActiveClipRef.current(0, delta),
   }));
 
   // ---------------------------------------------------------------------------
@@ -649,8 +695,11 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
         if (sp) {
           const videoTime = computeVideoTime(nextEvent, sp);
           if (videoTime !== null) {
-            const seekTo = Math.max(0, videoTime - preRollRef.current);
-            clipEndRef.current = videoTime + postRollRef.current;
+            const nextClip = activePlaylistRef.current?.clips.find(
+              (c) => c.matchId === matchId && c.eventId === nextEvent.eventId
+            );
+            const seekTo = Math.max(0, videoTime - preRollRef.current - (nextClip?.preRollOffset ?? 0));
+            clipEndRef.current = videoTime + postRollRef.current + (nextClip?.postRollOffset ?? 0);
             video.pause();
             video.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
             video.currentTime = seekTo;
@@ -719,9 +768,20 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
 
   // Notify parent of playback state changes
   useEffect(() => {
-    onPlaybackChange?.(canPrev, canNext, isQueueActive);
+    onPlaybackChange?.(canPrev, canNext, isQueueActive, activePlaylist !== null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canPrev, canNext, isQueueActive]);
+  }, [canPrev, canNext, isQueueActive, activePlaylist]);
+
+  // Notify parent of active clip offset changes
+  useEffect(() => {
+    transientOffsetRef.current = { pre: 0, post: 0 };
+    if (activeEventId === null) { onActiveClipChange?.(0, 0); return; }
+    const clip = activePlaylistRef.current?.clips.find(
+      (c) => c.matchId === matchId && c.eventId === activeEventId
+    );
+    onActiveClipChange?.(clip?.preRollOffset ?? 0, clip?.postRollOffset ?? 0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeEventId]);
 
   // Global ↑/↓/← arrow keys → navigate clip list / replay
   useEffect(() => {
@@ -764,14 +824,57 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
     videoRef.current?.pause();
   }
 
+  // Keep adjustActiveClipRef current so the handle always calls the latest closure
+  adjustActiveClipRef.current = function adjustActiveClip(preDelta: number, postDelta: number) {
+    const eventId = _activeEventIdRef.current;
+    if (eventId === null) return;
+
+    if (!activePlaylistRef.current || !onPlaylistsChange) {
+      const cur = transientOffsetRef.current;
+      const newPre = Math.max(-preRollRef.current, cur.pre + preDelta);
+      const newPost = Math.max(-postRollRef.current, cur.post + postDelta);
+      transientOffsetRef.current = { pre: newPre, post: newPost };
+      onActiveClipChange?.(newPre, newPost);
+      const event = queueRef.current[queueIdxRef.current];
+      if (event) seekToEvent(event, newPre, newPost);
+      return;
+    }
+    const ap = activePlaylistRef.current;
+    const existingClip = ap.clips.find((c) => c.matchId === matchId && c.eventId === eventId);
+    const newPre = Math.max(-preRollRef.current, (existingClip?.preRollOffset ?? 0) + preDelta);
+    const newPost = Math.max(-postRollRef.current, (existingClip?.postRollOffset ?? 0) + postDelta);
+
+    const newClips = ap.clips.map((c) =>
+      c.matchId === matchId && c.eventId === eventId
+        ? { ...c, preRollOffset: newPre, postRollOffset: newPost }
+        : c
+    );
+    const updated = { ...ap, clips: newClips };
+    setActivePlaylist(updated);
+    activePlaylistRef.current = updated;
+    onPlaylistsChange(playlists.map((p) => (p.id === ap.id ? updated : p)));
+    onActiveClipChange?.(newPre, newPost);
+
+    // Replay with new timing immediately
+    const event = queueRef.current[queueIdxRef.current];
+    if (event) seekToEvent(event, newPre, newPost);
+  };
+
   function handleReorderPlaylist(newEvents: PlayByPlayEvent[]) {
     if (!activePlaylist || !onPlaylistsChange) return;
-    // Re-map current-match clips to new order; cross-match clips keep their original slot
-    const reorderedIds = newEvents.map((e) => e.eventId);
+    // Build lookup of existing clips to preserve per-clip offsets
+    const clipMap = new Map(
+      activePlaylist.clips
+        .filter((c) => c.matchId === matchId)
+        .map((c) => [c.eventId, c])
+    );
+    const reorderedSameMatch = newEvents.map((e) =>
+      clipMap.get(e.eventId) ?? { matchId, eventId: e.eventId }
+    );
     let idx = 0;
     const newClips = activePlaylist.clips.map((c) => {
       if (c.matchId !== matchId) return c;
-      return { matchId, eventId: reorderedIds[idx++] ?? c.eventId };
+      return reorderedSameMatch[idx++] ?? c;
     });
     const updated = { ...activePlaylist, clips: newClips };
     setActivePlaylist(updated);
@@ -1294,18 +1397,25 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                 onReorder={handleReorderPlaylist}
                 className="divide-y divide-border"
               >
-                {sortedDisplayEvents.map((event) => (
-                  <DraggableClipsRow
-                    key={event.eventId}
-                    event={event}
-                    isActive={event.eventId === activeEventId}
-                    isSelected={selectedIds.has(event.eventId)}
-                    jerseyNo={jerseyNumber(event)}
-                    onRowClick={() => handleRowClick(event)}
-                    onToggleSelect={onPlaylistsChange ? (ev) => toggleSelect(event.eventId, ev) : undefined}
-                    showCheckbox={!!onPlaylistsChange}
-                  />
-                ))}
+                {sortedDisplayEvents.map((event) => {
+                  const clip = activePlaylistRef.current?.clips.find(
+                    (c) => c.matchId === matchId && c.eventId === event.eventId
+                  );
+                  return (
+                    <DraggableClipsRow
+                      key={event.eventId}
+                      event={event}
+                      isActive={event.eventId === activeEventId}
+                      isSelected={selectedIds.has(event.eventId)}
+                      jerseyNo={jerseyNumber(event)}
+                      preOffset={clip?.preRollOffset}
+                      postOffset={clip?.postRollOffset}
+                      onRowClick={() => handleRowClick(event)}
+                      onToggleSelect={onPlaylistsChange ? (ev) => toggleSelect(event.eventId, ev) : undefined}
+                      showCheckbox={!!onPlaylistsChange}
+                    />
+                  );
+                })}
               </Reorder.Group>
             ) : (
               <tbody className="divide-y divide-border">

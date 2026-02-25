@@ -32,13 +32,19 @@ export function MatchDetailPage() {
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const clipsViewRef = useRef<ClipsViewHandle | null>(null);
-  const [clipPlayback, setClipPlayback] = useState({ canPrev: false, canNext: false, isQueueActive: false });
-  const handlePlaybackChange = useCallback((canPrev: boolean, canNext: boolean, isQueueActive: boolean) => {
+  const [clipPlayback, setClipPlayback] = useState({ canPrev: false, canNext: false, isQueueActive: false, hasActivePlaylist: false });
+  const handlePlaybackChange = useCallback((canPrev: boolean, canNext: boolean, isQueueActive: boolean, hasActivePlaylist: boolean) => {
     setClipPlayback((prev) =>
-      prev.canPrev === canPrev && prev.canNext === canNext && prev.isQueueActive === isQueueActive
+      prev.canPrev === canPrev && prev.canNext === canNext &&
+      prev.isQueueActive === isQueueActive && prev.hasActivePlaylist === hasActivePlaylist
         ? prev
-        : { canPrev, canNext, isQueueActive }
+        : { canPrev, canNext, isQueueActive, hasActivePlaylist }
     );
+  }, []);
+
+  const [activeClipOffsets, setActiveClipOffsets] = useState({ pre: 0, post: 0 });
+  const handleActiveClipChange = useCallback((pre: number, post: number) => {
+    setActiveClipOffsets((prev) => prev.pre === pre && prev.post === post ? prev : { pre, post });
   }, []);
 
   const [match, setMatch] = useState<Match | null>(null);
@@ -290,6 +296,7 @@ export function MatchDetailPage() {
                     videoRef={videoRef}
                     videoUrl={storedMatch.videoUrl}
                     onPlaybackChange={handlePlaybackChange}
+                    onActiveClipChange={handleActiveClipChange}
                     homeTeamName={storedMatch.homeTeam.name}
                     awayTeamName={storedMatch.awayTeam.name}
                     homeRoster={storedMatch.homeRoster}
@@ -363,6 +370,10 @@ export function MatchDetailPage() {
                     onReplay={() => clipsViewRef.current?.replay()}
                     onStop={() => clipsViewRef.current?.stop()}
                     onPlayAll={() => clipsViewRef.current?.playAll()}
+                    activeClipPreOffset={activeClipOffsets.pre}
+                    activeClipPostOffset={activeClipOffsets.post}
+                    onPreOffsetChange={(delta) => clipsViewRef.current?.adjustPreOffset(delta)}
+                    onPostOffsetChange={(delta) => clipsViewRef.current?.adjustPostOffset(delta)}
                   />
                   <div className="flex items-center justify-end">
                     <button

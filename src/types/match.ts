@@ -146,6 +146,8 @@ export interface SyncPoint {
 export interface PlaylistClip {
   matchId: string;
   eventId: number;
+  preRollOffset?: number;  // signed delta in seconds added on top of global pre-roll
+  postRollOffset?: number; // signed delta in seconds added on top of global post-roll
 }
 
 export interface Playlist {

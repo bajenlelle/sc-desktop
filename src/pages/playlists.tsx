@@ -58,8 +58,9 @@ function eventLabel(e: PlayByPlayEvent): string {
     case "steal":
       return "Steal";
     case "foul":
-    case "foulon":
       return "Foul";
+    case "foulon":
+      return "Foul Drawn";
     case "block":
       return "Block";
     case "assist":
@@ -126,12 +127,16 @@ function DraggableRow({
   isActive,
   isMultiMatch,
   matchTitle,
+  preOffset,
+  postOffset,
   onClick,
 }: {
   item: QueueItem;
   isActive: boolean;
   isMultiMatch: boolean;
   matchTitle?: string;
+  preOffset: number;
+  postOffset: number;
   onClick: () => void;
 }) {
   const controls = useDragControls();
@@ -177,11 +182,21 @@ function DraggableRow({
         {event.eventTeam?.teamName ?? "—"}
       </td>
       <td className="px-4 py-2.5">
-        <Play
-          className={`h-3.5 w-3.5 ${
-            isActive ? "text-primary fill-primary" : "text-muted-foreground/30"
-          }`}
-        />
+        <div className="flex items-center gap-1">
+          <Play
+            className={`h-3.5 w-3.5 ${
+              isActive ? "text-primary fill-primary" : "text-muted-foreground/30"
+            }`}
+          />
+          {(preOffset !== 0 || postOffset !== 0) && (
+            <span
+              className="text-[10px] font-medium text-orange-400"
+              title={`Pre ${preOffset >= 0 ? "+" : ""}${preOffset}s / Post ${postOffset >= 0 ? "+" : ""}${postOffset}s`}
+            >
+              ±
+            </span>
+          )}
+        </div>
       </td>
     </Reorder.Item>
   );
@@ -218,10 +233,12 @@ export function PlaylistsPage() {
   const preRollRef = useRef(preRoll);
   const postRollRef = useRef(postRoll);
   const activeMatchIdRef = useRef<string | null>(null);
+  const selectedRef = useRef(selected);
 
   useEffect(() => { preRollRef.current = preRoll; }, [preRoll]);
   useEffect(() => { postRollRef.current = postRoll; }, [postRoll]);
   useEffect(() => { activeMatchIdRef.current = activeMatchId; }, [activeMatchId]);
+  useEffect(() => { selectedRef.current = selected; }, [selected]);
 
   // Load all matches on mount; restore playlist selection if returning from match detail
   useEffect(() => {
@@ -357,18 +374,72 @@ export function PlaylistsPage() {
     videoRef.current?.pause();
   }, []);
 
-  const seekToItem = useCallback((item: QueueItem) => {
+  function adjustActiveClip(preDelta: number, postDelta: number) {
+    if (!selected || activeEventId === null) return;
+    const matchId = activeMatchIdRef.current ?? selected.match.id;
+    const existingClip = selected.playlist.clips.find(
+      (c) => c.matchId === matchId && c.eventId === activeEventId
+    );
+    const newPre = Math.max(-preRollRef.current, (existingClip?.preRollOffset ?? 0) + preDelta);
+    const newPost = Math.max(-postRollRef.current, (existingClip?.postRollOffset ?? 0) + postDelta);
+
+    const newClips = selected.playlist.clips.map((c) =>
+      c.matchId === matchId && c.eventId === activeEventId
+        ? { ...c, preRollOffset: newPre, postRollOffset: newPost }
+        : c
+    );
+    const updatedPlaylist = { ...selected.playlist, clips: newClips };
+    const updatedPlaylists = (selected.match.playlists ?? []).map((p) =>
+      p.id === selected.playlist.id ? updatedPlaylist : p
+    );
+    // Update state immediately
+    setSelected((prev) => prev ? { ...prev, playlist: updatedPlaylist } : prev);
+    setMatches((prev) =>
+      prev.map((m) => m.id === selected.match.id ? { ...m, playlists: updatedPlaylists } : m)
+    );
+    // Also update the ref so seekToItem sees new offsets before re-render
+    selectedRef.current = { ...selected, playlist: updatedPlaylist };
+    // Persist (fire-and-forget)
+    updatePlaylists(selected.match.id, updatedPlaylists).catch(() => {});
+    // Replay with new timing immediately
+    if (queueRef.current.length > 0) {
+      seekToItem(queueRef.current[queueIdxRef.current], newPre, newPost);
+    }
+  }
+
+  const activeClipOffsets = useMemo(() => {
+    if (activeEventId === null) return { pre: 0, post: 0 };
+    const matchId = activeMatchId ?? selected?.match.id;
+    const clip = selected?.playlist.clips.find(
+      (c) => c.matchId === matchId && c.eventId === activeEventId
+    );
+    return { pre: clip?.preRollOffset ?? 0, post: clip?.postRollOffset ?? 0 };
+  }, [activeEventId, activeMatchId, selected]);
+
+  function getClipOffsets(matchId: string, eventId: number) {
+    const clip = selectedRef.current?.playlist.clips.find(
+      (c) => c.matchId === matchId && c.eventId === eventId
+    );
+    return { pre: clip?.preRollOffset ?? 0, post: clip?.postRollOffset ?? 0 };
+  }
+
+  const seekToItem = useCallback((
+    item: QueueItem,
+    preOverride?: number,
+    postOverride?: number,
+  ) => {
     const sp = matchLookupRef.current.get(item.matchId)?.syncPoint;
     const video = videoRef.current;
     if (!sp || !video) return;
     const videoTime = computeVideoTime(item.event, sp);
     if (videoTime === null) return;
-    const seekTo = Math.max(0, videoTime - preRollRef.current);
-    clipEndRef.current = videoTime + postRollRef.current;
+    const { pre, post } = getClipOffsets(item.matchId, item.event.eventId);
+    const seekTo = Math.max(0, Math.min(videoTime, videoTime - preRollRef.current - (preOverride ?? pre)));
+    clipEndRef.current = Math.max(videoTime, videoTime + postRollRef.current + (postOverride ?? post));
     video.pause();
     video.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
     video.currentTime = seekTo;
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isQueueActive = activeEventId !== null;
 
@@ -399,8 +470,9 @@ export function PlaylistsPage() {
         if (sp) {
           const videoTime = computeVideoTime(nextItem.event, sp);
           if (videoTime !== null) {
-            const seekTo = Math.max(0, videoTime - preRollRef.current);
-            const clipEnd = videoTime + postRollRef.current;
+            const { pre: nextPre, post: nextPost } = getClipOffsets(nextItem.matchId, nextItem.event.eventId);
+            const seekTo = Math.max(0, videoTime - preRollRef.current - nextPre);
+            const clipEnd = videoTime + postRollRef.current + nextPost;
             if (nextItem.matchId !== activeMatchIdRef.current) {
               // Cross-match: switch video source; seek happens in canplay handler
               pendingSeekRef.current = { seekTo, clipEnd };
@@ -437,8 +509,9 @@ export function PlaylistsPage() {
     if (firstItem.matchId !== activeMatchIdRef.current) {
       const videoTime = computeVideoTime(firstItem.event, sp);
       if (videoTime !== null) {
-        const seekTo = Math.max(0, videoTime - preRollRef.current);
-        pendingSeekRef.current = { seekTo, clipEnd: videoTime + postRollRef.current };
+        const { pre, post } = getClipOffsets(firstItem.matchId, firstItem.event.eventId);
+        const seekTo = Math.max(0, videoTime - preRollRef.current - pre);
+        pendingSeekRef.current = { seekTo, clipEnd: videoTime + postRollRef.current + post };
       }
       setActiveMatchId(firstItem.matchId);
     } else {
@@ -511,10 +584,13 @@ export function PlaylistsPage() {
 
   async function handleReorder(newItems: QueueItem[]) {
     if (!selected) return;
-    const newClips: PlaylistClip[] = newItems.map((item) => ({
-      matchId: item.matchId,
-      eventId: item.event.eventId,
-    }));
+    const clipMap = new Map(
+      selected.playlist.clips.map((c) => [`${c.matchId}:${c.eventId}`, c])
+    );
+    const newClips: PlaylistClip[] = newItems.map((item) => {
+      const key = `${item.matchId}:${item.event.eventId}`;
+      return clipMap.get(key) ?? { matchId: item.matchId, eventId: item.event.eventId };
+    });
     const updatedPlaylist = { ...selected.playlist, clips: newClips };
     const updatedPlaylists = (selected.match.playlists ?? []).map((p) =>
       p.id === selected.playlist.id ? updatedPlaylist : p
@@ -535,10 +611,20 @@ export function PlaylistsPage() {
     setExportError(null);
     try {
       const items = sortedEvents
-        .map((item) => {
+        .map((item): ExportItem | null => {
           const m = matchLookup.get(item.matchId);
           if (!m?.videoUrl || !m.syncPoint) return null;
-          return { videoPath: m.videoUrl, event: item.event, syncPoint: m.syncPoint } satisfies ExportItem;
+          const clip = selected?.playlist.clips.find(
+            (c) => c.matchId === item.matchId && c.eventId === item.event.eventId
+          );
+          const exportItem: ExportItem = {
+            videoPath: m.videoUrl,
+            event: item.event,
+            syncPoint: m.syncPoint,
+          };
+          if (clip?.preRollOffset !== undefined) exportItem.preRollOffset = clip.preRollOffset;
+          if (clip?.postRollOffset !== undefined) exportItem.postRollOffset = clip.postRollOffset;
+          return exportItem;
         })
         .filter((x): x is ExportItem => x !== null);
       await exportPlaylist(items, preRoll, postRoll, selected!.playlist.name);
@@ -898,16 +984,23 @@ export function PlaylistsPage() {
                         onReorder={handleReorder}
                         className="divide-y divide-border bg-card"
                       >
-                        {sortedEvents.map((item) => (
-                          <DraggableRow
-                            key={`${item.matchId}:${item.event.eventId}`}
-                            item={item}
-                            isActive={item.event.eventId === activeEventId}
-                            isMultiMatch={isMultiMatch}
-                            matchTitle={matchLookup.get(item.matchId)?.title}
-                            onClick={() => handleRowClick(item)}
-                          />
-                        ))}
+                        {sortedEvents.map((item) => {
+                          const clip = selected?.playlist.clips.find(
+                            (c) => c.matchId === item.matchId && c.eventId === item.event.eventId
+                          );
+                          return (
+                            <DraggableRow
+                              key={`${item.matchId}:${item.event.eventId}`}
+                              item={item}
+                              isActive={item.event.eventId === activeEventId}
+                              isMultiMatch={isMultiMatch}
+                              matchTitle={matchLookup.get(item.matchId)?.title}
+                              preOffset={clip?.preRollOffset ?? 0}
+                              postOffset={clip?.postRollOffset ?? 0}
+                              onClick={() => handleRowClick(item)}
+                            />
+                          );
+                        })}
                       </Reorder.Group>
                     </table>
                   </div>
@@ -934,7 +1027,10 @@ export function PlaylistsPage() {
                       onReplay={handleReplay}
                       onStop={handleStop}
                       onPlayAll={() => startQueue([...sortedEvents])}
-
+                      activeClipPreOffset={activeClipOffsets.pre}
+                      activeClipPostOffset={activeClipOffsets.post}
+                      onPreOffsetChange={(delta) => adjustActiveClip(delta, 0)}
+                      onPostOffsetChange={(delta) => adjustActiveClip(0, delta)}
                     />
                   </>
                 ) : (

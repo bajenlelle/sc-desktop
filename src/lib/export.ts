@@ -15,6 +15,8 @@ export interface ExportItem {
   videoPath: string;
   event: PlayByPlayEvent;
   syncPoint: SyncPoint;
+  preRollOffset?: number;
+  postRollOffset?: number;
 }
 
 export async function exportPlaylist(
@@ -34,8 +36,8 @@ export async function exportPlaylist(
       if (t === null) return null;
       return {
         video_path: item.videoPath,
-        start: Math.max(0, t - preRoll),
-        end: t + postRoll,
+        start: Math.max(0, t - preRoll - (item.preRollOffset ?? 0)),
+        end: t + postRoll + (item.postRollOffset ?? 0),
       };
     })
     .filter((c): c is { video_path: string; start: number; end: number } => c !== null);

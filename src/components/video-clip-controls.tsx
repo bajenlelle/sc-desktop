@@ -12,6 +12,10 @@ interface VideoClipControlsProps {
   onReplay: () => void;
   onStop: () => void;
   onPlayAll?: () => void;
+  activeClipPreOffset?: number;
+  activeClipPostOffset?: number;
+  onPreOffsetChange?: (delta: number) => void;
+  onPostOffsetChange?: (delta: number) => void;
 }
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -26,7 +30,13 @@ export function VideoClipControls({
   onReplay,
   onStop,
   onPlayAll,
+  activeClipPreOffset,
+  activeClipPostOffset,
+  onPreOffsetChange,
+  onPostOffsetChange,
 }: VideoClipControlsProps) {
+  const preOffset = activeClipPreOffset ?? 0;
+  const postOffset = activeClipPostOffset ?? 0;
   const [videoPaused, setVideoPaused] = useState(true);
   const [speed, setSpeed] = useState(1);
   const [speedOpen, setSpeedOpen] = useState(false);
@@ -95,7 +105,8 @@ export function VideoClipControls({
   }, []);
 
   return (
-    <div className="flex items-center justify-center gap-0.5 rounded-xl border border-border bg-card px-3 py-2 shadow-sm">
+    <div className="flex flex-col rounded-xl border border-border bg-card px-3 py-2 shadow-sm">
+    <div className="flex items-center justify-center gap-0.5">
       <CtrlBtn onClick={onPrev} disabled={!canPrev} title="Previous clip">
         <SkipBack className="h-5 w-5" />
       </CtrlBtn>
@@ -159,6 +170,28 @@ export function VideoClipControls({
         )}
       </div>
     </div>
+
+    {isQueueActive && (onPreOffsetChange || onPostOffsetChange) && (
+      <div className="mt-1.5 flex items-center justify-center gap-4 border-t border-border pt-1.5 text-xs text-muted-foreground">
+        <div className="flex items-center gap-1">
+          <span>Pre</span>
+          <CtrlBtn small onClick={() => onPreOffsetChange?.(+1)} title="Pre-roll +1s">+</CtrlBtn>
+          <span className={cn("w-8 text-center tabular-nums", preOffset !== 0 && "font-medium text-orange-400")}>
+            {preOffset > 0 ? `+${preOffset}s` : `${preOffset}s`}
+          </span>
+          <CtrlBtn small onClick={() => onPreOffsetChange?.(-1)} title="Pre-roll −1s">−</CtrlBtn>
+        </div>
+        <div className="flex items-center gap-1">
+          <span>Post</span>
+          <CtrlBtn small onClick={() => onPostOffsetChange?.(-1)} title="Post-roll −1s">−</CtrlBtn>
+          <span className={cn("w-8 text-center tabular-nums", postOffset !== 0 && "font-medium text-orange-400")}>
+            {postOffset > 0 ? `+${postOffset}s` : `${postOffset}s`}
+          </span>
+          <CtrlBtn small onClick={() => onPostOffsetChange?.(+1)} title="Post-roll +1s">+</CtrlBtn>
+        </div>
+      </div>
+    )}
+    </div>
   );
 }
 
@@ -167,11 +200,13 @@ function CtrlBtn({
   onClick,
   disabled,
   title,
+  small,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   disabled?: boolean;
   title?: string;
+  small?: boolean;
 }) {
   return (
     <button
@@ -179,7 +214,8 @@ function CtrlBtn({
       disabled={disabled}
       title={title}
       className={cn(
-        "flex h-10 w-10 items-center justify-center rounded-lg text-foreground/70 transition-all",
+        "flex items-center justify-center rounded-lg text-foreground/70 transition-all",
+        small ? "h-6 w-6 text-xs" : "h-10 w-10",
         "hover:bg-muted hover:text-foreground",
         "active:scale-95",
         "disabled:opacity-25 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-foreground/70 disabled:active:scale-100"
