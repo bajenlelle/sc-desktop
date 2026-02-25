@@ -20,7 +20,6 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { Reorder, useDragControls } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MultiSelectDropdown } from "@/components/ui/multi-select-dropdown";
@@ -158,6 +157,7 @@ function matchesSingleType(e: PlayByPlayEvent, filter: string): boolean {
 
 function DraggableRow({
   item,
+  index,
   isActive,
   isMultiMatch,
   matchTitle,
@@ -165,9 +165,17 @@ function DraggableRow({
   postOffset,
   isSelected,
   onSelect,
+  isDragTarget,
+  dragTargetPosition,
   onClick,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
 }: {
   item: QueueItem;
+  index: number;
   isActive: boolean;
   isMultiMatch: boolean;
   matchTitle?: string;
@@ -175,31 +183,38 @@ function DraggableRow({
   postOffset: number;
   isSelected: boolean;
   onSelect: (e: React.MouseEvent) => void;
+  isDragTarget: boolean;
+  dragTargetPosition: "above" | "below";
   onClick: () => void;
+  onDragStart: (e: React.DragEvent) => void;
+  onDragOver: (e: React.DragEvent, index: number) => void;
+  onDragLeave: () => void;
+  onDrop: (e: React.DragEvent, index: number) => void;
+  onDragEnd: () => void;
 }) {
-  const controls = useDragControls();
   const { event } = item;
   return (
-    <Reorder.Item
-      as="tr"
-      value={item}
-      dragListener={false}
-      dragControls={controls}
+    <tr
+      draggable
       data-event-id={event.eventId}
-      className={`group cursor-pointer transition-colors hover:bg-muted/50 ${
+      className={`group cursor-grab transition-colors hover:bg-muted/50 ${
         isActive ? "bg-primary/10" : ""
+      } ${isDragTarget && dragTargetPosition === "above" ? "border-t-2 border-t-primary" : ""} ${
+        isDragTarget && dragTargetPosition === "below" ? "border-b-2 border-b-primary" : ""
       }`}
       onClick={onClick}
+      onDragStart={onDragStart}
+      onDragOver={(e) => onDragOver(e, index)}
+      onDragLeave={onDragLeave}
+      onDrop={(e) => onDrop(e, index)}
+      onDragEnd={onDragEnd}
     >
       <td className="w-8 px-2 py-2.5">
-        <span
-          className="flex cursor-grab items-center justify-center opacity-0 group-hover:opacity-60 transition-opacity active:cursor-grabbing"
-          onPointerDown={(e) => { e.preventDefault(); controls.start(e); }}
-        >
+        <span className="flex items-center justify-center opacity-0 group-hover:opacity-60 transition-opacity">
           <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
         </span>
       </td>
-      <td className="w-8 px-3 py-2.5">
+      <td className="w-8 px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
         <input
           type="checkbox"
           checked={isSelected}
@@ -245,7 +260,7 @@ function DraggableRow({
           )}
         </div>
       </td>
-    </Reorder.Item>
+    </tr>
   );
 }
 
@@ -773,6 +788,14 @@ export function PlaylistsPage() {
   // Clip browser panel
   const [showClipBrowser, setShowClipBrowser] = useState(false);
 
+  // Clip drag state
+  const [clipDragKey, setClipDragKey] = useState<string | null>(null);
+  const [clipDragOverIndex, setClipDragOverIndex] = useState<number | null>(null);
+  const [clipDragOverPosition, setClipDragOverPosition] = useState<"above" | "below">("below");
+  const [clipDragOverPlaylistId, setClipDragOverPlaylistId] = useState<string | null>(null);
+  const [clipExpandFolderId, setClipExpandFolderId] = useState<string | null>(null);
+  const clipDragFolderExpandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Clip selection
   const [selectedClipIds, setSelectedClipIds] = useState<Set<string>>(new Set()); // "matchId:eventId"
   const [showAddToDropdown, setShowAddToDropdown] = useState(false);
@@ -1169,6 +1192,57 @@ export function PlaylistsPage() {
   }
 
   // ---------------------------------------------------------------------------
+  // Clip drag handlers (HTML5)
+  // ---------------------------------------------------------------------------
+
+  function handleClipDragStart(e: React.DragEvent, key: string) {
+    e.dataTransfer.setData("text/clip", key);
+    e.dataTransfer.effectAllowed = "move";
+    setClipDragKey(key);
+  }
+
+  function handleClipDragOver(e: React.DragEvent, index: number) {
+    if (!e.dataTransfer.types.includes("text/clip")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const position = e.clientY < rect.top + rect.height / 2 ? "above" : "below";
+    setClipDragOverIndex(index);
+    setClipDragOverPosition(position);
+  }
+
+  function handleClipDrop(e: React.DragEvent, targetIndex: number) {
+    e.preventDefault();
+    const key = e.dataTransfer.getData("text/clip");
+    if (!key || !selected) return;
+    setClipDragOverIndex(null);
+    const sourceIndex = sortedEvents.findIndex(
+      (i) => `${i.matchId}:${i.event.eventId}` === key
+    );
+    if (sourceIndex === -1 || sourceIndex === targetIndex) return;
+    const insertIndex = clipDragOverPosition === "above" ? targetIndex : targetIndex + 1;
+    const adjusted = insertIndex > sourceIndex ? insertIndex - 1 : insertIndex;
+    const next = [...sortedEvents];
+    const [moved] = next.splice(sourceIndex, 1);
+    next.splice(adjusted, 0, moved);
+    handleReorder(next);
+  }
+
+  async function handleClipDropOnPlaylist(targetPlaylistId: string, clipKey: string) {
+    const colonIdx = clipKey.indexOf(":");
+    const matchId = clipKey.slice(0, colonIdx);
+    const eventId = Number(clipKey.slice(colonIdx + 1));
+    const target = playlists.find((p) => p.id === targetPlaylistId);
+    if (!target) return;
+    if (target.clips.some((c) => c.matchId === matchId && c.eventId === eventId)) return;
+    const sourceClip = selected?.clips.find((c) => c.matchId === matchId && c.eventId === eventId)
+      ?? { matchId, eventId };
+    const newClips = [...target.clips, sourceClip];
+    await updatePlaylist(targetPlaylistId, { clips: newClips });
+    setPlaylists((prev) => prev.map((p) => p.id === targetPlaylistId ? { ...p, clips: newClips } : p));
+  }
+
+  // ---------------------------------------------------------------------------
   // Export
   // ---------------------------------------------------------------------------
 
@@ -1273,13 +1347,13 @@ export function PlaylistsPage() {
   }
 
   function handleDragStart(playlistId: string, e: React.DragEvent) {
-    e.dataTransfer.setData("text/plain", playlistId);
+    e.dataTransfer.setData("text/playlist-id", playlistId);
   }
 
   async function handleDrop(targetFolderId: string | null, e: React.DragEvent) {
     e.preventDefault();
     setDragOverFolder(null);
-    const playlistId = e.dataTransfer.getData("text/plain");
+    const playlistId = e.dataTransfer.getData("text/playlist-id");
     if (!playlistId) return;
     await updatePlaylist(playlistId, { folderId: targetFolderId });
     setPlaylists((prev) => prev.map((p) =>
@@ -1528,17 +1602,53 @@ export function PlaylistsPage() {
             {/* Named folders */}
             {folders.map((folder) => {
               const items = byFolder.get(folder.id) ?? [];
+              if (search.trim() && items.length === 0) return null;
               const isExpanded = search.trim() ? true : expandedFolders.has(folder.id);
               const isEditing = editingFolderId === folder.id;
               const isDragOver = dragOverFolder === folder.id;
               return (
                 <div
                   key={folder.id}
-                  className={isDragOver ? "bg-primary/10 ring-1 ring-inset ring-primary rounded-sm" : ""}
-                  onDragEnter={(e) => { e.preventDefault(); setDragOverFolder(folder.id); }}
-                  onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverFolder(folder.id); }}
-                  onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverFolder(null); }}
-                  onDrop={(e) => handleDrop(folder.id, e)}
+                  className={isDragOver ? "bg-primary/10 ring-1 ring-inset ring-primary rounded-sm" : clipExpandFolderId === folder.id ? "bg-primary/10 rounded-sm" : ""}
+                  onDragEnter={(e) => {
+                    if (e.dataTransfer.types.includes("text/clip")) return;
+                    e.preventDefault();
+                    setDragOverFolder(folder.id);
+                  }}
+                  onDragOver={(e) => {
+                    if (e.dataTransfer.types.includes("text/clip")) {
+                      // Auto-expand collapsed folder: start timer once on first dragOver
+                      if (!expandedFolders.has(folder.id) && clipDragFolderExpandTimerRef.current === null) {
+                        setClipExpandFolderId(folder.id);
+                        clipDragFolderExpandTimerRef.current = setTimeout(() => {
+                          clipDragFolderExpandTimerRef.current = null;
+                          setClipExpandFolderId(null);
+                          setExpandedFolders((prev) => new Set([...prev, folder.id]));
+                        }, 600);
+                      }
+                      return;
+                    }
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    setDragOverFolder(folder.id);
+                  }}
+                  onDragLeave={(e) => {
+                    if (e.dataTransfer.types.includes("text/clip")) {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                        setClipExpandFolderId(null);
+                        if (clipDragFolderExpandTimerRef.current) {
+                          clearTimeout(clipDragFolderExpandTimerRef.current);
+                          clipDragFolderExpandTimerRef.current = null;
+                        }
+                      }
+                      return;
+                    }
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverFolder(null);
+                  }}
+                  onDrop={(e) => {
+                    if (e.dataTransfer.types.includes("text/clip")) return;
+                    handleDrop(folder.id, e);
+                  }}
                 >
                   {/* Folder header */}
                   <div
@@ -1550,7 +1660,7 @@ export function PlaylistsPage() {
                     {isExpanded ? (
                       <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     ) : (
-                      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <ChevronRight className={`h-3.5 w-3.5 shrink-0 transition-colors ${clipExpandFolderId === folder.id ? "text-primary animate-pulse" : "text-muted-foreground"}`} />
                     )}
                     {isEditing ? (
                       <input
@@ -1629,11 +1739,29 @@ export function PlaylistsPage() {
                                   draggable={!isEditingThis}
                                   onDragStart={(e) => handleDragStart(pl.id, e)}
                                   onDragEnd={() => setDragOverFolder(null)}
+                                  onDragOver={(e) => {
+                                    if (!e.dataTransfer.types.includes("text/clip")) return;
+                                    if (pl.id === selected?.id) return;
+                                    e.preventDefault();
+                                    e.dataTransfer.dropEffect = "copy";
+                                    setClipDragOverPlaylistId(pl.id);
+                                  }}
+                                  onDragLeave={(e) => {
+                                    if (!e.currentTarget.contains(e.relatedTarget as Node))
+                                      setClipDragOverPlaylistId(null);
+                                  }}
+                                  onDrop={(e) => {
+                                    const key = e.dataTransfer.getData("text/clip");
+                                    if (!key) return;
+                                    e.preventDefault();
+                                    setClipDragOverPlaylistId(null);
+                                    handleClipDropOnPlaylist(pl.id, key);
+                                  }}
                                   className={`group flex w-full cursor-pointer items-center justify-between border-l-2 pl-9 pr-3 py-1.5 text-left transition-colors hover:bg-muted/50 ${
                                     isActive
                                       ? "border-l-primary bg-primary/10"
                                       : "border-l-border hover:border-l-border/80"
-                                  }`}
+                                  } ${clipDragOverPlaylistId === pl.id ? "bg-primary/15 ring-1 ring-inset ring-primary" : ""}`}
                                   onClick={() => !isEditingThis && selectPlaylist(pl)}
                                 >
                                   <div className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -1694,7 +1822,7 @@ export function PlaylistsPage() {
             {/* Uncategorized */}
             {(() => {
               const items = byFolder.get(null) ?? [];
-              if (items.length === 0 && folders.length > 0 && !search.trim()) return null;
+              if (items.length === 0 && (folders.length > 0 || search.trim())) return null;
               const isExpanded = search.trim() ? true : uncategorizedExpanded;
               const isDragOver = dragOverFolder === "uncategorized";
               return (
@@ -1706,15 +1834,49 @@ export function PlaylistsPage() {
                         : "hover:bg-muted/50"
                     }`}
                     onClick={() => setUncategorizedExpanded((v) => !v)}
-                    onDragEnter={(e) => { e.preventDefault(); setDragOverFolder("uncategorized"); }}
-                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverFolder("uncategorized"); }}
-                    onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverFolder(null); }}
-                    onDrop={(e) => handleDrop(null, e)}
+                    onDragEnter={(e) => {
+                      if (e.dataTransfer.types.includes("text/clip")) return;
+                      e.preventDefault();
+                      setDragOverFolder("uncategorized");
+                    }}
+                    onDragOver={(e) => {
+                      if (e.dataTransfer.types.includes("text/clip")) {
+                        if (!uncategorizedExpanded && clipDragFolderExpandTimerRef.current === null) {
+                          setClipExpandFolderId("uncategorized");
+                          clipDragFolderExpandTimerRef.current = setTimeout(() => {
+                            clipDragFolderExpandTimerRef.current = null;
+                            setClipExpandFolderId(null);
+                            setUncategorizedExpanded(true);
+                          }, 600);
+                        }
+                        return;
+                      }
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                      setDragOverFolder("uncategorized");
+                    }}
+                    onDragLeave={(e) => {
+                      if (e.dataTransfer.types.includes("text/clip")) {
+                        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                          setClipExpandFolderId(null);
+                          if (clipDragFolderExpandTimerRef.current) {
+                            clearTimeout(clipDragFolderExpandTimerRef.current);
+                            clipDragFolderExpandTimerRef.current = null;
+                          }
+                        }
+                        return;
+                      }
+                      if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverFolder(null);
+                    }}
+                    onDrop={(e) => {
+                      if (e.dataTransfer.types.includes("text/clip")) return;
+                      handleDrop(null, e);
+                    }}
                   >
                     {isExpanded ? (
                       <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     ) : (
-                      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <ChevronRight className={`h-3.5 w-3.5 shrink-0 transition-colors ${clipExpandFolderId === "uncategorized" ? "text-primary animate-pulse" : "text-muted-foreground"}`} />
                     )}
                     <span className="flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
                       Uncategorized
@@ -1733,11 +1895,29 @@ export function PlaylistsPage() {
                                 draggable={!isEditingThis}
                                 onDragStart={(e) => handleDragStart(pl.id, e)}
                                 onDragEnd={() => setDragOverFolder(null)}
+                                onDragOver={(e) => {
+                                  if (!e.dataTransfer.types.includes("text/clip")) return;
+                                  if (pl.id === selected?.id) return;
+                                  e.preventDefault();
+                                  e.dataTransfer.dropEffect = "copy";
+                                  setClipDragOverPlaylistId(pl.id);
+                                }}
+                                onDragLeave={(e) => {
+                                  if (!e.currentTarget.contains(e.relatedTarget as Node))
+                                    setClipDragOverPlaylistId(null);
+                                }}
+                                onDrop={(e) => {
+                                  const key = e.dataTransfer.getData("text/clip");
+                                  if (!key) return;
+                                  e.preventDefault();
+                                  setClipDragOverPlaylistId(null);
+                                  handleClipDropOnPlaylist(pl.id, key);
+                                }}
                                 className={`group flex w-full cursor-pointer items-center justify-between border-l-2 pl-8 pr-3 py-1.5 text-left transition-colors hover:bg-muted/50 ${
                                   isActive
                                     ? "border-l-primary bg-primary/10"
                                     : "border-l-border hover:border-l-border/80"
-                                }`}
+                                } ${clipDragOverPlaylistId === pl.id ? "bg-primary/15 ring-1 ring-inset ring-primary" : ""}`}
                                 onClick={() => !isEditingThis && selectPlaylist(pl)}
                               >
                                 <div className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -1863,7 +2043,7 @@ export function PlaylistsPage() {
               <ResizablePanel defaultSize={45} minSize={20}>
               <div className="flex h-full flex-col gap-3 overflow-hidden pr-3">
                 <div className="flex shrink-0 flex-col gap-3">
-                {noSync && (
+                {noSync && selected.clips.length > 0 && (
                   <div className="rounded-md bg-amber-50 dark:bg-amber-950 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300">
                     No sync point — set one in the game to enable playback controls.
                   </div>
@@ -2020,33 +2200,45 @@ export function PlaylistsPage() {
                           <th className="px-4 py-2.5 text-left"></th>
                         </tr>
                       </thead>
-                      <Reorder.Group
-                        as="tbody"
-                        axis="y"
-                        values={sortedEvents}
-                        onReorder={handleReorder}
-                        className="divide-y divide-border bg-card"
-                      >
-                        {sortedEvents.map((item) => {
+                      <tbody className="divide-y divide-border bg-card">
+                        {sortedEvents.map((item, index) => {
+                          const key = `${item.matchId}:${item.event.eventId}`;
                           const clip = selected?.clips.find(
                             (c) => c.matchId === item.matchId && c.eventId === item.event.eventId
                           );
                           return (
                             <DraggableRow
-                              key={`${item.matchId}:${item.event.eventId}`}
+                              key={key}
+                              index={index}
                               item={item}
                               isActive={item.event.eventId === activeEventId}
                               isMultiMatch={isMultiMatch}
                               matchTitle={matchLookup.get(item.matchId)?.title}
                               preOffset={clip?.preRollOffset ?? 0}
                               postOffset={clip?.postRollOffset ?? 0}
-                              isSelected={selectedClipIds.has(`${item.matchId}:${item.event.eventId}`)}
-                              onSelect={(e) => toggleSelectClip(`${item.matchId}:${item.event.eventId}`, e)}
+                              isSelected={selectedClipIds.has(key)}
+                              onSelect={(e) => toggleSelectClip(key, e)}
+                              isDragTarget={clipDragOverIndex === index}
+                              dragTargetPosition={clipDragOverPosition}
                               onClick={() => handleRowClick(item)}
+                              onDragStart={(e) => handleClipDragStart(e, key)}
+                              onDragOver={(e, i) => handleClipDragOver(e, i)}
+                              onDragLeave={() => setClipDragOverIndex(null)}
+                              onDrop={(e, i) => handleClipDrop(e, i)}
+                              onDragEnd={() => {
+                                setClipDragKey(null);
+                                setClipDragOverIndex(null);
+                                setClipDragOverPlaylistId(null);
+                                setClipExpandFolderId(null);
+                                if (clipDragFolderExpandTimerRef.current) {
+                                  clearTimeout(clipDragFolderExpandTimerRef.current);
+                                  clipDragFolderExpandTimerRef.current = null;
+                                }
+                              }}
                             />
                           );
                         })}
-                      </Reorder.Group>
+                      </tbody>
                     </table>
                   </div>
                   </div>
@@ -2081,7 +2273,7 @@ export function PlaylistsPage() {
                 ) : (
                   <div className="space-y-2">
                     <VideoPlaceholder />
-                    {noVideo && (
+                    {noVideo && selected.clips.length > 0 && (
                       <p className="text-center text-xs text-muted-foreground">
                         No video linked. Add one in the game.
                       </p>
