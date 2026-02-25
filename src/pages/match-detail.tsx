@@ -16,11 +16,11 @@ import type { ClipsViewHandle } from "@/components/clips-view";
 import { VideoClipControls } from "@/components/video-clip-controls";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getMatchById } from "@/lib/mock-data";
-import { getMatch, listMatchesLight, updatePlaylists, updateVideoUrl } from "@/lib/matches-db";
+import { getMatch, listMatchesLight, listFolders, updatePlaylists, updateVideoUrl } from "@/lib/matches-db";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
-import type { Match, Playlist, StoredMatch } from "@/types/match";
+import type { Match, Playlist, PlaylistFolder, StoredMatch } from "@/types/match";
 
 export function MatchDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -51,6 +51,7 @@ export function MatchDetailPage() {
   const [storedMatch, setStoredMatch] = useState<StoredMatch | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [allMatches, setAllMatches] = useState<StoredMatch[]>([]);
+  const [folders, setFolders] = useState<PlaylistFolder[]>([]);
   const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
 
@@ -125,9 +126,14 @@ export function MatchDetailPage() {
 
     async function load() {
       try {
-        const [dbMatch, light] = await Promise.all([getMatch(matchId), listMatchesLight()]);
+        const [dbMatch, light, loadedFolders] = await Promise.all([
+          getMatch(matchId),
+          listMatchesLight(),
+          listFolders(),
+        ]);
         if (!cancelled) {
           setAllMatches(light.filter((m) => m.id !== matchId));
+          setFolders(loadedFolders);
           if (dbMatch) {
             setStoredMatch(dbMatch);
             return;
@@ -320,6 +326,7 @@ export function MatchDetailPage() {
                         prev.map((m) => m.id === anchorMatchId ? { ...m, playlists: updatedPlaylists } : m)
                       );
                     }}
+                    folders={folders}
                   />
                 </TabsContent>
 

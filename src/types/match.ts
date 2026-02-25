@@ -150,10 +150,17 @@ export interface PlaylistClip {
   postRollOffset?: number; // signed delta in seconds added on top of global post-roll
 }
 
+export interface PlaylistFolder {
+  id: string;
+  name: string;
+  sortOrder: number;
+}
+
 export interface Playlist {
   id: string;        // crypto.randomUUID()
   name: string;
   clips: PlaylistClip[]; // ordered clips (each carries its match context)
+  folderId?: string; // references PlaylistFolder.id; undefined = Uncategorized
 }
 
 export interface StoredMatch {

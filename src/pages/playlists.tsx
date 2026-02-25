@@ -7,26 +7,38 @@ import {
   ChevronRight,
   ExternalLink,
   FileDown,
+  FolderPlus,
   GripVertical,
+  ListPlus,
   ListVideo,
   Loader2,
+  Pencil,
   Play,
   Search,
   SkipForward,
   Square,
+  Trash2,
   X,
 } from "lucide-react";
 import { Reorder, useDragControls } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { VideoPlayer } from "@/components/video-player";
 import { VideoPlaceholder } from "@/components/video-placeholder";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { VideoClipControls } from "@/components/video-clip-controls";
-import { listMatches, updatePlaylists } from "@/lib/matches-db";
+import { listMatches, updatePlaylists, listFolders, createFolder, updateFolder, deleteFolder } from "@/lib/matches-db";
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { exportPlaylist, type ExportItem } from "@/lib/export";
-import type { Playlist, PlaylistClip, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
+import type { Playlist, PlaylistFolder, PlaylistClip, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 
 // ---------------------------------------------------------------------------
 // Helpers (mirrors clips-view.tsx)
@@ -217,7 +229,22 @@ export function PlaylistsPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [preRoll, setPreRoll] = useState(10);
   const [postRoll, setPostRoll] = useState(3);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [folders, setFolders] = useState<PlaylistFolder[]>([]);
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [uncategorizedExpanded, setUncategorizedExpanded] = useState(true);
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [editFolderName, setEditFolderName] = useState("");
+  const [pendingNewFolderId, setPendingNewFolderId] = useState<string | null>(null);
+  const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
+  const [editingPlaylistKey, setEditingPlaylistKey] = useState<string | null>(null);
+  const [editPlaylistName, setEditPlaylistName] = useState("");
+  // New Playlist dialog
+  const [newPlDialog, setNewPlDialog] = useState(false);
+  const [newPlStep, setNewPlStep] = useState<1 | 2>(1);
+  const [newPlName, setNewPlName] = useState("");
+  const [newPlFolderId, setNewPlFolderId] = useState("");
+  const [newPlMatchId, setNewPlMatchId] = useState("");
+  const [newPlSaving, setNewPlSaving] = useState(false);
   const [clockSort, setClockSort] = useState<ClockSort>("none");
   const [search, setSearch] = useState("");
   const [isExporting, setIsExporting] = useState(false);
@@ -243,15 +270,22 @@ export function PlaylistsPage() {
   // Load all matches on mount; restore playlist selection if returning from match detail
   useEffect(() => {
     const restore = (location.state as { restore?: { matchId: string; playlistId: string } } | null)?.restore;
-    listMatches()
-      .then((loaded) => {
+    Promise.all([listMatches(), listFolders()])
+      .then(([loaded, loadedFolders]) => {
         setMatches(loaded);
+        const sorted = [...loadedFolders].sort((a, b) => a.sortOrder - b.sortOrder);
+        setFolders(sorted);
+        setExpandedFolders(new Set(sorted.map((f) => f.id)));
         if (restore) {
           const match = loaded.find((m) => m.id === restore.matchId);
           const playlist = match?.playlists?.find((p) => p.id === restore.playlistId);
           if (match && playlist) {
             setSelected({ match, playlist });
-            setExpanded((prev) => new Set([...prev, match.id]));
+            if (playlist.folderId) {
+              setExpandedFolders((prev) => new Set([...prev, playlist.folderId!]));
+            } else {
+              setUncategorizedExpanded(true);
+            }
           }
         }
       })
@@ -303,32 +337,43 @@ export function PlaylistsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localVideoUrl]);
 
-  // Derived: matches that have at least one non-empty playlist
-  const grouped = useMemo(() =>
-    matches
-      .filter((m) => (m.playlists ?? []).some((p) => p.clips.length > 0))
-      .map((m) => ({
-        match: m,
-        playlists: (m.playlists ?? []).filter((p) => p.clips.length > 0),
-      })),
+  // Derived: flat list of all non-empty playlists across all matches
+  const allPlaylists = useMemo(() =>
+    matches.flatMap((m) =>
+      (m.playlists ?? [])
+        .filter((p) => p.clips.length > 0)
+        .map((p) => ({ playlist: p, match: m }))
+    ),
     [matches]
   );
 
-  const totalPlaylists = grouped.reduce((n, g) => n + g.playlists.length, 0);
+  const totalPlaylists = allPlaylists.length;
 
-  const filteredGrouped = useMemo(() => {
+  // Filter by search (matches playlist name, folder name, or match title)
+  const filteredPlaylists = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return grouped;
-    return grouped
-      .map(({ match, playlists }) => {
-        const matchHits = match.title.toLowerCase().includes(q);
-        const filteredPlaylists = matchHits
-          ? playlists
-          : playlists.filter((p) => p.name.toLowerCase().includes(q));
-        return { match, playlists: filteredPlaylists };
-      })
-      .filter(({ playlists }) => playlists.length > 0);
-  }, [grouped, search]);
+    if (!q) return allPlaylists;
+    return allPlaylists.filter(({ playlist, match }) => {
+      if (playlist.name.toLowerCase().includes(q)) return true;
+      if (playlist.folderId) {
+        const folder = folders.find((f) => f.id === playlist.folderId);
+        if (folder?.name.toLowerCase().includes(q)) return true;
+      }
+      if (match.title.toLowerCase().includes(q)) return true;
+      return false;
+    });
+  }, [allPlaylists, search, folders]);
+
+  // Group filtered playlists by folderId (null = Uncategorized)
+  const byFolder = useMemo(() => {
+    const map = new Map<string | null, typeof allPlaylists>();
+    for (const item of filteredPlaylists) {
+      const key = item.playlist.folderId ?? null;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(item);
+    }
+    return map;
+  }, [filteredPlaylists]);
 
   // Reset clock sort when the selected playlist changes
   useEffect(() => { setClockSort("none"); }, [selected?.playlist.id]);
@@ -639,11 +684,11 @@ export function PlaylistsPage() {
   // Sidebar helpers
   // ---------------------------------------------------------------------------
 
-  function toggleCollapse(matchId: string) {
-    setExpanded((prev) => {
+  function toggleFolder(id: string) {
+    setExpandedFolders((prev) => {
       const next = new Set(prev);
-      if (next.has(matchId)) next.delete(matchId);
-      else next.add(matchId);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }
@@ -651,6 +696,158 @@ export function PlaylistsPage() {
   function selectPlaylist(entry: PlaylistEntry) {
     if (selected?.playlist.id === entry.playlist.id && selected.match.id === entry.match.id) return;
     setSelected(entry);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Folder operations
+  // ---------------------------------------------------------------------------
+
+  function handleNewFolder() {
+    const tempId = `temp-${Date.now()}`;
+    setPendingNewFolderId(tempId);
+    setFolders((prev) => [...prev, { id: tempId, name: "New Folder", sortOrder: 0 }]);
+    setExpandedFolders((prev) => new Set([...prev, tempId]));
+    setEditingFolderId(tempId);
+    setEditFolderName("New Folder");
+  }
+
+  async function handleRenameFolder(id: string) {
+    const name = editFolderName.trim();
+
+    if (id === pendingNewFolderId) {
+      setPendingNewFolderId(null);
+      setEditingFolderId(null);
+      if (!name) {
+        setFolders((prev) => prev.filter((f) => f.id !== id));
+        setExpandedFolders((prev) => { const s = new Set(prev); s.delete(id); return s; });
+        return;
+      }
+      try {
+        const folder = await createFolder(name);
+        setFolders((prev) => prev.map((f) => f.id === id ? folder : f));
+        setExpandedFolders((prev) => { const s = new Set(prev); s.delete(id); s.add(folder.id); return s; });
+      } catch (err) {
+        setFolders((prev) => prev.filter((f) => f.id !== id));
+        setExpandedFolders((prev) => { const s = new Set(prev); s.delete(id); return s; });
+        console.error("Failed to create folder:", err);
+        alert(`Failed to create folder: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return;
+    }
+
+    if (!name) { setEditingFolderId(null); return; }
+    await updateFolder(id, { name });
+    setFolders((prev) => prev.map((f) => f.id === id ? { ...f, name } : f));
+    setEditingFolderId(null);
+  }
+
+  async function handleDeleteFolder(folderId: string) {
+    // Move playlists in this folder to Uncategorized before deleting
+    const affected = matches.filter((m) =>
+      (m.playlists ?? []).some((p) => p.folderId === folderId)
+    );
+    await Promise.all(
+      affected.map((m) => {
+        const updated = (m.playlists ?? []).map((p) =>
+          p.folderId === folderId ? { ...p, folderId: undefined } : p
+        );
+        return updatePlaylists(m.id, updated);
+      })
+    );
+    setMatches((prev) => prev.map((m) => ({
+      ...m,
+      playlists: (m.playlists ?? []).map((p) =>
+        p.folderId === folderId ? { ...p, folderId: undefined } : p
+      ),
+    })));
+    await deleteFolder(folderId);
+    setFolders((prev) => prev.filter((f) => f.id !== folderId));
+  }
+
+  function handleDragStart(matchId: string, playlistId: string, e: React.DragEvent) {
+    e.dataTransfer.setData("text/plain", JSON.stringify({ matchId, playlistId }));
+  }
+
+  async function handleDrop(targetFolderId: string | null, e: React.DragEvent) {
+    e.preventDefault();
+    setDragOverFolder(null);
+    const raw = e.dataTransfer.getData("text/plain");
+    if (!raw) return;
+    let parsed: { matchId: string; playlistId: string };
+    try { parsed = JSON.parse(raw); } catch { return; }
+    const { matchId, playlistId } = parsed;
+    const match = matches.find((m) => m.id === matchId);
+    if (!match) return;
+    const updated = (match.playlists ?? []).map((p) =>
+      p.id === playlistId ? { ...p, folderId: targetFolderId ?? undefined } : p
+    );
+    await updatePlaylists(matchId, updated);
+    setMatches((prev) => prev.map((m) => m.id === matchId ? { ...m, playlists: updated } : m));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Playlist rename / delete
+  // ---------------------------------------------------------------------------
+
+  async function handleRenamePlaylist(matchId: string, playlistId: string) {
+    const name = editPlaylistName.trim();
+    setEditingPlaylistKey(null);
+    if (!name) return;
+    const match = matches.find((m) => m.id === matchId);
+    if (!match) return;
+    const updated = (match.playlists ?? []).map((p) =>
+      p.id === playlistId ? { ...p, name } : p
+    );
+    setMatches((prev) => prev.map((m) => m.id === matchId ? { ...m, playlists: updated } : m));
+    if (selected?.playlist.id === playlistId && selected.match.id === matchId) {
+      setSelected((prev) => prev ? { ...prev, playlist: { ...prev.playlist, name } } : prev);
+    }
+    await updatePlaylists(matchId, updated);
+  }
+
+  async function handleDeletePlaylist(matchId: string, playlistId: string) {
+    const match = matches.find((m) => m.id === matchId);
+    if (!match) return;
+    const updated = (match.playlists ?? []).filter((p) => p.id !== playlistId);
+    setMatches((prev) => prev.map((m) => m.id === matchId ? { ...m, playlists: updated } : m));
+    if (selected?.playlist.id === playlistId && selected.match.id === matchId) setSelected(null);
+    await updatePlaylists(matchId, updated);
+  }
+
+  // ---------------------------------------------------------------------------
+  // New Playlist dialog
+  // ---------------------------------------------------------------------------
+
+  function openNewPlaylistDialog() {
+    setNewPlStep(1);
+    setNewPlName("");
+    setNewPlFolderId("");
+    setNewPlMatchId("");
+    setNewPlSaving(false);
+    setNewPlDialog(true);
+  }
+
+  async function handleCreateNewPlaylist() {
+    if (!newPlMatchId || !newPlName.trim()) return;
+    setNewPlSaving(true);
+    try {
+      const match = matches.find((m) => m.id === newPlMatchId);
+      if (!match) return;
+      const newPl: Playlist = {
+        id: crypto.randomUUID(),
+        name: newPlName.trim(),
+        clips: [],
+        folderId: newPlFolderId || undefined,
+      };
+      const updated = [...(match.playlists ?? []), newPl];
+      await updatePlaylists(newPlMatchId, updated);
+      setMatches((prev) => prev.map((m) =>
+        m.id === newPlMatchId ? { ...m, playlists: updated } : m
+      ));
+      setNewPlDialog(false);
+    } finally {
+      setNewPlSaving(false);
+    }
   }
 
   const noSync = selected !== null && !selected.match.syncPoint;
@@ -674,26 +871,45 @@ export function PlaylistsPage() {
   // ---------------------------------------------------------------------------
 
   return (
+    <>
     <div className="flex h-full overflow-hidden">
       {/* LEFT PANEL — playlist sidebar */}
-      <div className="flex w-72 shrink-0 flex-col border-r border-border bg-card overflow-y-auto">
-        <div className="sticky top-0 z-10 border-b border-border bg-card px-4 py-3 space-y-2">
+      <div className="flex w-72 shrink-0 flex-col border-r border-border bg-card overflow-y-auto" onDragOver={(e) => e.preventDefault()}>
+        {/* Header */}
+        <div className="sticky top-0 z-10 border-b border-border bg-card px-3 py-3 space-y-2">
           <div className="flex items-center gap-2">
-            <ListVideo className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-semibold text-foreground">
-              Playlists
-            </span>
+            <span className="text-sm font-semibold text-foreground">Playlists</span>
             {totalPlaylists > 0 && (
-              <span className="ml-auto rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                 {totalPlaylists}
               </span>
             )}
+            <div className="ml-auto flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0"
+                title="New Playlist"
+                onClick={openNewPlaylistDialog}
+              >
+                <ListPlus className="h-4 w-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0"
+                title="New Folder"
+                onClick={handleNewFolder}
+              >
+                <FolderPlus className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
-              placeholder="Search sessions or playlists…"
+              placeholder="Search folders and playlists…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="h-7 w-full rounded-md border border-border bg-background pl-8 pr-7 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
@@ -715,12 +931,11 @@ export function PlaylistsPage() {
             {[0, 1].map((i) => (
               <div key={i} className="space-y-2">
                 <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
-                <div className="h-2 w-1/2 animate-pulse rounded bg-muted" />
                 <div className="h-8 w-full animate-pulse rounded bg-muted" />
               </div>
             ))}
           </div>
-        ) : grouped.length === 0 ? (
+        ) : allPlaylists.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
             <ListVideo className="h-8 w-8 text-muted-foreground/40" />
             <p className="text-sm font-medium text-muted-foreground">No playlists yet</p>
@@ -733,94 +948,271 @@ export function PlaylistsPage() {
               </Button>
             </Link>
           </div>
-        ) : filteredGrouped.length === 0 ? (
+        ) : search.trim() && filteredPlaylists.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
             <Search className="h-6 w-6 text-muted-foreground/40" />
             <p className="text-sm text-muted-foreground">No matches for "{search}"</p>
           </div>
         ) : (
           <div className="py-2">
-            {filteredGrouped.map(({ match, playlists }) => {
-              const isOpen = search.trim() ? true : expanded.has(match.id);
+            {/* Named folders */}
+            {folders.map((folder) => {
+              const items = byFolder.get(folder.id) ?? [];
+              const isExpanded = search.trim() ? true : expandedFolders.has(folder.id);
+              const isEditing = editingFolderId === folder.id;
+              const isDragOver = dragOverFolder === folder.id;
               return (
-                <div key={match.id} className="mb-2">
-                  {/* Match group header */}
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 px-3 py-2.5 text-left bg-muted/50 hover:bg-muted transition-colors"
-                    onClick={() => toggleCollapse(match.id)}
+                <div
+                  key={folder.id}
+                  className={isDragOver ? "bg-primary/10 ring-1 ring-inset ring-primary rounded-sm" : ""}
+                  onDragEnter={(e) => { e.preventDefault(); setDragOverFolder(folder.id); }}
+                  onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverFolder(folder.id); }}
+                  onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverFolder(null); }}
+                  onDrop={(e) => handleDrop(folder.id, e)}
+                >
+                  {/* Folder header */}
+                  <div
+                    className={`group flex items-center gap-1.5 px-3 py-2 cursor-pointer select-none transition-colors ${
+                      isDragOver ? "" : "hover:bg-muted/50"
+                    }`}
+                    onClick={() => !isEditing && toggleFolder(folder.id)}
                   >
-                    {isOpen ? (
+                    {isExpanded ? (
                       <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     ) : (
                       <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     )}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-semibold text-foreground/80">
-                        {match.title}
-                      </p>
-                      {match.date && (
-                        <p className="truncate text-xs text-muted-foreground">
-                          {new Date(match.date).toLocaleDateString("sv-SE")}
-                        </p>
-                      )}
-                    </div>
-                  </button>
-
-                  {/* Team color bar */}
-                  <div className="flex h-[3px] w-full overflow-hidden">
-                    <div
-                      className="h-full flex-1"
-                      style={{ backgroundColor: match.homeTeam.color || "#6366f1" }}
-                    />
-                    <div
-                      className="h-full flex-1"
-                      style={{ backgroundColor: match.awayTeam.color || "#94a3b8" }}
-                    />
+                    {isEditing ? (
+                      <input
+                        autoFocus
+                        className="flex-1 min-w-0 rounded border border-primary bg-background px-1 py-0.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary"
+                        value={editFolderName}
+                        onChange={(e) => setEditFolderName(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        onBlur={() => handleRenameFolder(folder.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleRenameFolder(folder.id);
+                          if (e.key === "Escape") {
+                            if (folder.id === pendingNewFolderId) {
+                              setPendingNewFolderId(null);
+                              setFolders((prev) => prev.filter((f) => f.id !== folder.id));
+                              setExpandedFolders((prev) => { const s = new Set(prev); s.delete(folder.id); return s; });
+                            }
+                            setEditingFolderId(null);
+                          }
+                        }}
+                      />
+                    ) : (
+                      <span
+                        className="flex-1 min-w-0 truncate text-sm font-semibold text-foreground/80"
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          setEditingFolderId(folder.id);
+                          setEditFolderName(folder.name);
+                        }}
+                      >
+                        {folder.name}
+                      </span>
+                    )}
+                    {!isEditing ? (
+                      <div className="flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
+                        <span className="text-xs font-semibold text-muted-foreground group-hover:hidden">{items.length}</span>
+                        <div className="hidden group-hover:flex items-center gap-0.5">
+                          <button
+                            type="button"
+                            className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                            title="Rename folder"
+                            onClick={() => { setEditingFolderId(folder.id); setEditFolderName(folder.name); }}
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded p-0.5 text-muted-foreground hover:text-destructive"
+                            title="Delete folder"
+                            onClick={() => handleDeleteFolder(folder.id)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="shrink-0 text-xs text-muted-foreground">{items.length}</span>
+                    )}
                   </div>
 
-                  {/* Playlist rows */}
-                  {isOpen && (
+                  {/* Folder playlists */}
+                  {isExpanded && (
                     <div className="pb-1">
-                      {playlists.map((pl) => {
-                        const isActive =
-                          selected?.playlist.id === pl.id && selected.match.id === match.id;
+                      {items.length === 0 ? (
+                        <p className="pl-10 py-1.5 text-xs text-muted-foreground/60">
+                          Empty — drag a playlist here
+                        </p>
+                      ) : (
+                        items.map(({ playlist, match }) => {
+                          const isActive = selected?.playlist.id === playlist.id && selected.match.id === match.id;
+                          const editKey = `${match.id}:${playlist.id}`;
+                          const isEditingThis = editingPlaylistKey === editKey;
+                          return (
+                            <ContextMenu key={editKey}>
+                              <ContextMenuTrigger asChild>
+                                <div
+                                  draggable={!isEditingThis}
+                                  onDragStart={(e) => handleDragStart(match.id, playlist.id, e)}
+                                  onDragEnd={() => setDragOverFolder(null)}
+                                  className={`group flex w-full cursor-pointer items-center justify-between border-l-2 pl-9 pr-3 py-1.5 text-left transition-colors hover:bg-muted/50 ${
+                                    isActive
+                                      ? "border-l-primary bg-primary/10"
+                                      : "border-l-border hover:border-l-border/80"
+                                  }`}
+                                  onClick={() => !isEditingThis && selectPlaylist({ playlist, match })}
+                                >
+                                  <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                                    <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40 opacity-0 group-hover:opacity-100 cursor-grab" />
+                                    <ListVideo className={`h-3 w-3 shrink-0 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
+                                    {isEditingThis ? (
+                                      <input
+                                        autoFocus
+                                        className="flex-1 min-w-0 rounded border border-primary bg-background px-1 py-0.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary"
+                                        value={editPlaylistName}
+                                        onChange={(e) => setEditPlaylistName(e.target.value)}
+                                        onClick={(e) => e.stopPropagation()}
+                                        onBlur={() => handleRenamePlaylist(match.id, playlist.id)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") handleRenamePlaylist(match.id, playlist.id);
+                                          if (e.key === "Escape") setEditingPlaylistKey(null);
+                                        }}
+                                      />
+                                    ) : (
+                                      <span className={`truncate text-sm ${isActive ? "font-medium text-primary" : "text-muted-foreground"}`}>
+                                        {playlist.name}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className="ml-2 shrink-0 text-xs text-muted-foreground">
+                                    {playlist.clips.length}
+                                  </span>
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent>
+                                <ContextMenuItem onSelect={() => { setEditingPlaylistKey(editKey); setEditPlaylistName(playlist.name); }}>
+                                  Rename
+                                </ContextMenuItem>
+                                <ContextMenuSeparator />
+                                <ContextMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onSelect={() => handleDeletePlaylist(match.id, playlist.id)}
+                                >
+                                  Delete
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Uncategorized */}
+            {(() => {
+              const items = byFolder.get(null) ?? [];
+              if (items.length === 0 && folders.length > 0 && !search.trim()) return null;
+              const isExpanded = search.trim() ? true : uncategorizedExpanded;
+              const isDragOver = dragOverFolder === "uncategorized";
+              return (
+                <div>
+                  <div
+                    className={`group flex items-center gap-1.5 px-3 py-2 cursor-pointer select-none transition-colors ${
+                      isDragOver
+                        ? "bg-primary/10 ring-1 ring-inset ring-primary"
+                        : "hover:bg-muted/50"
+                    }`}
+                    onClick={() => setUncategorizedExpanded((v) => !v)}
+                    onDragEnter={(e) => { e.preventDefault(); setDragOverFolder("uncategorized"); }}
+                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverFolder("uncategorized"); }}
+                    onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverFolder(null); }}
+                    onDrop={(e) => handleDrop(null, e)}
+                  >
+                    {isExpanded ? (
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    )}
+                    <span className="flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
+                      Uncategorized
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{items.length}</span>
+                  </div>
+                  {isExpanded && (
+                    <div className="pb-1">
+                      {items.map(({ playlist, match }) => {
+                        const isActive = selected?.playlist.id === playlist.id && selected.match.id === match.id;
+                        const editKey = `${match.id}:${playlist.id}`;
+                        const isEditingThis = editingPlaylistKey === editKey;
                         return (
-                          <button
-                            key={pl.id}
-                            type="button"
-                            className={`flex w-full items-center justify-between border-l-2 pl-8 pr-4 py-1.5 text-left transition-colors hover:bg-muted/50 ${
-                              isActive
-                                ? "border-l-primary bg-primary/10"
-                                : "border-l-border hover:border-l-border/80"
-                            }`}
-                            onClick={() => selectPlaylist({ playlist: pl, match })}
-                          >
-                            <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                              <ListVideo className={`h-3 w-3 shrink-0 ${
-                                isActive ? "text-primary" : "text-muted-foreground"
-                              }`} />
-                              <span
-                                className={`text-sm truncate ${
+                          <ContextMenu key={editKey}>
+                            <ContextMenuTrigger asChild>
+                              <div
+                                draggable={!isEditingThis}
+                                onDragStart={(e) => handleDragStart(match.id, playlist.id, e)}
+                                onDragEnd={() => setDragOverFolder(null)}
+                                className={`group flex w-full cursor-pointer items-center justify-between border-l-2 pl-8 pr-3 py-1.5 text-left transition-colors hover:bg-muted/50 ${
                                   isActive
-                                    ? "font-medium text-primary"
-                                    : "text-muted-foreground"
+                                    ? "border-l-primary bg-primary/10"
+                                    : "border-l-border hover:border-l-border/80"
                                 }`}
+                                onClick={() => !isEditingThis && selectPlaylist({ playlist, match })}
                               >
-                                {pl.name}
-                              </span>
-                            </div>
-                            <span className="ml-2 shrink-0 text-xs text-muted-foreground">
-                              {pl.clips.length}
-                            </span>
-                          </button>
+                                <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                                  <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40 opacity-0 group-hover:opacity-100 cursor-grab" />
+                                  <ListVideo className={`h-3 w-3 shrink-0 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
+                                  {isEditingThis ? (
+                                    <input
+                                      autoFocus
+                                      className="flex-1 min-w-0 rounded border border-primary bg-background px-1 py-0.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary"
+                                      value={editPlaylistName}
+                                      onChange={(e) => setEditPlaylistName(e.target.value)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      onBlur={() => handleRenamePlaylist(match.id, playlist.id)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") handleRenamePlaylist(match.id, playlist.id);
+                                        if (e.key === "Escape") setEditingPlaylistKey(null);
+                                      }}
+                                    />
+                                  ) : (
+                                    <span className={`truncate text-sm ${isActive ? "font-medium text-primary" : "text-muted-foreground"}`}>
+                                      {playlist.name}
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="ml-2 shrink-0 text-xs text-muted-foreground">
+                                  {playlist.clips.length}
+                                </span>
+                              </div>
+                            </ContextMenuTrigger>
+                            <ContextMenuContent>
+                              <ContextMenuItem onSelect={() => { setEditingPlaylistKey(editKey); setEditPlaylistName(playlist.name); }}>
+                                Rename
+                              </ContextMenuItem>
+                              <ContextMenuSeparator />
+                              <ContextMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onSelect={() => handleDeletePlaylist(match.id, playlist.id)}
+                              >
+                                Delete
+                              </ContextMenuItem>
+                            </ContextMenuContent>
+                          </ContextMenu>
                         );
                       })}
                     </div>
                   )}
                 </div>
               );
-            })}
+            })()}
           </div>
         )}
       </div>
@@ -1050,5 +1442,93 @@ export function PlaylistsPage() {
         )}
       </div>
     </div>
+
+    {/* New Playlist Dialog */}
+
+    <Dialog open={newPlDialog} onOpenChange={(open) => { if (!open) setNewPlDialog(false); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {newPlStep === 1 ? "New Playlist" : "Choose a session"}
+          </DialogTitle>
+        </DialogHeader>
+
+        {newPlStep === 1 ? (
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground">Name</label>
+              <Input
+                autoFocus
+                placeholder="e.g. Team X 2pt Makes"
+                value={newPlName}
+                onChange={(e) => setNewPlName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && newPlName.trim()) setNewPlStep(2); }}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground">Folder</label>
+              <select
+                className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm text-foreground"
+                value={newPlFolderId}
+                onChange={(e) => setNewPlFolderId(e.target.value)}
+              >
+                <option value="">No folder (Uncategorized)</option>
+                {folders.map((f) => (
+                  <option key={f.id} value={f.id}>{f.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              Choose which session stores this playlist's clips.
+            </p>
+            <div className="max-h-64 overflow-y-auto space-y-1 rounded-md border border-border">
+              {matches.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setNewPlMatchId(m.id)}
+                  className={`w-full px-3 py-2.5 text-left text-sm transition-colors ${
+                    newPlMatchId === m.id
+                      ? "bg-primary/10 text-primary"
+                      : "hover:bg-muted text-foreground/80"
+                  }`}
+                >
+                  <div className="font-medium">{m.title}</div>
+                  {m.date && (
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      {new Date(m.date).toLocaleDateString("sv-SE")}
+                    </div>
+                  )}
+                </button>
+              ))}
+              {matches.length === 0 && (
+                <p className="px-3 py-4 text-center text-sm text-muted-foreground">
+                  No sessions available. Upload a match first.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          {newPlStep === 2 && (
+            <Button variant="outline" onClick={() => setNewPlStep(1)}>Back</Button>
+          )}
+          {newPlStep === 1 ? (
+            <Button onClick={() => setNewPlStep(2)} disabled={!newPlName.trim()}>
+              Next
+            </Button>
+          ) : (
+            <Button onClick={handleCreateNewPlaylist} disabled={!newPlMatchId || newPlSaving}>
+              {newPlSaving ? "Creating…" : "Create Playlist"}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

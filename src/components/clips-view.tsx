@@ -5,7 +5,7 @@ import { ArrowDown, ArrowLeft, ArrowUp, ChevronDown, FileDown, GripVertical, Lis
 import { Reorder, useDragControls } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { Playlist, PlaylistClip, PlayByPlayEvent, SyncPoint } from "@/types/match";
+import type { Playlist, PlaylistFolder, PlaylistClip, PlayByPlayEvent, SyncPoint } from "@/types/match";
 import { exportPlaylist, type ExportItem } from "@/lib/export";
 import { isLocalPath } from "@/lib/stream";
 
@@ -439,6 +439,7 @@ interface ClipsViewProps {
   onActiveClipChange?: (pre: number, post: number) => void;
   allPlaylists?: Array<{ matchId: string; matchTitle: string; playlist: Playlist }>;
   onAddToExternalPlaylist?: (anchorMatchId: string, updatedPlaylists: Playlist[]) => Promise<void>;
+  folders?: PlaylistFolder[];
 }
 
 export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function ClipsView({
@@ -458,6 +459,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
   onActiveClipChange,
   allPlaylists,
   onAddToExternalPlaylist,
+  folders = [],
 }: ClipsViewProps, ref) {
   // Build a name → jersey number lookup from both rosters
   const jerseyByName = useMemo(() => {
@@ -503,6 +505,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
 
   // Playlist creation UI
   const [newPlaylistName, setNewPlaylistName] = useState("");
+  const [newPlaylistFolderId, setNewPlaylistFolderId] = useState("");
   const [showAddToDropdown, setShowAddToDropdown] = useState(false);
   const [addToSearch, setAddToSearch] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -946,9 +949,11 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
       id: crypto.randomUUID(),
       name: newPlaylistName.trim(),
       clips: ordered,
+      folderId: newPlaylistFolderId || undefined,
     };
     onPlaylistsChange?.([...playlists, newPl]);
     setNewPlaylistName("");
+    setNewPlaylistFolderId("");
     setSelectedIds(new Set());
   }
 
@@ -1314,6 +1319,18 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                     if (e.key === "Enter") handleCreatePlaylist();
                   }}
                 />
+                {folders.length > 0 && (
+                  <select
+                    className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground"
+                    value={newPlaylistFolderId}
+                    onChange={(e) => setNewPlaylistFolderId(e.target.value)}
+                  >
+                    <option value="">No folder</option>
+                    {folders.map((f) => (
+                      <option key={f.id} value={f.id}>{f.name}</option>
+                    ))}
+                  </select>
+                )}
                 <Button
                   size="sm"
                   className="h-7 gap-1 px-2 text-xs"

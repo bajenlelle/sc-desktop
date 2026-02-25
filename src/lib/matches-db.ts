@@ -4,7 +4,7 @@
  */
 
 import { createClient } from "@/lib/supabase/client";
-import type { Playlist, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
+import type { Playlist, PlaylistFolder, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 
 // ---------------------------------------------------------------------------
 // DB row types (snake_case columns from Postgres)
@@ -59,6 +59,7 @@ function rowToStoredMatch(row: MatchRow, events: EventRow[]): StoredMatch {
     playlists: (row.playlists ?? []).map((p: any) => ({
       id: p.id,
       name: p.name,
+      folderId: p.folderId,
       // backward compat: old format used eventIds: number[], new format uses clips: PlaylistClip[]
       clips: p.clips
         ?? ((p.eventIds as number[] | undefined) ?? []).map((eid: number) => ({ matchId: row.id, eventId: eid })),
@@ -273,6 +274,63 @@ export async function updatePlaylists(
     .update({ playlists })
     .eq("id", matchId);
   if (error) throw new Error(`Failed to update playlists: ${error.message}`);
+}
+
+// ---------------------------------------------------------------------------
+// Playlist folders
+// ---------------------------------------------------------------------------
+
+interface FolderRow {
+  id: string;
+  user_id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+}
+
+function rowToFolder(row: FolderRow): PlaylistFolder {
+  return { id: row.id, name: row.name, sortOrder: row.sort_order };
+}
+
+export async function listFolders(): Promise<PlaylistFolder[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("playlist_folders")
+    .select("*")
+    .order("sort_order", { ascending: true });
+  if (error || !data) return [];
+  return (data as FolderRow[]).map(rowToFolder);
+}
+
+export async function createFolder(name: string): Promise<PlaylistFolder> {
+  const supabase = createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error("Not authenticated");
+  const { data, error } = await supabase
+    .from("playlist_folders")
+    .insert({ user_id: user.id, name, sort_order: 0 })
+    .select()
+    .single();
+  if (error || !data) throw new Error(`Failed to create folder: ${error?.message}`);
+  return rowToFolder(data as FolderRow);
+}
+
+export async function updateFolder(
+  id: string,
+  patch: { name?: string; sortOrder?: number }
+): Promise<void> {
+  const supabase = createClient();
+  const row: Record<string, unknown> = {};
+  if (patch.name !== undefined) row.name = patch.name;
+  if (patch.sortOrder !== undefined) row.sort_order = patch.sortOrder;
+  const { error } = await supabase.from("playlist_folders").update(row).eq("id", id);
+  if (error) throw new Error(`Failed to update folder: ${error.message}`);
+}
+
+export async function deleteFolder(id: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.from("playlist_folders").delete().eq("id", id);
+  if (error) throw new Error(`Failed to delete folder: ${error.message}`);
 }
 
 // ---------------------------------------------------------------------------
