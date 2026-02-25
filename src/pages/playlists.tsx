@@ -26,7 +26,7 @@ import { VideoClipControls } from "@/components/video-clip-controls";
 import { listMatches, updatePlaylists } from "@/lib/matches-db";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { exportPlaylist } from "@/lib/export";
-import type { Playlist, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
+import type { Playlist, PlaylistClip, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 
 // ---------------------------------------------------------------------------
 // Helpers (mirrors clips-view.tsx)
@@ -115,25 +115,31 @@ function parseGameClock(raw: string): number {
 
 type ClockSort = "none" | "asc" | "desc";
 type PlaylistEntry = { playlist: Playlist; match: StoredMatch };
+type QueueItem = { event: PlayByPlayEvent; matchId: string };
 
 // ---------------------------------------------------------------------------
 // DraggableRow (used only in manual sort mode)
 // ---------------------------------------------------------------------------
 
 function DraggableRow({
-  event,
+  item,
   isActive,
+  isMultiMatch,
+  matchTitle,
   onClick,
 }: {
-  event: PlayByPlayEvent;
+  item: QueueItem;
   isActive: boolean;
+  isMultiMatch: boolean;
+  matchTitle?: string;
   onClick: () => void;
 }) {
   const controls = useDragControls();
+  const { event } = item;
   return (
     <Reorder.Item
       as="tr"
-      value={event}
+      value={item}
       dragListener={false}
       dragControls={controls}
       data-event-id={event.eventId}
@@ -154,6 +160,11 @@ function DraggableRow({
       <td className="px-4 py-2.5 font-mono text-muted-foreground">
         {formatGameClock(event.gameClockTime)}
       </td>
+      {isMultiMatch && (
+        <td className="px-4 py-2.5 text-xs text-muted-foreground truncate max-w-[120px]">
+          {matchTitle ?? "—"}
+        </td>
+      )}
       <td className="px-4 py-2.5">
         <span
           className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${eventBadgeColor(event)}`}
@@ -197,19 +208,20 @@ export function PlaylistsPage() {
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
+  const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const queueRef = useRef<PlayByPlayEvent[]>([]);
+  const queueRef = useRef<QueueItem[]>([]);
   const queueIdxRef = useRef<number>(0);
   const clipEndRef = useRef<number | undefined>(undefined);
+  const pendingSeekRef = useRef<{ seekTo: number; clipEnd: number } | null>(null);
   const preRollRef = useRef(preRoll);
   const postRollRef = useRef(postRoll);
-  const syncPointRef = useRef<SyncPoint | undefined>(undefined);
+  const activeMatchIdRef = useRef<string | null>(null);
 
   useEffect(() => { preRollRef.current = preRoll; }, [preRoll]);
   useEffect(() => { postRollRef.current = postRoll; }, [postRoll]);
-  useEffect(() => {
-    syncPointRef.current = selected?.match.syncPoint;
-  }, [selected]);
+  useEffect(() => { activeMatchIdRef.current = activeMatchId; }, [activeMatchId]);
 
   // Load all matches on mount; restore playlist selection if returning from match detail
   useEffect(() => {
@@ -231,25 +243,56 @@ export function PlaylistsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Swap video source whenever the selected match changes
+  // Build match lookup for cross-match event resolution
+  const matchLookup = useMemo(
+    () => new Map(matches.map((m) => [m.id, m])),
+    [matches]
+  );
+  const matchLookupRef = useRef(matchLookup);
+  useEffect(() => { matchLookupRef.current = matchLookup; }, [matchLookup]);
+
+  // Initialize activeMatchId when the selected playlist changes; also stop playback
   useEffect(() => {
     handleStop();
-    if (!selected?.match.videoUrl) {
-      setLocalVideoUrl(null);
-      return;
-    }
-    const url = selected.match.videoUrl;
-    setLocalVideoUrl(isLocalPath(url) ? streamFileSrc(url) : url);
+    setActiveMatchId(selected?.match.id ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.match.id]);
+
+  // Swap video source whenever activeMatchId changes
+  useEffect(() => {
+    if (!activeMatchId) { setLocalVideoUrl(null); return; }
+    const m = matchLookupRef.current.get(activeMatchId);
+    if (!m?.videoUrl) { setLocalVideoUrl(null); return; }
+    const url = m.videoUrl;
+    setLocalVideoUrl(isLocalPath(url) ? streamFileSrc(url) : url);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMatchId]);
+
+  // Apply any pending cross-match seek once the new video is ready
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !localVideoUrl || !pendingSeekRef.current) return;
+    const pending = pendingSeekRef.current;
+    function handleCanPlay() {
+      if (!pendingSeekRef.current) return;
+      const { seekTo, clipEnd } = pendingSeekRef.current;
+      pendingSeekRef.current = null;
+      clipEndRef.current = clipEnd;
+      video!.currentTime = seekTo;
+      video!.addEventListener("seeked", () => video!.play().catch(() => {}), { once: true });
+    }
+    video.addEventListener("canplay", handleCanPlay, { once: true });
+    return () => video.removeEventListener("canplay", handleCanPlay);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localVideoUrl]);
 
   // Derived: matches that have at least one non-empty playlist
   const grouped = useMemo(() =>
     matches
-      .filter((m) => (m.playlists ?? []).some((p) => p.eventIds.length > 0))
+      .filter((m) => (m.playlists ?? []).some((p) => p.clips.length > 0))
       .map((m) => ({
         match: m,
-        playlists: (m.playlists ?? []).filter((p) => p.eventIds.length > 0),
+        playlists: (m.playlists ?? []).filter((p) => p.clips.length > 0),
       })),
     [matches]
   );
@@ -273,20 +316,28 @@ export function PlaylistsPage() {
   // Reset clock sort when the selected playlist changes
   useEffect(() => { setClockSort("none"); }, [selected?.playlist.id]);
 
-  // Resolve playlist events in display order
-  const playlistEvents = useMemo(() => {
+  // Resolve playlist events in display order (cross-match aware)
+  const playlistEvents = useMemo((): QueueItem[] => {
     if (!selected) return [];
-    const eventMap = new Map(selected.match.events.map((e) => [e.eventId, e]));
-    return selected.playlist.eventIds
-      .map((id) => eventMap.get(id))
-      .filter((e): e is PlayByPlayEvent => e !== undefined);
-  }, [selected]);
+    return selected.playlist.clips
+      .map((clip) => {
+        const match = matchLookup.get(clip.matchId);
+        const event = match?.events.find((e) => e.eventId === clip.eventId);
+        return event ? { event, matchId: clip.matchId } : null;
+      })
+      .filter((x): x is QueueItem => x !== null);
+  }, [selected, matchLookup]);
+
+  const isMultiMatch = useMemo(
+    () => new Set(selected?.playlist.clips.map((c) => c.matchId)).size > 1,
+    [selected]
+  );
 
   const sortedEvents = useMemo(() => {
     if (clockSort === "none") return playlistEvents;
     return [...playlistEvents].sort((a, b) => {
-      const aT = parseGameClock(formatGameClock(a.gameClockTime));
-      const bT = parseGameClock(formatGameClock(b.gameClockTime));
+      const aT = parseGameClock(formatGameClock(a.event.gameClockTime));
+      const bT = parseGameClock(formatGameClock(b.event.gameClockTime));
       // clock counts DOWN — "asc" = chronological = high clock first
       return clockSort === "asc" ? bT - aT : aT - bT;
     });
@@ -302,14 +353,15 @@ export function PlaylistsPage() {
     setIsPlaying(false);
     setActiveEventId(null);
     clipEndRef.current = undefined;
+    pendingSeekRef.current = null;
     videoRef.current?.pause();
   }, []);
 
-  const seekToEvent = useCallback((event: PlayByPlayEvent) => {
-    const sp = syncPointRef.current;
+  const seekToItem = useCallback((item: QueueItem) => {
+    const sp = matchLookupRef.current.get(item.matchId)?.syncPoint;
     const video = videoRef.current;
     if (!sp || !video) return;
-    const videoTime = computeVideoTime(event, sp);
+    const videoTime = computeVideoTime(item.event, sp);
     if (videoTime === null) return;
     const seekTo = Math.max(0, videoTime - preRollRef.current);
     clipEndRef.current = videoTime + postRollRef.current;
@@ -321,9 +373,9 @@ export function PlaylistsPage() {
   const isQueueActive = activeEventId !== null;
 
   const handleReplay = useCallback(() => {
-    const event = queueRef.current[queueIdxRef.current];
-    if (event) seekToEvent(event);
-  }, [seekToEvent]);
+    const item = queueRef.current[queueIdxRef.current];
+    if (item) seekToItem(item);
+  }, [seekToItem]);
 
   // Auto-advance via timeupdate — re-binds when video source changes
   useEffect(() => {
@@ -341,17 +393,24 @@ export function PlaylistsPage() {
 
       if (nextIdx < queue.length) {
         queueIdxRef.current = nextIdx;
-        const nextEvent = queue[nextIdx];
-        setActiveEventId(nextEvent.eventId);
-        const sp = syncPointRef.current;
+        const nextItem = queue[nextIdx];
+        setActiveEventId(nextItem.event.eventId);
+        const sp = matchLookupRef.current.get(nextItem.matchId)?.syncPoint;
         if (sp) {
-          const videoTime = computeVideoTime(nextEvent, sp);
+          const videoTime = computeVideoTime(nextItem.event, sp);
           if (videoTime !== null) {
             const seekTo = Math.max(0, videoTime - preRollRef.current);
-            clipEndRef.current = videoTime + postRollRef.current;
-            video.pause();
-            video.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
-            video.currentTime = seekTo;
+            const clipEnd = videoTime + postRollRef.current;
+            if (nextItem.matchId !== activeMatchIdRef.current) {
+              // Cross-match: switch video source; seek happens in canplay handler
+              pendingSeekRef.current = { seekTo, clipEnd };
+              setActiveMatchId(nextItem.matchId);
+            } else {
+              clipEndRef.current = clipEnd;
+              video.pause();
+              video.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
+              video.currentTime = seekTo;
+            }
           }
         }
       } else {
@@ -366,18 +425,30 @@ export function PlaylistsPage() {
     return () => video.removeEventListener("timeupdate", handleTimeUpdate);
   }, [localVideoUrl]);
 
-  function startQueue(queue: PlayByPlayEvent[]) {
-    if (queue.length === 0 || !syncPointRef.current) return;
+  function startQueue(queue: QueueItem[]) {
+    if (queue.length === 0) return;
+    const firstItem = queue[0];
+    const sp = matchLookupRef.current.get(firstItem.matchId)?.syncPoint;
+    if (!sp) return;
     queueRef.current = queue;
     queueIdxRef.current = 0;
     setIsPlaying(true);
-    setActiveEventId(queue[0].eventId);
-    seekToEvent(queue[0]);
+    setActiveEventId(firstItem.event.eventId);
+    if (firstItem.matchId !== activeMatchIdRef.current) {
+      const videoTime = computeVideoTime(firstItem.event, sp);
+      if (videoTime !== null) {
+        const seekTo = Math.max(0, videoTime - preRollRef.current);
+        pendingSeekRef.current = { seekTo, clipEnd: videoTime + postRollRef.current };
+      }
+      setActiveMatchId(firstItem.matchId);
+    } else {
+      seekToItem(firstItem);
+    }
   }
 
-  function handleRowClick(event: PlayByPlayEvent) {
-    const idx = sortedEvents.findIndex((e) => e.eventId === event.eventId);
-    const queue = idx >= 0 ? sortedEvents.slice(idx) : [event];
+  function handleRowClick(item: QueueItem) {
+    const idx = sortedEvents.findIndex((i) => i.event.eventId === item.event.eventId);
+    const queue = idx >= 0 ? sortedEvents.slice(idx) : [item];
     startQueue(queue);
   }
 
@@ -393,23 +464,23 @@ export function PlaylistsPage() {
 
   // Prev/next based on position in the visible list (same as ↑/↓ arrow keys)
   const listPosition = activeEventId !== null
-    ? sortedEvents.findIndex((e) => e.eventId === activeEventId)
+    ? sortedEvents.findIndex((i) => i.event.eventId === activeEventId)
     : -1;
   const canPrev = listPosition > 0;
   const canNext = listPosition >= 0 && listPosition < sortedEvents.length - 1;
 
   const handlePrev = useCallback(() => {
-    const events = _sortedEventsRef.current;
-    const cur = events.findIndex((e) => e.eventId === _activeEventIdRef.current);
+    const items = _sortedEventsRef.current;
+    const cur = items.findIndex((i) => i.event.eventId === _activeEventIdRef.current);
     if (cur <= 0) return;
-    _handleRowClickRef.current(events[cur - 1]);
+    _handleRowClickRef.current(items[cur - 1]);
   }, []);
 
   const handleNext = useCallback(() => {
-    const events = _sortedEventsRef.current;
-    const cur = events.findIndex((e) => e.eventId === _activeEventIdRef.current);
-    if (cur === -1 || cur >= events.length - 1) return;
-    _handleRowClickRef.current(events[cur + 1]);
+    const items = _sortedEventsRef.current;
+    const cur = items.findIndex((i) => i.event.eventId === _activeEventIdRef.current);
+    if (cur === -1 || cur >= items.length - 1) return;
+    _handleRowClickRef.current(items[cur + 1]);
   }, []);
 
   useEffect(() => {
@@ -420,13 +491,13 @@ export function PlaylistsPage() {
       if ((e.target as HTMLElement).isContentEditable) return;
       e.preventDefault();
       if (e.code === "ArrowLeft") { _handleReplayRef.current(); return; }
-      const events = _sortedEventsRef.current;
-      if (events.length === 0) return;
-      const cur = events.findIndex((ev) => ev.eventId === _activeEventIdRef.current);
+      const items = _sortedEventsRef.current;
+      if (items.length === 0) return;
+      const cur = items.findIndex((i) => i.event.eventId === _activeEventIdRef.current);
       const next = e.code === "ArrowDown"
-        ? cur === -1 ? 0 : Math.min(cur + 1, events.length - 1)
-        : cur === -1 ? events.length - 1 : Math.max(cur - 1, 0);
-      if (next !== cur || cur === -1) _handleRowClickRef.current(events[next]);
+        ? cur === -1 ? 0 : Math.min(cur + 1, items.length - 1)
+        : cur === -1 ? items.length - 1 : Math.max(cur - 1, 0);
+      if (next !== cur || cur === -1) _handleRowClickRef.current(items[next]);
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
@@ -438,10 +509,13 @@ export function PlaylistsPage() {
     document.querySelector(`[data-event-id="${activeEventId}"]`)?.scrollIntoView({ block: "nearest" });
   }, [activeEventId]);
 
-  async function handleReorder(newEvents: PlayByPlayEvent[]) {
+  async function handleReorder(newItems: QueueItem[]) {
     if (!selected) return;
-    const newIds = newEvents.map((e) => e.eventId);
-    const updatedPlaylist = { ...selected.playlist, eventIds: newIds };
+    const newClips: PlaylistClip[] = newItems.map((item) => ({
+      matchId: item.matchId,
+      eventId: item.event.eventId,
+    }));
+    const updatedPlaylist = { ...selected.playlist, clips: newClips };
     const updatedPlaylists = (selected.match.playlists ?? []).map((p) =>
       p.id === selected.playlist.id ? updatedPlaylist : p
     );
@@ -463,7 +537,7 @@ export function PlaylistsPage() {
     try {
       await exportPlaylist(
         selected.match.videoUrl,
-        sortedEvents,
+        sortedEvents.map((item) => item.event),
         selected.match.syncPoint,
         preRoll,
         postRoll,
@@ -501,6 +575,7 @@ export function PlaylistsPage() {
     !localVideoUrl ? "No video loaded" :
     !selected?.match.syncPoint ? "No sync point set" :
     sortedEvents.length === 0 ? "Playlist is empty" :
+    isMultiMatch ? "Export not supported for cross-match playlists" :
     selected?.match.videoUrl && !isLocalPath(selected.match.videoUrl) ? "Export requires a local video file" :
     null;
 
@@ -646,7 +721,7 @@ export function PlaylistsPage() {
                               </span>
                             </div>
                             <span className="ml-2 shrink-0 text-xs text-muted-foreground">
-                              {pl.eventIds.length}
+                              {pl.clips.length}
                             </span>
                           </button>
                         );
@@ -708,7 +783,9 @@ export function PlaylistsPage() {
             <ResizablePanelGroup direction="horizontal" autoSaveId="playlists-split" className="min-h-0 flex-1">
               <ResizablePanel defaultSize={45} minSize={20}>
               {/* LEFT: playback controls + clip table */}
-              <div className="flex h-full flex-col gap-3 overflow-y-auto pr-3">
+              <div className="flex h-full flex-col gap-3 overflow-hidden pr-3">
+                {/* Fixed: warnings + playback controls */}
+                <div className="flex shrink-0 flex-col gap-3">
                 {/* No sync warning */}
                 {noSync && (
                   <div className="rounded-md bg-amber-50 dark:bg-amber-950 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300">
@@ -749,7 +826,7 @@ export function PlaylistsPage() {
                         size="sm"
                         className="h-8 gap-1.5"
                         onClick={() => startQueue([...sortedEvents])}
-                        disabled={sortedEvents.length === 0 || noSync || noVideo}
+                        disabled={sortedEvents.length === 0 || noSync}
                       >
                         <SkipForward className="h-3.5 w-3.5" />
                         Play Playlist
@@ -778,8 +855,10 @@ export function PlaylistsPage() {
                     <p className="w-full text-xs text-red-500 mt-1">{exportError}</p>
                   )}
                 </div>
+                </div>{/* end fixed controls */}
 
-                {/* Clip table */}
+                {/* Scrollable clip table */}
+                <div className="min-h-0 flex-1 overflow-y-auto">
                 {sortedEvents.length === 0 ? (
                   <p className="py-8 text-center text-sm text-muted-foreground">
                     This playlist has no clips.
@@ -801,6 +880,7 @@ export function PlaylistsPage() {
                               {clockSort === "desc" && <ArrowDown className="h-3 w-3" />}
                             </span>
                           </th>
+                          {isMultiMatch && <th className="px-4 py-2.5 text-left">Match</th>}
                           <th className="px-4 py-2.5 text-left">Event</th>
                           <th className="px-4 py-2.5 text-left">Player</th>
                           <th className="px-4 py-2.5 text-left">Team</th>
@@ -814,18 +894,21 @@ export function PlaylistsPage() {
                         onReorder={handleReorder}
                         className="divide-y divide-border bg-card"
                       >
-                        {sortedEvents.map((event) => (
+                        {sortedEvents.map((item) => (
                           <DraggableRow
-                            key={event.eventId}
-                            event={event}
-                            isActive={event.eventId === activeEventId}
-                            onClick={() => handleRowClick(event)}
+                            key={`${item.matchId}:${item.event.eventId}`}
+                            item={item}
+                            isActive={item.event.eventId === activeEventId}
+                            isMultiMatch={isMultiMatch}
+                            matchTitle={matchLookup.get(item.matchId)?.title}
+                            onClick={() => handleRowClick(item)}
                           />
                         ))}
                       </Reorder.Group>
                     </table>
                   </div>
                 )}
+                </div>{/* end scrollable clip table */}
               </div>
               </ResizablePanel>
 
@@ -847,6 +930,7 @@ export function PlaylistsPage() {
                       onReplay={handleReplay}
                       onStop={handleStop}
                       onPlayAll={() => startQueue([...sortedEvents])}
+
                     />
                   </>
                 ) : (

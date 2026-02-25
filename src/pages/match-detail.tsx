@@ -16,7 +16,7 @@ import type { ClipsViewHandle } from "@/components/clips-view";
 import { VideoClipControls } from "@/components/video-clip-controls";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getMatchById } from "@/lib/mock-data";
-import { getMatch, updatePlaylists, updateVideoUrl } from "@/lib/matches-db";
+import { getMatch, listMatchesLight, updatePlaylists, updateVideoUrl } from "@/lib/matches-db";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
@@ -44,6 +44,7 @@ export function MatchDetailPage() {
   const [match, setMatch] = useState<Match | null>(null);
   const [storedMatch, setStoredMatch] = useState<StoredMatch | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [allMatches, setAllMatches] = useState<StoredMatch[]>([]);
   const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
 
@@ -118,10 +119,13 @@ export function MatchDetailPage() {
 
     async function load() {
       try {
-        const dbMatch = await getMatch(matchId);
-        if (!cancelled && dbMatch) {
-          setStoredMatch(dbMatch);
-          return;
+        const [dbMatch, light] = await Promise.all([getMatch(matchId), listMatchesLight()]);
+        if (!cancelled) {
+          setAllMatches(light.filter((m) => m.id !== matchId));
+          if (dbMatch) {
+            setStoredMatch(dbMatch);
+            return;
+          }
         }
       } catch {
         // Not authenticated or network error — fall through to mock data
@@ -280,6 +284,7 @@ export function MatchDetailPage() {
                 <TabsContent value="clips">
                   <ClipsView
                     ref={clipsViewRef}
+                    matchId={matchId}
                     events={storedMatch.events}
                     syncPoint={storedMatch.syncPoint}
                     videoRef={videoRef}
@@ -295,6 +300,19 @@ export function MatchDetailPage() {
                       setStoredMatch((m) => m ? { ...m, playlists: p } : m);
                     }}
                     videoAvailable={!!localVideoUrl}
+                    allPlaylists={allMatches.flatMap((m) =>
+                      (m.playlists ?? []).map((pl) => ({
+                        matchId: m.id,
+                        matchTitle: m.title,
+                        playlist: pl,
+                      }))
+                    )}
+                    onAddToExternalPlaylist={async (anchorMatchId, updatedPlaylists) => {
+                      await updatePlaylists(anchorMatchId, updatedPlaylists);
+                      setAllMatches((prev) =>
+                        prev.map((m) => m.id === anchorMatchId ? { ...m, playlists: updatedPlaylists } : m)
+                      );
+                    }}
                   />
                 </TabsContent>
 

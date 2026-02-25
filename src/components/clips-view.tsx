@@ -5,7 +5,7 @@ import { ArrowDown, ArrowLeft, ArrowUp, ChevronDown, FileDown, GripVertical, Lis
 import { Reorder, useDragControls } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { Playlist, PlayByPlayEvent, SyncPoint } from "@/types/match";
+import type { Playlist, PlaylistClip, PlayByPlayEvent, SyncPoint } from "@/types/match";
 import { exportPlaylist } from "@/lib/export";
 import { isLocalPath } from "@/lib/stream";
 
@@ -298,6 +298,105 @@ function DraggableClipsRow({
 }
 
 // ---------------------------------------------------------------------------
+// AddToDropdown — enhanced playlist picker with search and cross-match sections
+// ---------------------------------------------------------------------------
+
+function AddToDropdown({
+  playlists,
+  allPlaylists,
+  matchId,
+  activePlaylistId,
+  addToSearch,
+  setAddToSearch,
+  onAddToPlaylist,
+}: {
+  playlists: Playlist[];
+  allPlaylists?: Array<{ matchId: string; matchTitle: string; playlist: Playlist }>;
+  matchId: string;
+  activePlaylistId: string | null;
+  addToSearch: string;
+  setAddToSearch: (v: string) => void;
+  onAddToPlaylist: (anchorMatchId: string, playlist: Playlist) => void;
+}) {
+  const q = addToSearch.toLowerCase();
+
+  const thisSessionOptions = playlists.filter((pl) => {
+    if (activePlaylistId && pl.id === activePlaylistId) return false;
+    if (q && !pl.name.toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  // Group other matches' playlists
+  const otherGroupMap = new Map<string, { matchTitle: string; options: Array<{ pl: Playlist; anchorMatchId: string }> }>();
+  for (const ap of allPlaylists ?? []) {
+    if (ap.matchId === matchId) continue;
+    if (activePlaylistId && ap.playlist.id === activePlaylistId) continue;
+    if (q && !ap.playlist.name.toLowerCase().includes(q)) continue;
+    if (!otherGroupMap.has(ap.matchId)) {
+      otherGroupMap.set(ap.matchId, { matchTitle: ap.matchTitle, options: [] });
+    }
+    otherGroupMap.get(ap.matchId)!.options.push({ pl: ap.playlist, anchorMatchId: ap.matchId });
+  }
+  const otherGroups = Array.from(otherGroupMap.entries()).map(([mId, g]) => ({ matchId: mId, ...g }));
+
+  const hasAny = thisSessionOptions.length > 0 || otherGroups.some((g) => g.options.length > 0);
+
+  return (
+    <div className="absolute right-0 z-20 mt-1 w-72 rounded-md border border-border bg-popover shadow-lg">
+      <div className="border-b border-border p-2">
+        <input
+          autoFocus
+          type="text"
+          placeholder="Search playlists…"
+          value={addToSearch}
+          onChange={(e) => setAddToSearch(e.target.value)}
+          className="w-full rounded-sm bg-muted px-2 py-1 text-xs outline-none"
+        />
+      </div>
+      {thisSessionOptions.length > 0 && (
+        <>
+          <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            This session
+          </p>
+          {thisSessionOptions.map((pl) => (
+            <button
+              key={pl.id}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
+              onClick={() => onAddToPlaylist(matchId, pl)}
+            >
+              <span className="flex-1 truncate">{pl.name}</span>
+              <span className="text-xs text-muted-foreground">{pl.clips.length}</span>
+            </button>
+          ))}
+        </>
+      )}
+      {otherGroups.map((group) =>
+        group.options.length === 0 ? null : (
+          <div key={group.matchId}>
+            <p className="truncate px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {group.matchTitle}
+            </p>
+            {group.options.map(({ pl, anchorMatchId }) => (
+              <button
+                key={pl.id}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
+                onClick={() => onAddToPlaylist(anchorMatchId, pl)}
+              >
+                <span className="flex-1 truncate">{pl.name}</span>
+                <span className="text-xs text-muted-foreground">{pl.clips.length}</span>
+              </button>
+            ))}
+          </div>
+        )
+      )}
+      {!hasAny && (
+        <p className="px-3 py-3 text-xs text-muted-foreground">No playlists found</p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -307,6 +406,7 @@ interface RosterEntry {
 }
 
 interface ClipsViewProps {
+  matchId: string;
   events: PlayByPlayEvent[];
   syncPoint: SyncPoint | undefined;
   videoRef: RefObject<HTMLVideoElement | null>;
@@ -319,9 +419,12 @@ interface ClipsViewProps {
   onPlaylistsChange?: (p: Playlist[]) => void;
   videoAvailable?: boolean;
   onPlaybackChange?: (canPrev: boolean, canNext: boolean, isQueueActive: boolean) => void;
+  allPlaylists?: Array<{ matchId: string; matchTitle: string; playlist: Playlist }>;
+  onAddToExternalPlaylist?: (anchorMatchId: string, updatedPlaylists: Playlist[]) => Promise<void>;
 }
 
 export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function ClipsView({
+  matchId,
   events,
   syncPoint,
   videoRef,
@@ -334,6 +437,8 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
   onPlaylistsChange,
   videoAvailable = false,
   onPlaybackChange,
+  allPlaylists,
+  onAddToExternalPlaylist,
 }: ClipsViewProps, ref) {
   // Build a name → jersey number lookup from both rosters
   const jerseyByName = useMemo(() => {
@@ -379,6 +484,20 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
   // Playlist creation UI
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const [showAddToDropdown, setShowAddToDropdown] = useState(false);
+  const [addToSearch, setAddToSearch] = useState("");
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close add-to dropdown on outside click
+  useEffect(() => {
+    function onMouseDown(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowAddToDropdown(false);
+        setAddToSearch("");
+      }
+    }
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, []);
 
   // Active playlist (playlist view mode)
   const [activePlaylist, setActivePlaylist] = useState<Playlist | null>(null);
@@ -432,13 +551,14 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
     return true;
   });
 
-  // Resolve playlist events in order
+  // Resolve playlist events in order (only clips from the current match are playable here)
   const playlistEvents = useMemo(() => {
     if (!activePlaylist) return null;
-    return activePlaylist.eventIds
-      .map((id) => eventMap.get(id))
+    return activePlaylist.clips
+      .filter((c) => c.matchId === matchId)
+      .map((c) => eventMap.get(c.eventId))
       .filter((e): e is PlayByPlayEvent => e !== undefined);
-  }, [activePlaylist, eventMap]);
+  }, [activePlaylist, eventMap, matchId]);
 
   // Events shown in the table — playlist view overrides filtered view
   const displayEvents = activePlaylist ? (playlistEvents ?? []) : filtered;
@@ -641,8 +761,14 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
 
   function handleReorderPlaylist(newEvents: PlayByPlayEvent[]) {
     if (!activePlaylist || !onPlaylistsChange) return;
-    const newIds = newEvents.map((e) => e.eventId);
-    const updated = { ...activePlaylist, eventIds: newIds };
+    // Re-map current-match clips to new order; cross-match clips keep their original slot
+    const reorderedIds = newEvents.map((e) => e.eventId);
+    let idx = 0;
+    const newClips = activePlaylist.clips.map((c) => {
+      if (c.matchId !== matchId) return c;
+      return { matchId, eventId: reorderedIds[idx++] ?? c.eventId };
+    });
+    const updated = { ...activePlaylist, clips: newClips };
     setActivePlaylist(updated);
     onPlaylistsChange(playlists.map((p) => p.id === activePlaylist.id ? updated : p));
   }
@@ -659,8 +785,9 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
   function handlePlayPlaylistFromCard(pl: Playlist) {
     setActivePlaylist(pl);
     setSelectedIds(new Set());
-    const queue = pl.eventIds
-      .map((id) => eventMap.get(id))
+    const queue = pl.clips
+      .filter((c) => c.matchId === matchId)
+      .map((c) => eventMap.get(c.eventId))
       .filter((e): e is PlayByPlayEvent => e !== undefined);
     queueRef.current = [];
     queueIdxRef.current = 0;
@@ -704,34 +831,49 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
   // ---------------------------------------------------------------------------
   function handleCreatePlaylist() {
     if (!newPlaylistName.trim() || selectedIds.size === 0) return;
-    const ordered = filtered
+    const ordered: PlaylistClip[] = filtered
       .filter((e) => selectedIds.has(e.eventId))
-      .map((e) => e.eventId);
+      .map((e) => ({ matchId, eventId: e.eventId }));
     const newPl: Playlist = {
       id: crypto.randomUUID(),
       name: newPlaylistName.trim(),
-      eventIds: ordered,
+      clips: ordered,
     };
     onPlaylistsChange?.([...playlists, newPl]);
     setNewPlaylistName("");
     setSelectedIds(new Set());
   }
 
-  function handleAddToPlaylist(playlist: Playlist) {
-    const existingSet = new Set(playlist.eventIds);
-    const toAdd = filtered
-      .filter((e) => selectedIds.has(e.eventId) && !existingSet.has(e.eventId))
-      .map((e) => e.eventId);
-    const updated = { ...playlist, eventIds: [...playlist.eventIds, ...toAdd] };
-    onPlaylistsChange?.(playlists.map((p) => (p.id === playlist.id ? updated : p)));
+  function handleAddToPlaylist(anchorMatchId: string, targetPlaylist: Playlist) {
+    const existingSet = new Set(targetPlaylist.clips.map((c) => `${c.matchId}:${c.eventId}`));
+    const sourceEvents = activePlaylist ? sortedDisplayEvents : filtered;
+    const toAdd: PlaylistClip[] = sourceEvents
+      .filter((e) => selectedIds.has(e.eventId) && !existingSet.has(`${matchId}:${e.eventId}`))
+      .map((e) => ({ matchId, eventId: e.eventId }));
+    const updated = { ...targetPlaylist, clips: [...targetPlaylist.clips, ...toAdd] };
+
+    if (anchorMatchId === matchId) {
+      onPlaylistsChange?.(playlists.map((p) => (p.id === targetPlaylist.id ? updated : p)));
+    } else {
+      const anchorPlaylists = allPlaylists
+        ?.filter((ap) => ap.matchId === anchorMatchId)
+        .map((ap) => ap.playlist) ?? [];
+      onAddToExternalPlaylist?.(
+        anchorMatchId,
+        anchorPlaylists.map((p) => (p.id === targetPlaylist.id ? updated : p))
+      );
+    }
     setSelectedIds(new Set());
     setShowAddToDropdown(false);
+    setAddToSearch("");
   }
 
   function handleRemoveFromPlaylist() {
     if (!activePlaylist) return;
-    const remaining = activePlaylist.eventIds.filter((id) => !selectedIds.has(id));
-    const updated: Playlist = { ...activePlaylist, eventIds: remaining };
+    const remaining = activePlaylist.clips.filter(
+      (c) => !(c.matchId === matchId && selectedIds.has(c.eventId))
+    );
+    const updated: Playlist = { ...activePlaylist, clips: remaining };
     onPlaylistsChange?.(playlists.map((p) => (p.id === activePlaylist.id ? updated : p)));
     if (remaining.length === 0) {
       setActivePlaylist(null);
@@ -779,7 +921,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                       {pl.name}
                     </span>
                     <span className="text-xs text-muted-foreground">
-                      {pl.eventIds.length} clip{pl.eventIds.length !== 1 ? "s" : ""}
+                      {pl.clips.length} clip{pl.clips.length !== 1 ? "s" : ""}
                     </span>
                   </div>
                   <div
@@ -1019,15 +1161,39 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
           </span>
           <div className="ml-auto flex items-center gap-2">
             {activePlaylist ? (
-              /* Playlist mode: remove selected clips */
-              <Button
-                size="sm"
-                className="h-7 gap-1 bg-red-600 px-2 text-xs text-white hover:bg-red-700"
-                onClick={handleRemoveFromPlaylist}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                Remove from playlist
-              </Button>
+              /* Playlist mode: remove + add-to-another */
+              <>
+                <Button
+                  size="sm"
+                  className="h-7 gap-1 bg-red-600 px-2 text-xs text-white hover:bg-red-700"
+                  onClick={handleRemoveFromPlaylist}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Remove from playlist
+                </Button>
+                {(playlists.length > 1 || (allPlaylists && allPlaylists.length > 0)) && (
+                  <div ref={dropdownRef} className="relative">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 gap-1 px-2 text-xs"
+                      onClick={() => { setShowAddToDropdown((v) => !v); setAddToSearch(""); }}
+                    >
+                      Add to another playlist
+                      <ChevronDown className="h-3 w-3" />
+                    </Button>
+                    {showAddToDropdown && <AddToDropdown
+                      playlists={playlists}
+                      allPlaylists={allPlaylists}
+                      matchId={matchId}
+                      activePlaylistId={activePlaylist.id}
+                      addToSearch={addToSearch}
+                      setAddToSearch={setAddToSearch}
+                      onAddToPlaylist={handleAddToPlaylist}
+                    />}
+                  </div>
+                )}
+              </>
             ) : (
               /* All-clips mode: create / add-to playlist */
               <>
@@ -1049,31 +1215,26 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                   <ListPlus className="h-3.5 w-3.5" />
                   Create playlist
                 </Button>
-                {playlists.length > 0 && (
-                  <div className="relative">
+                {(playlists.length > 0 || (allPlaylists && allPlaylists.length > 0)) && (
+                  <div ref={dropdownRef} className="relative">
                     <Button
                       size="sm"
                       variant="outline"
                       className="h-7 gap-1 px-2 text-xs"
-                      onClick={() => setShowAddToDropdown((v) => !v)}
+                      onClick={() => { setShowAddToDropdown((v) => !v); setAddToSearch(""); }}
                     >
                       Add to playlist
                       <ChevronDown className="h-3 w-3" />
                     </Button>
-                    {showAddToDropdown && (
-                      <div className="absolute right-0 z-10 mt-1 w-48 rounded-md border border-border bg-popover shadow-lg">
-                        {playlists.map((pl) => (
-                          <button
-                            key={pl.id}
-                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
-                            onClick={() => handleAddToPlaylist(pl)}
-                          >
-                            <span className="flex-1 truncate">{pl.name}</span>
-                            <span className="text-xs text-muted-foreground">{pl.eventIds.length}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    {showAddToDropdown && <AddToDropdown
+                      playlists={playlists}
+                      allPlaylists={allPlaylists}
+                      matchId={matchId}
+                      activePlaylistId={null}
+                      addToSearch={addToSearch}
+                      setAddToSearch={setAddToSearch}
+                      onAddToPlaylist={handleAddToPlaylist}
+                    />}
                   </div>
                 )}
               </>

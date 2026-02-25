@@ -21,7 +21,7 @@ interface MatchRow {
   away_roster: Array<{ jerseyNumber: string; playerName: string }>;
   video_url: string | null;
   sync_point: SyncPoint | null;
-  playlists: Playlist[] | null;
+  playlists: any[] | null; // stored in old (eventIds) or new (clips) format
   created_at: string;
   updated_at: string;
 }
@@ -56,7 +56,13 @@ function rowToStoredMatch(row: MatchRow, events: EventRow[]): StoredMatch {
     awayRoster: row.away_roster,
     videoUrl: row.video_url ?? undefined,
     syncPoint: row.sync_point ?? undefined,
-    playlists: row.playlists ?? [],
+    playlists: (row.playlists ?? []).map((p: any) => ({
+      id: p.id,
+      name: p.name,
+      // backward compat: old format used eventIds: number[], new format uses clips: PlaylistClip[]
+      clips: p.clips
+        ?? ((p.eventIds as number[] | undefined) ?? []).map((eid: number) => ({ matchId: row.id, eventId: eid })),
+    })),
     events: events.map((e) => ({
       eventId: e.event_id ?? 0,
       type: e.type,
@@ -267,4 +273,18 @@ export async function updatePlaylists(
     .update({ playlists })
     .eq("id", matchId);
   if (error) throw new Error(`Failed to update playlists: ${error.message}`);
+}
+
+// ---------------------------------------------------------------------------
+// List all matches WITHOUT loading events (fast — for cross-match playlists)
+// ---------------------------------------------------------------------------
+
+export async function listMatchesLight(): Promise<StoredMatch[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("matches")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error || !data) return [];
+  return (data as MatchRow[]).map((row) => rowToStoredMatch(row, []));
 }

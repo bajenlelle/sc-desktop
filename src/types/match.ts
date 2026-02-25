@@ -143,10 +143,15 @@ export interface SyncPoint {
   syncRealWorldTime: string; // ISO UTC of the reference event (Q1 tip-off)
 }
 
+export interface PlaylistClip {
+  matchId: string;
+  eventId: number;
+}
+
 export interface Playlist {
   id: string;        // crypto.randomUUID()
   name: string;
-  eventIds: number[]; // ordered PlayByPlayEvent.eventId values
+  clips: PlaylistClip[]; // ordered clips (each carries its match context)
 }
 
 export interface StoredMatch {
