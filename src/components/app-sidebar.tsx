@@ -2,7 +2,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
 import {
   Activity,
-  Trophy,
+  Film,
   ListVideo,
   Plus,
   Sun,
@@ -15,8 +15,8 @@ import { useAuth } from "@/lib/auth-context";
 import type { User } from "@supabase/supabase-js";
 
 const navItems = [
-  { label: "Sessions", href: "/matches", icon: Trophy },
   { label: "Playlists", href: "/playlists", icon: ListVideo },
+  { label: "Library", href: "/matches", icon: Film },
 ];
 
 function getInitials(user: User): string {
@@ -105,7 +105,7 @@ export function AppSidebar() {
           <SidebarIconButton
             href="/upload"
             icon={Plus}
-            label="New Session"
+            label="Add Game"
             isActive={pathname === "/upload"}
             className="text-primary"
           />

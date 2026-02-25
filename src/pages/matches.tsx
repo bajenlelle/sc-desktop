@@ -21,10 +21,10 @@ export function MatchesPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">
-          Sessions
+          Library
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Your Scoutable Sessions — ready to clip, analyze, and review.
+          Your game library — every session is a bank of clips ready to use.
         </p>
       </div>
 
@@ -50,12 +50,12 @@ export function MatchesPage() {
         </div>
       ) : matches.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-16 text-center">
-          <p className="text-sm font-medium text-foreground">No sessions yet</p>
+          <p className="text-sm font-medium text-foreground">No games yet</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Create your first Scoutable Session to get started.
+            Upload your first game to build your library.
           </p>
           <Link to="/upload" className="mt-4">
-            <Button>Create your first Scoutable Session</Button>
+            <Button>Add your first game</Button>
           </Link>
         </div>
       ) : (

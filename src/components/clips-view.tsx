@@ -5,6 +5,7 @@ import { ArrowDown, ArrowLeft, ArrowUp, ChevronDown, FileDown, GripVertical, Lis
 import { Reorder, useDragControls } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MultiSelectDropdown } from "@/components/ui/multi-select-dropdown";
 import type { Playlist, PlaylistFolder, PlaylistClip, PlayByPlayEvent, SyncPoint } from "@/types/match";
 import { exportPlaylist, type ExportItem } from "@/lib/export";
 import { isLocalPath } from "@/lib/stream";
@@ -113,92 +114,6 @@ function matchesSingleType(e: PlayByPlayEvent, filter: string): boolean {
   if (type === "rebound") return e.type === "rebound";
   if (type === "foul") return e.type === "foul" || e.type === "foulon";
   return true;
-}
-
-// ---------------------------------------------------------------------------
-// MultiSelectDropdown
-// ---------------------------------------------------------------------------
-
-function MultiSelectDropdown({
-  options,
-  selected,
-  onChange,
-  placeholder,
-}: {
-  options: { value: string; label: string }[];
-  selected: Set<string>;
-  onChange: (next: Set<string>) => void;
-  placeholder: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function onMouseDown(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", onMouseDown);
-    return () => document.removeEventListener("mousedown", onMouseDown);
-  }, []);
-
-  const label =
-    selected.size === 0
-      ? placeholder
-      : selected.size === 1
-      ? (options.find((o) => selected.has(o.value))?.label ?? placeholder)
-      : `${selected.size} selected`;
-
-  function toggle(value: string) {
-    const next = new Set(selected);
-    if (next.has(value)) next.delete(value);
-    else next.add(value);
-    onChange(next);
-  }
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={`flex h-9 min-w-[130px] items-center justify-between gap-2 rounded-md border border-border bg-background px-3 text-sm hover:bg-muted/50 ${
-          selected.size > 0 ? "text-foreground" : "text-muted-foreground"
-        }`}
-      >
-        <span className="truncate">{label}</span>
-        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-      </button>
-
-      {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 min-w-full rounded-md border border-border bg-popover shadow-md">
-          {selected.size > 0 && (
-            <button
-              type="button"
-              className="flex w-full items-center px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground border-b border-border"
-              onClick={() => onChange(new Set())}
-            >
-              Clear all
-            </button>
-          )}
-          <div className="max-h-60 overflow-y-auto py-1">
-            {options.map((o) => (
-              <label
-                key={o.value}
-                className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-sm hover:bg-muted/50"
-              >
-                <input
-                  type="checkbox"
-                  checked={selected.has(o.value)}
-                  onChange={() => toggle(o.value)}
-                  className="h-3.5 w-3.5 accent-primary"
-                />
-                {o.label}
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
 }
 
 type ClockSort = "none" | "asc" | "desc";
@@ -315,48 +230,29 @@ function DraggableClipsRow({
 }
 
 // ---------------------------------------------------------------------------
-// AddToDropdown — enhanced playlist picker with search and cross-match sections
+// AddToDropdown — playlist picker with search
 // ---------------------------------------------------------------------------
 
 function AddToDropdown({
   playlists,
-  allPlaylists,
-  matchId,
   activePlaylistId,
   addToSearch,
   setAddToSearch,
   onAddToPlaylist,
 }: {
   playlists: Playlist[];
-  allPlaylists?: Array<{ matchId: string; matchTitle: string; playlist: Playlist }>;
-  matchId: string;
   activePlaylistId: string | null;
   addToSearch: string;
   setAddToSearch: (v: string) => void;
-  onAddToPlaylist: (anchorMatchId: string, playlist: Playlist) => void;
+  onAddToPlaylist: (playlist: Playlist) => void;
 }) {
   const q = addToSearch.toLowerCase();
 
-  const thisSessionOptions = playlists.filter((pl) => {
+  const options = playlists.filter((pl) => {
     if (activePlaylistId && pl.id === activePlaylistId) return false;
     if (q && !pl.name.toLowerCase().includes(q)) return false;
     return true;
   });
-
-  // Group other matches' playlists
-  const otherGroupMap = new Map<string, { matchTitle: string; options: Array<{ pl: Playlist; anchorMatchId: string }> }>();
-  for (const ap of allPlaylists ?? []) {
-    if (ap.matchId === matchId) continue;
-    if (activePlaylistId && ap.playlist.id === activePlaylistId) continue;
-    if (q && !ap.playlist.name.toLowerCase().includes(q)) continue;
-    if (!otherGroupMap.has(ap.matchId)) {
-      otherGroupMap.set(ap.matchId, { matchTitle: ap.matchTitle, options: [] });
-    }
-    otherGroupMap.get(ap.matchId)!.options.push({ pl: ap.playlist, anchorMatchId: ap.matchId });
-  }
-  const otherGroups = Array.from(otherGroupMap.entries()).map(([mId, g]) => ({ matchId: mId, ...g }));
-
-  const hasAny = thisSessionOptions.length > 0 || otherGroups.some((g) => g.options.length > 0);
 
   return (
     <div className="absolute right-0 z-20 mt-1 w-72 rounded-md border border-border bg-popover shadow-lg">
@@ -370,43 +266,20 @@ function AddToDropdown({
           className="w-full rounded-sm bg-muted px-2 py-1 text-xs outline-none"
         />
       </div>
-      {thisSessionOptions.length > 0 && (
-        <>
-          <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            This session
-          </p>
-          {thisSessionOptions.map((pl) => (
+      {options.length > 0 ? (
+        <div className="max-h-60 overflow-y-auto py-1">
+          {options.map((pl) => (
             <button
               key={pl.id}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
-              onClick={() => onAddToPlaylist(matchId, pl)}
+              onClick={() => onAddToPlaylist(pl)}
             >
               <span className="flex-1 truncate">{pl.name}</span>
               <span className="text-xs text-muted-foreground">{pl.clips.length}</span>
             </button>
           ))}
-        </>
-      )}
-      {otherGroups.map((group) =>
-        group.options.length === 0 ? null : (
-          <div key={group.matchId}>
-            <p className="truncate px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              {group.matchTitle}
-            </p>
-            {group.options.map(({ pl, anchorMatchId }) => (
-              <button
-                key={pl.id}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
-                onClick={() => onAddToPlaylist(anchorMatchId, pl)}
-              >
-                <span className="flex-1 truncate">{pl.name}</span>
-                <span className="text-xs text-muted-foreground">{pl.clips.length}</span>
-              </button>
-            ))}
-          </div>
-        )
-      )}
-      {!hasAny && (
+        </div>
+      ) : (
         <p className="px-3 py-3 text-xs text-muted-foreground">No playlists found</p>
       )}
     </div>
@@ -432,13 +305,14 @@ interface ClipsViewProps {
   awayTeamName: string;
   homeRoster?: RosterEntry[];
   awayRoster?: RosterEntry[];
+  /** All playlists (not just this match's) — from the top-level playlists table */
   playlists?: Playlist[];
-  onPlaylistsChange?: (p: Playlist[]) => void;
+  onPlaylistCreated?: (name: string, clips: PlaylistClip[], folderId?: string) => Promise<void>;
+  onPlaylistUpdated?: (id: string, patch: { name?: string; folderId?: string | null; clips?: PlaylistClip[] }) => Promise<void>;
+  onPlaylistDeleted?: (id: string) => Promise<void>;
   videoAvailable?: boolean;
   onPlaybackChange?: (canPrev: boolean, canNext: boolean, isQueueActive: boolean, hasActivePlaylist: boolean) => void;
   onActiveClipChange?: (pre: number, post: number) => void;
-  allPlaylists?: Array<{ matchId: string; matchTitle: string; playlist: Playlist }>;
-  onAddToExternalPlaylist?: (anchorMatchId: string, updatedPlaylists: Playlist[]) => Promise<void>;
   folders?: PlaylistFolder[];
 }
 
@@ -453,12 +327,12 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
   homeRoster = [],
   awayRoster = [],
   playlists = [],
-  onPlaylistsChange,
+  onPlaylistCreated,
+  onPlaylistUpdated,
+  onPlaylistDeleted,
   videoAvailable = false,
   onPlaybackChange,
   onActiveClipChange,
-  allPlaylists,
-  onAddToExternalPlaylist,
   folders = [],
 }: ClipsViewProps, ref) {
   // Build a name → jersey number lookup from both rosters
@@ -832,7 +706,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
     const eventId = _activeEventIdRef.current;
     if (eventId === null) return;
 
-    if (!activePlaylistRef.current || !onPlaylistsChange) {
+    if (!activePlaylistRef.current || !onPlaylistUpdated) {
       const cur = transientOffsetRef.current;
       const newPre = Math.max(-preRollRef.current, cur.pre + preDelta);
       const newPost = Math.max(-postRollRef.current, cur.post + postDelta);
@@ -855,7 +729,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
     const updated = { ...ap, clips: newClips };
     setActivePlaylist(updated);
     activePlaylistRef.current = updated;
-    onPlaylistsChange(playlists.map((p) => (p.id === ap.id ? updated : p)));
+    onPlaylistUpdated(ap.id, { clips: newClips }).catch(() => {});
     onActiveClipChange?.(newPre, newPost);
 
     // Replay with new timing immediately
@@ -864,7 +738,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
   };
 
   function handleReorderPlaylist(newEvents: PlayByPlayEvent[]) {
-    if (!activePlaylist || !onPlaylistsChange) return;
+    if (!activePlaylist || !onPlaylistUpdated) return;
     // Build lookup of existing clips to preserve per-clip offsets
     const clipMap = new Map(
       activePlaylist.clips
@@ -881,7 +755,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
     });
     const updated = { ...activePlaylist, clips: newClips };
     setActivePlaylist(updated);
-    onPlaylistsChange(playlists.map((p) => p.id === activePlaylist.id ? updated : p));
+    onPlaylistUpdated(activePlaylist.id, { clips: newClips }).catch(() => {});
   }
 
   // ---------------------------------------------------------------------------
@@ -945,37 +819,24 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
     const ordered: PlaylistClip[] = filtered
       .filter((e) => selectedIds.has(e.eventId))
       .map((e) => ({ matchId, eventId: e.eventId }));
-    const newPl: Playlist = {
-      id: crypto.randomUUID(),
-      name: newPlaylistName.trim(),
-      clips: ordered,
-      folderId: newPlaylistFolderId || undefined,
-    };
-    onPlaylistsChange?.([...playlists, newPl]);
+    onPlaylistCreated?.(
+      newPlaylistName.trim(),
+      ordered,
+      newPlaylistFolderId || undefined,
+    ).catch(() => {});
     setNewPlaylistName("");
     setNewPlaylistFolderId("");
     setSelectedIds(new Set());
   }
 
-  function handleAddToPlaylist(anchorMatchId: string, targetPlaylist: Playlist) {
+  function handleAddToPlaylist(targetPlaylist: Playlist) {
     const existingSet = new Set(targetPlaylist.clips.map((c) => `${c.matchId}:${c.eventId}`));
     const sourceEvents = activePlaylist ? sortedDisplayEvents : filtered;
     const toAdd: PlaylistClip[] = sourceEvents
       .filter((e) => selectedIds.has(e.eventId) && !existingSet.has(`${matchId}:${e.eventId}`))
       .map((e) => ({ matchId, eventId: e.eventId }));
-    const updated = { ...targetPlaylist, clips: [...targetPlaylist.clips, ...toAdd] };
-
-    if (anchorMatchId === matchId) {
-      onPlaylistsChange?.(playlists.map((p) => (p.id === targetPlaylist.id ? updated : p)));
-    } else {
-      const anchorPlaylists = allPlaylists
-        ?.filter((ap) => ap.matchId === anchorMatchId)
-        .map((ap) => ap.playlist) ?? [];
-      onAddToExternalPlaylist?.(
-        anchorMatchId,
-        anchorPlaylists.map((p) => (p.id === targetPlaylist.id ? updated : p))
-      );
-    }
+    const newClips = [...targetPlaylist.clips, ...toAdd];
+    onPlaylistUpdated?.(targetPlaylist.id, { clips: newClips }).catch(() => {});
     setSelectedIds(new Set());
     setShowAddToDropdown(false);
     setAddToSearch("");
@@ -986,12 +847,13 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
     const remaining = activePlaylist.clips.filter(
       (c) => !(c.matchId === matchId && selectedIds.has(c.eventId))
     );
-    const updated: Playlist = { ...activePlaylist, clips: remaining };
-    onPlaylistsChange?.(playlists.map((p) => (p.id === activePlaylist.id ? updated : p)));
+    onPlaylistUpdated?.(activePlaylist.id, { clips: remaining }).catch(() => {});
     if (remaining.length === 0) {
       setActivePlaylist(null);
     } else {
+      const updated = { ...activePlaylist, clips: remaining };
       setActivePlaylist(updated);
+      activePlaylistRef.current = updated;
     }
     setSelectedIds(new Set());
   }
@@ -1002,28 +864,31 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
       setActivePlaylist(null);
       setSelectedIds(new Set());
     }
-    onPlaylistsChange?.(playlists.filter((p) => p.id !== id));
+    onPlaylistDeleted?.(id).catch(() => {});
   }
 
   const noSync = !syncPoint;
 
+  // Playlists that contain clips from this match (shown in Saved Playlists section)
+  const matchPlaylists = playlists.filter((p) => p.clips.some((c) => c.matchId === matchId));
+
   return (
     <div className="space-y-4">
       {/* Saved Playlists — only shown in all-clips mode */}
-      {!activePlaylist && (playlists.length > 0 || onPlaylistsChange) && (
+      {!activePlaylist && (matchPlaylists.length > 0 || onPlaylistCreated) && (
         <div className="rounded-lg border border-border">
           <div className="border-b border-border px-4 py-2.5">
             <h3 className="text-sm font-semibold text-foreground/80">
               Saved Playlists
             </h3>
           </div>
-          {playlists.length === 0 ? (
+          {matchPlaylists.length === 0 ? (
             <p className="px-4 py-3 text-xs text-muted-foreground">
               No playlists yet. Select clips below to create one.
             </p>
           ) : (
             <div className="divide-y divide-border">
-              {playlists.map((pl) => (
+              {matchPlaylists.map((pl) => (
                 <div
                   key={pl.id}
                   className="flex cursor-pointer items-center justify-between px-4 py-2.5 hover:bg-muted/50"
@@ -1051,7 +916,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                       <Play className="h-3 w-3" />
                       Play
                     </Button>
-                    {onPlaylistsChange && (
+                    {onPlaylistDeleted && (
                       <Button
                         size="sm"
                         variant="ghost"
@@ -1267,7 +1132,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
       )}
 
       {/* Selection action bar */}
-      {selectedIds.size > 0 && onPlaylistsChange && (
+      {selectedIds.size > 0 && onPlaylistCreated && (
         <div className="flex flex-wrap items-center gap-3 rounded-lg bg-primary/10 px-4 py-2.5">
           <span className="text-sm font-medium text-primary">
             {selectedIds.size} clip{selectedIds.size !== 1 ? "s" : ""} selected
@@ -1284,7 +1149,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                   <Trash2 className="h-3.5 w-3.5" />
                   Remove from playlist
                 </Button>
-                {(playlists.length > 1 || (allPlaylists && allPlaylists.length > 0)) && (
+                {playlists.filter((p) => p.id !== activePlaylist.id).length > 0 && (
                   <div ref={dropdownRef} className="relative">
                     <Button
                       size="sm"
@@ -1297,8 +1162,6 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                     </Button>
                     {showAddToDropdown && <AddToDropdown
                       playlists={playlists}
-                      allPlaylists={allPlaylists}
-                      matchId={matchId}
                       activePlaylistId={activePlaylist.id}
                       addToSearch={addToSearch}
                       setAddToSearch={setAddToSearch}
@@ -1340,7 +1203,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                   <ListPlus className="h-3.5 w-3.5" />
                   Create playlist
                 </Button>
-                {(playlists.length > 0 || (allPlaylists && allPlaylists.length > 0)) && (
+                {playlists.length > 0 && (
                   <div ref={dropdownRef} className="relative">
                     <Button
                       size="sm"
@@ -1353,8 +1216,6 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                     </Button>
                     {showAddToDropdown && <AddToDropdown
                       playlists={playlists}
-                      allPlaylists={allPlaylists}
-                      matchId={matchId}
                       activePlaylistId={null}
                       addToSearch={addToSearch}
                       setAddToSearch={setAddToSearch}
@@ -1379,7 +1240,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
             <thead className="border-b border-border bg-muted/50 text-xs font-medium text-muted-foreground">
               <tr>
                 {activePlaylist && <th className="w-8" />}
-                {onPlaylistsChange && (
+                {onPlaylistCreated && (
                   <th className="w-8 px-3 py-2.5">
                     <input
                       type="checkbox"
@@ -1428,8 +1289,8 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                       preOffset={clip?.preRollOffset}
                       postOffset={clip?.postRollOffset}
                       onRowClick={() => handleRowClick(event)}
-                      onToggleSelect={onPlaylistsChange ? (ev) => toggleSelect(event.eventId, ev) : undefined}
-                      showCheckbox={!!onPlaylistsChange}
+                      onToggleSelect={onPlaylistCreated ? (ev) => toggleSelect(event.eventId, ev) : undefined}
+                      showCheckbox={!!onPlaylistCreated}
                     />
                   );
                 })}
@@ -1450,7 +1311,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                       } ${isSelected && !isActive ? "bg-primary/5" : ""}`}
                       onClick={() => handleRowClick(event)}
                     >
-                      {onPlaylistsChange && (
+                      {onPlaylistCreated && (
                         <td className="w-8 px-3 py-2.5">
                           <input
                             type="checkbox"

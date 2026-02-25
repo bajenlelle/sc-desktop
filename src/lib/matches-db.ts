@@ -4,7 +4,7 @@
  */
 
 import { createClient } from "@/lib/supabase/client";
-import type { Playlist, PlaylistFolder, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
+import type { PlaylistFolder, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 
 // ---------------------------------------------------------------------------
 // DB row types (snake_case columns from Postgres)
@@ -21,7 +21,6 @@ interface MatchRow {
   away_roster: Array<{ jerseyNumber: string; playerName: string }>;
   video_url: string | null;
   sync_point: SyncPoint | null;
-  playlists: any[] | null; // stored in old (eventIds) or new (clips) format
   created_at: string;
   updated_at: string;
 }
@@ -56,14 +55,6 @@ function rowToStoredMatch(row: MatchRow, events: EventRow[]): StoredMatch {
     awayRoster: row.away_roster,
     videoUrl: row.video_url ?? undefined,
     syncPoint: row.sync_point ?? undefined,
-    playlists: (row.playlists ?? []).map((p: any) => ({
-      id: p.id,
-      name: p.name,
-      folderId: p.folderId,
-      // backward compat: old format used eventIds: number[], new format uses clips: PlaylistClip[]
-      clips: p.clips
-        ?? ((p.eventIds as number[] | undefined) ?? []).map((eid: number) => ({ matchId: row.id, eventId: eid })),
-    })),
     events: events.map((e) => ({
       eventId: e.event_id ?? 0,
       type: e.type,
@@ -261,22 +252,6 @@ export async function deleteMatch(matchId: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Update playlists for a match
-// ---------------------------------------------------------------------------
-
-export async function updatePlaylists(
-  matchId: string,
-  playlists: Playlist[]
-): Promise<void> {
-  const supabase = createClient();
-  const { error } = await supabase
-    .from("matches")
-    .update({ playlists })
-    .eq("id", matchId);
-  if (error) throw new Error(`Failed to update playlists: ${error.message}`);
-}
-
-// ---------------------------------------------------------------------------
 // Playlist folders
 // ---------------------------------------------------------------------------
 
@@ -334,7 +309,7 @@ export async function deleteFolder(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// List all matches WITHOUT loading events (fast — for cross-match playlists)
+// List all matches WITHOUT loading events (fast — for match title resolution)
 // ---------------------------------------------------------------------------
 
 export async function listMatchesLight(): Promise<StoredMatch[]> {

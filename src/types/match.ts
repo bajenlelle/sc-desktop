@@ -174,7 +174,6 @@ export interface StoredMatch {
   videoUrl?: string;
   syncPoint?: SyncPoint;
   events: PlayByPlayEvent[];
-  playlists?: Playlist[];
 }
 
 // --- Match -------------------------------------------------------------------

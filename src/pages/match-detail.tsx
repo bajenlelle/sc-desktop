@@ -16,11 +16,12 @@ import type { ClipsViewHandle } from "@/components/clips-view";
 import { VideoClipControls } from "@/components/video-clip-controls";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getMatchById } from "@/lib/mock-data";
-import { getMatch, listMatchesLight, listFolders, updatePlaylists, updateVideoUrl } from "@/lib/matches-db";
+import { getMatch, listFolders, updateVideoUrl } from "@/lib/matches-db";
+import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist } from "@/lib/playlists-db";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
-import type { Match, Playlist, PlaylistFolder, StoredMatch } from "@/types/match";
+import type { Match, Playlist, PlaylistClip, PlaylistFolder, StoredMatch } from "@/types/match";
 
 export function MatchDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -50,7 +51,7 @@ export function MatchDetailPage() {
   const [match, setMatch] = useState<Match | null>(null);
   const [storedMatch, setStoredMatch] = useState<StoredMatch | null>(null);
   const [notFound, setNotFound] = useState(false);
-  const [allMatches, setAllMatches] = useState<StoredMatch[]>([]);
+  const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [folders, setFolders] = useState<PlaylistFolder[]>([]);
   const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
@@ -126,16 +127,16 @@ export function MatchDetailPage() {
 
     async function load() {
       try {
-        const [dbMatch, light, loadedFolders] = await Promise.all([
+        const [dbMatch, loadedPlaylists, loadedFolders] = await Promise.all([
           getMatch(matchId),
-          listMatchesLight(),
+          listPlaylists(),
           listFolders(),
         ]);
         if (!cancelled) {
-          setAllMatches(light.filter((m) => m.id !== matchId));
           setFolders(loadedFolders);
           if (dbMatch) {
             setStoredMatch(dbMatch);
+            setPlaylists(loadedPlaylists);
             return;
           }
         }
@@ -161,10 +162,10 @@ export function MatchDetailPage() {
     return (
       <div className="p-6">
         <div className="py-24 text-center">
-          <p className="text-muted-foreground">Session not found.</p>
+          <p className="text-muted-foreground">Game not found.</p>
           <Link to="/matches">
             <Button variant="ghost" size="sm" className="mt-4">
-              Back to Sessions
+              Back to Library
             </Button>
           </Link>
         </div>
@@ -209,7 +210,7 @@ export function MatchDetailPage() {
             }}
           >
             <ArrowLeft className="h-4 w-4" />
-            {fromPlaylists ? "Back to Playlists" : "Back to Sessions"}
+            {fromPlaylists ? "Back to Playlists" : "Back to Library"}
           </Button>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -219,7 +220,7 @@ export function MatchDetailPage() {
                   {storedMatch.title}
                 </h1>
                 <Badge className="bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950">
-                  Session
+                  Game
                 </Badge>
                 <EditMatchDialog
                   match={storedMatch}
@@ -307,25 +308,22 @@ export function MatchDetailPage() {
                     awayTeamName={storedMatch.awayTeam.name}
                     homeRoster={storedMatch.homeRoster}
                     awayRoster={storedMatch.awayRoster}
-                    playlists={storedMatch.playlists ?? []}
-                    onPlaylistsChange={async (p: Playlist[]) => {
-                      await updatePlaylists(matchId, p);
-                      setStoredMatch((m) => m ? { ...m, playlists: p } : m);
+                    playlists={playlists}
+                    onPlaylistCreated={async (name: string, clips: PlaylistClip[], folderId?: string) => {
+                      const created = await createPlaylist(name, clips, folderId);
+                      setPlaylists((prev) => [created, ...prev]);
+                    }}
+                    onPlaylistUpdated={async (id: string, patch: { name?: string; folderId?: string | null; clips?: PlaylistClip[] }) => {
+                      await updatePlaylist(id, patch);
+                      setPlaylists((prev) => prev.map((p) =>
+                        p.id === id ? { ...p, ...patch, folderId: "folderId" in patch ? (patch.folderId ?? undefined) : p.folderId } : p
+                      ));
+                    }}
+                    onPlaylistDeleted={async (id: string) => {
+                      await deletePlaylist(id);
+                      setPlaylists((prev) => prev.filter((p) => p.id !== id));
                     }}
                     videoAvailable={!!localVideoUrl}
-                    allPlaylists={allMatches.flatMap((m) =>
-                      (m.playlists ?? []).map((pl) => ({
-                        matchId: m.id,
-                        matchTitle: m.title,
-                        playlist: pl,
-                      }))
-                    )}
-                    onAddToExternalPlaylist={async (anchorMatchId, updatedPlaylists) => {
-                      await updatePlaylists(anchorMatchId, updatedPlaylists);
-                      setAllMatches((prev) =>
-                        prev.map((m) => m.id === anchorMatchId ? { ...m, playlists: updatedPlaylists } : m)
-                      );
-                    }}
                     folders={folders}
                   />
                 </TabsContent>
@@ -442,7 +440,7 @@ export function MatchDetailPage() {
         <Link to="/matches">
           <Button variant="ghost" size="sm" className="mb-3 gap-1.5 text-muted-foreground">
             <ArrowLeft className="h-4 w-4" />
-            Back to Sessions
+            Back to Library
           </Button>
         </Link>
 

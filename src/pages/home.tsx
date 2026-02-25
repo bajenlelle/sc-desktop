@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Plus, BarChart3, Users, Trophy } from "lucide-react";
+import { Plus, BarChart3, Users, Film } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { MatchCard } from "@/components/match-card";
@@ -60,16 +60,16 @@ export function HomePage() {
         <Link to="/upload">
           <Button className="gap-2">
             <Plus className="h-4 w-4" />
-            New Session
+            Add Game
           </Button>
         </Link>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <QuickStat
-          label="Sessions"
+          label="Games"
           value={loading ? "—" : String(matches.length)}
-          icon={Trophy}
+          icon={Film}
         />
         <QuickStat
           label="With video"
@@ -86,7 +86,7 @@ export function HomePage() {
       <div>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-foreground">
-            Recent Sessions
+            Recent Games
           </h2>
           <Link to="/matches">
             <Button variant="ghost" size="sm" className="text-primary">
@@ -106,12 +106,12 @@ export function HomePage() {
           </div>
         ) : recentMatches.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-16 text-center">
-            <p className="text-sm font-medium text-foreground">No sessions yet</p>
+            <p className="text-sm font-medium text-foreground">No games yet</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Create your first Scoutable Session to get started.
+              Upload your first game to build your library.
             </p>
             <Link to="/upload" className="mt-4">
-              <Button>New Session</Button>
+              <Button>Add Game</Button>
             </Link>
           </div>
         ) : (

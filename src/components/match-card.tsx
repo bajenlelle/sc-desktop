@@ -8,8 +8,6 @@ import { DeleteMatchDialog } from "@/components/delete-match-dialog";
 import type { StoredMatch } from "@/types/match";
 
 export function MatchCard({ match, onDelete }: { match: StoredMatch; onDelete?: () => void }) {
-  const playlistCount = match.playlists?.length ?? 0;
-
   return (
     <motion.div whileHover={{ y: -2 }} transition={{ duration: 0.15 }}>
       <Card className="group flex flex-col overflow-hidden gap-0 py-0 transition-shadow hover:shadow-md">
@@ -72,11 +70,6 @@ export function MatchCard({ match, onDelete }: { match: StoredMatch; onDelete?: 
           {/* Meta: events / playlists / sync — pushed to bottom of body */}
           <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span>{match.events.length} events</span>
-            {playlistCount > 0 && (
-              <span>
-                {playlistCount} playlist{playlistCount !== 1 ? "s" : ""}
-              </span>
-            )}
             {match.syncPoint && (
               <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
@@ -94,7 +87,7 @@ export function MatchCard({ match, onDelete }: { match: StoredMatch; onDelete?: 
               size="sm"
               className="w-full justify-between text-primary hover:bg-primary/10 hover:text-primary"
             >
-              View Analysis
+              Browse Clips
               <ArrowRight className="h-4 w-4" />
             </Button>
           </Link>
