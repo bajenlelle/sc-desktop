@@ -290,6 +290,7 @@ function ClipBrowserPanel({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set()); // "matchId:eventId"
   const [activeEventKey, setActiveEventKey] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [queueIdx, setQueueIdx] = useState(0);
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -380,6 +381,7 @@ function ClipBrowserPanel({
 
       if (nextIdx < queue.length) {
         queueIdxRef.current = nextIdx;
+        setQueueIdx(nextIdx);
         const { event, matchId } = queue[nextIdx];
         const key = `${matchId}:${event.eventId}`;
         setActiveEventKey(key);
@@ -411,6 +413,7 @@ function ClipBrowserPanel({
   function handleStop() {
     queueRef.current = [];
     queueIdxRef.current = 0;
+    setQueueIdx(0);
     clipEndRef.current = undefined;
     setIsPlaying(false);
     setActiveEventKey(null);
@@ -431,6 +434,7 @@ function ClipBrowserPanel({
 
     queueRef.current = queue;
     queueIdxRef.current = 0;
+    setQueueIdx(0);
     setIsPlaying(true);
     setActiveEventKey(`${matchId}:${event.eventId}`);
 
@@ -443,6 +447,33 @@ function ClipBrowserPanel({
   }, [seekToEvent]); // eslint-disable-line react-hooks/exhaustive-deps
   const handleRowClickRef = useRef(handleRowClick);
   handleRowClickRef.current = handleRowClick;
+
+  function handlePrev() {
+    const items = filteredRef.current;
+    const cur = items.findIndex((x) => `${x.matchId}:${x.event.eventId}` === activeEventKeyRef.current);
+    if (cur <= 0) return;
+    const { event, matchId } = items[cur - 1];
+    handleRowClickRef.current(event, matchId);
+  }
+
+  function handleNext() {
+    const items = filteredRef.current;
+    const cur = items.findIndex((x) => `${x.matchId}:${x.event.eventId}` === activeEventKeyRef.current);
+    if (cur === -1 || cur >= items.length - 1) return;
+    const { event, matchId } = items[cur + 1];
+    handleRowClickRef.current(event, matchId);
+  }
+
+  function handlePlayAll() {
+    const items = filteredRef.current;
+    if (items.length === 0) return;
+    handleRowClick(items[0].event, items[0].matchId);
+  }
+
+  const activeIdx = filtered.findIndex(({ event, matchId }) => `${matchId}:${event.eventId}` === activeEventKey);
+  const canPrev = isPlaying && activeIdx > 0;
+  const canNext = isPlaying && activeIdx >= 0 && activeIdx < filtered.length - 1;
+  const isQueueActive = isPlaying;
 
   // Arrow key navigation: ↓/↑ = next/prev clip, ← = replay
   useEffect(() => {
@@ -515,12 +546,6 @@ function ClipBrowserPanel({
       <div className="flex items-center justify-between border-b border-border px-4 py-3 shrink-0">
         <span className="text-sm font-semibold text-foreground">Add Clips to Playlist</span>
         <div className="flex items-center gap-2">
-          {isPlaying && (
-            <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={handleStop}>
-              <Square className="h-3.5 w-3.5" />
-              Stop
-            </Button>
-          )}
           <Button
             size="sm"
             className="h-8 gap-1.5"
@@ -693,13 +718,28 @@ function ClipBrowserPanel({
         <ResizableHandle />
 
         <ResizablePanel defaultSize={45} minSize={25}>
-          <div className="h-full flex flex-col items-center justify-center p-4">
+          <div className="flex h-full flex-col gap-2 p-4">
             {localVideoUrl ? (
-              <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
+              <>
+                <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
+                <VideoClipControls
+                  videoRef={videoRef}
+                  canPrev={canPrev}
+                  canNext={canNext}
+                  isQueueActive={isQueueActive}
+                  onPrev={handlePrev}
+                  onNext={handleNext}
+                  onReplay={handleReplay}
+                  onStop={handleStop}
+                  onPlayAll={handlePlayAll}
+                />
+              </>
             ) : (
-              <p className="text-sm text-muted-foreground text-center">
-                Select a game with video to preview clips
-              </p>
+              <div className="flex h-full items-center justify-center">
+                <p className="text-center text-sm text-muted-foreground">
+                  Select a game with video to preview clips
+                </p>
+              </div>
             )}
           </div>
         </ResizablePanel>
@@ -2009,14 +2049,50 @@ export function PlaylistsPage() {
           <div className="flex flex-col gap-4 p-5 h-full">
             {/* Playlist header */}
             <div className="flex items-center justify-between flex-none">
-              <div className="flex min-w-0 flex-col">
-                <span className="text-base font-semibold text-foreground truncate">
-                  {selected.name}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {selected.clips.length} clip{selected.clips.length !== 1 ? "s" : ""}
-                  {isMultiMatch ? " · multiple games" : ""}
-                </span>
+              <div className="group flex min-w-0 flex-1 items-start gap-1">
+                <div className="flex min-w-0 flex-col">
+                  {editingPlaylistId === selected.id ? (
+                    <input
+                      autoFocus
+                      className="rounded border border-primary bg-background px-1 py-0.5 text-base font-semibold text-foreground outline-none focus:ring-1 focus:ring-primary"
+                      value={editPlaylistName}
+                      onChange={(e) => setEditPlaylistName(e.target.value)}
+                      onBlur={() => handleRenamePlaylist(selected.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleRenamePlaylist(selected.id);
+                        if (e.key === "Escape") setEditingPlaylistId(null);
+                      }}
+                    />
+                  ) : (
+                    <span className="text-base font-semibold text-foreground truncate">
+                      {selected.name}
+                    </span>
+                  )}
+                  <span className="text-xs text-muted-foreground">
+                    {selected.clips.length} clip{selected.clips.length !== 1 ? "s" : ""}
+                    {isMultiMatch ? " · multiple games" : ""}
+                  </span>
+                </div>
+                {editingPlaylistId !== selected.id && (
+                  <>
+                    <button
+                      type="button"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-muted"
+                      title="Rename playlist"
+                      onClick={() => { setEditingPlaylistId(selected.id); setEditPlaylistName(selected.name); }}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity rounded-md p-1 text-muted-foreground hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950"
+                      title="Delete playlist"
+                      onClick={() => handleDeletePlaylist(selected.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </>
+                )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <Button

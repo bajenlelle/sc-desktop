@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { MatchRow } from "@/components/match-row";
 import { listMatches } from "@/lib/matches-db";
 import type { StoredMatch } from "@/types/match";
@@ -9,6 +10,18 @@ import type { StoredMatch } from "@/types/match";
 export function MatchesPage() {
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return matches;
+    const q = search.toLowerCase();
+    return matches.filter(
+      (m) =>
+        m.title.toLowerCase().includes(q) ||
+        m.homeTeam.name.toLowerCase().includes(q) ||
+        m.awayTeam.name.toLowerCase().includes(q)
+    );
+  }, [matches, search]);
 
   useEffect(() => {
     listMatches()
@@ -37,6 +50,18 @@ export function MatchesPage() {
         </Link>
       </div>
 
+      {!loading && matches.length > 0 && (
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+          <Input
+            placeholder="Search games…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-9 w-full pl-8"
+          />
+        </div>
+      )}
+
       {loading ? (
         <div className="overflow-hidden rounded-xl border border-border bg-card">
           <div className="divide-y divide-border">
@@ -62,10 +87,15 @@ export function MatchesPage() {
             <Button>Import game</Button>
           </Link>
         </div>
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-16 text-center">
+          <p className="text-sm font-medium text-foreground">No games match your search</p>
+          <p className="mt-1 text-sm text-muted-foreground">Try a different title or team name.</p>
+        </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-border bg-card">
           <div className="divide-y divide-border">
-            {matches.map((match) => (
+            {filtered.map((match) => (
               <MatchRow
                 key={match.id}
                 match={match}
