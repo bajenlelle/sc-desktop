@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { saveMatch } from "@/lib/matches-db";
-import { fetchBoxscore, fetchPlayByPlay, fetchSchedule, LEAGUES } from "@/lib/basketball-api";
+import { fetchBoxscore, fetchPlayByPlay, fetchPlayByPlaySportradar, fetchSchedule, fetchScheduleSportradar, LEAGUES } from "@/lib/basketball-api";
 import type { ScheduleGame, League } from "@/lib/basketball-api";
 import type { StoredMatch, SyncPoint, PlayByPlayEvent } from "@/types/match";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -193,11 +193,11 @@ export function UploadZone() {
   useEffect(() => {
     setScheduleStatus("loading");
     setScheduleGames([]);
-    fetchSchedule(selectedLeague.baseUrl, selectedLeague.scheduleParams)
-      .then((games) => {
-        setScheduleGames(games);
-        setScheduleStatus("idle");
-      })
+    const promise = selectedLeague.provider === "sportradar"
+      ? fetchScheduleSportradar(selectedLeague.fixturesUrl!)
+      : fetchSchedule(selectedLeague.baseUrl, selectedLeague.scheduleParams);
+    promise
+      .then((games) => { setScheduleGames(games); setScheduleStatus("idle"); })
       .catch(() => setScheduleStatus("error"));
   }, [selectedLeague]);
 
@@ -237,69 +237,80 @@ export function UploadZone() {
       setMatchDate(fallbackDate.toISOString().slice(0, 10));
     }
 
-    try {
-      const [data, pbp] = await Promise.all([
-        fetchBoxscore(game.uuid, selectedLeague.baseUrl),
-        fetchPlayByPlay(game.uuid, selectedLeague.baseUrl).catch(() => null),
-      ]);
+    if (selectedLeague.provider !== "sportradar") {
+      try {
+        const [data, pbp] = await Promise.all([
+          fetchBoxscore(game.uuid, selectedLeague.baseUrl),
+          fetchPlayByPlay(game.uuid, selectedLeague.baseUrl).catch(() => null),
+        ]);
 
-      const boxData = data as {
-        stats: {
-          homeTeamValue: Array<{ NR: number | string; info: { team: string; playerId: number } }>;
-          awayTeamValue: Array<{ NR: number | string; info: { team: string; playerId: number } }>;
+        const boxData = data as {
+          stats: {
+            homeTeamValue: Array<{ NR: number | string; info: { team: string; playerId: number } }>;
+            awayTeamValue: Array<{ NR: number | string; info: { team: string; playerId: number } }>;
+          };
+          players: {
+            homeTeamValue: Record<string, { fullName: string }>;
+            awayTeamValue: Record<string, { fullName: string }>;
+          };
+          date?: string | null;
         };
-        players: {
-          homeTeamValue: Record<string, { fullName: string }>;
-          awayTeamValue: Record<string, { fullName: string }>;
-        };
-        date?: string | null;
-      };
 
-      // Override with boxscore names if present (may be more canonical than schedule names)
-      const home = boxData.stats.homeTeamValue[0]?.info.team || fallbackHome;
-      const away = boxData.stats.awayTeamValue[0]?.info.team || fallbackAway;
+        // Override with boxscore names if present (may be more canonical than schedule names)
+        const home = boxData.stats.homeTeamValue[0]?.info.team || fallbackHome;
+        const away = boxData.stats.awayTeamValue[0]?.info.team || fallbackAway;
 
-      setHomeTeam(home);
-      setAwayTeam(away);
-      setMatchTitle(`${home} vs ${away}`);
+        setHomeTeam(home);
+        setAwayTeam(away);
+        setMatchTitle(`${home} vs ${away}`);
 
-      const dateStr = boxData.date ?? game.rawStartDateTime;
-      if (dateStr) {
-        const parsed = new Date(dateStr);
-        if (!isNaN(parsed.getTime())) {
-          setMatchDate(parsed.toISOString().slice(0, 10));
+        const dateStr = boxData.date ?? game.rawStartDateTime;
+        if (dateStr) {
+          const parsed = new Date(dateStr);
+          if (!isNaN(parsed.getTime())) {
+            setMatchDate(parsed.toISOString().slice(0, 10));
+          }
         }
+
+        const homePlayers = boxData.players?.homeTeamValue ?? {};
+        const awayPlayers = boxData.players?.awayTeamValue ?? {};
+
+        type StatsEntry = typeof boxData.stats.homeTeamValue[0];
+        const toRoster = (
+          entries: StatsEntry[],
+          playerMap: Record<string, { fullName: string }>
+        ): RosterEntry[] =>
+          entries.map((s) => ({
+            jerseyNumber: String(s.NR),
+            playerName: playerMap[String(s.info.playerId)]?.fullName ?? "",
+          }));
+
+        const newHome = toRoster(boxData.stats.homeTeamValue, homePlayers);
+        const newAway = toRoster(boxData.stats.awayTeamValue, awayPlayers);
+
+        setHomeRoster(newHome.length ? newHome : [{ jerseyNumber: "", playerName: "" }]);
+        setAwayRoster(newAway.length ? newAway : [{ jerseyNumber: "", playerName: "" }]);
+
+        if (pbp) {
+          setPlayByPlayEvents(pbp.events ?? []);
+          setTipoffRealWorldTime(pbp.tipoffRealWorldTime ?? null);
+        }
+
+        setFetchStatus("idle");
+      } catch (err) {
+        setFetchStatus("error");
+        setFetchError(err instanceof Error ? err.message : "Failed to fetch game data.");
+        // Team names/date are already set from schedule data above — no further action needed.
       }
-
-      const homePlayers = boxData.players?.homeTeamValue ?? {};
-      const awayPlayers = boxData.players?.awayTeamValue ?? {};
-
-      type StatsEntry = typeof boxData.stats.homeTeamValue[0];
-      const toRoster = (
-        entries: StatsEntry[],
-        playerMap: Record<string, { fullName: string }>
-      ): RosterEntry[] =>
-        entries.map((s) => ({
-          jerseyNumber: String(s.NR),
-          playerName: playerMap[String(s.info.playerId)]?.fullName ?? "",
-        }));
-
-      const newHome = toRoster(boxData.stats.homeTeamValue, homePlayers);
-      const newAway = toRoster(boxData.stats.awayTeamValue, awayPlayers);
-
-      setHomeRoster(newHome.length ? newHome : [{ jerseyNumber: "", playerName: "" }]);
-      setAwayRoster(newAway.length ? newAway : [{ jerseyNumber: "", playerName: "" }]);
-
-      if (pbp) {
-        setPlayByPlayEvents(pbp.events ?? []);
-        setTipoffRealWorldTime(pbp.tipoffRealWorldTime ?? null);
+    } else {
+      try {
+        const pbp = await fetchPlayByPlaySportradar(game.uuid, game.seasonId ?? "");
+        setPlayByPlayEvents(pbp.events);
+        setTipoffRealWorldTime(null);
+      } catch {
+        // PBP is optional for Austrian games — names/date already set
       }
-
       setFetchStatus("idle");
-    } catch (err) {
-      setFetchStatus("error");
-      setFetchError(err instanceof Error ? err.message : "Failed to fetch game data.");
-      // Team names/date are already set from schedule data above — no further action needed.
     }
   }
 
@@ -390,7 +401,7 @@ export function UploadZone() {
           <CardContent className="p-4 space-y-3">
             {/* League selector */}
             <div className="flex rounded-lg border border-border p-1 gap-1">
-              {LEAGUES.map((league) => (
+              {LEAGUES.filter((l) => l.id !== "austria-zweite-liga").map((league) => (
                 <button
                   key={league.id}
                   type="button"

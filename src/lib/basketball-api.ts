@@ -18,6 +18,7 @@ export interface ScheduleGame {
     status: string;
   };
   venueInfo: { name: string };
+  seasonId?: string;
 }
 
 export interface League {
@@ -25,6 +26,8 @@ export interface League {
   name: string;
   baseUrl: string;
   scheduleParams: string;
+  provider?: "sportradar";
+  fixturesUrl?: string;
 }
 
 const COMMON_PARAMS = "seasonUuid=ye02q4jwit&gameTypeUuid=qZn-4XtW2vrrT&gamePlace=all&played=all";
@@ -48,7 +51,125 @@ export const LEAGUES: League[] = [
     baseUrl: "https://www.superettanherr.se",
     scheduleParams: `seriesUuid=qZn-4XdsoSWdh&${COMMON_PARAMS}`,
   },
+  {
+    id: "austria-zweite-liga",
+    name: "Zweite Liga",
+    baseUrl: "",
+    scheduleParams: "",
+    provider: "sportradar",
+    fixturesUrl: "https://embed-api.eui.connect.sportradar.com/v1/embed/262/fixtures_ribbon?",
+  },
 ];
+
+export async function fetchScheduleSportradar(fixturesUrl: string): Promise<ScheduleGame[]> {
+  const res = await fetch(fixturesUrl, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error("Failed to fetch fixtures");
+  const data = (await res.json() as { data: { fixtures: unknown[] } }).data;
+
+  return (data.fixtures ?? [])
+    .filter((entry: unknown) => {
+      const fixture = ((entry as Record<string, unknown>).fixture as Record<string, unknown>) ?? {};
+      return fixture.isFinal === true;
+    })
+    .map((entry: unknown) => {
+      const e = entry as Record<string, unknown>;
+      const competitors = (e.competitors as Record<string, unknown>[]) ?? [];
+      const fixture = (e.fixture as Record<string, unknown>) ?? {};
+      const home = competitors.find((c) => c.isHome) ?? competitors[0] ?? {};
+      const away = competitors.find((c) => !c.isHome) ?? competitors[1] ?? {};
+      return {
+        uuid: String(fixture.fixtureId ?? ""),
+        rawStartDateTime: String(fixture.startTimeUTC ?? ""),
+        startDateTime: String(fixture.date ?? fixture.startTimeUTC ?? ""),
+        homeTeamInfo: {
+          names: { short: String(home.name ?? ""), long: String(home.name ?? "") },
+          score: Number(home.score ?? 0),
+          icon: String(home.logoUrl ?? ""),
+          status: String((fixture.status as Record<string, unknown>)?.value ?? ""),
+        },
+        awayTeamInfo: {
+          names: { short: String(away.name ?? ""), long: String(away.name ?? "") },
+          score: Number(away.score ?? 0),
+          icon: String(away.logoUrl ?? ""),
+          status: String((fixture.status as Record<string, unknown>)?.value ?? ""),
+        },
+        venueInfo: { name: "" },
+        seasonId: String(fixture.seasonId ?? ""),
+      } satisfies ScheduleGame;
+    })
+    .sort((a, b) =>
+      new Date(b.rawStartDateTime).getTime() - new Date(a.rawStartDateTime).getTime()
+    );
+}
+
+function parseSportradarClock(clock: string): string {
+  const m = clock.match(/PT(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?/);
+  if (!m) return clock;
+  const mins = m[1] ?? "0";
+  const secs = Math.floor(Number(m[2] ?? "0")).toString().padStart(2, "0");
+  return `${mins}:${secs}`;
+}
+
+async function buildSportradarState(fixtureId: string, seasonId: string): Promise<string> {
+  const json = JSON.stringify({ s: seasonId, l: "de-AT", z: "pbp", f: fixtureId });
+  const bytes = new TextEncoder().encode(json);
+  const cs = new CompressionStream("deflate");
+  const writer = cs.writable.getWriter();
+  await writer.write(bytes);
+  await writer.close();
+  const buf = await new Response(cs.readable).arrayBuffer();
+  let binary = "";
+  for (const b of new Uint8Array(buf)) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
+
+export async function fetchPlayByPlaySportradar(fixtureId: string, seasonId: string): Promise<{
+  events: PlayByPlayEvent[];
+  tipoffRealWorldTime: string | null;
+}> {
+  const state = await buildSportradarState(fixtureId, seasonId);
+  const url = `https://embed-api.eui.connect.sportradar.com/v1/embed/262/fixture_detail?state=${state}`;
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error("Failed to fetch play-by-play");
+
+  const pbp = (await res.json() as { data: { pbp: Record<string, { events: unknown[] }> } }).data.pbp ?? {};
+
+  let idx = 0;
+  const events: PlayByPlayEvent[] = [];
+  for (const period of Object.keys(pbp).sort((a, b) => Number(a) - Number(b))) {
+    for (const raw of pbp[period].events ?? []) {
+      const e = raw as Record<string, unknown>;
+      const type = String(e.eventType ?? "").replace("freeThrow", "freethrow");
+      if (ACTIONABLE_TYPES.has(type)) {
+        events.push({
+          eventId: idx,
+          type,
+          subType: String(e.eventSubType ?? ""),
+          period: Number(e.periodId ?? 0),
+          gameClockTime: parseSportradarClock(String(e.clock ?? "")),
+          realWorldTime: "",
+          isSuccessful: e.success === true ? 1 : 0,
+          player: e.personId ? {
+            playerId: 0,
+            pno: Number(e.bib ?? 0),
+            firstName: String(e.name ?? "").split(" ").slice(0, -1).join(" "),
+            familyName: String(e.name ?? "").split(" ").at(-1) ?? "",
+            teamNumber: 0,
+          } : null,
+          eventTeam: e.entityId ? {
+            teamCode: String(e.entityId),
+            teamName: "",
+            teamNumber: 0,
+          } : null,
+          qualifiers: [],
+        });
+      }
+      idx++;
+    }
+  }
+
+  return { events, tipoffRealWorldTime: null };
+}
 
 export async function fetchSchedule(baseUrl: string, scheduleParams: string): Promise<ScheduleGame[]> {
   const url = `${baseUrl}/api/sports-v2/game-schedule?${scheduleParams}`;

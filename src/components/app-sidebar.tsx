@@ -37,15 +37,26 @@ function SidebarIconButton({
   label,
   isActive,
   className,
+  onClickWhileActive,
 }: {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   isActive?: boolean;
   className?: string;
+  onClickWhileActive?: () => void;
 }) {
   return (
-    <Link to={href} title={label}>
+    <Link
+      to={href}
+      title={label}
+      onClick={(e) => {
+        if (isActive && onClickWhileActive) {
+          e.preventDefault();
+          onClickWhileActive();
+        }
+      }}
+    >
       <div
         className={cn(
           "h-10 w-10 flex items-center justify-center rounded-lg transition-colors",
@@ -94,6 +105,11 @@ export function AppSidebar() {
               icon={item.icon}
               label={item.label}
               isActive={pathname.startsWith(item.href)}
+              onClickWhileActive={
+                item.href === "/playlists"
+                  ? () => window.dispatchEvent(new CustomEvent("playlist-browser-toggle"))
+                  : undefined
+              }
             />
           ))}
         </nav>

@@ -26,6 +26,7 @@ import { MultiSelectDropdown } from "@/components/ui/multi-select-dropdown";
 import { VideoPlayer } from "@/components/video-player";
 import { VideoPlaceholder } from "@/components/video-placeholder";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
+import { usePanelRef } from "react-resizable-panels";
 import { VideoClipControls } from "@/components/video-clip-controls";
 import { listMatches, listFolders, createFolder, updateFolder, deleteFolder } from "@/lib/matches-db";
 import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist } from "@/lib/playlists-db";
@@ -843,6 +844,7 @@ export function PlaylistsPage() {
   const [clipDragOverPlaylistId, setClipDragOverPlaylistId] = useState<string | null>(null);
   const [clipExpandFolderId, setClipExpandFolderId] = useState<string | null>(null);
   const clipDragFolderExpandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const browserPanelRef = usePanelRef();
 
   // Clip selection
   const [selectedClipIds, setSelectedClipIds] = useState<Set<string>>(new Set()); // "matchId:eventId"
@@ -1560,14 +1562,36 @@ export function PlaylistsPage() {
   })();
 
   // ---------------------------------------------------------------------------
+  // Browser panel toggle (dispatched by sidebar when already on /playlists)
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    const handler = () => {
+      const panel = browserPanelRef.current;
+      if (!panel) return;
+      panel.isCollapsed() ? panel.expand() : panel.collapse();
+    };
+    window.addEventListener("playlist-browser-toggle", handler);
+    return () => window.removeEventListener("playlist-browser-toggle", handler);
+  }, []);
+
+  // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
   return (
     <>
-    <div className="flex h-full overflow-hidden">
+    <ResizablePanelGroup direction="horizontal" autoSaveId="playlists-browser" className="h-full">
       {/* LEFT PANEL — playlist sidebar */}
-      <div className="flex w-72 shrink-0 flex-col border-r border-border bg-card overflow-y-auto" onDragOver={(e) => e.preventDefault()}>
+      <ResizablePanel
+        panelRef={browserPanelRef}
+        defaultSize={22}
+        minSize={15}
+        collapsible
+        collapsedSize={0}
+        className="flex flex-col border-r border-border bg-card overflow-y-auto"
+        onDragOver={(e: React.DragEvent) => e.preventDefault()}
+      >
         {/* Header */}
         <div className="sticky top-0 z-10 border-b border-border bg-card px-3 py-3 space-y-2">
           <div className="flex items-center gap-2">
@@ -2023,10 +2047,12 @@ export function PlaylistsPage() {
             })()}
           </div>
         )}
-      </div>
+      </ResizablePanel>
+
+      <ResizableHandle />
 
       {/* RIGHT PANEL — detail */}
-      <div className="flex flex-1 flex-col overflow-hidden bg-background">
+      <ResizablePanel defaultSize={78} minSize={40} className="flex flex-col overflow-hidden bg-background">
         {selected === null ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-12 text-center">
             <ListVideo className="h-10 w-10 text-muted-foreground/40" />
@@ -2097,7 +2123,6 @@ export function PlaylistsPage() {
               <div className="flex items-center gap-2 shrink-0">
                 <Button
                   size="sm"
-                  variant="outline"
                   className="gap-1.5 text-xs"
                   onClick={() => setShowClipBrowser(true)}
                 >
@@ -2163,6 +2188,7 @@ export function PlaylistsPage() {
                     ) : (
                       <Button
                         size="sm"
+                        variant="outline"
                         className="h-8 gap-1.5"
                         onClick={() => startQueue([...sortedEvents])}
                         disabled={sortedEvents.length === 0 || noSync}
@@ -2369,8 +2395,8 @@ export function PlaylistsPage() {
             </ResizablePanelGroup>
           </div>
         )}
-      </div>
-    </div>
+      </ResizablePanel>
+    </ResizablePanelGroup>
 
     </>
   );
