@@ -32,7 +32,7 @@ export function DeleteMatchDialog({
       setOpen(false);
       onDeleted();
     } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : "Failed to delete match.");
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete game.");
     } finally {
       setDeleting(false);
     }
@@ -43,7 +43,7 @@ export function DeleteMatchDialog({
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>Delete session?</DialogTitle>
+          <DialogTitle>Delete game?</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
           This will permanently remove{" "}
@@ -70,7 +70,7 @@ export function DeleteMatchDialog({
             onClick={handleDelete}
             disabled={deleting}
           >
-            {deleting ? "Deleting…" : "Delete session"}
+            {deleting ? "Deleting…" : "Delete game"}
           </Button>
         </div>
       </DialogContent>

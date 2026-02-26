@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { MatchCard } from "@/components/match-card";
+import { MatchRow } from "@/components/match-row";
 import { listMatches } from "@/lib/matches-db";
 import type { StoredMatch } from "@/types/match";
 
@@ -19,54 +20,59 @@ export function MatchesPage() {
   return (
     <div className="p-6">
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">
-          Library
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Your game library — every session is a bank of clips ready to use.
-        </p>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            Library
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Browse imported games and their clips
+          </p>
+        </div>
+        <Link to="/upload">
+          <Button className="gap-2">
+            <Plus className="h-4 w-4" />
+            Import game
+          </Button>
+        </Link>
       </div>
 
       {loading ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {[0, 1, 2].map((i) => (
-            <div
-              key={i}
-              className="flex flex-col overflow-hidden rounded-xl border border-border bg-card"
-            >
-              <div className="h-2 w-full animate-pulse bg-muted" />
-              <div className="flex flex-1 flex-col gap-3 p-5">
-                <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
-                <div className="h-3 w-1/3 animate-pulse rounded bg-muted/70" />
-                <div className="h-4 w-full animate-pulse rounded bg-muted/70" />
-                <div className="h-3 w-1/4 animate-pulse rounded bg-muted/70" />
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <div className="divide-y divide-border">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div key={i} className="flex items-center gap-4 px-4 py-3">
+                <div className="h-8 w-1 animate-pulse rounded-full bg-muted" />
+                <div className="h-4 w-1/4 animate-pulse rounded bg-muted" />
+                <div className="flex-1" />
+                <div className="hidden h-3 w-24 animate-pulse rounded bg-muted/70 sm:block" />
+                <div className="hidden h-3 w-20 animate-pulse rounded bg-muted/70 md:block" />
+                <div className="h-3 w-12 animate-pulse rounded bg-muted/70" />
               </div>
-              <div className="border-t border-border px-3 py-2">
-                <div className="h-8 w-full animate-pulse rounded bg-muted/70" />
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       ) : matches.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-16 text-center">
           <p className="text-sm font-medium text-foreground">No games yet</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Upload your first game to build your library.
+            Import a game to get started.
           </p>
           <Link to="/upload" className="mt-4">
-            <Button>Add your first game</Button>
+            <Button>Import game</Button>
           </Link>
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {matches.map((match) => (
-            <MatchCard
-              key={match.id}
-              match={match}
-              onDelete={() => setMatches((ms) => ms.filter((m) => m.id !== match.id))}
-            />
-          ))}
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <div className="divide-y divide-border">
+            {matches.map((match) => (
+              <MatchRow
+                key={match.id}
+                match={match}
+                onDelete={() => setMatches((ms) => ms.filter((m) => m.id !== match.id))}
+              />
+            ))}
+          </div>
         </div>
       )}
     </div>

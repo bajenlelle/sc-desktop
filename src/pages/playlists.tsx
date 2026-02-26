@@ -290,6 +290,7 @@ function ClipBrowserPanel({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set()); // "matchId:eventId"
   const [activeEventKey, setActiveEventKey] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   // Refs to avoid stale closures in timeupdate handler
@@ -641,7 +642,14 @@ function ClipBrowserPanel({
                       <tr
                         key={key}
                         data-event-id={event.eventId}
-                        className={`cursor-pointer transition-colors hover:bg-muted/50 ${isActive ? "bg-primary/10" : isSelected ? "bg-primary/5" : ""} ${alreadyIn ? "opacity-40" : ""}`}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData("text/clip", key);
+                          e.dataTransfer.effectAllowed = "copy";
+                          setDraggingKey(key);
+                        }}
+                        onDragEnd={() => setDraggingKey(null)}
+                        className={`cursor-pointer transition-colors hover:bg-muted/50 ${isActive ? "bg-primary/10" : isSelected ? "bg-primary/5" : ""} ${alreadyIn ? "opacity-40" : ""} ${draggingKey === key ? "opacity-50" : ""}`}
                         onClick={() => handleRowClick(event, matchId)}
                       >
                         <td className="w-8 px-3 py-2.5">
@@ -1240,6 +1248,7 @@ export function PlaylistsPage() {
     const newClips = [...target.clips, sourceClip];
     await updatePlaylist(targetPlaylistId, { clips: newClips });
     setPlaylists((prev) => prev.map((p) => p.id === targetPlaylistId ? { ...p, clips: newClips } : p));
+    if (selected?.id === targetPlaylistId) setSelected((prev) => prev ? { ...prev, clips: newClips } : prev);
   }
 
   // ---------------------------------------------------------------------------
@@ -1741,7 +1750,6 @@ export function PlaylistsPage() {
                                   onDragEnd={() => setDragOverFolder(null)}
                                   onDragOver={(e) => {
                                     if (!e.dataTransfer.types.includes("text/clip")) return;
-                                    if (pl.id === selected?.id) return;
                                     e.preventDefault();
                                     e.dataTransfer.dropEffect = "copy";
                                     setClipDragOverPlaylistId(pl.id);
