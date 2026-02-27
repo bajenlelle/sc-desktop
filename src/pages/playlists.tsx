@@ -30,7 +30,7 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/componen
 import { usePanelRef } from "react-resizable-panels";
 import { VideoClipControls } from "@/components/video-clip-controls";
 import { listMatches, listFolders, createFolder, updateFolder, deleteFolder } from "@/lib/matches-db";
-import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist } from "@/lib/playlists-db";
+import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderClips, updateClip } from "@/lib/playlists-db";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
@@ -1098,7 +1098,7 @@ export function PlaylistsPage() {
     setSelected(updatedPlaylist);
     selectedRef.current = updatedPlaylist;
     setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updatedPlaylist : p));
-    updatePlaylist(selected.id, { clips: newClips }).catch(() => {});
+    updateClip(selected.id, matchId, activeEventId, { preRollOffset: newPre, postRollOffset: newPost }).catch(() => {});
     if (queueRef.current.length > 0) {
       seekToItem(queueRef.current[queueIdxRef.current], newPre, newPost);
     }
@@ -1117,7 +1117,7 @@ export function PlaylistsPage() {
     setSelected(updatedPlaylist);
     selectedRef.current = updatedPlaylist;
     setPlaylists((prev) => prev.map((p) => (p.id === selected.id ? updatedPlaylist : p)));
-    updatePlaylist(selected.id, { clips: updatedClips }).catch(() => {});
+    updateClip(selected.id, activeItem.matchId, activeEventId, { note: note.trim() || null }).catch(() => {});
   }
 
   function handleNoteChange(value: string) {
@@ -1312,7 +1312,7 @@ export function PlaylistsPage() {
     const updatedPlaylist = { ...selected, clips: newClips };
     setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updatedPlaylist : p));
     setSelected(updatedPlaylist);
-    await updatePlaylist(selected.id, { clips: newClips });
+    await reorderClips(selected.id, newClips);
   }
 
   // ---------------------------------------------------------------------------
@@ -1362,7 +1362,7 @@ export function PlaylistsPage() {
     const sourceClip = selected?.clips.find((c) => c.matchId === matchId && c.eventId === eventId)
       ?? { matchId, eventId };
     const newClips = [...target.clips, sourceClip];
-    await updatePlaylist(targetPlaylistId, { clips: newClips });
+    await addClips(targetPlaylistId, [sourceClip], target.clips.length);
     setPlaylists((prev) => prev.map((p) => p.id === targetPlaylistId ? { ...p, clips: newClips } : p));
     if (selected?.id === targetPlaylistId) setSelected((prev) => prev ? { ...prev, clips: newClips } : prev);
   }
@@ -1505,7 +1505,7 @@ export function PlaylistsPage() {
       }
       const folderId = playlists.find((p) => p.id === playlistId)?.folderId;
       try {
-        const created = await createPlaylist(name, [], folderId);
+        const created = await createPlaylist(name, folderId);
         setPlaylists((prev) => prev.map((p) => (p.id === playlistId ? created : p)));
         selectPlaylist(created);
       } catch {
@@ -1558,7 +1558,7 @@ export function PlaylistsPage() {
     const updatedPlaylist = { ...selected, clips: updatedClips };
     setSelected(updatedPlaylist);
     setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updatedPlaylist : p));
-    await updatePlaylist(selected.id, { clips: updatedClips });
+    await addClips(selected.id, newClips, selected.clips.length);
   }
 
   // ---------------------------------------------------------------------------
@@ -1595,7 +1595,10 @@ export function PlaylistsPage() {
     const updated = { ...selected, clips: newClips };
     setSelected(updated);
     setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updated : p));
-    await updatePlaylist(selected.id, { clips: newClips });
+    const keysToRemove = selected.clips.filter(
+      (c) => selectedClipIds.has(`${c.matchId}:${c.eventId}`)
+    ).map((c) => ({ matchId: c.matchId, eventId: c.eventId }));
+    await removeClips(selected.id, keysToRemove);
     setSelectedClipIds(new Set());
   }
 
@@ -1612,7 +1615,7 @@ export function PlaylistsPage() {
         ?? { matchId: item.matchId, eventId: item.event.eventId }
       );
     const newClips = [...target.clips, ...toAdd];
-    await updatePlaylist(target.id, { clips: newClips });
+    await addClips(target.id, toAdd, target.clips.length);
     setPlaylists((prev) => prev.map((p) => p.id === target.id ? { ...p, clips: newClips } : p));
     setSelectedClipIds(new Set());
     setShowAddToDropdown(false);
