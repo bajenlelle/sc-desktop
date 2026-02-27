@@ -894,7 +894,7 @@ export function PlaylistsPage() {
         setMatches(loadedMatches);
         const sorted = [...loadedFolders].sort((a, b) => a.sortOrder - b.sortOrder);
         setFolders(sorted);
-        setExpandedFolders(new Set(sorted.map((f) => f.id)));
+        setExpandedFolders(new Set());
         if (restore) {
           const pl = loadedPlaylists.find((p) => p.id === restore.playlistId);
           if (pl) {
