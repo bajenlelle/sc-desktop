@@ -2090,8 +2090,11 @@ export function PlaylistsPage() {
               Select a playlist
             </p>
             <p className="text-sm text-muted-foreground/70">
-              Choose a playlist from the left panel to watch its clips here.
+              Choose one from the panel, or create a new playlist to start collecting clips.
             </p>
+            <Button size="sm" variant="outline" className="mt-1 text-xs" onClick={handleNewPlaylist}>
+              New playlist
+            </Button>
           </div>
         ) : showClipBrowser ? (
           <ClipBrowserPanel
