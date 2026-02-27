@@ -1,27 +1,92 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
-import { ArrowLeft, Calendar, Clock, Film, FolderOpen, Trash2 } from "lucide-react";
-import { EditMatchDialog } from "@/components/edit-match-dialog";
+import { ArrowLeft, CalendarIcon, Film, FolderOpen } from "lucide-react";
+import { format, parseISO } from "date-fns";
 import { DeleteMatchDialog } from "@/components/delete-match-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { VideoPlaceholder } from "@/components/video-placeholder";
-import { VideoPlayer } from "@/components/video-player";
-import { PlayerStatsTable } from "@/components/player-stats-table";
-import { EventTimeline } from "@/components/event-timeline";
-import { TeamOverview } from "@/components/team-overview";
-import { ClipsView } from "@/components/clips-view";
-import type { ClipsViewHandle } from "@/components/clips-view";
-import { VideoClipControls } from "@/components/video-clip-controls";
-import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
-import { getMatchById } from "@/lib/mock-data";
-import { getMatch, listFolders, updateVideoUrl } from "@/lib/matches-db";
-import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist } from "@/lib/playlists-db";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { getMatch, updateMatchMeta, updateVideoUrl, updateSyncPoint } from "@/lib/matches-db";
+import { listPlaylists } from "@/lib/playlists-db";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
-import type { Match, Playlist, PlaylistClip, PlaylistFolder, StoredMatch } from "@/types/match";
+import { cn } from "@/lib/utils";
+import type { StoredMatch, SyncPoint } from "@/types/match";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface RosterEntry {
+  jerseyNumber: string;
+  playerName: string;
+}
+
+// ---------------------------------------------------------------------------
+// Colour palette (copied from edit-match-dialog)
+// ---------------------------------------------------------------------------
+
+const TEAM_COLORS = [
+  { label: "Black",  hex: "#111111" },
+  { label: "White",  hex: "#ffffff" },
+  { label: "Gray",   hex: "#6b7280" },
+  { label: "Red",    hex: "#dc2626" },
+  { label: "Orange", hex: "#ea580c" },
+  { label: "Gold",   hex: "#ca8a04" },
+  { label: "Green",  hex: "#16a34a" },
+  { label: "Blue",   hex: "#2563eb" },
+  { label: "Navy",   hex: "#1e3a8a" },
+  { label: "Purple", hex: "#7c3aed" },
+];
+
+function ColorPicker({ value, onChange }: { value: string; onChange: (hex: string) => void }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {TEAM_COLORS.map((c) => (
+        <button
+          key={c.hex}
+          type="button"
+          title={c.label}
+          onClick={() => onChange(c.hex)}
+          className={cn(
+            "h-7 w-7 rounded-full border-2 transition-transform hover:scale-110",
+            value === c.hex
+              ? "border-primary ring-2 ring-primary/70 ring-offset-1"
+              : "border-border",
+            c.hex === "#ffffff" && "border-border"
+          )}
+          style={{ backgroundColor: c.hex }}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sync-point helpers
+// ---------------------------------------------------------------------------
+
+function parseMMSS(value: string): number | null {
+  const parts = value.trim().split(":");
+  if (parts.length !== 2) return null;
+  const m = parseInt(parts[0], 10);
+  const s = parseInt(parts[1], 10);
+  if (isNaN(m) || isNaN(s) || s >= 60) return null;
+  return m * 60 + s;
+}
+
+function formatMMSS(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+// ---------------------------------------------------------------------------
+// MatchDetailPage
+// ---------------------------------------------------------------------------
 
 export function MatchDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -31,50 +96,72 @@ export function MatchDetailPage() {
   const locationState = location.state as { from?: string; matchId?: string; playlistId?: string } | null;
   const fromPlaylists = locationState?.from === "/playlists";
 
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const clipsViewRef = useRef<ClipsViewHandle | null>(null);
-  const [clipPlayback, setClipPlayback] = useState({ canPrev: false, canNext: false, isQueueActive: false, hasActivePlaylist: false });
-  const handlePlaybackChange = useCallback((canPrev: boolean, canNext: boolean, isQueueActive: boolean, hasActivePlaylist: boolean) => {
-    setClipPlayback((prev) =>
-      prev.canPrev === canPrev && prev.canNext === canNext &&
-      prev.isQueueActive === isQueueActive && prev.hasActivePlaylist === hasActivePlaylist
-        ? prev
-        : { canPrev, canNext, isQueueActive, hasActivePlaylist }
-    );
-  }, []);
-
-  const [activeClipOffsets, setActiveClipOffsets] = useState({ pre: 0, post: 0 });
-  const handleActiveClipChange = useCallback((pre: number, post: number) => {
-    setActiveClipOffsets((prev) => prev.pre === pre && prev.post === post ? prev : { pre, post });
-  }, []);
-
-  const [match, setMatch] = useState<Match | null>(null);
+  // --- loaded data ---
   const [storedMatch, setStoredMatch] = useState<StoredMatch | null>(null);
   const [notFound, setNotFound] = useState(false);
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  const [folders, setFolders] = useState<PlaylistFolder[]>([]);
+  const [clipCount, setClipCount] = useState(0);
+
+  // --- editable field state ---
+  const [title, setTitle] = useState("");
+  const [date, setDate] = useState("");
+  const [homeColor, setHomeColor] = useState("");
+  const [awayColor, setAwayColor] = useState("");
+  const [syncInput, setSyncInput] = useState("");
+  const [homeRoster, setHomeRoster] = useState<RosterEntry[]>([]);
+  const [awayRoster, setAwayRoster] = useState<RosterEntry[]>([]);
+  const [saveIndicator, setSaveIndicator] = useState<string | null>(null);
+
+  // --- video ---
   const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
 
-  const handlePickVideoFile = useCallback(async () => {
-    const result = await openFileDialog({
-      multiple: false,
-      filters: [{ name: "Video", extensions: ["mp4", "mov", "avi", "mkv", "webm", "m4v"] }],
-    });
-    if (typeof result !== "string") return;
-    setLocalVideoUrl((prev) => {
-      if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
-      return streamFileSrc(result);
-    });
-    try {
-      await updateVideoUrl(matchId, result);
-      setStoredMatch((m) => m ? { ...m, videoUrl: result } : m);
-    } catch {
-      // Path saved in memory but DB update failed — non-fatal
+  // --- load match ---
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const [dbMatch, loadedPlaylists] = await Promise.all([
+          getMatch(matchId),
+          listPlaylists(),
+        ]);
+        if (cancelled) return;
+        if (dbMatch) {
+          setStoredMatch(dbMatch);
+          setTitle(dbMatch.title);
+          setDate(dbMatch.date);
+          setHomeColor(dbMatch.homeTeam.color);
+          setAwayColor(dbMatch.awayTeam.color);
+          setSyncInput(dbMatch.syncPoint ? formatMMSS(dbMatch.syncPoint.syncVideoTime) : "");
+          setHomeRoster(
+            dbMatch.homeRoster.length ? dbMatch.homeRoster : [{ jerseyNumber: "", playerName: "" }]
+          );
+          setAwayRoster(
+            dbMatch.awayRoster.length ? dbMatch.awayRoster : [{ jerseyNumber: "", playerName: "" }]
+          );
+          const count = loadedPlaylists
+            .flatMap((p) => p.clips)
+            .filter((c) => c.matchId === matchId).length;
+          setClipCount(count);
+        } else {
+          setNotFound(true);
+        }
+      } catch {
+        setNotFound(true);
+      }
     }
+    load();
+    return () => { cancelled = true; };
   }, [matchId]);
 
+  // --- derive localVideoUrl from storedMatch ---
+  useEffect(() => {
+    if (!storedMatch?.videoUrl || localVideoUrl) return;
+    const url = storedMatch.videoUrl;
+    setLocalVideoUrl(isLocalPath(url) ? streamFileSrc(url) : url);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storedMatch]);
 
+  // --- cleanup blob URLs ---
   useEffect(() => {
     return () => {
       setLocalVideoUrl((prev) => {
@@ -84,7 +171,7 @@ export function MatchDetailPage() {
     };
   }, []);
 
-  // Tauri native drag-drop — provides real filesystem paths
+  // --- Tauri native drag-drop ---
   useEffect(() => {
     const appWindow = getCurrentWebviewWindow();
     const VIDEO_EXTS = ["mp4", "mov", "avi", "mkv", "webm", "m4v"];
@@ -115,48 +202,62 @@ export function MatchDetailPage() {
     return () => { unlisten?.(); };
   }, [matchId]);
 
-  useEffect(() => {
-    if (!storedMatch?.videoUrl || localVideoUrl) return;
-    const url = storedMatch.videoUrl;
-    setLocalVideoUrl(isLocalPath(url) ? streamFileSrc(url) : url);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storedMatch]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      try {
-        const [dbMatch, loadedPlaylists, loadedFolders] = await Promise.all([
-          getMatch(matchId),
-          listPlaylists(),
-          listFolders(),
-        ]);
-        if (!cancelled) {
-          setFolders(loadedFolders);
-          if (dbMatch) {
-            setStoredMatch(dbMatch);
-            setPlaylists(loadedPlaylists);
-            return;
-          }
-        }
-      } catch {
-        // Not authenticated or network error — fall through to mock data
-      }
-
-      if (cancelled) return;
-
-      const mockMatch = getMatchById(matchId);
-      if (mockMatch && mockMatch.status === "completed") {
-        setMatch(mockMatch);
-      } else {
-        setNotFound(true);
-      }
+  // --- file picker ---
+  const handlePickVideoFile = useCallback(async () => {
+    const result = await openFileDialog({
+      multiple: false,
+      filters: [{ name: "Video", extensions: ["mp4", "mov", "avi", "mkv", "webm", "m4v"] }],
+    });
+    if (typeof result !== "string") return;
+    setLocalVideoUrl((prev) => {
+      if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+      return streamFileSrc(result);
+    });
+    try {
+      await updateVideoUrl(matchId, result);
+      setStoredMatch((m) => m ? { ...m, videoUrl: result } : m);
+    } catch {
+      // Non-fatal
     }
-
-    load();
-    return () => { cancelled = true; };
   }, [matchId]);
+
+  // --- auto-save helper ---
+  async function saveField(updates: Parameters<typeof updateMatchMeta>[1]) {
+    if (!matchId) return;
+    try {
+      await updateMatchMeta(matchId, updates);
+      setSaveIndicator("Saved");
+      setTimeout(() => setSaveIndicator(null), 1500);
+    } catch {
+      setSaveIndicator("Error saving");
+      setTimeout(() => setSaveIndicator(null), 2000);
+    }
+  }
+
+  // --- roster helpers ---
+  function updateRosterRow(
+    roster: RosterEntry[],
+    setter: (r: RosterEntry[]) => void,
+    index: number,
+    field: keyof RosterEntry,
+    value: string
+  ) {
+    const updated = [...roster];
+    updated[index] = { ...updated[index], [field]: value };
+    setter(updated);
+  }
+
+  function addRosterRow(roster: RosterEntry[], setter: (r: RosterEntry[]) => void) {
+    setter([...roster, { jerseyNumber: "", playerName: "" }]);
+  }
+
+  function removeRosterRow(roster: RosterEntry[], setter: (r: RosterEntry[]) => void, index: number) {
+    setter(roster.filter((_, i) => i !== index));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Loading / not-found states
+  // ---------------------------------------------------------------------------
 
   if (notFound) {
     return (
@@ -173,7 +274,7 @@ export function MatchDetailPage() {
     );
   }
 
-  if (!match && !storedMatch) {
+  if (!storedMatch) {
     return (
       <div className="p-6">
         <div className="py-24 text-center">
@@ -183,380 +284,378 @@ export function MatchDetailPage() {
     );
   }
 
-  if (storedMatch) {
-    const formattedDate = new Date(storedMatch.date).toLocaleDateString("sv-SE", {
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
-    return (
-      <div className="flex flex-col h-full overflow-hidden">
-        {/* Header */}
-        <div className="shrink-0 px-6 pt-6 pb-4">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mb-3 gap-1.5 text-muted-foreground"
-            onClick={() => {
-              if (fromPlaylists) {
-                navigate("/playlists", {
-                  state: { restore: { matchId: locationState!.matchId, playlistId: locationState!.playlistId } },
-                });
-              } else {
-                navigate("/matches");
-              }
-            }}
-          >
-            <ArrowLeft className="h-4 w-4" />
-            {fromPlaylists ? "Back to Playlists" : "Back to Library"}
-          </Button>
+  const videoFileName = storedMatch.videoUrl
+    ? storedMatch.videoUrl.split("/").pop() ?? storedMatch.videoUrl
+    : null;
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="group flex items-center gap-3">
-                <h1 className="text-2xl font-bold tracking-tight text-foreground">
-                  {storedMatch.title}
-                </h1>
-                <Badge className="bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950">
-                  Game
-                </Badge>
-                <EditMatchDialog
-                  match={storedMatch}
-                  onSave={(updates) => setStoredMatch((m) => m ? { ...m, ...updates, syncPoint: updates.syncPoint ?? undefined } : m)}
-                />
-                <DeleteMatchDialog
-                  matchId={storedMatch.id}
-                  matchTitle={storedMatch.title}
-                  trigger={
-                    <button
-                      type="button"
-                      className="opacity-0 group-hover:opacity-100 transition-opacity rounded-md p-1 text-muted-foreground hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950"
-                      title="Delete session"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+  const syncHint = storedMatch.syncPoint?.syncRealWorldTime
+    ? (() => {
+        const d = new Date(storedMatch.syncPoint.syncRealWorldTime);
+        return isNaN(d.getTime())
+          ? null
+          : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      })()
+    : null;
+
+  return (
+    <div className="flex flex-col h-full overflow-y-auto">
+      {/* ── Header bar ─────────────────────────────────────────────────── */}
+      <div className="shrink-0 px-6 pt-6 pb-2 flex items-center justify-between">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="gap-1.5 text-muted-foreground"
+          onClick={() => {
+            if (fromPlaylists) {
+              navigate("/playlists", {
+                state: { restore: { matchId: locationState!.matchId, playlistId: locationState!.playlistId } },
+              });
+            } else {
+              navigate("/matches");
+            }
+          }}
+        >
+          <ArrowLeft className="h-4 w-4" />
+          {fromPlaylists ? "Back to Playlists" : "Back to Library"}
+        </Button>
+
+        {saveIndicator && (
+          <span className="text-xs text-emerald-600 dark:text-emerald-400 transition-opacity">
+            {saveIndicator}
+          </span>
+        )}
+      </div>
+
+      <div className="flex-1 px-6 pb-10 space-y-8 max-w-3xl">
+        {/* ── Game identity header ──────────────────────────────────────── */}
+        <section className="space-y-3 pt-2">
+          {/* Matchup identity row */}
+          <div className="flex items-center gap-3 text-sm font-medium text-muted-foreground">
+            {homeColor && (
+              <span className="h-3.5 w-3.5 rounded-full shrink-0" style={{ backgroundColor: homeColor }} />
+            )}
+            <span>{storedMatch.homeTeam.name}</span>
+            <span className="text-border">vs</span>
+            <span>{storedMatch.awayTeam.name}</span>
+            {awayColor && (
+              <span className="h-3.5 w-3.5 rounded-full shrink-0" style={{ backgroundColor: awayColor }} />
+            )}
+            <span className="text-border">·</span>
+            {storedMatch.events.length > 0 && (
+              <span className="flex items-center gap-1.5 text-xs">
+                <Film className="h-3.5 w-3.5" />
+                {storedMatch.events.length} clips
+              </span>
+            )}
+            {clipCount > 0 && (
+              <>
+                <span className="text-border">·</span>
+                <span className="text-xs">{clipCount} clips in playlists</span>
+              </>
+            )}
+          </div>
+
+          {/* Editable title */}
+          <div className="space-y-1">
+            <Label htmlFor="game-title" className="text-xs text-muted-foreground">Title</Label>
+            <input
+              id="game-title"
+              className="w-full bg-transparent text-2xl font-bold tracking-tight text-foreground border-b border-transparent hover:border-border focus:border-primary focus:outline-none transition-colors pb-0.5"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onBlur={() => saveField({ title })}
+            />
+          </div>
+
+          {/* Date picker */}
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Date</Label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="w-44 justify-start gap-2 font-normal"
+                >
+                  <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                  {date
+                    ? format(parseISO(date), "d MMM yyyy")
+                    : <span className="text-muted-foreground">Pick a date</span>
                   }
-                  onDeleted={() => navigate("/matches")}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={date ? parseISO(date) : undefined}
+                  onSelect={(day) => {
+                    if (!day) return;
+                    const iso = format(day, "yyyy-MM-dd");
+                    setDate(iso);
+                    saveField({ date: iso });
+                  }}
+                  autoFocus
                 />
+              </PopoverContent>
+            </Popover>
+          </div>
+        </section>
+
+        {/* ── Teams ────────────────────────────────────────────────────── */}
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold text-foreground/70">Teams</h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {/* Home */}
+            <div className="rounded-lg border border-border p-4 space-y-3">
+              <div className="space-y-0.5">
+                <p className="text-xs text-muted-foreground">Home</p>
+                <p className="font-semibold text-foreground">{storedMatch.homeTeam.name}</p>
               </div>
-              <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-                <span className="flex items-center gap-1.5">
-                  <Calendar className="h-3.5 w-3.5" />
-                  {formattedDate}
-                </span>
-                {storedMatch.events.length > 0 && (
-                  <span className="flex items-center gap-1.5">
-                    <Film className="h-3.5 w-3.5" />
-                    {storedMatch.events.length} play-by-play events
-                  </span>
-                )}
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">Team colour</p>
+                <ColorPicker
+                  value={homeColor}
+                  onChange={(hex) => {
+                    setHomeColor(hex);
+                    saveField({ homeTeam: { name: storedMatch.homeTeam.name, color: hex } });
+                  }}
+                />
               </div>
             </div>
 
-            <div className="flex items-center gap-3 text-sm font-medium">
-              <div className="flex items-center gap-2">
-                {storedMatch.homeTeam.color && (
-                  <span
-                    className="h-4 w-4 rounded-full"
-                    style={{ backgroundColor: storedMatch.homeTeam.color }}
-                  />
-                )}
-                {storedMatch.homeTeam.name}
+            {/* Away */}
+            <div className="rounded-lg border border-border p-4 space-y-3">
+              <div className="space-y-0.5">
+                <p className="text-xs text-muted-foreground">Away</p>
+                <p className="font-semibold text-foreground">{storedMatch.awayTeam.name}</p>
               </div>
-              <span className="text-border">vs</span>
-              <div className="flex items-center gap-2">
-                {storedMatch.awayTeam.name}
-                {storedMatch.awayTeam.color && (
-                  <span
-                    className="h-4 w-4 rounded-full"
-                    style={{ backgroundColor: storedMatch.awayTeam.color }}
-                  />
-                )}
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">Team colour</p>
+                <ColorPicker
+                  value={awayColor}
+                  onChange={(hex) => {
+                    setAwayColor(hex);
+                    saveField({ awayTeam: { name: storedMatch.awayTeam.name, color: hex } });
+                  }}
+                />
               </div>
             </div>
           </div>
-        </div>
+        </section>
 
-        {/* Resizable split — fills remaining height */}
-        <ResizablePanelGroup
-          direction="horizontal"
-          autoSaveId="match-detail-split"
-          className="flex-1 min-h-0 px-6 pb-6"
-        >
-          {/* LEFT: Tabs (Clips / Roster) */}
-          <ResizablePanel defaultSize={55} minSize={25}>
-            <div className="flex h-full flex-col overflow-y-auto pr-4">
-              <Tabs defaultValue="clips" className="space-y-4">
-                <TabsList className="grid w-full grid-cols-2 sm:w-auto sm:inline-grid">
-                  <TabsTrigger value="clips">Clips</TabsTrigger>
-                  <TabsTrigger value="roster">Roster</TabsTrigger>
-                </TabsList>
+        {/* ── Video & Sync ──────────────────────────────────────────────── */}
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold text-foreground/70">Video &amp; Sync</h2>
 
-                <TabsContent value="clips">
-                  <ClipsView
-                    ref={clipsViewRef}
-                    matchId={matchId}
-                    events={storedMatch.events}
-                    syncPoint={storedMatch.syncPoint}
-                    videoRef={videoRef}
-                    videoUrl={storedMatch.videoUrl}
-                    onPlaybackChange={handlePlaybackChange}
-                    onActiveClipChange={handleActiveClipChange}
-                    homeTeamName={storedMatch.homeTeam.name}
-                    awayTeamName={storedMatch.awayTeam.name}
-                    homeRoster={storedMatch.homeRoster}
-                    awayRoster={storedMatch.awayRoster}
-                    playlists={playlists}
-                    onPlaylistCreated={async (name: string, clips: PlaylistClip[], folderId?: string) => {
-                      const created = await createPlaylist(name, clips, folderId);
-                      setPlaylists((prev) => [created, ...prev]);
-                    }}
-                    onPlaylistUpdated={async (id: string, patch: { name?: string; folderId?: string | null; clips?: PlaylistClip[] }) => {
-                      await updatePlaylist(id, patch);
-                      setPlaylists((prev) => prev.map((p) =>
-                        p.id === id ? { ...p, ...patch, folderId: "folderId" in patch ? (patch.folderId ?? undefined) : p.folderId } : p
-                      ));
-                    }}
-                    onPlaylistDeleted={async (id: string) => {
-                      await deletePlaylist(id);
-                      setPlaylists((prev) => prev.filter((p) => p.id !== id));
-                    }}
-                    videoAvailable={!!localVideoUrl}
-                    folders={folders}
-                  />
-                </TabsContent>
-
-                <TabsContent value="roster">
-                  <div className="grid gap-6 sm:grid-cols-2">
-                    <RosterCard
-                      teamName={storedMatch.homeTeam.name}
-                      color={storedMatch.homeTeam.color}
-                      players={storedMatch.homeRoster}
-                    />
-                    <RosterCard
-                      teamName={storedMatch.awayTeam.name}
-                      color={storedMatch.awayTeam.color}
-                      players={storedMatch.awayRoster}
-                    />
-                  </div>
-                </TabsContent>
-              </Tabs>
+          {/* Video file */}
+          {videoFileName ? (
+            <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3">
+              <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0" />
+              <span className="flex-1 truncate text-sm text-foreground/80 font-mono">{videoFileName}</span>
+              <button
+                type="button"
+                className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline shrink-0"
+                onClick={handlePickVideoFile}
+              >
+                Change
+              </button>
             </div>
-          </ResizablePanel>
-
-          <ResizableHandle />
-
-          {/* RIGHT: Video */}
-          <ResizablePanel defaultSize={45} minSize={25}>
+          ) : (
             <div
-              className="flex h-full flex-col gap-2 pl-4 space-y-2"
+              className={cn(
+                "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed py-10 transition-colors",
+                dragActive
+                  ? "border-primary bg-primary/10"
+                  : "border-border bg-muted hover:border-primary/50 hover:bg-primary/5"
+              )}
               onDragOver={(e) => e.preventDefault()}
             >
-              {localVideoUrl ? (
-                <>
-                  {dragActive ? (
-                    <div className="flex aspect-video items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10">
-                      <p className="text-sm font-semibold text-primary">
-                        Drop to replace video
-                      </p>
-                    </div>
-                  ) : (
-                    <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
-                  )}
-                  <VideoClipControls
-                    videoRef={videoRef}
-                    canPrev={clipPlayback.canPrev}
-                    canNext={clipPlayback.canNext}
-                    isQueueActive={clipPlayback.isQueueActive}
-                    onPrev={() => clipsViewRef.current?.goPrev()}
-                    onNext={() => clipsViewRef.current?.goNext()}
-                    onReplay={() => clipsViewRef.current?.replay()}
-                    onStop={() => clipsViewRef.current?.stop()}
-                    onPlayAll={() => clipsViewRef.current?.playAll()}
-                    activeClipPreOffset={activeClipOffsets.pre}
-                    activeClipPostOffset={activeClipOffsets.post}
-                    onPreOffsetChange={(delta) => clipsViewRef.current?.adjustPreOffset(delta)}
-                    onPostOffsetChange={(delta) => clipsViewRef.current?.adjustPostOffset(delta)}
-                  />
-                  <div className="flex items-center justify-end">
-                    <button
-                      type="button"
-                      className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-                      onClick={handlePickVideoFile}
-                    >
-                      <FolderOpen className="h-3.5 w-3.5" />
-                      Change video file
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <div
-                  className={`flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed py-14 transition-colors ${
-                    dragActive
-                      ? "border-primary bg-primary/10"
-                      : "border-border bg-muted hover:border-primary/50 hover:bg-primary/5"
-                  }`}
-                >
-                  <FolderOpen className="h-9 w-9 text-muted-foreground" />
-                  <div className="text-center">
-                    <p className="text-sm font-semibold text-foreground/80">
-                      {dragActive ? "Drop video file here" : "Video plays locally — drop a file or click to select"}
-                    </p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      Your video stays on your machine, nothing is uploaded
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className="mt-1 inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                    onClick={handlePickVideoFile}
-                  >
-                    Choose video file…
-                  </button>
-                </div>
-              )}
+              <FolderOpen className="h-8 w-8 text-muted-foreground" />
+              <div className="text-center">
+                <p className="text-sm font-semibold text-foreground/80">
+                  {dragActive ? "Drop video file here" : "Drop a file or click to select"}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Your video stays on your machine — nothing is uploaded
+                </p>
+              </div>
+              <button
+                type="button"
+                className="inline-flex h-8 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                onClick={handlePickVideoFile}
+              >
+                Choose video file…
+              </button>
             </div>
-          </ResizablePanel>
-        </ResizablePanelGroup>
-      </div>
-    );
-  }
+          )}
 
-  // Mock match (legacy AI-analysed)
-  const m = match!;
-  const formattedDate = new Date(m.date).toLocaleDateString("sv-SE", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-
-  return (
-    <div className="p-6">
-    <div className="space-y-6">
-      <div>
-        <Link to="/matches">
-          <Button variant="ghost" size="sm" className="mb-3 gap-1.5 text-muted-foreground">
-            <ArrowLeft className="h-4 w-4" />
-            Back to Library
-          </Button>
-        </Link>
-
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
+          {/* Sync point */}
+          <div className="space-y-1.5">
+            <Label htmlFor="sync-point" className="text-xs text-muted-foreground">
+              Video time at tip-off (MM:SS)
+            </Label>
+            {syncHint && (
+              <p className="text-xs text-primary">
+                Tip-off real-world time was <strong>{syncHint}</strong> — enter the video timestamp for that moment.
+              </p>
+            )}
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">
-                {m.title}
-              </h1>
-              <Badge className="bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950">
-                Completed
-              </Badge>
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-              <span className="flex items-center gap-1.5">
-                <Calendar className="h-3.5 w-3.5" />
-                {formattedDate}
-              </span>
-              {m.duration && (
-                <span className="flex items-center gap-1.5">
-                  <Clock className="h-3.5 w-3.5" />
-                  {Math.floor(m.duration / 60)} min
-                </span>
+              <Input
+                id="sync-point"
+                placeholder="0:35"
+                className="w-28 font-mono"
+                value={syncInput}
+                onChange={(e) => setSyncInput(e.target.value)}
+                onBlur={() => {
+                  if (!syncInput) return;
+                  const secs = parseMMSS(syncInput);
+                  if (secs === null) return;
+                  const sp: SyncPoint | null = storedMatch.syncPoint
+                    ? { syncVideoTime: secs, syncRealWorldTime: storedMatch.syncPoint.syncRealWorldTime }
+                    : null;
+                  if (sp) {
+                    updateSyncPoint(matchId, sp)
+                      .then(() => {
+                        setSaveIndicator("Saved");
+                        setTimeout(() => setSaveIndicator(null), 1500);
+                      })
+                      .catch(() => {});
+                  }
+                }}
+              />
+              {syncInput && parseMMSS(syncInput) === null && (
+                <p className="text-xs text-red-500">Use MM:SS format (e.g. 0:35)</p>
               )}
-              {m.frameCount && (
-                <span className="flex items-center gap-1.5">
-                  <Film className="h-3.5 w-3.5" />
-                  {m.frameCount.toLocaleString()} frames
-                </span>
+              {syncInput && parseMMSS(syncInput) !== null && (
+                <p className="text-xs text-emerald-600 dark:text-emerald-400">Sync set at {syncInput}</p>
               )}
             </div>
           </div>
+        </section>
 
-          <div className="flex items-center gap-3 text-sm font-medium">
-            <div className="flex items-center gap-2">
-              <span className="h-4 w-4 rounded-full" style={{ backgroundColor: m.homeTeam.color }} />
-              {m.homeTeam.name}
+        {/* ── Rosters ───────────────────────────────────────────────────── */}
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold text-foreground/70">Rosters</h2>
+          <div className="grid gap-6 sm:grid-cols-2">
+            {/* Home roster */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-foreground/80 font-medium">{storedMatch.homeTeam.name || "Home"}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 text-xs text-primary hover:text-primary/80"
+                  onClick={() => addRosterRow(homeRoster, setHomeRoster)}
+                >
+                  + Add player
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {homeRoster.map((entry, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <Input
+                      placeholder="#"
+                      className="w-16 text-center"
+                      value={entry.jerseyNumber}
+                      onChange={(e) => updateRosterRow(homeRoster, setHomeRoster, i, "jerseyNumber", e.target.value)}
+                      onBlur={() => saveField({ homeRoster })}
+                    />
+                    <Input
+                      placeholder="Player name"
+                      className="flex-1"
+                      value={entry.playerName}
+                      onChange={(e) => updateRosterRow(homeRoster, setHomeRoster, i, "playerName", e.target.value)}
+                      onBlur={() => saveField({ homeRoster })}
+                    />
+                    {homeRoster.length > 1 && (
+                      <button
+                        type="button"
+                        className="h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground/60 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
+                        onClick={() => {
+                          removeRosterRow(homeRoster, setHomeRoster, i);
+                          // save after state settles
+                          setTimeout(() => saveField({ homeRoster: homeRoster.filter((_, idx) => idx !== i) }), 0);
+                        }}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
-            <span className="text-border">vs</span>
-            <div className="flex items-center gap-2">
-              {m.awayTeam.name}
-              <span className="h-4 w-4 rounded-full" style={{ backgroundColor: m.awayTeam.color }} />
+
+            {/* Away roster */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-foreground/80 font-medium">{storedMatch.awayTeam.name || "Away"}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 text-xs text-primary hover:text-primary/80"
+                  onClick={() => addRosterRow(awayRoster, setAwayRoster)}
+                >
+                  + Add player
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {awayRoster.map((entry, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <Input
+                      placeholder="#"
+                      className="w-16 text-center"
+                      value={entry.jerseyNumber}
+                      onChange={(e) => updateRosterRow(awayRoster, setAwayRoster, i, "jerseyNumber", e.target.value)}
+                      onBlur={() => saveField({ awayRoster })}
+                    />
+                    <Input
+                      placeholder="Player name"
+                      className="flex-1"
+                      value={entry.playerName}
+                      onChange={(e) => updateRosterRow(awayRoster, setAwayRoster, i, "playerName", e.target.value)}
+                      onBlur={() => saveField({ awayRoster })}
+                    />
+                    {awayRoster.length > 1 && (
+                      <button
+                        type="button"
+                        className="h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground/60 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
+                        onClick={() => {
+                          removeRosterRow(awayRoster, setAwayRoster, i);
+                          setTimeout(() => saveField({ awayRoster: awayRoster.filter((_, idx) => idx !== i) }), 0);
+                        }}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
-      </div>
+        </section>
 
-      <VideoPlaceholder />
-
-      <Tabs defaultValue="stats" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-3 sm:w-auto sm:inline-grid">
-          <TabsTrigger value="stats">Player Stats</TabsTrigger>
-          <TabsTrigger value="timeline">Event Timeline</TabsTrigger>
-          <TabsTrigger value="team">Team Overview</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="stats">
-          {m.playerStats && m.playerStats.length > 0 ? (
-            <PlayerStatsTable stats={m.playerStats} homeTeam={m.homeTeam} awayTeam={m.awayTeam} />
-          ) : (
-            <p className="py-12 text-center text-sm text-muted-foreground">No player stats available.</p>
-          )}
-        </TabsContent>
-
-        <TabsContent value="timeline">
-          {m.events && m.events.length > 0 ? (
-            <EventTimeline events={m.events} homeTeam={m.homeTeam} awayTeam={m.awayTeam} />
-          ) : (
-            <p className="py-12 text-center text-sm text-muted-foreground">No events recorded.</p>
-          )}
-        </TabsContent>
-
-        <TabsContent value="team">
-          {m.homeTeamStats && m.awayTeamStats ? (
-            <TeamOverview
-              home={m.homeTeamStats}
-              away={m.awayTeamStats}
-              homeColor={m.homeTeam.color}
-              awayColor={m.awayTeam.color}
+        {/* ── Danger zone ───────────────────────────────────────────────── */}
+        <section className="border-t border-border pt-6 space-y-2">
+          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Danger zone</p>
+          <div className="flex items-center gap-4">
+            <DeleteMatchDialog
+              matchId={matchId}
+              matchTitle={title}
+              trigger={
+                <Button variant="destructive" size="sm">
+                  Delete game
+                </Button>
+              }
+              onDeleted={() => navigate("/matches")}
             />
-          ) : (
-            <p className="py-12 text-center text-sm text-muted-foreground">No team stats available.</p>
-          )}
-        </TabsContent>
-      </Tabs>
-    </div>
-    </div>
-  );
-}
-
-function RosterCard({
-  teamName,
-  color,
-  players,
-}: {
-  teamName: string;
-  color: string;
-  players: Array<{ jerseyNumber: string; playerName: string }>;
-}) {
-  return (
-    <div className="rounded-lg border border-border">
-      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-        {color && (
-          <span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: color }} />
-        )}
-        <span className="font-semibold text-foreground">{teamName}</span>
-      </div>
-      <div className="divide-y divide-border">
-        {players.map((p, i) => (
-          <div key={i} className="flex items-center gap-3 px-4 py-2.5">
-            <span className="w-8 text-right font-mono text-xs text-muted-foreground">
-              #{p.jerseyNumber}
-            </span>
-            <span className="text-sm text-foreground/80">{p.playerName}</span>
+            <p className="text-xs text-muted-foreground">This will permanently remove the game and all its clips.</p>
           </div>
-        ))}
+        </section>
       </div>
     </div>
   );
