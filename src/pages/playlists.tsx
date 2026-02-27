@@ -11,6 +11,7 @@ import {
   ListPlus,
   ListVideo,
   Loader2,
+  MoreHorizontal,
   Pencil,
   Play,
   Plus,
@@ -31,6 +32,7 @@ import { VideoClipControls } from "@/components/video-clip-controls";
 import { listMatches, listFolders, createFolder, updateFolder, deleteFolder } from "@/lib/matches-db";
 import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist } from "@/lib/playlists-db";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { exportPlaylist, type ExportItem } from "@/lib/export";
 import type { Playlist, PlaylistFolder, PlaylistClip, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
@@ -840,6 +842,8 @@ export function PlaylistsPage() {
   const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
   const [editingPlaylistId, setEditingPlaylistId] = useState<string | null>(null);
   const [editPlaylistName, setEditPlaylistName] = useState("");
+  const [openMenuPlaylistId, setOpenMenuPlaylistId] = useState<string | null>(null);
+  const [openMenuFolderId, setOpenMenuFolderId] = useState<string | null>(null);
   const [clockSort, setClockSort] = useState<ClockSort>("none");
   const [search, setSearch] = useState("");
   const [isExporting, setIsExporting] = useState(false);
@@ -1787,25 +1791,32 @@ export function PlaylistsPage() {
                     )}
                     {!isEditing ? (
                       <div className="flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
-                        <span className="text-xs font-semibold text-muted-foreground group-hover:hidden">{items.length}</span>
-                        <div className="hidden group-hover:flex items-center gap-0.5">
-                          <button
-                            type="button"
-                            className="rounded p-0.5 text-muted-foreground hover:text-foreground"
-                            title="Rename folder"
-                            onClick={() => { setEditingFolderId(folder.id); setEditFolderName(folder.name); }}
-                          >
-                            <Pencil className="h-3 w-3" />
-                          </button>
-                          <button
-                            type="button"
-                            className="rounded p-0.5 text-muted-foreground hover:text-destructive"
-                            title="Delete folder"
-                            onClick={() => handleDeleteFolder(folder.id)}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </button>
-                        </div>
+                        <span className={`text-xs font-semibold text-muted-foreground ${openMenuFolderId === folder.id ? "hidden" : "group-hover:hidden"}`}>{items.length}</span>
+                        <DropdownMenu
+                          open={openMenuFolderId === folder.id}
+                          onOpenChange={(open) => setOpenMenuFolderId(open ? folder.id : null)}
+                        >
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              className={`rounded p-0.5 text-muted-foreground hover:text-foreground focus:outline-none ${openMenuFolderId === folder.id ? "flex" : "hidden group-hover:flex"}`}
+                            >
+                              <MoreHorizontal className="h-3.5 w-3.5" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onSelect={() => { setEditingFolderId(folder.id); setEditFolderName(folder.name); }}>
+                              Rename
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onSelect={() => handleDeleteFolder(folder.id)}
+                            >
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     ) : (
                       <span className="shrink-0 text-xs text-muted-foreground">{items.length}</span>
@@ -1882,9 +1893,36 @@ export function PlaylistsPage() {
                                       </span>
                                     )}
                                   </div>
-                                  <span className="ml-2 shrink-0 text-xs text-muted-foreground">
-                                    {pl.clips.length}
-                                  </span>
+                                  <div className="ml-2 flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
+                                    <span className={`text-xs text-muted-foreground ${openMenuPlaylistId === pl.id ? "hidden" : "group-hover:hidden"}`}>
+                                      {pl.clips.length}
+                                    </span>
+                                    <DropdownMenu
+                                      open={openMenuPlaylistId === pl.id}
+                                      onOpenChange={(open) => setOpenMenuPlaylistId(open ? pl.id : null)}
+                                    >
+                                      <DropdownMenuTrigger asChild>
+                                        <button
+                                          type="button"
+                                          className={`rounded p-0.5 text-muted-foreground hover:text-foreground focus:outline-none ${openMenuPlaylistId === pl.id ? "flex" : "hidden group-hover:flex"}`}
+                                        >
+                                          <MoreHorizontal className="h-3.5 w-3.5" />
+                                        </button>
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent align="end">
+                                        <DropdownMenuItem onSelect={() => { setEditingPlaylistId(pl.id); setEditPlaylistName(pl.name); }}>
+                                          Rename
+                                        </DropdownMenuItem>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem
+                                          className="text-destructive focus:text-destructive"
+                                          onSelect={() => handleDeletePlaylist(pl.id)}
+                                        >
+                                          Delete
+                                        </DropdownMenuItem>
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+                                  </div>
                                 </div>
                               </ContextMenuTrigger>
                               <ContextMenuContent>
@@ -2037,9 +2075,36 @@ export function PlaylistsPage() {
                                     </span>
                                   )}
                                 </div>
-                                <span className="ml-2 shrink-0 text-xs text-muted-foreground">
-                                  {pl.clips.length}
-                                </span>
+                                <div className="ml-2 flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
+                                  <span className={`text-xs text-muted-foreground ${openMenuPlaylistId === pl.id ? "hidden" : "group-hover:hidden"}`}>
+                                    {pl.clips.length}
+                                  </span>
+                                  <DropdownMenu
+                                    open={openMenuPlaylistId === pl.id}
+                                    onOpenChange={(open) => setOpenMenuPlaylistId(open ? pl.id : null)}
+                                  >
+                                    <DropdownMenuTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className={`rounded p-0.5 text-muted-foreground hover:text-foreground focus:outline-none ${openMenuPlaylistId === pl.id ? "flex" : "hidden group-hover:flex"}`}
+                                      >
+                                        <MoreHorizontal className="h-3.5 w-3.5" />
+                                      </button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                      <DropdownMenuItem onSelect={() => { setEditingPlaylistId(pl.id); setEditPlaylistName(pl.name); }}>
+                                        Rename
+                                      </DropdownMenuItem>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem
+                                        className="text-destructive focus:text-destructive"
+                                        onSelect={() => handleDeletePlaylist(pl.id)}
+                                      >
+                                        Delete
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                </div>
                               </div>
                             </ContextMenuTrigger>
                             <ContextMenuContent>
