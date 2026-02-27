@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 
 export function SettingsPage() {
   return (
-    <div className="p-6 max-w-2xl space-y-6">
+    <div className="p-6 max-w-2xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">
           Settings

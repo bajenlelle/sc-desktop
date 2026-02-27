@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { ArrowLeft, CalendarIcon, Film, FolderOpen } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { DeleteMatchDialog } from "@/components/delete-match-dialog";
+import { SyncPointPicker } from "@/components/sync-point-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -304,7 +305,8 @@ export function MatchDetailPage() {
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       {/* ── Header bar ─────────────────────────────────────────────────── */}
-      <div className="shrink-0 px-6 pt-6 pb-2 flex items-center justify-between">
+      <div className="shrink-0 px-6 pt-6 pb-2">
+      <div className="mx-auto max-w-4xl flex items-center justify-between">
         <Button
           variant="ghost"
           size="sm"
@@ -329,8 +331,10 @@ export function MatchDetailPage() {
           </span>
         )}
       </div>
+      </div>
 
-      <div className="flex-1 px-6 pb-10 space-y-8 max-w-3xl">
+      <div className="flex-1 px-6 pb-10">
+      <div className="mx-auto max-w-4xl space-y-8">
         {/* ── Game identity header ──────────────────────────────────────── */}
         <section className="space-y-3 pt-2">
           {/* Matchup identity row */}
@@ -493,47 +497,70 @@ export function MatchDetailPage() {
           )}
 
           {/* Sync point */}
-          <div className="space-y-1.5">
-            <Label htmlFor="sync-point" className="text-xs text-muted-foreground">
-              Video time at tip-off (MM:SS)
-            </Label>
-            {syncHint && (
-              <p className="text-xs text-primary">
-                Tip-off real-world time was <strong>{syncHint}</strong> — enter the video timestamp for that moment.
-              </p>
-            )}
-            <div className="flex items-center gap-3">
-              <Input
-                id="sync-point"
-                placeholder="0:35"
-                className="w-28 font-mono"
-                value={syncInput}
-                onChange={(e) => setSyncInput(e.target.value)}
-                onBlur={() => {
-                  if (!syncInput) return;
-                  const secs = parseMMSS(syncInput);
-                  if (secs === null) return;
-                  const sp: SyncPoint | null = storedMatch.syncPoint
-                    ? { syncVideoTime: secs, syncRealWorldTime: storedMatch.syncPoint.syncRealWorldTime }
-                    : null;
-                  if (sp) {
-                    updateSyncPoint(matchId, sp)
-                      .then(() => {
-                        setSaveIndicator("Saved");
-                        setTimeout(() => setSaveIndicator(null), 1500);
-                      })
-                      .catch(() => {});
-                  }
-                }}
-              />
-              {syncInput && parseMMSS(syncInput) === null && (
-                <p className="text-xs text-red-500">Use MM:SS format (e.g. 0:35)</p>
+          {storedMatch.videoUrl ? (
+            <SyncPointPicker
+              videoPath={storedMatch.videoUrl}
+              tipoffHint={syncHint ?? undefined}
+              initialSeconds={storedMatch.syncPoint?.syncVideoTime}
+              onConfirm={async (secs) => {
+                const sp: SyncPoint = {
+                  syncVideoTime: secs,
+                  syncRealWorldTime: storedMatch.syncPoint?.syncRealWorldTime ?? "",
+                };
+                try {
+                  await updateSyncPoint(matchId, sp);
+                  setStoredMatch((m) => m ? { ...m, syncPoint: sp } : m);
+                  setSaveIndicator("Saved");
+                  setTimeout(() => setSaveIndicator(null), 1500);
+                } catch {
+                  setSaveIndicator("Error saving");
+                  setTimeout(() => setSaveIndicator(null), 2000);
+                }
+              }}
+            />
+          ) : (
+            <div className="space-y-1.5">
+              <Label htmlFor="sync-point" className="text-xs text-muted-foreground">
+                Video time at tip-off (MM:SS)
+              </Label>
+              {syncHint && (
+                <p className="text-xs text-primary">
+                  Tip-off real-world time was <strong>{syncHint}</strong> — enter the video timestamp for that moment.
+                </p>
               )}
-              {syncInput && parseMMSS(syncInput) !== null && (
-                <p className="text-xs text-emerald-600 dark:text-emerald-400">Sync set at {syncInput}</p>
-              )}
+              <div className="flex items-center gap-3">
+                <Input
+                  id="sync-point"
+                  placeholder="0:35"
+                  className="w-28 font-mono"
+                  value={syncInput}
+                  onChange={(e) => setSyncInput(e.target.value)}
+                  onBlur={() => {
+                    if (!syncInput) return;
+                    const secs = parseMMSS(syncInput);
+                    if (secs === null) return;
+                    const sp: SyncPoint | null = storedMatch.syncPoint
+                      ? { syncVideoTime: secs, syncRealWorldTime: storedMatch.syncPoint.syncRealWorldTime }
+                      : null;
+                    if (sp) {
+                      updateSyncPoint(matchId, sp)
+                        .then(() => {
+                          setSaveIndicator("Saved");
+                          setTimeout(() => setSaveIndicator(null), 1500);
+                        })
+                        .catch(() => {});
+                    }
+                  }}
+                />
+                {syncInput && parseMMSS(syncInput) === null && (
+                  <p className="text-xs text-red-500">Use MM:SS format (e.g. 0:35)</p>
+                )}
+                {syncInput && parseMMSS(syncInput) !== null && (
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400">Sync set at {syncInput}</p>
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </section>
 
         {/* ── Rosters ───────────────────────────────────────────────────── */}
@@ -656,6 +683,7 @@ export function MatchDetailPage() {
             <p className="text-xs text-muted-foreground">This will permanently remove the game and all its clips.</p>
           </div>
         </section>
+      </div>
       </div>
     </div>
   );

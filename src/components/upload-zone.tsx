@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Film, X, Loader2, Clock, Search, ChevronRight } from "lucide-react";
 import { GeneratingSession } from "@/components/generating-session";
+import { SyncPointPicker } from "@/components/sync-point-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -151,6 +152,7 @@ export function UploadZone() {
   const [dragActive, setDragActive] = useState(false);
 
   const [syncInput, setSyncInput] = useState("");
+  const [syncSeconds, setSyncSeconds] = useState<number | null>(null);
   const [submitStatus, setSubmitStatus] = useState<"idle" | "saving" | "error">("idle");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [generatingVisible, setGeneratingVisible] = useState(false);
@@ -337,8 +339,8 @@ export function UploadZone() {
     setPendingNavigate(null);
 
     let syncPoint: SyncPoint | undefined;
-    if (syncInput && tipoffRealWorldTime) {
-      const secs = parseMMSS(syncInput);
+    if (tipoffRealWorldTime) {
+      const secs = videoPath ? syncSeconds : (syncInput ? parseMMSS(syncInput) : null);
       if (secs !== null) {
         syncPoint = {
           syncVideoTime: secs,
@@ -587,44 +589,55 @@ export function UploadZone() {
 
             {/* Sync point */}
             <div className="border-t border-border pt-4 space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Enter the video timestamp (MM:SS) when the{" "}
-                <strong className="text-foreground">tip-off</strong> occurs in
-                your recording. This one calibration point syncs every event to the correct video
-                position.
-              </p>
-              {tipoffLocalHint && (
-                <p className="flex items-center gap-1.5 text-xs text-primary">
-                  <Clock className="h-3.5 w-3.5" />
-                  Tip-off real-world time was{" "}
-                  <strong>{tipoffLocalHint}</strong> — find this moment in your video.
-                </p>
-              )}
-              {!tipoffRealWorldTime && (
-                <p className="text-xs text-muted-foreground">
-                  Select a game to see the tip-off time hint.
-                </p>
-              )}
-              <div className="flex items-center gap-3">
-                <div className="space-y-1">
-                  <Label htmlFor="sync-time">Video time at tip-off</Label>
-                  <Input
-                    id="sync-time"
-                    placeholder="0:35"
-                    className="w-28 font-mono"
-                    value={syncInput}
-                    onChange={(e) => setSyncInput(e.target.value)}
-                  />
-                </div>
-                {syncInput && parseMMSS(syncInput) === null && (
-                  <p className="mt-5 text-xs text-red-500">Use MM:SS format (e.g. 0:35)</p>
-                )}
-                {syncInput && parseMMSS(syncInput) !== null && (
-                  <p className="mt-5 text-xs text-emerald-600 dark:text-emerald-400">
-                    Sync point set at {syncInput}
+              {videoPath ? (
+                <SyncPointPicker
+                  videoPath={videoPath}
+                  tipoffHint={tipoffLocalHint ?? undefined}
+                  onConfirm={(secs) => setSyncSeconds(secs)}
+                  onSkip={() => {}}
+                />
+              ) : (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    Enter the video timestamp (MM:SS) when the{" "}
+                    <strong className="text-foreground">tip-off</strong> occurs in
+                    your recording. This one calibration point syncs every event to the correct video
+                    position.
                   </p>
-                )}
-              </div>
+                  {tipoffLocalHint && (
+                    <p className="flex items-center gap-1.5 text-xs text-primary">
+                      <Clock className="h-3.5 w-3.5" />
+                      Tip-off real-world time was{" "}
+                      <strong>{tipoffLocalHint}</strong> — find this moment in your video.
+                    </p>
+                  )}
+                  {!tipoffRealWorldTime && (
+                    <p className="text-xs text-muted-foreground">
+                      Select a game to see the tip-off time hint.
+                    </p>
+                  )}
+                  <div className="flex items-center gap-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="sync-time">Video time at tip-off</Label>
+                      <Input
+                        id="sync-time"
+                        placeholder="0:35"
+                        className="w-28 font-mono"
+                        value={syncInput}
+                        onChange={(e) => setSyncInput(e.target.value)}
+                      />
+                    </div>
+                    {syncInput && parseMMSS(syncInput) === null && (
+                      <p className="mt-5 text-xs text-red-500">Use MM:SS format (e.g. 0:35)</p>
+                    )}
+                    {syncInput && parseMMSS(syncInput) !== null && (
+                      <p className="mt-5 text-xs text-emerald-600 dark:text-emerald-400">
+                        Sync point set at {syncInput}
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </CardContent>
         </Card>
