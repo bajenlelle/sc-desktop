@@ -160,12 +160,11 @@ export function SyncPointPicker({
     <div ref={containerRef} className="space-y-3 outline-none" tabIndex={-1}>
       {/* Prompt */}
       <div className="space-y-0.5">
-        <p className="text-sm font-medium text-foreground">Find the tip-off in the video</p>
-        {tipoffHint && (
-          <p className="text-xs text-primary">
-            Tip-off happened at <strong>{tipoffHint}</strong> — find this moment
-          </p>
-        )}
+        <p className="text-sm font-medium text-foreground">Set the tip-off point</p>
+        <p className="text-xs text-muted-foreground">
+          Scrub to the exact frame when the ball is tipped, then click{" "}
+          <span className="text-foreground font-medium">Set tip-off here</span>.
+        </p>
       </div>
 
       {/* Video */}

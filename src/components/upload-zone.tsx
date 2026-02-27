@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Film, X, Loader2, Clock, Search, ChevronRight } from "lucide-react";
 import { GeneratingSession } from "@/components/generating-session";
@@ -13,7 +13,7 @@ import { fetchBoxscore, fetchPlayByPlay, fetchPlayByPlaySportradar, fetchSchedul
 import type { ScheduleGame, League } from "@/lib/basketball-api";
 import type { StoredMatch, SyncPoint, PlayByPlayEvent } from "@/types/match";
 import { open } from "@tauri-apps/plugin-dialog";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { registerDropZone, unregisterDropZone } from "@/lib/drag-drop-registry";
 
 interface RosterEntry {
   jerseyNumber: string;
@@ -150,6 +150,7 @@ export function UploadZone() {
   // Video state
   const [videoPath, setVideoPath] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
 
   const [syncInput, setSyncInput] = useState("");
   const [syncSeconds, setSyncSeconds] = useState<number | null>(null);
@@ -166,30 +167,20 @@ export function UploadZone() {
     }
   }, [animationDone, pendingNavigate, navigate]);
 
-  // Tauri native drag-drop — provides real filesystem paths unlike HTML5 File API
+  // Register this component as the active drop zone with the singleton registry.
   useEffect(() => {
-    const appWindow = getCurrentWebviewWindow();
-    const VIDEO_EXTS = ["mp4", "mov", "avi", "mkv", "webm", "m4v"];
-    let unlisten: (() => void) | undefined;
-
-    appWindow.onDragDropEvent((event) => {
-      const { type } = event.payload;
-      if (type === "enter" || type === "over") {
-        setDragActive(true);
-      } else if (type === "leave") {
-        setDragActive(false);
-      } else if (type === "drop") {
-        setDragActive(false);
-        const dropped = event.payload.paths.find((p) =>
-          VIDEO_EXTS.some((ext) => p.toLowerCase().endsWith(`.${ext}`))
-        );
-        if (dropped) {
-          setVideoPath(dropped);
-        }
-      }
-    }).then((fn) => { unlisten = fn; });
-
-    return () => { unlisten?.(); };
+    registerDropZone({
+      onEnter: () => setDragActive(true),
+      onLeave: () => setDragActive(false),
+      onDrop: (path) => setVideoPath(path),
+      isOver: (pos) => {
+        const el = dropZoneRef.current;
+        if (!el) return false;
+        const r = el.getBoundingClientRect();
+        return pos.x >= r.left && pos.x <= r.right && pos.y >= r.top && pos.y <= r.bottom;
+      },
+    });
+    return () => unregisterDropZone();
   }, []);
 
   useEffect(() => {
@@ -526,6 +517,7 @@ export function UploadZone() {
             <div className="space-y-2">
               <Label>Video file</Label>
               <div
+                ref={dropZoneRef}
                 className={cn(
                   "flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 transition-colors",
                   dragActive
@@ -534,8 +526,6 @@ export function UploadZone() {
                       ? "border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950"
                       : "border-border bg-muted/30 hover:border-primary/50 hover:bg-primary/5"
                 )}
-                onDragOver={(e) => e.preventDefault()}
-                onDragLeave={() => setDragActive(false)}
               >
                 {videoPath ? (
                   <>

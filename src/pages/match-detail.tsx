@@ -12,7 +12,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { getMatch, updateMatchMeta, updateVideoUrl, updateSyncPoint } from "@/lib/matches-db";
 import { listPlaylists } from "@/lib/playlists-db";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { cn } from "@/lib/utils";
 import type { StoredMatch, SyncPoint } from "@/types/match";
@@ -114,7 +113,6 @@ export function MatchDetailPage() {
 
   // --- video ---
   const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
-  const [dragActive, setDragActive] = useState(false);
 
   // --- load match ---
   useEffect(() => {
@@ -171,37 +169,6 @@ export function MatchDetailPage() {
       });
     };
   }, []);
-
-  // --- Tauri native drag-drop ---
-  useEffect(() => {
-    const appWindow = getCurrentWebviewWindow();
-    const VIDEO_EXTS = ["mp4", "mov", "avi", "mkv", "webm", "m4v"];
-    let unlisten: (() => void) | undefined;
-
-    appWindow.onDragDropEvent((event) => {
-      const { type } = event.payload;
-      if (type === "enter" || type === "over") {
-        setDragActive(true);
-      } else if (type === "leave") {
-        setDragActive(false);
-      } else if (type === "drop") {
-        setDragActive(false);
-        const dropped = event.payload.paths.find((p) =>
-          VIDEO_EXTS.some((ext) => p.toLowerCase().endsWith(`.${ext}`))
-        );
-        if (dropped) {
-          setLocalVideoUrl((prev) => {
-            if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
-            return streamFileSrc(dropped);
-          });
-          updateVideoUrl(matchId, dropped).catch(() => {});
-          setStoredMatch((m) => m ? { ...m, videoUrl: dropped } : m);
-        }
-      }
-    }).then((fn) => { unlisten = fn; });
-
-    return () => { unlisten?.(); };
-  }, [matchId]);
 
   // --- file picker ---
   const handlePickVideoFile = useCallback(async () => {
@@ -469,18 +436,12 @@ export function MatchDetailPage() {
             </div>
           ) : (
             <div
-              className={cn(
-                "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed py-10 transition-colors",
-                dragActive
-                  ? "border-primary bg-primary/10"
-                  : "border-border bg-muted hover:border-primary/50 hover:bg-primary/5"
-              )}
-              onDragOver={(e) => e.preventDefault()}
+              className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed py-10 transition-colors border-border bg-muted hover:border-primary/50 hover:bg-primary/5"
             >
               <FolderOpen className="h-8 w-8 text-muted-foreground" />
               <div className="text-center">
                 <p className="text-sm font-semibold text-foreground/80">
-                  {dragActive ? "Drop video file here" : "Drop a file or click to select"}
+                  Drop a file or click to select
                 </p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   Your video stays on your machine — nothing is uploaded
