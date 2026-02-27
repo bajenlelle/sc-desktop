@@ -148,6 +148,7 @@ export interface PlaylistClip {
   eventId: number;
   preRollOffset?: number;  // signed delta in seconds added on top of global pre-roll
   postRollOffset?: number; // signed delta in seconds added on top of global post-roll
+  note?: string;           // per-clip note scoped to this playlist
 }
 
 export interface PlaylistFolder {

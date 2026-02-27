@@ -166,6 +166,7 @@ function DraggableRow({
   matchTitle,
   preOffset,
   postOffset,
+  note,
   isSelected,
   onSelect,
   isDragTarget,
@@ -184,6 +185,7 @@ function DraggableRow({
   matchTitle?: string;
   preOffset: number;
   postOffset: number;
+  note?: string;
   isSelected: boolean;
   onSelect: (e: React.MouseEvent) => void;
   isDragTarget: boolean;
@@ -260,6 +262,9 @@ function DraggableRow({
             >
               ±
             </span>
+          )}
+          {note && (
+            <span className="ml-1 h-1.5 w-1.5 rounded-full bg-primary/60 shrink-0" title={note} />
           )}
         </div>
       </td>
@@ -877,6 +882,8 @@ export function PlaylistsPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const queueRef = useRef<QueueItem[]>([]);
   const queueIdxRef = useRef<number>(0);
+  const [clipNote, setClipNote] = useState("");
+  const clipNoteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clipEndRef = useRef<number | undefined>(undefined);
   const pendingSeekRef = useRef<{ seekTo: number; clipEnd: number } | null>(null);
   const preRollRef = useRef(preRoll);
@@ -890,6 +897,17 @@ export function PlaylistsPage() {
   useEffect(() => { selectedRef.current = selected; }, [selected]);
   useEffect(() => { sessionStorage.setItem("expandedFolders", JSON.stringify([...expandedFolders])); }, [expandedFolders]);
   useEffect(() => { sessionStorage.setItem("uncategorizedExpanded", String(uncategorizedExpanded)); }, [uncategorizedExpanded]);
+
+  // Sync note textarea when active clip changes
+  useEffect(() => {
+    if (activeEventId === null || !selected) { setClipNote(""); return; }
+    const activeItem = sortedEvents.find((i) => i.event.eventId === activeEventId);
+    const clip = selected.clips.find(
+      (c) => c.matchId === activeItem?.matchId && c.eventId === activeEventId
+    );
+    setClipNote(clip?.note ?? "");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeEventId, selected?.id]);
 
   // Load playlists + matches on mount; restore selection if returning from match detail
   useEffect(() => {
@@ -1084,6 +1102,31 @@ export function PlaylistsPage() {
     if (queueRef.current.length > 0) {
       seekToItem(queueRef.current[queueIdxRef.current], newPre, newPost);
     }
+  }
+
+  function saveClipNote(note: string) {
+    if (!selected || activeEventId === null) return;
+    const activeItem = sortedEvents.find((i) => i.event.eventId === activeEventId);
+    if (!activeItem) return;
+    const updatedClips = selected.clips.map((c) =>
+      c.matchId === activeItem.matchId && c.eventId === activeEventId
+        ? { ...c, note: note.trim() || undefined }
+        : c
+    );
+    const updatedPlaylist = { ...selected, clips: updatedClips };
+    setSelected(updatedPlaylist);
+    selectedRef.current = updatedPlaylist;
+    setPlaylists((prev) => prev.map((p) => (p.id === selected.id ? updatedPlaylist : p)));
+    updatePlaylist(selected.id, { clips: updatedClips }).catch(() => {});
+  }
+
+  function handleNoteChange(value: string) {
+    setClipNote(value);
+    if (clipNoteSaveTimerRef.current) clearTimeout(clipNoteSaveTimerRef.current);
+    clipNoteSaveTimerRef.current = setTimeout(() => {
+      clipNoteSaveTimerRef.current = null;
+      saveClipNote(value);
+    }, 600);
   }
 
   const activeClipOffsets = useMemo(() => {
@@ -2416,6 +2459,7 @@ export function PlaylistsPage() {
                               matchTitle={matchLookup.get(item.matchId)?.title}
                               preOffset={clip?.preRollOffset ?? 0}
                               postOffset={clip?.postRollOffset ?? 0}
+                              note={clip?.note}
                               isSelected={selectedClipIds.has(key)}
                               onSelect={(e) => toggleSelectClip(key, e)}
                               isDragTarget={clipDragOverIndex === index}
@@ -2469,6 +2513,15 @@ export function PlaylistsPage() {
                       onPreOffsetChange={(delta) => adjustActiveClip(delta, 0)}
                       onPostOffsetChange={(delta) => adjustActiveClip(0, delta)}
                     />
+                    {activeEventId !== null && (
+                      <textarea
+                        className="w-full resize-none rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary transition-colors"
+                        rows={3}
+                        placeholder="Add a note for this clip…"
+                        value={clipNote}
+                        onChange={(e) => handleNoteChange(e.target.value)}
+                      />
+                    )}
                   </>
                 ) : (
                   <div className="space-y-2">
