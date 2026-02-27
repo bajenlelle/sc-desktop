@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MatchRow } from "@/components/match-row";
@@ -28,10 +28,15 @@ function PlaylistCard({ playlist, folder }: { playlist: Playlist; folder?: Playl
 }
 
 export function HomePage() {
+  const navigate = useNavigate();
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [folders, setFolders] = useState<PlaylistFolder[]>([]);
   const [loading, setLoading] = useState(true);
+
+  function goNewPlaylist() {
+    navigate("/playlists", { state: { createNew: true } });
+  }
 
   useEffect(() => {
     Promise.all([
@@ -92,12 +97,10 @@ export function HomePage() {
                 </span>
               )}
             </h2>
-            <Link to="/playlists">
-              <Button variant="outline" size="sm" className="gap-2">
-                <Plus className="h-4 w-4" />
-                New playlist
-              </Button>
-            </Link>
+            <Button variant="outline" size="sm" className="gap-2" onClick={goNewPlaylist}>
+              <Plus className="h-4 w-4" />
+              New playlist
+            </Button>
           </div>
 
           {loading ? (
@@ -112,9 +115,7 @@ export function HomePage() {
               <p className="mt-1 text-sm text-muted-foreground">
                 Create a playlist to start organizing clips for scouting or analysis.
               </p>
-              <Link to="/playlists" className="mt-4">
-                <Button>New playlist</Button>
-              </Link>
+              <Button className="mt-4" onClick={goNewPlaylist}>New playlist</Button>
             </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-3">

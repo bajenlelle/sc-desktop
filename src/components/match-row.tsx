@@ -55,21 +55,22 @@ export function MatchRow({ match, onDelete }: { match: StoredMatch; onDelete?: (
 
       {/* Delete — hover-reveal, stops navigation */}
       {onDelete && (
-        <DeleteMatchDialog
-          matchId={match.id}
-          matchTitle={match.title}
-          trigger={
-            <button
-              type="button"
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
-              className="opacity-0 group-hover:opacity-100 transition-opacity rounded-md p-1.5 text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
-              title="Delete game"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-          }
-          onDeleted={onDelete}
-        />
+        <div onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+          <DeleteMatchDialog
+            matchId={match.id}
+            matchTitle={match.title}
+            trigger={
+              <button
+                type="button"
+                className="opacity-0 group-hover:opacity-100 transition-opacity rounded-md p-1.5 text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
+                title="Delete game"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            }
+            onDeleted={onDelete}
+          />
+        </div>
       )}
 
       {/* Chevron — navigational affordance */}

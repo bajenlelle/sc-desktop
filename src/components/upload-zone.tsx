@@ -347,8 +347,9 @@ export function UploadZone() {
       }
     }
 
+    const matchId = crypto.randomUUID();
     const storedMatch: StoredMatch = {
-      id: selectedGame.uuid,
+      id: matchId,
       title: matchTitle || `${homeTeam} vs ${awayTeam}`,
       date: matchDate || new Date().toISOString().slice(0, 10),
       homeTeam: { name: homeTeam, color: homeColor },
@@ -370,7 +371,7 @@ export function UploadZone() {
     }
 
     setSubmitStatus("idle");
-    setPendingNavigate(selectedGame.uuid);
+    setPendingNavigate(matchId);
   }
 
   const tipoffLocalHint = tipoffRealWorldTime

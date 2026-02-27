@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import {
   ArrowDown,
   ArrowUp,
@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MultiSelectDropdown } from "@/components/ui/multi-select-dropdown";
+import { MultiSelectDropdown, SingleSelectDropdown } from "@/components/ui/multi-select-dropdown";
 import { VideoPlayer } from "@/components/video-player";
 import { VideoPlaceholder } from "@/components/video-placeholder";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
@@ -282,7 +282,7 @@ function ClipBrowserPanel({
   onAddClips: (clips: PlaylistClip[]) => void;
   onClose: () => void;
 }) {
-  const [filterMatchIds, setFilterMatchIds] = useState<Set<string>>(new Set());
+  const [filterMatchId, setFilterMatchId] = useState<string | null>(matches[0]?.id ?? null);
   const [filterTypes, setFilterTypes] = useState<Set<string>>(new Set());
   const [filterTeams, setFilterTeams] = useState<Set<string>>(new Set());
   const [filterPlayers, setFilterPlayers] = useState<Set<string>>(new Set());
@@ -313,11 +313,9 @@ function ClipBrowserPanel({
   );
 
   const allEvents = useMemo(() => {
-    const source = filterMatchIds.size > 0
-      ? matches.filter((m) => filterMatchIds.has(m.id))
-      : matches;
+    const source = filterMatchId ? matches.filter((m) => m.id === filterMatchId) : matches;
     return source.flatMap((m) => m.events.map((e) => ({ event: e, matchId: m.id, matchTitle: m.title })));
-  }, [matches, filterMatchIds]);
+  }, [matches, filterMatchId]);
 
   const teams = useMemo(() =>
     Array.from(new Set(allEvents.map((x) => x.event.eventTeam?.teamName).filter(Boolean) as string[])),
@@ -341,7 +339,7 @@ function ClipBrowserPanel({
 
   const videoMatchId = activeEventKey
     ? activeEventKey.split(":")[0]
-    : filterMatchIds.size === 1 ? Array.from(filterMatchIds)[0] : null;
+    : filterMatchId ?? null;
   const localVideoUrl = useMemo(() => {
     const match = videoMatchId ? matchLookup.get(videoMatchId) : null;
     if (!match?.videoUrl) return null;
@@ -539,7 +537,7 @@ function ClipBrowserPanel({
   }
 
   const newCount = Array.from(selectedIds).filter((k) => !existingSet.has(k)).length;
-  const isMultiMatch = filterMatchIds.size !== 1;
+  const isMultiMatch = filterMatchId === null;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -566,10 +564,10 @@ function ClipBrowserPanel({
       <div className="flex flex-wrap items-end gap-3 px-4 py-3 border-b border-border shrink-0">
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">Game</label>
-          <MultiSelectDropdown
+          <SingleSelectDropdown
             options={matches.map((m) => ({ value: m.id, label: m.title }))}
-            selected={filterMatchIds}
-            onChange={setFilterMatchIds}
+            value={filterMatchId}
+            onChange={setFilterMatchId}
             placeholder="All games"
           />
         </div>
@@ -636,7 +634,20 @@ function ClipBrowserPanel({
         <ResizablePanel defaultSize={55} minSize={30}>
           <div className="h-full overflow-y-auto">
             {filtered.length === 0 ? (
-              <p className="py-12 text-center text-sm text-muted-foreground">No events match the current filters.</p>
+              <div className="flex flex-col items-center gap-3 py-12 text-center">
+                <p className="text-sm text-muted-foreground">
+                  {matches.length === 0
+                    ? "No games imported yet. Add a game in the Library to get started."
+                    : "No events match the current filters. Try adjusting them."}
+                </p>
+                {matches.length === 0 && (
+                  <Link to="/matches">
+                    <Button size="sm" variant="outline" className="text-xs">
+                      Go to Library
+                    </Button>
+                  </Link>
+                )}
+              </div>
             ) : (
               <table className="w-full text-sm">
                 <thead className="sticky top-0 border-b border-border bg-muted/80 text-xs font-medium text-muted-foreground">
@@ -809,7 +820,6 @@ function AddToDropdown({
 // ---------------------------------------------------------------------------
 
 export function PlaylistsPage() {
-  const navigate = useNavigate();
   const location = useLocation();
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -871,7 +881,9 @@ export function PlaylistsPage() {
 
   // Load playlists + matches on mount; restore selection if returning from match detail
   useEffect(() => {
-    const restore = (location.state as { restore?: { playlistId: string } } | null)?.restore;
+    const state = location.state as { restore?: { playlistId: string }; createNew?: boolean } | null;
+    const restore = state?.restore;
+    const createNew = state?.createNew;
     Promise.all([listPlaylists(), listMatches(), listFolders()])
       .then(([loadedPlaylists, loadedMatches, loadedFolders]) => {
         setPlaylists(loadedPlaylists);
@@ -889,6 +901,14 @@ export function PlaylistsPage() {
               setUncategorizedExpanded(true);
             }
           }
+        } else if (createNew) {
+          const tempId = `temp-${Date.now()}`;
+          const tempPlaylist: Playlist = { id: tempId, name: "New Playlist", clips: [], folderId: undefined };
+          setPendingNewPlaylistId(tempId);
+          setPlaylists((prev) => [tempPlaylist, ...prev]);
+          setUncategorizedExpanded(true);
+          setEditingPlaylistId(tempId);
+          setEditPlaylistName("New Playlist");
         }
       })
       .catch(() => {})
@@ -1657,13 +1677,11 @@ export function PlaylistsPage() {
             <ListVideo className="h-8 w-8 text-muted-foreground/40" />
             <p className="text-sm font-medium text-muted-foreground">No playlists yet</p>
             <p className="text-xs text-muted-foreground/70">
-              Open a game and create playlists from the Clips tab.
+              Give it a name and add clips from your games.
             </p>
-            <Link to="/matches" className="mt-2">
-              <Button size="sm" variant="outline" className="text-xs">
-                Go to Library
-              </Button>
-            </Link>
+            <Button size="sm" variant="outline" className="mt-2 text-xs" onClick={handleNewPlaylist}>
+              New playlist
+            </Button>
           </div>
         ) : search.trim() && filteredPlaylists.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
@@ -2129,21 +2147,6 @@ export function PlaylistsPage() {
                   <Plus className="h-3.5 w-3.5" />
                   Add Clips
                 </Button>
-                {selected.clips.length > 0 && matchLookup.get(primaryMatchId(selected) ?? "") && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-                    onClick={() => {
-                      const mId = primaryMatchId(selected);
-                      if (mId) navigate(`/matches/${mId}`, {
-                        state: { from: "/playlists", matchId: mId, playlistId: selected.id },
-                      });
-                    }}
-                  >
-                    Open in Library
-                  </Button>
-                )}
               </div>
             </div>
 
