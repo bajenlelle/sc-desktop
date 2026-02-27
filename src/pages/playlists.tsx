@@ -576,6 +576,7 @@ function ClipBrowserPanel({
             value={filterMatchId}
             onChange={setFilterMatchId}
             placeholder="All games"
+            required
           />
         </div>
 

@@ -6,11 +6,13 @@ export function SingleSelectDropdown({
   value,
   onChange,
   placeholder = "All",
+  required = false,
 }: {
   options: { value: string; label: string }[];
   value: string | null;
   onChange: (next: string | null) => void;
   placeholder?: string;
+  required?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -42,7 +44,7 @@ export function SingleSelectDropdown({
 
       {open && (
         <div className="absolute left-0 top-full z-20 mt-1 min-w-full rounded-md border border-border bg-popover shadow-md">
-          {value && (
+          {value && !required && (
             <button
               type="button"
               className="flex w-full items-center px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground border-b border-border"
