@@ -833,8 +833,14 @@ export function PlaylistsPage() {
   const [preRoll, setPreRoll] = useState(10);
   const [postRoll, setPostRoll] = useState(3);
   const [folders, setFolders] = useState<PlaylistFolder[]>([]);
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
-  const [uncategorizedExpanded, setUncategorizedExpanded] = useState(true);
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => {
+    const saved = sessionStorage.getItem("expandedFolders");
+    return saved ? new Set(JSON.parse(saved)) : new Set();
+  });
+  const [uncategorizedExpanded, setUncategorizedExpanded] = useState(() => {
+    const saved = sessionStorage.getItem("uncategorizedExpanded");
+    return saved !== null ? saved === "true" : true;
+  });
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editFolderName, setEditFolderName] = useState("");
   const [pendingNewFolderId, setPendingNewFolderId] = useState<string | null>(null);
@@ -882,6 +888,8 @@ export function PlaylistsPage() {
   useEffect(() => { postRollRef.current = postRoll; }, [postRoll]);
   useEffect(() => { activeMatchIdRef.current = activeMatchId; }, [activeMatchId]);
   useEffect(() => { selectedRef.current = selected; }, [selected]);
+  useEffect(() => { sessionStorage.setItem("expandedFolders", JSON.stringify([...expandedFolders])); }, [expandedFolders]);
+  useEffect(() => { sessionStorage.setItem("uncategorizedExpanded", String(uncategorizedExpanded)); }, [uncategorizedExpanded]);
 
   // Load playlists + matches on mount; restore selection if returning from match detail
   useEffect(() => {
@@ -894,7 +902,6 @@ export function PlaylistsPage() {
         setMatches(loadedMatches);
         const sorted = [...loadedFolders].sort((a, b) => a.sortOrder - b.sortOrder);
         setFolders(sorted);
-        setExpandedFolders(new Set());
         if (restore) {
           const pl = loadedPlaylists.find((p) => p.id === restore.playlistId);
           if (pl) {
