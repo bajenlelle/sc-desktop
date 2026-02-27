@@ -1916,52 +1916,52 @@ export function PlaylistsPage() {
               const isExpanded = search.trim() ? true : uncategorizedExpanded;
               const isDragOver = dragOverFolder === "uncategorized";
               return (
-                <div>
+                <div
+                  className={isDragOver ? "bg-primary/10 ring-1 ring-inset ring-primary rounded-sm" : clipExpandFolderId === "uncategorized" ? "bg-primary/10 rounded-sm" : ""}
+                  onDragEnter={(e) => {
+                    if (e.dataTransfer.types.includes("text/clip")) return;
+                    e.preventDefault();
+                    setDragOverFolder("uncategorized");
+                  }}
+                  onDragOver={(e) => {
+                    if (e.dataTransfer.types.includes("text/clip")) {
+                      if (!uncategorizedExpanded && clipDragFolderExpandTimerRef.current === null) {
+                        setClipExpandFolderId("uncategorized");
+                        clipDragFolderExpandTimerRef.current = setTimeout(() => {
+                          clipDragFolderExpandTimerRef.current = null;
+                          setClipExpandFolderId(null);
+                          setUncategorizedExpanded(true);
+                        }, 600);
+                      }
+                      return;
+                    }
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    setDragOverFolder("uncategorized");
+                  }}
+                  onDragLeave={(e) => {
+                    if (e.dataTransfer.types.includes("text/clip")) {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                        setClipExpandFolderId(null);
+                        if (clipDragFolderExpandTimerRef.current) {
+                          clearTimeout(clipDragFolderExpandTimerRef.current);
+                          clipDragFolderExpandTimerRef.current = null;
+                        }
+                      }
+                      return;
+                    }
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverFolder(null);
+                  }}
+                  onDrop={(e) => {
+                    if (e.dataTransfer.types.includes("text/clip")) return;
+                    handleDrop(null, e);
+                  }}
+                >
                   <div
                     className={`group flex items-center gap-1.5 px-3 py-2 cursor-pointer select-none transition-colors ${
-                      isDragOver
-                        ? "bg-primary/10 ring-1 ring-inset ring-primary"
-                        : "hover:bg-muted/50"
+                      isDragOver ? "" : "hover:bg-muted/50"
                     }`}
                     onClick={() => setUncategorizedExpanded((v) => !v)}
-                    onDragEnter={(e) => {
-                      if (e.dataTransfer.types.includes("text/clip")) return;
-                      e.preventDefault();
-                      setDragOverFolder("uncategorized");
-                    }}
-                    onDragOver={(e) => {
-                      if (e.dataTransfer.types.includes("text/clip")) {
-                        if (!uncategorizedExpanded && clipDragFolderExpandTimerRef.current === null) {
-                          setClipExpandFolderId("uncategorized");
-                          clipDragFolderExpandTimerRef.current = setTimeout(() => {
-                            clipDragFolderExpandTimerRef.current = null;
-                            setClipExpandFolderId(null);
-                            setUncategorizedExpanded(true);
-                          }, 600);
-                        }
-                        return;
-                      }
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = "move";
-                      setDragOverFolder("uncategorized");
-                    }}
-                    onDragLeave={(e) => {
-                      if (e.dataTransfer.types.includes("text/clip")) {
-                        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                          setClipExpandFolderId(null);
-                          if (clipDragFolderExpandTimerRef.current) {
-                            clearTimeout(clipDragFolderExpandTimerRef.current);
-                            clipDragFolderExpandTimerRef.current = null;
-                          }
-                        }
-                        return;
-                      }
-                      if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverFolder(null);
-                    }}
-                    onDrop={(e) => {
-                      if (e.dataTransfer.types.includes("text/clip")) return;
-                      handleDrop(null, e);
-                    }}
                   >
                     {isExpanded ? (
                       <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -1987,7 +1987,6 @@ export function PlaylistsPage() {
                                 onDragEnd={() => setDragOverFolder(null)}
                                 onDragOver={(e) => {
                                   if (!e.dataTransfer.types.includes("text/clip")) return;
-                                  if (pl.id === selected?.id) return;
                                   e.preventDefault();
                                   e.dataTransfer.dropEffect = "copy";
                                   setClipDragOverPlaylistId(pl.id);

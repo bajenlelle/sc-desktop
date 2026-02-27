@@ -36,7 +36,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["binaries/ffmpeg"]
+    "externalBin": ["binaries/ffmpeg"],
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "signingIdentity": "Developer ID Application: Leonard Halling (3DJ5YZKR49)",
+      "providerShortName": "3DJ5YZKR49",
+      "entitlements": "./entitlements.plist"
+    }
   },
   "plugins": {
     "shell": { "open": false }
