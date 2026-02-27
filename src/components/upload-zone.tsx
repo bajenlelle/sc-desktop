@@ -1,11 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Film, X, Loader2, Clock, Search, ChevronRight } from "lucide-react";
+import { Film, X, Loader2, Search, ChevronRight } from "lucide-react";
 import { GeneratingSession } from "@/components/generating-session";
 import { SyncPointPicker } from "@/components/sync-point-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { saveMatch } from "@/lib/matches-db";
@@ -13,7 +12,8 @@ import { fetchBoxscore, fetchPlayByPlay, fetchPlayByPlaySportradar, fetchSchedul
 import type { ScheduleGame, League } from "@/lib/basketball-api";
 import type { StoredMatch, SyncPoint, PlayByPlayEvent } from "@/types/match";
 import { open } from "@tauri-apps/plugin-dialog";
-import { registerDropZone, unregisterDropZone } from "@/lib/drag-drop-registry";
+
+const VIDEO_EXTS = ["mp4", "mov", "avi", "mkv", "webm", "m4v"];
 
 interface RosterEntry {
   jerseyNumber: string;
@@ -44,15 +44,6 @@ function StepLabel({
   );
 }
 
-/** Parse "MM:SS" or "M:SS" string to total seconds */
-function parseMMSS(value: string): number | null {
-  const parts = value.trim().split(":");
-  if (parts.length !== 2) return null;
-  const m = parseInt(parts[0], 10);
-  const s = parseInt(parts[1], 10);
-  if (isNaN(m) || isNaN(s) || s >= 60) return null;
-  return m * 60 + s;
-}
 
 function basename(path: string): string {
   return path.replace(/.*[\\/]/, "");
@@ -150,9 +141,7 @@ export function UploadZone() {
   // Video state
   const [videoPath, setVideoPath] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
-  const dropZoneRef = useRef<HTMLDivElement>(null);
 
-  const [syncInput, setSyncInput] = useState("");
   const [syncSeconds, setSyncSeconds] = useState<number | null>(null);
   const [submitStatus, setSubmitStatus] = useState<"idle" | "saving" | "error">("idle");
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -163,25 +152,9 @@ export function UploadZone() {
   // Navigate once both the animation and the save are done
   useEffect(() => {
     if (animationDone && pendingNavigate) {
-      navigate(`/matches/${pendingNavigate}`);
+      navigate("/playlists");
     }
   }, [animationDone, pendingNavigate, navigate]);
-
-  // Register this component as the active drop zone with the singleton registry.
-  useEffect(() => {
-    registerDropZone({
-      onEnter: () => setDragActive(true),
-      onLeave: () => setDragActive(false),
-      onDrop: (path) => setVideoPath(path),
-      isOver: (pos) => {
-        const el = dropZoneRef.current;
-        if (!el) return false;
-        const r = el.getBoundingClientRect();
-        return pos.x >= r.left && pos.x <= r.right && pos.y >= r.top && pos.y <= r.bottom;
-      },
-    });
-    return () => unregisterDropZone();
-  }, []);
 
   useEffect(() => {
     setScheduleStatus("loading");
@@ -330,14 +303,11 @@ export function UploadZone() {
     setPendingNavigate(null);
 
     let syncPoint: SyncPoint | undefined;
-    if (tipoffRealWorldTime) {
-      const secs = videoPath ? syncSeconds : (syncInput ? parseMMSS(syncInput) : null);
-      if (secs !== null) {
-        syncPoint = {
-          syncVideoTime: secs,
-          syncRealWorldTime: tipoffRealWorldTime,
-        };
-      }
+    if (tipoffRealWorldTime && syncSeconds !== null) {
+      syncPoint = {
+        syncVideoTime: syncSeconds,
+        syncRealWorldTime: tipoffRealWorldTime,
+      };
     }
 
     const matchId = crypto.randomUUID();
@@ -382,9 +352,9 @@ export function UploadZone() {
     <div className="mx-auto max-w-2xl space-y-8">
       {/* Page header */}
       <div>
-        <h2 className="text-2xl font-bold text-foreground">New Session</h2>
+        <h2 className="text-2xl font-bold text-foreground">Import Game</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Pick a game and link a video to build your Scoutable Session.
+          Pick a game. Link a video. Start clipping.
         </p>
       </div>
 
@@ -515,9 +485,35 @@ export function UploadZone() {
           <CardContent className="space-y-5 p-6">
             {/* Video file picker */}
             <div className="space-y-2">
-              <Label>Video file</Label>
               <div
-                ref={dropZoneRef}
+                onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node))
+                    setDragActive(false);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragActive(false);
+                  // Try text/uri-list (standard web format)
+                  const uriList = e.dataTransfer.getData("text/uri-list");
+                  if (uriList) {
+                    const uri = uriList.split(/\r?\n/).find(u => u.trim().startsWith("file://"))?.trim();
+                    if (uri) {
+                      const path = decodeURIComponent(new URL(uri).pathname);
+                      const ext = path.split(".").pop()?.toLowerCase() ?? "";
+                      if (VIDEO_EXTS.includes(ext)) { setVideoPath(path); return; }
+                    }
+                  }
+                  // Fallback: WKWebView exposes File.path (non-standard) for Finder drags
+                  const files = Array.from(e.dataTransfer.files);
+                  const videoFile = files.find(f =>
+                    VIDEO_EXTS.includes(f.name.split(".").pop()?.toLowerCase() ?? "")
+                  );
+                  if (videoFile) {
+                    const nativePath = (videoFile as any).path as string | undefined;
+                    if (nativePath) setVideoPath(nativePath);
+                  }
+                }}
                 className={cn(
                   "flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 transition-colors",
                   dragActive
@@ -578,57 +574,16 @@ export function UploadZone() {
             </div>
 
             {/* Sync point */}
-            <div className="border-t border-border pt-4 space-y-3">
-              {videoPath ? (
+            {videoPath && (
+              <div className="border-t border-border pt-4 space-y-3">
                 <SyncPointPicker
                   videoPath={videoPath}
                   tipoffHint={tipoffLocalHint ?? undefined}
                   onConfirm={(secs) => setSyncSeconds(secs)}
                   onSkip={() => {}}
                 />
-              ) : (
-                <>
-                  <p className="text-sm text-muted-foreground">
-                    Enter the video timestamp (MM:SS) when the{" "}
-                    <strong className="text-foreground">tip-off</strong> occurs in
-                    your recording. This one calibration point syncs every event to the correct video
-                    position.
-                  </p>
-                  {tipoffLocalHint && (
-                    <p className="flex items-center gap-1.5 text-xs text-primary">
-                      <Clock className="h-3.5 w-3.5" />
-                      Tip-off real-world time was{" "}
-                      <strong>{tipoffLocalHint}</strong> — find this moment in your video.
-                    </p>
-                  )}
-                  {!tipoffRealWorldTime && (
-                    <p className="text-xs text-muted-foreground">
-                      Select a game to see the tip-off time hint.
-                    </p>
-                  )}
-                  <div className="flex items-center gap-3">
-                    <div className="space-y-1">
-                      <Label htmlFor="sync-time">Video time at tip-off</Label>
-                      <Input
-                        id="sync-time"
-                        placeholder="0:35"
-                        className="w-28 font-mono"
-                        value={syncInput}
-                        onChange={(e) => setSyncInput(e.target.value)}
-                      />
-                    </div>
-                    {syncInput && parseMMSS(syncInput) === null && (
-                      <p className="mt-5 text-xs text-red-500">Use MM:SS format (e.g. 0:35)</p>
-                    )}
-                    {syncInput && parseMMSS(syncInput) !== null && (
-                      <p className="mt-5 text-xs text-emerald-600 dark:text-emerald-400">
-                        Sync point set at {syncInput}
-                      </p>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -649,10 +604,10 @@ export function UploadZone() {
         {submitStatus === "saving" ? (
           <>
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Creating…
+            Importing…
           </>
         ) : (
-          "Create Scoutable Session"
+          "Import Game"
         )}
       </Button>
 

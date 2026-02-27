@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { deleteMatch } from "@/lib/matches-db";
+import { removeClipsByMatchId } from "@/lib/playlists-db";
 
 export function DeleteMatchDialog({
   matchId,
@@ -29,6 +30,7 @@ export function DeleteMatchDialog({
     setDeleteError(null);
     try {
       await deleteMatch(matchId);
+      await removeClipsByMatchId(matchId);
       setOpen(false);
       onDeleted();
     } catch (err) {

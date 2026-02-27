@@ -2065,6 +2065,19 @@ export function PlaylistsPage() {
             })()}
           </div>
         )}
+        {!loading && (
+          <div className="sticky bottom-0 z-10 mt-auto border-t border-border bg-card p-3">
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full gap-1.5 text-xs"
+              onClick={handleNewPlaylist}
+            >
+              <ListPlus className="h-3.5 w-3.5" />
+              New Playlist
+            </Button>
+          </div>
+        )}
       </ResizablePanel>
 
       <ResizableHandle />

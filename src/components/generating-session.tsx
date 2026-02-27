@@ -5,7 +5,7 @@ const STEPS = [
   "Game data loaded",
   "Building event timeline…",
   "Syncing video",
-  "Session ready",
+  "Ready to scout",
 ];
 
 interface GeneratingSessionProps {
@@ -55,7 +55,7 @@ export function GeneratingSession({ isVisible, onComplete }: GeneratingSessionPr
           Scoutable
         </p>
         <h2 className="mb-6 text-center text-xl font-bold text-foreground">
-          {done ? "Your session is ready" : "Creating your Scoutable Session"}
+          {done ? "Game ready" : "Importing game…"}
         </h2>
         <div className="space-y-3">
           {STEPS.map((step, i) => {

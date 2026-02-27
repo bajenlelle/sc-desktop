@@ -96,3 +96,21 @@ export async function deletePlaylist(id: string): Promise<void> {
   const { error } = await supabase.from("playlists").delete().eq("id", id);
   if (error) throw new Error(`Failed to delete playlist: ${error.message}`);
 }
+
+// ---------------------------------------------------------------------------
+// Remove all clips referencing a given match from every playlist
+// ---------------------------------------------------------------------------
+
+export async function removeClipsByMatchId(matchId: string): Promise<void> {
+  const playlists = await listPlaylists();
+  const affected = playlists.filter((p) =>
+    p.clips.some((c) => c.matchId === matchId)
+  );
+  await Promise.all(
+    affected.map((p) =>
+      updatePlaylist(p.id, {
+        clips: p.clips.filter((c) => c.matchId !== matchId),
+      })
+    )
+  );
+}
