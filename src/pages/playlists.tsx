@@ -550,17 +550,22 @@ function ClipBrowserPanel({
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3 shrink-0">
-        <span className="text-sm font-semibold text-foreground">Add Clips to Playlist</span>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-sm font-semibold text-foreground">Add Clips to Playlist</span>
+          <span className="text-xs text-muted-foreground">Or drag any clip to a playlist in the sidebar</span>
+        </div>
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            className="h-8 gap-1.5"
-            onClick={handleAdd}
-            disabled={newCount === 0}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add {newCount > 0 ? newCount : ""} clip{newCount !== 1 ? "s" : ""}
-          </Button>
+          <span title={newCount === 0 ? "Select clips to add them" : undefined}>
+            <Button
+              size="sm"
+              className="h-8 gap-1.5"
+              onClick={handleAdd}
+              disabled={newCount === 0}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add {newCount > 0 ? newCount : ""} clip{newCount !== 1 ? "s" : ""}
+            </Button>
+          </span>
           <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
             <X className="h-4 w-4" />
           </button>
@@ -1535,6 +1540,7 @@ export function PlaylistsPage() {
   // ---------------------------------------------------------------------------
 
   function handleNewPlaylist() {
+    if (browserPanelRef.current?.isCollapsed()) browserPanelRef.current.expand();
     const tempId = `temp-${Date.now()}`;
     const folderId = selected?.folderId;
     const tempPlaylist: Playlist = { id: tempId, name: "New Playlist", clips: [], folderId };
