@@ -580,7 +580,6 @@ export function UploadZone() {
                   videoPath={videoPath}
                   tipoffHint={tipoffLocalHint ?? undefined}
                   onConfirm={(secs) => setSyncSeconds(secs)}
-                  onSkip={() => {}}
                 />
               </div>
             )}
@@ -595,11 +594,27 @@ export function UploadZone() {
         </p>
       )}
 
+      {/* Video required notice */}
+      {selectedGame && !videoPath && (
+        <p className="flex items-center gap-2 rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-400">
+          <span>⚠</span>
+          Attach a video file above to enable import.
+        </p>
+      )}
+
+      {/* Tip-off required notice */}
+      {videoPath && syncSeconds === null && (
+        <p className="flex items-center gap-2 rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-400">
+          <span>⚠</span>
+          Set the tip-off point above to enable import.
+        </p>
+      )}
+
       {/* Submit */}
       <Button
         className="w-full py-6 text-base font-semibold"
         onClick={handleSubmit}
-        disabled={isSubmitting || !selectedGame}
+        disabled={isSubmitting || !selectedGame || !videoPath || syncSeconds === null}
       >
         {submitStatus === "saving" ? (
           <>

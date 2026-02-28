@@ -130,4 +130,28 @@
   h1, h2, h3 {
     font-family: var(--font-display, var(--font-sans));
   }
+
+  /* Scrubber thumb — explicit WebKit override so the thumb is sky-blue */
+  input[type="range"].scrubber {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  input[type="range"].scrubber::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background-color: var(--primary);
+    cursor: pointer;
+    border: 2px solid white;
+  }
+  input[type="range"].scrubber::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background-color: var(--primary);
+    cursor: pointer;
+    border: 2px solid white;
+  }
 }

@@ -185,8 +185,7 @@ export function SyncPointPicker({
           onMouseDown={handleScrubberMouseDown}
           onMouseUp={handleScrubberRelease}
           onTouchEnd={handleScrubberRelease}
-          className="h-1 flex-1 cursor-pointer"
-          style={{ accentColor: "var(--color-primary)" }}
+          className="scrubber h-1 flex-1 cursor-pointer"
         />
         <span className="w-16 shrink-0 text-right font-mono text-xs text-muted-foreground">
           {formatMSSd(duration)}
