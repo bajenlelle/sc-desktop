@@ -467,7 +467,7 @@ export function UploadZone() {
             )}
             {playByPlayEvents.length > 0 && (
               <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                {playByPlayEvents.length} play-by-play events loaded.
+                Game imported — {playByPlayEvents.length} clips ready.
               </p>
             )}
           </CardContent>
