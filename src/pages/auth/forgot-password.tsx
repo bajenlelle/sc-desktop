@@ -27,7 +27,7 @@ export function ForgotPasswordPage() {
 
     const supabase = createClient();
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/reset-password`,
+      redirectTo: "scoutable://auth/callback?type=recovery",
     });
 
     if (error) {

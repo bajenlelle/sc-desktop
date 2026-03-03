@@ -1,4 +1,5 @@
-import { BrowserRouter, Routes, Route, Outlet } from "react-router-dom";
+import { useEffect } from "react";
+import { BrowserRouter, Routes, Route, Outlet, useNavigate } from "react-router-dom";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/lib/auth-context";
 import { ProtectedRoute } from "@/components/protected-route";
@@ -13,6 +14,50 @@ import { LoginPage } from "@/pages/auth/login";
 import { SignupPage } from "@/pages/auth/signup";
 import { ForgotPasswordPage } from "@/pages/auth/forgot-password";
 import { ResetPasswordPage } from "@/pages/auth/reset-password";
+import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
+import { createClient } from "@/lib/supabase/client";
+
+function DeepLinkHandler() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    onOpenUrl((urls) => {
+      const url = urls[0];
+      if (!url) return;
+
+      // Parse hash fragment: scoutable://auth/callback#access_token=...&refresh_token=...&type=...
+      const hashIndex = url.indexOf("#");
+      if (hashIndex === -1) return;
+
+      const params = new URLSearchParams(url.slice(hashIndex + 1));
+      const access_token = params.get("access_token");
+      const refresh_token = params.get("refresh_token");
+      const type = params.get("type");
+
+      if (!access_token || !refresh_token) return;
+
+      const supabase = createClient();
+      supabase.auth.setSession({ access_token, refresh_token }).then(({ error }) => {
+        if (error) return;
+        if (type === "recovery") {
+          navigate("/auth/reset-password");
+        } else {
+          navigate("/");
+        }
+      });
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, [navigate]);
+
+  return null;
+}
 
 function AuthLayout() {
   return (
@@ -27,6 +72,7 @@ export default function App() {
     <AuthProvider>
       <ThemeProvider>
         <BrowserRouter>
+          <DeepLinkHandler />
           <Routes>
             <Route element={<AuthLayout />}>
               <Route path="/auth/login" element={<LoginPage />} />

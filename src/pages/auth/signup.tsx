@@ -33,7 +33,11 @@ export function SignupPage() {
 
     setLoading(true);
     const supabase = createClient();
-    const { error } = await supabase.auth.signUp({ email, password });
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: "scoutable://auth/callback" },
+    });
 
     if (error) {
       setError(error.message);
