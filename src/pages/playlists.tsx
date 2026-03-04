@@ -5,6 +5,7 @@ import {
   ArrowUp,
   ChevronDown,
   ChevronRight,
+  Columns2,
   FileDown,
   FolderPlus,
   GripVertical,
@@ -15,6 +16,7 @@ import {
   Pencil,
   Play,
   Plus,
+  Rows2,
   Search,
   SkipForward,
   Square,
@@ -33,6 +35,7 @@ import { listMatches, listFolders, createFolder, updateFolder, deleteFolder } fr
 import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderClips, updateClip } from "@/lib/playlists-db";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { exportPlaylist, type ExportItem } from "@/lib/export";
 import type { Playlist, PlaylistFolder, PlaylistClip, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
@@ -552,7 +555,9 @@ function ClipBrowserPanel({
       <div className="flex items-center justify-between border-b border-border px-4 py-3 shrink-0">
         <div className="flex flex-col gap-0.5">
           <span className="text-sm font-semibold text-foreground">Add Clips to Playlist</span>
-          <span className="text-xs text-muted-foreground">Or drag any clip to a playlist in the sidebar</span>
+          <span className="text-xs text-muted-foreground">
+            Adding to: <span className="font-medium text-foreground">{playlist.name}</span>
+          </span>
         </div>
         <div className="flex items-center gap-2">
           <span title={newCount === 0 ? "Select clips to add them" : undefined}>
@@ -889,6 +894,12 @@ export function PlaylistsPage() {
   const queueRef = useRef<QueueItem[]>([]);
   const queueIdxRef = useRef<number>(0);
   const [clipNote, setClipNote] = useState("");
+  const [theaterMode, setTheaterMode] = useState(
+    () => sessionStorage.getItem("playlists-theater-mode") === "true"
+  );
+  useEffect(() => {
+    sessionStorage.setItem("playlists-theater-mode", String(theaterMode));
+  }, [theaterMode]);
   const clipNoteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clipEndRef = useRef<number | undefined>(undefined);
   const pendingSeekRef = useRef<{ seekTo: number; clipEnd: number } | null>(null);
@@ -1422,6 +1433,7 @@ export function PlaylistsPage() {
   function selectPlaylist(pl: Playlist) {
     if (selected?.id === pl.id) return;
     setSelected(pl);
+    setShowClipBrowser(false);
   }
 
   // ---------------------------------------------------------------------------
@@ -2221,15 +2233,8 @@ export function PlaylistsPage() {
               New playlist
             </Button>
           </div>
-        ) : showClipBrowser ? (
-          <ClipBrowserPanel
-            matches={matches}
-            matchLookup={matchLookup}
-            playlist={selected}
-            onAddClips={handleAddClips}
-            onClose={() => setShowClipBrowser(false)}
-          />
         ) : (
+          <>
           <div className="flex flex-col gap-4 p-5 h-full">
             {/* Playlist header */}
             <div className="flex items-center justify-between flex-none">
@@ -2278,22 +2283,82 @@ export function PlaylistsPage() {
                   </>
                 )}
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div
+                className="flex items-center rounded-md border border-border p-0.5 gap-0.5 flex-none"
+                role="group"
+                aria-label="Layout view"
+              >
                 <Button
-                  size="sm"
-                  className="gap-1.5 text-xs"
-                  onClick={() => setShowClipBrowser(true)}
+                  variant={!theaterMode ? "secondary" : "ghost"}
+                  size="icon-sm"
+                  onClick={() => setTheaterMode(false)}
+                  title="Split view"
+                  aria-pressed={!theaterMode}
                 >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add Clips
+                  <Columns2 className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant={theaterMode ? "secondary" : "ghost"}
+                  size="icon-sm"
+                  onClick={() => setTheaterMode(true)}
+                  title="Theater mode"
+                  aria-pressed={theaterMode}
+                >
+                  <Rows2 className="h-3.5 w-3.5" />
                 </Button>
               </div>
             </div>
 
-            {/* Side-by-side: controls + table on left, video on right */}
-            <ResizablePanelGroup direction="horizontal" autoSaveId="playlists-split" className="min-h-0 flex-1">
-              <ResizablePanel defaultSize={45} minSize={20}>
-              <div className="flex h-full flex-col gap-3 overflow-hidden pr-3">
+            {/* Layout: horizontal split (default) or vertical theater mode */}
+            {theaterMode ? (
+              <ResizablePanelGroup key="theater" direction="vertical" autoSaveId="playlists-theater" className="min-h-0 flex-1">
+                <ResizablePanel defaultSize={70} minSize={25}>
+                <div className="flex h-full flex-col gap-2 pb-3 min-w-0">
+                {localVideoUrl ? (
+                  <>
+                    <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
+                    <VideoClipControls
+                      videoRef={videoRef}
+                      canPrev={canPrev}
+                      canNext={canNext}
+                      isQueueActive={isQueueActive}
+                      onPrev={handlePrev}
+                      onNext={handleNext}
+                      onReplay={handleReplay}
+                      onStop={handleStop}
+                      onPlayAll={() => startQueue([...sortedEvents])}
+                      activeClipPreOffset={activeClipOffsets.pre}
+                      activeClipPostOffset={activeClipOffsets.post}
+                      onPreOffsetChange={(delta) => adjustActiveClip(delta, 0)}
+                      onPostOffsetChange={(delta) => adjustActiveClip(0, delta)}
+                    />
+                    {activeEventId !== null && (
+                      <textarea
+                        className="w-full resize-none rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary transition-colors"
+                        rows={3}
+                        placeholder="Add a note for this clip…"
+                        value={clipNote}
+                        onChange={(e) => handleNoteChange(e.target.value)}
+                      />
+                    )}
+                  </>
+                ) : (
+                  <div className="space-y-2">
+                    <VideoPlaceholder />
+                    {noVideo && selected.clips.length > 0 && (
+                      <p className="text-center text-xs text-muted-foreground">
+                        No video linked. Add one in the game.
+                      </p>
+                    )}
+                  </div>
+                )}
+                </div>
+                </ResizablePanel>
+
+                <ResizableHandle />
+
+                <ResizablePanel defaultSize={30} minSize={20}>
+                <div className="flex h-full flex-col gap-3 overflow-hidden pt-3">
                 <div className="flex shrink-0 flex-col gap-3">
                 {noSync && selected.clips.length > 0 && (
                   <div className="rounded-md bg-amber-50 dark:bg-amber-950 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300">
@@ -2323,6 +2388,15 @@ export function PlaylistsPage() {
                     />
                   </div>
                   <div className="ml-auto flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      className="h-8 gap-1.5"
+                      onClick={() => setShowClipBrowser(true)}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Add Clips
+                    </Button>
+                    <div className="h-4 w-px bg-border" />
                     {isPlaying ? (
                       <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={handleStop}>
                         <Square className="h-3.5 w-3.5" />
@@ -2498,13 +2572,233 @@ export function PlaylistsPage() {
                   </div>
                 )}
                 </div>
-              </div>
-              </ResizablePanel>
+                </div>
+                </ResizablePanel>
+              </ResizablePanelGroup>
+            ) : (
+              <ResizablePanelGroup key="split" direction="horizontal" autoSaveId="playlists-split" className="min-h-0 flex-1">
+                <ResizablePanel defaultSize={45} minSize={20}>
+                <div className="flex h-full flex-col gap-3 overflow-hidden pr-3">
+                <div className="flex shrink-0 flex-col gap-3">
+                {noSync && selected.clips.length > 0 && (
+                  <div className="rounded-md bg-amber-50 dark:bg-amber-950 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300">
+                    No sync point — set one in the game to enable playback controls.
+                  </div>
+                )}
 
-              <ResizableHandle />
+                <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-2.5">
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-xs text-muted-foreground">Pre</label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={30}
+                      className="h-7 w-16 text-xs"
+                      value={preRoll}
+                      onChange={(e) => setPreRoll(Number(e.target.value))}
+                    />
+                    <label className="text-xs text-muted-foreground">Post</label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={60}
+                      className="h-7 w-16 text-xs"
+                      value={postRoll}
+                      onChange={(e) => setPostRoll(Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="ml-auto flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      className="h-8 gap-1.5"
+                      onClick={() => setShowClipBrowser(true)}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Add Clips
+                    </Button>
+                    <div className="h-4 w-px bg-border" />
+                    {isPlaying ? (
+                      <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={handleStop}>
+                        <Square className="h-3.5 w-3.5" />
+                        Stop
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 gap-1.5"
+                        onClick={() => startQueue([...sortedEvents])}
+                        disabled={sortedEvents.length === 0 || noSync}
+                      >
+                        <SkipForward className="h-3.5 w-3.5" />
+                        Play Playlist
+                      </Button>
+                    )}
+                    {isExporting ? (
+                      <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Exporting…
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 gap-1.5"
+                        onClick={handleExport}
+                        disabled={!!exportDisabledReason}
+                        title={exportDisabledReason ?? "Export playlist as MP4"}
+                      >
+                        <FileDown className="h-3.5 w-3.5" />
+                        Export
+                      </Button>
+                    )}
+                  </div>
+                  {exportError && (
+                    <p className="w-full text-xs text-red-500 mt-1">{exportError}</p>
+                  )}
+                </div>
+                </div>
 
-              <ResizablePanel defaultSize={55} minSize={20}>
-              <div className="flex h-full flex-col gap-2 pl-3 min-w-0">
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                {sortedEvents.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+                    <p className="text-sm text-muted-foreground">
+                      This playlist has no clips yet.
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5"
+                      onClick={() => setShowClipBrowser(true)}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Add Clips
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                  {selectedClipIds.size > 0 && (
+                    <div className="flex items-center gap-3 rounded-lg bg-primary/10 px-4 py-2.5">
+                      <span className="text-sm font-medium text-primary">
+                        {selectedClipIds.size} clip{selectedClipIds.size !== 1 ? "s" : ""} selected
+                      </span>
+                      <div className="ml-auto flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          className="h-7 gap-1 bg-red-600 px-2 text-xs text-white hover:bg-red-700"
+                          onClick={handleRemoveSelected}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Remove from playlist
+                        </Button>
+                        {playlists.filter((p) => p.id !== selected?.id).length > 0 && (
+                          <div ref={addToDropdownRef} className="relative">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 gap-1 px-2 text-xs"
+                              onClick={() => { setShowAddToDropdown((v) => !v); setAddToSearch(""); }}
+                            >
+                              Add to another playlist
+                              <ChevronDown className="h-3 w-3" />
+                            </Button>
+                            {showAddToDropdown && (
+                              <AddToDropdown
+                                playlists={playlists}
+                                activePlaylistId={selected?.id ?? null}
+                                addToSearch={addToSearch}
+                                setAddToSearch={setAddToSearch}
+                                onAddToPlaylist={handleAddSelectedToPlaylist}
+                              />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  <div className="overflow-hidden rounded-lg border border-border">
+                    <table className="w-full text-sm">
+                      <thead className="border-b border-border bg-muted/80 text-xs font-medium text-muted-foreground">
+                        <tr>
+                          <th className="w-8" />
+                          <th className="w-8 px-3 py-2.5">
+                            <input
+                              type="checkbox"
+                              checked={allSelected}
+                              onChange={toggleSelectAll}
+                              className="h-3.5 w-3.5 rounded border-border accent-primary"
+                            />
+                          </th>
+                          <th className="px-4 py-2.5 text-left">Period</th>
+                          <th
+                            className="px-4 py-2.5 text-left cursor-pointer select-none hover:text-foreground"
+                            onClick={() => setClockSort((s) => s === "none" ? "asc" : s === "asc" ? "desc" : "none")}
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              Clock
+                              {clockSort === "asc" && <ArrowUp className="h-3 w-3" />}
+                              {clockSort === "desc" && <ArrowDown className="h-3 w-3" />}
+                            </span>
+                          </th>
+                          {isMultiMatch && <th className="px-4 py-2.5 text-left">Game</th>}
+                          <th className="px-4 py-2.5 text-left">Event</th>
+                          <th className="px-4 py-2.5 text-left">Player</th>
+                          <th className="px-4 py-2.5 text-left">Team</th>
+                          <th className="px-4 py-2.5 text-left"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border bg-card">
+                        {sortedEvents.map((item, index) => {
+                          const key = `${item.matchId}:${item.event.eventId}`;
+                          const clip = selected?.clips.find(
+                            (c) => c.matchId === item.matchId && c.eventId === item.event.eventId
+                          );
+                          return (
+                            <DraggableRow
+                              key={key}
+                              index={index}
+                              item={item}
+                              isActive={item.event.eventId === activeEventId}
+                              isMultiMatch={isMultiMatch}
+                              matchTitle={matchLookup.get(item.matchId)?.title}
+                              preOffset={clip?.preRollOffset ?? 0}
+                              postOffset={clip?.postRollOffset ?? 0}
+                              note={clip?.note}
+                              isSelected={selectedClipIds.has(key)}
+                              onSelect={(e) => toggleSelectClip(key, e)}
+                              isDragTarget={clipDragOverIndex === index}
+                              dragTargetPosition={clipDragOverPosition}
+                              onClick={() => handleRowClick(item)}
+                              onDragStart={(e) => handleClipDragStart(e, key)}
+                              onDragOver={(e, i) => handleClipDragOver(e, i)}
+                              onDragLeave={() => setClipDragOverIndex(null)}
+                              onDrop={(e, i) => handleClipDrop(e, i)}
+                              onDragEnd={() => {
+                                setClipDragKey(null);
+                                setClipDragOverIndex(null);
+                                setClipDragOverPlaylistId(null);
+                                setClipExpandFolderId(null);
+                                if (clipDragFolderExpandTimerRef.current) {
+                                  clearTimeout(clipDragFolderExpandTimerRef.current);
+                                  clipDragFolderExpandTimerRef.current = null;
+                                }
+                              }}
+                            />
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  </div>
+                )}
+                </div>
+                </div>
+                </ResizablePanel>
+
+                <ResizableHandle />
+
+                <ResizablePanel defaultSize={55} minSize={20}>
+                <div className="flex h-full flex-col gap-2 pl-3 min-w-0">
                 {localVideoUrl ? (
                   <>
                     <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
@@ -2543,10 +2837,31 @@ export function PlaylistsPage() {
                     )}
                   </div>
                 )}
-              </div>
-              </ResizablePanel>
-            </ResizablePanelGroup>
+                </div>
+                </ResizablePanel>
+              </ResizablePanelGroup>
+            )}
           </div>
+          <Dialog open={showClipBrowser} onOpenChange={setShowClipBrowser}>
+            <DialogContent
+              className="w-[calc(100vw-4rem)] max-w-[calc(100vw-4rem)] sm:max-w-[calc(100vw-4rem)] h-[85vh] p-0 gap-0 bg-card"
+              showCloseButton={false}
+              onInteractOutside={(e) => {
+                if (document.querySelector('[data-resize-handle-state="drag"]')) {
+                  e.preventDefault();
+                }
+              }}
+            >
+              <ClipBrowserPanel
+                matches={matches}
+                matchLookup={matchLookup}
+                playlist={selected}
+                onAddClips={handleAddClips}
+                onClose={() => setShowClipBrowser(false)}
+              />
+            </DialogContent>
+          </Dialog>
+          </>
         )}
       </ResizablePanel>
     </ResizablePanelGroup>
