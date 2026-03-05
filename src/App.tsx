@@ -79,7 +79,7 @@ function AuthLayout() {
 }
 
 export default function App() {
-  useEffect(() => { trackEvent('app_started', { app_version: '0.1.0' }) }, [])
+  useEffect(() => { trackEvent('app_started', { app_version: '0.1.2' }) }, [])
 
   return (
     <AuthProvider>
