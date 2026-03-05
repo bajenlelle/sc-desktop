@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { trackEvent } from "@/lib/analytics";
 import { useNavigate } from "react-router-dom";
 import { Film, X, Loader2, Search, ChevronRight } from "lucide-react";
 import { GeneratingSession } from "@/components/generating-session";
@@ -326,6 +327,13 @@ export function UploadZone() {
 
     try {
       await saveMatch(storedMatch);
+      trackEvent('game_synced', {
+        game_id: matchId,
+        has_video: !!videoPath,
+        has_sync_point: !!syncPoint,
+        has_play_by_play: playByPlayEvents.length > 0,
+        event_count: playByPlayEvents.length,
+      })
     } catch (err) {
       setSubmitStatus("error");
       setGeneratingVisible(false);

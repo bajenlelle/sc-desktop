@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { trackEvent } from "@/lib/analytics";
 import { Link, useLocation } from "react-router-dom";
 import {
   ArrowDown,
@@ -1380,6 +1381,7 @@ export function PlaylistsPage() {
       ?? { matchId, eventId };
     const newClips = [...target.clips, sourceClip];
     await addClips(targetPlaylistId, [sourceClip], target.clips.length);
+    trackEvent('clip_added_to_playlist', { playlist_id: targetPlaylistId, match_id: matchId })
     setPlaylists((prev) => prev.map((p) => p.id === targetPlaylistId ? { ...p, clips: newClips } : p));
     if (selected?.id === targetPlaylistId) setSelected((prev) => prev ? { ...prev, clips: newClips } : prev);
   }
@@ -1391,6 +1393,7 @@ export function PlaylistsPage() {
   async function handleExport() {
     setIsExporting(true);
     setExportError(null);
+    let clipCount = 0;
     try {
       const items = sortedEvents
         .map((item): ExportItem | null => {
@@ -1409,9 +1412,12 @@ export function PlaylistsPage() {
           return exportItem;
         })
         .filter((x): x is ExportItem => x !== null);
+      clipCount = items.length;
       await exportPlaylist(items, preRoll, postRoll, selected!.name);
+      trackEvent('video_exported', { playlist_id: selected!.id, clip_count: clipCount, status: 'success' });
     } catch (e) {
       setExportError(e instanceof Error ? e.message : String(e));
+      trackEvent('video_exported', { playlist_id: selected!.id, clip_count: clipCount, status: 'error' });
     } finally {
       setIsExporting(false);
     }
@@ -1524,6 +1530,7 @@ export function PlaylistsPage() {
       const folderId = playlists.find((p) => p.id === playlistId)?.folderId;
       try {
         const created = await createPlaylist(name, folderId);
+        trackEvent('playlist_created', { playlist_id: created.id, in_folder: !!folderId })
         setPlaylists((prev) => prev.map((p) => (p.id === playlistId ? created : p)));
         selectPlaylist(created);
       } catch {
@@ -1578,6 +1585,9 @@ export function PlaylistsPage() {
     setSelected(updatedPlaylist);
     setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updatedPlaylist : p));
     await addClips(selected.id, newClips, selected.clips.length);
+    newClips.forEach((clip) => {
+      trackEvent('clip_added_to_playlist', { playlist_id: selected.id, match_id: clip.matchId })
+    })
   }
 
   // ---------------------------------------------------------------------------
@@ -1635,6 +1645,9 @@ export function PlaylistsPage() {
       );
     const newClips = [...target.clips, ...toAdd];
     await addClips(target.id, toAdd, target.clips.length);
+    toAdd.forEach((clip) => {
+      trackEvent('clip_added_to_playlist', { playlist_id: target.id, match_id: clip.matchId })
+    })
     setPlaylists((prev) => prev.map((p) => p.id === target.id ? { ...p, clips: newClips } : p));
     setSelectedClipIds(new Set());
     setShowAddToDropdown(false);

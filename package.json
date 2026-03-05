@@ -25,6 +25,7 @@
     "framer-motion": "^12.34.3",
     "lucide-react": "^0.575.0",
     "next-themes": "^0.4.6",
+    "posthog-js": "^1.358.1",
     "radix-ui": "^1.4.3",
     "react": "^19.1.0",
     "react-day-picker": "^9.14.0",

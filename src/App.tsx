@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { BrowserRouter, Routes, Route, Outlet, useNavigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Outlet, useNavigate, useLocation } from "react-router-dom";
+import { initAnalytics, trackEvent } from "@/lib/analytics";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/lib/auth-context";
 import { ProtectedRoute } from "@/components/protected-route";
@@ -16,6 +17,16 @@ import { ForgotPasswordPage } from "@/pages/auth/forgot-password";
 import { ResetPasswordPage } from "@/pages/auth/reset-password";
 import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { createClient } from "@/lib/supabase/client";
+
+initAnalytics()
+
+function PageTracker() {
+  const location = useLocation()
+  useEffect(() => {
+    trackEvent('page_viewed', { path: location.pathname })
+  }, [location.pathname])
+  return null
+}
 
 function DeepLinkHandler() {
   const navigate = useNavigate();
@@ -68,11 +79,14 @@ function AuthLayout() {
 }
 
 export default function App() {
+  useEffect(() => { trackEvent('app_started', { app_version: '0.1.0' }) }, [])
+
   return (
     <AuthProvider>
       <ThemeProvider>
         <BrowserRouter>
           <DeepLinkHandler />
+          <PageTracker />
           <Routes>
             <Route element={<AuthLayout />}>
               <Route path="/auth/login" element={<LoginPage />} />
