@@ -386,6 +386,7 @@ function ClipBrowserPanel({
       if (video.currentTime < end) return;
 
       clipEndRef.current = undefined;
+      video.pause();
       const nextIdx = queueIdxRef.current + 1;
       const queue = queueRef.current;
 
@@ -1199,6 +1200,7 @@ export function PlaylistsPage() {
       if (video.currentTime < end) return;
 
       clipEndRef.current = undefined;
+      video.pause();
       const nextIdx = queueIdxRef.current + 1;
       const queue = queueRef.current;
 
@@ -1212,7 +1214,7 @@ export function PlaylistsPage() {
           if (videoTime !== null) {
             const { pre: nextPre, post: nextPost } = getClipOffsets(nextItem.matchId, nextItem.event.eventId);
             const seekTo = Math.max(0, videoTime - preRollRef.current - nextPre);
-            const clipEnd = videoTime + postRollRef.current + nextPost;
+            const clipEnd = Math.max(videoTime, videoTime + postRollRef.current + nextPost);
             if (nextItem.matchId !== activeMatchIdRef.current) {
               pendingSeekRef.current = { seekTo, clipEnd };
               setActiveMatchId(nextItem.matchId);

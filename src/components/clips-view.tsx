@@ -561,6 +561,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
       if (video.currentTime < end) return;
 
       clipEndRef.current = undefined;
+      video.pause();
       const nextIdx = queueIdxRef.current + 1;
       const queue = queueRef.current;
 
@@ -576,7 +577,10 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
               (c) => c.matchId === matchId && c.eventId === nextEvent.eventId
             );
             const seekTo = Math.max(0, videoTime - preRollRef.current - (nextClip?.preRollOffset ?? 0));
-            clipEndRef.current = videoTime + postRollRef.current + (nextClip?.postRollOffset ?? 0);
+            clipEndRef.current = Math.max(
+              videoTime,
+              videoTime + postRollRef.current + (nextClip?.postRollOffset ?? 0),
+            );
             video.pause();
             video.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
             video.currentTime = seekTo;
