@@ -17,6 +17,7 @@ import { ForgotPasswordPage } from "@/pages/auth/forgot-password";
 import { ResetPasswordPage } from "@/pages/auth/reset-password";
 import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { createClient } from "@/lib/supabase/client";
+import { UpdateChecker } from "@/components/UpdateChecker";
 
 initAnalytics()
 
@@ -84,6 +85,7 @@ export default function App() {
   return (
     <AuthProvider>
       <ThemeProvider>
+        <UpdateChecker />
         <BrowserRouter>
           <DeepLinkHandler />
           <PageTracker />
