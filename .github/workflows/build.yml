@@ -37,6 +37,9 @@ jobs:
           unzip -o ffmpeg_x64.zip ffmpeg
           mv ffmpeg src-tauri/binaries/ffmpeg-x86_64-apple-darwin
           rm ffmpeg_x64.zip
+          lipo -create -output src-tauri/binaries/ffmpeg-universal-apple-darwin \
+            src-tauri/binaries/ffmpeg-aarch64-apple-darwin \
+            src-tauri/binaries/ffmpeg-x86_64-apple-darwin
 
       - name: Download Windows FFmpeg
         if: matrix.platform == 'windows-latest'
