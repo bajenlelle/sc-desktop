@@ -10,7 +10,7 @@ jobs:
       matrix:
         include:
           - platform: macos-14
-            args: --target aarch64-apple-darwin
+            args: --target universal-apple-darwin
           - platform: windows-latest
             args: --target x86_64-pc-windows-msvc
 
@@ -25,7 +25,18 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-14' && 'aarch64-apple-darwin' || 'x86_64-pc-windows-msvc' }}
+          targets: ${{ matrix.platform == 'macos-14' && 'aarch64-apple-darwin,x86_64-apple-darwin' || 'x86_64-pc-windows-msvc' }}
+
+      - name: Download macOS FFmpeg binaries
+        if: matrix.platform == 'macos-14'
+        run: |
+          mkdir -p src-tauri/binaries
+          brew install ffmpeg
+          cp "$(brew --prefix)/bin/ffmpeg" src-tauri/binaries/ffmpeg-aarch64-apple-darwin
+          curl -L "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip" -o ffmpeg_x64.zip
+          unzip -o ffmpeg_x64.zip ffmpeg
+          mv ffmpeg src-tauri/binaries/ffmpeg-x86_64-apple-darwin
+          rm ffmpeg_x64.zip
 
       - name: Download Windows FFmpeg
         if: matrix.platform == 'windows-latest'
@@ -33,6 +44,7 @@ jobs:
         run: |
           Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -OutFile ffmpeg.zip
           Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_tmp
+          New-Item -ItemType Directory -Force -Path src-tauri/binaries | Out-Null
           Copy-Item (Get-ChildItem ffmpeg_tmp -Recurse -Filter ffmpeg.exe | Select-Object -First 1).FullName src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe
 
       - name: Import Apple certificate
