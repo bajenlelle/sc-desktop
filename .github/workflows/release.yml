@@ -79,10 +79,50 @@ jobs:
           VITE_POSTHOG_KEY: ${{ secrets.VITE_POSTHOG_KEY }}
           VITE_POSTHOG_HOST: ${{ secrets.VITE_POSTHOG_HOST }}
         with:
-          tagName: v__VERSION__
-          releaseName: Scoutable v__VERSION__
-          releaseBody: |
-            See the assets below to download for macOS or Windows.
-          releaseDraft: false
-          prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: scoutable-${{ matrix.platform }}
+          path: |
+            src-tauri/target/**/bundle/**/*.dmg
+            src-tauri/target/**/bundle/**/*.msi
+            src-tauri/target/**/bundle/**/*.exe
+            src-tauri/target/**/bundle/**/*.tar.gz
+            src-tauri/target/**/bundle/**/*.tar.gz.sig
+            src-tauri/target/**/bundle/**/*.zip
+            src-tauri/target/**/bundle/**/*.zip.sig
+          if-no-files-found: warn
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: echo "version=$(node -p "require('./src-tauri/tauri.conf.json').version")" >> $GITHUB_OUTPUT
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create release in scoutable-releases
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_PAT }}
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          gh release create "v${VERSION}" \
+            --repo bajenlelle/scoutable-releases \
+            --title "Scoutable v${VERSION}" \
+            --notes "See the assets below to download for macOS or Windows." \
+            artifacts/**/*.dmg \
+            artifacts/**/*.msi \
+            artifacts/**/*.exe \
+            artifacts/**/*.tar.gz \
+            artifacts/**/*.tar.gz.sig \
+            artifacts/**/*.zip \
+            artifacts/**/*.zip.sig
