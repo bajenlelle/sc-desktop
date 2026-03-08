@@ -117,6 +117,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASES_PAT }}
         run: |
+          shopt -s globstar nullglob
           VERSION=${{ steps.version.outputs.version }}
           gh release create "v${VERSION}" \
             --repo bajenlelle/scoutable-releases \
