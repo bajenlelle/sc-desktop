@@ -1,0 +1,79 @@
+name: build
+on:
+  push:
+    branches: [staging]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-14
+            args: --target aarch64-apple-darwin
+          - platform: windows-latest
+            args: --target x86_64-pc-windows-msvc
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-14' && 'aarch64-apple-darwin' || 'x86_64-pc-windows-msvc' }}
+
+      - name: Download Windows FFmpeg
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_tmp
+          Copy-Item (Get-ChildItem ffmpeg_tmp -Recurse -Filter ffmpeg.exe | Select-Object -First 1).FullName src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe
+
+      - name: Import Apple certificate
+        if: matrix.platform == 'macos-14'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          CERT_PATH=$RUNNER_TEMP/cert.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain
+          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o $CERT_PATH
+          security create-keychain -p "" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "" $KEYCHAIN_PATH
+          security import $CERT_PATH -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" $KEYCHAIN_PATH
+
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_ID: ${{ matrix.platform == 'macos-14' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ matrix.platform == 'macos-14' && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ matrix.platform == 'macos-14' && secrets.APPLE_TEAM_ID || '' }}
+          APPLE_SIGNING_IDENTITY: "Developer ID Application: Leonard Halling (3DJ5YZKR49)"
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_POSTHOG_KEY: ${{ secrets.VITE_POSTHOG_KEY }}
+          VITE_POSTHOG_HOST: ${{ secrets.VITE_POSTHOG_HOST }}
+        with:
+          args: ${{ matrix.args }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scoutable-${{ matrix.platform }}
+          path: |
+            src-tauri/target/**/bundle/**/*.dmg
+            src-tauri/target/**/bundle/**/*.msi
+            src-tauri/target/**/bundle/**/*.exe
+          if-no-files-found: warn
