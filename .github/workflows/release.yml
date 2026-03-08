@@ -147,6 +147,8 @@ jobs:
           VERSION=${{ needs.publish.outputs.version }}
           sed -i -E "s|releases/download/v[0-9.]+/Scoutable_[0-9.]+_universal\.dmg|releases/download/v${VERSION}/Scoutable_${VERSION}_universal.dmg|g" \
             components/Hero.tsx components/Download.tsx
+          sed -i -E "s|releases/download/v[0-9.]+/Scoutable_[0-9.]+_x64-setup\.exe|releases/download/v${VERSION}/Scoutable_${VERSION}_x64-setup.exe|g" \
+            components/Hero.tsx components/Download.tsx
 
       - name: Commit and push
         run: |
