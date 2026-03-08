@@ -1,13 +1,14 @@
 {
   "name": "sc-desktop",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "version": "node scripts/bump-tauri-version.js && git add src-tauri/tauri.conf.json"
   },
   "dependencies": {
     "@fontsource-variable/dm-sans": "^5.2.8",
