@@ -88,14 +88,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: scoutable-${{ matrix.platform }}
-          path: |
-            src-tauri/target/**/bundle/**/*.dmg
-            src-tauri/target/**/bundle/**/*.msi
-            src-tauri/target/**/bundle/**/*.exe
-            src-tauri/target/**/bundle/**/*.tar.gz
-            src-tauri/target/**/bundle/**/*.tar.gz.sig
-            src-tauri/target/**/bundle/**/*.zip
-            src-tauri/target/**/bundle/**/*.zip.sig
+          path: src-tauri/target/**/bundle/
           if-no-files-found: warn
 
   publish:
