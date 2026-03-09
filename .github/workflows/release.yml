@@ -84,6 +84,28 @@ jobs:
         with:
           args: ${{ matrix.args }}
 
+      - name: Sign macOS updater bundle
+        if: matrix.platform == 'macos-14'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          TAR=$(find src-tauri/target/universal-apple-darwin/release/bundle/macos -name "*.app.tar.gz" | head -1)
+          npx tauri signer sign -k "$TAURI_SIGNING_PRIVATE_KEY" -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$TAR"
+
+      - name: Create and sign Windows updater bundle
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          $exeDir = "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis"
+          $exe = Get-ChildItem $exeDir -Filter "*.exe" | Select-Object -First 1
+          $zipPath = Join-Path $exeDir ($exe.BaseName + ".nsis.zip")
+          Compress-Archive -Path $exe.FullName -DestinationPath $zipPath
+          npx tauri signer sign -k "$env:TAURI_SIGNING_PRIVATE_KEY" -p "$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD" $zipPath
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
