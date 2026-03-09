@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 export type AnalyticsEvent =
   | 'app_started'
   | 'signed_in'
+  | 'signed_up'
   | 'signed_out'
   | 'game_synced'
   | 'playlist_created'
