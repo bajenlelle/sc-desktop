@@ -1397,7 +1397,13 @@ export function PlaylistsPage() {
     setExportError(null);
     let clipCount = 0;
     try {
-      const items = sortedEvents
+      const eventsToExport = selectedClipIds.size > 0
+        ? sortedEvents.filter(item =>
+            selectedClipIds.has(`${item.matchId}:${item.event.eventId}`)
+          )
+        : sortedEvents;
+
+      const items = eventsToExport
         .map((item): ExportItem | null => {
           const m = matchLookup.get(item.matchId);
           if (!m?.videoUrl || !m.syncPoint) return null;
@@ -1416,7 +1422,7 @@ export function PlaylistsPage() {
         .filter((x): x is ExportItem => x !== null);
       clipCount = items.length;
       await exportPlaylist(items, preRoll, postRoll, selected!.name);
-      trackEvent('video_exported', { playlist_id: selected!.id, clip_count: clipCount, status: 'success' });
+      trackEvent('video_exported', { playlist_id: selected!.id, clip_count: clipCount, status: 'success', selection_only: selectedClipIds.size > 0 });
     } catch (e) {
       setExportError(e instanceof Error ? e.message : String(e));
       trackEvent('video_exported', { playlist_id: selected!.id, clip_count: clipCount, status: 'error' });
@@ -2444,7 +2450,9 @@ export function PlaylistsPage() {
                         title={exportDisabledReason ?? "Export playlist as MP4"}
                       >
                         <FileDown className="h-3.5 w-3.5" />
-                        Export
+                        {selectedClipIds.size > 0
+                          ? `Export ${selectedClipIds.size} clip${selectedClipIds.size !== 1 ? 's' : ''}`
+                          : 'Export Playlist'}
                       </Button>
                     )}
                   </div>
@@ -2664,7 +2672,9 @@ export function PlaylistsPage() {
                         title={exportDisabledReason ?? "Export playlist as MP4"}
                       >
                         <FileDown className="h-3.5 w-3.5" />
-                        Export
+                        {selectedClipIds.size > 0
+                          ? `Export ${selectedClipIds.size} clip${selectedClipIds.size !== 1 ? 's' : ''}`
+                          : 'Export Playlist'}
                       </Button>
                     )}
                   </div>
