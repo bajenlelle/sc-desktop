@@ -68,7 +68,7 @@ jobs:
             --extra-ldflags="-L$PWD/../static-libs" \
             --cc=clang
           make -j"$(sysctl -n hw.logicalcpu)"
-          cp out/ffmpeg ../src-tauri/binaries/ffmpeg-aarch64-apple-darwin
+          cp ffmpeg ../src-tauri/binaries/ffmpeg-aarch64-apple-darwin
           cd ..
           rm -rf "ffmpeg-${FFMPEG_VERSION}" static-libs
 
