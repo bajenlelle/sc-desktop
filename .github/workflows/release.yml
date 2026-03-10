@@ -33,7 +33,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: src-tauri/binaries/ffmpeg-aarch64-apple-darwin
-          key: ffmpeg-arm64-static-7.1.1-x264-freetype-2
+          key: ffmpeg-arm64-static-7.1.1-x264-freetype-3
 
       - name: Build arm64 FFmpeg (static)
         if: matrix.platform == 'macos-14' && steps.cache-ffmpeg-arm64.outputs.cache-hit != 'true'
@@ -41,9 +41,11 @@ jobs:
           mkdir -p src-tauri/binaries
           brew install nasm x264 freetype
           BREW_PREFIX="$(brew --prefix)"
-          X264_PREFIX="$(brew --prefix x264)"
-          FREETYPE_PREFIX="$(brew --prefix freetype)"
-          export PKG_CONFIG_PATH="${X264_PREFIX}/lib/pkgconfig:${FREETYPE_PREFIX}/lib/pkgconfig:${BREW_PREFIX}/lib/pkgconfig"
+          # Collect every pkgconfig dir under Homebrew opt (covers keg-only
+          # transitive deps like brotli/zlib that freetype2.pc Requires.private
+          # lists — needed because FFmpeg configure calls pkg-config --static)
+          OPT_PC="$(find "${BREW_PREFIX}/opt" -maxdepth 3 -name 'pkgconfig' -type d 2>/dev/null | tr '\n' ':')"
+          export PKG_CONFIG_PATH="${OPT_PC}${BREW_PREFIX}/lib/pkgconfig"
           pkg-config --modversion x264
           pkg-config --modversion freetype2
           FFMPEG_VERSION=7.1.1
@@ -51,8 +53,7 @@ jobs:
           cd "ffmpeg-${FFMPEG_VERSION}"
           # Symlink static libs for all brew packages so ld64 picks static over dynamic
           mkdir -p ../static-libs
-          find "$(brew --prefix)/lib" -maxdepth 1 -name "*.a" -exec ln -sf {} ../static-libs/ \;
-          PKG_CONFIG_PATH="${X264_PREFIX}/lib/pkgconfig:${FREETYPE_PREFIX}/lib/pkgconfig:${BREW_PREFIX}/lib/pkgconfig" \
+          find "${BREW_PREFIX}/lib" -maxdepth 1 -name "*.a" -exec ln -sf {} ../static-libs/ \;
           ./configure \
             --prefix="$PWD/out" \
             --bindir="$PWD/out" \
