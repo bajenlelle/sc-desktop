@@ -55,7 +55,11 @@ async fn export_playlist(
             "-f", "concat",
             "-safe", "0",
             "-i", concat_path.to_str().unwrap(),
-            "-c", "copy",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "23",
+            "-bf", "0",
+            "-an",
             &output_path,
         ])
         .output()
