@@ -39,17 +39,21 @@ jobs:
         if: matrix.platform == 'macos-14' && steps.cache-ffmpeg-arm64.outputs.cache-hit != 'true'
         run: |
           mkdir -p src-tauri/binaries
-          # Install only the codec libs we need
           brew install nasm pkg-config x264 freetype
+          # Locate pkg-config files dynamically — Homebrew layout varies on runners
+          FREETYPE_PC="$(find /opt/homebrew -name 'freetype2.pc' 2>/dev/null | head -1)"
+          X264_PC="$(find /opt/homebrew -name 'x264.pc' 2>/dev/null | head -1)"
+          export PKG_CONFIG_PATH="$(dirname "$FREETYPE_PC"):$(dirname "$X264_PC")"
+          echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
+          pkg-config --modversion freetype2 && pkg-config --modversion x264
           FFMPEG_VERSION=7.1.1
           curl -sL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.gz" | tar -xz
           cd "ffmpeg-${FFMPEG_VERSION}"
-          # Put only .a files on the search path so ld64 doesn't pick up .dylib
+          # Symlink only .a files so ld64 picks static over dynamic
           mkdir -p ../static-libs
           for lib in x264 freetype; do
             find "$(brew --prefix $lib)/lib" -name "*.a" -exec ln -sf {} ../static-libs/ \;
           done
-          PKG_CONFIG_PATH="$(brew --prefix x264)/lib/pkgconfig:$(brew --prefix freetype)/lib/pkgconfig" \
           ./configure \
             --prefix="$PWD/out" \
             --bindir="$PWD/out" \
