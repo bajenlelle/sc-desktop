@@ -143,13 +143,28 @@ export interface SyncPoint {
   syncRealWorldTime: string; // ISO UTC of the reference event (Q1 tip-off)
 }
 
-export interface PlaylistClip {
+export interface PlaylistClipItem {
+  type: 'clip';
   matchId: string;
   eventId: number;
   preRollOffset?: number;  // signed delta in seconds added on top of global pre-roll
   postRollOffset?: number; // signed delta in seconds added on top of global post-roll
   note?: string;           // per-clip note scoped to this playlist
 }
+
+export interface PlaylistTextCard {
+  type: 'text';
+  id: string;          // UUID, stable key
+  text: string;
+  durationSeconds: number;
+}
+
+export type PlaylistItem = PlaylistClipItem | PlaylistTextCard;
+
+export const isClipItem = (i: PlaylistItem): i is PlaylistClipItem => i.type === 'clip';
+
+// Legacy alias kept for backward compatibility during migration
+export type PlaylistClip = PlaylistClipItem;
 
 export interface PlaylistFolder {
   id: string;
@@ -160,7 +175,7 @@ export interface PlaylistFolder {
 export interface Playlist {
   id: string;        // crypto.randomUUID()
   name: string;
-  clips: PlaylistClip[]; // ordered clips (each carries its match context)
+  items: PlaylistItem[]; // ordered items (clips and text cards)
   folderId?: string; // references PlaylistFolder.id; undefined = Uncategorized
 }
 

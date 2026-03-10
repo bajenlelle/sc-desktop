@@ -11,6 +11,11 @@ function computeVideoTime(event: PlayByPlayEvent, sync: SyncPoint): number | nul
   return sync.syncVideoTime + (eventMs - syncMs) / 1000;
 }
 
+export type ExportSegment =
+  | { kind: 'clip'; videoPath: string; event: PlayByPlayEvent; syncPoint: SyncPoint; preRollOffset?: number; postRollOffset?: number }
+  | { kind: 'text'; text: string; durationSeconds: number };
+
+// Legacy interface kept for callers that haven't migrated yet
 export interface ExportItem {
   videoPath: string;
   event: PlayByPlayEvent;
@@ -20,29 +25,37 @@ export interface ExportItem {
 }
 
 export async function exportPlaylist(
-  items: ExportItem[],
+  segments: ExportSegment[],
   preRoll: number,
   postRoll: number,
   playlistName: string,
 ): Promise<void> {
-  for (const item of items) {
-    if (!isLocalPath(item.videoPath))
+  for (const seg of segments) {
+    if (seg.kind === 'clip' && !isLocalPath(seg.videoPath))
       throw new Error("Export requires a local video file for every session.");
   }
 
-  const clips = items
-    .map((item) => {
-      const t = computeVideoTime(item.event, item.syncPoint);
+  type RustSegment =
+    | { kind: 'clip'; video_path: string; start: number; end: number }
+    | { kind: 'text'; text: string; duration_seconds: number };
+
+  const rustSegments: RustSegment[] = segments
+    .map((seg): RustSegment | null => {
+      if (seg.kind === 'text') {
+        return { kind: 'text', text: seg.text, duration_seconds: seg.durationSeconds };
+      }
+      const t = computeVideoTime(seg.event, seg.syncPoint);
       if (t === null) return null;
       return {
-        video_path: item.videoPath,
-        start: Math.max(0, t - preRoll - (item.preRollOffset ?? 0)),
-        end: t + postRoll + (item.postRollOffset ?? 0),
+        kind: 'clip',
+        video_path: seg.videoPath,
+        start: Math.max(0, t - preRoll - (seg.preRollOffset ?? 0)),
+        end: t + postRoll + (seg.postRollOffset ?? 0),
       };
     })
-    .filter((c): c is { video_path: string; start: number; end: number } => c !== null);
+    .filter((s): s is RustSegment => s !== null);
 
-  if (clips.length === 0) throw new Error("No clips with valid video times.");
+  if (rustSegments.length === 0) throw new Error("No segments with valid video times.");
 
   const outputPath = await save({
     defaultPath: `${playlistName.replace(/[^a-z0-9]/gi, "_")}.mp4`,
@@ -50,5 +63,5 @@ export async function exportPlaylist(
   });
   if (!outputPath) return; // user cancelled
 
-  await invoke<void>("export_playlist", { clips, outputPath });
+  await invoke<void>("export_playlist", { segments: rustSegments, outputPath });
 }

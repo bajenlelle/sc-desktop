@@ -138,8 +138,8 @@ export function MatchDetailPage() {
             dbMatch.awayRoster.length ? dbMatch.awayRoster : [{ jerseyNumber: "", playerName: "" }]
           );
           const count = loadedPlaylists
-            .flatMap((p) => p.clips)
-            .filter((c) => c.matchId === matchId).length;
+            .flatMap((p) => p.items.filter((i) => i.type === 'clip'))
+            .filter((c) => (c as { matchId: string }).matchId === matchId).length;
           setClipCount(count);
         } else {
           setNotFound(true);

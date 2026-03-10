@@ -18,7 +18,7 @@ function PlaylistCard({ playlist, folder }: { playlist: Playlist; folder?: Playl
         {playlist.name}
       </p>
       <p className="mt-1 text-xs text-muted-foreground">
-        {playlist.clips.length} clip{playlist.clips.length !== 1 ? "s" : ""}
+        {playlist.items.length} item{playlist.items.length !== 1 ? "s" : ""}
       </p>
       {folder && (
         <p className="mt-1 text-xs text-muted-foreground/60">{folder.name}</p>

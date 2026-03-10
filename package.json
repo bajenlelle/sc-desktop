@@ -8,7 +8,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "version": "node scripts/bump-tauri-version.js && git add src-tauri/tauri.conf.json"
+    "version": "node scripts/bump-tauri-version.js && git add src-tauri/tauri.conf.json",
+    "dev:staging": "cp .env.staging .env && vite",
+    "use:prod": "cp .env.prod .env"
   },
   "dependencies": {
     "@fontsource-variable/dm-sans": "^5.2.8",

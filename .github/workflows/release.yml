@@ -33,27 +33,31 @@ jobs:
         uses: actions/cache@v4
         with:
           path: src-tauri/binaries/ffmpeg-aarch64-apple-darwin
-          key: ffmpeg-arm64-static-7.1.1-x264-nodeps
+          key: ffmpeg-arm64-static-7.1.1-x264-freetype
 
       - name: Build arm64 FFmpeg (static)
         if: matrix.platform == 'macos-14' && steps.cache-ffmpeg-arm64.outputs.cache-hit != 'true'
         run: |
           mkdir -p src-tauri/binaries
-          brew install nasm x264
+          brew install nasm x264 freetype
           X264_PREFIX="$(brew --prefix x264)"
+          FREETYPE_PREFIX="$(brew --prefix freetype)"
+          export PKG_CONFIG_PATH="${X264_PREFIX}/lib/pkgconfig:${FREETYPE_PREFIX}/lib/pkgconfig"
           pkg-config --modversion x264
+          pkg-config --modversion freetype2
           FFMPEG_VERSION=7.1.1
           curl -sL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.gz" | tar -xz
           cd "ffmpeg-${FFMPEG_VERSION}"
-          # Symlink x264 static lib so ld64 picks static over dynamic
+          # Symlink static libs for all brew packages so ld64 picks static over dynamic
           mkdir -p ../static-libs
-          find "${X264_PREFIX}/lib" -name "*.a" -exec ln -sf {} ../static-libs/ \;
-          PKG_CONFIG_PATH="${X264_PREFIX}/lib/pkgconfig" \
+          find "$(brew --prefix)/lib" -maxdepth 1 -name "*.a" -exec ln -sf {} ../static-libs/ \;
+          PKG_CONFIG_PATH="${X264_PREFIX}/lib/pkgconfig:${FREETYPE_PREFIX}/lib/pkgconfig" \
           ./configure \
+            --prefix="$PWD/out" \
+            --bindir="$PWD/out" \
             --enable-gpl \
             --enable-static \
             --disable-shared \
-            --disable-autodetect \
             --disable-debug \
             --disable-doc \
             --disable-htmlpages \
@@ -64,6 +68,7 @@ jobs:
             --disable-ffprobe \
             --enable-hardcoded-tables \
             --enable-libx264 \
+            --enable-libfreetype \
             --extra-ldflags="-L$PWD/../static-libs" \
             --cc=clang
           make -j"$(sysctl -n hw.logicalcpu)"

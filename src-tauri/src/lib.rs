@@ -10,68 +10,172 @@ use tauri::http::{Response, StatusCode};
 // ---------------------------------------------------------------------------
 
 #[derive(serde::Deserialize)]
-struct ClipSegment {
-    video_path: String,
-    start: f64,
-    end: f64,
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum ExportSegment {
+    Clip {
+        video_path: String,
+        start: f64,
+        end: f64,
+    },
+    Text {
+        text: String,
+        duration_seconds: f64,
+    },
 }
 
 #[tauri::command]
 async fn export_playlist(
     app: tauri::AppHandle,
-    clips: Vec<ClipSegment>,
+    segments: Vec<ExportSegment>,
     output_path: String,
 ) -> Result<(), String> {
     use tauri_plugin_shell::ShellExt;
 
-    if clips.is_empty() {
-        return Err("No clips to export".into());
+    if segments.is_empty() {
+        return Err("No segments to export".into());
     }
 
-    // Build FFmpeg concat demuxer file
-    let mut concat_content = String::new();
-    for clip in &clips {
-        concat_content.push_str(&format!("file '{}'\n", clip.video_path.replace('\'', "'\\''")));
-        concat_content.push_str(&format!("inpoint {:.3}\n", clip.start));
-        concat_content.push_str(&format!("outpoint {:.3}\n", clip.end));
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+
+    let mut temp_files: Vec<std::path::PathBuf> = Vec::new();
+
+    // Encode each segment to a temp MP4 with fade-in/fade-out.
+    for (i, segment) in segments.iter().enumerate() {
+        let temp_path = std::env::temp_dir().join(format!("sc_seg_{}_{}.mp4", timestamp, i));
+
+        let status = match segment {
+            ExportSegment::Clip { video_path, start, end } => {
+                let duration = (end - start).max(0.001);
+                let fade_out_start = (duration - 0.25).max(0.0);
+
+                app.shell()
+                    .sidecar("ffmpeg")
+                    .map_err(|e| e.to_string())?
+                    .args([
+                        "-y",
+                        "-ss", &format!("{start:.3}"),
+                        "-to", &format!("{end:.3}"),
+                        "-i", video_path,
+                        "-vf", &format!(
+                            "setpts=PTS-STARTPTS,\
+                             scale=1280:720:force_original_aspect_ratio=decrease,\
+                             pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black,\
+                             fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25"
+                        ),
+                        "-af", "asetpts=PTS-STARTPTS",
+                        "-c:v", "libx264",
+                        "-preset", "fast",
+                        "-crf", "23",
+                        "-c:a", "aac",
+                        "-b:a", "128k",
+                        temp_path.to_str().unwrap(),
+                    ])
+                    .output()
+                    .await
+                    .map_err(|e| e.to_string())?
+            }
+            ExportSegment::Text { text, duration_seconds } => {
+                let fade_out_start = (duration_seconds - 0.25).max(0.0);
+                // Escape single quotes for FFmpeg drawtext filter.
+                let escaped_text = text.replace('\'', "'\\''");
+                // Font paths are platform-specific. On Windows the colon in the
+                // drive letter must be escaped as \: so FFmpeg's filter parser
+                // doesn't treat it as an option separator.
+                #[cfg(target_os = "windows")]
+                let font_path = "C\\:/Windows/Fonts/arial.ttf";
+                #[cfg(not(target_os = "windows"))]
+                let font_path = "/System/Library/Fonts/Helvetica.ttc";
+
+                app.shell()
+                    .sidecar("ffmpeg")
+                    .map_err(|e| e.to_string())?
+                    .args([
+                        "-y",
+                        "-f", "lavfi",
+                        "-i", &format!(
+                            "color=c=black:s=1280x720:d={duration_seconds:.3}:rate=30"
+                        ),
+                        "-f", "lavfi",
+                        "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+                        "-vf", &format!(
+                            "setpts=PTS-STARTPTS,\
+                             fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25,\
+                             drawtext=fontfile={font_path}:\
+                             text='{escaped_text}':fontcolor=white:fontsize=72:\
+                             x=(w-text_w)/2:y=(h-text_h)/2"
+                        ),
+                        "-af", "asetpts=PTS-STARTPTS",
+                        "-c:v", "libx264",
+                        "-preset", "fast",
+                        "-crf", "23",
+                        "-c:a", "aac",
+                        "-b:a", "128k",
+                        "-t", &format!("{duration_seconds:.3}"),
+                        temp_path.to_str().unwrap(),
+                    ])
+                    .output()
+                    .await
+                    .map_err(|e| e.to_string())?
+            }
+        };
+
+        if !status.status.success() {
+            // Clean up already-created temp files before returning error
+            for f in &temp_files {
+                let _ = std::fs::remove_file(f);
+            }
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(String::from_utf8_lossy(&status.stderr).to_string());
+        }
+
+        temp_files.push(temp_path);
     }
 
-    // Write to temp file
-    let concat_path = std::env::temp_dir().join(format!(
-        "sc_export_{}.txt",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-    ));
-    std::fs::write(&concat_path, &concat_content).map_err(|e| e.to_string())?;
-
-    let output = app
+    // Final concat using the concat filter, which normalises timestamps
+    // across all segments and avoids A/V sync drift from input-side seeking.
+    let n = temp_files.len();
+    let mut concat_args: Vec<String> = vec!["-y".to_string()];
+    for p in &temp_files {
+        concat_args.push("-i".to_string());
+        concat_args.push(p.to_str().unwrap().to_string());
+    }
+    let mut filter = String::new();
+    for i in 0..n {
+        filter.push_str(&format!("[{i}:v:0][{i}:a:0]"));
+    }
+    filter.push_str(&format!("concat=n={n}:v=1:a=1[outv][outa]"));
+    concat_args.extend([
+        "-filter_complex".to_string(), filter,
+        "-map".to_string(), "[outv]".to_string(),
+        "-map".to_string(), "[outa]".to_string(),
+        "-c:v".to_string(), "libx264".to_string(),
+        "-preset".to_string(), "fast".to_string(),
+        "-crf".to_string(), "23".to_string(),
+        "-c:a".to_string(), "aac".to_string(),
+        "-b:a".to_string(), "128k".to_string(),
+        output_path.clone(),
+    ]);
+    let result = app
         .shell()
         .sidecar("ffmpeg")
         .map_err(|e| e.to_string())?
-        .args([
-            "-y",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", concat_path.to_str().unwrap(),
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-crf", "23",
-            "-bf", "0",
-            "-an",
-            &output_path,
-        ])
+        .args(&concat_args)
         .output()
         .await
         .map_err(|e| e.to_string())?;
 
-    let _ = std::fs::remove_file(&concat_path);
+    // Clean up temp files regardless of outcome.
+    for f in &temp_files {
+        let _ = std::fs::remove_file(f);
+    }
 
-    if output.status.success() {
+    if result.status.success() {
         Ok(())
     } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
+        Err(String::from_utf8_lossy(&result.stderr).to_string())
     }
 }
 
