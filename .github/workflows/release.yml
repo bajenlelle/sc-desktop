@@ -33,16 +33,17 @@ jobs:
         uses: actions/cache@v4
         with:
           path: src-tauri/binaries/ffmpeg-aarch64-apple-darwin
-          key: ffmpeg-arm64-static-7.1.1-x264-freetype
+          key: ffmpeg-arm64-static-7.1.1-x264-freetype-2
 
       - name: Build arm64 FFmpeg (static)
         if: matrix.platform == 'macos-14' && steps.cache-ffmpeg-arm64.outputs.cache-hit != 'true'
         run: |
           mkdir -p src-tauri/binaries
           brew install nasm x264 freetype
+          BREW_PREFIX="$(brew --prefix)"
           X264_PREFIX="$(brew --prefix x264)"
           FREETYPE_PREFIX="$(brew --prefix freetype)"
-          export PKG_CONFIG_PATH="${X264_PREFIX}/lib/pkgconfig:${FREETYPE_PREFIX}/lib/pkgconfig"
+          export PKG_CONFIG_PATH="${X264_PREFIX}/lib/pkgconfig:${FREETYPE_PREFIX}/lib/pkgconfig:${BREW_PREFIX}/lib/pkgconfig"
           pkg-config --modversion x264
           pkg-config --modversion freetype2
           FFMPEG_VERSION=7.1.1
@@ -51,7 +52,7 @@ jobs:
           # Symlink static libs for all brew packages so ld64 picks static over dynamic
           mkdir -p ../static-libs
           find "$(brew --prefix)/lib" -maxdepth 1 -name "*.a" -exec ln -sf {} ../static-libs/ \;
-          PKG_CONFIG_PATH="${X264_PREFIX}/lib/pkgconfig:${FREETYPE_PREFIX}/lib/pkgconfig" \
+          PKG_CONFIG_PATH="${X264_PREFIX}/lib/pkgconfig:${FREETYPE_PREFIX}/lib/pkgconfig:${BREW_PREFIX}/lib/pkgconfig" \
           ./configure \
             --prefix="$PWD/out" \
             --bindir="$PWD/out" \
