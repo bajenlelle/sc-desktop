@@ -33,7 +33,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: src-tauri/binaries/ffmpeg-aarch64-apple-darwin
-          key: ffmpeg-arm64-static-7.1.1-x264
+          key: ffmpeg-arm64-static-7.1.1-x264-nodeps
 
       - name: Build arm64 FFmpeg (static)
         if: matrix.platform == 'macos-14' && steps.cache-ffmpeg-arm64.outputs.cache-hit != 'true'
@@ -50,11 +50,10 @@ jobs:
           find "${X264_PREFIX}/lib" -name "*.a" -exec ln -sf {} ../static-libs/ \;
           PKG_CONFIG_PATH="${X264_PREFIX}/lib/pkgconfig" \
           ./configure \
-            --prefix="$PWD/out" \
-            --bindir="$PWD/out" \
             --enable-gpl \
             --enable-static \
             --disable-shared \
+            --disable-autodetect \
             --disable-debug \
             --disable-doc \
             --disable-htmlpages \
