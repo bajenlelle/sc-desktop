@@ -22,6 +22,7 @@ import {
   SkipForward,
   Square,
   Trash2,
+  Type,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -33,13 +34,15 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/componen
 import { usePanelRef } from "react-resizable-panels";
 import { VideoClipControls } from "@/components/video-clip-controls";
 import { listMatches, listFolders, createFolder, updateFolder, deleteFolder } from "@/lib/matches-db";
-import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderClips, updateClip } from "@/lib/playlists-db";
+import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderItems, updateClip, insertTextCard, updateTextCard } from "@/lib/playlists-db";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
-import { exportPlaylist, type ExportItem } from "@/lib/export";
-import type { Playlist, PlaylistFolder, PlaylistClip, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
+import { exportPlaylist, type ExportSegment } from "@/lib/export";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import type { Playlist, PlaylistFolder, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
+import { isClipItem } from "@/types/match";
 
 // ---------------------------------------------------------------------------
 // Helpers (mirrors clips-view.tsx)
@@ -129,6 +132,16 @@ function parseGameClock(raw: string): number {
 
 type ClockSort = "none" | "asc" | "desc";
 type QueueItem = { event: PlayByPlayEvent; matchId: string };
+type PlaybackItem = QueueItem | PlaylistTextCard;
+
+function isTextCard(i: PlaybackItem): i is PlaylistTextCard {
+  return (i as PlaylistTextCard).type === 'text';
+}
+
+function itemKey(i: PlaybackItem): string {
+  if (isTextCard(i)) return `text:${i.id}`;
+  return `${i.matchId}:${i.event.eventId}`;
+}
 
 // ---------------------------------------------------------------------------
 // Event type filter options (for clip browser)
@@ -181,6 +194,7 @@ function DraggableRow({
   onDragLeave,
   onDrop,
   onDragEnd,
+  onInsertTextCardAbove,
 }: {
   item: QueueItem;
   index: number;
@@ -200,14 +214,140 @@ function DraggableRow({
   onDragLeave: () => void;
   onDrop: (e: React.DragEvent, index: number) => void;
   onDragEnd: () => void;
+  onInsertTextCardAbove: () => void;
 }) {
   const { event } = item;
   return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <tr
+          draggable
+          data-event-id={event.eventId}
+          className={`group cursor-grab transition-colors hover:bg-muted/50 ${
+            isActive ? "bg-primary/10" : ""
+          } ${isDragTarget && dragTargetPosition === "above" ? "border-t-2 border-t-primary" : ""} ${
+            isDragTarget && dragTargetPosition === "below" ? "border-b-2 border-b-primary" : ""
+          }`}
+          onClick={onClick}
+          onDragStart={onDragStart}
+          onDragOver={(e) => onDragOver(e, index)}
+          onDragLeave={onDragLeave}
+          onDrop={(e) => onDrop(e, index)}
+          onDragEnd={onDragEnd}
+        >
+          <td className="w-8 px-2 py-2.5">
+            <span className="flex items-center justify-center opacity-0 group-hover:opacity-60 transition-opacity">
+              <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
+            </span>
+          </td>
+          <td className="w-8 px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={() => {}}
+              onClick={onSelect}
+              className="h-3.5 w-3.5 rounded border-border accent-primary"
+            />
+          </td>
+          <td className="px-4 py-2.5 text-muted-foreground">Q{event.period}</td>
+          <td className="px-4 py-2.5 font-mono text-muted-foreground">
+            {formatGameClock(event.gameClockTime)}
+          </td>
+          {isMultiMatch && (
+            <td className="px-4 py-2.5 text-xs text-muted-foreground truncate max-w-[120px]">
+              {matchTitle ?? "—"}
+            </td>
+          )}
+          <td className="px-4 py-2.5">
+            <span
+              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${eventBadgeColor(event)}`}
+            >
+              {eventLabel(event)}
+            </span>
+          </td>
+          <td className="px-4 py-2.5 text-foreground/80">{playerName(event)}</td>
+          <td className="px-4 py-2.5 text-muted-foreground">
+            {event.eventTeam?.teamName ?? "—"}
+          </td>
+          <td className="px-4 py-2.5">
+            <div className="flex items-center gap-1">
+              <Play
+                className={`h-3.5 w-3.5 ${
+                  isActive ? "text-primary fill-primary" : "text-muted-foreground/30"
+                }`}
+              />
+              {(preOffset !== 0 || postOffset !== 0) && (
+                <span
+                  className="text-[10px] font-medium text-orange-400"
+                  title={`Pre ${preOffset >= 0 ? "+" : ""}${preOffset}s / Post ${postOffset >= 0 ? "+" : ""}${postOffset}s`}
+                >
+                  ±
+                </span>
+              )}
+              {note && (
+                <span className="ml-1 h-1.5 w-1.5 rounded-full bg-primary/60 shrink-0" title={note} />
+              )}
+            </div>
+          </td>
+        </tr>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onSelect={onInsertTextCardAbove}>
+          Insert text card above
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// TextCardRow
+// ---------------------------------------------------------------------------
+
+function TextCardRow({
+  card,
+  index,
+  isActive,
+  isSelected,
+  onSelect,
+  isDragTarget,
+  dragTargetPosition,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
+  onTextChange,
+  onTextSave,
+  onDurationChange,
+  onClick,
+}: {
+  card: PlaylistTextCard;
+  index: number;
+  isActive: boolean;
+  isSelected: boolean;
+  onSelect: (e: React.MouseEvent) => void;
+  isDragTarget: boolean;
+  dragTargetPosition: "above" | "below";
+  onDragStart: (e: React.DragEvent) => void;
+  onDragOver: (e: React.DragEvent, index: number) => void;
+  onDragLeave: () => void;
+  onDrop: (e: React.DragEvent, index: number) => void;
+  onDragEnd: () => void;
+  onTextChange: (id: string, text: string) => void;
+  onTextSave: (id: string, text: string) => void;
+  onDurationChange: (id: string, duration: number) => void;
+  onClick: () => void;
+}) {
+  const [durationOpen, setDurationOpen] = useState(false);
+  const [draftDuration, setDraftDuration] = useState(String(card.durationSeconds));
+
+  return (
     <tr
       draggable
-      data-event-id={event.eventId}
-      className={`group cursor-grab transition-colors hover:bg-muted/50 ${
-        isActive ? "bg-primary/10" : ""
+      data-text-card-id={card.id}
+      className={`group cursor-grab transition-colors border-l-4 border-l-amber-400 bg-amber-50/30 dark:bg-amber-950/20 hover:bg-amber-100/40 dark:hover:bg-amber-900/30 ${
+        isActive ? "ring-1 ring-inset ring-amber-400" : ""
       } ${isDragTarget && dragTargetPosition === "above" ? "border-t-2 border-t-primary" : ""} ${
         isDragTarget && dragTargetPosition === "below" ? "border-b-2 border-b-primary" : ""
       }`}
@@ -232,44 +372,73 @@ function DraggableRow({
           className="h-3.5 w-3.5 rounded border-border accent-primary"
         />
       </td>
-      <td className="px-4 py-2.5 text-muted-foreground">Q{event.period}</td>
-      <td className="px-4 py-2.5 font-mono text-muted-foreground">
-        {formatGameClock(event.gameClockTime)}
-      </td>
-      {isMultiMatch && (
-        <td className="px-4 py-2.5 text-xs text-muted-foreground truncate max-w-[120px]">
-          {matchTitle ?? "—"}
-        </td>
-      )}
-      <td className="px-4 py-2.5">
-        <span
-          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${eventBadgeColor(event)}`}
-        >
-          {eventLabel(event)}
-        </span>
-      </td>
-      <td className="px-4 py-2.5 text-foreground/80">{playerName(event)}</td>
-      <td className="px-4 py-2.5 text-muted-foreground">
-        {event.eventTeam?.teamName ?? "—"}
-      </td>
-      <td className="px-4 py-2.5">
-        <div className="flex items-center gap-1">
-          <Play
-            className={`h-3.5 w-3.5 ${
-              isActive ? "text-primary fill-primary" : "text-muted-foreground/30"
-            }`}
+      {/* Icon */}
+      <td className="px-4 py-2.5" colSpan={2}>
+        <div className="flex items-center gap-2">
+          <Type className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+          <input
+            type="text"
+            value={card.text}
+            placeholder="Text card…"
+            className="min-w-0 flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/50 outline-none focus:ring-0 border-none"
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => onTextChange(card.id, e.target.value)}
+            onBlur={(e) => onTextSave(card.id, e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.currentTarget.blur();
+              }
+            }}
           />
-          {(preOffset !== 0 || postOffset !== 0) && (
-            <span
-              className="text-[10px] font-medium text-orange-400"
-              title={`Pre ${preOffset >= 0 ? "+" : ""}${preOffset}s / Post ${postOffset >= 0 ? "+" : ""}${postOffset}s`}
-            >
-              ±
-            </span>
-          )}
-          {note && (
-            <span className="ml-1 h-1.5 w-1.5 rounded-full bg-primary/60 shrink-0" title={note} />
-          )}
+        </div>
+      </td>
+      <td className="px-4 py-2.5" colSpan={4}>
+        <div className="flex items-center gap-2">
+          <Popover open={durationOpen} onOpenChange={(open) => {
+            setDurationOpen(open);
+            if (open) setDraftDuration(String(card.durationSeconds));
+          }}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-800/50 transition-colors"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {card.durationSeconds}s
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-40 p-3" onClick={(e) => e.stopPropagation()}>
+              <label className="text-xs text-muted-foreground block mb-1.5">Duration (seconds)</label>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={120}
+                  value={draftDuration}
+                  onChange={(e) => setDraftDuration(e.target.value)}
+                  className="h-7 w-full rounded border border-border bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      const n = Number(draftDuration);
+                      if (n > 0) onDurationChange(card.id, n);
+                      setDurationOpen(false);
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="shrink-0 rounded bg-primary px-2 py-1 text-xs text-primary-foreground hover:bg-primary/90"
+                  onClick={() => {
+                    const n = Number(draftDuration);
+                    if (n > 0) onDurationChange(card.id, n);
+                    setDurationOpen(false);
+                  }}
+                >
+                  OK
+                </button>
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       </td>
     </tr>
@@ -290,7 +459,7 @@ function ClipBrowserPanel({
   matches: StoredMatch[];
   matchLookup: Map<string, StoredMatch>;
   playlist: Playlist;
-  onAddClips: (clips: PlaylistClip[]) => void;
+  onAddClips: (clips: PlaylistClipItem[]) => void;
   onClose: () => void;
 }) {
   const [filterMatchId, setFilterMatchId] = useState<string | null>(matches[0]?.id ?? null);
@@ -319,8 +488,8 @@ function ClipBrowserPanel({
   useEffect(() => { activeEventKeyRef.current = activeEventKey; }, [activeEventKey]);
 
   const existingSet = useMemo(
-    () => new Set(playlist.clips.map((c) => `${c.matchId}:${c.eventId}`)),
-    [playlist.clips]
+    () => new Set(playlist.items.filter(isClipItem).map((c) => `${c.matchId}:${c.eventId}`)),
+    [playlist.items]
   );
 
   const allEvents = useMemo(() => {
@@ -538,12 +707,12 @@ function ClipBrowserPanel({
   }
 
   function handleAdd() {
-    const toAdd: PlaylistClip[] = filtered
+    const toAdd: PlaylistClipItem[] = filtered
       .filter(({ event, matchId }) => {
         const key = `${matchId}:${event.eventId}`;
         return selectedIds.has(key) && !existingSet.has(key);
       })
-      .map(({ event, matchId }) => ({ matchId, eventId: event.eventId }));
+      .map(({ event, matchId }) => ({ type: 'clip' as const, matchId, eventId: event.eventId }));
     onAddClips(toAdd);
     onClose();
   }
@@ -824,7 +993,7 @@ function AddToDropdown({
               onClick={() => onAddToPlaylist(pl)}
             >
               <span className="flex-1 truncate">{pl.name}</span>
-              <span className="text-xs text-muted-foreground">{pl.clips.length}</span>
+              <span className="text-xs text-muted-foreground">{pl.items.length}</span>
             </button>
           ))}
         </div>
@@ -882,10 +1051,21 @@ export function PlaylistsPage() {
   const [clipDragOverPlaylistId, setClipDragOverPlaylistId] = useState<string | null>(null);
   const [clipExpandFolderId, setClipExpandFolderId] = useState<string | null>(null);
   const clipDragFolderExpandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dragCursorRef = useRef<{ x: number; y: number } | null>(null);
+  const dragScrollRAFRef = useRef<number | null>(null);
+  const playlistScrollRef = useRef<HTMLDivElement | null>(null);
   const browserPanelRef = usePanelRef();
 
-  // Clip selection
-  const [selectedClipIds, setSelectedClipIds] = useState<Set<string>>(new Set()); // "matchId:eventId"
+  // Text card playback
+  const [activeTextCard, setActiveTextCard] = useState<PlaylistTextCard | null>(null);
+  const textCardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeTextCardRef = useRef<PlaylistTextCard | null>(null);
+  useEffect(() => { activeTextCardRef.current = activeTextCard; }, [activeTextCard]);
+
+  const [newlyInsertedCardId, setNewlyInsertedCardId] = useState<string | null>(null);
+
+  // Item selection (clips and text cards)
+  const [selectedClipIds, setSelectedClipIds] = useState<Set<string>>(new Set()); // "matchId:eventId" or "text:uuid"
   const [showAddToDropdown, setShowAddToDropdown] = useState(false);
   const [addToSearch, setAddToSearch] = useState("");
   const addToDropdownRef = useRef<HTMLDivElement>(null);
@@ -893,7 +1073,7 @@ export function PlaylistsPage() {
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const queueRef = useRef<QueueItem[]>([]);
+  const queueRef = useRef<PlaybackItem[]>([]);
   const queueIdxRef = useRef<number>(0);
   const [clipNote, setClipNote] = useState("");
   const [theaterMode, setTheaterMode] = useState(
@@ -920,9 +1100,12 @@ export function PlaylistsPage() {
   // Sync note textarea when active clip changes
   useEffect(() => {
     if (activeEventId === null || !selected) { setClipNote(""); return; }
-    const activeItem = sortedEvents.find((i) => i.event.eventId === activeEventId);
-    const clip = selected.clips.find(
-      (c) => c.matchId === activeItem?.matchId && c.eventId === activeEventId
+    // Find the clip in the queue to get its matchId
+    const queueItem = queueRef.current.find(
+      (i): i is QueueItem => !isTextCard(i) && (i as QueueItem).event.eventId === activeEventId
+    );
+    const clip = selected.items.filter(isClipItem).find(
+      (c) => c.matchId === (queueItem?.matchId ?? activeMatchIdRef.current) && c.eventId === activeEventId
     );
     setClipNote(clip?.note ?? "");
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -951,7 +1134,7 @@ export function PlaylistsPage() {
           }
         } else if (createNew) {
           const tempId = `temp-${Date.now()}`;
-          const tempPlaylist: Playlist = { id: tempId, name: "New Playlist", clips: [], folderId: undefined };
+          const tempPlaylist: Playlist = { id: tempId, name: "New Playlist", items: [], folderId: undefined };
           setPendingNewPlaylistId(tempId);
           setPlaylists((prev) => [tempPlaylist, ...prev]);
           setUncategorizedExpanded(true);
@@ -972,9 +1155,9 @@ export function PlaylistsPage() {
   const matchLookupRef = useRef(matchLookup);
   useEffect(() => { matchLookupRef.current = matchLookup; }, [matchLookup]);
 
-  // Determine the primary match for a playlist (first clip's match)
+  // Determine the primary match for a playlist (first clip item's match)
   function primaryMatchId(pl: Playlist): string | null {
-    return pl.clips[0]?.matchId ?? null;
+    return pl.items.find(isClipItem)?.matchId ?? null;
   }
 
   // Initialize activeMatchId when the selected playlist changes; also stop playback
@@ -1058,10 +1241,11 @@ export function PlaylistsPage() {
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, []);
 
-  // Resolve playlist events in display order (cross-match aware)
+  // Resolve playlist clip items in display order (cross-match aware)
   const playlistEvents = useMemo((): QueueItem[] => {
     if (!selected) return [];
-    return selected.clips
+    return selected.items
+      .filter(isClipItem)
       .map((clip) => {
         const match = matchLookup.get(clip.matchId);
         const event = match?.events.find((e) => e.eventId === clip.eventId);
@@ -1071,18 +1255,41 @@ export function PlaylistsPage() {
   }, [selected, matchLookup]);
 
   const isMultiMatch = useMemo(
-    () => new Set(selected?.clips.map((c) => c.matchId)).size > 1,
+    () => new Set(selected?.items.filter(isClipItem).map((c) => c.matchId)).size > 1,
     [selected]
   );
 
-  const sortedEvents = useMemo(() => {
-    if (clockSort === "none") return playlistEvents;
-    return [...playlistEvents].sort((a, b) => {
-      const aT = parseGameClock(formatGameClock(a.event.gameClockTime));
-      const bT = parseGameClock(formatGameClock(b.event.gameClockTime));
+  const hasTextCards = useMemo(
+    () => selected?.items.some((i) => i.type === 'text') ?? false,
+    [selected]
+  );
+
+  // displayItems: ordered mix of QueueItems and PlaylistTextCards
+  const displayItems = useMemo((): PlaybackItem[] => {
+    if (!selected) return [];
+    const items: PlaybackItem[] = [];
+    for (const item of selected.items) {
+      if (isClipItem(item)) {
+        const match = matchLookup.get(item.matchId);
+        const event = match?.events.find((e) => e.eventId === item.eventId);
+        if (event) items.push({ event, matchId: item.matchId });
+      } else {
+        items.push(item);
+      }
+    }
+    return items;
+  }, [selected, matchLookup]);
+
+  // sortedEvents: displayItems optionally sorted by clock (only when no text cards)
+  const sortedEvents = useMemo((): PlaybackItem[] => {
+    if (hasTextCards || clockSort === "none") return displayItems;
+    return [...displayItems].sort((a, b) => {
+      if (isTextCard(a) || isTextCard(b)) return 0;
+      const aT = parseGameClock(formatGameClock((a as QueueItem).event.gameClockTime));
+      const bT = parseGameClock(formatGameClock((b as QueueItem).event.gameClockTime));
       return clockSort === "asc" ? bT - aT : aT - bT;
     });
-  }, [playlistEvents, clockSort]);
+  }, [displayItems, clockSort, hasTextCards]);
 
   // ---------------------------------------------------------------------------
   // Playback
@@ -1093,8 +1300,13 @@ export function PlaylistsPage() {
     queueIdxRef.current = 0;
     setIsPlaying(false);
     setActiveEventId(null);
+    setActiveTextCard(null);
     clipEndRef.current = undefined;
     pendingSeekRef.current = null;
+    if (textCardTimerRef.current) {
+      clearTimeout(textCardTimerRef.current);
+      textCardTimerRef.current = null;
+    }
     videoRef.current?.pause();
   }, []);
 
@@ -1102,41 +1314,44 @@ export function PlaylistsPage() {
     if (!selected || activeEventId === null) return;
     const matchId = activeMatchIdRef.current ?? primaryMatchId(selected);
     if (!matchId) return;
-    const existingClip = selected.clips.find(
+    const existingClip = selected.items.filter(isClipItem).find(
       (c) => c.matchId === matchId && c.eventId === activeEventId
     );
     const newPre = Math.max(-preRollRef.current, (existingClip?.preRollOffset ?? 0) + preDelta);
     const newPost = Math.max(-postRollRef.current, (existingClip?.postRollOffset ?? 0) + postDelta);
 
-    const newClips = selected.clips.map((c) =>
-      c.matchId === matchId && c.eventId === activeEventId
+    const newItems = selected.items.map((c) =>
+      isClipItem(c) && c.matchId === matchId && c.eventId === activeEventId
         ? { ...c, preRollOffset: newPre, postRollOffset: newPost }
         : c
     );
-    const updatedPlaylist = { ...selected, clips: newClips };
+    const updatedPlaylist = { ...selected, items: newItems };
     setSelected(updatedPlaylist);
     selectedRef.current = updatedPlaylist;
     setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updatedPlaylist : p));
     updateClip(selected.id, matchId, activeEventId, { preRollOffset: newPre, postRollOffset: newPost }).catch(() => {});
-    if (queueRef.current.length > 0) {
-      seekToItem(queueRef.current[queueIdxRef.current], newPre, newPost);
+    const curQueueItem = queueRef.current[queueIdxRef.current];
+    if (curQueueItem && !isTextCard(curQueueItem)) {
+      seekToItem(curQueueItem as QueueItem, newPre, newPost);
     }
   }
 
   function saveClipNote(note: string) {
     if (!selected || activeEventId === null) return;
-    const activeItem = sortedEvents.find((i) => i.event.eventId === activeEventId);
-    if (!activeItem) return;
-    const updatedClips = selected.clips.map((c) =>
-      c.matchId === activeItem.matchId && c.eventId === activeEventId
+    const queueItem = queueRef.current.find(
+      (i): i is QueueItem => !isTextCard(i) && (i as QueueItem).event.eventId === activeEventId
+    );
+    if (!queueItem) return;
+    const newItems = selected.items.map((c) =>
+      isClipItem(c) && c.matchId === queueItem.matchId && c.eventId === activeEventId
         ? { ...c, note: note.trim() || undefined }
         : c
     );
-    const updatedPlaylist = { ...selected, clips: updatedClips };
+    const updatedPlaylist = { ...selected, items: newItems };
     setSelected(updatedPlaylist);
     selectedRef.current = updatedPlaylist;
     setPlaylists((prev) => prev.map((p) => (p.id === selected.id ? updatedPlaylist : p)));
-    updateClip(selected.id, activeItem.matchId, activeEventId, { note: note.trim() || null }).catch(() => {});
+    updateClip(selected.id, queueItem.matchId, activeEventId, { note: note.trim() || null }).catch(() => {});
   }
 
   function handleNoteChange(value: string) {
@@ -1151,14 +1366,14 @@ export function PlaylistsPage() {
   const activeClipOffsets = useMemo(() => {
     if (activeEventId === null) return { pre: 0, post: 0 };
     const matchId = activeMatchId ?? primaryMatchId(selected!);
-    const clip = selected?.clips.find(
+    const clip = selected?.items.filter(isClipItem).find(
       (c) => c.matchId === matchId && c.eventId === activeEventId
     );
     return { pre: clip?.preRollOffset ?? 0, post: clip?.postRollOffset ?? 0 };
   }, [activeEventId, activeMatchId, selected]);
 
   function getClipOffsets(matchId: string, eventId: number) {
-    const clip = selectedRef.current?.clips.find(
+    const clip = selectedRef.current?.items.filter(isClipItem).find(
       (c) => c.matchId === matchId && c.eventId === eventId
     );
     return { pre: clip?.preRollOffset ?? 0, post: clip?.postRollOffset ?? 0 };
@@ -1182,12 +1397,73 @@ export function PlaylistsPage() {
     video.currentTime = seekTo;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const isQueueActive = activeEventId !== null;
+  const isQueueActive = activeEventId !== null || activeTextCard !== null;
 
   const handleReplay = useCallback(() => {
     const item = queueRef.current[queueIdxRef.current];
-    if (item) seekToItem(item);
+    if (item && !isTextCard(item)) seekToItem(item as QueueItem);
   }, [seekToItem]);
+
+  // Shared logic: advance to the next item in the queue after a text card ends.
+  // Must be a stable ref to avoid stale closures in setTimeout callbacks.
+  function advanceFromTextCard() {
+    if (textCardTimerRef.current) {
+      clearTimeout(textCardTimerRef.current);
+      textCardTimerRef.current = null;
+    }
+    setActiveTextCard(null);
+    activeTextCardRef.current = null;
+    const nextIdx = queueIdxRef.current + 1;
+    const queue = queueRef.current;
+    if (nextIdx < queue.length) {
+      queueIdxRef.current = nextIdx;
+      const nextItem = queue[nextIdx];
+      if (isTextCard(nextItem)) {
+        startTextCardRef.current(nextItem as PlaylistTextCard);
+      } else {
+        const clipItem = nextItem as QueueItem;
+        setActiveEventId(clipItem.event.eventId);
+        const sp = matchLookupRef.current.get(clipItem.matchId)?.syncPoint;
+        if (sp) {
+          const videoTime = computeVideoTime(clipItem.event, sp);
+          if (videoTime !== null) {
+            const { pre, post } = getClipOffsets(clipItem.matchId, clipItem.event.eventId);
+            const seekTo = Math.max(0, videoTime - preRollRef.current - pre);
+            const clipEnd = Math.max(videoTime, videoTime + postRollRef.current + post);
+            if (clipItem.matchId !== activeMatchIdRef.current) {
+              pendingSeekRef.current = { seekTo, clipEnd };
+              setActiveMatchId(clipItem.matchId);
+            } else {
+              clipEndRef.current = clipEnd;
+              const video = videoRef.current;
+              video?.pause();
+              video?.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
+              if (video) video.currentTime = seekTo;
+            }
+          }
+        }
+      }
+    } else {
+      setIsPlaying(false);
+      queueRef.current = [];
+    }
+  }
+  const advanceFromTextCardRef = useRef(advanceFromTextCard);
+  advanceFromTextCardRef.current = advanceFromTextCard;
+
+  function startTextCard(card: PlaylistTextCard) {
+    setActiveEventId(null);
+    setActiveTextCard(card);
+    activeTextCardRef.current = card;
+    videoRef.current?.pause();
+    if (textCardTimerRef.current) clearTimeout(textCardTimerRef.current);
+    textCardTimerRef.current = setTimeout(() => {
+      textCardTimerRef.current = null;
+      advanceFromTextCardRef.current();
+    }, card.durationSeconds * 1000);
+  }
+  const startTextCardRef = useRef(startTextCard);
+  startTextCardRef.current = startTextCard;
 
   // Auto-advance via timeupdate — re-binds when video source changes
   useEffect(() => {
@@ -1207,22 +1483,28 @@ export function PlaylistsPage() {
       if (nextIdx < queue.length) {
         queueIdxRef.current = nextIdx;
         const nextItem = queue[nextIdx];
-        setActiveEventId(nextItem.event.eventId);
-        const sp = matchLookupRef.current.get(nextItem.matchId)?.syncPoint;
-        if (sp) {
-          const videoTime = computeVideoTime(nextItem.event, sp);
-          if (videoTime !== null) {
-            const { pre: nextPre, post: nextPost } = getClipOffsets(nextItem.matchId, nextItem.event.eventId);
-            const seekTo = Math.max(0, videoTime - preRollRef.current - nextPre);
-            const clipEnd = Math.max(videoTime, videoTime + postRollRef.current + nextPost);
-            if (nextItem.matchId !== activeMatchIdRef.current) {
-              pendingSeekRef.current = { seekTo, clipEnd };
-              setActiveMatchId(nextItem.matchId);
-            } else {
-              clipEndRef.current = clipEnd;
-              video.pause();
-              video.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
-              video.currentTime = seekTo;
+        if (isTextCard(nextItem)) {
+          video.pause();
+          startTextCardRef.current(nextItem as PlaylistTextCard);
+        } else {
+          const clipItem = nextItem as QueueItem;
+          setActiveEventId(clipItem.event.eventId);
+          const sp = matchLookupRef.current.get(clipItem.matchId)?.syncPoint;
+          if (sp) {
+            const videoTime = computeVideoTime(clipItem.event, sp);
+            if (videoTime !== null) {
+              const { pre: nextPre, post: nextPost } = getClipOffsets(clipItem.matchId, clipItem.event.eventId);
+              const seekTo = Math.max(0, videoTime - preRollRef.current - nextPre);
+              const clipEnd = Math.max(videoTime, videoTime + postRollRef.current + nextPost);
+              if (clipItem.matchId !== activeMatchIdRef.current) {
+                pendingSeekRef.current = { seekTo, clipEnd };
+                setActiveMatchId(clipItem.matchId);
+              } else {
+                clipEndRef.current = clipEnd;
+                video.pause();
+                video.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
+                video.currentTime = seekTo;
+              }
             }
           }
         }
@@ -1238,30 +1520,35 @@ export function PlaylistsPage() {
     return () => video.removeEventListener("timeupdate", handleTimeUpdate);
   }, [localVideoUrl]);
 
-  function startQueue(queue: QueueItem[]) {
+  function startQueue(queue: PlaybackItem[]) {
     if (queue.length === 0) return;
     const firstItem = queue[0];
-    const sp = matchLookupRef.current.get(firstItem.matchId)?.syncPoint;
-    if (!sp) return;
     queueRef.current = queue;
     queueIdxRef.current = 0;
     setIsPlaying(true);
-    setActiveEventId(firstItem.event.eventId);
-    if (firstItem.matchId !== activeMatchIdRef.current) {
-      const videoTime = computeVideoTime(firstItem.event, sp);
+    if (isTextCard(firstItem)) {
+      startTextCardRef.current(firstItem as PlaylistTextCard);
+      return;
+    }
+    const clipItem = firstItem as QueueItem;
+    const sp = matchLookupRef.current.get(clipItem.matchId)?.syncPoint;
+    if (!sp) return;
+    setActiveEventId(clipItem.event.eventId);
+    if (clipItem.matchId !== activeMatchIdRef.current) {
+      const videoTime = computeVideoTime(clipItem.event, sp);
       if (videoTime !== null) {
-        const { pre, post } = getClipOffsets(firstItem.matchId, firstItem.event.eventId);
+        const { pre, post } = getClipOffsets(clipItem.matchId, clipItem.event.eventId);
         const seekTo = Math.max(0, videoTime - preRollRef.current - pre);
         pendingSeekRef.current = { seekTo, clipEnd: videoTime + postRollRef.current + post };
       }
-      setActiveMatchId(firstItem.matchId);
+      setActiveMatchId(clipItem.matchId);
     } else {
-      seekToItem(firstItem);
+      seekToItem(clipItem);
     }
   }
 
-  function handleRowClick(item: QueueItem) {
-    const idx = sortedEvents.findIndex((i) => i.event.eventId === item.event.eventId);
+  function handleRowClick(item: PlaybackItem) {
+    const idx = sortedEvents.findIndex((i) => itemKey(i) === itemKey(item));
     const queue = idx >= 0 ? sortedEvents.slice(idx) : [item];
     startQueue(queue);
   }
@@ -1275,22 +1562,30 @@ export function PlaylistsPage() {
   const _handleReplayRef = useRef(handleReplay);
   _handleReplayRef.current = handleReplay;
 
-  const listPosition = activeEventId !== null
-    ? sortedEvents.findIndex((i) => i.event.eventId === activeEventId)
-    : -1;
+  const listPosition = useMemo(() => {
+    if (activeTextCard) return sortedEvents.findIndex(i => isTextCard(i) && (i as PlaylistTextCard).id === activeTextCard.id);
+    if (activeEventId !== null) return sortedEvents.findIndex(i => !isTextCard(i) && (i as QueueItem).event.eventId === activeEventId);
+    return -1;
+  }, [activeTextCard, activeEventId, sortedEvents]);
   const canPrev = listPosition > 0;
   const canNext = listPosition >= 0 && listPosition < sortedEvents.length - 1;
 
   const handlePrev = useCallback(() => {
     const items = _sortedEventsRef.current;
-    const cur = items.findIndex((i) => i.event.eventId === _activeEventIdRef.current);
+    const cur = items.findIndex(i =>
+      isTextCard(i) ? (i as PlaylistTextCard).id === activeTextCardRef.current?.id
+                     : (i as QueueItem).event.eventId === _activeEventIdRef.current
+    );
     if (cur <= 0) return;
     _handleRowClickRef.current(items[cur - 1]);
   }, []);
 
   const handleNext = useCallback(() => {
     const items = _sortedEventsRef.current;
-    const cur = items.findIndex((i) => i.event.eventId === _activeEventIdRef.current);
+    const cur = items.findIndex(i =>
+      isTextCard(i) ? (i as PlaylistTextCard).id === activeTextCardRef.current?.id
+                     : (i as QueueItem).event.eventId === _activeEventIdRef.current
+    );
     if (cur === -1 || cur >= items.length - 1) return;
     _handleRowClickRef.current(items[cur + 1]);
   }, []);
@@ -1305,7 +1600,10 @@ export function PlaylistsPage() {
       if (e.code === "ArrowLeft") { _handleReplayRef.current(); return; }
       const items = _sortedEventsRef.current;
       if (items.length === 0) return;
-      const cur = items.findIndex((i) => i.event.eventId === _activeEventIdRef.current);
+      const cur = items.findIndex(i =>
+        isTextCard(i) ? (i as PlaylistTextCard).id === activeTextCardRef.current?.id
+                       : (i as QueueItem).event.eventId === _activeEventIdRef.current
+      );
       const next = e.code === "ArrowDown"
         ? cur === -1 ? 0 : Math.min(cur + 1, items.length - 1)
         : cur === -1 ? items.length - 1 : Math.max(cur - 1, 0);
@@ -1320,39 +1618,103 @@ export function PlaylistsPage() {
     document.querySelector(`[data-event-id="${activeEventId}"]`)?.scrollIntoView({ block: "nearest" });
   }, [activeEventId]);
 
-  async function handleReorder(newItems: QueueItem[]) {
+  useEffect(() => {
+    if (!newlyInsertedCardId) return;
+    document.querySelector(`[data-text-card-id="${newlyInsertedCardId}"]`)
+      ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    setNewlyInsertedCardId(null);
+  }, [newlyInsertedCardId, sortedEvents]);
+
+  async function handleReorder(newDisplayItems: PlaybackItem[]) {
     if (!selected) return;
+    // Map display items back to PlaylistItems, preserving all original fields.
     const clipMap = new Map(
-      selected.clips.map((c) => [`${c.matchId}:${c.eventId}`, c])
+      selected.items.filter(isClipItem).map((c) => [`${c.matchId}:${c.eventId}`, c])
     );
-    const newClips: PlaylistClip[] = newItems.map((item) => {
-      const key = `${item.matchId}:${item.event.eventId}`;
-      return clipMap.get(key) ?? { matchId: item.matchId, eventId: item.event.eventId };
+    const textCardMap = new Map(
+      selected.items.filter((i) => !isClipItem(i)).map((c) => [(c as PlaylistTextCard).id, c as PlaylistTextCard])
+    );
+    const newItems: PlaylistItem[] = newDisplayItems.map((item) => {
+      if (isTextCard(item)) return textCardMap.get((item as PlaylistTextCard).id) ?? item as PlaylistTextCard;
+      const qi = item as QueueItem;
+      return clipMap.get(`${qi.matchId}:${qi.event.eventId}`) ?? { type: 'clip' as const, matchId: qi.matchId, eventId: qi.event.eventId };
     });
-    const updatedPlaylist = { ...selected, clips: newClips };
+    const updatedPlaylist = { ...selected, items: newItems };
     setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updatedPlaylist : p));
     setSelected(updatedPlaylist);
-    await reorderClips(selected.id, newClips);
+    await reorderItems(selected.id, newItems);
   }
 
   // ---------------------------------------------------------------------------
   // Clip drag handlers (HTML5)
   // ---------------------------------------------------------------------------
 
+  function recalcDragPosition(x: number, y: number) {
+    const scrollEl = playlistScrollRef.current;
+    if (!scrollEl) return;
+    const trs = scrollEl.querySelectorAll('tbody tr');
+    for (let i = 0; i < trs.length; i++) {
+      const rect = trs[i].getBoundingClientRect();
+      if (y >= rect.top && y < rect.bottom) {
+        setClipDragOverIndex(i);
+        setClipDragOverPosition(y < rect.top + rect.height / 2 ? 'above' : 'below');
+        return;
+      }
+    }
+  }
+
   function handleClipDragStart(e: React.DragEvent, key: string) {
     e.dataTransfer.setData("text/clip", key);
     e.dataTransfer.effectAllowed = "move";
     setClipDragKey(key);
+
+    function step() {
+      const cursor = dragCursorRef.current;
+      const scrollEl = playlistScrollRef.current;
+      if (cursor && scrollEl) {
+        const containerRect = scrollEl.getBoundingClientRect();
+        const threshold = 80;
+        let delta = 0;
+        if (cursor.y < containerRect.top + threshold) {
+          delta = -10 * (1 - (cursor.y - containerRect.top) / threshold);
+        } else if (cursor.y > containerRect.bottom - threshold) {
+          delta = 10 * (1 - (containerRect.bottom - cursor.y) / threshold);
+        }
+        if (delta !== 0) {
+          scrollEl.scrollBy(0, delta);
+          recalcDragPosition(cursor.x, cursor.y);
+        }
+      }
+      dragScrollRAFRef.current = requestAnimationFrame(step);
+    }
+    dragScrollRAFRef.current = requestAnimationFrame(step);
   }
 
   function handleClipDragOver(e: React.DragEvent, index: number) {
     if (!e.dataTransfer.types.includes("text/clip")) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
+    dragCursorRef.current = { x: e.clientX, y: e.clientY };
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const position = e.clientY < rect.top + rect.height / 2 ? "above" : "below";
     setClipDragOverIndex(index);
     setClipDragOverPosition(position);
+  }
+
+  function handleClipDragEnd() {
+    if (dragScrollRAFRef.current !== null) {
+      cancelAnimationFrame(dragScrollRAFRef.current);
+      dragScrollRAFRef.current = null;
+    }
+    dragCursorRef.current = null;
+    setClipDragKey(null);
+    setClipDragOverIndex(null);
+    setClipDragOverPlaylistId(null);
+    setClipExpandFolderId(null);
+    if (clipDragFolderExpandTimerRef.current) {
+      clearTimeout(clipDragFolderExpandTimerRef.current);
+      clipDragFolderExpandTimerRef.current = null;
+    }
   }
 
   function handleClipDrop(e: React.DragEvent, targetIndex: number) {
@@ -1360,9 +1722,7 @@ export function PlaylistsPage() {
     const key = e.dataTransfer.getData("text/clip");
     if (!key || !selected) return;
     setClipDragOverIndex(null);
-    const sourceIndex = sortedEvents.findIndex(
-      (i) => `${i.matchId}:${i.event.eventId}` === key
-    );
+    const sourceIndex = sortedEvents.findIndex((i) => itemKey(i) === key);
     if (sourceIndex === -1 || sourceIndex === targetIndex) return;
     const insertIndex = clipDragOverPosition === "above" ? targetIndex : targetIndex + 1;
     const adjusted = insertIndex > sourceIndex ? insertIndex - 1 : insertIndex;
@@ -1373,19 +1733,21 @@ export function PlaylistsPage() {
   }
 
   async function handleClipDropOnPlaylist(targetPlaylistId: string, clipKey: string) {
+    // Text cards can't be dropped onto other playlists
+    if (clipKey.startsWith("text:")) return;
     const colonIdx = clipKey.indexOf(":");
     const matchId = clipKey.slice(0, colonIdx);
     const eventId = Number(clipKey.slice(colonIdx + 1));
     const target = playlists.find((p) => p.id === targetPlaylistId);
     if (!target) return;
-    if (target.clips.some((c) => c.matchId === matchId && c.eventId === eventId)) return;
-    const sourceClip = selected?.clips.find((c) => c.matchId === matchId && c.eventId === eventId)
-      ?? { matchId, eventId };
-    const newClips = [...target.clips, sourceClip];
-    await addClips(targetPlaylistId, [sourceClip], target.clips.length);
+    if (target.items.filter(isClipItem).some((c) => c.matchId === matchId && c.eventId === eventId)) return;
+    const sourceClip: PlaylistClipItem = selected?.items.filter(isClipItem).find((c) => c.matchId === matchId && c.eventId === eventId)
+      ?? { type: 'clip', matchId, eventId };
+    const newItems = [...target.items, sourceClip];
+    await addClips(targetPlaylistId, [sourceClip], target.items.length);
     trackEvent('clip_added_to_playlist', { playlist_id: targetPlaylistId, match_id: matchId })
-    setPlaylists((prev) => prev.map((p) => p.id === targetPlaylistId ? { ...p, clips: newClips } : p));
-    if (selected?.id === targetPlaylistId) setSelected((prev) => prev ? { ...prev, clips: newClips } : prev);
+    setPlaylists((prev) => prev.map((p) => p.id === targetPlaylistId ? { ...p, items: newItems } : p));
+    if (selected?.id === targetPlaylistId) setSelected((prev) => prev ? { ...prev, items: newItems } : prev);
   }
 
   // ---------------------------------------------------------------------------
@@ -1395,37 +1757,40 @@ export function PlaylistsPage() {
   async function handleExport() {
     setIsExporting(true);
     setExportError(null);
-    let clipCount = 0;
+    let segmentCount = 0;
     try {
-      const eventsToExport = selectedClipIds.size > 0
-        ? sortedEvents.filter(item =>
-            selectedClipIds.has(`${item.matchId}:${item.event.eventId}`)
-          )
+      const itemsToExport = selectedClipIds.size > 0
+        ? sortedEvents.filter(item => selectedClipIds.has(itemKey(item)))
         : sortedEvents;
 
-      const items = eventsToExport
-        .map((item): ExportItem | null => {
-          const m = matchLookup.get(item.matchId);
+      const segments = itemsToExport
+        .map((item): ExportSegment | null => {
+          if (isTextCard(item)) {
+            return { kind: 'text', text: (item as PlaylistTextCard).text, durationSeconds: (item as PlaylistTextCard).durationSeconds };
+          }
+          const qi = item as QueueItem;
+          const m = matchLookup.get(qi.matchId);
           if (!m?.videoUrl || !m.syncPoint) return null;
-          const clip = selected?.clips.find(
-            (c) => c.matchId === item.matchId && c.eventId === item.event.eventId
+          const clip = selected?.items.filter(isClipItem).find(
+            (c) => c.matchId === qi.matchId && c.eventId === qi.event.eventId
           );
-          const exportItem: ExportItem = {
+          const seg: ExportSegment = {
+            kind: 'clip',
             videoPath: m.videoUrl,
-            event: item.event,
+            event: qi.event,
             syncPoint: m.syncPoint,
           };
-          if (clip?.preRollOffset !== undefined) exportItem.preRollOffset = clip.preRollOffset;
-          if (clip?.postRollOffset !== undefined) exportItem.postRollOffset = clip.postRollOffset;
-          return exportItem;
+          if (clip?.preRollOffset !== undefined) (seg as Extract<ExportSegment, { kind: 'clip' }>).preRollOffset = clip.preRollOffset;
+          if (clip?.postRollOffset !== undefined) (seg as Extract<ExportSegment, { kind: 'clip' }>).postRollOffset = clip.postRollOffset;
+          return seg;
         })
-        .filter((x): x is ExportItem => x !== null);
-      clipCount = items.length;
-      await exportPlaylist(items, preRoll, postRoll, selected!.name);
-      trackEvent('video_exported', { playlist_id: selected!.id, clip_count: clipCount, status: 'success', selection_only: selectedClipIds.size > 0 });
+        .filter((x): x is ExportSegment => x !== null);
+      segmentCount = segments.filter(s => s.kind === 'clip').length;
+      await exportPlaylist(segments, preRoll, postRoll, selected!.name);
+      trackEvent('video_exported', { playlist_id: selected!.id, clip_count: segmentCount, status: 'success', selection_only: selectedClipIds.size > 0 });
     } catch (e) {
       setExportError(e instanceof Error ? e.message : String(e));
-      trackEvent('video_exported', { playlist_id: selected!.id, clip_count: clipCount, status: 'error' });
+      trackEvent('video_exported', { playlist_id: selected!.id, clip_count: segmentCount, status: 'error' });
     } finally {
       setIsExporting(false);
     }
@@ -1570,7 +1935,7 @@ export function PlaylistsPage() {
     if (browserPanelRef.current?.isCollapsed()) browserPanelRef.current.expand();
     const tempId = `temp-${Date.now()}`;
     const folderId = selected?.folderId;
-    const tempPlaylist: Playlist = { id: tempId, name: "New Playlist", clips: [], folderId };
+    const tempPlaylist: Playlist = { id: tempId, name: "New Playlist", items: [], folderId };
     setPendingNewPlaylistId(tempId);
     setPlaylists((prev) => [tempPlaylist, ...prev]);
     if (folderId) {
@@ -1586,13 +1951,13 @@ export function PlaylistsPage() {
   // Add clips from clip browser
   // ---------------------------------------------------------------------------
 
-  async function handleAddClips(newClips: PlaylistClip[]) {
+  async function handleAddClips(newClips: PlaylistClipItem[]) {
     if (!selected || newClips.length === 0) return;
-    const updatedClips = [...selected.clips, ...newClips];
-    const updatedPlaylist = { ...selected, clips: updatedClips };
+    const updatedItems = [...selected.items, ...newClips];
+    const updatedPlaylist = { ...selected, items: updatedItems };
     setSelected(updatedPlaylist);
     setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updatedPlaylist : p));
-    await addClips(selected.id, newClips, selected.clips.length);
+    await addClips(selected.id, newClips, selected.items.length);
     newClips.forEach((clip) => {
       trackEvent('clip_added_to_playlist', { playlist_id: selected.id, match_id: clip.matchId })
     })
@@ -1604,7 +1969,7 @@ export function PlaylistsPage() {
 
   const allSelected =
     sortedEvents.length > 0 &&
-    sortedEvents.every((item) => selectedClipIds.has(`${item.matchId}:${item.event.eventId}`));
+    sortedEvents.every((item) => selectedClipIds.has(itemKey(item)));
 
   function toggleSelectClip(key: string, e: React.MouseEvent) {
     e.stopPropagation();
@@ -1620,54 +1985,126 @@ export function PlaylistsPage() {
     if (allSelected) {
       setSelectedClipIds(new Set());
     } else {
-      setSelectedClipIds(new Set(sortedEvents.map((i) => `${i.matchId}:${i.event.eventId}`)));
+      setSelectedClipIds(new Set(sortedEvents.map(itemKey)));
     }
   }
 
   async function handleRemoveSelected() {
     if (!selected) return;
-    const newClips = selected.clips.filter(
-      (c) => !selectedClipIds.has(`${c.matchId}:${c.eventId}`)
-    );
-    const updated = { ...selected, clips: newClips };
+    const newItems = selected.items.filter((c) => {
+      const k = isClipItem(c) ? `${c.matchId}:${c.eventId}` : `text:${(c as PlaylistTextCard).id}`;
+      return !selectedClipIds.has(k);
+    });
+    const updated = { ...selected, items: newItems };
     setSelected(updated);
     setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updated : p));
-    const keysToRemove = selected.clips.filter(
-      (c) => selectedClipIds.has(`${c.matchId}:${c.eventId}`)
-    ).map((c) => ({ matchId: c.matchId, eventId: c.eventId }));
-    await removeClips(selected.id, keysToRemove);
+    const clipKeysToRemove = selected.items.filter(isClipItem)
+      .filter((c) => selectedClipIds.has(`${c.matchId}:${c.eventId}`))
+      .map((c) => ({ matchId: c.matchId, eventId: c.eventId }));
+    const textCardIdsToRemove = selected.items.filter((i) => !isClipItem(i))
+      .filter((c) => selectedClipIds.has(`text:${(c as PlaylistTextCard).id}`))
+      .map((c) => (c as PlaylistTextCard).id);
+    await removeClips(selected.id, clipKeysToRemove, textCardIdsToRemove);
     setSelectedClipIds(new Set());
   }
 
   async function handleAddSelectedToPlaylist(target: Playlist) {
     if (!selected) return;
-    const existingSet = new Set(target.clips.map((c) => `${c.matchId}:${c.eventId}`));
-    const toAdd: PlaylistClip[] = sortedEvents
-      .filter((item) => {
-        const key = `${item.matchId}:${item.event.eventId}`;
+    const existingSet = new Set(target.items.filter(isClipItem).map((c) => `${c.matchId}:${c.eventId}`));
+    const toAdd: PlaylistClipItem[] = sortedEvents
+      .filter((item): item is QueueItem => {
+        if (isTextCard(item)) return false;
+        const key = `${(item as QueueItem).matchId}:${(item as QueueItem).event.eventId}`;
         return selectedClipIds.has(key) && !existingSet.has(key);
       })
       .map((item) =>
-        selected.clips.find((c) => c.matchId === item.matchId && c.eventId === item.event.eventId)
-        ?? { matchId: item.matchId, eventId: item.event.eventId }
+        selected.items.filter(isClipItem).find((c) => c.matchId === item.matchId && c.eventId === item.event.eventId)
+        ?? { type: 'clip' as const, matchId: item.matchId, eventId: item.event.eventId }
       );
-    const newClips = [...target.clips, ...toAdd];
-    await addClips(target.id, toAdd, target.clips.length);
+    const newItems = [...target.items, ...toAdd];
+    await addClips(target.id, toAdd, target.items.length);
     toAdd.forEach((clip) => {
       trackEvent('clip_added_to_playlist', { playlist_id: target.id, match_id: clip.matchId })
     })
-    setPlaylists((prev) => prev.map((p) => p.id === target.id ? { ...p, clips: newClips } : p));
+    setPlaylists((prev) => prev.map((p) => p.id === target.id ? { ...p, items: newItems } : p));
     setSelectedClipIds(new Set());
     setShowAddToDropdown(false);
     setAddToSearch("");
   }
 
-  const noSync = selected !== null && !matchLookup.get(primaryMatchId(selected) ?? "")?.syncPoint;
+  // ---------------------------------------------------------------------------
+  // Text card operations
+  // ---------------------------------------------------------------------------
+
+  async function handleInsertTextCard(insertAboveIndex: number) {
+    if (!selected) return;
+    const newCard: PlaylistTextCard = {
+      type: 'text',
+      id: crypto.randomUUID(),
+      text: '',
+      durationSeconds: 5,
+    };
+    // Find the target item in selected.items that corresponds to displayItems[insertAboveIndex]
+    const targetDisplayItem = sortedEvents[insertAboveIndex];
+    const targetKey = targetDisplayItem ? itemKey(targetDisplayItem) : null;
+    const insertAt = targetKey
+      ? selected.items.findIndex((item) =>
+          isClipItem(item)
+            ? `${item.matchId}:${item.eventId}` === targetKey
+            : `text:${(item as PlaylistTextCard).id}` === targetKey
+        )
+      : selected.items.length;
+    const finalInsertAt = insertAt >= 0 ? insertAt : selected.items.length;
+    const newItems: PlaylistItem[] = [
+      ...selected.items.slice(0, finalInsertAt),
+      newCard,
+      ...selected.items.slice(finalInsertAt),
+    ];
+    const updated = { ...selected, items: newItems };
+    setSelected(updated);
+    setNewlyInsertedCardId(newCard.id);
+    setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updated : p));
+    await insertTextCard(selected.id, newCard.id, '', 5, finalInsertAt);
+    await reorderItems(selected.id, newItems);
+  }
+
+  function handleTextCardTextChange(id: string, text: string) {
+    if (!selected) return;
+    const newItems = selected.items.map((c) =>
+      !isClipItem(c) && (c as PlaylistTextCard).id === id ? { ...c, text } : c
+    );
+    const updated = { ...selected, items: newItems };
+    setSelected(updated);
+    setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updated : p));
+  }
+
+  function handleTextCardTextSave(id: string, text: string) {
+    if (!selected) return;
+    updateTextCard(selected.id, id, { text }).catch(() => {});
+  }
+
+  function handleTextCardDurationChange(id: string, durationSeconds: number) {
+    if (!selected) return;
+    const newItems = selected.items.map((c) =>
+      !isClipItem(c) && (c as PlaylistTextCard).id === id ? { ...c, durationSeconds } : c
+    );
+    const updated = { ...selected, items: newItems };
+    setSelected(updated);
+    setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updated : p));
+    updateTextCard(selected.id, id, { durationSeconds }).catch(() => {});
+  }
+
+  // ---------------------------------------------------------------------------
+
+  const hasAnyClips = sortedEvents.some((i) => !isTextCard(i));
+  const noSync = selected !== null && hasAnyClips && !matchLookup.get(primaryMatchId(selected) ?? "")?.syncPoint;
   const noVideo = selected !== null && !matchLookup.get(primaryMatchId(selected) ?? "")?.videoUrl;
 
   const exportDisabledReason = (() => {
     if (!selected || sortedEvents.length === 0) return "Playlist is empty";
-    const involvedMatchIds = new Set(sortedEvents.map((i) => i.matchId));
+    const involvedMatchIds = new Set(
+      sortedEvents.filter((i) => !isTextCard(i)).map((i) => (i as QueueItem).matchId)
+    );
     for (const mId of involvedMatchIds) {
       const m = matchLookup.get(mId);
       if (!m?.videoUrl || !isLocalPath(m.videoUrl))
@@ -1988,7 +2425,7 @@ export function PlaylistsPage() {
                                   </div>
                                   <div className="ml-2 flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
                                     <span className={`text-xs text-muted-foreground ${openMenuPlaylistId === pl.id ? "hidden" : "group-hover:hidden"}`}>
-                                      {pl.clips.length}
+                                      {pl.items.length}
                                     </span>
                                     <DropdownMenu
                                       open={openMenuPlaylistId === pl.id}
@@ -2170,7 +2607,7 @@ export function PlaylistsPage() {
                                 </div>
                                 <div className="ml-2 flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
                                   <span className={`text-xs text-muted-foreground ${openMenuPlaylistId === pl.id ? "hidden" : "group-hover:hidden"}`}>
-                                    {pl.clips.length}
+                                    {pl.items.length}
                                   </span>
                                   <DropdownMenu
                                     open={openMenuPlaylistId === pl.id}
@@ -2279,7 +2716,7 @@ export function PlaylistsPage() {
                     </span>
                   )}
                   <span className="text-xs text-muted-foreground">
-                    {selected.clips.length} clip{selected.clips.length !== 1 ? "s" : ""}
+                    {selected.items.length} item{selected.items.length !== 1 ? "s" : ""}
                     {isMultiMatch ? " · multiple games" : ""}
                   </span>
                 </div>
@@ -2337,7 +2774,14 @@ export function PlaylistsPage() {
                 <div className="flex h-full flex-col gap-2 pb-3 min-w-0">
                 {localVideoUrl ? (
                   <>
-                    <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
+                    <div className="relative">
+                      <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
+                      {activeTextCard && (
+                        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black transition-opacity duration-200">
+                          <p className="text-center text-4xl font-semibold text-white px-8">{activeTextCard.text}</p>
+                        </div>
+                      )}
+                    </div>
                     <VideoClipControls
                       videoRef={videoRef}
                       canPrev={canPrev}
@@ -2347,7 +2791,7 @@ export function PlaylistsPage() {
                       onNext={handleNext}
                       onReplay={handleReplay}
                       onStop={handleStop}
-                      onPlayAll={() => startQueue([...sortedEvents])}
+                      onPlayAll={() => startQueue(sortedEvents)}
                       activeClipPreOffset={activeClipOffsets.pre}
                       activeClipPostOffset={activeClipOffsets.post}
                       onPreOffsetChange={(delta) => adjustActiveClip(delta, 0)}
@@ -2366,7 +2810,7 @@ export function PlaylistsPage() {
                 ) : (
                   <div className="space-y-2">
                     <VideoPlaceholder />
-                    {noVideo && selected.clips.length > 0 && (
+                    {noVideo && selected.items.filter(isClipItem).length > 0 && (
                       <p className="text-center text-xs text-muted-foreground">
                         No video linked. Add one in the game.
                       </p>
@@ -2381,7 +2825,7 @@ export function PlaylistsPage() {
                 <ResizablePanel defaultSize={30} minSize={20}>
                 <div className="flex h-full flex-col gap-3 overflow-hidden pt-3">
                 <div className="flex shrink-0 flex-col gap-3">
-                {noSync && selected.clips.length > 0 && (
+                {noSync && selected.items.filter(isClipItem).length > 0 && (
                   <div className="rounded-md bg-amber-50 dark:bg-amber-950 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300">
                     No sync point — set one in the game to enable playback controls.
                   </div>
@@ -2408,7 +2852,7 @@ export function PlaylistsPage() {
                       onChange={(e) => setPostRoll(Number(e.target.value))}
                     />
                   </div>
-                  <div className="ml-auto flex items-center gap-2">
+                  <div className="flex items-center gap-2">
                     <Button
                       size="sm"
                       className="h-8 gap-1.5"
@@ -2416,6 +2860,15 @@ export function PlaylistsPage() {
                     >
                       <Plus className="h-3.5 w-3.5" />
                       Add Clips
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 gap-1.5"
+                      onClick={() => handleInsertTextCard(sortedEvents.length)}
+                    >
+                      <Type className="h-3.5 w-3.5" />
+                      Add Text Card
                     </Button>
                     <div className="h-4 w-px bg-border" />
                     {isPlaying ? (
@@ -2428,7 +2881,7 @@ export function PlaylistsPage() {
                         size="sm"
                         variant="outline"
                         className="h-8 gap-1.5"
-                        onClick={() => startQueue([...sortedEvents])}
+                        onClick={() => startQueue(sortedEvents)}
                         disabled={sortedEvents.length === 0 || noSync}
                       >
                         <SkipForward className="h-3.5 w-3.5" />
@@ -2451,7 +2904,7 @@ export function PlaylistsPage() {
                       >
                         <FileDown className="h-3.5 w-3.5" />
                         {selectedClipIds.size > 0
-                          ? `Export ${selectedClipIds.size} clip${selectedClipIds.size !== 1 ? 's' : ''}`
+                          ? `Export ${selectedClipIds.size} selected`
                           : 'Export Playlist'}
                       </Button>
                     )}
@@ -2460,9 +2913,48 @@ export function PlaylistsPage() {
                     <p className="w-full text-xs text-red-500 mt-1">{exportError}</p>
                   )}
                 </div>
+                {selectedClipIds.size > 0 && (
+                  <div className="flex items-center gap-3 rounded-lg bg-primary/10 px-4 py-2.5">
+                    <span className="text-sm font-medium text-primary">
+                      {selectedClipIds.size} item{selectedClipIds.size !== 1 ? "s" : ""} selected
+                    </span>
+                    <div className="ml-auto flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        className="h-7 gap-1 bg-red-600 px-2 text-xs text-white hover:bg-red-700"
+                        onClick={handleRemoveSelected}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Remove from playlist
+                      </Button>
+                      {playlists.filter((p) => p.id !== selected?.id).length > 0 && (
+                        <div ref={addToDropdownRef} className="relative">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 gap-1 px-2 text-xs"
+                            onClick={() => { setShowAddToDropdown((v) => !v); setAddToSearch(""); }}
+                          >
+                            Add to another playlist
+                            <ChevronDown className="h-3 w-3" />
+                          </Button>
+                          {showAddToDropdown && (
+                            <AddToDropdown
+                              playlists={playlists}
+                              activePlaylistId={selected?.id ?? null}
+                              addToSearch={addToSearch}
+                              setAddToSearch={setAddToSearch}
+                              onAddToPlaylist={handleAddSelectedToPlaylist}
+                            />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto">
+                <div ref={playlistScrollRef} className="min-h-0 flex-1 overflow-y-auto">
                 {sortedEvents.length === 0 ? (
                   <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
                     <p className="text-sm text-muted-foreground">
@@ -2479,46 +2971,6 @@ export function PlaylistsPage() {
                     </Button>
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-2">
-                  {selectedClipIds.size > 0 && (
-                    <div className="flex items-center gap-3 rounded-lg bg-primary/10 px-4 py-2.5">
-                      <span className="text-sm font-medium text-primary">
-                        {selectedClipIds.size} clip{selectedClipIds.size !== 1 ? "s" : ""} selected
-                      </span>
-                      <div className="ml-auto flex items-center gap-2">
-                        <Button
-                          size="sm"
-                          className="h-7 gap-1 bg-red-600 px-2 text-xs text-white hover:bg-red-700"
-                          onClick={handleRemoveSelected}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          Remove from playlist
-                        </Button>
-                        {playlists.filter((p) => p.id !== selected?.id).length > 0 && (
-                          <div ref={addToDropdownRef} className="relative">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 gap-1 px-2 text-xs"
-                              onClick={() => { setShowAddToDropdown((v) => !v); setAddToSearch(""); }}
-                            >
-                              Add to another playlist
-                              <ChevronDown className="h-3 w-3" />
-                            </Button>
-                            {showAddToDropdown && (
-                              <AddToDropdown
-                                playlists={playlists}
-                                activePlaylistId={selected?.id ?? null}
-                                addToSearch={addToSearch}
-                                setAddToSearch={setAddToSearch}
-                                onAddToPlaylist={handleAddSelectedToPlaylist}
-                              />
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
                   <div className="overflow-hidden rounded-lg border border-border">
                     <table className="w-full text-sm">
                       <thead className="border-b border-border bg-muted/80 text-xs font-medium text-muted-foreground">
@@ -2534,13 +2986,14 @@ export function PlaylistsPage() {
                           </th>
                           <th className="px-4 py-2.5 text-left">Period</th>
                           <th
-                            className="px-4 py-2.5 text-left cursor-pointer select-none hover:text-foreground"
-                            onClick={() => setClockSort((s) => s === "none" ? "asc" : s === "asc" ? "desc" : "none")}
+                            className={`px-4 py-2.5 text-left select-none ${hasTextCards ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:text-foreground"}`}
+                            onClick={() => !hasTextCards && setClockSort((s) => s === "none" ? "asc" : s === "asc" ? "desc" : "none")}
+                            title={hasTextCards ? "Clock sort is unavailable when text cards are present" : undefined}
                           >
                             <span className="inline-flex items-center gap-1">
                               Clock
-                              {clockSort === "asc" && <ArrowUp className="h-3 w-3" />}
-                              {clockSort === "desc" && <ArrowDown className="h-3 w-3" />}
+                              {!hasTextCards && clockSort === "asc" && <ArrowUp className="h-3 w-3" />}
+                              {!hasTextCards && clockSort === "desc" && <ArrowDown className="h-3 w-3" />}
                             </span>
                           </th>
                           {isMultiMatch && <th className="px-4 py-2.5 text-left">Game</th>}
@@ -2552,18 +3005,43 @@ export function PlaylistsPage() {
                       </thead>
                       <tbody className="divide-y divide-border bg-card">
                         {sortedEvents.map((item, index) => {
-                          const key = `${item.matchId}:${item.event.eventId}`;
-                          const clip = selected?.clips.find(
-                            (c) => c.matchId === item.matchId && c.eventId === item.event.eventId
+                          const key = itemKey(item);
+                          if (isTextCard(item)) {
+                            const card = item as PlaylistTextCard;
+                            return (
+                              <TextCardRow
+                                key={key}
+                                card={card}
+                                index={index}
+                                isActive={activeTextCard?.id === card.id}
+                                isSelected={selectedClipIds.has(key)}
+                                onSelect={(e) => toggleSelectClip(key, e)}
+                                isDragTarget={clipDragOverIndex === index}
+                                dragTargetPosition={clipDragOverPosition}
+                                onClick={() => handleRowClick(card)}
+                                onDragStart={(e) => handleClipDragStart(e, key)}
+                                onDragOver={(e, i) => handleClipDragOver(e, i)}
+                                onDragLeave={() => setClipDragOverIndex(null)}
+                                onDrop={(e, i) => handleClipDrop(e, i)}
+                                onDragEnd={handleClipDragEnd}
+                                onTextChange={handleTextCardTextChange}
+                                onTextSave={handleTextCardTextSave}
+                                onDurationChange={handleTextCardDurationChange}
+                              />
+                            );
+                          }
+                          const queueItem = item as QueueItem;
+                          const clip = selected?.items.filter(isClipItem).find(
+                            (c) => c.matchId === queueItem.matchId && c.eventId === queueItem.event.eventId
                           );
                           return (
                             <DraggableRow
                               key={key}
                               index={index}
-                              item={item}
-                              isActive={item.event.eventId === activeEventId}
+                              item={queueItem}
+                              isActive={queueItem.event.eventId === activeEventId}
                               isMultiMatch={isMultiMatch}
-                              matchTitle={matchLookup.get(item.matchId)?.title}
+                              matchTitle={matchLookup.get(queueItem.matchId)?.title}
                               preOffset={clip?.preRollOffset ?? 0}
                               postOffset={clip?.postRollOffset ?? 0}
                               note={clip?.note}
@@ -2571,27 +3049,18 @@ export function PlaylistsPage() {
                               onSelect={(e) => toggleSelectClip(key, e)}
                               isDragTarget={clipDragOverIndex === index}
                               dragTargetPosition={clipDragOverPosition}
-                              onClick={() => handleRowClick(item)}
+                              onClick={() => handleRowClick(queueItem)}
                               onDragStart={(e) => handleClipDragStart(e, key)}
                               onDragOver={(e, i) => handleClipDragOver(e, i)}
                               onDragLeave={() => setClipDragOverIndex(null)}
                               onDrop={(e, i) => handleClipDrop(e, i)}
-                              onDragEnd={() => {
-                                setClipDragKey(null);
-                                setClipDragOverIndex(null);
-                                setClipDragOverPlaylistId(null);
-                                setClipExpandFolderId(null);
-                                if (clipDragFolderExpandTimerRef.current) {
-                                  clearTimeout(clipDragFolderExpandTimerRef.current);
-                                  clipDragFolderExpandTimerRef.current = null;
-                                }
-                              }}
+                              onDragEnd={handleClipDragEnd}
+                              onInsertTextCardAbove={() => handleInsertTextCard(index)}
                             />
                           );
                         })}
                       </tbody>
                     </table>
-                  </div>
                   </div>
                 )}
                 </div>
@@ -2603,7 +3072,7 @@ export function PlaylistsPage() {
                 <ResizablePanel defaultSize={45} minSize={20}>
                 <div className="flex h-full flex-col gap-3 overflow-hidden pr-3">
                 <div className="flex shrink-0 flex-col gap-3">
-                {noSync && selected.clips.length > 0 && (
+                {noSync && selected.items.filter(isClipItem).length > 0 && (
                   <div className="rounded-md bg-amber-50 dark:bg-amber-950 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300">
                     No sync point — set one in the game to enable playback controls.
                   </div>
@@ -2630,7 +3099,7 @@ export function PlaylistsPage() {
                       onChange={(e) => setPostRoll(Number(e.target.value))}
                     />
                   </div>
-                  <div className="ml-auto flex items-center gap-2">
+                  <div className="flex items-center gap-2">
                     <Button
                       size="sm"
                       className="h-8 gap-1.5"
@@ -2638,6 +3107,15 @@ export function PlaylistsPage() {
                     >
                       <Plus className="h-3.5 w-3.5" />
                       Add Clips
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 gap-1.5"
+                      onClick={() => handleInsertTextCard(sortedEvents.length)}
+                    >
+                      <Type className="h-3.5 w-3.5" />
+                      Add Text Card
                     </Button>
                     <div className="h-4 w-px bg-border" />
                     {isPlaying ? (
@@ -2650,7 +3128,7 @@ export function PlaylistsPage() {
                         size="sm"
                         variant="outline"
                         className="h-8 gap-1.5"
-                        onClick={() => startQueue([...sortedEvents])}
+                        onClick={() => startQueue(sortedEvents)}
                         disabled={sortedEvents.length === 0 || noSync}
                       >
                         <SkipForward className="h-3.5 w-3.5" />
@@ -2673,7 +3151,7 @@ export function PlaylistsPage() {
                       >
                         <FileDown className="h-3.5 w-3.5" />
                         {selectedClipIds.size > 0
-                          ? `Export ${selectedClipIds.size} clip${selectedClipIds.size !== 1 ? 's' : ''}`
+                          ? `Export ${selectedClipIds.size} selected`
                           : 'Export Playlist'}
                       </Button>
                     )}
@@ -2682,9 +3160,48 @@ export function PlaylistsPage() {
                     <p className="w-full text-xs text-red-500 mt-1">{exportError}</p>
                   )}
                 </div>
+                {selectedClipIds.size > 0 && (
+                  <div className="flex items-center gap-3 rounded-lg bg-primary/10 px-4 py-2.5">
+                    <span className="text-sm font-medium text-primary">
+                      {selectedClipIds.size} item{selectedClipIds.size !== 1 ? "s" : ""} selected
+                    </span>
+                    <div className="ml-auto flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        className="h-7 gap-1 bg-red-600 px-2 text-xs text-white hover:bg-red-700"
+                        onClick={handleRemoveSelected}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Remove from playlist
+                      </Button>
+                      {playlists.filter((p) => p.id !== selected?.id).length > 0 && (
+                        <div ref={addToDropdownRef} className="relative">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 gap-1 px-2 text-xs"
+                            onClick={() => { setShowAddToDropdown((v) => !v); setAddToSearch(""); }}
+                          >
+                            Add to another playlist
+                            <ChevronDown className="h-3 w-3" />
+                          </Button>
+                          {showAddToDropdown && (
+                            <AddToDropdown
+                              playlists={playlists}
+                              activePlaylistId={selected?.id ?? null}
+                              addToSearch={addToSearch}
+                              setAddToSearch={setAddToSearch}
+                              onAddToPlaylist={handleAddSelectedToPlaylist}
+                            />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto">
+                <div ref={playlistScrollRef} className="min-h-0 flex-1 overflow-y-auto">
                 {sortedEvents.length === 0 ? (
                   <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
                     <p className="text-sm text-muted-foreground">
@@ -2701,46 +3218,6 @@ export function PlaylistsPage() {
                     </Button>
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-2">
-                  {selectedClipIds.size > 0 && (
-                    <div className="flex items-center gap-3 rounded-lg bg-primary/10 px-4 py-2.5">
-                      <span className="text-sm font-medium text-primary">
-                        {selectedClipIds.size} clip{selectedClipIds.size !== 1 ? "s" : ""} selected
-                      </span>
-                      <div className="ml-auto flex items-center gap-2">
-                        <Button
-                          size="sm"
-                          className="h-7 gap-1 bg-red-600 px-2 text-xs text-white hover:bg-red-700"
-                          onClick={handleRemoveSelected}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          Remove from playlist
-                        </Button>
-                        {playlists.filter((p) => p.id !== selected?.id).length > 0 && (
-                          <div ref={addToDropdownRef} className="relative">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 gap-1 px-2 text-xs"
-                              onClick={() => { setShowAddToDropdown((v) => !v); setAddToSearch(""); }}
-                            >
-                              Add to another playlist
-                              <ChevronDown className="h-3 w-3" />
-                            </Button>
-                            {showAddToDropdown && (
-                              <AddToDropdown
-                                playlists={playlists}
-                                activePlaylistId={selected?.id ?? null}
-                                addToSearch={addToSearch}
-                                setAddToSearch={setAddToSearch}
-                                onAddToPlaylist={handleAddSelectedToPlaylist}
-                              />
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
                   <div className="overflow-hidden rounded-lg border border-border">
                     <table className="w-full text-sm">
                       <thead className="border-b border-border bg-muted/80 text-xs font-medium text-muted-foreground">
@@ -2756,13 +3233,14 @@ export function PlaylistsPage() {
                           </th>
                           <th className="px-4 py-2.5 text-left">Period</th>
                           <th
-                            className="px-4 py-2.5 text-left cursor-pointer select-none hover:text-foreground"
-                            onClick={() => setClockSort((s) => s === "none" ? "asc" : s === "asc" ? "desc" : "none")}
+                            className={`px-4 py-2.5 text-left select-none ${hasTextCards ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:text-foreground"}`}
+                            onClick={() => !hasTextCards && setClockSort((s) => s === "none" ? "asc" : s === "asc" ? "desc" : "none")}
+                            title={hasTextCards ? "Clock sort is unavailable when text cards are present" : undefined}
                           >
                             <span className="inline-flex items-center gap-1">
                               Clock
-                              {clockSort === "asc" && <ArrowUp className="h-3 w-3" />}
-                              {clockSort === "desc" && <ArrowDown className="h-3 w-3" />}
+                              {!hasTextCards && clockSort === "asc" && <ArrowUp className="h-3 w-3" />}
+                              {!hasTextCards && clockSort === "desc" && <ArrowDown className="h-3 w-3" />}
                             </span>
                           </th>
                           {isMultiMatch && <th className="px-4 py-2.5 text-left">Game</th>}
@@ -2774,18 +3252,43 @@ export function PlaylistsPage() {
                       </thead>
                       <tbody className="divide-y divide-border bg-card">
                         {sortedEvents.map((item, index) => {
-                          const key = `${item.matchId}:${item.event.eventId}`;
-                          const clip = selected?.clips.find(
-                            (c) => c.matchId === item.matchId && c.eventId === item.event.eventId
+                          const key = itemKey(item);
+                          if (isTextCard(item)) {
+                            const card = item as PlaylistTextCard;
+                            return (
+                              <TextCardRow
+                                key={key}
+                                card={card}
+                                index={index}
+                                isActive={activeTextCard?.id === card.id}
+                                isSelected={selectedClipIds.has(key)}
+                                onSelect={(e) => toggleSelectClip(key, e)}
+                                isDragTarget={clipDragOverIndex === index}
+                                dragTargetPosition={clipDragOverPosition}
+                                onClick={() => handleRowClick(card)}
+                                onDragStart={(e) => handleClipDragStart(e, key)}
+                                onDragOver={(e, i) => handleClipDragOver(e, i)}
+                                onDragLeave={() => setClipDragOverIndex(null)}
+                                onDrop={(e, i) => handleClipDrop(e, i)}
+                                onDragEnd={handleClipDragEnd}
+                                onTextChange={handleTextCardTextChange}
+                                onTextSave={handleTextCardTextSave}
+                                onDurationChange={handleTextCardDurationChange}
+                              />
+                            );
+                          }
+                          const queueItem = item as QueueItem;
+                          const clip = selected?.items.filter(isClipItem).find(
+                            (c) => c.matchId === queueItem.matchId && c.eventId === queueItem.event.eventId
                           );
                           return (
                             <DraggableRow
                               key={key}
                               index={index}
-                              item={item}
-                              isActive={item.event.eventId === activeEventId}
+                              item={queueItem}
+                              isActive={queueItem.event.eventId === activeEventId}
                               isMultiMatch={isMultiMatch}
-                              matchTitle={matchLookup.get(item.matchId)?.title}
+                              matchTitle={matchLookup.get(queueItem.matchId)?.title}
                               preOffset={clip?.preRollOffset ?? 0}
                               postOffset={clip?.postRollOffset ?? 0}
                               note={clip?.note}
@@ -2793,27 +3296,18 @@ export function PlaylistsPage() {
                               onSelect={(e) => toggleSelectClip(key, e)}
                               isDragTarget={clipDragOverIndex === index}
                               dragTargetPosition={clipDragOverPosition}
-                              onClick={() => handleRowClick(item)}
+                              onClick={() => handleRowClick(queueItem)}
                               onDragStart={(e) => handleClipDragStart(e, key)}
                               onDragOver={(e, i) => handleClipDragOver(e, i)}
                               onDragLeave={() => setClipDragOverIndex(null)}
                               onDrop={(e, i) => handleClipDrop(e, i)}
-                              onDragEnd={() => {
-                                setClipDragKey(null);
-                                setClipDragOverIndex(null);
-                                setClipDragOverPlaylistId(null);
-                                setClipExpandFolderId(null);
-                                if (clipDragFolderExpandTimerRef.current) {
-                                  clearTimeout(clipDragFolderExpandTimerRef.current);
-                                  clipDragFolderExpandTimerRef.current = null;
-                                }
-                              }}
+                              onDragEnd={handleClipDragEnd}
+                              onInsertTextCardAbove={() => handleInsertTextCard(index)}
                             />
                           );
                         })}
                       </tbody>
                     </table>
-                  </div>
                   </div>
                 )}
                 </div>
@@ -2826,7 +3320,14 @@ export function PlaylistsPage() {
                 <div className="flex h-full flex-col gap-2 pl-3 min-w-0">
                 {localVideoUrl ? (
                   <>
-                    <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
+                    <div className="relative">
+                      <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
+                      {activeTextCard && (
+                        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black transition-opacity duration-200">
+                          <p className="text-center text-4xl font-semibold text-white px-8">{activeTextCard.text}</p>
+                        </div>
+                      )}
+                    </div>
                     <VideoClipControls
                       videoRef={videoRef}
                       canPrev={canPrev}
@@ -2836,7 +3337,7 @@ export function PlaylistsPage() {
                       onNext={handleNext}
                       onReplay={handleReplay}
                       onStop={handleStop}
-                      onPlayAll={() => startQueue([...sortedEvents])}
+                      onPlayAll={() => startQueue(sortedEvents)}
                       activeClipPreOffset={activeClipOffsets.pre}
                       activeClipPostOffset={activeClipOffsets.post}
                       onPreOffsetChange={(delta) => adjustActiveClip(delta, 0)}
@@ -2855,7 +3356,7 @@ export function PlaylistsPage() {
                 ) : (
                   <div className="space-y-2">
                     <VideoPlaceholder />
-                    {noVideo && selected.clips.length > 0 && (
+                    {noVideo && selected.items.filter(isClipItem).length > 0 && (
                       <p className="text-center text-xs text-muted-foreground">
                         No video linked. Add one in the game.
                       </p>

@@ -6,8 +6,8 @@ import { Reorder, useDragControls } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MultiSelectDropdown } from "@/components/ui/multi-select-dropdown";
-import type { Playlist, PlaylistFolder, PlaylistClip, PlayByPlayEvent, SyncPoint } from "@/types/match";
-import { exportPlaylist, type ExportItem } from "@/lib/export";
+import { isClipItem, type Playlist, type PlaylistFolder, type PlaylistClipItem, type PlayByPlayEvent, type SyncPoint } from "@/types/match";
+import { exportPlaylist, type ExportSegment } from "@/lib/export";
 import { isLocalPath } from "@/lib/stream";
 
 // ---------------------------------------------------------------------------
@@ -275,7 +275,7 @@ function AddToDropdown({
               onClick={() => onAddToPlaylist(pl)}
             >
               <span className="flex-1 truncate">{pl.name}</span>
-              <span className="text-xs text-muted-foreground">{pl.clips.length}</span>
+              <span className="text-xs text-muted-foreground">{pl.items.length}</span>
             </button>
           ))}
         </div>
@@ -307,8 +307,8 @@ interface ClipsViewProps {
   awayRoster?: RosterEntry[];
   /** All playlists (not just this match's) — from the top-level playlists table */
   playlists?: Playlist[];
-  onPlaylistCreated?: (name: string, clips: PlaylistClip[], folderId?: string) => Promise<void>;
-  onPlaylistUpdated?: (id: string, patch: { name?: string; folderId?: string | null; clips?: PlaylistClip[] }) => Promise<void>;
+  onPlaylistCreated?: (name: string, clips: PlaylistClipItem[], folderId?: string) => Promise<void>;
+  onPlaylistUpdated?: (id: string, patch: { name?: string; folderId?: string | null; clips?: PlaylistClipItem[] }) => Promise<void>;
   onPlaylistDeleted?: (id: string) => Promise<void>;
   videoAvailable?: boolean;
   onPlaybackChange?: (canPrev: boolean, canNext: boolean, isQueueActive: boolean, hasActivePlaylist: boolean) => void;
@@ -414,11 +414,12 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
     setExportError(null);
     try {
       await exportPlaylist(
-        eventsToExport.map((e): ExportItem => {
-          const clip = activePlaylistRef.current?.clips.find(
+        eventsToExport.map((e): ExportSegment => {
+          const clip = activePlaylistRef.current?.items.filter(isClipItem).find(
             (c) => c.matchId === matchId && c.eventId === e.eventId
           );
           return {
+            kind: 'clip',
             videoPath: videoUrl,
             event: e,
             syncPoint,
@@ -469,7 +470,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
   // Resolve playlist events in order (only clips from the current match are playable here)
   const playlistEvents = useMemo(() => {
     if (!activePlaylist) return null;
-    return activePlaylist.clips
+    return activePlaylist.items.filter(isClipItem)
       .filter((c) => c.matchId === matchId)
       .map((c) => eventMap.get(c.eventId))
       .filter((e): e is PlayByPlayEvent => e !== undefined);
@@ -503,7 +504,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
   // ---------------------------------------------------------------------------
 
   function getClipOffset(eventId: number) {
-    const clip = activePlaylistRef.current?.clips.find(
+    const clip = activePlaylistRef.current?.items.filter(isClipItem).find(
       (c) => c.matchId === matchId && c.eventId === eventId
     );
     return { pre: clip?.preRollOffset ?? 0, post: clip?.postRollOffset ?? 0 };
@@ -573,7 +574,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
         if (sp) {
           const videoTime = computeVideoTime(nextEvent, sp);
           if (videoTime !== null) {
-            const nextClip = activePlaylistRef.current?.clips.find(
+            const nextClip = activePlaylistRef.current?.items.filter(isClipItem).find(
               (c) => c.matchId === matchId && c.eventId === nextEvent.eventId
             );
             const seekTo = Math.max(0, videoTime - preRollRef.current - (nextClip?.preRollOffset ?? 0));
@@ -657,7 +658,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
   useEffect(() => {
     transientOffsetRef.current = { pre: 0, post: 0 };
     if (activeEventId === null) { onActiveClipChange?.(0, 0); return; }
-    const clip = activePlaylistRef.current?.clips.find(
+    const clip = activePlaylistRef.current?.items.filter(isClipItem).find(
       (c) => c.matchId === matchId && c.eventId === activeEventId
     );
     onActiveClipChange?.(clip?.preRollOffset ?? 0, clip?.postRollOffset ?? 0);
@@ -721,19 +722,19 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
       return;
     }
     const ap = activePlaylistRef.current;
-    const existingClip = ap.clips.find((c) => c.matchId === matchId && c.eventId === eventId);
+    const existingClip = ap.items.filter(isClipItem).find((c) => c.matchId === matchId && c.eventId === eventId);
     const newPre = Math.max(-preRollRef.current, (existingClip?.preRollOffset ?? 0) + preDelta);
     const newPost = Math.max(-postRollRef.current, (existingClip?.postRollOffset ?? 0) + postDelta);
 
-    const newClips = ap.clips.map((c) =>
-      c.matchId === matchId && c.eventId === eventId
+    const newItems = ap.items.map((c) =>
+      isClipItem(c) && c.matchId === matchId && c.eventId === eventId
         ? { ...c, preRollOffset: newPre, postRollOffset: newPost }
         : c
     );
-    const updated = { ...ap, clips: newClips };
+    const updated = { ...ap, items: newItems };
     setActivePlaylist(updated);
     activePlaylistRef.current = updated;
-    onPlaylistUpdated(ap.id, { clips: newClips }).catch(() => {});
+    onPlaylistUpdated(ap.id, { clips: newItems.filter(isClipItem) }).catch(() => {});
     onActiveClipChange?.(newPre, newPost);
 
     // Replay with new timing immediately
@@ -745,21 +746,21 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
     if (!activePlaylist || !onPlaylistUpdated) return;
     // Build lookup of existing clips to preserve per-clip offsets
     const clipMap = new Map(
-      activePlaylist.clips
+      activePlaylist.items.filter(isClipItem)
         .filter((c) => c.matchId === matchId)
         .map((c) => [c.eventId, c])
     );
     const reorderedSameMatch = newEvents.map((e) =>
-      clipMap.get(e.eventId) ?? { matchId, eventId: e.eventId }
+      clipMap.get(e.eventId) ?? { type: 'clip' as const, matchId, eventId: e.eventId }
     );
     let idx = 0;
-    const newClips = activePlaylist.clips.map((c) => {
-      if (c.matchId !== matchId) return c;
+    const newItems = activePlaylist.items.map((c) => {
+      if (!isClipItem(c) || c.matchId !== matchId) return c;
       return reorderedSameMatch[idx++] ?? c;
     });
-    const updated = { ...activePlaylist, clips: newClips };
+    const updated = { ...activePlaylist, items: newItems };
     setActivePlaylist(updated);
-    onPlaylistUpdated(activePlaylist.id, { clips: newClips }).catch(() => {});
+    onPlaylistUpdated(activePlaylist.id, { clips: newItems.filter(isClipItem) }).catch(() => {});
   }
 
   // ---------------------------------------------------------------------------
@@ -774,7 +775,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
   function handlePlayPlaylistFromCard(pl: Playlist) {
     setActivePlaylist(pl);
     setSelectedIds(new Set());
-    const queue = pl.clips
+    const queue = pl.items.filter(isClipItem)
       .filter((c) => c.matchId === matchId)
       .map((c) => eventMap.get(c.eventId))
       .filter((e): e is PlayByPlayEvent => e !== undefined);
@@ -820,9 +821,9 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
   // ---------------------------------------------------------------------------
   function handleCreatePlaylist() {
     if (!newPlaylistName.trim() || selectedIds.size === 0) return;
-    const ordered: PlaylistClip[] = filtered
+    const ordered: PlaylistClipItem[] = filtered
       .filter((e) => selectedIds.has(e.eventId))
-      .map((e) => ({ matchId, eventId: e.eventId }));
+      .map((e) => ({ type: 'clip' as const, matchId, eventId: e.eventId }));
     onPlaylistCreated?.(
       newPlaylistName.trim(),
       ordered,
@@ -834,12 +835,12 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
   }
 
   function handleAddToPlaylist(targetPlaylist: Playlist) {
-    const existingSet = new Set(targetPlaylist.clips.map((c) => `${c.matchId}:${c.eventId}`));
+    const existingSet = new Set(targetPlaylist.items.filter(isClipItem).map((c) => `${c.matchId}:${c.eventId}`));
     const sourceEvents = activePlaylist ? sortedDisplayEvents : filtered;
-    const toAdd: PlaylistClip[] = sourceEvents
+    const toAdd: PlaylistClipItem[] = sourceEvents
       .filter((e) => selectedIds.has(e.eventId) && !existingSet.has(`${matchId}:${e.eventId}`))
-      .map((e) => ({ matchId, eventId: e.eventId }));
-    const newClips = [...targetPlaylist.clips, ...toAdd];
+      .map((e) => ({ type: 'clip' as const, matchId, eventId: e.eventId }));
+    const newClips = [...targetPlaylist.items.filter(isClipItem), ...toAdd];
     onPlaylistUpdated?.(targetPlaylist.id, { clips: newClips }).catch(() => {});
     setSelectedIds(new Set());
     setShowAddToDropdown(false);
@@ -848,14 +849,14 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
 
   function handleRemoveFromPlaylist() {
     if (!activePlaylist) return;
-    const remaining = activePlaylist.clips.filter(
-      (c) => !(c.matchId === matchId && selectedIds.has(c.eventId))
+    const remaining = activePlaylist.items.filter(
+      (c) => !(isClipItem(c) && c.matchId === matchId && selectedIds.has(c.eventId))
     );
-    onPlaylistUpdated?.(activePlaylist.id, { clips: remaining }).catch(() => {});
+    onPlaylistUpdated?.(activePlaylist.id, { clips: remaining.filter(isClipItem) }).catch(() => {});
     if (remaining.length === 0) {
       setActivePlaylist(null);
     } else {
-      const updated = { ...activePlaylist, clips: remaining };
+      const updated = { ...activePlaylist, items: remaining };
       setActivePlaylist(updated);
       activePlaylistRef.current = updated;
     }
@@ -874,7 +875,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
   const noSync = !syncPoint;
 
   // Playlists that contain clips from this match (shown in Saved Playlists section)
-  const matchPlaylists = playlists.filter((p) => p.clips.some((c) => c.matchId === matchId));
+  const matchPlaylists = playlists.filter((p) => p.items.some((c) => isClipItem(c) && c.matchId === matchId));
 
   return (
     <div className="space-y-4">
@@ -903,7 +904,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                       {pl.name}
                     </span>
                     <span className="text-xs text-muted-foreground">
-                      {pl.clips.length} clip{pl.clips.length !== 1 ? "s" : ""}
+                      {pl.items.filter(isClipItem).length} clip{pl.items.filter(isClipItem).length !== 1 ? "s" : ""}
                     </span>
                   </div>
                   <div
@@ -1280,7 +1281,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                 className="divide-y divide-border"
               >
                 {sortedDisplayEvents.map((event) => {
-                  const clip = activePlaylistRef.current?.clips.find(
+                  const clip = activePlaylistRef.current?.items.filter(isClipItem).find(
                     (c) => c.matchId === matchId && c.eventId === event.eventId
                   );
                   return (

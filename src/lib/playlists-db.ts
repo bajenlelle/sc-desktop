@@ -1,23 +1,27 @@
 /**
  * Database operations for the playlists and playlist_clips tables.
- * Clips are stored in the playlist_clips relational table (not JSONB).
+ * Clips and text cards are stored in the playlist_clips relational table.
  * All queries run through the browser Supabase client — RLS enforces ownership.
  */
 
 import { createClient } from "@/lib/supabase/client";
-import type { Playlist, PlaylistClip } from "@/types/match";
+import type { Playlist, PlaylistItem, PlaylistClipItem, PlaylistTextCard } from "@/types/match";
 
 // ---------------------------------------------------------------------------
 // DB row types (snake_case columns from Postgres)
 // ---------------------------------------------------------------------------
 
 interface PlaylistClipRow {
-  match_id: string;
-  event_id: number;
+  item_type: string;
+  item_id: string | null;
+  match_id: string | null;
+  event_id: number | null;
   position: number;
   pre_roll_offset: number;
   post_roll_offset: number;
   note: string | null;
+  text_content: string | null;
+  duration_seconds: number | null;
 }
 
 interface PlaylistRow {
@@ -31,25 +35,40 @@ interface PlaylistRow {
 }
 
 function rowToPlaylist(row: PlaylistRow): Playlist {
-  const clips = [...(row.playlist_clips ?? [])]
+  const items = [...(row.playlist_clips ?? [])]
     .sort((a, b) => a.position - b.position)
-    .map((c): PlaylistClip => ({
-      matchId: c.match_id,
-      eventId: c.event_id,
-      ...(c.pre_roll_offset !== 0 ? { preRollOffset: c.pre_roll_offset } : {}),
-      ...(c.post_roll_offset !== 0 ? { postRollOffset: c.post_roll_offset } : {}),
-      ...(c.note ? { note: c.note } : {}),
-    }));
+    .map((c): PlaylistItem | null => {
+      if (c.item_type === 'text') {
+        if (!c.item_id) return null;
+        return {
+          type: 'text',
+          id: c.item_id,
+          text: c.text_content ?? '',
+          durationSeconds: c.duration_seconds ?? 5,
+        } satisfies PlaylistTextCard;
+      }
+      // Default: clip
+      if (!c.match_id || c.event_id === null) return null;
+      return {
+        type: 'clip',
+        matchId: c.match_id,
+        eventId: c.event_id,
+        ...(c.pre_roll_offset !== 0 ? { preRollOffset: c.pre_roll_offset } : {}),
+        ...(c.post_roll_offset !== 0 ? { postRollOffset: c.post_roll_offset } : {}),
+        ...(c.note ? { note: c.note } : {}),
+      } satisfies PlaylistClipItem;
+    })
+    .filter((x): x is PlaylistItem => x !== null);
   return {
     id: row.id,
     name: row.name,
-    clips,
+    items,
     folderId: row.folder_id ?? undefined,
   };
 }
 
 // ---------------------------------------------------------------------------
-// List all playlists for the current user (with clips via join)
+// List all playlists for the current user (with items via join)
 // ---------------------------------------------------------------------------
 
 export async function listPlaylists(): Promise<Playlist[]> {
@@ -64,12 +83,16 @@ export async function listPlaylists(): Promise<Playlist[]> {
       created_at,
       updated_at,
       playlist_clips (
+        item_type,
+        item_id,
         match_id,
         event_id,
         position,
         pre_roll_offset,
         post_roll_offset,
-        note
+        note,
+        text_content,
+        duration_seconds
       )
     `)
     .order("created_at", { ascending: false });
@@ -79,7 +102,7 @@ export async function listPlaylists(): Promise<Playlist[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Create a new playlist (empty — clips are added separately)
+// Create a new playlist (empty — items are added separately)
 // ---------------------------------------------------------------------------
 
 export async function createPlaylist(
@@ -100,7 +123,7 @@ export async function createPlaylist(
     .select()
     .single();
   if (error || !data) throw new Error(`Failed to create playlist: ${error?.message}`);
-  return { id: data.id, name: data.name, clips: [], folderId: data.folder_id ?? undefined };
+  return { id: data.id, name: data.name, items: [], folderId: data.folder_id ?? undefined };
 }
 
 // ---------------------------------------------------------------------------
@@ -121,7 +144,7 @@ export async function updatePlaylist(
 }
 
 // ---------------------------------------------------------------------------
-// Delete a playlist (CASCADE removes its clips automatically)
+// Delete a playlist (CASCADE removes its items automatically)
 // ---------------------------------------------------------------------------
 
 export async function deletePlaylist(id: string): Promise<void> {
@@ -133,18 +156,19 @@ export async function deletePlaylist(id: string): Promise<void> {
 // ---------------------------------------------------------------------------
 // Add clips to a playlist
 // startPosition is the position index for the first new clip (typically
-// the current clip count so new clips are appended at the end).
+// the current item count so new clips are appended at the end).
 // ---------------------------------------------------------------------------
 
 export async function addClips(
   playlistId: string,
-  clips: PlaylistClip[],
+  clips: PlaylistClipItem[],
   startPosition: number
 ): Promise<void> {
   if (clips.length === 0) return;
   const supabase = createClient();
   const rows = clips.map((clip, i) => ({
     playlist_id: playlistId,
+    item_type: 'clip',
     match_id: clip.matchId,
     event_id: clip.eventId,
     position: startPosition + i,
@@ -157,46 +181,112 @@ export async function addClips(
 }
 
 // ---------------------------------------------------------------------------
-// Remove specific clips from a playlist
+// Insert a text card into a playlist at a given position
+// ---------------------------------------------------------------------------
+
+export async function insertTextCard(
+  playlistId: string,
+  itemId: string,
+  text: string,
+  durationSeconds: number,
+  position: number
+): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.from("playlist_clips").insert({
+    playlist_id: playlistId,
+    item_type: 'text',
+    item_id: itemId,
+    text_content: text,
+    duration_seconds: durationSeconds,
+    position,
+    match_id: null,
+    event_id: null,
+    pre_roll_offset: 0,
+    post_roll_offset: 0,
+  });
+  if (error) throw new Error(`Failed to insert text card: ${error.message}`);
+}
+
+// ---------------------------------------------------------------------------
+// Update a text card's content or duration
+// ---------------------------------------------------------------------------
+
+export async function updateTextCard(
+  playlistId: string,
+  itemId: string,
+  patch: { text?: string; durationSeconds?: number }
+): Promise<void> {
+  const supabase = createClient();
+  const row: Record<string, unknown> = {};
+  if (patch.text !== undefined) row.text_content = patch.text;
+  if (patch.durationSeconds !== undefined) row.duration_seconds = patch.durationSeconds;
+  if (Object.keys(row).length === 0) return;
+  const { error } = await supabase
+    .from("playlist_clips")
+    .update(row)
+    .eq("playlist_id", playlistId)
+    .eq("item_id", itemId);
+  if (error) throw new Error(`Failed to update text card: ${error.message}`);
+}
+
+// ---------------------------------------------------------------------------
+// Remove specific items from a playlist
+// Accepts clip keys (matchId + eventId) and text card ids (item_id).
 // ---------------------------------------------------------------------------
 
 export async function removeClips(
   playlistId: string,
-  keys: Array<{ matchId: string; eventId: number }>
+  clipKeys: Array<{ matchId: string; eventId: number }>,
+  textCardIds: string[] = []
 ): Promise<void> {
-  if (keys.length === 0) return;
+  if (clipKeys.length === 0 && textCardIds.length === 0) return;
   const supabase = createClient();
-  await Promise.all(
-    keys.map(({ matchId, eventId }) =>
+  await Promise.all([
+    ...clipKeys.map(({ matchId, eventId }) =>
       supabase
         .from("playlist_clips")
         .delete()
         .eq("playlist_id", playlistId)
         .eq("match_id", matchId)
         .eq("event_id", eventId)
-    )
-  );
+    ),
+    ...textCardIds.map((itemId) =>
+      supabase
+        .from("playlist_clips")
+        .delete()
+        .eq("playlist_id", playlistId)
+        .eq("item_id", itemId)
+    ),
+  ]);
 }
 
 // ---------------------------------------------------------------------------
-// Update clip positions after a reorder operation
+// Update item positions after a reorder / insert operation
+// Handles both clip items (keyed by match_id+event_id) and text cards (keyed by item_id).
 // ---------------------------------------------------------------------------
 
-export async function reorderClips(
+export async function reorderItems(
   playlistId: string,
-  clips: PlaylistClip[]
+  items: PlaylistItem[]
 ): Promise<void> {
-  if (clips.length === 0) return;
+  if (items.length === 0) return;
   const supabase = createClient();
   await Promise.all(
-    clips.map((clip, i) =>
-      supabase
+    items.map((item, i) => {
+      if (item.type === 'text') {
+        return supabase
+          .from("playlist_clips")
+          .update({ position: i })
+          .eq("playlist_id", playlistId)
+          .eq("item_id", item.id);
+      }
+      return supabase
         .from("playlist_clips")
         .update({ position: i })
         .eq("playlist_id", playlistId)
-        .eq("match_id", clip.matchId)
-        .eq("event_id", clip.eventId)
-    )
+        .eq("match_id", item.matchId)
+        .eq("event_id", item.eventId);
+    })
   );
 }
 

@@ -27,12 +27,60 @@ jobs:
         with:
           targets: ${{ matrix.platform == 'macos-14' && 'aarch64-apple-darwin,x86_64-apple-darwin' || 'x86_64-pc-windows-msvc' }}
 
+      - name: Cache arm64 FFmpeg binary
+        if: matrix.platform == 'macos-14'
+        id: cache-ffmpeg-arm64
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/binaries/ffmpeg-aarch64-apple-darwin
+          key: ffmpeg-arm64-static-7.1.1-x264-freetype
+
+      - name: Build arm64 FFmpeg (static)
+        if: matrix.platform == 'macos-14' && steps.cache-ffmpeg-arm64.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p src-tauri/binaries
+          brew install nasm x264 freetype
+          X264_PREFIX="$(brew --prefix x264)"
+          FREETYPE_PREFIX="$(brew --prefix freetype)"
+          export PKG_CONFIG_PATH="${X264_PREFIX}/lib/pkgconfig:${FREETYPE_PREFIX}/lib/pkgconfig"
+          pkg-config --modversion x264
+          pkg-config --modversion freetype2
+          FFMPEG_VERSION=7.1.1
+          curl -sL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.gz" | tar -xz
+          cd "ffmpeg-${FFMPEG_VERSION}"
+          # Symlink static libs for all brew packages so ld64 picks static over dynamic
+          mkdir -p ../static-libs
+          find "$(brew --prefix)/lib" -maxdepth 1 -name "*.a" -exec ln -sf {} ../static-libs/ \;
+          PKG_CONFIG_PATH="${X264_PREFIX}/lib/pkgconfig:${FREETYPE_PREFIX}/lib/pkgconfig" \
+          ./configure \
+            --prefix="$PWD/out" \
+            --bindir="$PWD/out" \
+            --enable-gpl \
+            --enable-static \
+            --disable-shared \
+            --disable-debug \
+            --disable-doc \
+            --disable-htmlpages \
+            --disable-manpages \
+            --disable-podpages \
+            --disable-txtpages \
+            --disable-ffplay \
+            --disable-ffprobe \
+            --enable-hardcoded-tables \
+            --enable-libx264 \
+            --enable-libfreetype \
+            --extra-ldflags="-L$PWD/../static-libs" \
+            --cc=clang
+          make -j"$(sysctl -n hw.logicalcpu)"
+          cp ffmpeg ../src-tauri/binaries/ffmpeg-aarch64-apple-darwin
+          cd ..
+          rm -rf "ffmpeg-${FFMPEG_VERSION}" static-libs
+
       - name: Download macOS FFmpeg binaries
         if: matrix.platform == 'macos-14'
         run: |
           mkdir -p src-tauri/binaries
-          brew install ffmpeg
-          cp "$(brew --prefix)/bin/ffmpeg" src-tauri/binaries/ffmpeg-aarch64-apple-darwin
+          # x86_64 — static build from evermeet.cx
           curl -L "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip" -o ffmpeg_x64.zip
           unzip -o ffmpeg_x64.zip ffmpeg
           mv ffmpeg src-tauri/binaries/ffmpeg-x86_64-apple-darwin
@@ -40,6 +88,8 @@ jobs:
           lipo -create -output src-tauri/binaries/ffmpeg-universal-apple-darwin \
             src-tauri/binaries/ffmpeg-aarch64-apple-darwin \
             src-tauri/binaries/ffmpeg-x86_64-apple-darwin
+          # Verify no Homebrew dylib deps crept in
+          echo "=== arm64 dylib deps ===" && otool -L src-tauri/binaries/ffmpeg-aarch64-apple-darwin
 
       - name: Download Windows FFmpeg
         if: matrix.platform == 'windows-latest'
