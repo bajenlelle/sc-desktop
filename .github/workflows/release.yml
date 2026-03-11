@@ -33,7 +33,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: src-tauri/binaries/ffmpeg-aarch64-apple-darwin
-          key: ffmpeg-arm64-static-7.1.1-x264-freetype-6
+          key: ffmpeg-arm64-static-7.1.1-x264-freetype-7
 
       - name: Build arm64 FFmpeg (static)
         if: matrix.platform == 'macos-14' && steps.cache-ffmpeg-arm64.outputs.cache-hit != 'true'
@@ -91,6 +91,7 @@ jobs:
             --disable-txtpages \
             --disable-ffplay \
             --disable-ffprobe \
+            --disable-libxcb \
             --enable-hardcoded-tables \
             --enable-libx264 \
             --enable-libfreetype \
@@ -114,7 +115,15 @@ jobs:
             src-tauri/binaries/ffmpeg-aarch64-apple-darwin \
             src-tauri/binaries/ffmpeg-x86_64-apple-darwin
           # Verify no Homebrew dylib deps crept in
-          echo "=== arm64 dylib deps ===" && otool -L src-tauri/binaries/ffmpeg-aarch64-apple-darwin
+          echo "=== arm64 dylib deps ==="
+          otool -L src-tauri/binaries/ffmpeg-aarch64-apple-darwin
+          BAD=$(otool -L src-tauri/binaries/ffmpeg-aarch64-apple-darwin \
+            | tail -n +2 | awk '{print $1}' \
+            | grep -Ev '^/usr/lib|^/System|^@' || true)
+          if [ -n "$BAD" ]; then
+            echo "ERROR: non-system dylib deps in arm64 ffmpeg: $BAD"
+            exit 1
+          fi
 
       - name: Download Windows FFmpeg
         if: matrix.platform == 'windows-latest'
