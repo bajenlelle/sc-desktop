@@ -33,15 +33,30 @@ jobs:
         uses: actions/cache@v4
         with:
           path: src-tauri/binaries/ffmpeg-aarch64-apple-darwin
-          key: ffmpeg-arm64-static-7.1.1-x264-freetype-7
+          key: ffmpeg-arm64-static-7.1.1-x264-freetype-8
 
       - name: Build arm64 FFmpeg (static)
         if: matrix.platform == 'macos-14' && steps.cache-ffmpeg-arm64.outputs.cache-hit != 'true'
         run: |
           mkdir -p src-tauri/binaries
-          brew install nasm x264
+          brew install nasm
           BREW_PREFIX="$(brew --prefix)"
-          X264_PREFIX="${BREW_PREFIX}/opt/x264"
+
+          # Build x264 from source as a static-only lib.
+          # Homebrew's x264 package ships only a .dylib; using it would create
+          # a dynamic dep on /opt/homebrew which end users don't have.
+          curl -sL "https://code.videolan.org/videolan/x264/-/archive/stable/x264-stable.tar.bz2" | tar -xj
+          pushd x264-stable
+          ./configure \
+            --prefix="$PWD/out" \
+            --enable-static \
+            --disable-shared \
+            --disable-opencl \
+            --enable-strip
+          make -j"$(sysctl -n hw.logicalcpu)"
+          make install
+          X264_OUT="$PWD/out"
+          popd
 
           # Build a minimal static FreeType with no external deps.
           # Homebrew's libfreetype.a requires brotli/png static libs which are not
@@ -69,7 +84,7 @@ jobs:
           mkdir -p /tmp/custom-pc
           printf 'prefix=%s\nexec_prefix=${prefix}\nlibdir=${exec_prefix}/lib\nincludedir=${prefix}/include/freetype2\n\nName: FreeType 2\nDescription: A free, high-quality, portable font engine.\nVersion: %s\nRequires:\nRequires.private:\nCflags: -I${includedir} -I${prefix}/include\nLibs: -L${libdir} -lfreetype\nLibs.private:\n' \
             "${FT_OUT}" "${FT_VERSION}" > /tmp/custom-pc/freetype2.pc
-          export PKG_CONFIG_PATH="/tmp/custom-pc:${X264_PREFIX}/lib/pkgconfig"
+          export PKG_CONFIG_PATH="/tmp/custom-pc:${X264_OUT}/lib/pkgconfig"
 
           pkg-config --modversion x264
           pkg-config --static --libs freetype2
@@ -92,15 +107,16 @@ jobs:
             --disable-ffplay \
             --disable-ffprobe \
             --disable-libxcb \
+            --disable-xlib \
             --enable-hardcoded-tables \
             --enable-libx264 \
             --enable-libfreetype \
-            --extra-ldflags="-L${FT_OUT}/lib" \
+            --extra-ldflags="-L${FT_OUT}/lib -L${X264_OUT}/lib" \
             --cc=clang || { tail -80 ffbuild/config.log; exit 1; }
           make -j"$(sysctl -n hw.logicalcpu)"
           cp ffmpeg ../src-tauri/binaries/ffmpeg-aarch64-apple-darwin
           cd ..
-          rm -rf "ffmpeg-${FFMPEG_VERSION}" "freetype-${FT_VERSION}"
+          rm -rf "ffmpeg-${FFMPEG_VERSION}" "freetype-${FT_VERSION}" x264-stable
 
       - name: Download macOS FFmpeg binaries
         if: matrix.platform == 'macos-14'
