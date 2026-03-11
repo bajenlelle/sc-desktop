@@ -33,7 +33,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: src-tauri/binaries/ffmpeg-aarch64-apple-darwin
-          key: ffmpeg-arm64-static-7.1.1-x264-freetype-3
+          key: ffmpeg-arm64-static-7.1.1-x264-freetype-4
 
       - name: Build arm64 FFmpeg (static)
         if: matrix.platform == 'macos-14' && steps.cache-ffmpeg-arm64.outputs.cache-hit != 'true'
@@ -41,19 +41,31 @@ jobs:
           mkdir -p src-tauri/binaries
           brew install nasm x264 freetype
           BREW_PREFIX="$(brew --prefix)"
-          # Collect every pkgconfig dir under Homebrew opt (covers keg-only
-          # transitive deps like brotli/zlib that freetype2.pc Requires.private
-          # lists — needed because FFmpeg configure calls pkg-config --static)
-          OPT_PC="$(find "${BREW_PREFIX}/opt" -maxdepth 3 -name 'pkgconfig' -type d 2>/dev/null | tr '\n' ':')"
-          export PKG_CONFIG_PATH="${OPT_PC}${BREW_PREFIX}/lib/pkgconfig"
+          X264_PREFIX="${BREW_PREFIX}/opt/x264"
+          FREETYPE_PREFIX="${BREW_PREFIX}/opt/freetype"
+          export PKG_CONFIG_PATH="${X264_PREFIX}/lib/pkgconfig:${FREETYPE_PREFIX}/lib/pkgconfig:${BREW_PREFIX}/lib/pkgconfig"
+
+          # FFmpeg configure calls pkg-config --static (because --enable-static --disable-shared),
+          # which forces resolution of freetype2.pc's Requires.private (libbrotlidec etc.).
+          # This fails on the CI runner. Override PKG_CONFIG with a wrapper that strips --static;
+          # supply the missing static libs via extra symlinks + --extra-ldflags.
+          cat > /tmp/pc-wrap << 'PCWRAP'
+          #!/bin/bash
+          args=(); for a in "$@"; do [[ $a == --static ]] || args+=("$a"); done
+          exec /opt/homebrew/bin/pkg-config "${args[@]}"
+          PCWRAP
+          chmod +x /tmp/pc-wrap
+          export PKG_CONFIG=/tmp/pc-wrap
+
           pkg-config --modversion x264
           pkg-config --modversion freetype2
           FFMPEG_VERSION=7.1.1
           curl -sL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.gz" | tar -xz
           cd "ffmpeg-${FFMPEG_VERSION}"
-          # Symlink static libs for all brew packages so ld64 picks static over dynamic
           mkdir -p ../static-libs
           find "${BREW_PREFIX}/lib" -maxdepth 1 -name "*.a" -exec ln -sf {} ../static-libs/ \;
+          find "${BREW_PREFIX}/opt/brotli/lib" -maxdepth 1 -name "*.a" -exec ln -sf {} ../static-libs/ \; 2>/dev/null || true
+          find "${BREW_PREFIX}/opt/freetype/lib" -maxdepth 1 -name "*.a" -exec ln -sf {} ../static-libs/ \; 2>/dev/null || true
           ./configure \
             --prefix="$PWD/out" \
             --bindir="$PWD/out" \
@@ -71,7 +83,7 @@ jobs:
             --enable-hardcoded-tables \
             --enable-libx264 \
             --enable-libfreetype \
-            --extra-ldflags="-L$PWD/../static-libs" \
+            --extra-ldflags="-L$PWD/../static-libs -lbrotlidec -lbrotlicommon" \
             --cc=clang
           make -j"$(sysctl -n hw.logicalcpu)"
           cp ffmpeg ../src-tauri/binaries/ffmpeg-aarch64-apple-darwin
