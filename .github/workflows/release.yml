@@ -33,41 +33,50 @@ jobs:
         uses: actions/cache@v4
         with:
           path: src-tauri/binaries/ffmpeg-aarch64-apple-darwin
-          key: ffmpeg-arm64-static-7.1.1-x264-freetype-5
+          key: ffmpeg-arm64-static-7.1.1-x264-freetype-6
 
       - name: Build arm64 FFmpeg (static)
         if: matrix.platform == 'macos-14' && steps.cache-ffmpeg-arm64.outputs.cache-hit != 'true'
         run: |
           mkdir -p src-tauri/binaries
-          brew install nasm x264 freetype
+          brew install nasm x264
           BREW_PREFIX="$(brew --prefix)"
           X264_PREFIX="${BREW_PREFIX}/opt/x264"
-          FREETYPE_PREFIX="${BREW_PREFIX}/opt/freetype"
 
-          # pkg-config --static fails because freetype2.pc's Requires.private
-          # (libbrotlidec, libpng) has broken static metadata on the CI runner.
-          # Fix: create a patched copy with Requires.private cleared and
-          # brotli/png/zlib listed directly in Libs.private, then point
-          # PKG_CONFIG_PATH at the patched copy. No wrapper script needed.
+          # Build a minimal static FreeType with no external deps.
+          # Homebrew's libfreetype.a requires brotli/png static libs which are not
+          # symlinked into ${BREW_PREFIX}/lib — so pkg-config --static link tests fail.
+          # Building from source with all optional features off gives a self-contained
+          # libfreetype.a with zero transitive deps.
+          FT_VERSION=2.13.3
+          curl -sL "https://downloads.sourceforge.net/project/freetype/freetype2/${FT_VERSION}/freetype-${FT_VERSION}.tar.xz" | tar -xJ
+          pushd "freetype-${FT_VERSION}"
+          ./configure \
+            --prefix="$PWD/out" \
+            --enable-static \
+            --disable-shared \
+            --with-zlib=no \
+            --with-bzip2=no \
+            --with-png=no \
+            --with-harfbuzz=no \
+            --with-brotli=no
+          make -j"$(sysctl -n hw.logicalcpu)"
+          make install
+          FT_OUT="$PWD/out"
+          popd
+
+          # Create a pkg-config file pointing to our no-dep freetype build
           mkdir -p /tmp/custom-pc
-          sed \
-            -e 's/^Requires\.private:.*$/Requires.private:/' \
-            -e 's/^Libs\.private:.*$/Libs.private: -lbrotlidec -lbrotlicommon -lpng -lz/' \
-            "${FREETYPE_PREFIX}/lib/pkgconfig/freetype2.pc" \
-            > /tmp/custom-pc/freetype2.pc
-          grep -q '^Libs\.private:' /tmp/custom-pc/freetype2.pc || \
-            echo 'Libs.private: -lbrotlidec -lbrotlicommon -lpng -lz' >> /tmp/custom-pc/freetype2.pc
-          export PKG_CONFIG_PATH="/tmp/custom-pc:${X264_PREFIX}/lib/pkgconfig:${BREW_PREFIX}/lib/pkgconfig"
+          printf 'prefix=%s\nexec_prefix=${prefix}\nlibdir=${exec_prefix}/lib\nincludedir=${prefix}/include/freetype2\n\nName: FreeType 2\nDescription: A free, high-quality, portable font engine.\nVersion: %s\nRequires:\nRequires.private:\nCflags: -I${includedir} -I${prefix}/include\nLibs: -L${libdir} -lfreetype\nLibs.private:\n' \
+            "${FT_OUT}" "${FT_VERSION}" > /tmp/custom-pc/freetype2.pc
+          export PKG_CONFIG_PATH="/tmp/custom-pc:${X264_PREFIX}/lib/pkgconfig"
 
           pkg-config --modversion x264
           pkg-config --static --libs freetype2
+
           FFMPEG_VERSION=7.1.1
           curl -sL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.gz" | tar -xz
           cd "ffmpeg-${FFMPEG_VERSION}"
-          mkdir -p ../static-libs
-          find "${BREW_PREFIX}/lib" -maxdepth 1 -name "*.a" -exec ln -sf {} ../static-libs/ \;
-          find "${BREW_PREFIX}/opt/brotli/lib" -maxdepth 1 -name "*.a" -exec ln -sf {} ../static-libs/ \; 2>/dev/null || true
-          find "${BREW_PREFIX}/opt/freetype/lib" -maxdepth 1 -name "*.a" -exec ln -sf {} ../static-libs/ \; 2>/dev/null || true
           ./configure \
             --prefix="$PWD/out" \
             --bindir="$PWD/out" \
@@ -85,12 +94,12 @@ jobs:
             --enable-hardcoded-tables \
             --enable-libx264 \
             --enable-libfreetype \
-            --extra-ldflags="-L$PWD/../static-libs" \
-            --cc=clang
+            --extra-ldflags="-L${FT_OUT}/lib" \
+            --cc=clang || { tail -80 ffbuild/config.log; exit 1; }
           make -j"$(sysctl -n hw.logicalcpu)"
           cp ffmpeg ../src-tauri/binaries/ffmpeg-aarch64-apple-darwin
           cd ..
-          rm -rf "ffmpeg-${FFMPEG_VERSION}" static-libs
+          rm -rf "ffmpeg-${FFMPEG_VERSION}" "freetype-${FT_VERSION}"
 
       - name: Download macOS FFmpeg binaries
         if: matrix.platform == 'macos-14'
