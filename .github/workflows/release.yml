@@ -33,7 +33,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: src-tauri/binaries/ffmpeg-aarch64-apple-darwin
-          key: ffmpeg-arm64-static-7.1.1-x264-freetype-4
+          key: ffmpeg-arm64-static-7.1.1-x264-freetype-5
 
       - name: Build arm64 FFmpeg (static)
         if: matrix.platform == 'macos-14' && steps.cache-ffmpeg-arm64.outputs.cache-hit != 'true'
@@ -43,22 +43,24 @@ jobs:
           BREW_PREFIX="$(brew --prefix)"
           X264_PREFIX="${BREW_PREFIX}/opt/x264"
           FREETYPE_PREFIX="${BREW_PREFIX}/opt/freetype"
-          export PKG_CONFIG_PATH="${X264_PREFIX}/lib/pkgconfig:${FREETYPE_PREFIX}/lib/pkgconfig:${BREW_PREFIX}/lib/pkgconfig"
 
-          # FFmpeg configure calls pkg-config --static (because --enable-static --disable-shared),
-          # which forces resolution of freetype2.pc's Requires.private (libbrotlidec etc.).
-          # This fails on the CI runner. Override PKG_CONFIG with a wrapper that strips --static;
-          # supply the missing static libs via extra symlinks + --extra-ldflags.
-          cat > /tmp/pc-wrap << 'PCWRAP'
-          #!/bin/bash
-          args=(); for a in "$@"; do [[ $a == --static ]] || args+=("$a"); done
-          exec /opt/homebrew/bin/pkg-config "${args[@]}"
-          PCWRAP
-          chmod +x /tmp/pc-wrap
-          export PKG_CONFIG=/tmp/pc-wrap
+          # pkg-config --static fails because freetype2.pc's Requires.private
+          # (libbrotlidec, libpng) has broken static metadata on the CI runner.
+          # Fix: create a patched copy with Requires.private cleared and
+          # brotli/png/zlib listed directly in Libs.private, then point
+          # PKG_CONFIG_PATH at the patched copy. No wrapper script needed.
+          mkdir -p /tmp/custom-pc
+          sed \
+            -e 's/^Requires\.private:.*$/Requires.private:/' \
+            -e 's/^Libs\.private:.*$/Libs.private: -lbrotlidec -lbrotlicommon -lpng -lz/' \
+            "${FREETYPE_PREFIX}/lib/pkgconfig/freetype2.pc" \
+            > /tmp/custom-pc/freetype2.pc
+          grep -q '^Libs\.private:' /tmp/custom-pc/freetype2.pc || \
+            echo 'Libs.private: -lbrotlidec -lbrotlicommon -lpng -lz' >> /tmp/custom-pc/freetype2.pc
+          export PKG_CONFIG_PATH="/tmp/custom-pc:${X264_PREFIX}/lib/pkgconfig:${BREW_PREFIX}/lib/pkgconfig"
 
           pkg-config --modversion x264
-          pkg-config --modversion freetype2
+          pkg-config --static --libs freetype2
           FFMPEG_VERSION=7.1.1
           curl -sL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.gz" | tar -xz
           cd "ffmpeg-${FFMPEG_VERSION}"
@@ -83,7 +85,7 @@ jobs:
             --enable-hardcoded-tables \
             --enable-libx264 \
             --enable-libfreetype \
-            --extra-ldflags="-L$PWD/../static-libs -lbrotlidec -lbrotlicommon" \
+            --extra-ldflags="-L$PWD/../static-libs" \
             --cc=clang
           make -j"$(sysctl -n hw.logicalcpu)"
           cp ffmpeg ../src-tauri/binaries/ffmpeg-aarch64-apple-darwin
