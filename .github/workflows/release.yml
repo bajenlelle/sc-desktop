@@ -33,13 +33,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: src-tauri/binaries/ffmpeg-aarch64-apple-darwin
-          key: ffmpeg-arm64-static-7.1.1-x264-freetype-14
+          key: ffmpeg-arm64-static-7.1.1-x264-freetype-harfbuzz-1
 
       - name: Build arm64 FFmpeg (static)
         if: matrix.platform == 'macos-14' && steps.cache-ffmpeg-arm64.outputs.cache-hit != 'true'
         run: |
           mkdir -p src-tauri/binaries
-          brew install nasm
+          brew install nasm meson ninja
           BREW_PREFIX="$(brew --prefix)"
 
           # Build x264 from source as a static-only lib.
@@ -80,6 +80,30 @@ jobs:
           FT_OUT="$PWD/out"
           popd
 
+          # Build a minimal static HarfBuzz.
+          # FFmpeg 7.1.1 vf_drawtext.c unconditionally #includes <hb.h>, making
+          # HarfBuzz a hard build-time dependency. Build without FreeType integration,
+          # GLib, ICU, CoreText — we only need the hb.h headers and libharfbuzz.a.
+          HB_VERSION=8.3.0
+          curl -sL "https://github.com/harfbuzz/harfbuzz/releases/download/${HB_VERSION}/harfbuzz-${HB_VERSION}.tar.xz" | tar -xJ
+          pushd "harfbuzz-${HB_VERSION}"
+          meson setup build \
+            --prefix="$PWD/out" \
+            --buildtype=release \
+            --default-library=static \
+            -Dfreetype=disabled \
+            -Dglib=disabled \
+            -Dgobject=disabled \
+            -Dicu=disabled \
+            -Dcoretext=disabled \
+            -Dtests=disabled \
+            -Ddocs=disabled \
+            -Dbenchmark=disabled
+          ninja -C build
+          ninja -C build install
+          HB_OUT="$PWD/out"
+          popd
+
           # Verify FreeType actually installed its pkg-config file
           echo "=== FreeType install: lib/ contents ==="
           ls "${FT_OUT}/lib/" || true
@@ -89,7 +113,7 @@ jobs:
 
           # PKG_CONFIG_LIBDIR replaces (rather than prepends to) the default
           # search path, eliminating any interference from Homebrew or system paths.
-          export PKG_CONFIG_LIBDIR="${FT_OUT}/lib/pkgconfig:${X264_OUT}/lib/pkgconfig"
+          export PKG_CONFIG_LIBDIR="${FT_OUT}/lib/pkgconfig:${X264_OUT}/lib/pkgconfig:${HB_OUT}/lib/pkgconfig"
           unset PKG_CONFIG_PATH
 
           pkg-config --modversion x264
@@ -121,35 +145,18 @@ jobs:
             --enable-hardcoded-tables \
             --enable-libx264 \
             --enable-libfreetype \
+            --enable-libharfbuzz \
             --pkg-config-flags="--static" \
-            --extra-cflags="-I${FT_OUT}/include/freetype2 -I${FT_OUT}/include" \
-            --extra-ldflags="-L${FT_OUT}/lib -L${X264_OUT}/lib" \
-            --extra-libs="-lfreetype" \
+            --extra-cflags="-I${FT_OUT}/include/freetype2 -I${FT_OUT}/include -I${HB_OUT}/include/harfbuzz" \
+            --extra-ldflags="-L${FT_OUT}/lib -L${X264_OUT}/lib -L${HB_OUT}/lib" \
+            --extra-libs="-lfreetype -lharfbuzz -lc++" \
             --cc=clang || { tail -80 ffbuild/config.log; exit 1; }
-          # Use anchored greps — !CONFIG_DRAWTEXT_FILTER=yes (disabled-despite-requested)
-          # must NOT be treated as a pass.
           grep -q "^CONFIG_LIBFREETYPE=yes" ffbuild/config.mak \
             || { echo "ERROR: CONFIG_LIBFREETYPE not yes"; tail -120 ffbuild/config.log; exit 1; }
-          # drawtext gets a separate per-filter configure check that can fail even when
-          # libfreetype is available, leaving !CONFIG_DRAWTEXT_FILTER=yes in config.mak
-          # (requested but disabled). Force-enable it: libfreetype is confirmed working
-          # above, and extra-cflags already supply the freetype include paths.
-          if ! grep -q "^CONFIG_DRAWTEXT_FILTER=yes" ffbuild/config.mak; then
-            echo "=== drawtext disabled by configure (!CONFIG_DRAWTEXT_FILTER); force-enabling ==="
-            grep -E "DRAWTEXT" ffbuild/config.mak || true
-            grep -E "DRAWTEXT" config.h || true
-            # Rename the negated entry → plain enabled entry in config.mak
-            sed -i.bak 's/^!CONFIG_DRAWTEXT_FILTER=yes/CONFIG_DRAWTEXT_FILTER=yes/' ffbuild/config.mak
-            # Ensure config.h has the define set to 1
-            if grep -q "CONFIG_DRAWTEXT_FILTER" config.h; then
-              sed -i.bak 's/#define CONFIG_DRAWTEXT_FILTER.*/#define CONFIG_DRAWTEXT_FILTER 1/' config.h
-            else
-              echo "#define CONFIG_DRAWTEXT_FILTER 1" >> config.h
-            fi
-            echo "After patch:"
-            grep "DRAWTEXT" ffbuild/config.mak || true
-            grep "CONFIG_DRAWTEXT_FILTER" config.h || true
-          fi
+          grep -q "^CONFIG_LIBHARFBUZZ=yes" ffbuild/config.mak \
+            || { echo "ERROR: CONFIG_LIBHARFBUZZ not yes"; tail -120 ffbuild/config.log; exit 1; }
+          grep -q "^CONFIG_DRAWTEXT_FILTER=yes" ffbuild/config.mak \
+            || { echo "ERROR: CONFIG_DRAWTEXT_FILTER not yes"; grep DRAWTEXT ffbuild/config.mak || true; tail -120 ffbuild/config.log; exit 1; }
           make -j"$(sysctl -n hw.logicalcpu)"
           echo "=== vf_drawtext.o built? ==="
           ls -la libavfilter/vf_drawtext.o 2>/dev/null || echo "(vf_drawtext.o was NOT compiled)"
@@ -161,7 +168,7 @@ jobs:
             || { echo "ERROR: drawtext missing from freshly built binary"; exit 1; }
           cp ffmpeg ../src-tauri/binaries/ffmpeg-aarch64-apple-darwin
           cd ..
-          rm -rf "ffmpeg-${FFMPEG_VERSION}" "freetype-${FT_VERSION}" x264-stable
+          rm -rf "ffmpeg-${FFMPEG_VERSION}" "freetype-${FT_VERSION}" "harfbuzz-${HB_VERSION}" x264-stable
 
       - name: Verify arm64 FFmpeg has drawtext
         if: matrix.platform == 'macos-14'
