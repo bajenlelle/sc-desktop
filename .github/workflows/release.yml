@@ -33,7 +33,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: src-tauri/binaries/ffmpeg-aarch64-apple-darwin
-          key: ffmpeg-arm64-static-7.1.1-x264-freetype-11
+          key: ffmpeg-arm64-static-7.1.1-x264-freetype-12
 
       - name: Build arm64 FFmpeg (static)
         if: matrix.platform == 'macos-14' && steps.cache-ffmpeg-arm64.outputs.cache-hit != 'true'
@@ -126,13 +126,21 @@ jobs:
             --extra-ldflags="-L${FT_OUT}/lib -L${X264_OUT}/lib" \
             --extra-libs="-lfreetype" \
             --cc=clang || { tail -80 ffbuild/config.log; exit 1; }
-          echo "=== FFmpeg config.mak: libfreetype + drawtext entries ==="
+          echo "=== config.mak: ALL LIBFREETYPE + DRAWTEXT lines ==="
           grep -Ei "LIBFREETYPE|DRAWTEXT" ffbuild/config.mak || echo "(no matches)"
+          echo "=== config.log: freetype/drawtext detection (last 40 matching lines) ==="
+          grep -i "freetype\|drawtext" ffbuild/config.log | tail -40 || echo "(nothing)"
           grep -q "CONFIG_LIBFREETYPE=yes" ffbuild/config.mak \
-            || { echo "ERROR: libfreetype not in FFmpeg config.mak"; tail -100 ffbuild/config.log; exit 1; }
+            || { echo "ERROR: CONFIG_LIBFREETYPE not yes in config.mak"; tail -120 ffbuild/config.log; exit 1; }
           grep -q "CONFIG_DRAWTEXT_FILTER=yes" ffbuild/config.mak \
-            || { echo "ERROR: drawtext filter not in FFmpeg config.mak"; grep -i "drawtext\|freetype" ffbuild/config.log | tail -30; exit 1; }
+            || { echo "ERROR: CONFIG_DRAWTEXT_FILTER not yes in config.mak"; tail -60 ffbuild/config.log; exit 1; }
           make -j"$(sysctl -n hw.logicalcpu)"
+          echo "=== nm: drawtext symbols in freshly built binary ==="
+          nm ./ffmpeg | grep -i "drawtext" | head -10 || echo "(no drawtext symbols)"
+          echo "=== in-situ draw* filter test ==="
+          ./ffmpeg -filters 2>&1 | grep -i draw || true
+          ./ffmpeg -filters 2>&1 | grep -q drawtext \
+            || { echo "ERROR: drawtext missing from freshly built binary"; exit 1; }
           cp ffmpeg ../src-tauri/binaries/ffmpeg-aarch64-apple-darwin
           cd ..
           rm -rf "ffmpeg-${FFMPEG_VERSION}" "freetype-${FT_VERSION}" x264-stable
