@@ -33,14 +33,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: src-tauri/binaries/ffmpeg-aarch64-apple-darwin
-          key: ffmpeg-arm64-static-7.1.1-x264-freetype-harfbuzz-1
+          key: ffmpeg-arm64-static-7.1.1-x264-2
 
       - name: Build arm64 FFmpeg (static)
         if: matrix.platform == 'macos-14' && steps.cache-ffmpeg-arm64.outputs.cache-hit != 'true'
         run: |
           mkdir -p src-tauri/binaries
-          brew install nasm meson ninja
-          BREW_PREFIX="$(brew --prefix)"
+          brew install nasm
 
           # Build x264 from source as a static-only lib.
           # Homebrew's x264 package ships only a .dylib; using it would create
@@ -58,68 +57,12 @@ jobs:
           X264_OUT="$PWD/out"
           popd
 
-          # Build a minimal static FreeType with no external deps.
-          # Homebrew's libfreetype.a requires brotli/png static libs which are not
-          # symlinked into ${BREW_PREFIX}/lib — so pkg-config --static link tests fail.
-          # Building from source with all optional features off gives a self-contained
-          # libfreetype.a with zero transitive deps.
-          FT_VERSION=2.13.3
-          curl -sL "https://downloads.sourceforge.net/project/freetype/freetype2/${FT_VERSION}/freetype-${FT_VERSION}.tar.xz" | tar -xJ
-          pushd "freetype-${FT_VERSION}"
-          ./configure \
-            --prefix="$PWD/out" \
-            --enable-static \
-            --disable-shared \
-            --with-zlib=no \
-            --with-bzip2=no \
-            --with-png=no \
-            --with-harfbuzz=no \
-            --with-brotli=no
-          make -j"$(sysctl -n hw.logicalcpu)"
-          make install
-          FT_OUT="$PWD/out"
-          popd
-
-          # Build a minimal static HarfBuzz.
-          # FFmpeg 7.1.1 vf_drawtext.c unconditionally #includes <hb.h>, making
-          # HarfBuzz a hard build-time dependency. Build without FreeType integration,
-          # GLib, ICU, CoreText — we only need the hb.h headers and libharfbuzz.a.
-          HB_VERSION=8.3.0
-          curl -sL "https://github.com/harfbuzz/harfbuzz/releases/download/${HB_VERSION}/harfbuzz-${HB_VERSION}.tar.xz" | tar -xJ
-          pushd "harfbuzz-${HB_VERSION}"
-          meson setup build \
-            --prefix="$PWD/out" \
-            --buildtype=release \
-            --default-library=static \
-            -Dfreetype=disabled \
-            -Dglib=disabled \
-            -Dgobject=disabled \
-            -Dicu=disabled \
-            -Dcoretext=disabled \
-            -Dtests=disabled \
-            -Ddocs=disabled \
-            -Dbenchmark=disabled
-          ninja -C build
-          ninja -C build install
-          HB_OUT="$PWD/out"
-          popd
-
-          # Verify FreeType actually installed its pkg-config file
-          echo "=== FreeType install: lib/ contents ==="
-          ls "${FT_OUT}/lib/" || true
-          echo "=== freetype2.pc ==="
-          cat "${FT_OUT}/lib/pkgconfig/freetype2.pc" \
-            || { echo "ERROR: freetype2.pc not found!"; find "${FT_OUT}" -name "*.pc" 2>/dev/null; exit 1; }
-
           # PKG_CONFIG_LIBDIR replaces (rather than prepends to) the default
           # search path, eliminating any interference from Homebrew or system paths.
-          export PKG_CONFIG_LIBDIR="${FT_OUT}/lib/pkgconfig:${X264_OUT}/lib/pkgconfig:${HB_OUT}/lib/pkgconfig"
+          export PKG_CONFIG_LIBDIR="${X264_OUT}/lib/pkgconfig"
           unset PKG_CONFIG_PATH
 
           pkg-config --modversion x264
-          # Print exactly what pkg-config reports for freetype2 (confirms detection)
-          echo "=== pkg-config freetype2 ==="
-          pkg-config --cflags --static --libs freetype2
 
           FFMPEG_VERSION=7.1.1
           curl -sL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.gz" | tar -xz
@@ -144,47 +87,16 @@ jobs:
             --disable-xlib \
             --enable-hardcoded-tables \
             --enable-libx264 \
-            --enable-libfreetype \
-            --enable-libharfbuzz \
             --pkg-config-flags="--static" \
-            --extra-cflags="-I${FT_OUT}/include/freetype2 -I${FT_OUT}/include -I${HB_OUT}/include/harfbuzz" \
-            --extra-ldflags="-L${FT_OUT}/lib -L${X264_OUT}/lib -L${HB_OUT}/lib" \
-            --extra-libs="-lfreetype -lharfbuzz -lc++" \
+            --extra-cflags="-I${X264_OUT}/include" \
+            --extra-ldflags="-L${X264_OUT}/lib" \
             --cc=clang || { tail -80 ffbuild/config.log; exit 1; }
-          grep -q "^CONFIG_LIBFREETYPE=yes" ffbuild/config.mak \
-            || { echo "ERROR: CONFIG_LIBFREETYPE not yes"; tail -120 ffbuild/config.log; exit 1; }
-          grep -q "^CONFIG_LIBHARFBUZZ=yes" ffbuild/config.mak \
-            || { echo "ERROR: CONFIG_LIBHARFBUZZ not yes"; tail -120 ffbuild/config.log; exit 1; }
-          grep -q "^CONFIG_DRAWTEXT_FILTER=yes" ffbuild/config.mak \
-            || { echo "ERROR: CONFIG_DRAWTEXT_FILTER not yes"; grep DRAWTEXT ffbuild/config.mak || true; tail -120 ffbuild/config.log; exit 1; }
+          grep -q "^CONFIG_LIBX264=yes" ffbuild/config.mak \
+            || { echo "ERROR: CONFIG_LIBX264 not yes"; tail -120 ffbuild/config.log; exit 1; }
           make -j"$(sysctl -n hw.logicalcpu)"
-          echo "=== vf_drawtext.o built? ==="
-          ls -la libavfilter/vf_drawtext.o 2>/dev/null || echo "(vf_drawtext.o was NOT compiled)"
-          echo "=== nm: drawtext symbols in freshly built binary ==="
-          nm ./ffmpeg | grep -i "drawtext" | head -10 || echo "(no drawtext symbols)"
-          echo "=== in-situ draw* filter test ==="
-          ./ffmpeg -filters 2>&1 | grep -i draw || true
-          ./ffmpeg -filters 2>&1 | grep -q drawtext \
-            || { echo "ERROR: drawtext missing from freshly built binary"; exit 1; }
           cp ffmpeg ../src-tauri/binaries/ffmpeg-aarch64-apple-darwin
           cd ..
-          rm -rf "ffmpeg-${FFMPEG_VERSION}" "freetype-${FT_VERSION}" "harfbuzz-${HB_VERSION}" x264-stable
-
-      - name: Verify arm64 FFmpeg has drawtext
-        if: matrix.platform == 'macos-14'
-        run: |
-          bin=src-tauri/binaries/ffmpeg-aarch64-apple-darwin
-          echo "=== Binary type ==="
-          file "$bin"
-          echo "=== Dylib deps ==="
-          otool -L "$bin" | head -15
-          echo "=== FFmpeg version ==="
-          "$bin" -version 2>&1 | head -5 || echo "(binary failed to run)"
-          echo "=== draw* filters ==="
-          "$bin" -filters 2>&1 | grep -i draw || echo "(no draw* filters)"
-          echo "=== drawtext check ==="
-          "$bin" -filters 2>&1 | grep -q drawtext \
-            || { echo "ERROR: drawtext filter missing from arm64 FFmpeg"; exit 1; }
+          rm -rf "ffmpeg-${FFMPEG_VERSION}" x264-stable
 
       - name: Download macOS FFmpeg binaries
         if: matrix.platform == 'macos-14'
@@ -195,8 +107,6 @@ jobs:
           unzip -o ffmpeg_x64.zip ffmpeg
           mv ffmpeg src-tauri/binaries/ffmpeg-x86_64-apple-darwin
           rm ffmpeg_x64.zip
-          src-tauri/binaries/ffmpeg-x86_64-apple-darwin -filters 2>&1 | grep -q drawtext \
-            || { echo "ERROR: drawtext filter missing from x86_64 FFmpeg"; exit 1; }
           lipo -create -output src-tauri/binaries/ffmpeg-universal-apple-darwin \
             src-tauri/binaries/ffmpeg-aarch64-apple-darwin \
             src-tauri/binaries/ffmpeg-x86_64-apple-darwin

@@ -2871,7 +2871,8 @@ export function PlaylistsPage() {
                       <Type className="h-3.5 w-3.5" />
                       Add Text Card
                     </Button>
-                    <div className="h-4 w-px bg-border" />
+                  </div>
+                  <div className="flex items-center gap-2">
                     {isPlaying ? (
                       <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={handleStop}>
                         <Square className="h-3.5 w-3.5" />
@@ -2919,7 +2920,7 @@ export function PlaylistsPage() {
                     <span className="text-sm font-medium text-primary">
                       {selectedClipIds.size} item{selectedClipIds.size !== 1 ? "s" : ""} selected
                     </span>
-                    <div className="ml-auto flex items-center gap-2">
+                    <div className="flex items-center gap-2">
                       <Button
                         size="sm"
                         className="h-7 gap-1 bg-red-600 px-2 text-xs text-white hover:bg-red-700"
@@ -3118,7 +3119,8 @@ export function PlaylistsPage() {
                       <Type className="h-3.5 w-3.5" />
                       Add Text Card
                     </Button>
-                    <div className="h-4 w-px bg-border" />
+                  </div>
+                  <div className="flex items-center gap-2">
                     {isPlaying ? (
                       <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={handleStop}>
                         <Square className="h-3.5 w-3.5" />
@@ -3166,7 +3168,7 @@ export function PlaylistsPage() {
                     <span className="text-sm font-medium text-primary">
                       {selectedClipIds.size} item{selectedClipIds.size !== 1 ? "s" : ""} selected
                     </span>
-                    <div className="ml-auto flex items-center gap-2">
+                    <div className="flex items-center gap-2">
                       <Button
                         size="sm"
                         className="h-7 gap-1 bg-red-600 px-2 text-xs text-white hover:bg-red-700"

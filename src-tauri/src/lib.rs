@@ -78,34 +78,71 @@ async fn export_playlist(
                     .map_err(|e| e.to_string())?
             }
             ExportSegment::Text { text, duration_seconds } => {
-                let fade_out_start = (duration_seconds - 0.25).max(0.0);
-                // Escape single quotes for FFmpeg drawtext filter.
-                let escaped_text = text.replace('\'', "'\\''");
-                // Font paths are platform-specific. On Windows the colon in the
-                // drive letter must be escaped as \: so FFmpeg's filter parser
-                // doesn't treat it as an option separator.
-                #[cfg(target_os = "windows")]
-                let font_path = "C\\:/Windows/Fonts/arial.ttf";
-                #[cfg(not(target_os = "windows"))]
-                let font_path = "/System/Library/Fonts/Helvetica.ttc";
+                use ab_glyph::{FontArc, PxScale};
+                use image::{ImageBuffer, Rgba};
+                use imageproc::drawing::{draw_text_mut, text_size};
 
-                app.shell()
+                const FONT_BYTES: &[u8] = include_bytes!("../resources/fonts/Roboto-Regular.ttf");
+
+                let font = FontArc::try_from_slice(FONT_BYTES)
+                    .map_err(|e| format!("Failed to load font: {e}"))?;
+
+                let scale = PxScale::from(72.0);
+                let max_w = 1280i32 - 80; // 40px padding each side
+
+                // Word-wrap: greedily fill lines up to max_w
+                let mut lines: Vec<String> = Vec::new();
+                let mut current = String::new();
+                for word in text.split_whitespace() {
+                    let candidate = if current.is_empty() {
+                        word.to_string()
+                    } else {
+                        format!("{current} {word}")
+                    };
+                    let (cw, _) = text_size(scale, &font, &candidate);
+                    if cw as i32 > max_w && !current.is_empty() {
+                        lines.push(current.clone());
+                        current = word.to_string();
+                    } else {
+                        current = candidate;
+                    }
+                }
+                if !current.is_empty() {
+                    lines.push(current);
+                }
+
+                let (_, line_h) = text_size(scale, &font, "Ag");
+                let line_step = (line_h as f32 * 1.3) as i32;
+                let total_h = lines.len() as i32 * line_step;
+                let start_y = ((720i32 - total_h) / 2).max(0);
+
+                let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> =
+                    ImageBuffer::from_pixel(1280, 720, Rgba([0, 0, 0, 255]));
+                for (li, line) in lines.iter().enumerate() {
+                    let (lw, _) = text_size(scale, &font, line);
+                    let x = ((1280i32 - lw as i32) / 2).max(0);
+                    let y = start_y + li as i32 * line_step;
+                    draw_text_mut(&mut img, Rgba([255, 255, 255, 255]), x, y, scale, &font, line);
+                }
+
+                let png_path = std::env::temp_dir()
+                    .join(format!("sc_text_{}_{}.png", timestamp, i));
+                img.save(&png_path)
+                    .map_err(|e| format!("Failed to save text frame: {e}"))?;
+
+                let fade_out_start = (duration_seconds - 0.25).max(0.0);
+
+                let result = app.shell()
                     .sidecar("ffmpeg")
                     .map_err(|e| e.to_string())?
                     .args([
                         "-y",
-                        "-f", "lavfi",
-                        "-i", &format!(
-                            "color=c=black:s=1280x720:d={duration_seconds:.3}:rate=30"
-                        ),
+                        "-loop", "1",
+                        "-i", png_path.to_str().unwrap(),
                         "-f", "lavfi",
                         "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
                         "-vf", &format!(
-                            "setpts=PTS-STARTPTS,\
-                             fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25,\
-                             drawtext=fontfile={font_path}:\
-                             text='{escaped_text}':fontcolor=white:fontsize=72:\
-                             x=(w-text_w)/2:y=(h-text_h)/2"
+                            "fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25"
                         ),
                         "-af", "asetpts=PTS-STARTPTS",
                         "-c:v", "libx264",
@@ -118,7 +155,10 @@ async fn export_playlist(
                     ])
                     .output()
                     .await
-                    .map_err(|e| e.to_string())?
+                    .map_err(|e| e.to_string())?;
+
+                let _ = std::fs::remove_file(&png_path);
+                result
             }
         };
 

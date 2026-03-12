@@ -984,40 +984,42 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                 onChange={(e) => setPostRoll(Number(e.target.value))}
               />
             </div>
-            {isPlaying ? (
-              <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={handleStop}>
-                <Square className="h-3.5 w-3.5" />
-                Stop
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                className="h-8 gap-1.5"
-                onClick={() => startQueue([...sortedDisplayEvents])}
-                disabled={sortedDisplayEvents.length === 0 || noSync}
-              >
-                <SkipForward className="h-3.5 w-3.5" />
-                Play Playlist
-              </Button>
-            )}
-            {isExporting ? (
-              <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Exporting…
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 gap-1.5"
-                onClick={() => handleExport(sortedDisplayEvents, activePlaylist?.name ?? "playlist")}
-                disabled={!!exportDisabledReason || sortedDisplayEvents.length === 0}
-                title={exportDisabledReason ?? "Export playlist as MP4"}
-              >
-                <FileDown className="h-3.5 w-3.5" />
-                Export
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {isPlaying ? (
+                <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={handleStop}>
+                  <Square className="h-3.5 w-3.5" />
+                  Stop
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  className="h-8 gap-1.5"
+                  onClick={() => startQueue([...sortedDisplayEvents])}
+                  disabled={sortedDisplayEvents.length === 0 || noSync}
+                >
+                  <SkipForward className="h-3.5 w-3.5" />
+                  Play Playlist
+                </Button>
+              )}
+              {isExporting ? (
+                <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Exporting…
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1.5"
+                  onClick={() => handleExport(sortedDisplayEvents, activePlaylist?.name ?? "playlist")}
+                  disabled={!!exportDisabledReason || sortedDisplayEvents.length === 0}
+                  title={exportDisabledReason ?? "Export playlist as MP4"}
+                >
+                  <FileDown className="h-3.5 w-3.5" />
+                  Export
+                </Button>
+              )}
+            </div>
           </div>
           {exportError && (
             <p className="w-full text-xs text-red-500 mt-1">{exportError}</p>
