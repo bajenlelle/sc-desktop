@@ -33,7 +33,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: src-tauri/binaries/ffmpeg-aarch64-apple-darwin
-          key: ffmpeg-arm64-static-7.1.1-x264-freetype-10
+          key: ffmpeg-arm64-static-7.1.1-x264-freetype-11
 
       - name: Build arm64 FFmpeg (static)
         if: matrix.platform == 'macos-14' && steps.cache-ffmpeg-arm64.outputs.cache-hit != 'true'
@@ -80,12 +80,21 @@ jobs:
           FT_OUT="$PWD/out"
           popd
 
-          # Use FreeType's own installed pkg-config file so we don't risk
-          # a hand-crafted .pc diverging from what was actually built.
-          export PKG_CONFIG_PATH="${FT_OUT}/lib/pkgconfig:${X264_OUT}/lib/pkgconfig"
+          # Verify FreeType actually installed its pkg-config file
+          echo "=== FreeType install: lib/ contents ==="
+          ls "${FT_OUT}/lib/" || true
+          echo "=== freetype2.pc ==="
+          cat "${FT_OUT}/lib/pkgconfig/freetype2.pc" \
+            || { echo "ERROR: freetype2.pc not found!"; find "${FT_OUT}" -name "*.pc" 2>/dev/null; exit 1; }
+
+          # PKG_CONFIG_LIBDIR replaces (rather than prepends to) the default
+          # search path, eliminating any interference from Homebrew or system paths.
+          export PKG_CONFIG_LIBDIR="${FT_OUT}/lib/pkgconfig:${X264_OUT}/lib/pkgconfig"
+          unset PKG_CONFIG_PATH
 
           pkg-config --modversion x264
-          # Print what pkg-config returns so configure failures are diagnosable
+          # Print exactly what pkg-config reports for freetype2 (confirms detection)
+          echo "=== pkg-config freetype2 ==="
           pkg-config --cflags --static --libs freetype2
 
           FFMPEG_VERSION=7.1.1
@@ -94,6 +103,8 @@ jobs:
           ./configure \
             --prefix="$PWD/out" \
             --bindir="$PWD/out" \
+            --arch=aarch64 \
+            --target-os=darwin \
             --enable-gpl \
             --enable-static \
             --disable-shared \
@@ -115,10 +126,12 @@ jobs:
             --extra-ldflags="-L${FT_OUT}/lib -L${X264_OUT}/lib" \
             --extra-libs="-lfreetype" \
             --cc=clang || { tail -80 ffbuild/config.log; exit 1; }
-          echo "=== FFmpeg configure: checking libfreetype and drawtext ==="
-          grep -Ei "CONFIG_LIBFREETYPE|CONFIG_DRAWTEXT_FILTER" ffbuild/config.mak || true
+          echo "=== FFmpeg config.mak: libfreetype + drawtext entries ==="
+          grep -Ei "LIBFREETYPE|DRAWTEXT" ffbuild/config.mak || echo "(no matches)"
           grep -q "CONFIG_LIBFREETYPE=yes" ffbuild/config.mak \
-            || { echo "ERROR: libfreetype not configured into FFmpeg"; tail -100 ffbuild/config.log; exit 1; }
+            || { echo "ERROR: libfreetype not in FFmpeg config.mak"; tail -100 ffbuild/config.log; exit 1; }
+          grep -q "CONFIG_DRAWTEXT_FILTER=yes" ffbuild/config.mak \
+            || { echo "ERROR: drawtext filter not in FFmpeg config.mak"; grep -i "drawtext\|freetype" ffbuild/config.log | tail -30; exit 1; }
           make -j"$(sysctl -n hw.logicalcpu)"
           cp ffmpeg ../src-tauri/binaries/ffmpeg-aarch64-apple-darwin
           cd ..
@@ -127,7 +140,17 @@ jobs:
       - name: Verify arm64 FFmpeg has drawtext
         if: matrix.platform == 'macos-14'
         run: |
-          src-tauri/binaries/ffmpeg-aarch64-apple-darwin -filters 2>&1 | grep -q drawtext \
+          bin=src-tauri/binaries/ffmpeg-aarch64-apple-darwin
+          echo "=== Binary type ==="
+          file "$bin"
+          echo "=== Dylib deps ==="
+          otool -L "$bin" | head -15
+          echo "=== FFmpeg version ==="
+          "$bin" -version 2>&1 | head -5 || echo "(binary failed to run)"
+          echo "=== draw* filters ==="
+          "$bin" -filters 2>&1 | grep -i draw || echo "(no draw* filters)"
+          echo "=== drawtext check ==="
+          "$bin" -filters 2>&1 | grep -q drawtext \
             || { echo "ERROR: drawtext filter missing from arm64 FFmpeg"; exit 1; }
 
       - name: Download macOS FFmpeg binaries
