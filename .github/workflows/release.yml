@@ -33,7 +33,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: src-tauri/binaries/ffmpeg-aarch64-apple-darwin
-          key: ffmpeg-arm64-static-7.1.1-x264-freetype-9
+          key: ffmpeg-arm64-static-7.1.1-x264-freetype-10
 
       - name: Build arm64 FFmpeg (static)
         if: matrix.platform == 'macos-14' && steps.cache-ffmpeg-arm64.outputs.cache-hit != 'true'
@@ -80,14 +80,13 @@ jobs:
           FT_OUT="$PWD/out"
           popd
 
-          # Create a pkg-config file pointing to our no-dep freetype build
-          mkdir -p /tmp/custom-pc
-          printf 'prefix=%s\nexec_prefix=${prefix}\nlibdir=${exec_prefix}/lib\nincludedir=${prefix}/include/freetype2\n\nName: FreeType 2\nDescription: A free, high-quality, portable font engine.\nVersion: %s\nRequires:\nRequires.private:\nCflags: -I${includedir} -I${prefix}/include\nLibs: -L${libdir} -lfreetype\nLibs.private:\n' \
-            "${FT_OUT}" "${FT_VERSION}" > /tmp/custom-pc/freetype2.pc
-          export PKG_CONFIG_PATH="/tmp/custom-pc:${X264_OUT}/lib/pkgconfig"
+          # Use FreeType's own installed pkg-config file so we don't risk
+          # a hand-crafted .pc diverging from what was actually built.
+          export PKG_CONFIG_PATH="${FT_OUT}/lib/pkgconfig:${X264_OUT}/lib/pkgconfig"
 
           pkg-config --modversion x264
-          pkg-config --static --libs freetype2
+          # Print what pkg-config returns so configure failures are diagnosable
+          pkg-config --cflags --static --libs freetype2
 
           FFMPEG_VERSION=7.1.1
           curl -sL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.gz" | tar -xz
@@ -112,9 +111,14 @@ jobs:
             --enable-libx264 \
             --enable-libfreetype \
             --pkg-config-flags="--static" \
-            --extra-cflags="-I${FT_OUT}/include -I${FT_OUT}/include/freetype2" \
+            --extra-cflags="-I${FT_OUT}/include/freetype2 -I${FT_OUT}/include" \
             --extra-ldflags="-L${FT_OUT}/lib -L${X264_OUT}/lib" \
+            --extra-libs="-lfreetype" \
             --cc=clang || { tail -80 ffbuild/config.log; exit 1; }
+          echo "=== FFmpeg configure: checking libfreetype and drawtext ==="
+          grep -Ei "CONFIG_LIBFREETYPE|CONFIG_DRAWTEXT_FILTER" ffbuild/config.mak || true
+          grep -q "CONFIG_LIBFREETYPE=yes" ffbuild/config.mak \
+            || { echo "ERROR: libfreetype not configured into FFmpeg"; tail -100 ffbuild/config.log; exit 1; }
           make -j"$(sysctl -n hw.logicalcpu)"
           cp ffmpeg ../src-tauri/binaries/ffmpeg-aarch64-apple-darwin
           cd ..
