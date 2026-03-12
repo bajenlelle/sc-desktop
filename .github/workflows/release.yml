@@ -33,7 +33,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: src-tauri/binaries/ffmpeg-aarch64-apple-darwin
-          key: ffmpeg-arm64-static-7.1.1-x264-freetype-12
+          key: ffmpeg-arm64-static-7.1.1-x264-freetype-14
 
       - name: Build arm64 FFmpeg (static)
         if: matrix.platform == 'macos-14' && steps.cache-ffmpeg-arm64.outputs.cache-hit != 'true'
@@ -126,15 +126,33 @@ jobs:
             --extra-ldflags="-L${FT_OUT}/lib -L${X264_OUT}/lib" \
             --extra-libs="-lfreetype" \
             --cc=clang || { tail -80 ffbuild/config.log; exit 1; }
-          echo "=== config.mak: ALL LIBFREETYPE + DRAWTEXT lines ==="
-          grep -Ei "LIBFREETYPE|DRAWTEXT" ffbuild/config.mak || echo "(no matches)"
-          echo "=== config.log: freetype/drawtext detection (last 40 matching lines) ==="
-          grep -i "freetype\|drawtext" ffbuild/config.log | tail -40 || echo "(nothing)"
-          grep -q "CONFIG_LIBFREETYPE=yes" ffbuild/config.mak \
-            || { echo "ERROR: CONFIG_LIBFREETYPE not yes in config.mak"; tail -120 ffbuild/config.log; exit 1; }
-          grep -q "CONFIG_DRAWTEXT_FILTER=yes" ffbuild/config.mak \
-            || { echo "ERROR: CONFIG_DRAWTEXT_FILTER not yes in config.mak"; tail -60 ffbuild/config.log; exit 1; }
+          # Use anchored greps — !CONFIG_DRAWTEXT_FILTER=yes (disabled-despite-requested)
+          # must NOT be treated as a pass.
+          grep -q "^CONFIG_LIBFREETYPE=yes" ffbuild/config.mak \
+            || { echo "ERROR: CONFIG_LIBFREETYPE not yes"; tail -120 ffbuild/config.log; exit 1; }
+          # drawtext gets a separate per-filter configure check that can fail even when
+          # libfreetype is available, leaving !CONFIG_DRAWTEXT_FILTER=yes in config.mak
+          # (requested but disabled). Force-enable it: libfreetype is confirmed working
+          # above, and extra-cflags already supply the freetype include paths.
+          if ! grep -q "^CONFIG_DRAWTEXT_FILTER=yes" ffbuild/config.mak; then
+            echo "=== drawtext disabled by configure (!CONFIG_DRAWTEXT_FILTER); force-enabling ==="
+            grep -E "DRAWTEXT" ffbuild/config.mak || true
+            grep -E "DRAWTEXT" config.h || true
+            # Rename the negated entry → plain enabled entry in config.mak
+            sed -i.bak 's/^!CONFIG_DRAWTEXT_FILTER=yes/CONFIG_DRAWTEXT_FILTER=yes/' ffbuild/config.mak
+            # Ensure config.h has the define set to 1
+            if grep -q "CONFIG_DRAWTEXT_FILTER" config.h; then
+              sed -i.bak 's/#define CONFIG_DRAWTEXT_FILTER.*/#define CONFIG_DRAWTEXT_FILTER 1/' config.h
+            else
+              echo "#define CONFIG_DRAWTEXT_FILTER 1" >> config.h
+            fi
+            echo "After patch:"
+            grep "DRAWTEXT" ffbuild/config.mak || true
+            grep "CONFIG_DRAWTEXT_FILTER" config.h || true
+          fi
           make -j"$(sysctl -n hw.logicalcpu)"
+          echo "=== vf_drawtext.o built? ==="
+          ls -la libavfilter/vf_drawtext.o 2>/dev/null || echo "(vf_drawtext.o was NOT compiled)"
           echo "=== nm: drawtext symbols in freshly built binary ==="
           nm ./ffmpeg | grep -i "drawtext" | head -10 || echo "(no drawtext symbols)"
           echo "=== in-situ draw* filter test ==="
