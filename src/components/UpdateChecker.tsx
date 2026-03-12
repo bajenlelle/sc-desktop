@@ -40,7 +40,7 @@ export function UpdateChecker() {
           ? "Downloading update…"
           : status === "error"
           ? `Update failed: ${error}`
-          : `Update available — v${update.version}`}
+          : `Update available — v${update.version}${update.body ? ` — ${update.body}` : ""}`}
       </span>
       {status === "idle" && (
         <div className="flex items-center gap-2">

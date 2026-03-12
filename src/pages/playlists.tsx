@@ -157,6 +157,7 @@ const EVENT_TYPE_OPTIONS = [
   { value: "rebound", label: "Rebound" },
   { value: "turnover", label: "Turnover" },
   { value: "steal", label: "Steal" },
+  { value: "assist", label: "Assist" },
   { value: "foul", label: "Foul" },
   { value: "block", label: "Block" },
 ];
