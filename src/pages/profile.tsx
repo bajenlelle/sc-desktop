@@ -769,24 +769,6 @@ export function ProfilePage() {
                 );
               })()}
 
-              <div className="border-t border-border pt-4">
-                <p className="text-sm font-medium text-foreground mb-2">Join by invite code</p>
-                <p className="text-xs text-muted-foreground mb-3">Use a team invite code to join a team directly.</p>
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="ABC123"
-                    value={joinCode}
-                    onChange={(e) => setJoinCode(e.target.value.toUpperCase().slice(0, 6))}
-                    onKeyDown={(e) => e.key === "Enter" && handleJoin()}
-                    className="font-mono uppercase w-32"
-                    maxLength={6}
-                  />
-                  <Button onClick={handleJoin} disabled={joining || joinCode.length !== 6}>
-                    {joining ? "Joining…" : "Join"}
-                  </Button>
-                </div>
-                {joinError && <p className="text-sm text-red-500">{joinError}</p>}
-              </div>
             </>
           )}
         </CardContent>
