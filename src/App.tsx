@@ -19,6 +19,24 @@ import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { createClient } from "@/lib/supabase/client";
 import { UpdateChecker } from "@/components/UpdateChecker";
 import { Toaster } from "sonner";
+import { useTheme } from "next-themes";
+
+function ThemedToaster() {
+  const { resolvedTheme } = useTheme();
+  return (
+    <Toaster
+      position="bottom-center"
+      duration={4000}
+      toastOptions={resolvedTheme === "dark" ? {
+        style: {
+          background: "oklch(0.18 0.02 240)",
+          border: "1px solid oklch(0.27 0.02 240)",
+          color: "oklch(0.9 0.01 240)",
+        },
+      } : undefined}
+    />
+  );
+}
 
 initAnalytics()
 
@@ -87,7 +105,7 @@ export default function App() {
     <AuthProvider>
       <ThemeProvider>
         <UpdateChecker />
-        <Toaster position="bottom-center" duration={4000} />
+        <ThemedToaster />
         <BrowserRouter>
           <DeepLinkHandler />
           <PageTracker />
