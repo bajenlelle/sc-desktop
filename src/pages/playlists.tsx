@@ -10,6 +10,7 @@ import {
   FileDown,
   FolderPlus,
   Share2,
+  Users,
   GripVertical,
   ListPlus,
   ListVideo,
@@ -35,7 +36,9 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/componen
 import { usePanelRef } from "react-resizable-panels";
 import { VideoClipControls } from "@/components/video-clip-controls";
 import { listMatches, listFolders, createFolder, updateFolder, deleteFolder } from "@/lib/matches-db";
-import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderItems, updateClip, insertTextCard, updateTextCard } from "@/lib/playlists-db";
+import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderItems, updateClip, insertTextCard, updateTextCard, assignPlaylistToTeam } from "@/lib/playlists-db";
+import { getOrgContext } from "@/lib/profile-db";
+import type { OrgTeam } from "@/types/org";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -1071,6 +1074,7 @@ export function PlaylistsPage() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [isShipping, setIsShipping] = useState(false);
   const [shipProgress, setShipProgress] = useState<{ done: number; total: number } | null>(null);
+  const [userTeams, setUserTeams] = useState<OrgTeam[]>([]);
   // Clip browser panel
   const [showClipBrowser, setShowClipBrowser] = useState(false);
 
@@ -1146,12 +1150,13 @@ export function PlaylistsPage() {
     const state = location.state as { restore?: { playlistId: string }; createNew?: boolean } | null;
     const restore = state?.restore;
     const createNew = state?.createNew;
-    Promise.all([listPlaylists(), listMatches(), listFolders()])
-      .then(([loadedPlaylists, loadedMatches, loadedFolders]) => {
+    Promise.all([listPlaylists(), listMatches(), listFolders(), getOrgContext().catch(() => null)])
+      .then(([loadedPlaylists, loadedMatches, loadedFolders, orgCtx]) => {
         setPlaylists(loadedPlaylists);
         setMatches(loadedMatches);
         const sorted = [...loadedFolders].sort((a, b) => a.sortOrder - b.sortOrder);
         setFolders(sorted);
+        if (orgCtx) setUserTeams(orgCtx.myTeams);
         if (restore) {
           const pl = loadedPlaylists.find((p) => p.id === restore.playlistId);
           if (pl) {
@@ -1830,6 +1835,14 @@ export function PlaylistsPage() {
   // ---------------------------------------------------------------------------
   // Clip & Ship
   // ---------------------------------------------------------------------------
+
+  async function handleAssignToTeam(teamId: string | null) {
+    if (!selected) return;
+    await assignPlaylistToTeam(selected.id, teamId);
+    const updated = { ...selected, teamId: teamId ?? undefined };
+    setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updated : p));
+    setSelected(updated);
+  }
 
   async function handleShip() {
     if (!selected) return;
@@ -3055,6 +3068,31 @@ export function PlaylistsPage() {
                         Share
                       </Button>
                     )}
+                    {userTeams.length > 0 && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button size="sm" variant={selected?.teamId ? "default" : "outline"} className="h-8 gap-1.5">
+                            <Users className="h-3.5 w-3.5" />
+                            {selected?.teamId ? (userTeams.find((t) => t.id === selected.teamId)?.name ?? "Team") : "Assign to Team"}
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {userTeams.map((team) => (
+                            <DropdownMenuItem key={team.id} onSelect={() => handleAssignToTeam(team.id)}>
+                              {team.name}{selected?.teamId === team.id ? " ✓" : ""}
+                            </DropdownMenuItem>
+                          ))}
+                          {selected?.teamId && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onSelect={() => handleAssignToTeam(null)} className="text-muted-foreground">
+                                Remove assignment
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
                   </div>
                   {exportError && (
                     <p className="w-full text-xs text-red-500 mt-1">{exportError}</p>
@@ -3323,6 +3361,31 @@ export function PlaylistsPage() {
                         <Share2 className="h-3.5 w-3.5" />
                         Share
                       </Button>
+                    )}
+                    {userTeams.length > 0 && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button size="sm" variant={selected?.teamId ? "default" : "outline"} className="h-8 gap-1.5">
+                            <Users className="h-3.5 w-3.5" />
+                            {selected?.teamId ? (userTeams.find((t) => t.id === selected.teamId)?.name ?? "Team") : "Assign to Team"}
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {userTeams.map((team) => (
+                            <DropdownMenuItem key={team.id} onSelect={() => handleAssignToTeam(team.id)}>
+                              {team.name}{selected?.teamId === team.id ? " ✓" : ""}
+                            </DropdownMenuItem>
+                          ))}
+                          {selected?.teamId && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onSelect={() => handleAssignToTeam(null)} className="text-muted-foreground">
+                                Remove assignment
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     )}
                   </div>
                   {exportError && (

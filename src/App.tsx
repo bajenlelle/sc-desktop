@@ -11,6 +11,7 @@ import { MatchDetailPage } from "@/pages/match-detail";
 import { UploadPage } from "@/pages/upload";
 import { PlaylistsPage } from "@/pages/playlists";
 import { SettingsPage } from "@/pages/settings";
+import { ProfilePage } from "@/pages/profile";
 import { LoginPage } from "@/pages/auth/login";
 import { SignupPage } from "@/pages/auth/signup";
 import { ForgotPasswordPage } from "@/pages/auth/forgot-password";
@@ -158,6 +159,7 @@ export default function App() {
                   </ProtectedRoute>
                 }
               />
+              <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
             </Route>
           </Routes>
         </BrowserRouter>

@@ -136,12 +136,18 @@ export function AppSidebar() {
           <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-transform dark:rotate-0 dark:scale-100" />
         </button>
         {user && (
-          <div
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary"
-            title={user.email}
+          <Link
+            to="/profile"
+            title="Your profile"
+            className={cn(
+              "flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold transition-colors",
+              pathname === "/profile"
+                ? "bg-primary text-primary-foreground"
+                : "bg-primary/15 text-primary hover:bg-primary/25"
+            )}
           >
             {getInitials(user)}
-          </div>
+          </Link>
         )}
         {user && (
           <button

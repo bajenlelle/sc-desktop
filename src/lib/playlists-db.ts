@@ -30,6 +30,7 @@ interface PlaylistRow {
   user_id: string;
   name: string;
   folder_id: string | null;
+  team_id: string | null;
   created_at: string;
   updated_at: string;
   playlist_clips: PlaylistClipRow[];
@@ -66,6 +67,7 @@ function rowToPlaylist(row: PlaylistRow): Playlist {
     name: row.name,
     items,
     folderId: row.folder_id ?? undefined,
+    teamId: row.team_id ?? undefined,
   };
 }
 
@@ -82,6 +84,7 @@ export async function listPlaylists(): Promise<Playlist[]> {
       user_id,
       name,
       folder_id,
+      team_id,
       created_at,
       updated_at,
       playlist_clips (
@@ -336,4 +339,20 @@ export async function updateClipR2Url(
     .eq("match_id", matchId)
     .eq("event_id", eventId);
   if (error) throw new Error(`Failed to save R2 URL: ${error.message}`);
+}
+
+// ---------------------------------------------------------------------------
+// Assign (or unassign) a playlist to a team
+// ---------------------------------------------------------------------------
+
+export async function assignPlaylistToTeam(
+  playlistId: string,
+  teamId: string | null
+): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("playlists")
+    .update({ team_id: teamId })
+    .eq("id", playlistId);
+  if (error) throw new Error(`Failed to assign playlist to team: ${error.message}`);
 }

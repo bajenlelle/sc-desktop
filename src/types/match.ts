@@ -178,6 +178,7 @@ export interface Playlist {
   name: string;
   items: PlaylistItem[]; // ordered items (clips and text cards)
   folderId?: string; // references PlaylistFolder.id; undefined = Uncategorized
+  teamId?: string;   // set when playlist is assigned to a team
 }
 
 export interface StoredMatch {
