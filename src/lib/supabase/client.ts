@@ -14,9 +14,24 @@ export function createClient(): SupabaseClient<any> {
           storage: window.localStorage,
           persistSession: true,
           detectSessionInUrl: false,
+          flowType: "implicit",
         },
       }
     );
   }
   return client;
+}
+
+export async function signInWithProvider(provider: "google" | "apple") {
+  const supabase = createClient();
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider,
+    options: {
+      redirectTo: "scoutable://auth/callback",
+      skipBrowserRedirect: true,
+    },
+  });
+  if (error || !data.url) throw error ?? new Error("No OAuth URL returned");
+  const { openUrl } = await import("@tauri-apps/plugin-opener");
+  await openUrl(data.url);
 }
