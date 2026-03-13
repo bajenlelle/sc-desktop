@@ -43,6 +43,7 @@ import { exportPlaylist, type ExportSegment } from "@/lib/export";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { Playlist, PlaylistFolder, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 import { isClipItem } from "@/types/match";
+import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
 // Helpers (mirrors clips-view.tsx)
@@ -196,6 +197,7 @@ function DraggableRow({
   onDrop,
   onDragEnd,
   onInsertTextCardAbove,
+  onRemove,
 }: {
   item: QueueItem;
   index: number;
@@ -216,6 +218,7 @@ function DraggableRow({
   onDrop: (e: React.DragEvent, index: number) => void;
   onDragEnd: () => void;
   onInsertTextCardAbove: () => void;
+  onRemove: () => void;
 }) {
   const { event } = item;
   return (
@@ -290,6 +293,16 @@ function DraggableRow({
               )}
             </div>
           </td>
+          <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="opacity-0 group-hover:opacity-100 transition-opacity rounded p-0.5 text-muted-foreground hover:text-red-500 hover:bg-red-500/10"
+              onClick={(e) => { e.stopPropagation(); onRemove(); }}
+              title="Remove from playlist"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </td>
         </tr>
       </ContextMenuTrigger>
       <ContextMenuContent>
@@ -322,6 +335,7 @@ function TextCardRow({
   onTextSave,
   onDurationChange,
   onClick,
+  onRemove,
 }: {
   card: PlaylistTextCard;
   index: number;
@@ -339,6 +353,7 @@ function TextCardRow({
   onTextSave: (id: string, text: string) => void;
   onDurationChange: (id: string, duration: number) => void;
   onClick: () => void;
+  onRemove: () => void;
 }) {
   const [durationOpen, setDurationOpen] = useState(false);
   const [draftDuration, setDraftDuration] = useState(String(card.durationSeconds));
@@ -441,6 +456,16 @@ function TextCardRow({
             </PopoverContent>
           </Popover>
         </div>
+      </td>
+      <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          className="opacity-0 group-hover:opacity-100 transition-opacity rounded p-0.5 text-muted-foreground hover:text-red-500 hover:bg-red-500/10"
+          onClick={(e) => { e.stopPropagation(); onRemove(); }}
+          title="Remove from playlist"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
       </td>
     </tr>
   );
@@ -2009,6 +2034,54 @@ export function PlaylistsPage() {
     setSelectedClipIds(new Set());
   }
 
+  function handleRemoveSingleClip(item: PlaylistClipItem) {
+    if (!selected) return;
+    const idx = selected.items.indexOf(item);
+    const newItems = selected.items.filter((_, i) => i !== idx);
+    const updated = { ...selected, items: newItems };
+    setSelected(updated);
+    setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updated : p));
+
+    let undone = false;
+    toast('Clip removed', {
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          undone = true;
+          const restored = { ...updated, items: [...newItems.slice(0, idx), item, ...newItems.slice(idx)] };
+          setSelected(restored);
+          setPlaylists((prev) => prev.map((p) => p.id === selected.id ? restored : p));
+        },
+      },
+      onAutoClose: () => { if (!undone) removeClips(selected.id, [{ matchId: item.matchId, eventId: item.eventId }], []); },
+      onDismiss: () => { if (!undone) removeClips(selected.id, [{ matchId: item.matchId, eventId: item.eventId }], []); },
+    });
+  }
+
+  function handleRemoveSingleTextCard(card: PlaylistTextCard) {
+    if (!selected) return;
+    const idx = selected.items.indexOf(card);
+    const newItems = selected.items.filter((_, i) => i !== idx);
+    const updated = { ...selected, items: newItems };
+    setSelected(updated);
+    setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updated : p));
+
+    let undone = false;
+    toast('Text card removed', {
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          undone = true;
+          const restored = { ...updated, items: [...newItems.slice(0, idx), card, ...newItems.slice(idx)] };
+          setSelected(restored);
+          setPlaylists((prev) => prev.map((p) => p.id === selected.id ? restored : p));
+        },
+      },
+      onAutoClose: () => { if (!undone) removeClips(selected.id, [], [card.id]); },
+      onDismiss: () => { if (!undone) removeClips(selected.id, [], [card.id]); },
+    });
+  }
+
   async function handleAddSelectedToPlaylist(target: Playlist) {
     if (!selected) return;
     const existingSet = new Set(target.items.filter(isClipItem).map((c) => `${c.matchId}:${c.eventId}`));
@@ -2973,8 +3046,8 @@ export function PlaylistsPage() {
                     </Button>
                   </div>
                 ) : (
-                  <div className="overflow-hidden rounded-lg border border-border">
-                    <table className="w-full text-sm">
+                  <div className="overflow-x-auto rounded-lg border border-border">
+                    <table className="w-full min-w-[580px] text-sm">
                       <thead className="border-b border-border bg-muted/80 text-xs font-medium text-muted-foreground">
                         <tr>
                           <th className="w-8" />
@@ -3002,7 +3075,8 @@ export function PlaylistsPage() {
                           <th className="px-4 py-2.5 text-left">Event</th>
                           <th className="px-4 py-2.5 text-left">Player</th>
                           <th className="px-4 py-2.5 text-left">Team</th>
-                          <th className="px-4 py-2.5 text-left"></th>
+                          <th className="px-4 py-2.5" />
+                          <th className="px-3 py-2.5" />
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border bg-card">
@@ -3029,6 +3103,7 @@ export function PlaylistsPage() {
                                 onTextChange={handleTextCardTextChange}
                                 onTextSave={handleTextCardTextSave}
                                 onDurationChange={handleTextCardDurationChange}
+                                onRemove={() => handleRemoveSingleTextCard(card)}
                               />
                             );
                           }
@@ -3058,6 +3133,7 @@ export function PlaylistsPage() {
                               onDrop={(e, i) => handleClipDrop(e, i)}
                               onDragEnd={handleClipDragEnd}
                               onInsertTextCardAbove={() => handleInsertTextCard(index)}
+                              onRemove={() => { if (clip) handleRemoveSingleClip(clip); }}
                             />
                           );
                         })}
@@ -3221,8 +3297,8 @@ export function PlaylistsPage() {
                     </Button>
                   </div>
                 ) : (
-                  <div className="overflow-hidden rounded-lg border border-border">
-                    <table className="w-full text-sm">
+                  <div className="overflow-x-auto rounded-lg border border-border">
+                    <table className="w-full min-w-[580px] text-sm">
                       <thead className="border-b border-border bg-muted/80 text-xs font-medium text-muted-foreground">
                         <tr>
                           <th className="w-8" />
@@ -3250,7 +3326,8 @@ export function PlaylistsPage() {
                           <th className="px-4 py-2.5 text-left">Event</th>
                           <th className="px-4 py-2.5 text-left">Player</th>
                           <th className="px-4 py-2.5 text-left">Team</th>
-                          <th className="px-4 py-2.5 text-left"></th>
+                          <th className="px-4 py-2.5" />
+                          <th className="px-3 py-2.5" />
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border bg-card">
@@ -3277,6 +3354,7 @@ export function PlaylistsPage() {
                                 onTextChange={handleTextCardTextChange}
                                 onTextSave={handleTextCardTextSave}
                                 onDurationChange={handleTextCardDurationChange}
+                                onRemove={() => handleRemoveSingleTextCard(card)}
                               />
                             );
                           }
@@ -3306,6 +3384,7 @@ export function PlaylistsPage() {
                               onDrop={(e, i) => handleClipDrop(e, i)}
                               onDragEnd={handleClipDragEnd}
                               onInsertTextCardAbove={() => handleInsertTextCard(index)}
+                              onRemove={() => { if (clip) handleRemoveSingleClip(clip); }}
                             />
                           );
                         })}

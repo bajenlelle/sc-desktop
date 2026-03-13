@@ -18,6 +18,7 @@ import { ResetPasswordPage } from "@/pages/auth/reset-password";
 import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { createClient } from "@/lib/supabase/client";
 import { UpdateChecker } from "@/components/UpdateChecker";
+import { Toaster } from "sonner";
 
 initAnalytics()
 
@@ -86,6 +87,7 @@ export default function App() {
     <AuthProvider>
       <ThemeProvider>
         <UpdateChecker />
+        <Toaster position="bottom-center" duration={4000} />
         <BrowserRouter>
           <DeepLinkHandler />
           <PageTracker />
