@@ -10,6 +10,7 @@ export type AnalyticsEvent =
   | 'video_exported'
   | 'page_viewed'
   | 'clip_added_to_playlist'
+  | 'playlist_shipped'
 
 export function initAnalytics() {
   posthog.init(import.meta.env.VITE_POSTHOG_KEY, {

@@ -422,6 +422,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
           return {
             kind: 'clip',
             videoPath: videoUrl,
+            matchId,
             event: e,
             syncPoint,
             preRollOffset: clip?.preRollOffset,

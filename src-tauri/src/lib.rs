@@ -219,6 +219,65 @@ async fn export_playlist(
     }
 }
 
+#[tauri::command]
+async fn export_clip_for_ship(
+    app: tauri::AppHandle,
+    video_path: String,
+    start: f64,
+    end: f64,
+    output_path: String,
+) -> Result<(), String> {
+    use tauri_plugin_shell::ShellExt;
+    let duration = (end - start).max(0.001);
+    let fade_out_start = (duration - 0.25).max(0.0);
+    let result = app
+        .shell()
+        .sidecar("ffmpeg")
+        .map_err(|e| e.to_string())?
+        .args([
+            "-y",
+            "-ss", &format!("{start:.3}"),
+            "-to", &format!("{end:.3}"),
+            "-i", &video_path,
+            "-vf", &format!(
+                "setpts=PTS-STARTPTS,\
+                 scale=960:540:force_original_aspect_ratio=decrease,\
+                 pad=960:540:(ow-iw)/2:(oh-ih)/2:color=black,\
+                 fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25"
+            ),
+            "-af", "asetpts=PTS-STARTPTS",
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "28",
+            "-c:a", "aac",
+            "-b:a", "96k",
+            &output_path,
+        ])
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+    if result.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&result.stderr).to_string())
+    }
+}
+
+#[tauri::command]
+async fn get_temp_dir() -> String {
+    std::env::temp_dir().to_string_lossy().to_string()
+}
+
+#[tauri::command]
+async fn delete_file(path: String) -> Result<(), String> {
+    let temp = std::env::temp_dir();
+    let p = std::path::Path::new(&path);
+    if !p.starts_with(&temp) {
+        return Err("delete_file: path is outside temp directory".into());
+    }
+    std::fs::remove_file(p).map_err(|e| e.to_string())
+}
+
 /// Maximum bytes returned per request via the stream:// protocol.
 /// Keeps memory usage bounded regardless of file size.
 const CHUNK_SIZE: u64 = 4 * 1024 * 1024; // 4 MiB
@@ -371,7 +430,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![export_playlist])
+        .invoke_handler(tauri::generate_handler![export_playlist, get_temp_dir, delete_file, export_clip_for_ship])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

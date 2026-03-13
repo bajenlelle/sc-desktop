@@ -22,6 +22,7 @@ interface PlaylistClipRow {
   note: string | null;
   text_content: string | null;
   duration_seconds: number | null;
+  r2_url: string | null;
 }
 
 interface PlaylistRow {
@@ -56,6 +57,7 @@ function rowToPlaylist(row: PlaylistRow): Playlist {
         ...(c.pre_roll_offset !== 0 ? { preRollOffset: c.pre_roll_offset } : {}),
         ...(c.post_roll_offset !== 0 ? { postRollOffset: c.post_roll_offset } : {}),
         ...(c.note ? { note: c.note } : {}),
+        ...(c.r2_url ? { r2Url: c.r2_url } : {}),
       } satisfies PlaylistClipItem;
     })
     .filter((x): x is PlaylistItem => x !== null);
@@ -92,7 +94,8 @@ export async function listPlaylists(): Promise<Playlist[]> {
         post_roll_offset,
         note,
         text_content,
-        duration_seconds
+        duration_seconds,
+        r2_url
       )
     `)
     .order("created_at", { ascending: false });
@@ -313,4 +316,24 @@ export async function updateClip(
     .eq("match_id", matchId)
     .eq("event_id", eventId);
   if (error) throw new Error(`Failed to update clip: ${error.message}`);
+}
+
+// ---------------------------------------------------------------------------
+// Save the Cloudflare R2 URL for a clip after a Clip & Ship export
+// ---------------------------------------------------------------------------
+
+export async function updateClipR2Url(
+  playlistId: string,
+  matchId: string,
+  eventId: number,
+  r2Url: string,
+): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("playlist_clips")
+    .update({ r2_url: r2Url })
+    .eq("playlist_id", playlistId)
+    .eq("match_id", matchId)
+    .eq("event_id", eventId);
+  if (error) throw new Error(`Failed to save R2 URL: ${error.message}`);
 }

@@ -12,7 +12,7 @@ function computeVideoTime(event: PlayByPlayEvent, sync: SyncPoint): number | nul
 }
 
 export type ExportSegment =
-  | { kind: 'clip'; videoPath: string; event: PlayByPlayEvent; syncPoint: SyncPoint; preRollOffset?: number; postRollOffset?: number }
+  | { kind: 'clip'; videoPath: string; matchId: string; event: PlayByPlayEvent; syncPoint: SyncPoint; preRollOffset?: number; postRollOffset?: number }
   | { kind: 'text'; text: string; durationSeconds: number };
 
 // Legacy interface kept for callers that haven't migrated yet

@@ -150,6 +150,7 @@ export interface PlaylistClipItem {
   preRollOffset?: number;  // signed delta in seconds added on top of global pre-roll
   postRollOffset?: number; // signed delta in seconds added on top of global post-roll
   note?: string;           // per-clip note scoped to this playlist
+  r2Url?: string;          // set after Clip & Ship upload
 }
 
 export interface PlaylistTextCard {

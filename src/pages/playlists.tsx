@@ -9,6 +9,7 @@ import {
   Columns2,
   FileDown,
   FolderPlus,
+  Share2,
   GripVertical,
   ListPlus,
   ListVideo,
@@ -40,6 +41,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { exportPlaylist, type ExportSegment } from "@/lib/export";
+import { clipAndShip } from "@/lib/clip-and-ship";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { Playlist, PlaylistFolder, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 import { isClipItem } from "@/types/match";
@@ -1067,6 +1069,8 @@ export function PlaylistsPage() {
   const [search, setSearch] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [isShipping, setIsShipping] = useState(false);
+  const [shipProgress, setShipProgress] = useState<{ done: number; total: number } | null>(null);
   // Clip browser panel
   const [showClipBrowser, setShowClipBrowser] = useState(false);
 
@@ -1803,6 +1807,7 @@ export function PlaylistsPage() {
           const seg: ExportSegment = {
             kind: 'clip',
             videoPath: m.videoUrl,
+            matchId: qi.matchId,
             event: qi.event,
             syncPoint: m.syncPoint,
           };
@@ -1819,6 +1824,55 @@ export function PlaylistsPage() {
       trackEvent('video_exported', { playlist_id: selected!.id, clip_count: segmentCount, status: 'error' });
     } finally {
       setIsExporting(false);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Clip & Ship
+  // ---------------------------------------------------------------------------
+
+  async function handleShip() {
+    if (!selected) return;
+    setIsShipping(true);
+    setShipProgress(null);
+    try {
+      const segments = sortedEvents
+        .map((item): ExportSegment | null => {
+          if (isTextCard(item)) return null;
+          const qi = item as QueueItem;
+          const m = matchLookup.get(qi.matchId);
+          if (!m?.videoUrl || !m.syncPoint) return null;
+          const clip = selected.items.filter(isClipItem).find(
+            (c) => c.matchId === qi.matchId && c.eventId === qi.event.eventId
+          );
+          const seg: ExportSegment = {
+            kind: "clip",
+            videoPath: m.videoUrl,
+            matchId: qi.matchId,
+            event: qi.event,
+            syncPoint: m.syncPoint,
+          };
+          if (clip?.preRollOffset !== undefined)
+            (seg as Extract<ExportSegment, { kind: "clip" }>).preRollOffset = clip.preRollOffset;
+          if (clip?.postRollOffset !== undefined)
+            (seg as Extract<ExportSegment, { kind: "clip" }>).postRollOffset = clip.postRollOffset;
+          return seg;
+        })
+        .filter((x): x is ExportSegment => x !== null);
+
+      await clipAndShip(selected, segments, preRoll, postRoll, (done, total) => {
+        setShipProgress({ done, total });
+      });
+
+      toast.success("Clips uploaded", {
+        description: `${segments.filter((s) => s.kind === "clip").length} clip(s) are now in the cloud.`,
+      });
+      trackEvent("playlist_shipped", { playlist_id: selected.id, clip_count: segments.filter((s) => s.kind === "clip").length });
+    } catch (e) {
+      toast.error("Clip & Ship failed", { description: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setIsShipping(false);
+      setShipProgress(null);
     }
   }
 
@@ -2983,6 +3037,24 @@ export function PlaylistsPage() {
                           : 'Export Playlist'}
                       </Button>
                     )}
+                    {isShipping ? (
+                      <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        {shipProgress ? `${shipProgress.done} / ${shipProgress.total}` : "Uploading…"}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 gap-1.5"
+                        onClick={handleShip}
+                        disabled={!!exportDisabledReason}
+                        title={exportDisabledReason ?? "Upload clips to cloud for sharing"}
+                      >
+                        <Share2 className="h-3.5 w-3.5" />
+                        Share
+                      </Button>
+                    )}
                   </div>
                   {exportError && (
                     <p className="w-full text-xs text-red-500 mt-1">{exportError}</p>
@@ -3232,6 +3304,24 @@ export function PlaylistsPage() {
                         {selectedClipIds.size > 0
                           ? `Export ${selectedClipIds.size} selected`
                           : 'Export Playlist'}
+                      </Button>
+                    )}
+                    {isShipping ? (
+                      <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        {shipProgress ? `${shipProgress.done} / ${shipProgress.total}` : "Uploading…"}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 gap-1.5"
+                        onClick={handleShip}
+                        disabled={!!exportDisabledReason}
+                        title={exportDisabledReason ?? "Upload clips to cloud for sharing"}
+                      >
+                        <Share2 className="h-3.5 w-3.5" />
+                        Share
                       </Button>
                     )}
                   </div>
