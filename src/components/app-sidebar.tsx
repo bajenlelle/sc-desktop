@@ -2,6 +2,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
 import {
   Activity,
+  BookOpen,
   Film,
   ListVideo,
   Plus,
@@ -13,11 +14,6 @@ import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import type { User } from "@supabase/supabase-js";
-
-const navItems = [
-  { label: "Playlists", href: "/playlists", icon: ListVideo },
-  { label: "Library", href: "/matches", icon: Film },
-];
 
 function getInitials(user: User): string {
   const email = user.email ?? "";
@@ -73,10 +69,12 @@ function SidebarIconButton({
 }
 
 export function AppSidebar() {
-  const { user } = useAuth();
+  const { user, profile, profileLoading } = useAuth();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { resolvedTheme, setTheme } = useTheme();
+
+  const isCoachOrAdmin = profile?.role === "coach" || profile?.role === "admin";
 
   async function handleSignOut() {
     const supabase = createClient();
@@ -96,28 +94,40 @@ export function AppSidebar() {
       </div>
 
       {/* Nav items */}
-      {user && (
+      {user && !profileLoading && (
         <nav className="flex flex-col items-center gap-1 py-3">
-          {navItems.map((item) => (
+          {/* Playlists editor: coaches and admins only */}
+          {isCoachOrAdmin && (
             <SidebarIconButton
-              key={item.href}
-              href={item.href}
-              icon={item.icon}
-              label={item.label}
-              isActive={pathname.startsWith(item.href)}
-              onClickWhileActive={
-                item.href === "/playlists"
-                  ? () => window.dispatchEvent(new CustomEvent("playlist-browser-toggle"))
-                  : undefined
-              }
+              href="/playlists"
+              icon={ListVideo}
+              label="Playlists"
+              isActive={pathname.startsWith("/playlists") && !pathname.startsWith("/my-playlists")}
+              onClickWhileActive={() => window.dispatchEvent(new CustomEvent("playlist-browser-toggle"))}
             />
-          ))}
+          )}
+          {/* My Playlists: all roles */}
+          <SidebarIconButton
+            href="/my-playlists"
+            icon={BookOpen}
+            label="My Playlists"
+            isActive={pathname.startsWith("/my-playlists")}
+          />
+          {/* Library: coaches and admins only */}
+          {isCoachOrAdmin && (
+            <SidebarIconButton
+              href="/matches"
+              icon={Film}
+              label="Library"
+              isActive={pathname.startsWith("/matches")}
+            />
+          )}
         </nav>
       )}
 
       {/* Bottom utilities */}
       <div className="mt-auto flex flex-col items-center gap-1 border-t border-sidebar-border py-3">
-        {user && (
+        {user && !profileLoading && isCoachOrAdmin && (
           <SidebarIconButton
             href="/upload"
             icon={Plus}

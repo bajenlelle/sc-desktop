@@ -72,6 +72,54 @@ function rowToPlaylist(row: PlaylistRow): Playlist {
 }
 
 // ---------------------------------------------------------------------------
+// List playlists assigned to the current user's teams (player view)
+// ---------------------------------------------------------------------------
+
+export async function getMyTeamPlaylists(): Promise<Playlist[]> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  // Get all teams the user belongs to
+  const { data: memberships } = await supabase
+    .from("team_members")
+    .select("team_id")
+    .eq("user_id", user.id);
+  const teamIds = (memberships ?? []).map((m: { team_id: string }) => m.team_id);
+  if (teamIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("playlists")
+    .select(`
+      id,
+      user_id,
+      name,
+      folder_id,
+      team_id,
+      created_at,
+      updated_at,
+      playlist_clips (
+        item_type,
+        item_id,
+        match_id,
+        event_id,
+        position,
+        pre_roll_offset,
+        post_roll_offset,
+        note,
+        text_content,
+        duration_seconds,
+        r2_url
+      )
+    `)
+    .in("team_id", teamIds)
+    .order("created_at", { ascending: false });
+  if (error) { console.error("getMyTeamPlaylists:", error.message); return []; }
+  if (!data) return [];
+  return (data as PlaylistRow[]).map(rowToPlaylist);
+}
+
+// ---------------------------------------------------------------------------
 // List all playlists for the current user (with items via join)
 // ---------------------------------------------------------------------------
 

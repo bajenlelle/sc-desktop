@@ -4,7 +4,7 @@
  */
 
 import { createClient } from "@/lib/supabase/client";
-import type { UserProfile, Organization, OrgTeam, TeamMember, TeamInvite, OrgInvite, OrgContext } from "@/types/org";
+import type { UserProfile, Organization, OrgTeam, TeamMember, TeamInvite, OrgInvite, OrgContext, OrgWithCount } from "@/types/org";
 
 // ---------------------------------------------------------------------------
 // Row types (snake_case Postgres columns)
@@ -17,6 +17,7 @@ interface ProfileRow {
   role: string;
   org_id: string | null;
   created_at: string;
+  is_platform_admin: boolean;
 }
 
 interface OrgRow {
@@ -79,6 +80,7 @@ function rowToProfile(r: ProfileRow): UserProfile {
     role: r.role as UserProfile['role'],
     orgId: r.org_id,
     createdAt: r.created_at,
+    isPlatformAdmin: r.is_platform_admin ?? false,
   };
 }
 
@@ -116,11 +118,12 @@ function rowToOrgInvite(r: OrgInviteRow): OrgInvite {
 // Profile
 // ---------------------------------------------------------------------------
 
-export async function getMyProfile(): Promise<UserProfile> {
+export async function getMyProfile(userId: string): Promise<UserProfile> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, full_name, avatar_url, role, org_id, created_at")
+    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin")
+    .eq("id", userId)
     .single();
   if (error || !data) throw new Error(`Failed to load profile: ${error?.message}`);
   return rowToProfile(data as ProfileRow);
@@ -162,7 +165,7 @@ export async function getOrgContext(): Promise<OrgContext> {
 
   const profileRes = await supabase
     .from("profiles")
-    .select("id, full_name, avatar_url, role, org_id, created_at")
+    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin")
     .eq("id", user.id)
     .single();
   if (profileRes.error || !profileRes.data) throw new Error(`Failed to load profile: ${profileRes.error?.message}`);
@@ -176,7 +179,7 @@ export async function getOrgContext(): Promise<OrgContext> {
     const [orgRes, teamsRes, membersRes] = await Promise.all([
       supabase.from("organizations").select("id, name, logo_url, created_at").eq("id", profile.orgId).single(),
       supabase.from("teams").select("id, org_id, name, sport, season, created_at").eq("org_id", profile.orgId),
-      supabase.from("profiles").select("id, full_name, avatar_url, role, org_id, created_at").eq("org_id", profile.orgId),
+      supabase.from("profiles").select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin").eq("org_id", profile.orgId),
     ]);
     if (orgRes.data) org = rowToOrg(orgRes.data as OrgRow);
     if (teamsRes.data) allOrgTeams = (teamsRes.data as TeamRow[]).map(rowToTeam);
@@ -346,7 +349,7 @@ export async function getOrgMembers(orgId: string): Promise<UserProfile[]> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, full_name, avatar_url, role, org_id, created_at")
+    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin")
     .eq("org_id", orgId);
   if (error) throw new Error(`Failed to load org members: ${error.message}`);
   return (data ?? []).map((r) => rowToProfile(r as ProfileRow));
@@ -378,4 +381,78 @@ export async function joinOrgTeam(teamId: string): Promise<void> {
     if (error.message.includes("team_not_in_org")) throw new Error("That team is not in your organization.");
     throw new Error(`Failed to join team: ${error.message}`);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Platform admin functions
+// ---------------------------------------------------------------------------
+
+export async function createOrgForPlatform(name: string): Promise<string> {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("create_org_for_platform", { org_name: name });
+  if (error) {
+    if (error.message.includes("not_platform_admin")) throw new Error("Not authorized as platform admin.");
+    throw new Error(`Failed to create organization: ${error.message}`);
+  }
+  return data as string;
+}
+
+export async function generateAdminOrgInviteCode(orgId: string): Promise<string> {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("generate_org_invite", {
+    p_org_id: orgId,
+    p_role: "admin",
+    p_max_uses: 1,
+    p_expires_in_hours: null,
+  });
+  if (error) throw new Error(`Failed to generate admin invite: ${error.message}`);
+  return data as string;
+}
+
+interface OrgWithCountRow {
+  id: string;
+  name: string;
+  logo_url: string | null;
+  created_at: string;
+  member_count: number;
+}
+
+export async function joinByCode(code: string): Promise<{ type: 'org' | 'team'; orgId: string; teamId?: string }> {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("join_by_code", { p_code: code.toUpperCase() });
+  if (error) {
+    if (error.message.includes("invalid_code")) throw new Error("Invalid invite code.");
+    if (error.message.includes("code_expired")) throw new Error("This invite code has expired.");
+    if (error.message.includes("code_exhausted")) throw new Error("This invite code has reached its maximum uses.");
+    if (error.message.includes("already_in_different_org")) throw new Error("You are already in a different organization.");
+    throw new Error(`Failed to join: ${error.message}`);
+  }
+  const result = data as { type: string; org_id: string; team_id?: string };
+  return { type: result.type as 'org' | 'team', orgId: result.org_id, teamId: result.team_id };
+}
+
+export async function promoteToAdmin(userId: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.rpc("promote_to_admin", { p_user_id: userId });
+  if (error) {
+    if (error.message.includes("not_admin")) throw new Error("Only org admins can promote members.");
+    if (error.message.includes("user_not_in_org")) throw new Error("User is not in your organization.");
+    throw new Error(`Failed to promote: ${error.message}`);
+  }
+}
+
+export async function getAllOrgsWithCounts(): Promise<OrgWithCount[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("get_all_orgs_with_counts");
+  if (error) {
+    if (error.message.includes("not_platform_admin")) throw new Error("Not authorized as platform admin.");
+    throw new Error(`Failed to load orgs: ${error.message}`);
+  }
+  return (data ?? []).map((r: OrgWithCountRow) => ({
+    id: r.id,
+    name: r.name,
+    logoUrl: r.logo_url,
+    createdAt: r.created_at,
+    memberCount: Number(r.member_count),
+  }));
 }

@@ -10,12 +10,14 @@ import { MatchesPage } from "@/pages/matches";
 import { MatchDetailPage } from "@/pages/match-detail";
 import { UploadPage } from "@/pages/upload";
 import { PlaylistsPage } from "@/pages/playlists";
+import { MyPlaylistsPage } from "@/pages/my-playlists";
 import { SettingsPage } from "@/pages/settings";
 import { ProfilePage } from "@/pages/profile";
 import { LoginPage } from "@/pages/auth/login";
 import { SignupPage } from "@/pages/auth/signup";
 import { ForgotPasswordPage } from "@/pages/auth/forgot-password";
 import { ResetPasswordPage } from "@/pages/auth/reset-password";
+import { OnboardingPage } from "@/pages/onboarding";
 import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { createClient } from "@/lib/supabase/client";
 import { UpdateChecker } from "@/components/UpdateChecker";
@@ -117,6 +119,7 @@ export default function App() {
               <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
             </Route>
+            <Route path="/onboarding" element={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} />
             <Route element={<RootLayout />}>
               <Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
               <Route
@@ -148,6 +151,14 @@ export default function App() {
                 element={
                   <ProtectedRoute>
                     <PlaylistsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/my-playlists"
+                element={
+                  <ProtectedRoute>
+                    <MyPlaylistsPage />
                   </ProtectedRoute>
                 }
               />

@@ -2297,25 +2297,25 @@ export function PlaylistsPage() {
               </span>
             )}
             <div className="ml-auto flex items-center gap-1">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 w-7 p-0"
-                title="New Playlist"
-                onClick={handleNewPlaylist}
-              >
-                <ListPlus className="h-4 w-4" />
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 w-7 p-0"
-                title="New Folder"
-                onClick={handleNewFolder}
-              >
-                <FolderPlus className="h-4 w-4" />
-              </Button>
-            </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 w-7 p-0"
+                  title="New Playlist"
+                  onClick={handleNewPlaylist}
+                >
+                  <ListPlus className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 w-7 p-0"
+                  title="New Folder"
+                  onClick={handleNewFolder}
+                >
+                  <FolderPlus className="h-4 w-4" />
+                </Button>
+              </div>
           </div>
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -2355,8 +2355,8 @@ export function PlaylistsPage() {
               Give it a name and add clips from your games.
             </p>
             <Button size="sm" variant="outline" className="mt-2 text-xs" onClick={handleNewPlaylist}>
-              New playlist
-            </Button>
+                New playlist
+              </Button>
           </div>
         ) : search.trim() && filteredPlaylists.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
@@ -2581,16 +2581,18 @@ export function PlaylistsPage() {
                                         </button>
                                       </DropdownMenuTrigger>
                                       <DropdownMenuContent align="end">
-                                        <DropdownMenuItem onSelect={() => { setEditingPlaylistId(pl.id); setEditPlaylistName(pl.name); }}>
-                                          Rename
-                                        </DropdownMenuItem>
-                                        <DropdownMenuSeparator />
-                                        <DropdownMenuItem
-                                          className="text-destructive focus:text-destructive"
-                                          onSelect={() => handleDeletePlaylist(pl.id)}
-                                        >
-                                          Delete
-                                        </DropdownMenuItem>
+                                        <>
+                                          <DropdownMenuItem onSelect={() => { setEditingPlaylistId(pl.id); setEditPlaylistName(pl.name); }}>
+                                            Rename
+                                          </DropdownMenuItem>
+                                          <DropdownMenuSeparator />
+                                          <DropdownMenuItem
+                                            className="text-destructive focus:text-destructive"
+                                            onSelect={() => handleDeletePlaylist(pl.id)}
+                                          >
+                                            Delete
+                                          </DropdownMenuItem>
+                                        </>
                                       </DropdownMenuContent>
                                     </DropdownMenu>
                                   </div>
@@ -2829,8 +2831,8 @@ export function PlaylistsPage() {
               Choose one from the panel, or create a new playlist to start collecting clips.
             </p>
             <Button size="sm" variant="outline" className="mt-1 text-xs" onClick={handleNewPlaylist}>
-              New playlist
-            </Button>
+                New playlist
+              </Button>
           </div>
         ) : (
           <>

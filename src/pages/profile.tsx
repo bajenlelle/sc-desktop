@@ -11,21 +11,22 @@ import {
   getOrgContext,
   updateMyProfile,
   uploadAvatar,
-  createOrg,
   createTeam,
   generateInviteCode,
   listInvitesForTeam,
   deleteInvite,
-  joinTeamByCode,
   getTeamMemberCounts,
   generateOrgInviteCode,
   listOrgInvites,
   deleteOrgInvite,
-  joinOrgByCode,
   assignMemberToTeam,
   joinOrgTeam,
+  promoteToAdmin,
+  createOrgForPlatform,
+  generateAdminOrgInviteCode,
+  getAllOrgsWithCounts,
 } from "@/lib/profile-db";
-import type { OrgContext, OrgTeam, TeamInvite, OrgInvite, UserProfile } from "@/types/org";
+import type { OrgContext, OrgTeam, TeamInvite, OrgInvite, UserProfile, OrgWithCount } from "@/types/org";
 import { toast } from "sonner";
 import { Clipboard, Check, X } from "lucide-react";
 
@@ -33,17 +34,142 @@ import { Clipboard, Check, X } from "lucide-react";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function roleBadgeVariant(role: string): "default" | "secondary" | "outline" {
+function roleBadgeVariant(role: string, isPlatformAdmin: boolean): "default" | "secondary" | "outline" | "destructive" {
+  if (isPlatformAdmin) return "destructive";
   if (role === "admin") return "default";
   if (role === "coach") return "secondary";
   return "outline";
 }
 
 // ---------------------------------------------------------------------------
-// OrgInviteSection: org-level invite codes (admin only)
+// PlatformAdminSection
 // ---------------------------------------------------------------------------
 
-function OrgInviteSection({ orgId }: { orgId: string }) {
+function PlatformAdminSection() {
+  const [orgs, setOrgs] = useState<OrgWithCount[]>([]);
+  const [newOrgName, setNewOrgName] = useState("");
+  const [creatingOrg, setCreatingOrg] = useState(false);
+  const [generatedCodes, setGeneratedCodes] = useState<Record<string, string>>({});
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
+  const [copiedOrgId, setCopiedOrgId] = useState<string | null>(null);
+
+  async function loadOrgs() {
+    try {
+      setOrgs(await getAllOrgsWithCounts());
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  useEffect(() => { loadOrgs(); }, []);
+
+  async function handleCreateOrg() {
+    if (!newOrgName.trim()) return;
+    setCreatingOrg(true);
+    try {
+      await createOrgForPlatform(newOrgName.trim());
+      toast.success("Organization created");
+      setNewOrgName("");
+      await loadOrgs();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setCreatingOrg(false);
+    }
+  }
+
+  async function handleGenerateAdminInvite(orgId: string) {
+    setGeneratingId(orgId);
+    try {
+      const code = await generateAdminOrgInviteCode(orgId);
+      setGeneratedCodes((prev) => ({ ...prev, [orgId]: code }));
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setGeneratingId(null);
+    }
+  }
+
+  function handleCopy(code: string, orgId: string) {
+    navigator.clipboard.writeText(code);
+    setCopiedOrgId(orgId);
+    setTimeout(() => setCopiedOrgId(null), 2000);
+  }
+
+  return (
+    <Card>
+      <CardContent className="space-y-4 p-6">
+        <h2 className="text-base font-semibold text-foreground">Platform Admin</h2>
+
+        <div className="flex gap-2">
+          <Input
+            placeholder="New organization name"
+            value={newOrgName}
+            onChange={(e) => setNewOrgName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleCreateOrg()}
+          />
+          <Button onClick={handleCreateOrg} disabled={creatingOrg || !newOrgName.trim()}>
+            {creatingOrg ? "Creating…" : "Create Org"}
+          </Button>
+        </div>
+
+        {orgs.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No organizations yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {orgs.map((org) => (
+              <div key={org.id} className="rounded-lg border border-border p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm font-medium">{org.name}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {org.memberCount} member{org.memberCount !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    disabled={generatingId === org.id}
+                    onClick={() => handleGenerateAdminInvite(org.id)}
+                  >
+                    {generatingId === org.id ? "Generating…" : "Generate Admin Invite"}
+                  </Button>
+                </div>
+                {generatedCodes[org.id] && (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      readOnly
+                      value={generatedCodes[org.id]}
+                      className="h-7 font-mono text-sm flex-1"
+                    />
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0 shrink-0"
+                      onClick={() => handleCopy(generatedCodes[org.id], org.id)}
+                      title="Copy code"
+                    >
+                      {copiedOrgId === org.id
+                        ? <Check className="h-3.5 w-3.5 text-emerald-500" />
+                        : <Clipboard className="h-3.5 w-3.5" />}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// OrgInviteSection: org-level invite codes (admin + coach)
+// ---------------------------------------------------------------------------
+
+function OrgInviteSection({ orgId, isAdmin }: { orgId: string; isAdmin: boolean }) {
   const [invites, setInvites] = useState<OrgInvite[]>([]);
   const [loadingInvites, setLoadingInvites] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -58,10 +184,10 @@ function OrgInviteSection({ orgId }: { orgId: string }) {
     }
   }
 
-  async function handleGenerate(role: "coach" | "player") {
+  async function handleGenerate(role: "coach") {
     try {
       await generateOrgInviteCode(orgId, role);
-      toast.success(`${role === "coach" ? "Coach" : "Player"} org invite code generated`);
+      toast.success("Coach org invite code generated");
       if (expanded) load();
     } catch (e) {
       toast.error((e as Error).message);
@@ -91,13 +217,10 @@ function OrgInviteSection({ orgId }: { orgId: string }) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <p className="text-sm font-medium text-foreground">Invite to Organization</p>
+        <p className="text-sm font-medium text-foreground">Invite Coaches</p>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleGenerate("coach")}>
-            Invite Coach
-          </Button>
-          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleGenerate("player")}>
-            Invite Player
+            Generate Coach Invite
           </Button>
           <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={toggleExpanded}>
             {expanded ? "Hide codes" : "Show codes"}
@@ -109,10 +232,10 @@ function OrgInviteSection({ orgId }: { orgId: string }) {
         <div className="space-y-2">
           {loadingInvites ? (
             <p className="text-xs text-muted-foreground">Loading…</p>
-          ) : invites.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No active org invite codes.</p>
+          ) : invites.filter(i => i.role === 'coach').length === 0 ? (
+            <p className="text-xs text-muted-foreground">No active coach invite codes.</p>
           ) : (
-            invites.map((inv) => (
+            invites.filter(i => i.role === 'coach').map((inv) => (
               <div key={inv.id} className="flex items-center gap-2">
                 <Badge variant="outline" className="text-xs shrink-0">{inv.role}</Badge>
                 <Input
@@ -129,15 +252,17 @@ function OrgInviteSection({ orgId }: { orgId: string }) {
                 >
                   {copiedId === inv.id ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Clipboard className="h-3.5 w-3.5" />}
                 </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 w-7 p-0 shrink-0 text-muted-foreground hover:text-red-500"
-                  onClick={() => handleDelete(inv.id)}
-                  title="Delete invite"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </Button>
+                {isAdmin && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0 shrink-0 text-muted-foreground hover:text-red-500"
+                    onClick={() => handleDelete(inv.id)}
+                    title="Delete invite"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                )}
               </div>
             ))
           )}
@@ -148,7 +273,56 @@ function OrgInviteSection({ orgId }: { orgId: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// TeamSection: invite code list + generate for one team
+// OrgMemberList: admin-only list with promote-to-admin action
+// ---------------------------------------------------------------------------
+
+function OrgMemberList({ members, onPromote }: { members: UserProfile[]; onPromote: (userId: string) => Promise<void> }) {
+  const [promotingId, setPromotingId] = useState<string | null>(null);
+
+  async function handlePromote(userId: string) {
+    setPromotingId(userId);
+    try {
+      await onPromote(userId);
+    } finally {
+      setPromotingId(null);
+    }
+  }
+
+  const coaches = members.filter((m) => m.role === "coach");
+  if (coaches.length === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium text-foreground">Members</p>
+      <div className="space-y-1">
+        {members.map((m) => (
+          <div key={m.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm">{m.fullName ?? m.id.slice(0, 8)}</span>
+              <Badge variant={roleBadgeVariant(m.role, m.isPlatformAdmin)} className="text-xs">
+                {m.role}
+              </Badge>
+            </div>
+            {m.role === "coach" && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                disabled={promotingId === m.id}
+                onClick={() => handlePromote(m.id)}
+              >
+                {promotingId === m.id ? "Promoting…" : "Promote to admin"}
+              </Button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// TeamSection
 // ---------------------------------------------------------------------------
 
 function TeamSection({
@@ -269,15 +443,17 @@ function TeamSection({
           <span className="ml-2 text-xs text-muted-foreground">{memberCount} member{memberCount !== 1 ? "s" : ""}</span>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleGenerate("coach")}>
-            Invite Coach
-          </Button>
           <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleGenerate("player")}>
             Invite Player
           </Button>
-          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={toggleAddMember}>
-            {showAddMember ? "Cancel" : "Add Member"}
+          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleGenerate("coach")}>
+            Invite Coach
           </Button>
+          {orgMembers.length > 0 && (
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={toggleAddMember}>
+              {showAddMember ? "Cancel" : "Add Member"}
+            </Button>
+          )}
           <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={toggleExpanded}>
             {expanded ? "Hide codes" : "Show codes"}
           </Button>
@@ -372,7 +548,7 @@ function TeamSection({
 // ---------------------------------------------------------------------------
 
 export function ProfilePage() {
-  const { user } = useAuth();
+  const { user, reloadProfile } = useAuth();
   const navigate = useNavigate();
 
   const [ctx, setCtx] = useState<OrgContext | null>(null);
@@ -385,25 +561,13 @@ export function ProfilePage() {
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Create org form
-  const [orgName, setOrgName] = useState("");
-  const [creatingOrg, setCreatingOrg] = useState(false);
-
   // Create team form
   const [showNewTeam, setShowNewTeam] = useState(false);
   const [newTeamName, setNewTeamName] = useState("");
   const [newTeamSeason, setNewTeamSeason] = useState("");
   const [creatingTeam, setCreatingTeam] = useState(false);
 
-  // Join org by code
-  const [joinOrgCode, setJoinOrgCode] = useState("");
-  const [joiningOrg, setJoiningOrg] = useState(false);
-  const [joinOrgError, setJoinOrgError] = useState<string | null>(null);
-
-  // Join team
-  const [joinCode, setJoinCode] = useState("");
-  const [joining, setJoining] = useState(false);
-  const [joinError, setJoinError] = useState<string | null>(null);
+  // Join team (coach browsing org teams)
   const [joiningTeamId, setJoiningTeamId] = useState<string | null>(null);
 
   // Member counts for teams
@@ -419,7 +583,7 @@ export function ProfilePage() {
         const counts = await getTeamMemberCounts(context.allOrgTeams.map((t) => t.id));
         setMemberCounts(counts);
       }
-    } catch (e) {
+    } catch {
       toast.error("Failed to load profile");
     } finally {
       setLoading(false);
@@ -457,21 +621,6 @@ export function ProfilePage() {
     }
   }
 
-  async function handleCreateOrg() {
-    if (!orgName.trim()) return;
-    setCreatingOrg(true);
-    try {
-      await createOrg(orgName.trim());
-      toast.success("Organization created");
-      setOrgName("");
-      await load();
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setCreatingOrg(false);
-    }
-  }
-
   async function handleCreateTeam() {
     if (!newTeamName.trim()) return;
     setCreatingTeam(true);
@@ -489,38 +638,6 @@ export function ProfilePage() {
     }
   }
 
-  async function handleJoinOrg() {
-    if (joinOrgCode.length !== 6) return;
-    setJoiningOrg(true);
-    setJoinOrgError(null);
-    try {
-      await joinOrgByCode(joinOrgCode);
-      toast.success("Joined organization!");
-      setJoinOrgCode("");
-      await load();
-    } catch (e) {
-      setJoinOrgError((e as Error).message);
-    } finally {
-      setJoiningOrg(false);
-    }
-  }
-
-  async function handleJoin() {
-    if (joinCode.length !== 6) return;
-    setJoining(true);
-    setJoinError(null);
-    try {
-      await joinTeamByCode(joinCode);
-      toast.success("Joined team!");
-      setJoinCode("");
-      await load();
-    } catch (e) {
-      setJoinError((e as Error).message);
-    } finally {
-      setJoining(false);
-    }
-  }
-
   async function handleJoinOrgTeam(teamId: string) {
     setJoiningTeamId(teamId);
     try {
@@ -531,6 +648,17 @@ export function ProfilePage() {
       toast.error((e as Error).message);
     } finally {
       setJoiningTeamId(null);
+    }
+  }
+
+  async function handlePromoteToAdmin(userId: string) {
+    try {
+      await promoteToAdmin(userId);
+      toast.success("Member promoted to admin");
+      await load();
+      await reloadProfile();
+    } catch (e) {
+      toast.error((e as Error).message);
     }
   }
 
@@ -567,6 +695,10 @@ export function ProfilePage() {
   }
 
   const profile = ctx.profile;
+  const isAdmin = profile.role === "admin";
+  const isCoach = profile.role === "coach";
+  const isPlayer = profile.role === "player";
+  const canManageTeams = isAdmin || isCoach;
 
   return (
     <div className="p-6 max-w-2xl mx-auto space-y-6">
@@ -574,6 +706,8 @@ export function ProfilePage() {
         <h1 className="text-2xl font-bold tracking-tight text-foreground">Profile</h1>
         <p className="mt-1 text-sm text-muted-foreground">Manage your identity, organization, and teams.</p>
       </div>
+
+      {profile.isPlatformAdmin && <PlatformAdminSection />}
 
       {/* Personal Info */}
       <Card>
@@ -601,7 +735,9 @@ export function ProfilePage() {
             />
             <div className="flex-1 space-y-1">
               <p className="text-xs text-muted-foreground">Click avatar to change. Max 5 MB.</p>
-              <Badge variant={roleBadgeVariant(profile.role)}>{profile.role}</Badge>
+              <Badge variant={roleBadgeVariant(profile.role, profile.isPlatformAdmin)}>
+                {profile.isPlatformAdmin ? "platform admin" : profile.role}
+              </Badge>
             </div>
           </div>
           <div className="space-y-2">
@@ -625,20 +761,7 @@ export function ProfilePage() {
           <h2 className="text-base font-semibold text-foreground">Organization</h2>
 
           {ctx.org === null ? (
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">You don't belong to an organization yet.</p>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Organization name"
-                  value={orgName}
-                  onChange={(e) => setOrgName(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleCreateOrg()}
-                />
-                <Button onClick={handleCreateOrg} disabled={creatingOrg || !orgName.trim()}>
-                  {creatingOrg ? "Creating…" : "Create"}
-                </Button>
-              </div>
-            </div>
+            <p className="text-sm text-muted-foreground">You don't belong to an organization yet.</p>
           ) : (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -646,7 +769,7 @@ export function ProfilePage() {
                   <p className="font-medium">{ctx.org.name}</p>
                   <p className="text-xs text-muted-foreground">{ctx.allOrgTeams.length} team{ctx.allOrgTeams.length !== 1 ? "s" : ""}</p>
                 </div>
-                {profile.role === "admin" && (
+                {isAdmin && (
                   <Button size="sm" variant="outline" onClick={() => setShowNewTeam((v) => !v)}>
                     {showNewTeam ? "Cancel" : "New Team"}
                   </Button>
@@ -672,11 +795,18 @@ export function ProfilePage() {
                 </div>
               )}
 
-              {profile.role === "admin" && ctx.org && (
-                <OrgInviteSection orgId={ctx.org.id} />
+              {/* Invite codes section — admins and coaches */}
+              {canManageTeams && ctx.org && (
+                <OrgInviteSection orgId={ctx.org.id} isAdmin={isAdmin} />
               )}
 
-              {ctx.allOrgTeams.length > 0 && (
+              {/* Org member list with promote action — admins only */}
+              {isAdmin && ctx.orgMembers.length > 0 && (
+                <OrgMemberList members={ctx.orgMembers} onPromote={handlePromoteToAdmin} />
+              )}
+
+              {/* Teams — coaches/admins see full TeamSection; players see read-only list of their own teams */}
+              {!isPlayer && ctx.allOrgTeams.length > 0 && (
                 <div className="space-y-2">
                   {ctx.allOrgTeams.map((team) => (
                     <TeamSection
@@ -684,69 +814,35 @@ export function ProfilePage() {
                       team={team}
                       memberCount={memberCounts[team.id] ?? 0}
                       onInviteGenerated={() => {}}
-                      orgMembers={profile.role === "admin" ? ctx.orgMembers : []}
+                      orgMembers={isAdmin ? ctx.orgMembers : []}
                       onContextReload={load}
                     />
                   ))}
                 </div>
               )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Join Organization / Team */}
-      <Card>
-        <CardContent className="space-y-4 p-6">
-          {ctx.profile.orgId === null ? (
-            <>
-              <h2 className="text-base font-semibold text-foreground">Join an Organization</h2>
-              <p className="text-sm text-muted-foreground">Enter a 6-character org invite code to join an organization.</p>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="ABC123"
-                  value={joinOrgCode}
-                  onChange={(e) => setJoinOrgCode(e.target.value.toUpperCase().slice(0, 6))}
-                  onKeyDown={(e) => e.key === "Enter" && handleJoinOrg()}
-                  className="font-mono uppercase w-32"
-                  maxLength={6}
-                />
-                <Button onClick={handleJoinOrg} disabled={joiningOrg || joinOrgCode.length !== 6}>
-                  {joiningOrg ? "Joining…" : "Join"}
-                </Button>
-              </div>
-              {joinOrgError && <p className="text-sm text-red-500">{joinOrgError}</p>}
-
-              <div className="border-t border-border pt-4">
-                <h2 className="text-base font-semibold text-foreground">Join a Team</h2>
-                <p className="mt-1 mb-3 text-sm text-muted-foreground">Enter a 6-character team invite code.</p>
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="ABC123"
-                    value={joinCode}
-                    onChange={(e) => setJoinCode(e.target.value.toUpperCase().slice(0, 6))}
-                    onKeyDown={(e) => e.key === "Enter" && handleJoin()}
-                    className="font-mono uppercase w-32"
-                    maxLength={6}
-                  />
-                  <Button onClick={handleJoin} disabled={joining || joinCode.length !== 6}>
-                    {joining ? "Joining…" : "Join"}
-                  </Button>
+              {isPlayer && ctx.myTeams.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-foreground">My Teams</p>
+                  {ctx.myTeams.map((team) => (
+                    <div key={team.id} className="rounded-lg border border-border px-3 py-2">
+                      <span className="text-sm font-medium">{team.name}</span>
+                      {team.season && (
+                        <Badge variant="outline" className="ml-2 text-xs">{team.season}</Badge>
+                      )}
+                    </div>
+                  ))}
                 </div>
-                {joinError && <p className="text-sm text-red-500">{joinError}</p>}
-              </div>
-            </>
-          ) : (
-            <>
-              <h2 className="text-base font-semibold text-foreground">Join a Team</h2>
-              {(() => {
+              )}
+
+              {/* Coach: join teams they're not yet in */}
+              {isCoach && (() => {
                 const myTeamIds = new Set(ctx.myTeams.map((t) => t.id));
-                const availableTeams = ctx.allOrgTeams.filter((t) => !myTeamIds.has(t.id));
-                return availableTeams.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">You're already in all teams in your organization.</p>
-                ) : (
+                const available = ctx.allOrgTeams.filter((t) => !myTeamIds.has(t.id));
+                if (available.length === 0) return null;
+                return (
                   <div className="space-y-2">
-                    {availableTeams.map((team) => (
+                    <p className="text-sm font-medium text-foreground">Join a Team</p>
+                    {available.map((team) => (
                       <div key={team.id} className="flex items-center justify-between rounded-lg border border-border p-3">
                         <div>
                           <span className="text-sm font-medium">{team.name}</span>
@@ -768,8 +864,7 @@ export function ProfilePage() {
                   </div>
                 );
               })()}
-
-            </>
+            </div>
           )}
         </CardContent>
       </Card>

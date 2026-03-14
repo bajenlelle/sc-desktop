@@ -11,6 +11,7 @@ export interface UserProfile {
   role: UserRole;
   orgId: string | null;
   createdAt: string;
+  isPlatformAdmin: boolean;
 }
 
 export interface Organization {
@@ -53,12 +54,20 @@ export interface OrgInvite {
   id: string;
   orgId: string;
   code: string;
-  role: 'coach' | 'player';
+  role: 'coach' | 'player' | 'admin';
   createdBy: string;
   createdAt: string;
   expiresAt: string | null;
   usedCount: number;
   maxUses: number | null;
+}
+
+export interface OrgWithCount {
+  id: string;
+  name: string;
+  logoUrl: string | null;
+  createdAt: string;
+  memberCount: number;
 }
 
 /** Loaded once on profile mount; bundles everything the profile page needs. */

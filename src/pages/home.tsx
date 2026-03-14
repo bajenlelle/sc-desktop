@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MatchRow } from "@/components/match-row";
 import { listMatches, listFolders } from "@/lib/matches-db";
 import { listPlaylists } from "@/lib/playlists-db";
+import { useAuth } from "@/lib/auth-context";
 import type { StoredMatch, Playlist, PlaylistFolder } from "@/types/match";
 
 function PlaylistCard({ playlist, folder }: { playlist: Playlist; folder?: PlaylistFolder }) {
@@ -27,7 +28,8 @@ function PlaylistCard({ playlist, folder }: { playlist: Playlist; folder?: Playl
   );
 }
 
-export function HomePage() {
+
+function CoachHomePage() {
   const navigate = useNavigate();
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -57,7 +59,6 @@ export function HomePage() {
   const noGames = !loading && matches.length === 0;
   const noPlaylists = !loading && playlists.length === 0;
 
-  // Both empty — single unified empty state
   if (!loading && noGames && noPlaylists) {
     return (
       <div className="p-6">
@@ -167,4 +168,11 @@ export function HomePage() {
       </div>
     </div>
   );
+}
+
+export function HomePage() {
+  const { profile, profileLoading } = useAuth();
+  if (profileLoading) return null;
+  if (profile?.role === "player") return <Navigate to="/my-playlists" replace />;
+  return <CoachHomePage />;
 }
