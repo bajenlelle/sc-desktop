@@ -156,26 +156,58 @@ export async function getMatch(id: string): Promise<StoredMatch | null> {
 export async function listMatches(): Promise<StoredMatch[]> {
   const supabase = createClient();
 
-  const { data, error } = await supabase
-    .from("matches")
-    .select("*")
-    .order("created_at", { ascending: false });
+  const [matchesRes, eventsRes] = await Promise.all([
+    supabase.from("matches").select("*").order("created_at", { ascending: false }),
+    supabase.from("play_by_play_events").select("*").order("real_world_time", { ascending: true }),
+  ]);
 
-  if (error || !data) return [];
+  if (matchesRes.error || !matchesRes.data) return [];
 
-  // Load events for all matches in parallel
-  const withEvents = await Promise.all(
-    (data as MatchRow[]).map(async (row) => {
-      const { data: events } = await supabase
-        .from("play_by_play_events")
-        .select("*")
-        .eq("match_id", row.id)
-        .order("real_world_time", { ascending: true });
-      return rowToStoredMatch(row, (events ?? []) as EventRow[]);
-    })
+  const eventsByMatch: Record<string, EventRow[]> = {};
+  for (const e of (eventsRes.data ?? []) as EventRow[]) {
+    if (!eventsByMatch[e.match_id]) eventsByMatch[e.match_id] = [];
+    eventsByMatch[e.match_id].push(e);
+  }
+
+  return (matchesRes.data as MatchRow[]).map((row) =>
+    rowToStoredMatch(row, eventsByMatch[row.id] ?? [])
   );
+}
 
-  return withEvents;
+// ---------------------------------------------------------------------------
+// Fetch events for a specific set of match IDs in a single query
+// Returns a map of matchId → events (sorted by real_world_time)
+// ---------------------------------------------------------------------------
+
+export async function listEventsForMatches(
+  matchIds: string[]
+): Promise<Record<string, PlayByPlayEvent[]>> {
+  if (matchIds.length === 0) return {};
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("play_by_play_events")
+    .select("*")
+    .in("match_id", matchIds)
+    .order("real_world_time", { ascending: true });
+  if (error || !data) return {};
+  const byMatch: Record<string, PlayByPlayEvent[]> = {};
+  for (const row of data as EventRow[]) {
+    const key = row.match_id;
+    if (!byMatch[key]) byMatch[key] = [];
+    byMatch[key].push({
+      eventId: row.event_id ?? 0,
+      type: row.type,
+      subType: row.sub_type ?? "",
+      period: row.period ?? 0,
+      gameClockTime: row.game_clock_time ?? "",
+      realWorldTime: row.real_world_time ?? "",
+      isSuccessful: row.is_successful ?? 0,
+      player: row.player ?? null,
+      eventTeam: row.event_team ?? null,
+      qualifiers: row.qualifiers ?? [],
+    });
+  }
+  return byMatch;
 }
 
 // ---------------------------------------------------------------------------

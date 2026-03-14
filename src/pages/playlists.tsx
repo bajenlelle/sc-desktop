@@ -1999,7 +1999,8 @@ export function PlaylistsPage() {
         trackEvent('playlist_created', { playlist_id: created.id, in_folder: !!folderId })
         setPlaylists((prev) => prev.map((p) => (p.id === playlistId ? created : p)));
         selectPlaylist(created);
-      } catch {
+      } catch (err) {
+        console.error("[playlists] Failed to create playlist:", err);
         setPlaylists((prev) => prev.filter((p) => p.id !== playlistId));
       }
       return;
@@ -2548,7 +2549,7 @@ export function PlaylistsPage() {
                                         onClick={(e) => e.stopPropagation()}
                                         onBlur={() => handleRenamePlaylist(pl.id)}
                                         onKeyDown={(e) => {
-                                          if (e.key === "Enter") handleRenamePlaylist(pl.id);
+                                          if (e.key === "Enter") e.currentTarget.blur();
                                           if (e.key === "Escape") {
                                             if (pl.id === pendingNewPlaylistId) {
                                               setPendingNewPlaylistId(null);
@@ -2732,7 +2733,7 @@ export function PlaylistsPage() {
                                       onClick={(e) => e.stopPropagation()}
                                       onBlur={() => handleRenamePlaylist(pl.id)}
                                       onKeyDown={(e) => {
-                                        if (e.key === "Enter") handleRenamePlaylist(pl.id);
+                                        if (e.key === "Enter") e.currentTarget.blur();
                                         if (e.key === "Escape") {
                                           if (pl.id === pendingNewPlaylistId) {
                                             setPendingNewPlaylistId(null);

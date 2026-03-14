@@ -77,17 +77,8 @@ function rowToPlaylist(row: PlaylistRow): Playlist {
 
 export async function getMyTeamPlaylists(): Promise<Playlist[]> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
-
-  // Get all teams the user belongs to
-  const { data: memberships } = await supabase
-    .from("team_members")
-    .select("team_id")
-    .eq("user_id", user.id);
-  const teamIds = (memberships ?? []).map((m: { team_id: string }) => m.team_id);
-  if (teamIds.length === 0) return [];
-
+  // RLS already filters to playlists for teams the caller belongs to
+  // (via current_user_team_ids() in the playlists_team_read policy)
   const { data, error } = await supabase
     .from("playlists")
     .select(`
@@ -112,7 +103,7 @@ export async function getMyTeamPlaylists(): Promise<Playlist[]> {
         r2_url
       )
     `)
-    .in("team_id", teamIds)
+    .not("team_id", "is", null)
     .order("created_at", { ascending: false });
   if (error) { console.error("getMyTeamPlaylists:", error.message); return []; }
   if (!data) return [];
@@ -304,13 +295,13 @@ export async function removeClips(
         .eq("match_id", matchId)
         .eq("event_id", eventId)
     ),
-    ...textCardIds.map((itemId) =>
-      supabase
-        .from("playlist_clips")
-        .delete()
-        .eq("playlist_id", playlistId)
-        .eq("item_id", itemId)
-    ),
+    ...(textCardIds.length > 0
+      ? [supabase
+          .from("playlist_clips")
+          .delete()
+          .eq("playlist_id", playlistId)
+          .in("item_id", textCardIds)]
+      : []),
   ]);
 }
 
@@ -325,23 +316,16 @@ export async function reorderItems(
 ): Promise<void> {
   if (items.length === 0) return;
   const supabase = createClient();
-  await Promise.all(
-    items.map((item, i) => {
-      if (item.type === 'text') {
-        return supabase
-          .from("playlist_clips")
-          .update({ position: i })
-          .eq("playlist_id", playlistId)
-          .eq("item_id", item.id);
-      }
-      return supabase
-        .from("playlist_clips")
-        .update({ position: i })
-        .eq("playlist_id", playlistId)
-        .eq("match_id", item.matchId)
-        .eq("event_id", item.eventId);
-    })
+  const p_items = items.map((item, i) =>
+    item.type === 'text'
+      ? { item_type: 'text', item_id: item.id, position: i }
+      : { item_type: 'clip', match_id: item.matchId, event_id: item.eventId, position: i }
   );
+  const { error } = await supabase.rpc('reorder_playlist_items', {
+    p_playlist_id: playlistId,
+    p_items,
+  });
+  if (error) throw new Error(`Failed to reorder items: ${error.message}`);
 }
 
 // ---------------------------------------------------------------------------
