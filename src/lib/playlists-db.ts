@@ -116,6 +116,8 @@ export async function getMyTeamPlaylists(): Promise<Playlist[]> {
 
 export async function listPlaylists(): Promise<Playlist[]> {
   const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
   const { data, error } = await supabase
     .from("playlists")
     .select(`
@@ -140,6 +142,7 @@ export async function listPlaylists(): Promise<Playlist[]> {
         r2_url
       )
     `)
+    .eq("user_id", user.id)
     .order("created_at", { ascending: false });
   if (error) { console.error("listPlaylists:", error.message); return []; }
   if (!data) return [];

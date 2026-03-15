@@ -13,6 +13,7 @@ import { PlaylistsPage } from "@/pages/playlists";
 import { MyPlaylistsPage } from "@/pages/my-playlists";
 import { SettingsPage } from "@/pages/settings";
 import { ProfilePage } from "@/pages/profile";
+import { OrganizationPage } from "@/pages/organization";
 import { LoginPage } from "@/pages/auth/login";
 import { SignupPage } from "@/pages/auth/signup";
 import { ForgotPasswordPage } from "@/pages/auth/forgot-password";
@@ -171,6 +172,7 @@ export default function App() {
                 }
               />
               <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+              <Route path="/organization" element={<ProtectedRoute><OrganizationPage /></ProtectedRoute>} />
             </Route>
           </Routes>
         </BrowserRouter>

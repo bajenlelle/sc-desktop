@@ -3,6 +3,7 @@ import { useTheme } from "next-themes";
 import {
   Activity,
   BookOpen,
+  Building2,
   Film,
   ListVideo,
   Plus,
@@ -122,6 +123,13 @@ export function AppSidebar() {
               isActive={pathname.startsWith("/matches")}
             />
           )}
+          {/* Organization: all roles */}
+          <SidebarIconButton
+            href="/organization"
+            icon={Building2}
+            label="Organization"
+            isActive={pathname.startsWith("/organization")}
+          />
         </nav>
       )}
 
