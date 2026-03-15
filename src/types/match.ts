@@ -179,6 +179,7 @@ export interface Playlist {
   items: PlaylistItem[]; // ordered items (clips and text cards)
   folderId?: string; // references PlaylistFolder.id; undefined = Uncategorized
   teamId?: string;   // set when playlist is assigned to a team
+  createdBy?: string; // user_id of the coach who created it
 }
 
 export interface StoredMatch {

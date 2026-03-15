@@ -68,6 +68,7 @@ function rowToPlaylist(row: PlaylistRow): Playlist {
     items,
     folderId: row.folder_id ?? undefined,
     teamId: row.team_id ?? undefined,
+    createdBy: row.user_id,
   };
 }
 

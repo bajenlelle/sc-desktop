@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Play, Square } from "lucide-react";
+import { BookOpen, ChevronDown, ChevronRight, Play, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VideoPlayer } from "@/components/video-player";
 import { VideoPlaceholder } from "@/components/video-placeholder";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getMyTeamPlaylists } from "@/lib/playlists-db";
+import { getOrgContext } from "@/lib/profile-db";
 import { listMatches } from "@/lib/matches-db";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { isClipItem } from "@/types/match";
 import type { Playlist, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
+import type { OrgTeam, UserProfile } from "@/types/org";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -53,6 +55,9 @@ export function MyPlaylistsPage() {
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Playlist | null>(null);
+  const [teamMap, setTeamMap] = useState<Map<string, OrgTeam>>(new Map());
+  const [memberMap, setMemberMap] = useState<Map<string, UserProfile>>(new Map());
+  const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
 
   // Playback state
   const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
@@ -76,14 +81,21 @@ export function MyPlaylistsPage() {
   useEffect(() => { activeTextCardRef.current = activeTextCard; }, [activeTextCard]);
   useEffect(() => { selectedRef.current = selected; }, [selected]);
 
-  // Load playlists + matches
+  // Load playlists + matches + org context
   useEffect(() => {
     Promise.all([
       getMyTeamPlaylists().catch(() => [] as Playlist[]),
       listMatches().catch(() => [] as StoredMatch[]),
-    ]).then(([pls, ms]) => {
+      getOrgContext().catch(() => null),
+    ]).then(([pls, ms, orgCtx]) => {
       setPlaylists(pls);
       setMatches(ms);
+      if (orgCtx) {
+        setTeamMap(new Map(orgCtx.myTeams.map((t) => [t.id, t])));
+        setMemberMap(new Map(orgCtx.orgMembers.map((m) => [m.id, m])));
+        // Start all teams expanded
+        setExpandedTeams(new Set(pls.map((p) => p.teamId ?? '__none__')));
+      }
     }).finally(() => setLoading(false));
   }, []);
 
@@ -92,6 +104,25 @@ export function MyPlaylistsPage() {
     [matches]
   );
   useEffect(() => { matchLookupRef.current = matchLookup; }, [matchLookup]);
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, Playlist[]>();
+    for (const pl of playlists) {
+      const key = pl.teamId ?? '__none__';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(pl);
+    }
+    return map;
+  }, [playlists]);
+
+  function toggleTeam(key: string) {
+    setExpandedTeams((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   // Primary match for a playlist
   function primaryMatchId(pl: Playlist): string | null {
@@ -375,22 +406,55 @@ export function MyPlaylistsPage() {
                 </p>
               </div>
             ) : (
-              playlists.map((pl) => (
-                <button
-                  key={pl.id}
-                  type="button"
-                  onClick={() => setSelected(pl.id === selected?.id ? null : pl)}
-                  className={cn(
-                    "w-full px-4 py-2.5 text-left transition-colors hover:bg-accent",
-                    pl.id === selected?.id && "bg-accent"
-                  )}
-                >
-                  <p className="truncate text-sm font-medium text-foreground">{pl.name}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {pl.items.length} item{pl.items.length !== 1 ? "s" : ""}
-                  </p>
-                </button>
-              ))
+              Array.from(grouped.entries()).map(([teamKey, teamPlaylists]) => {
+                const team = teamKey !== '__none__' ? teamMap.get(teamKey) : undefined;
+                const teamName = team?.name ?? "Unassigned";
+                const isExpanded = expandedTeams.has(teamKey);
+                return (
+                  <div key={teamKey}>
+                    {/* Section header */}
+                    <button
+                      type="button"
+                      onClick={() => toggleTeam(teamKey)}
+                      className="flex w-full items-center gap-1.5 px-3 py-2 hover:bg-muted/50 transition-colors select-none"
+                    >
+                      {isExpanded ? (
+                        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      )}
+                      <span className="flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {teamName}
+                      </span>
+                      <span className="text-xs text-muted-foreground">{teamPlaylists.length}</span>
+                    </button>
+
+                    {/* Playlist rows */}
+                    {isExpanded && teamPlaylists.map((pl) => {
+                      const creatorName = pl.createdBy
+                        ? (memberMap.get(pl.createdBy)?.fullName ?? null)
+                        : null;
+                      return (
+                        <button
+                          key={pl.id}
+                          type="button"
+                          onClick={() => setSelected(pl.id === selected?.id ? null : pl)}
+                          className={cn(
+                            "w-full px-4 py-2.5 text-left transition-colors hover:bg-accent",
+                            pl.id === selected?.id && "bg-accent"
+                          )}
+                        >
+                          <p className="truncate text-sm font-medium text-foreground">{pl.name}</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {pl.items.length} item{pl.items.length !== 1 ? "s" : ""}
+                            {creatorName ? ` · ${creatorName}` : ""}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })
             )}
           </div>
         </div>
