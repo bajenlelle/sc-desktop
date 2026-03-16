@@ -1,10 +1,13 @@
 /**
  * Database operations for matches and play-by-play events.
  * All queries run through the browser Supabase client — RLS enforces ownership.
+ *
+ * Each function accepts a SupabaseClient so this module is isomorphic —
+ * desktop, web, and mobile pass their own platform-specific client.
  */
 
-import { createClient } from "@/lib/supabase/client";
-import type { PlaylistFolder, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { PlaylistFolder, PlayByPlayEvent, StoredMatch, SyncPoint } from "../types/match";
 
 // ---------------------------------------------------------------------------
 // DB row types (snake_case columns from Postgres)
@@ -74,13 +77,10 @@ function rowToStoredMatch(row: MatchRow, events: EventRow[]): StoredMatch {
 // Save (upsert match + bulk-insert events)
 // ---------------------------------------------------------------------------
 
-export async function saveMatch(match: StoredMatch): Promise<void> {
-  const supabase = createClient();
-
+export async function saveMatch(supabase: SupabaseClient, match: StoredMatch): Promise<void> {
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) throw new Error("Not authenticated");
 
-  // Upsert the match row
   const { error: matchError } = await supabase.from("matches").upsert(
     {
       id: match.id,
@@ -98,7 +98,6 @@ export async function saveMatch(match: StoredMatch): Promise<void> {
   );
   if (matchError) throw new Error(`Failed to save match: ${matchError.message}`);
 
-  // Bulk-insert events, skipping any that are already stored
   if (match.events.length > 0) {
     const eventRows = match.events
       .filter((e) => e.eventId != null)
@@ -129,9 +128,7 @@ export async function saveMatch(match: StoredMatch): Promise<void> {
 // Load a single match with its events
 // ---------------------------------------------------------------------------
 
-export async function getMatch(id: string): Promise<StoredMatch | null> {
-  const supabase = createClient();
-
+export async function getMatch(supabase: SupabaseClient, id: string): Promise<StoredMatch | null> {
   const [matchRes, eventsRes] = await Promise.all([
     supabase.from("matches").select("*").eq("id", id).single(),
     supabase
@@ -153,9 +150,7 @@ export async function getMatch(id: string): Promise<StoredMatch | null> {
 // List all matches for the current user
 // ---------------------------------------------------------------------------
 
-export async function listMatches(): Promise<StoredMatch[]> {
-  const supabase = createClient();
-
+export async function listMatches(supabase: SupabaseClient): Promise<StoredMatch[]> {
   const [matchesRes, eventsRes] = await Promise.all([
     supabase.from("matches").select("*").order("created_at", { ascending: false }),
     supabase.from("play_by_play_events").select("*").order("real_world_time", { ascending: true }),
@@ -176,14 +171,13 @@ export async function listMatches(): Promise<StoredMatch[]> {
 
 // ---------------------------------------------------------------------------
 // Fetch events for a specific set of match IDs in a single query
-// Returns a map of matchId → events (sorted by real_world_time)
 // ---------------------------------------------------------------------------
 
 export async function listEventsForMatches(
+  supabase: SupabaseClient,
   matchIds: string[]
 ): Promise<Record<string, PlayByPlayEvent[]>> {
   if (matchIds.length === 0) return {};
-  const supabase = createClient();
   const { data, error } = await supabase
     .from("play_by_play_events")
     .select("*")
@@ -215,10 +209,10 @@ export async function listEventsForMatches(
 // ---------------------------------------------------------------------------
 
 export async function updateSyncPoint(
+  supabase: SupabaseClient,
   matchId: string,
   syncPoint: SyncPoint | null
 ): Promise<void> {
-  const supabase = createClient();
   const { error } = await supabase
     .from("matches")
     .update({ sync_point: syncPoint })
@@ -231,10 +225,10 @@ export async function updateSyncPoint(
 // ---------------------------------------------------------------------------
 
 export async function updateVideoUrl(
+  supabase: SupabaseClient,
   matchId: string,
   videoUrl: string,
 ): Promise<void> {
-  const supabase = createClient();
   const { error } = await supabase
     .from("matches")
     .update({ video_url: videoUrl })
@@ -247,6 +241,7 @@ export async function updateVideoUrl(
 // ---------------------------------------------------------------------------
 
 export async function updateMatchMeta(
+  supabase: SupabaseClient,
   matchId: string,
   updates: {
     title?: string;
@@ -258,7 +253,6 @@ export async function updateMatchMeta(
     syncPoint?: SyncPoint | null;
   }
 ): Promise<void> {
-  const supabase = createClient();
   const row: Record<string, unknown> = {};
   if (updates.title !== undefined) row.title = updates.title;
   if (updates.date !== undefined) row.game_date = updates.date || null;
@@ -275,9 +269,7 @@ export async function updateMatchMeta(
 // Delete a match and all its events
 // ---------------------------------------------------------------------------
 
-export async function deleteMatch(matchId: string): Promise<void> {
-  const supabase = createClient();
-  // Delete child rows first (guards against missing CASCADE)
+export async function deleteMatch(supabase: SupabaseClient, matchId: string): Promise<void> {
   await supabase.from("play_by_play_events").delete().eq("match_id", matchId);
   const { error } = await supabase.from("matches").delete().eq("id", matchId);
   if (error) throw new Error(`Failed to delete match: ${error.message}`);
@@ -299,8 +291,7 @@ function rowToFolder(row: FolderRow): PlaylistFolder {
   return { id: row.id, name: row.name, sortOrder: row.sort_order };
 }
 
-export async function listFolders(): Promise<PlaylistFolder[]> {
-  const supabase = createClient();
+export async function listFolders(supabase: SupabaseClient): Promise<PlaylistFolder[]> {
   const { data, error } = await supabase
     .from("playlist_folders")
     .select("*")
@@ -309,8 +300,7 @@ export async function listFolders(): Promise<PlaylistFolder[]> {
   return (data as FolderRow[]).map(rowToFolder);
 }
 
-export async function createFolder(name: string): Promise<PlaylistFolder> {
-  const supabase = createClient();
+export async function createFolder(supabase: SupabaseClient, name: string): Promise<PlaylistFolder> {
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) throw new Error("Not authenticated");
   const { data, error } = await supabase
@@ -323,10 +313,10 @@ export async function createFolder(name: string): Promise<PlaylistFolder> {
 }
 
 export async function updateFolder(
+  supabase: SupabaseClient,
   id: string,
   patch: { name?: string; sortOrder?: number }
 ): Promise<void> {
-  const supabase = createClient();
   const row: Record<string, unknown> = {};
   if (patch.name !== undefined) row.name = patch.name;
   if (patch.sortOrder !== undefined) row.sort_order = patch.sortOrder;
@@ -334,8 +324,7 @@ export async function updateFolder(
   if (error) throw new Error(`Failed to update folder: ${error.message}`);
 }
 
-export async function deleteFolder(id: string): Promise<void> {
-  const supabase = createClient();
+export async function deleteFolder(supabase: SupabaseClient, id: string): Promise<void> {
   const { error } = await supabase.from("playlist_folders").delete().eq("id", id);
   if (error) throw new Error(`Failed to delete folder: ${error.message}`);
 }
@@ -344,8 +333,7 @@ export async function deleteFolder(id: string): Promise<void> {
 // List all matches WITHOUT loading events (fast — for match title resolution)
 // ---------------------------------------------------------------------------
 
-export async function listMatchesLight(): Promise<StoredMatch[]> {
-  const supabase = createClient();
+export async function listMatchesLight(supabase: SupabaseClient): Promise<StoredMatch[]> {
   const { data, error } = await supabase
     .from("matches")
     .select("*")

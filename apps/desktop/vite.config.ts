@@ -17,5 +17,10 @@ export default defineConfig(async () => ({
       : undefined,
     watch: { ignored: ["**/src-tauri/**"] },
   },
-  resolve: { alias: { "@": path.resolve(__dirname, "./src") } },
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+      "@scoutable/shared": path.resolve(__dirname, "../../packages/shared"),
+    },
+  },
 }));

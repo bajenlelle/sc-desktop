@@ -2,10 +2,13 @@
  * Database operations for the playlists and playlist_clips tables.
  * Clips and text cards are stored in the playlist_clips relational table.
  * All queries run through the browser Supabase client — RLS enforces ownership.
+ *
+ * Each function accepts a SupabaseClient so this module is isomorphic —
+ * desktop, web, and mobile pass their own platform-specific client.
  */
 
-import { createClient } from "@/lib/supabase/client";
-import type { Playlist, PlaylistItem, PlaylistClipItem, PlaylistTextCard } from "@/types/match";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Playlist, PlaylistItem, PlaylistClipItem, PlaylistTextCard } from "../types/match";
 
 // ---------------------------------------------------------------------------
 // DB row types (snake_case columns from Postgres)
@@ -72,38 +75,39 @@ function rowToPlaylist(row: PlaylistRow): Playlist {
   };
 }
 
+const CLIPS_SELECT = `
+  item_type,
+  item_id,
+  match_id,
+  event_id,
+  position,
+  pre_roll_offset,
+  post_roll_offset,
+  note,
+  text_content,
+  duration_seconds,
+  r2_url
+`;
+
+const PLAYLIST_SELECT = `
+  id,
+  user_id,
+  name,
+  folder_id,
+  team_id,
+  created_at,
+  updated_at,
+  playlist_clips (${CLIPS_SELECT})
+`;
+
 // ---------------------------------------------------------------------------
 // List playlists assigned to the current user's teams (player view)
 // ---------------------------------------------------------------------------
 
-export async function getMyTeamPlaylists(): Promise<Playlist[]> {
-  const supabase = createClient();
-  // RLS already filters to playlists for teams the caller belongs to
-  // (via current_user_team_ids() in the playlists_team_read policy)
+export async function getMyTeamPlaylists(supabase: SupabaseClient): Promise<Playlist[]> {
   const { data, error } = await supabase
     .from("playlists")
-    .select(`
-      id,
-      user_id,
-      name,
-      folder_id,
-      team_id,
-      created_at,
-      updated_at,
-      playlist_clips (
-        item_type,
-        item_id,
-        match_id,
-        event_id,
-        position,
-        pre_roll_offset,
-        post_roll_offset,
-        note,
-        text_content,
-        duration_seconds,
-        r2_url
-      )
-    `)
+    .select(PLAYLIST_SELECT)
     .not("team_id", "is", null)
     .order("created_at", { ascending: false });
   if (error) { console.error("getMyTeamPlaylists:", error.message); return []; }
@@ -115,34 +119,12 @@ export async function getMyTeamPlaylists(): Promise<Playlist[]> {
 // List all playlists for the current user (with items via join)
 // ---------------------------------------------------------------------------
 
-export async function listPlaylists(): Promise<Playlist[]> {
-  const supabase = createClient();
+export async function listPlaylists(supabase: SupabaseClient): Promise<Playlist[]> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
   const { data, error } = await supabase
     .from("playlists")
-    .select(`
-      id,
-      user_id,
-      name,
-      folder_id,
-      team_id,
-      created_at,
-      updated_at,
-      playlist_clips (
-        item_type,
-        item_id,
-        match_id,
-        event_id,
-        position,
-        pre_roll_offset,
-        post_roll_offset,
-        note,
-        text_content,
-        duration_seconds,
-        r2_url
-      )
-    `)
+    .select(PLAYLIST_SELECT)
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
   if (error) { console.error("listPlaylists:", error.message); return []; }
@@ -155,10 +137,10 @@ export async function listPlaylists(): Promise<Playlist[]> {
 // ---------------------------------------------------------------------------
 
 export async function createPlaylist(
+  supabase: SupabaseClient,
   name: string,
   folderId?: string
 ): Promise<Playlist> {
-  const supabase = createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) throw new Error("Not authenticated");
 
@@ -180,10 +162,10 @@ export async function createPlaylist(
 // ---------------------------------------------------------------------------
 
 export async function updatePlaylist(
+  supabase: SupabaseClient,
   id: string,
   patch: { name?: string; folderId?: string | null }
 ): Promise<void> {
-  const supabase = createClient();
   const row: Record<string, unknown> = {};
   if (patch.name !== undefined) row.name = patch.name;
   if ("folderId" in patch) row.folder_id = patch.folderId ?? null;
@@ -196,25 +178,22 @@ export async function updatePlaylist(
 // Delete a playlist (CASCADE removes its items automatically)
 // ---------------------------------------------------------------------------
 
-export async function deletePlaylist(id: string): Promise<void> {
-  const supabase = createClient();
+export async function deletePlaylist(supabase: SupabaseClient, id: string): Promise<void> {
   const { error } = await supabase.from("playlists").delete().eq("id", id);
   if (error) throw new Error(`Failed to delete playlist: ${error.message}`);
 }
 
 // ---------------------------------------------------------------------------
 // Add clips to a playlist
-// startPosition is the position index for the first new clip (typically
-// the current item count so new clips are appended at the end).
 // ---------------------------------------------------------------------------
 
 export async function addClips(
+  supabase: SupabaseClient,
   playlistId: string,
   clips: PlaylistClipItem[],
   startPosition: number
 ): Promise<void> {
   if (clips.length === 0) return;
-  const supabase = createClient();
   const rows = clips.map((clip, i) => ({
     playlist_id: playlistId,
     item_type: 'clip',
@@ -234,13 +213,13 @@ export async function addClips(
 // ---------------------------------------------------------------------------
 
 export async function insertTextCard(
+  supabase: SupabaseClient,
   playlistId: string,
   itemId: string,
   text: string,
   durationSeconds: number,
   position: number
 ): Promise<void> {
-  const supabase = createClient();
   const { error } = await supabase.from("playlist_clips").insert({
     playlist_id: playlistId,
     item_type: 'text',
@@ -261,11 +240,11 @@ export async function insertTextCard(
 // ---------------------------------------------------------------------------
 
 export async function updateTextCard(
+  supabase: SupabaseClient,
   playlistId: string,
   itemId: string,
   patch: { text?: string; durationSeconds?: number }
 ): Promise<void> {
-  const supabase = createClient();
   const row: Record<string, unknown> = {};
   if (patch.text !== undefined) row.text_content = patch.text;
   if (patch.durationSeconds !== undefined) row.duration_seconds = patch.durationSeconds;
@@ -280,16 +259,15 @@ export async function updateTextCard(
 
 // ---------------------------------------------------------------------------
 // Remove specific items from a playlist
-// Accepts clip keys (matchId + eventId) and text card ids (item_id).
 // ---------------------------------------------------------------------------
 
 export async function removeClips(
+  supabase: SupabaseClient,
   playlistId: string,
   clipKeys: Array<{ matchId: string; eventId: number }>,
   textCardIds: string[] = []
 ): Promise<void> {
   if (clipKeys.length === 0 && textCardIds.length === 0) return;
-  const supabase = createClient();
   await Promise.all([
     ...clipKeys.map(({ matchId, eventId }) =>
       supabase
@@ -311,15 +289,14 @@ export async function removeClips(
 
 // ---------------------------------------------------------------------------
 // Update item positions after a reorder / insert operation
-// Handles both clip items (keyed by match_id+event_id) and text cards (keyed by item_id).
 // ---------------------------------------------------------------------------
 
 export async function reorderItems(
+  supabase: SupabaseClient,
   playlistId: string,
   items: PlaylistItem[]
 ): Promise<void> {
   if (items.length === 0) return;
-  const supabase = createClient();
   const p_items = items.map((item, i) =>
     item.type === 'text'
       ? { item_type: 'text', item_id: item.id, position: i }
@@ -337,12 +314,12 @@ export async function reorderItems(
 // ---------------------------------------------------------------------------
 
 export async function updateClip(
+  supabase: SupabaseClient,
   playlistId: string,
   matchId: string,
   eventId: number,
   patch: { preRollOffset?: number; postRollOffset?: number; note?: string | null }
 ): Promise<void> {
-  const supabase = createClient();
   const row: Record<string, unknown> = {};
   if (patch.preRollOffset !== undefined) row.pre_roll_offset = patch.preRollOffset;
   if (patch.postRollOffset !== undefined) row.post_roll_offset = patch.postRollOffset;
@@ -362,12 +339,12 @@ export async function updateClip(
 // ---------------------------------------------------------------------------
 
 export async function updateClipR2Url(
+  supabase: SupabaseClient,
   playlistId: string,
   matchId: string,
   eventId: number,
   r2Url: string,
 ): Promise<void> {
-  const supabase = createClient();
   const { error } = await supabase
     .from("playlist_clips")
     .update({ r2_url: r2Url })
@@ -382,10 +359,10 @@ export async function updateClipR2Url(
 // ---------------------------------------------------------------------------
 
 export async function assignPlaylistToTeam(
+  supabase: SupabaseClient,
   playlistId: string,
   teamId: string | null
 ): Promise<void> {
-  const supabase = createClient();
   const { error } = await supabase
     .from("playlists")
     .update({ team_id: teamId })

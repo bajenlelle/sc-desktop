@@ -29,6 +29,7 @@ jobs:
 
       - name: Download macOS FFmpeg binaries
         if: matrix.platform == 'macos-14'
+        working-directory: apps/desktop
         run: |
           mkdir -p src-tauri/binaries
           brew install ffmpeg
@@ -43,6 +44,7 @@ jobs:
 
       - name: Download Windows FFmpeg
         if: matrix.platform == 'windows-latest'
+        working-directory: apps/desktop
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -OutFile ffmpeg.zip
@@ -77,18 +79,19 @@ jobs:
           APPLE_PASSWORD: ${{ matrix.platform == 'macos-14' && secrets.APPLE_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ matrix.platform == 'macos-14' && secrets.APPLE_TEAM_ID || '' }}
           APPLE_SIGNING_IDENTITY: "Developer ID Application: Leonard Halling (3DJ5YZKR49)"
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL_STAGING }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY_STAGING }}
           VITE_POSTHOG_KEY: ${{ secrets.VITE_POSTHOG_KEY }}
           VITE_POSTHOG_HOST: ${{ secrets.VITE_POSTHOG_HOST }}
         with:
+          projectPath: apps/desktop
           args: ${{ matrix.args }}
 
       - uses: actions/upload-artifact@v4
         with:
           name: scoutable-${{ matrix.platform }}
           path: |
-            src-tauri/target/**/bundle/**/*.dmg
-            src-tauri/target/**/bundle/**/*.msi
-            src-tauri/target/**/bundle/**/*.exe
+            apps/desktop/src-tauri/target/**/bundle/**/*.dmg
+            apps/desktop/src-tauri/target/**/bundle/**/*.msi
+            apps/desktop/src-tauri/target/**/bundle/**/*.exe
           if-no-files-found: warn

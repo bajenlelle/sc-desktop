@@ -1,12 +1,11 @@
-import { createClient as _createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createSupabaseClient } from "@scoutable/shared/lib/supabase";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let client: SupabaseClient<any> | null = null;
+let client: SupabaseClient | null = null;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function createClient(): SupabaseClient<any> {
+export function createClient(): SupabaseClient {
   if (!client) {
-    client = _createClient(
+    client = createSupabaseClient(
       import.meta.env.VITE_SUPABASE_URL!,
       import.meta.env.VITE_SUPABASE_ANON_KEY!,
       {

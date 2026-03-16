@@ -13,9 +13,10 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@scoutable/shared/*": ["../../packages/shared/*"]
     }
   },
-  "include": ["src"],
+  "include": ["src", "../../packages/shared"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
