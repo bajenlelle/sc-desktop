@@ -137,6 +137,7 @@ async fn export_playlist(
                     .map_err(|e| e.to_string())?
                     .args([
                         "-y",
+                        "-framerate", "30",
                         "-loop", "1",
                         "-i", png_path.to_str().unwrap(),
                         "-f", "lavfi",
@@ -148,6 +149,7 @@ async fn export_playlist(
                         "-c:v", "libx264",
                         "-preset", "fast",
                         "-crf", "23",
+                        "-pix_fmt", "yuv420p",
                         "-c:a", "aac",
                         "-b:a", "128k",
                         "-t", &format!("{duration_seconds:.3}"),
