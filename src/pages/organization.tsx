@@ -190,7 +190,6 @@ function TeamInviteSection({
   const [currentMemberIds, setCurrentMemberIds] = useState<Set<string>>(new Set());
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState("");
-  const [selectedRole, setSelectedRole] = useState<"coach" | "player">("player");
   const [addingMember, setAddingMember] = useState(false);
 
   const supabase = createClient();
@@ -245,9 +244,11 @@ function TeamInviteSection({
 
   async function handleAddMember() {
     if (!selectedUserId) return;
+    const member = availableToAdd.find((m) => m.id === selectedUserId);
+    if (!member) return;
     setAddingMember(true);
     try {
-      await assignMemberToTeam(selectedUserId, team.id, selectedRole);
+      await assignMemberToTeam(selectedUserId, team.id, member.role as "coach" | "player");
       toast.success("Member added to team");
       setShowAddMember(false);
       setSelectedUserId("");
@@ -312,14 +313,6 @@ function TeamInviteSection({
                         {m.fullName ?? m.id.slice(0, 8)} ({m.role})
                       </option>
                     ))}
-                  </select>
-                  <select
-                    className="h-8 w-28 rounded-md border border-input bg-background px-2 text-sm"
-                    value={selectedRole}
-                    onChange={(e) => setSelectedRole(e.target.value as "coach" | "player")}
-                  >
-                    <option value="player">Player</option>
-                    <option value="coach">Coach</option>
                   </select>
                   <Button
                     size="sm"
