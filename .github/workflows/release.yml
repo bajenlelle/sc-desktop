@@ -32,11 +32,12 @@ jobs:
         id: cache-ffmpeg-arm64
         uses: actions/cache@v4
         with:
-          path: src-tauri/binaries/ffmpeg-aarch64-apple-darwin
+          path: apps/desktop/src-tauri/binaries/ffmpeg-aarch64-apple-darwin
           key: ffmpeg-arm64-static-7.1.1-x264-2
 
       - name: Build arm64 FFmpeg (static)
         if: matrix.platform == 'macos-14' && steps.cache-ffmpeg-arm64.outputs.cache-hit != 'true'
+        working-directory: apps/desktop
         run: |
           mkdir -p src-tauri/binaries
           brew install nasm
@@ -100,6 +101,7 @@ jobs:
 
       - name: Download macOS FFmpeg binaries
         if: matrix.platform == 'macos-14'
+        working-directory: apps/desktop
         run: |
           mkdir -p src-tauri/binaries
           # x86_64 — static build from evermeet.cx
@@ -124,6 +126,7 @@ jobs:
       - name: Download Windows FFmpeg
         if: matrix.platform == 'windows-latest'
         shell: pwsh
+        working-directory: apps/desktop
         run: |
           Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -OutFile ffmpeg.zip
           Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_tmp
@@ -162,10 +165,12 @@ jobs:
           VITE_POSTHOG_KEY: ${{ secrets.VITE_POSTHOG_KEY }}
           VITE_POSTHOG_HOST: ${{ secrets.VITE_POSTHOG_HOST }}
         with:
+          projectPath: apps/desktop
           args: ${{ matrix.args }}
 
       - name: Sign macOS updater bundle
         if: matrix.platform == 'macos-14'
+        working-directory: apps/desktop
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -175,6 +180,7 @@ jobs:
 
       - name: Create and sign Windows updater bundle
         if: matrix.platform == 'windows-latest'
+        working-directory: apps/desktop
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -190,7 +196,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: scoutable-${{ matrix.platform }}
-          path: src-tauri/target/**/bundle/
+          path: apps/desktop/src-tauri/target/**/bundle/
           if-no-files-found: warn
 
   publish:

@@ -18,9 +18,13 @@ jobs:
 
       - run: npm ci
 
-      - run: npx tsc --noEmit
+      - name: Type-check desktop
+        working-directory: apps/desktop
+        run: npx tsc --noEmit
 
-      - run: npm run build
+      - name: Build desktop
+        working-directory: apps/desktop
+        run: npm run build
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
