@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { joinByCode } from "@/lib/profile-db";
 import { useAuth } from "@/lib/auth-context";
+import { createClient } from "@/lib/supabase/client";
 
 export function OnboardingPage() {
   const navigate = useNavigate();
@@ -71,6 +72,13 @@ export function OnboardingPage() {
         <p className="text-center text-xs text-muted-foreground">
           Ask your coach or admin for an invite code.
         </p>
+
+        <button
+          onClick={() => createClient().auth.signOut()}
+          className="mx-auto block text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+        >
+          Sign out
+        </button>
       </div>
     </div>
   );
