@@ -14,7 +14,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         ref={videoRef}
         src={src}
         controls
-        className="w-full aspect-video bg-black"
+        className="w-full h-full max-h-[55vh] aspect-video bg-black object-contain"
         playsInline
       />
     );

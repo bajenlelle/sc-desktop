@@ -465,7 +465,7 @@ export default function MyPlaylistsPage() {
         ) : (
           <>
             {/* Video area */}
-            <div className="relative bg-black">
+            <div className="relative bg-black shrink-0 max-h-[55vh]">
               {effectiveVideoSrc ? (
                 <VideoPlayer src={effectiveVideoSrc} videoRef={videoRef} />
               ) : (
