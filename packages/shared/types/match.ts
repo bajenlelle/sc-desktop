@@ -178,7 +178,8 @@ export interface Playlist {
   name: string;
   items: PlaylistItem[]; // ordered items (clips and text cards)
   folderId?: string; // references PlaylistFolder.id; undefined = Uncategorized
-  teamId?: string;   // set when playlist is assigned to a team
+  teamId?: string;   // kept for backward compat; prefer teamIds
+  teamIds?: string[]; // all teams this playlist is shared with (from playlist_shares)
   createdBy?: string; // user_id of the coach who created it
 }
 

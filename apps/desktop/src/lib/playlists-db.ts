@@ -21,3 +21,4 @@ export const reorderItems = (playlistId: string, items: PlaylistItem[]) => db.re
 export const updateClip = (playlistId: string, matchId: string, eventId: number, patch: { preRollOffset?: number; postRollOffset?: number; note?: string | null }) => db.updateClip(c(), playlistId, matchId, eventId, patch);
 export const updateClipR2Url = (playlistId: string, matchId: string, eventId: number, r2Url: string) => db.updateClipR2Url(c(), playlistId, matchId, eventId, r2Url);
 export const assignPlaylistToTeam = (playlistId: string, teamId: string | null) => db.assignPlaylistToTeam(c(), playlistId, teamId);
+export const setPlaylistTeams = (playlistId: string, teamIds: string[]) => db.setPlaylistTeams(c(), playlistId, teamIds);

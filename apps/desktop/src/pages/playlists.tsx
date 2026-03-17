@@ -37,7 +37,7 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/componen
 import { usePanelRef } from "react-resizable-panels";
 import { VideoClipControls } from "@/components/video-clip-controls";
 import { listMatchesLight, listEventsForMatches, listFolders, createFolder, updateFolder, deleteFolder } from "@/lib/matches-db";
-import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderItems, updateClip, insertTextCard, updateTextCard, assignPlaylistToTeam } from "@/lib/playlists-db";
+import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderItems, updateClip, insertTextCard, updateTextCard, setPlaylistTeams } from "@/lib/playlists-db";
 import { getOrgContext } from "@/lib/profile-db";
 import type { OrgTeam } from "@/types/org";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
@@ -1077,7 +1077,8 @@ export function PlaylistsPage() {
   const [shipProgress, setShipProgress] = useState<{ done: number; total: number } | null>(null);
   const [userTeams, setUserTeams] = useState<OrgTeam[]>([]);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
-  const [pendingShareTeamId, setPendingShareTeamId] = useState<string | null>(null);
+  const [pendingShareTeamIds, setPendingShareTeamIds] = useState<Set<string>>(new Set());
+  const [sharedSectionExpanded, setSharedSectionExpanded] = useState(true);
   // Clip browser panel
   const [showClipBrowser, setShowClipBrowser] = useState(false);
 
@@ -1852,12 +1853,65 @@ export function PlaylistsPage() {
   // Clip & Ship
   // ---------------------------------------------------------------------------
 
-  async function handleAssignToTeam(teamId: string | null) {
+  async function handleShareWithTeams(teamIds: string[]) {
     if (!selected) return;
-    await assignPlaylistToTeam(selected.id, teamId);
-    const updated = { ...selected, teamId: teamId ?? undefined };
+    setShareDialogOpen(false);
+    const prevTeamIds = selected.teamIds ?? [];
+    const newlyAdded = teamIds.filter((id) => !prevTeamIds.includes(id));
+
+    // Persist share rows + sync legacy team_id
+    await setPlaylistTeams(selected.id, teamIds);
+    const updated = { ...selected, teamIds, teamId: teamIds[0] };
     setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updated : p));
     setSelected(updated);
+
+    // Clip & ship only for newly added teams (skip if nothing new)
+    if (newlyAdded.length === 0) return;
+
+    setIsShipping(true);
+    setShipProgress(null);
+    try {
+      const segments = sortedEvents
+        .map((item): ExportSegment | null => {
+          if (isTextCard(item)) return null;
+          const qi = item as QueueItem;
+          const m = matchLookup.get(qi.matchId);
+          if (!m?.videoUrl || !m.syncPoint) return null;
+          const clip = updated.items.filter(isClipItem).find(
+            (c) => c.matchId === qi.matchId && c.eventId === qi.event.eventId
+          );
+          const seg: ExportSegment = {
+            kind: "clip",
+            videoPath: m.videoUrl,
+            matchId: qi.matchId,
+            event: qi.event,
+            syncPoint: m.syncPoint,
+          };
+          if (clip?.preRollOffset !== undefined)
+            (seg as Extract<ExportSegment, { kind: "clip" }>).preRollOffset = clip.preRollOffset;
+          if (clip?.postRollOffset !== undefined)
+            (seg as Extract<ExportSegment, { kind: "clip" }>).postRollOffset = clip.postRollOffset;
+          return seg;
+        })
+        .filter((x): x is ExportSegment => x !== null);
+
+      await clipAndShip(updated, segments, preRoll, postRoll, (done, total) => {
+        setShipProgress({ done, total });
+      });
+
+      const teamNames = newlyAdded
+        .map((id) => userTeams.find((t) => t.id === id)?.name ?? "team")
+        .join(", ");
+      toast.success("Clips shared", {
+        description: `${segments.filter((s) => s.kind === "clip").length} clip(s) shared with ${teamNames}.`,
+      });
+      trackEvent("playlist_shipped", { playlist_id: updated.id, clip_count: segments.filter((s) => s.kind === "clip").length });
+    } catch (e) {
+      toast.error("Share failed", { description: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setIsShipping(false);
+      setShipProgress(null);
+    }
   }
 
   async function handleShip() {
@@ -1905,57 +1959,7 @@ export function PlaylistsPage() {
     }
   }
 
-  async function handleShareToTeam(teamId: string) {
-    if (!selected) return;
-    setShareDialogOpen(false);
-    // Assign to team
-    await assignPlaylistToTeam(selected.id, teamId);
-    const updated = { ...selected, teamId };
-    setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updated : p));
-    setSelected(updated);
-    // Clip and ship
-    setIsShipping(true);
-    setShipProgress(null);
-    try {
-      const segments = sortedEvents
-        .map((item): ExportSegment | null => {
-          if (isTextCard(item)) return null;
-          const qi = item as QueueItem;
-          const m = matchLookup.get(qi.matchId);
-          if (!m?.videoUrl || !m.syncPoint) return null;
-          const clip = updated.items.filter(isClipItem).find(
-            (c) => c.matchId === qi.matchId && c.eventId === qi.event.eventId
-          );
-          const seg: ExportSegment = {
-            kind: "clip",
-            videoPath: m.videoUrl,
-            matchId: qi.matchId,
-            event: qi.event,
-            syncPoint: m.syncPoint,
-          };
-          if (clip?.preRollOffset !== undefined)
-            (seg as Extract<ExportSegment, { kind: "clip" }>).preRollOffset = clip.preRollOffset;
-          if (clip?.postRollOffset !== undefined)
-            (seg as Extract<ExportSegment, { kind: "clip" }>).postRollOffset = clip.postRollOffset;
-          return seg;
-        })
-        .filter((x): x is ExportSegment => x !== null);
-
-      await clipAndShip(updated, segments, preRoll, postRoll, (done, total) => {
-        setShipProgress({ done, total });
-      });
-
-      toast.success("Clips shared with team", {
-        description: `${segments.filter((s) => s.kind === "clip").length} clip(s) are now in the cloud and assigned to the team.`,
-      });
-      trackEvent("playlist_shipped", { playlist_id: updated.id, clip_count: segments.filter((s) => s.kind === "clip").length });
-    } catch (e) {
-      toast.error("Share to Team failed", { description: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setIsShipping(false);
-      setShipProgress(null);
-    }
-  }
+  // handleShareWithTeams is defined above (replaces handleShareToTeam)
 
   // ---------------------------------------------------------------------------
   // Sidebar helpers
@@ -2628,9 +2632,14 @@ export function PlaylistsPage() {
                                         }}
                                       />
                                     ) : (
-                                      <span className={`truncate text-sm ${isActive ? "font-medium text-primary" : "text-muted-foreground"}`}>
-                                        {pl.name}
-                                      </span>
+                                      <>
+                                        {(pl.teamIds?.length ?? 0) > 0 && (
+                                          <Users className="h-3 w-3 shrink-0 text-primary/70" />
+                                        )}
+                                        <span className={`truncate text-sm ${isActive ? "font-medium text-primary" : "text-muted-foreground"}`}>
+                                          {pl.name}
+                                        </span>
+                                      </>
                                     )}
                                   </div>
                                   <div className="ml-2 flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
@@ -2661,6 +2670,16 @@ export function PlaylistsPage() {
                                           >
                                             Delete
                                           </DropdownMenuItem>
+                                          {userTeams.length > 0 && (
+                                            <>
+                                              <DropdownMenuSeparator />
+                                              <DropdownMenuItem onSelect={() => {
+                                                selectPlaylist(pl);
+                                                setPendingShareTeamIds(new Set(pl.teamIds ?? []));
+                                                setShareDialogOpen(true);
+                                              }}>Share…</DropdownMenuItem>
+                                            </>
+                                          )}
                                         </>
                                       </DropdownMenuContent>
                                     </DropdownMenu>
@@ -2678,6 +2697,16 @@ export function PlaylistsPage() {
                                 >
                                   Delete
                                 </ContextMenuItem>
+                                {userTeams.length > 0 && (
+                                  <>
+                                    <ContextMenuSeparator />
+                                    <ContextMenuItem onSelect={() => {
+                                      selectPlaylist(pl);
+                                      setPendingShareTeamIds(new Set(pl.teamIds ?? []));
+                                      setShareDialogOpen(true);
+                                    }}>Share…</ContextMenuItem>
+                                  </>
+                                )}
                               </ContextMenuContent>
                             </ContextMenu>
                           );
@@ -2812,9 +2841,14 @@ export function PlaylistsPage() {
                                       }}
                                     />
                                   ) : (
-                                    <span className={`truncate text-sm ${isActive ? "font-medium text-primary" : "text-muted-foreground"}`}>
-                                      {pl.name}
-                                    </span>
+                                    <>
+                                      {(pl.teamIds?.length ?? 0) > 0 && (
+                                        <Users className="h-3 w-3 shrink-0 text-primary/70" />
+                                      )}
+                                      <span className={`truncate text-sm ${isActive ? "font-medium text-primary" : "text-muted-foreground"}`}>
+                                        {pl.name}
+                                      </span>
+                                    </>
                                   )}
                                 </div>
                                 <div className="ml-2 flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
@@ -2844,6 +2878,16 @@ export function PlaylistsPage() {
                                       >
                                         Delete
                                       </DropdownMenuItem>
+                                      {userTeams.length > 0 && (
+                                        <>
+                                          <DropdownMenuSeparator />
+                                          <DropdownMenuItem onSelect={() => {
+                                            selectPlaylist(pl);
+                                            setPendingShareTeamIds(new Set(pl.teamIds ?? []));
+                                            setShareDialogOpen(true);
+                                          }}>Share…</DropdownMenuItem>
+                                        </>
+                                      )}
                                     </DropdownMenuContent>
                                   </DropdownMenu>
                                 </div>
@@ -2860,8 +2904,87 @@ export function PlaylistsPage() {
                               >
                                 Delete
                               </ContextMenuItem>
+                              {userTeams.length > 0 && (
+                                <>
+                                  <ContextMenuSeparator />
+                                  <ContextMenuItem onSelect={() => {
+                                    selectPlaylist(pl);
+                                    setPendingShareTeamIds(new Set(pl.teamIds ?? []));
+                                    setShareDialogOpen(true);
+                                  }}>Share…</ContextMenuItem>
+                                </>
+                              )}
                             </ContextMenuContent>
                           </ContextMenu>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Shared by me section */}
+            {(() => {
+              const sharedPlaylists = playlists.filter((p) => (p.teamIds?.length ?? 0) > 0);
+              if (sharedPlaylists.length === 0) return null;
+              return (
+                <div className="mt-1 border-t border-border pt-1">
+                  <div
+                    className="group flex items-center gap-1.5 px-3 py-2 cursor-pointer select-none transition-colors hover:bg-muted/50"
+                    onClick={() => setSharedSectionExpanded((v) => !v)}
+                  >
+                    {sharedSectionExpanded ? (
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    )}
+                    <span className="flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
+                      Shared by me
+                    </span>
+                    <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                      {sharedPlaylists.length}
+                    </span>
+                  </div>
+                  {sharedSectionExpanded && (
+                    <div className="pb-1">
+                      {sharedPlaylists.map((pl) => {
+                        const isActive = selected?.id === pl.id;
+                        const teamNames = (pl.teamIds ?? [])
+                          .map((id) => userTeams.find((t) => t.id === id)?.name)
+                          .filter(Boolean)
+                          .join(", ");
+                        return (
+                          <div
+                            key={pl.id}
+                            className={`flex w-full cursor-pointer items-center gap-2 border-l-2 pl-8 pr-3 py-1.5 text-left transition-colors hover:bg-muted/50 ${
+                              isActive ? "border-l-primary bg-primary/10" : "border-l-border hover:border-l-border/80"
+                            }`}
+                            onClick={() => selectPlaylist(pl)}
+                          >
+                            <Users className={`h-3 w-3 shrink-0 ${isActive ? "text-primary" : "text-primary/60"}`} />
+                            <div className="flex min-w-0 flex-1 flex-col">
+                              <span className={`truncate text-sm ${isActive ? "font-medium text-primary" : "text-muted-foreground"}`}>
+                                {pl.name}
+                              </span>
+                              {teamNames && (
+                                <span className="truncate text-[10px] text-muted-foreground/60">{teamNames}</span>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              className="ml-auto shrink-0 rounded p-0.5 text-primary hover:bg-primary/10 focus:outline-none"
+                              title="Manage sharing"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                selectPlaylist(pl);
+                                setPendingShareTeamIds(new Set(pl.teamIds ?? []));
+                                setShareDialogOpen(true);
+                              }}
+                            >
+                              <Share2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -3121,31 +3244,36 @@ export function PlaylistsPage() {
                           : 'Export Playlist'}
                       </Button>
                     )}
-                    {/* Share to Team button */}
-                    {userTeams.length > 0 && (
-                      isShipping ? (
-                        <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          {shipProgress ? `${shipProgress.done} / ${shipProgress.total}` : "Uploading…"}
-                        </Button>
-                      ) : (
+                  </div>
+                  {/* Share button — icon-only, colored when shared */}
+                  {userTeams.length > 0 && (
+                    isShipping ? (
+                      <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        {shipProgress ? `${shipProgress.done} / ${shipProgress.total}` : "Uploading…"}
+                      </Button>
+                    ) : (() => {
+                      const isShared = (selected?.teamIds?.length ?? 0) > 0;
+                      const sharedNames = (selected?.teamIds ?? [])
+                        .map((id) => userTeams.find((t) => t.id === id)?.name ?? "Team")
+                        .join(", ");
+                      return (
                         <Button
                           size="sm"
-                          variant={selected?.teamId ? "default" : "outline"}
-                          className="h-8 gap-1.5"
+                          variant={isShared ? "default" : "outline"}
+                          className="h-8 w-8 p-0"
                           onClick={() => {
-                            setPendingShareTeamId(selected?.teamId ?? userTeams[0]?.id ?? null);
+                            setPendingShareTeamIds(new Set(selected?.teamIds ?? []));
                             setShareDialogOpen(true);
                           }}
                           disabled={!!exportDisabledReason}
-                          title={exportDisabledReason ?? "Share clips with a team"}
+                          title={isShared ? `Shared with: ${sharedNames}` : (exportDisabledReason ?? "Share with team")}
                         >
                           <Share2 className="h-3.5 w-3.5" />
-                          {selected?.teamId ? `Shared: ${userTeams.find(t => t.id === selected.teamId)?.name ?? "Team"}` : "Share to Team"}
                         </Button>
-                      )
-                    )}
-                  </div>
+                      );
+                    })()
+                  )}
                   {exportError && (
                     <p className="w-full text-xs text-red-500 mt-1">{exportError}</p>
                   )}
@@ -3396,31 +3524,36 @@ export function PlaylistsPage() {
                           : 'Export Playlist'}
                       </Button>
                     )}
-                    {/* Share to Team button */}
-                    {userTeams.length > 0 && (
-                      isShipping ? (
-                        <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          {shipProgress ? `${shipProgress.done} / ${shipProgress.total}` : "Uploading…"}
-                        </Button>
-                      ) : (
+                  </div>
+                  {/* Share button — icon-only, colored when shared */}
+                  {userTeams.length > 0 && (
+                    isShipping ? (
+                      <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        {shipProgress ? `${shipProgress.done} / ${shipProgress.total}` : "Uploading…"}
+                      </Button>
+                    ) : (() => {
+                      const isShared = (selected?.teamIds?.length ?? 0) > 0;
+                      const sharedNames = (selected?.teamIds ?? [])
+                        .map((id) => userTeams.find((t) => t.id === id)?.name ?? "Team")
+                        .join(", ");
+                      return (
                         <Button
                           size="sm"
-                          variant={selected?.teamId ? "default" : "outline"}
-                          className="h-8 gap-1.5"
+                          variant={isShared ? "default" : "outline"}
+                          className="h-8 w-8 p-0"
                           onClick={() => {
-                            setPendingShareTeamId(selected?.teamId ?? userTeams[0]?.id ?? null);
+                            setPendingShareTeamIds(new Set(selected?.teamIds ?? []));
                             setShareDialogOpen(true);
                           }}
                           disabled={!!exportDisabledReason}
-                          title={exportDisabledReason ?? "Share clips with a team"}
+                          title={isShared ? `Shared with: ${sharedNames}` : (exportDisabledReason ?? "Share with team")}
                         >
                           <Share2 className="h-3.5 w-3.5" />
-                          {selected?.teamId ? `Shared: ${userTeams.find(t => t.id === selected.teamId)?.name ?? "Team"}` : "Share to Team"}
                         </Button>
-                      )
-                    )}
-                  </div>
+                      );
+                    })()
+                  )}
                   {exportError && (
                     <p className="w-full text-xs text-red-500 mt-1">{exportError}</p>
                   )}
@@ -3655,37 +3788,68 @@ export function PlaylistsPage() {
               />
             </DialogContent>
           </Dialog>
-          {/* Share to Team dialog */}
+          {/* Share dialog — multi-team */}
           <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Share to Team</DialogTitle>
+                <DialogTitle>Share Playlist</DialogTitle>
                 <DialogDescription>
-                  Choose a team. Clips will be uploaded to the cloud and shared with that team.
+                  Clips will be uploaded to the cloud before sharing.
                 </DialogDescription>
               </DialogHeader>
-              <div className="flex flex-col gap-2 py-2">
-                {userTeams.map((team) => (
-                  <button
-                    key={team.id}
-                    onClick={() => setPendingShareTeamId(team.id)}
-                    className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm text-left hover:bg-accent${pendingShareTeamId === team.id ? " bg-accent font-medium" : ""}`}
-                  >
-                    <Users className="h-4 w-4 shrink-0" />
-                    {team.name}
-                    {pendingShareTeamId === team.id && <Check className="h-4 w-4 ml-auto" />}
-                  </button>
-                ))}
+              <div className="py-1">
+                {/* Teams section */}
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Teams</p>
+                <div className="flex flex-col gap-1">
+                  {userTeams.map((team) => {
+                    const checked = pendingShareTeamIds.has(team.id);
+                    return (
+                      <button
+                        key={team.id}
+                        type="button"
+                        onClick={() => {
+                          setPendingShareTeamIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(team.id)) next.delete(team.id);
+                            else next.add(team.id);
+                            return next;
+                          });
+                        }}
+                        className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm text-left transition-colors hover:bg-accent${checked ? " bg-accent/60" : ""}`}
+                      >
+                        <input
+                          type="checkbox"
+                          readOnly
+                          checked={checked}
+                          className="h-3.5 w-3.5 rounded border-border accent-primary pointer-events-none"
+                        />
+                        <Users className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="flex-1">{team.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Players section — coming soon */}
+                <p className="mb-1.5 mt-4 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground/50">
+                  Players
+                  <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-muted-foreground/60">
+                    Coming soon
+                  </span>
+                </p>
+                <p className="px-3 text-xs text-muted-foreground/50">
+                  Share with individual players — available in a future update.
+                </p>
               </div>
               <DialogFooter className="flex-row justify-between gap-2">
-                {selected?.teamId && (
+                {(selected?.teamIds?.length ?? 0) > 0 && (
                   <Button
                     variant="ghost"
                     size="sm"
                     className="text-muted-foreground"
-                    onClick={() => { handleAssignToTeam(null); setShareDialogOpen(false); }}
+                    onClick={() => handleShareWithTeams([])}
                   >
-                    Remove from team
+                    Remove all
                   </Button>
                 )}
                 <div className="flex gap-2 ml-auto">
@@ -3694,10 +3858,9 @@ export function PlaylistsPage() {
                   </Button>
                   <Button
                     size="sm"
-                    disabled={!pendingShareTeamId}
-                    onClick={() => pendingShareTeamId && handleShareToTeam(pendingShareTeamId)}
+                    onClick={() => handleShareWithTeams([...pendingShareTeamIds])}
                   >
-                    Share
+                    Done
                   </Button>
                 </div>
               </DialogFooter>

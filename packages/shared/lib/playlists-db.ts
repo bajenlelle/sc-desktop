@@ -28,6 +28,10 @@ interface PlaylistClipRow {
   r2_url: string | null;
 }
 
+interface PlaylistShareRow {
+  team_id: string;
+}
+
 interface PlaylistRow {
   id: string;
   user_id: string;
@@ -37,6 +41,7 @@ interface PlaylistRow {
   created_at: string;
   updated_at: string;
   playlist_clips: PlaylistClipRow[];
+  playlist_shares: PlaylistShareRow[];
 }
 
 function rowToPlaylist(row: PlaylistRow): Playlist {
@@ -65,12 +70,14 @@ function rowToPlaylist(row: PlaylistRow): Playlist {
       } satisfies PlaylistClipItem;
     })
     .filter((x): x is PlaylistItem => x !== null);
+  const teamIds = (row.playlist_shares ?? []).map((s) => s.team_id);
   return {
     id: row.id,
     name: row.name,
     items,
     folderId: row.folder_id ?? undefined,
     teamId: row.team_id ?? undefined,
+    teamIds,
     createdBy: row.user_id,
   };
 }
@@ -97,7 +104,8 @@ const PLAYLIST_SELECT = `
   team_id,
   created_at,
   updated_at,
-  playlist_clips (${CLIPS_SELECT})
+  playlist_clips (${CLIPS_SELECT}),
+  playlist_shares (team_id)
 `;
 
 // ---------------------------------------------------------------------------
@@ -355,7 +363,8 @@ export async function updateClipR2Url(
 }
 
 // ---------------------------------------------------------------------------
-// Assign (or unassign) a playlist to a team
+// Assign (or unassign) a playlist to a team (legacy single-team — kept for
+// backward compat; prefer setPlaylistTeams for new code)
 // ---------------------------------------------------------------------------
 
 export async function assignPlaylistToTeam(
@@ -368,4 +377,39 @@ export async function assignPlaylistToTeam(
     .update({ team_id: teamId })
     .eq("id", playlistId);
   if (error) throw new Error(`Failed to assign playlist to team: ${error.message}`);
+}
+
+// ---------------------------------------------------------------------------
+// Set the full list of teams a playlist is shared with (upsert + delete diff)
+// Also keeps the legacy team_id column in sync for backward compat.
+// ---------------------------------------------------------------------------
+
+export async function setPlaylistTeams(
+  supabase: SupabaseClient,
+  playlistId: string,
+  teamIds: string[]
+): Promise<void> {
+  // 1. Delete existing shares not in the new list
+  let delQuery = supabase.from("playlist_shares").delete().eq("playlist_id", playlistId);
+  if (teamIds.length > 0) {
+    delQuery = delQuery.not("team_id", "in", `(${teamIds.join(",")})`);
+  }
+  const { error: delError } = await delQuery;
+  if (delError) throw new Error(`Failed to remove shares: ${delError.message}`);
+
+  // 2. Upsert new shares
+  if (teamIds.length > 0) {
+    const rows = teamIds.map((team_id) => ({ playlist_id: playlistId, team_id }));
+    const { error: upsertError } = await supabase
+      .from("playlist_shares")
+      .upsert(rows, { onConflict: "playlist_id,team_id" });
+    if (upsertError) throw new Error(`Failed to upsert shares: ${upsertError.message}`);
+  }
+
+  // 3. Keep legacy team_id in sync (first team, or null)
+  const { error: syncError } = await supabase
+    .from("playlists")
+    .update({ team_id: teamIds[0] ?? null })
+    .eq("id", playlistId);
+  if (syncError) throw new Error(`Failed to sync team_id: ${syncError.message}`);
 }

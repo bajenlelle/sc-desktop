@@ -1,14 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, ChevronDown, ChevronRight } from "lucide-react";
+import { BookOpen, ChevronDown, ChevronRight, Share2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { VideoClipControls } from "@/components/video-clip-controls";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { VideoPlayer } from "@/components/video-player";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
-import { getMyTeamPlaylists } from "@scoutable/shared/lib/playlists-db";
+import { getMyTeamPlaylists, setPlaylistTeams } from "@scoutable/shared/lib/playlists-db";
 import { listMatches } from "@scoutable/shared/lib/matches-db";
 import { getOrgContext } from "@/lib/profile-db";
 import { cn } from "@/lib/utils";
@@ -64,6 +65,10 @@ export default function MyPlaylistsPage() {
   const [memberMap, setMemberMap] = useState<Map<string, UserProfile>>(new Map());
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [allOrgTeams, setAllOrgTeams] = useState<OrgTeam[]>([]);
+  const [shareTarget, setShareTarget] = useState<Playlist | null>(null);
+  const [pendingShareTeamIds, setPendingShareTeamIds] = useState<Set<string>>(new Set());
 
   // Playback state
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -92,16 +97,19 @@ export default function MyPlaylistsPage() {
   useEffect(() => {
     const supabase = createClient();
     Promise.all([
+      supabase.auth.getUser(),
       getMyTeamPlaylists(supabase).catch(() => [] as Playlist[]),
       listMatches(supabase).catch(() => [] as StoredMatch[]),
       getOrgContext().catch(() => null),
-    ]).then(([pls, ms, orgCtx]) => {
+    ]).then(([{ data: { user } }, pls, ms, orgCtx]) => {
+      setCurrentUserId(user?.id ?? null);
       setPlaylists(pls);
       setMatches(ms);
       if (orgCtx) {
+        setAllOrgTeams(orgCtx.allOrgTeams);
         setTeamMap(new Map(orgCtx.myTeams.map((t) => [t.id, t])));
         setMemberMap(new Map(orgCtx.orgMembers.map((m) => [m.id, m])));
-        setExpandedTeams(new Set(pls.map((p) => p.teamId ?? "__none__")));
+        setExpandedTeams(new Set(pls.flatMap((p) => (p.teamIds && p.teamIds.length > 0) ? p.teamIds : [p.teamId ?? "__none__"])));
       }
     }).finally(() => {
       setLoading(false);
@@ -115,9 +123,11 @@ export default function MyPlaylistsPage() {
   const grouped = useMemo(() => {
     const map = new Map<string, Playlist[]>();
     for (const pl of playlists) {
-      const key = pl.teamId ?? "__none__";
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(pl);
+      const keys = (pl.teamIds && pl.teamIds.length > 0) ? pl.teamIds : [pl.teamId ?? "__none__"];
+      for (const key of keys) {
+        if (!map.has(key)) map.set(key, []);
+        map.get(key)!.push(pl);
+      }
     }
     return map;
   }, [playlists]);
@@ -129,6 +139,16 @@ export default function MyPlaylistsPage() {
       else next.add(key);
       return next;
     });
+  }
+
+  async function handleShareWithTeams(teamIds: string[]) {
+    if (!shareTarget) return;
+    const supabase = createClient();
+    await setPlaylistTeams(supabase, shareTarget.id, teamIds);
+    setPlaylists((prev) => prev.map((p) =>
+      p.id === shareTarget.id ? { ...p, teamIds, teamId: teamIds[0] } : p
+    ));
+    setShareTarget(null);
   }
 
   const handleStop = useCallback(() => {
@@ -406,21 +426,40 @@ export default function MyPlaylistsPage() {
                     ? (memberMap.get(pl.createdBy)?.fullName ?? null)
                     : null;
                   return (
-                    <button
+                    <div
                       key={pl.id}
-                      type="button"
-                      onClick={() => onSelect(pl)}
                       className={cn(
-                        "w-full px-4 py-2.5 text-left transition-colors hover:bg-accent",
+                        "group w-full flex items-center gap-1 px-4 py-2.5 transition-colors hover:bg-accent cursor-pointer",
                         pl.id === selected?.id && "bg-accent"
                       )}
                     >
-                      <p className="truncate text-sm font-medium text-foreground">{pl.name}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {pl.items.length} item{pl.items.length !== 1 ? "s" : ""}
-                        {creatorName ? ` · ${creatorName}` : ""}
-                      </p>
-                    </button>
+                      <div className="flex-1 min-w-0" onClick={() => onSelect(pl)}>
+                        <p className="truncate text-sm font-medium text-foreground">{pl.name}</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {pl.items.length} item{pl.items.length !== 1 ? "s" : ""}
+                          {creatorName ? ` · ${creatorName}` : ""}
+                        </p>
+                      </div>
+                      {pl.createdBy === currentUserId && (
+                        <button
+                          type="button"
+                          className={cn(
+                            "shrink-0 rounded p-1 focus:outline-none transition-opacity",
+                            (pl.teamIds?.length ?? 0) > 0
+                              ? "text-primary"
+                              : "text-muted-foreground/50 opacity-0 group-hover:opacity-100"
+                          )}
+                          title={(pl.teamIds?.length ?? 0) > 0 ? "Manage sharing" : "Share with team"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPendingShareTeamIds(new Set(pl.teamIds ?? []));
+                            setShareTarget(pl);
+                          }}
+                        >
+                          <Share2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
                   );
                 })}
             </div>
@@ -596,6 +635,60 @@ export default function MyPlaylistsPage() {
           </div>
         </SheetContent>
       </Sheet>
+
+      <Dialog open={shareTarget !== null} onOpenChange={(open) => !open && setShareTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Share Playlist</DialogTitle>
+            <DialogDescription>Choose which teams can see this playlist.</DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Teams</p>
+            <div className="flex flex-col gap-1">
+              {allOrgTeams.map((team) => {
+                const checked = pendingShareTeamIds.has(team.id);
+                return (
+                  <button
+                    key={team.id}
+                    type="button"
+                    className={cn(
+                      "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-muted",
+                      checked && "bg-primary/10"
+                    )}
+                    onClick={() => {
+                      setPendingShareTeamIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(team.id)) next.delete(team.id);
+                        else next.add(team.id);
+                        return next;
+                      });
+                    }}
+                  >
+                    <span className={cn("flex h-4 w-4 items-center justify-center rounded border", checked ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40")}>
+                      {checked && <span className="text-[10px] font-bold">✓</span>}
+                    </span>
+                    {team.name}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-4">
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Players</p>
+              <p className="text-xs text-muted-foreground">Coming soon</p>
+            </div>
+          </div>
+          <DialogFooter className="flex items-center">
+            {(shareTarget?.teamIds?.length ?? 0) > 0 && (
+              <Button variant="ghost" size="sm" className="text-muted-foreground mr-auto" onClick={() => handleShareWithTeams([])}>
+                Remove all
+              </Button>
+            )}
+            <Button size="sm" onClick={() => handleShareWithTeams([...pendingShareTeamIds])}>
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
