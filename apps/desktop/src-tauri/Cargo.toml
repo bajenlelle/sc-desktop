@@ -1,12 +1,12 @@
 [package]
-name = "sc-desktop"
+name = "scoutable"
 version = "0.1.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
 
 [lib]
-name = "sc_desktop_lib"
+name = "scoutable_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

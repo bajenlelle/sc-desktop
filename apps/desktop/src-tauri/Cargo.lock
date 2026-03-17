@@ -4224,28 +4224,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sc-desktop"
-version = "0.1.0"
-dependencies = [
- "ab_glyph",
- "http-range",
- "image",
- "imageproc",
- "percent-encoding",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-deep-link",
- "tauri-plugin-dialog",
- "tauri-plugin-http",
- "tauri-plugin-opener",
- "tauri-plugin-process",
- "tauri-plugin-shell",
- "tauri-plugin-updater",
-]
-
-[[package]]
 name = "schannel"
 version = "0.1.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4310,6 +4288,28 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
+name = "scoutable"
+version = "0.1.0"
+dependencies = [
+ "ab_glyph",
+ "http-range",
+ "image",
+ "imageproc",
+ "percent-encoding",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-deep-link",
+ "tauri-plugin-dialog",
+ "tauri-plugin-http",
+ "tauri-plugin-opener",
+ "tauri-plugin-process",
+ "tauri-plugin-shell",
+ "tauri-plugin-updater",
+]
 
 [[package]]
 name = "security-framework"

@@ -4,6 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 import {
   ArrowDown,
   ArrowUp,
+  Check,
   ChevronDown,
   ChevronRight,
   Columns2,
@@ -35,13 +36,13 @@ import { VideoPlaceholder } from "@/components/video-placeholder";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { usePanelRef } from "react-resizable-panels";
 import { VideoClipControls } from "@/components/video-clip-controls";
-import { listMatches, listFolders, createFolder, updateFolder, deleteFolder } from "@/lib/matches-db";
+import { listMatchesLight, listEventsForMatches, listFolders, createFolder, updateFolder, deleteFolder } from "@/lib/matches-db";
 import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderItems, updateClip, insertTextCard, updateTextCard, assignPlaylistToTeam } from "@/lib/playlists-db";
 import { getOrgContext } from "@/lib/profile-db";
 import type { OrgTeam } from "@/types/org";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { exportPlaylist, type ExportSegment } from "@/lib/export";
 import { clipAndShip } from "@/lib/clip-and-ship";
@@ -1075,6 +1076,8 @@ export function PlaylistsPage() {
   const [isShipping, setIsShipping] = useState(false);
   const [shipProgress, setShipProgress] = useState<{ done: number; total: number } | null>(null);
   const [userTeams, setUserTeams] = useState<OrgTeam[]>([]);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [pendingShareTeamId, setPendingShareTeamId] = useState<string | null>(null);
   // Clip browser panel
   const [showClipBrowser, setShowClipBrowser] = useState(false);
 
@@ -1150,8 +1153,14 @@ export function PlaylistsPage() {
     const state = location.state as { restore?: { playlistId: string }; createNew?: boolean } | null;
     const restore = state?.restore;
     const createNew = state?.createNew;
-    Promise.all([listPlaylists(), listMatches(), listFolders(), getOrgContext().catch(() => null)])
-      .then(([loadedPlaylists, loadedMatches, loadedFolders, orgCtx]) => {
+    Promise.all([listPlaylists(), listMatchesLight(), listFolders(), getOrgContext().catch(() => null)])
+      .then(async ([loadedPlaylists, matchShells, loadedFolders, orgCtx]) => {
+        const matchIds = [...new Set(
+          loadedPlaylists.flatMap((p) => p.items.filter(isClipItem).map((i) => i.matchId))
+        )];
+        const eventsByMatch = await listEventsForMatches(matchIds).catch(() => ({}));
+        const loadedMatches = matchShells.map((m) => ({ ...m, events: eventsByMatch[m.id] ?? [] }));
+
         setPlaylists(loadedPlaylists);
         setMatches(loadedMatches);
         const sorted = [...loadedFolders].sort((a, b) => a.sortOrder - b.sortOrder);
@@ -1883,6 +1892,58 @@ export function PlaylistsPage() {
       trackEvent("playlist_shipped", { playlist_id: selected.id, clip_count: segments.filter((s) => s.kind === "clip").length });
     } catch (e) {
       toast.error("Clip & Ship failed", { description: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setIsShipping(false);
+      setShipProgress(null);
+    }
+  }
+
+  async function handleShareToTeam(teamId: string) {
+    if (!selected) return;
+    setShareDialogOpen(false);
+    // Assign to team
+    await assignPlaylistToTeam(selected.id, teamId);
+    const updated = { ...selected, teamId };
+    setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updated : p));
+    setSelected(updated);
+    // Clip and ship
+    setIsShipping(true);
+    setShipProgress(null);
+    try {
+      const segments = sortedEvents
+        .map((item): ExportSegment | null => {
+          if (isTextCard(item)) return null;
+          const qi = item as QueueItem;
+          const m = matchLookup.get(qi.matchId);
+          if (!m?.videoUrl || !m.syncPoint) return null;
+          const clip = updated.items.filter(isClipItem).find(
+            (c) => c.matchId === qi.matchId && c.eventId === qi.event.eventId
+          );
+          const seg: ExportSegment = {
+            kind: "clip",
+            videoPath: m.videoUrl,
+            matchId: qi.matchId,
+            event: qi.event,
+            syncPoint: m.syncPoint,
+          };
+          if (clip?.preRollOffset !== undefined)
+            (seg as Extract<ExportSegment, { kind: "clip" }>).preRollOffset = clip.preRollOffset;
+          if (clip?.postRollOffset !== undefined)
+            (seg as Extract<ExportSegment, { kind: "clip" }>).postRollOffset = clip.postRollOffset;
+          return seg;
+        })
+        .filter((x): x is ExportSegment => x !== null);
+
+      await clipAndShip(updated, segments, preRoll, postRoll, (done, total) => {
+        setShipProgress({ done, total });
+      });
+
+      toast.success("Clips shared with team", {
+        description: `${segments.filter((s) => s.kind === "clip").length} clip(s) are now in the cloud and assigned to the team.`,
+      });
+      trackEvent("playlist_shipped", { playlist_id: updated.id, clip_count: segments.filter((s) => s.kind === "clip").length });
+    } catch (e) {
+      toast.error("Share to Team failed", { description: e instanceof Error ? e.message : String(e) });
     } finally {
       setIsShipping(false);
       setShipProgress(null);
@@ -3053,48 +3114,29 @@ export function PlaylistsPage() {
                           : 'Export Playlist'}
                       </Button>
                     )}
-                    {isShipping ? (
-                      <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        {shipProgress ? `${shipProgress.done} / ${shipProgress.total}` : "Uploading…"}
-                      </Button>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 gap-1.5"
-                        onClick={handleShip}
-                        disabled={!!exportDisabledReason}
-                        title={exportDisabledReason ?? "Upload clips to cloud for sharing"}
-                      >
-                        <Share2 className="h-3.5 w-3.5" />
-                        Share
-                      </Button>
-                    )}
+                    {/* Share to Team button */}
                     {userTeams.length > 0 && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button size="sm" variant={selected?.teamId ? "default" : "outline"} className="h-8 gap-1.5">
-                            <Users className="h-3.5 w-3.5" />
-                            {selected?.teamId ? (userTeams.find((t) => t.id === selected.teamId)?.name ?? "Team") : "Assign to Team"}
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {userTeams.map((team) => (
-                            <DropdownMenuItem key={team.id} onSelect={() => handleAssignToTeam(team.id)}>
-                              {team.name}{selected?.teamId === team.id ? " ✓" : ""}
-                            </DropdownMenuItem>
-                          ))}
-                          {selected?.teamId && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem onSelect={() => handleAssignToTeam(null)} className="text-muted-foreground">
-                                Remove assignment
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      isShipping ? (
+                        <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          {shipProgress ? `${shipProgress.done} / ${shipProgress.total}` : "Uploading…"}
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant={selected?.teamId ? "default" : "outline"}
+                          className="h-8 gap-1.5"
+                          onClick={() => {
+                            setPendingShareTeamId(selected?.teamId ?? userTeams[0]?.id ?? null);
+                            setShareDialogOpen(true);
+                          }}
+                          disabled={!!exportDisabledReason}
+                          title={exportDisabledReason ?? "Share clips with a team"}
+                        >
+                          <Share2 className="h-3.5 w-3.5" />
+                          {selected?.teamId ? `Shared: ${userTeams.find(t => t.id === selected.teamId)?.name ?? "Team"}` : "Share to Team"}
+                        </Button>
+                      )
                     )}
                   </div>
                   {exportError && (
@@ -3347,48 +3389,29 @@ export function PlaylistsPage() {
                           : 'Export Playlist'}
                       </Button>
                     )}
-                    {isShipping ? (
-                      <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        {shipProgress ? `${shipProgress.done} / ${shipProgress.total}` : "Uploading…"}
-                      </Button>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 gap-1.5"
-                        onClick={handleShip}
-                        disabled={!!exportDisabledReason}
-                        title={exportDisabledReason ?? "Upload clips to cloud for sharing"}
-                      >
-                        <Share2 className="h-3.5 w-3.5" />
-                        Share
-                      </Button>
-                    )}
+                    {/* Share to Team button */}
                     {userTeams.length > 0 && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button size="sm" variant={selected?.teamId ? "default" : "outline"} className="h-8 gap-1.5">
-                            <Users className="h-3.5 w-3.5" />
-                            {selected?.teamId ? (userTeams.find((t) => t.id === selected.teamId)?.name ?? "Team") : "Assign to Team"}
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {userTeams.map((team) => (
-                            <DropdownMenuItem key={team.id} onSelect={() => handleAssignToTeam(team.id)}>
-                              {team.name}{selected?.teamId === team.id ? " ✓" : ""}
-                            </DropdownMenuItem>
-                          ))}
-                          {selected?.teamId && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem onSelect={() => handleAssignToTeam(null)} className="text-muted-foreground">
-                                Remove assignment
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      isShipping ? (
+                        <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          {shipProgress ? `${shipProgress.done} / ${shipProgress.total}` : "Uploading…"}
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant={selected?.teamId ? "default" : "outline"}
+                          className="h-8 gap-1.5"
+                          onClick={() => {
+                            setPendingShareTeamId(selected?.teamId ?? userTeams[0]?.id ?? null);
+                            setShareDialogOpen(true);
+                          }}
+                          disabled={!!exportDisabledReason}
+                          title={exportDisabledReason ?? "Share clips with a team"}
+                        >
+                          <Share2 className="h-3.5 w-3.5" />
+                          {selected?.teamId ? `Shared: ${userTeams.find(t => t.id === selected.teamId)?.name ?? "Team"}` : "Share to Team"}
+                        </Button>
+                      )
                     )}
                   </div>
                   {exportError && (
@@ -3623,6 +3646,54 @@ export function PlaylistsPage() {
                 onAddClips={handleAddClips}
                 onClose={() => setShowClipBrowser(false)}
               />
+            </DialogContent>
+          </Dialog>
+          {/* Share to Team dialog */}
+          <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Share to Team</DialogTitle>
+                <DialogDescription>
+                  Choose a team. Clips will be uploaded to the cloud and shared with that team.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex flex-col gap-2 py-2">
+                {userTeams.map((team) => (
+                  <button
+                    key={team.id}
+                    onClick={() => setPendingShareTeamId(team.id)}
+                    className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm text-left hover:bg-accent${pendingShareTeamId === team.id ? " bg-accent font-medium" : ""}`}
+                  >
+                    <Users className="h-4 w-4 shrink-0" />
+                    {team.name}
+                    {pendingShareTeamId === team.id && <Check className="h-4 w-4 ml-auto" />}
+                  </button>
+                ))}
+              </div>
+              <DialogFooter className="flex-row justify-between gap-2">
+                {selected?.teamId && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground"
+                    onClick={() => { handleAssignToTeam(null); setShareDialogOpen(false); }}
+                  >
+                    Remove from team
+                  </Button>
+                )}
+                <div className="flex gap-2 ml-auto">
+                  <Button variant="outline" size="sm" onClick={() => setShareDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={!pendingShareTeamId}
+                    onClick={() => pendingShareTeamId && handleShareToTeam(pendingShareTeamId)}
+                  >
+                    Share
+                  </Button>
+                </div>
+              </DialogFooter>
             </DialogContent>
           </Dialog>
           </>
