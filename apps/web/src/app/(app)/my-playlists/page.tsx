@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BookOpen, ChevronDown, ChevronRight, Play, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { VideoPlayer } from "@/components/video-player";
 import { createClient } from "@/lib/supabase/client";
 import { getMyTeamPlaylists } from "@scoutable/shared/lib/playlists-db";
@@ -70,6 +71,7 @@ export default function MyPlaylistsPage() {
   const [teamMap, setTeamMap] = useState<Map<string, OrgTeam>>(new Map());
   const [memberMap, setMemberMap] = useState<Map<string, UserProfile>>(new Map());
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   // Playback state
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -108,7 +110,10 @@ export default function MyPlaylistsPage() {
         setMemberMap(new Map(orgCtx.orgMembers.map((m) => [m.id, m])));
         setExpandedTeams(new Set(pls.map((p) => p.teamId ?? "__none__")));
       }
-    }).finally(() => setLoading(false));
+    }).finally(() => {
+      setLoading(false);
+      if (window.innerWidth < 1024) setSheetOpen(true);
+    });
   }, []);
 
   const matchLookup = useMemo(() => new Map(matches.map((m) => [m.id, m])), [matches]);
@@ -382,9 +387,72 @@ export default function MyPlaylistsPage() {
     );
   }
 
+  function PlaylistTree({ onSelect }: { onSelect: (pl: Playlist) => void }) {
+    if (playlists.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+          <p className="text-sm font-medium text-foreground">No playlists yet</p>
+          <p className="mt-1 text-xs text-muted-foreground">Your coach will send playlists here.</p>
+        </div>
+      );
+    }
+    return (
+      <>
+        {Array.from(grouped.entries()).map(([teamKey, teamPlaylists]) => {
+          const team = teamKey !== "__none__" ? teamMap.get(teamKey) : undefined;
+          const teamName = team?.name ?? "Unassigned";
+          const isExpanded = expandedTeams.has(teamKey);
+          return (
+            <div key={teamKey}>
+              <button
+                type="button"
+                onClick={() => toggleTeam(teamKey)}
+                className="flex w-full items-center gap-1.5 px-3 py-2 hover:bg-muted/50 transition-colors select-none"
+              >
+                {isExpanded ? (
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                )}
+                <span className="flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {teamName}
+                </span>
+                <span className="text-xs text-muted-foreground">{teamPlaylists.length}</span>
+              </button>
+
+              {isExpanded &&
+                teamPlaylists.map((pl) => {
+                  const creatorName = pl.createdBy
+                    ? (memberMap.get(pl.createdBy)?.fullName ?? null)
+                    : null;
+                  return (
+                    <button
+                      key={pl.id}
+                      type="button"
+                      onClick={() => onSelect(pl)}
+                      className={cn(
+                        "w-full px-4 py-2.5 text-left transition-colors hover:bg-accent",
+                        pl.id === selected?.id && "bg-accent"
+                      )}
+                    >
+                      <p className="truncate text-sm font-medium text-foreground">{pl.name}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {pl.items.length} item{pl.items.length !== 1 ? "s" : ""}
+                        {creatorName ? ` · ${creatorName}` : ""}
+                      </p>
+                    </button>
+                  );
+                })}
+            </div>
+          );
+        })}
+      </>
+    );
+  }
+
   return (
     <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
-      {/* Left: playlist list */}
+      {/* Left: playlist list (desktop only) */}
       <aside className="w-72 shrink-0 flex flex-col border-r border-border overflow-hidden hidden lg:flex">
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           <BookOpen className="h-4 w-4 text-muted-foreground" />
@@ -393,63 +461,8 @@ export default function MyPlaylistsPage() {
             <span className="ml-auto text-xs text-muted-foreground">{playlists.length}</span>
           )}
         </div>
-
         <div className="flex-1 overflow-y-auto py-2">
-          {playlists.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-              <p className="text-sm font-medium text-foreground">No playlists yet</p>
-              <p className="mt-1 text-xs text-muted-foreground">Your coach will send playlists here.</p>
-            </div>
-          ) : (
-            Array.from(grouped.entries()).map(([teamKey, teamPlaylists]) => {
-              const team = teamKey !== "__none__" ? teamMap.get(teamKey) : undefined;
-              const teamName = team?.name ?? "Unassigned";
-              const isExpanded = expandedTeams.has(teamKey);
-              return (
-                <div key={teamKey}>
-                  <button
-                    type="button"
-                    onClick={() => toggleTeam(teamKey)}
-                    className="flex w-full items-center gap-1.5 px-3 py-2 hover:bg-muted/50 transition-colors select-none"
-                  >
-                    {isExpanded ? (
-                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    ) : (
-                      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    )}
-                    <span className="flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {teamName}
-                    </span>
-                    <span className="text-xs text-muted-foreground">{teamPlaylists.length}</span>
-                  </button>
-
-                  {isExpanded &&
-                    teamPlaylists.map((pl) => {
-                      const creatorName = pl.createdBy
-                        ? (memberMap.get(pl.createdBy)?.fullName ?? null)
-                        : null;
-                      return (
-                        <button
-                          key={pl.id}
-                          type="button"
-                          onClick={() => setSelected(pl.id === selected?.id ? null : pl)}
-                          className={cn(
-                            "w-full px-4 py-2.5 text-left transition-colors hover:bg-accent",
-                            pl.id === selected?.id && "bg-accent"
-                          )}
-                        >
-                          <p className="truncate text-sm font-medium text-foreground">{pl.name}</p>
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            {pl.items.length} item{pl.items.length !== 1 ? "s" : ""}
-                            {creatorName ? ` · ${creatorName}` : ""}
-                          </p>
-                        </button>
-                      );
-                    })}
-                </div>
-              );
-            })
-          )}
+          <PlaylistTree onSelect={(pl) => setSelected(pl.id === selected?.id ? null : pl)} />
         </div>
       </aside>
 
@@ -460,6 +473,13 @@ export default function MyPlaylistsPage() {
             <div className="text-center">
               <BookOpen className="mx-auto h-10 w-10 text-muted-foreground/40" />
               <p className="mt-3 text-sm text-muted-foreground">Select a playlist to watch</p>
+              <Button
+                className="mt-4 gap-2 lg:hidden"
+                onClick={() => setSheetOpen(true)}
+              >
+                Select a Playlist
+                <ChevronDown className="h-4 w-4" />
+              </Button>
             </div>
           </div>
         ) : (
@@ -484,7 +504,14 @@ export default function MyPlaylistsPage() {
 
             {/* Controls bar */}
             <div className="flex items-center gap-2 border-b border-border px-4 py-2 shrink-0">
-              <p className="flex-1 truncate text-sm font-semibold text-foreground">{selected.name}</p>
+              <button
+                type="button"
+                onClick={() => setSheetOpen(true)}
+                className="flex flex-1 items-center gap-1 min-w-0 lg:pointer-events-none"
+              >
+                <p className="truncate text-sm font-semibold text-foreground">{selected.name}</p>
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground lg:hidden" />
+              </button>
               {isPlaying ? (
                 <Button size="sm" variant="outline" className="gap-1.5" onClick={handleStop}>
                   <Square className="h-3.5 w-3.5" />
@@ -570,6 +597,26 @@ export default function MyPlaylistsPage() {
           </>
         )}
       </div>
+
+      {/* Bottom sheet (mobile only) */}
+      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent side="bottom" className="h-[70vh] flex flex-col px-0 lg:hidden">
+          <SheetHeader className="px-4 pb-3 border-b border-border shrink-0">
+            <SheetTitle className="text-sm font-semibold flex items-center gap-2">
+              <BookOpen className="h-4 w-4 text-muted-foreground" />
+              My Playlists
+            </SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto py-2">
+            <PlaylistTree
+              onSelect={(pl) => {
+                setSelected(pl.id === selected?.id ? null : pl);
+                setSheetOpen(false);
+              }}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
