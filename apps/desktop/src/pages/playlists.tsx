@@ -1577,6 +1577,13 @@ export function PlaylistsPage() {
     const clipItem = firstItem as QueueItem;
     const sp = matchLookupRef.current.get(clipItem.matchId)?.syncPoint;
     if (!sp) return;
+    // Clear any active text card overlay and its timer
+    if (textCardTimerRef.current) {
+      clearTimeout(textCardTimerRef.current);
+      textCardTimerRef.current = null;
+    }
+    setActiveTextCard(null);
+    activeTextCardRef.current = null;
     setActiveEventId(clipItem.event.eventId);
     if (clipItem.matchId !== activeMatchIdRef.current) {
       const videoTime = computeVideoTime(clipItem.event, sp);
