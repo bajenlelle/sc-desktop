@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, ChevronDown, ChevronRight, Play, Square } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { BookOpen, ChevronDown, ChevronRight } from "lucide-react";
 import { VideoPlayer } from "@/components/video-player";
+import { VideoClipControls } from "@/components/video-clip-controls";
 import { VideoPlaceholder } from "@/components/video-placeholder";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getMyTeamPlaylists } from "@/lib/playlists-db";
@@ -76,6 +76,8 @@ export function MyPlaylistsPage() {
   const textCardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeTextCardRef = useRef<PlaylistTextCard | null>(null);
   const selectedRef = useRef(selected);
+
+  const displayItemsRef = useRef<PlaybackItem[]>([]);
 
   useEffect(() => { activeMatchIdRef.current = activeMatchId; }, [activeMatchId]);
   useEffect(() => { activeTextCardRef.current = activeTextCard; }, [activeTextCard]);
@@ -194,6 +196,8 @@ export function MyPlaylistsPage() {
     }
     return items;
   }, [selected, matchLookup]);
+
+  useEffect(() => { displayItemsRef.current = displayItems; }, [displayItems]);
 
   // Helper: get clip offsets (always 0 for read-only view)
   function getClipOffsets() {
@@ -371,6 +375,33 @@ export function MyPlaylistsPage() {
     startQueue(displayItems, 0);
   }
 
+  const listPosition = useMemo(() => {
+    if (activeTextCard)
+      return displayItems.findIndex(i => isTextCard(i) && (i as PlaylistTextCard).id === activeTextCard.id);
+    if (activeEventId !== null)
+      return displayItems.findIndex(i => !isTextCard(i) && (i as QueueItem).event.eventId === activeEventId);
+    return -1;
+  }, [activeTextCard, activeEventId, displayItems]);
+
+  const canPrev = isPlaying && listPosition > 0;
+  const canNext = isPlaying && listPosition >= 0 && listPosition < displayItems.length - 1;
+  const isQueueActive = isPlaying;
+
+  function handlePrev() {
+    if (listPosition <= 0) return;
+    handleRowClick(displayItemsRef.current[listPosition - 1]);
+  }
+  function handleNext() {
+    if (listPosition < 0 || listPosition >= displayItemsRef.current.length - 1) return;
+    handleRowClick(displayItemsRef.current[listPosition + 1]);
+  }
+  function handleReplay() {
+    const item = queueRef.current[queueIdxRef.current];
+    if (!item) return;
+    if (isTextCard(item)) startTextCardRef.current(item as PlaylistTextCard);
+    else seekToItem(item as QueueItem);
+  }
+
   const activeKey = activeTextCard
     ? `text:${activeTextCard.id}`
     : activeEventId !== null
@@ -498,27 +529,24 @@ export function MyPlaylistsPage() {
                 )}
               </div>
 
-              {/* Controls */}
-              <div className="flex items-center gap-2 border-b border-border px-4 py-2">
-                <p className="flex-1 truncate text-sm font-semibold text-foreground">
-                  {selected.name}
-                </p>
-                {isPlaying ? (
-                  <Button size="sm" variant="outline" className="gap-1.5" onClick={handleStop}>
-                    <Square className="h-3.5 w-3.5" />
-                    Stop
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={handlePlayPlaylist}
-                    disabled={displayItems.length === 0}
-                  >
-                    <Play className="h-3.5 w-3.5" />
-                    Play Playlist
-                  </Button>
-                )}
+              {/* Controls bar */}
+              <div className="border-b border-border shrink-0">
+                <div className="flex items-center gap-2 px-4 py-2">
+                  <p className="flex-1 truncate text-sm font-semibold text-foreground">{selected.name}</p>
+                </div>
+                <div className="flex justify-center pb-3">
+                  <VideoClipControls
+                    videoRef={videoRef}
+                    canPrev={canPrev}
+                    canNext={canNext}
+                    isQueueActive={isQueueActive}
+                    onPrev={handlePrev}
+                    onNext={handleNext}
+                    onReplay={handleReplay}
+                    onStop={handleStop}
+                    onPlayAll={handlePlayPlaylist}
+                  />
+                </div>
               </div>
 
               {/* Clip list */}
@@ -573,7 +601,7 @@ export function MyPlaylistsPage() {
                           </p>
                           <p className="text-xs text-muted-foreground">
                             {qi.event.type} · {qi.event.gameClockTime}
-                            {match && ` · ${match.homeTeam} vs ${match.awayTeam}`}
+                            {match && ` · ${match.homeTeam.name} vs ${match.awayTeam.name}`}
                           </p>
                         </div>
                       </button>

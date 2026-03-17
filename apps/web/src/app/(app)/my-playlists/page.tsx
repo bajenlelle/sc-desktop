@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, ChevronDown, ChevronRight, Play, Square } from "lucide-react";
+import { BookOpen, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { VideoClipControls } from "@/components/video-clip-controls";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { VideoPlayer } from "@/components/video-player";
 import { createClient } from "@/lib/supabase/client";
@@ -18,7 +19,6 @@ import type {
   PlaylistTextCard,
   PlayByPlayEvent,
   StoredMatch,
-  SyncPoint,
 } from "@scoutable/shared/types/match";
 import type { OrgTeam, UserProfile } from "@scoutable/shared/types/org";
 
@@ -45,14 +45,6 @@ function itemKey(i: PlaybackItem): string {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function computeVideoTime(event: PlayByPlayEvent, sync: SyncPoint): number | null {
-  if (!event.realWorldTime || !sync.syncRealWorldTime) return null;
-  const eventMs = new Date(event.realWorldTime).getTime();
-  const syncMs = new Date(sync.syncRealWorldTime).getTime();
-  if (isNaN(eventMs) || isNaN(syncMs)) return null;
-  return sync.syncVideoTime + (eventMs - syncMs) / 1000;
-}
 
 function playerName(event: PlayByPlayEvent): string {
   if (!event.player) return "Unknown player";
@@ -83,13 +75,14 @@ export default function MyPlaylistsPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const queueRef = useRef<PlaybackItem[]>([]);
   const queueIdxRef = useRef<number>(0);
-  const clipEndRef = useRef<number | undefined>(undefined);
-  const pendingSeekRef = useRef<{ seekTo: number; clipEnd: number } | null>(null);
+  const pendingPlayRef = useRef(false);
   const activeMatchIdRef = useRef<string | null>(null);
   const matchLookupRef = useRef<Map<string, StoredMatch>>(new Map());
   const textCardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeTextCardRef = useRef<PlaylistTextCard | null>(null);
   const selectedRef = useRef(selected);
+
+  const playableQueueRef = useRef<PlaybackItem[]>([]);
 
   useEffect(() => { activeMatchIdRef.current = activeMatchId; }, [activeMatchId]);
   useEffect(() => { activeTextCardRef.current = activeTextCard; }, [activeTextCard]);
@@ -144,8 +137,7 @@ export default function MyPlaylistsPage() {
     setIsPlaying(false);
     setActiveEventId(null);
     setActiveTextCard(null);
-    clipEndRef.current = undefined;
-    pendingSeekRef.current = null;
+    pendingPlayRef.current = false;
     if (textCardTimerRef.current) {
       clearTimeout(textCardTimerRef.current);
       textCardTimerRef.current = null;
@@ -167,22 +159,6 @@ export default function MyPlaylistsPage() {
     setVideoUrl(m?.videoUrl ?? null);
   }, [activeMatchId]);
 
-  // Apply pending seek after video source changes
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !videoUrl || !pendingSeekRef.current) return;
-    function handleCanPlay() {
-      if (!pendingSeekRef.current) return;
-      const { seekTo, clipEnd } = pendingSeekRef.current;
-      pendingSeekRef.current = null;
-      clipEndRef.current = clipEnd;
-      video!.currentTime = seekTo;
-      video!.addEventListener("seeked", () => video!.play().catch(() => {}), { once: true });
-    }
-    video.addEventListener("canplay", handleCanPlay, { once: true });
-    return () => video.removeEventListener("canplay", handleCanPlay);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [videoUrl]);
 
   // Build display items for selected playlist
   // For web: clips need r2Url to be playable; clips without r2Url are shown as greyed
@@ -209,23 +185,9 @@ export default function MyPlaylistsPage() {
     [displayItems]
   );
 
-  const preRoll = 10;
-  const postRoll = 3;
+  useEffect(() => { playableQueueRef.current = playableQueue; }, [playableQueue]);
 
-  function seekToR2Item(item: QueueItem) {
-    const video = videoRef.current;
-    if (!item.r2Url || !video) return;
-    const sp = matchLookupRef.current.get(item.matchId)?.syncPoint;
-    if (!sp) return;
-    const videoTime = computeVideoTime(item.event, sp);
-    if (videoTime === null) return;
-    const seekTo = Math.max(0, videoTime - preRoll);
-    clipEndRef.current = Math.max(videoTime, videoTime + postRoll);
-    video.pause();
-    video.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
-    video.currentTime = seekTo;
-  }
-
+  const advanceQueueRef = useRef<(fromIdx: number) => void>(() => {});
   const advanceFromTextCardRef = useRef<() => void>(() => {});
 
   function startTextCard(card: PlaylistTextCard) {
@@ -256,31 +218,18 @@ export default function MyPlaylistsPage() {
       startTextCardRef.current(nextItem as PlaylistTextCard);
     } else {
       const clipItem = nextItem as QueueItem;
-      setActiveEventId(clipItem.event.eventId);
       if (!clipItem.r2Url) {
         advanceQueue(nextIdx);
         return;
       }
-      const sp = matchLookupRef.current.get(clipItem.matchId)?.syncPoint;
-      if (sp) {
-        const videoTime = computeVideoTime(clipItem.event, sp);
-        if (videoTime !== null) {
-          const seekTo = Math.max(0, videoTime - preRoll);
-          const clipEnd = Math.max(videoTime, videoTime + postRoll);
-          if (clipItem.matchId !== activeMatchIdRef.current) {
-            pendingSeekRef.current = { seekTo, clipEnd };
-            setActiveMatchId(clipItem.matchId);
-          } else {
-            clipEndRef.current = clipEnd;
-            const video = videoRef.current;
-            video?.pause();
-            video?.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
-            if (video) video.currentTime = seekTo;
-          }
-        }
+      pendingPlayRef.current = true;
+      setActiveEventId(clipItem.event.eventId);
+      if (clipItem.matchId !== activeMatchIdRef.current) {
+        setActiveMatchId(clipItem.matchId);
       }
     }
   }
+  advanceQueueRef.current = advanceQueue;
 
   advanceFromTextCardRef.current = () => {
     if (textCardTimerRef.current) {
@@ -291,25 +240,6 @@ export default function MyPlaylistsPage() {
     activeTextCardRef.current = null;
     advanceQueue(queueIdxRef.current);
   };
-
-  // Auto-advance via timeupdate
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    function handleTimeUpdate() {
-      const end = clipEndRef.current;
-      if (end === undefined || !video) return;
-      if (video.currentTime < end) return;
-      clipEndRef.current = undefined;
-      video.pause();
-      advanceQueue(queueIdxRef.current);
-    }
-
-    video.addEventListener("timeupdate", handleTimeUpdate);
-    return () => video.removeEventListener("timeupdate", handleTimeUpdate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [videoUrl]);
 
   function startQueue(queue: PlaybackItem[], startIdx = 0) {
     if (queue.length === 0) return;
@@ -328,21 +258,16 @@ export default function MyPlaylistsPage() {
       advanceQueue(0);
       return;
     }
+    if (textCardTimerRef.current) {
+      clearTimeout(textCardTimerRef.current);
+      textCardTimerRef.current = null;
+    }
+    setActiveTextCard(null);
+    activeTextCardRef.current = null;
+    pendingPlayRef.current = true;
     setActiveEventId(clipItem.event.eventId);
     if (clipItem.matchId !== activeMatchIdRef.current) {
-      const sp = matchLookupRef.current.get(clipItem.matchId)?.syncPoint;
-      if (sp) {
-        const videoTime = computeVideoTime(clipItem.event, sp);
-        if (videoTime !== null) {
-          pendingSeekRef.current = {
-            seekTo: Math.max(0, videoTime - preRoll),
-            clipEnd: videoTime + postRoll,
-          };
-        }
-      }
       setActiveMatchId(clipItem.matchId);
-    } else {
-      seekToR2Item(clipItem);
     }
   }
 
@@ -350,6 +275,39 @@ export default function MyPlaylistsPage() {
     if (!isTextCard(item) && !item.hasR2) return; // greyed out
     const idx = playableQueue.findIndex((i) => itemKey(i) === itemKey(item));
     startQueue(playableQueue, idx >= 0 ? idx : 0);
+  }
+
+  const listPosition = useMemo(() => {
+    if (activeTextCard)
+      return playableQueue.findIndex(i => isTextCard(i) && (i as PlaylistTextCard).id === activeTextCard.id);
+    if (activeEventId !== null)
+      return playableQueue.findIndex(i => !isTextCard(i) && (i as QueueItem).event.eventId === activeEventId);
+    return -1;
+  }, [activeTextCard, activeEventId, playableQueue]);
+
+  const canPrev = isPlaying && listPosition > 0;
+  const canNext = isPlaying && listPosition >= 0 && listPosition < playableQueue.length - 1;
+  const isQueueActive = isPlaying;
+
+  function handlePrev() {
+    if (listPosition <= 0) return;
+    handleRowClick(playableQueueRef.current[listPosition - 1]);
+  }
+  function handleNext() {
+    if (listPosition < 0 || listPosition >= playableQueueRef.current.length - 1) return;
+    handleRowClick(playableQueueRef.current[listPosition + 1]);
+  }
+  function handleReplay() {
+    const item = queueRef.current[queueIdxRef.current];
+    if (!item) return;
+    if (isTextCard(item)) {
+      startTextCardRef.current(item as PlaylistTextCard);
+    } else {
+      const video = videoRef.current;
+      if (!video) return;
+      video.currentTime = 0;
+      video.play().catch(() => {});
+    }
   }
 
   const activeKey = activeTextCard
@@ -374,6 +332,28 @@ export default function MyPlaylistsPage() {
   // For R2 clips: video src is the clip's r2Url directly (no server streaming)
   // For match video: video src is the match videoUrl
   const effectiveVideoSrc = currentClipR2 ?? videoUrl;
+
+  // Autoplay when src changes; auto-advance on clip end
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !effectiveVideoSrc) return;
+
+    function handleCanPlay() {
+      if (!pendingPlayRef.current) return;
+      pendingPlayRef.current = false;
+      video!.play().catch(() => {});
+    }
+    function handleEnded() {
+      advanceQueueRef.current(queueIdxRef.current);
+    }
+
+    video.addEventListener("canplay", handleCanPlay, { once: true });
+    video.addEventListener("ended", handleEnded);
+    return () => {
+      video.removeEventListener("canplay", handleCanPlay);
+      video.removeEventListener("ended", handleEnded);
+    };
+  }, [effectiveVideoSrc]);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -503,31 +483,30 @@ export default function MyPlaylistsPage() {
             </div>
 
             {/* Controls bar */}
-            <div className="flex items-center gap-2 border-b border-border px-4 py-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setSheetOpen(true)}
-                className="flex flex-1 items-center gap-1 min-w-0 lg:pointer-events-none"
-              >
-                <p className="truncate text-sm font-semibold text-foreground">{selected.name}</p>
-                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground lg:hidden" />
-              </button>
-              {isPlaying ? (
-                <Button size="sm" variant="outline" className="gap-1.5" onClick={handleStop}>
-                  <Square className="h-3.5 w-3.5" />
-                  Stop
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  className="gap-1.5"
-                  onClick={() => startQueue(playableQueue, 0)}
-                  disabled={playableQueue.length === 0}
+            <div className="border-b border-border shrink-0">
+              <div className="flex items-center gap-2 px-4 py-2">
+                <button
+                  type="button"
+                  onClick={() => setSheetOpen(true)}
+                  className="flex flex-1 items-center gap-1 min-w-0 lg:pointer-events-none"
                 >
-                  <Play className="h-3.5 w-3.5" />
-                  Play Playlist
-                </Button>
-              )}
+                  <p className="truncate text-sm font-semibold text-foreground">{selected.name}</p>
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground lg:hidden" />
+                </button>
+              </div>
+              <div className="flex justify-center pb-3">
+                <VideoClipControls
+                  videoRef={videoRef}
+                  canPrev={canPrev}
+                  canNext={canNext}
+                  isQueueActive={isQueueActive}
+                  onPrev={handlePrev}
+                  onNext={handleNext}
+                  onReplay={handleReplay}
+                  onStop={handleStop}
+                  onPlayAll={() => startQueue(playableQueue, 0)}
+                />
+              </div>
             </div>
 
             {/* Clip list */}

@@ -57,7 +57,7 @@ export function VideoClipControls({
       video.removeEventListener("pause", onPause);
       video.removeEventListener("ended", onEnded);
     };
-  }, [videoRef]);
+  }, [videoRef, isQueueActive]);
 
   useEffect(() => {
     if (videoRef.current) videoRef.current.playbackRate = speed;
