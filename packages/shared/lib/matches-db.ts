@@ -151,21 +151,15 @@ export async function getMatch(supabase: SupabaseClient, id: string): Promise<St
 // ---------------------------------------------------------------------------
 
 export async function listMatches(supabase: SupabaseClient): Promise<StoredMatch[]> {
-  const [matchesRes, eventsRes] = await Promise.all([
-    supabase.from("matches").select("*").order("created_at", { ascending: false }),
-    supabase.from("play_by_play_events").select("*").order("real_world_time", { ascending: true }),
-  ]);
+  const { data, error } = await supabase
+    .from("matches")
+    .select("*, play_by_play_events(*)")
+    .order("created_at", { ascending: false });
 
-  if (matchesRes.error || !matchesRes.data) return [];
+  if (error || !data) return [];
 
-  const eventsByMatch: Record<string, EventRow[]> = {};
-  for (const e of (eventsRes.data ?? []) as EventRow[]) {
-    if (!eventsByMatch[e.match_id]) eventsByMatch[e.match_id] = [];
-    eventsByMatch[e.match_id].push(e);
-  }
-
-  return (matchesRes.data as MatchRow[]).map((row) =>
-    rowToStoredMatch(row, eventsByMatch[row.id] ?? [])
+  return (data as (MatchRow & { play_by_play_events: EventRow[] })[]).map((row) =>
+    rowToStoredMatch(row, row.play_by_play_events ?? [])
   );
 }
 
@@ -179,27 +173,24 @@ export async function listEventsForMatches(
 ): Promise<Record<string, PlayByPlayEvent[]>> {
   if (matchIds.length === 0) return {};
   const { data, error } = await supabase
-    .from("play_by_play_events")
-    .select("*")
-    .in("match_id", matchIds)
-    .order("real_world_time", { ascending: true });
+    .from("matches")
+    .select("id, play_by_play_events(*)")
+    .in("id", matchIds);
   if (error || !data) return {};
   const byMatch: Record<string, PlayByPlayEvent[]> = {};
-  for (const row of data as EventRow[]) {
-    const key = row.match_id;
-    if (!byMatch[key]) byMatch[key] = [];
-    byMatch[key].push({
-      eventId: row.event_id ?? 0,
-      type: row.type,
-      subType: row.sub_type ?? "",
-      period: row.period ?? 0,
-      gameClockTime: row.game_clock_time ?? "",
-      realWorldTime: row.real_world_time ?? "",
-      isSuccessful: row.is_successful ?? 0,
-      player: row.player ?? null,
-      eventTeam: row.event_team ?? null,
-      qualifiers: row.qualifiers ?? [],
-    });
+  for (const row of data as { id: string; play_by_play_events: EventRow[] }[]) {
+    byMatch[row.id] = (row.play_by_play_events ?? []).map((e) => ({
+      eventId: e.event_id ?? 0,
+      type: e.type,
+      subType: e.sub_type ?? "",
+      period: e.period ?? 0,
+      gameClockTime: e.game_clock_time ?? "",
+      realWorldTime: e.real_world_time ?? "",
+      isSuccessful: e.is_successful ?? 0,
+      player: e.player ?? null,
+      eventTeam: e.event_team ?? null,
+      qualifiers: e.qualifiers ?? [],
+    }));
   }
   return byMatch;
 }
