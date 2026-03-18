@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, ChevronDown, ChevronRight, Share2, Users } from "lucide-react";
+import { BookOpen, ChevronDown, ChevronRight, Share2, Users, Link2 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { VideoClipControls } from "@/components/video-clip-controls";
@@ -459,6 +460,20 @@ export default function MyPlaylistsPage() {
                           }}
                         >
                           <Share2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      {(userRole === "coach" || userRole === "admin") && (
+                        <button
+                          type="button"
+                          className="shrink-0 rounded p-1 text-muted-foreground/50 opacity-0 group-hover:opacity-100 focus:outline-none transition-opacity hover:text-foreground"
+                          title="Copy share link"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigator.clipboard.writeText(`${window.location.origin}/view/${pl.id}`);
+                            toast.success("Share link copied");
+                          }}
+                        >
+                          <Link2 className="h-3.5 w-3.5" />
                         </button>
                       )}
                     </div>

@@ -25,6 +25,9 @@ interface OrgRow {
   name: string;
   logo_url: string | null;
   created_at: string;
+  coach_seat_limit: number | null;
+  player_seat_limit: number | null;
+  expires_at: string | null;
 }
 
 interface TeamRow {
@@ -85,7 +88,15 @@ function rowToProfile(r: ProfileRow): UserProfile {
 }
 
 function rowToOrg(r: OrgRow): Organization {
-  return { id: r.id, name: r.name, logoUrl: r.logo_url, createdAt: r.created_at };
+  return {
+    id: r.id,
+    name: r.name,
+    logoUrl: r.logo_url,
+    createdAt: r.created_at,
+    coachSeatLimit: r.coach_seat_limit ?? null,
+    playerSeatLimit: r.player_seat_limit ?? null,
+    expiresAt: r.expires_at ?? null,
+  };
 }
 
 function rowToTeam(r: TeamRow): OrgTeam {
@@ -177,7 +188,7 @@ export async function getOrgContext(): Promise<OrgContext> {
 
   if (profile.orgId) {
     const [orgRes, teamsRes, membersRes] = await Promise.all([
-      supabase.from("organizations").select("id, name, logo_url, created_at").eq("id", profile.orgId).single(),
+      supabase.from("organizations").select("id, name, logo_url, created_at, coach_seat_limit, player_seat_limit, expires_at").eq("id", profile.orgId).single(),
       supabase.from("teams").select("id, org_id, name, sport, season, created_at").eq("org_id", profile.orgId),
       supabase.from("profiles").select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin").eq("org_id", profile.orgId),
     ]);
@@ -430,6 +441,48 @@ export async function joinByCode(code: string): Promise<{ type: 'org' | 'team'; 
   }
   const result = data as { type: string; org_id: string; team_id?: string };
   return { type: result.type as 'org' | 'team', orgId: result.org_id, teamId: result.team_id };
+}
+
+export async function getInvitePreview(code: string): Promise<{
+  valid: boolean;
+  orgName?: string;
+  teamName?: string | null;
+  role?: string;
+}> {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("get_invite_preview", { p_code: code.toUpperCase() });
+  if (error) throw new Error(`Failed to preview invite: ${error.message}`);
+  const r = data as { valid: boolean; org_name?: string; team_name?: string | null; role?: string };
+  return { valid: r.valid, orgName: r.org_name, teamName: r.team_name, role: r.role };
+}
+
+export async function updateOrgLicense(
+  orgId: string,
+  coachSeats: number | null,
+  playerSeats: number | null,
+  expiresAt: string | null
+): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.rpc("update_org_license", {
+    p_org_id: orgId,
+    p_coach_seats: coachSeats,
+    p_player_seats: playerSeats,
+    p_expires_at: expiresAt,
+  });
+  if (error) {
+    if (error.message.includes("not_platform_admin")) throw new Error("Not authorized as platform admin.");
+    throw new Error(`Failed to update license: ${error.message}`);
+  }
+}
+
+export async function removeOrgMember(userId: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.rpc("remove_member_from_org", { p_user_id: userId });
+  if (error) {
+    if (error.message.includes("not_admin")) throw new Error("Only org admins can remove members.");
+    if (error.message.includes("user_not_in_org")) throw new Error("User is not in your organization.");
+    throw new Error(`Failed to remove member: ${error.message}`);
+  }
 }
 
 export async function promoteToAdmin(userId: string): Promise<void> {

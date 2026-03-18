@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { Navbar } from "@/components/navbar";
 import { AuthProvider } from "@/components/auth-context";
@@ -34,6 +35,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     }
   } catch {
     // Profile may not exist yet
+  }
+
+  // Redirect org-less non-admin users to onboarding
+  if (profile && !profile.orgId && !profile.isPlatformAdmin) {
+    const headersList = await headers();
+    const pathname = headersList.get("x-pathname") ?? "";
+    if (pathname !== "/onboarding") {
+      redirect("/onboarding");
+    }
   }
 
   return (

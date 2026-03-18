@@ -19,6 +19,9 @@ export interface Organization {
   name: string;
   logoUrl: string | null;
   createdAt: string;
+  coachSeatLimit: number | null;
+  playerSeatLimit: number | null;
+  expiresAt: string | null;
 }
 
 export interface OrgTeam {

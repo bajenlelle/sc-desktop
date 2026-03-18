@@ -19,10 +19,11 @@ import {
   joinOrgTeam,
   promoteToAdmin,
   createTeam,
+  removeOrgMember,
 } from "@/lib/profile-db";
 import type { OrgContext, OrgTeam, TeamInvite, OrgInvite, UserProfile } from "@scoutable/shared/types/org";
 import { toast } from "sonner";
-import { Clipboard, Check, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
+import { Clipboard, Check, RefreshCw, ChevronDown, ChevronUp, Link2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth-context";
 import Link from "next/link";
@@ -57,12 +58,20 @@ function InviteCard({
   regenerating: boolean;
 }) {
   const [copied, setCopied] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   function handleCopy() {
     if (!code) return;
     navigator.clipboard.writeText(`Join ${entityName} on Scoutable — Code: ${code}`);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  function handleCopyLink() {
+    if (!code) return;
+    navigator.clipboard.writeText(`${window.location.origin}/join/${code}`);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
   }
 
   return (
@@ -77,7 +86,11 @@ function InviteCard({
             </div>
             <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={handleCopy}>
               {copied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Clipboard className="h-3.5 w-3.5" />}
-              {copied ? "Copied!" : "Copy Invite"}
+              {copied ? "Copied!" : "Copy Code"}
+            </Button>
+            <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={handleCopyLink}>
+              {copiedLink ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Link2 className="h-3.5 w-3.5" />}
+              {copiedLink ? "Copied!" : "Copy Link"}
             </Button>
             <Button
               size="sm"
@@ -400,6 +413,7 @@ export default function OrganizationPage() {
   const [memberCounts, setMemberCounts] = useState<Record<string, number>>({});
   const [myTeamRoles, setMyTeamRoles] = useState<Record<string, string>>({});
   const [joiningTeamId, setJoiningTeamId] = useState<string | null>(null);
+  const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [showNewTeam, setShowNewTeam] = useState(false);
   const [newTeamName, setNewTeamName] = useState("");
   const [newTeamSeason, setNewTeamSeason] = useState("");
@@ -473,6 +487,19 @@ export default function OrganizationPage() {
       await load();
     } catch (e) {
       toast.error((e as Error).message);
+    }
+  }
+
+  async function handleRemoveMember(userId: string) {
+    setRemovingMemberId(userId);
+    try {
+      await removeOrgMember(userId);
+      toast.success("Member removed");
+      await load();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setRemovingMemberId(null);
     }
   }
 
@@ -559,6 +586,34 @@ export default function OrganizationPage() {
               </p>
             </div>
           </div>
+
+          {/* License info (read-only) */}
+          {(org.coachSeatLimit !== null || org.playerSeatLimit !== null || org.expiresAt !== null) && (
+            <div className="text-xs text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 border border-border rounded-md px-3 py-2">
+              {(org.coachSeatLimit !== null) && (
+                <span>
+                  Coaches: <span className="text-foreground font-medium">
+                    {ctx.orgMembers.filter((m) => m.role !== "player").length} / {org.coachSeatLimit}
+                  </span>
+                </span>
+              )}
+              {(org.playerSeatLimit !== null) && (
+                <span>
+                  Players: <span className="text-foreground font-medium">
+                    {ctx.orgMembers.filter((m) => m.role === "player").length} / {org.playerSeatLimit}
+                  </span>
+                </span>
+              )}
+              {org.expiresAt && (
+                <span>
+                  Expires: <span className="text-foreground font-medium">
+                    {new Date(org.expiresAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  </span>
+                </span>
+              )}
+            </div>
+          )}
+
           {canManageTeams && <OrgInviteSection orgId={org.id} orgName={org.name} />}
           {profile.isPlatformAdmin && (
             <div className="pt-2">
@@ -672,16 +727,29 @@ export default function OrganizationPage() {
                         {m.isPlatformAdmin ? "platform admin" : m.role}
                       </Badge>
                     </div>
-                    {isAdmin && m.role === "coach" && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 text-xs"
-                        onClick={() => handlePromoteToAdmin(m.id)}
-                      >
-                        Promote to admin
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {isAdmin && m.role === "coach" && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs"
+                          onClick={() => handlePromoteToAdmin(m.id)}
+                        >
+                          Promote to admin
+                        </Button>
+                      )}
+                      {isAdmin && m.id !== profile.id && !m.isPlatformAdmin && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs text-destructive hover:text-destructive"
+                          disabled={removingMemberId === m.id}
+                          onClick={() => handleRemoveMember(m.id)}
+                        >
+                          {removingMemberId === m.id ? "Removing…" : "Remove"}
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
