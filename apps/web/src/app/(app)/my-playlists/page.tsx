@@ -66,6 +66,7 @@ export default function MyPlaylistsPage() {
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
   const [sheetOpen, setSheetOpen] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [allOrgTeams, setAllOrgTeams] = useState<OrgTeam[]>([]);
   const [shareTarget, setShareTarget] = useState<Playlist | null>(null);
   const [pendingShareTeamIds, setPendingShareTeamIds] = useState<Set<string>>(new Set());
@@ -106,6 +107,7 @@ export default function MyPlaylistsPage() {
       setPlaylists(pls);
       setMatches(ms);
       if (orgCtx) {
+        setUserRole(orgCtx.profile?.role ?? null);
         setAllOrgTeams(orgCtx.allOrgTeams);
         setTeamMap(new Map(orgCtx.myTeams.map((t) => [t.id, t])));
         setMemberMap(new Map(orgCtx.orgMembers.map((m) => [m.id, m])));
@@ -429,8 +431,8 @@ export default function MyPlaylistsPage() {
                     <div
                       key={pl.id}
                       className={cn(
-                        "group w-full flex items-center gap-1 px-4 py-2.5 transition-colors hover:bg-accent cursor-pointer",
-                        pl.id === selected?.id && "bg-accent"
+                        "group w-full flex items-center gap-1 px-4 py-2.5 transition-colors hover:bg-muted/50 cursor-pointer",
+                        pl.id === selected?.id && "bg-muted"
                       )}
                     >
                       <div className="flex-1 min-w-0" onClick={() => onSelect(pl)}>
@@ -474,8 +476,14 @@ export default function MyPlaylistsPage() {
       {/* Left: playlist list (desktop only) */}
       <aside className="w-72 shrink-0 flex flex-col border-r border-border overflow-hidden hidden lg:flex">
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-          <BookOpen className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-semibold text-foreground">My Playlists</span>
+          {(userRole === "coach" || userRole === "admin") ? (
+            <Share2 className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <BookOpen className="h-4 w-4 text-muted-foreground" />
+          )}
+          <span className="text-sm font-semibold text-foreground">
+            {(userRole === "coach" || userRole === "admin") ? "Shared Playlists" : "My Playlists"}
+          </span>
           {playlists.length > 0 && (
             <span className="ml-auto text-xs text-muted-foreground">{playlists.length}</span>
           )}
@@ -566,7 +574,7 @@ export default function MyPlaylistsPage() {
                         type="button"
                         onClick={() => handleRowClick(item)}
                         className={cn(
-                          "w-full px-4 py-2.5 text-left transition-colors hover:bg-accent flex items-center gap-3",
+                          "w-full px-4 py-2.5 text-left transition-colors hover:bg-muted/50 flex items-center gap-3",
                           isActive && "bg-primary/10"
                         )}
                       >
@@ -589,7 +597,7 @@ export default function MyPlaylistsPage() {
                       disabled={!hasR2}
                       className={cn(
                         "w-full px-4 py-2 text-left transition-colors flex items-center gap-3",
-                        hasR2 ? "hover:bg-accent" : "opacity-50 cursor-not-allowed",
+                        hasR2 ? "hover:bg-muted/50" : "opacity-50 cursor-not-allowed",
                         isActive && "bg-primary/10"
                       )}
                     >
@@ -621,8 +629,12 @@ export default function MyPlaylistsPage() {
         <SheetContent side="bottom" className="h-[70vh] flex flex-col px-0 lg:hidden">
           <SheetHeader className="px-4 pb-3 border-b border-border shrink-0">
             <SheetTitle className="text-sm font-semibold flex items-center gap-2">
-              <BookOpen className="h-4 w-4 text-muted-foreground" />
-              My Playlists
+              {(userRole === "coach" || userRole === "admin") ? (
+                <Share2 className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <BookOpen className="h-4 w-4 text-muted-foreground" />
+              )}
+              {(userRole === "coach" || userRole === "admin") ? "Shared Playlists" : "My Playlists"}
             </SheetTitle>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto py-2">

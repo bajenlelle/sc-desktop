@@ -61,6 +61,7 @@ export function MyPlaylistsPage() {
   const [memberMap, setMemberMap] = useState<Map<string, UserProfile>>(new Map());
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [allOrgTeams, setAllOrgTeams] = useState<OrgTeam[]>([]);
   const [shareTarget, setShareTarget] = useState<Playlist | null>(null);
   const [pendingShareTeamIds, setPendingShareTeamIds] = useState<Set<string>>(new Set());
@@ -100,6 +101,7 @@ export function MyPlaylistsPage() {
       setMatches(ms);
       if (orgCtx) {
         setCurrentUserId(orgCtx.profile.id);
+        setUserRole(orgCtx.profile.role);
         setAllOrgTeams(orgCtx.allOrgTeams);
         setTeamMap(new Map(orgCtx.myTeams.map((t) => [t.id, t])));
         setMemberMap(new Map(orgCtx.orgMembers.map((m) => [m.id, m])));
@@ -448,8 +450,14 @@ export function MyPlaylistsPage() {
       <ResizablePanel defaultSize={25} minSize={15} collapsible collapsedSize={0}>
         <div className="flex h-full flex-col border-r border-border">
           <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-            <BookOpen className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-semibold text-foreground">My Playlists</span>
+            {(userRole === "coach" || userRole === "admin") ? (
+              <Share2 className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <BookOpen className="h-4 w-4 text-muted-foreground" />
+            )}
+            <span className="text-sm font-semibold text-foreground">
+              {(userRole === "coach" || userRole === "admin") ? "Shared Playlists" : "My Playlists"}
+            </span>
             {playlists.length > 0 && (
               <span className="ml-auto text-xs text-muted-foreground">{playlists.length}</span>
             )}
@@ -496,8 +504,8 @@ export function MyPlaylistsPage() {
                         <div
                           key={pl.id}
                           className={cn(
-                            "group w-full flex items-center gap-1 px-4 py-2.5 transition-colors hover:bg-accent cursor-pointer",
-                            pl.id === selected?.id && "bg-accent"
+                            "group w-full flex items-center gap-1 px-4 py-2.5 transition-colors hover:bg-muted/50 cursor-pointer",
+                            pl.id === selected?.id && "bg-muted"
                           )}
                         >
                           <div className="flex-1 min-w-0" onClick={() => setSelected(pl.id === selected?.id ? null : pl)}>
@@ -606,7 +614,7 @@ export function MyPlaylistsPage() {
                           type="button"
                           onClick={() => handleRowClick(item)}
                           className={cn(
-                            "w-full px-4 py-2.5 text-left transition-colors hover:bg-accent flex items-center gap-3",
+                            "w-full px-4 py-2.5 text-left transition-colors hover:bg-muted/50 flex items-center gap-3",
                             isActive && "bg-primary/10"
                           )}
                         >
@@ -627,7 +635,7 @@ export function MyPlaylistsPage() {
                         type="button"
                         onClick={() => handleRowClick(item)}
                         className={cn(
-                          "w-full px-4 py-2 text-left transition-colors hover:bg-accent flex items-center gap-3",
+                          "w-full px-4 py-2 text-left transition-colors hover:bg-muted/50 flex items-center gap-3",
                           isActive && "bg-primary/10"
                         )}
                       >

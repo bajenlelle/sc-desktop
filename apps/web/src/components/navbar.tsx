@@ -19,11 +19,6 @@ import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import type { UserProfile } from "@scoutable/shared/types/org";
 
-const navLinks = [
-  { href: "/my-playlists", label: "My Playlists" },
-  { href: "/organization", label: "Organization" },
-];
-
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
   return (
@@ -44,6 +39,12 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
   const pathname = usePathname();
   const router = useRouter();
   const [sheetOpen, setSheetOpen] = useState(false);
+
+  const isCoachOrAdmin = profile?.role === "coach" || profile?.role === "admin";
+  const navLinks = [
+    { href: "/my-playlists", label: isCoachOrAdmin ? "Shared Playlists" : "My Playlists" },
+    { href: "/organization", label: "Organization" },
+  ];
 
   const initials = profile?.fullName
     ? profile.fullName

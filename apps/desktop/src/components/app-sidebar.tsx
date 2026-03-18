@@ -7,6 +7,7 @@ import {
   Film,
   ListVideo,
   Plus,
+  Share2,
   Sun,
   Moon,
   LogOut,
@@ -110,8 +111,8 @@ export function AppSidebar() {
           {/* My Playlists: all roles */}
           <SidebarIconButton
             href="/my-playlists"
-            icon={BookOpen}
-            label="My Playlists"
+            icon={isCoachOrAdmin ? Share2 : BookOpen}
+            label={isCoachOrAdmin ? "Shared Playlists" : "My Playlists"}
             isActive={pathname.startsWith("/my-playlists")}
           />
           {/* Library: coaches and admins only */}
