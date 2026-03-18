@@ -79,6 +79,7 @@ interface OrgWithCountRow {
   logo_url: string | null;
   created_at: string;
   member_count: number;
+  team_count: number;
 }
 
 function rowToProfile(r: ProfileRow): UserProfile {
@@ -406,5 +407,39 @@ export async function getAllOrgsWithCounts(): Promise<OrgWithCount[]> {
     logoUrl: r.logo_url,
     createdAt: r.created_at,
     memberCount: Number(r.member_count),
+    teamCount: Number(r.team_count),
   }));
+}
+
+export async function getOrgById(orgId: string): Promise<Organization> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("organizations")
+    .select("id, name, logo_url, created_at")
+    .eq("id", orgId)
+    .single();
+  if (error || !data) throw new Error(`Failed to load organization: ${error?.message}`);
+  return rowToOrg(data as OrgRow);
+}
+
+export async function getOrgMembersForAdmin(orgId: string): Promise<UserProfile[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin")
+    .eq("org_id", orgId);
+  if (error) throw new Error(`Failed to load org members: ${error.message}`);
+  return (data ?? []).map((r) => rowToProfile(r as ProfileRow));
+}
+
+export async function updateOrgNameForPlatform(orgId: string, name: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.rpc("update_org_name_for_platform", {
+    p_org_id: orgId,
+    p_name: name,
+  });
+  if (error) {
+    if (error.message.includes("not_platform_admin")) throw new Error("Not authorized as platform admin.");
+    throw new Error(`Failed to update org name: ${error.message}`);
+  }
 }

@@ -415,6 +415,7 @@ interface OrgWithCountRow {
   logo_url: string | null;
   created_at: string;
   member_count: number;
+  team_count: number;
 }
 
 export async function joinByCode(code: string): Promise<{ type: 'org' | 'team'; orgId: string; teamId?: string }> {
@@ -454,5 +455,6 @@ export async function getAllOrgsWithCounts(): Promise<OrgWithCount[]> {
     logoUrl: r.logo_url,
     createdAt: r.created_at,
     memberCount: Number(r.member_count),
+    teamCount: Number(r.team_count),
   }));
 }

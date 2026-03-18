@@ -68,6 +68,7 @@ export interface OrgWithCount {
   logoUrl: string | null;
   createdAt: string;
   memberCount: number;
+  teamCount: number;
 }
 
 /** Loaded once on profile mount; bundles everything the profile page needs. */

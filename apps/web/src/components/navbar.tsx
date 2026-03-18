@@ -44,6 +44,7 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
   const navLinks = [
     { href: "/my-playlists", label: isCoachOrAdmin ? "Shared Playlists" : "My Playlists" },
     { href: "/organization", label: "Organization" },
+    ...(profile?.isPlatformAdmin ? [{ href: "/admin", label: "Admin" }] : []),
   ];
 
   const initials = profile?.fullName

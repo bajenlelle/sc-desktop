@@ -1,0 +1,176 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { getAllOrgsWithCounts, createOrgForPlatform } from "@/lib/profile-db";
+import type { OrgWithCount } from "@scoutable/shared/types/org";
+import { useAuth } from "@/components/auth-context";
+import { toast } from "sonner";
+import { ArrowRight } from "lucide-react";
+import { getOrgContext } from "@/lib/profile-db";
+
+export default function AdminPage() {
+  const router = useRouter();
+  const { user } = useAuth();
+  const [checked, setChecked] = useState(false);
+  const [orgs, setOrgs] = useState<OrgWithCount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [newOrgName, setNewOrgName] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    getOrgContext()
+      .then((ctx) => {
+        if (!ctx.profile.isPlatformAdmin) {
+          router.replace("/organization");
+        } else {
+          setChecked(true);
+        }
+      })
+      .catch(() => router.replace("/organization"));
+  }, [user]);
+
+  useEffect(() => {
+    if (!checked) return;
+    loadOrgs();
+  }, [checked]);
+
+  async function loadOrgs() {
+    setLoading(true);
+    try {
+      setOrgs(await getAllOrgsWithCounts());
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreateOrg() {
+    if (!newOrgName.trim()) return;
+    setCreating(true);
+    try {
+      await createOrgForPlatform(newOrgName.trim());
+      toast.success("Organization created");
+      setNewOrgName("");
+      setDialogOpen(false);
+      await loadOrgs();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  if (!checked) {
+    return (
+      <div className="p-6 max-w-5xl mx-auto">
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 max-w-5xl mx-auto space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Platform Admin</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">All organizations on the platform</p>
+        </div>
+        <Button onClick={() => setDialogOpen(true)}>+ Create Org</Button>
+      </div>
+
+      <Card>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            {loading ? (
+              <p className="p-6 text-sm text-muted-foreground">Loading…</p>
+            ) : orgs.length === 0 ? (
+              <p className="p-6 text-sm text-muted-foreground">No organizations yet.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left">
+                    <th className="px-4 py-3 font-medium text-muted-foreground">Name</th>
+                    <th className="px-4 py-3 font-medium text-muted-foreground">Members</th>
+                    <th className="px-4 py-3 font-medium text-muted-foreground">Teams</th>
+                    <th className="px-4 py-3 font-medium text-muted-foreground">Created</th>
+                    <th className="px-4 py-3 font-medium text-muted-foreground">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orgs.map((org) => (
+                    <tr
+                      key={org.id}
+                      className="border-b border-border last:border-0 hover:bg-muted/50 cursor-pointer transition-colors"
+                      onClick={() => router.push(`/admin/orgs/${org.id}`)}
+                    >
+                      <td className="px-4 py-3 font-medium">{org.name}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{org.memberCount}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{org.teamCount}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {new Date(org.createdAt).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            router.push(`/admin/orgs/${org.id}`);
+                          }}
+                        >
+                          <ArrowRight className="h-4 w-4" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Organization</DialogTitle>
+          </DialogHeader>
+          <Input
+            placeholder="Organization name"
+            value={newOrgName}
+            onChange={(e) => setNewOrgName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleCreateOrg()}
+            autoFocus
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateOrg} disabled={creating || !newOrgName.trim()}>
+              {creating ? "Creating…" : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

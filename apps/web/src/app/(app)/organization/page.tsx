@@ -19,15 +19,13 @@ import {
   joinOrgTeam,
   promoteToAdmin,
   createTeam,
-  createOrgForPlatform,
-  generateAdminOrgInviteCode,
-  getAllOrgsWithCounts,
 } from "@/lib/profile-db";
-import type { OrgContext, OrgTeam, TeamInvite, OrgInvite, UserProfile, OrgWithCount } from "@scoutable/shared/types/org";
+import type { OrgContext, OrgTeam, TeamInvite, OrgInvite, UserProfile } from "@scoutable/shared/types/org";
 import { toast } from "sonner";
 import { Clipboard, Check, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth-context";
+import Link from "next/link";
 
 function roleBadgeVariant(
   role: string,
@@ -392,127 +390,6 @@ function TeamCard({
 }
 
 // ---------------------------------------------------------------------------
-// PlatformAdminSection
-// ---------------------------------------------------------------------------
-
-function PlatformAdminSection() {
-  const [orgs, setOrgs] = useState<OrgWithCount[]>([]);
-  const [newOrgName, setNewOrgName] = useState("");
-  const [creatingOrg, setCreatingOrg] = useState(false);
-  const [generatedCodes, setGeneratedCodes] = useState<Record<string, string>>({});
-  const [generatingId, setGeneratingId] = useState<string | null>(null);
-  const [copiedOrgId, setCopiedOrgId] = useState<string | null>(null);
-
-  async function loadOrgs() {
-    try {
-      setOrgs(await getAllOrgsWithCounts());
-    } catch (e) {
-      toast.error((e as Error).message);
-    }
-  }
-
-  useEffect(() => { loadOrgs(); }, []);
-
-  async function handleCreateOrg() {
-    if (!newOrgName.trim()) return;
-    setCreatingOrg(true);
-    try {
-      await createOrgForPlatform(newOrgName.trim());
-      toast.success("Organization created");
-      setNewOrgName("");
-      await loadOrgs();
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setCreatingOrg(false);
-    }
-  }
-
-  async function handleGenerateAdminInvite(orgId: string) {
-    setGeneratingId(orgId);
-    try {
-      const code = await generateAdminOrgInviteCode(orgId);
-      setGeneratedCodes((prev) => ({ ...prev, [orgId]: code }));
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setGeneratingId(null);
-    }
-  }
-
-  function handleCopy(code: string, orgId: string) {
-    navigator.clipboard.writeText(code);
-    setCopiedOrgId(orgId);
-    setTimeout(() => setCopiedOrgId(null), 2000);
-  }
-
-  return (
-    <Card>
-      <CardContent className="space-y-4 p-6">
-        <h2 className="text-base font-semibold text-foreground">Platform Admin</h2>
-        <div className="flex gap-2">
-          <Input
-            placeholder="New organization name"
-            value={newOrgName}
-            onChange={(e) => setNewOrgName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleCreateOrg()}
-          />
-          <Button onClick={handleCreateOrg} disabled={creatingOrg || !newOrgName.trim()}>
-            {creatingOrg ? "Creating…" : "Create Org"}
-          </Button>
-        </div>
-        {orgs.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No organizations yet.</p>
-        ) : (
-          <div className="space-y-2">
-            {orgs.map((org) => (
-              <div key={org.id} className="rounded-lg border border-border p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-sm font-medium">{org.name}</span>
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      {org.memberCount} member{org.memberCount !== 1 ? "s" : ""}
-                    </span>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 text-xs"
-                    disabled={generatingId === org.id}
-                    onClick={() => handleGenerateAdminInvite(org.id)}
-                  >
-                    {generatingId === org.id ? "Generating…" : "Generate Admin Invite"}
-                  </Button>
-                </div>
-                {generatedCodes[org.id] && (
-                  <div className="flex items-center gap-2">
-                    <Input
-                      readOnly
-                      value={generatedCodes[org.id]}
-                      className="h-7 font-mono text-sm flex-1"
-                    />
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 w-7 p-0 shrink-0"
-                      onClick={() => handleCopy(generatedCodes[org.id], org.id)}
-                    >
-                      {copiedOrgId === org.id
-                        ? <Check className="h-3.5 w-3.5 text-emerald-500" />
-                        : <Clipboard className="h-3.5 w-3.5" />}
-                    </Button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // OrganizationPage
 // ---------------------------------------------------------------------------
 
@@ -634,7 +511,13 @@ export default function OrganizationPage() {
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Organization</h1>
           <p className="mt-1 text-sm text-muted-foreground">You don&apos;t belong to an organization yet.</p>
         </div>
-        {profile.isPlatformAdmin && <PlatformAdminSection />}
+        {profile.isPlatformAdmin && (
+          <div className="pt-2">
+            <Link href="/admin" className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4">
+              Go to Platform Admin Dashboard →
+            </Link>
+          </div>
+        )}
       </div>
     );
   }
@@ -677,7 +560,13 @@ export default function OrganizationPage() {
             </div>
           </div>
           {canManageTeams && <OrgInviteSection orgId={org.id} orgName={org.name} />}
-          {profile.isPlatformAdmin && <PlatformAdminSection />}
+          {profile.isPlatformAdmin && (
+            <div className="pt-2">
+              <Link href="/admin" className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4">
+                Go to Platform Admin Dashboard →
+              </Link>
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="teams" className="space-y-6 pt-4">
