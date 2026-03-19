@@ -41,6 +41,7 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const isCoachOrAdmin = profile?.role === "coach" || profile?.role === "admin";
+  const hasOrg = !profile || !!profile.orgId || !!profile.isPlatformAdmin;
   const navLinks = [
     { href: "/my-playlists", label: isCoachOrAdmin ? "Shared Playlists" : "My Playlists" },
     { href: "/organization", label: "Organization" },
@@ -74,22 +75,24 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
         </Link>
 
         {/* Desktop nav */}
-        <nav className="hidden md:flex items-center gap-1 ml-4">
-          {navLinks.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className={cn(
-                "px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
-                pathname.startsWith(link.href)
-                  ? "text-foreground bg-muted"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-              )}
-            >
-              {link.label}
-            </Link>
-          ))}
-        </nav>
+        {hasOrg && (
+          <nav className="hidden md:flex items-center gap-1 ml-4">
+            {navLinks.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={cn(
+                  "px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
+                  pathname.startsWith(link.href)
+                    ? "text-foreground bg-muted"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                )}
+              >
+                {link.label}
+              </Link>
+            ))}
+          </nav>
+        )}
 
         {/* Spacer */}
         <div className="flex-1" />
@@ -152,7 +155,7 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
                 </SheetTitle>
               </SheetHeader>
               <nav className="mt-6 flex flex-col gap-1">
-                {navLinks.map((link) => (
+                {hasOrg && navLinks.map((link) => (
                   <Link
                     key={link.href}
                     href={link.href}

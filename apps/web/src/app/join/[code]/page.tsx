@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/client";
 import { joinByCode } from "@/lib/profile-db";
-import { toast } from "sonner";
 
 function roleBadgeVariant(role: string): "default" | "secondary" | "outline" {
   if (role === "admin") return "default";
@@ -28,6 +27,7 @@ export default function JoinPage() {
   } | null>(null);
   const [userId, setUserId] = useState<string | null | undefined>(undefined); // undefined = loading
   const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -42,17 +42,17 @@ export default function JoinPage() {
     ]);
   }, [code]);
 
-  async function handleJoin() {
-    setJoining(true);
-    try {
-      await joinByCode(code);
-      toast.success("You've joined the organization!");
-      router.push("/my-playlists");
-    } catch (e) {
-      toast.error((e as Error).message);
-      setJoining(false);
+  useEffect(() => {
+    if (userId && preview?.valid && !joining) {
+      setJoining(true);
+      joinByCode(code)
+        .then(() => router.push("/my-playlists"))
+        .catch((e) => {
+          setJoining(false);
+          setJoinError((e as Error).message);
+        });
     }
-  }
+  }, [userId, preview]);
 
   if (loadError) {
     return (
@@ -71,6 +71,30 @@ export default function JoinPage() {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <p className="text-sm text-muted-foreground">Loading…</p>
+      </div>
+    );
+  }
+
+  if (joinError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <Card className="w-full max-w-sm">
+          <CardContent className="p-6 text-center space-y-3">
+            <p className="font-semibold text-foreground">Unable to join</p>
+            <p className="text-sm text-muted-foreground">{joinError}</p>
+            <Button asChild className="w-full" size="sm">
+              <Link href="/onboarding">Continue to onboarding</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (joining) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <p className="text-sm text-muted-foreground">Joining…</p>
       </div>
     );
   }
@@ -111,7 +135,7 @@ export default function JoinPage() {
             </p>
           </div>
 
-          {userId === null ? (
+          {userId === null && (
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground text-center">Sign up or log in to join.</p>
               <div className="flex gap-2">
@@ -123,14 +147,6 @@ export default function JoinPage() {
                 </Button>
               </div>
             </div>
-          ) : (
-            <Button
-              className="w-full"
-              onClick={handleJoin}
-              disabled={joining}
-            >
-              {joining ? "Joining…" : `Join ${preview.orgName}`}
-            </Button>
           )}
         </CardContent>
       </Card>

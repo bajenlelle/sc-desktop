@@ -35,12 +35,13 @@ export default function SignupPage() {
     }
 
     setLoading(true);
+    const next = new URLSearchParams(window.location.search).get("next") ?? "/my-playlists";
     const supabase = createClient();
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
       },
     });
 
@@ -55,11 +56,12 @@ export default function SignupPage() {
   }
 
   async function signInWithProvider(provider: "google" | "apple") {
+    const next = new URLSearchParams(window.location.search).get("next") ?? "/my-playlists";
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
       },
     });
     if (error) throw new Error(error.message);
