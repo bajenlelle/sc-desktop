@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import type { User } from "@supabase/supabase-js";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 function getInitials(user: User): string {
   const email = user.email ?? "";
@@ -45,28 +46,32 @@ function SidebarIconButton({
   onClickWhileActive?: () => void;
 }) {
   return (
-    <Link
-      to={href}
-      title={label}
-      onClick={(e) => {
-        if (isActive && onClickWhileActive) {
-          e.preventDefault();
-          onClickWhileActive();
-        }
-      }}
-    >
-      <div
-        className={cn(
-          "h-10 w-10 flex items-center justify-center rounded-lg transition-colors",
-          isActive
-            ? "bg-primary/10 text-primary"
-            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-          className
-        )}
-      >
-        <Icon className="h-5 w-5" />
-      </div>
-    </Link>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Link
+          to={href}
+          onClick={(e) => {
+            if (isActive && onClickWhileActive) {
+              e.preventDefault();
+              onClickWhileActive();
+            }
+          }}
+        >
+          <div
+            className={cn(
+              "h-10 w-10 flex items-center justify-center rounded-lg transition-colors",
+              isActive
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+              className
+            )}
+          >
+            <Icon className="h-5 w-5" />
+          </div>
+        </Link>
+      </TooltipTrigger>
+      <TooltipContent side="right">{label}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -145,38 +150,52 @@ export function AppSidebar() {
             className="text-primary"
           />
         )}
-        <button
-          type="button"
-          title={resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-          className="relative h-10 w-10 flex items-center justify-center rounded-lg transition-colors text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-          onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-        >
-          <Sun className="h-5 w-5 rotate-0 scale-100 transition-transform dark:-rotate-90 dark:scale-0" />
-          <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-transform dark:rotate-0 dark:scale-100" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="relative h-10 w-10 flex items-center justify-center rounded-lg transition-colors text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+            >
+              <Sun className="h-5 w-5 rotate-0 scale-100 transition-transform dark:-rotate-90 dark:scale-0" />
+              <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-transform dark:rotate-0 dark:scale-100" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            {resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          </TooltipContent>
+        </Tooltip>
         {user && (
-          <Link
-            to="/profile"
-            title="Your profile"
-            className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold transition-colors",
-              pathname === "/profile"
-                ? "bg-primary text-primary-foreground"
-                : "bg-primary/15 text-primary hover:bg-primary/25"
-            )}
-          >
-            {getInitials(user)}
-          </Link>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link
+                to="/profile"
+                className={cn(
+                  "flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold transition-colors",
+                  pathname === "/profile"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-primary/15 text-primary hover:bg-primary/25"
+                )}
+              >
+                {getInitials(user)}
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent side="right">Your profile</TooltipContent>
+          </Tooltip>
         )}
         {user && (
-          <button
-            type="button"
-            title="Sign out"
-            className="h-10 w-10 flex items-center justify-center rounded-lg transition-colors text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-            onClick={handleSignOut}
-          >
-            <LogOut className="h-5 w-5" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="h-10 w-10 flex items-center justify-center rounded-lg transition-colors text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                onClick={handleSignOut}
+              >
+                <LogOut className="h-5 w-5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Sign out</TooltipContent>
+          </Tooltip>
         )}
       </div>
     </aside>

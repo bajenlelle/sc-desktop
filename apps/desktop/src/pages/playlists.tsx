@@ -47,6 +47,7 @@ import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { exportPlaylist, type ExportSegment } from "@/lib/export";
 import { clipAndShip } from "@/lib/clip-and-ship";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { Playlist, PlaylistFolder, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 import { isClipItem } from "@/types/match";
 import { toast } from "sonner";
@@ -2389,24 +2390,32 @@ export function PlaylistsPage() {
               </span>
             )}
             <div className="ml-auto flex items-center gap-1">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 w-7 p-0"
-                  title="New Playlist"
-                  onClick={handleNewPlaylist}
-                >
-                  <ListPlus className="h-4 w-4" />
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 w-7 p-0"
-                  title="New Folder"
-                  onClick={handleNewFolder}
-                >
-                  <FolderPlus className="h-4 w-4" />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0"
+                      onClick={handleNewPlaylist}
+                    >
+                      <ListPlus className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>New Playlist</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0"
+                      onClick={handleNewFolder}
+                    >
+                      <FolderPlus className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>New Folder</TooltipContent>
+                </Tooltip>
               </div>
           </div>
           <div className="relative">
