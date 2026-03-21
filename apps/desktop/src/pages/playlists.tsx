@@ -533,10 +533,14 @@ function ClipBrowserPanel({
     Array.from(new Set(allEvents.map((x) => x.event.eventTeam?.teamName).filter(Boolean) as string[])),
     [allEvents]
   );
-  const players = useMemo(() =>
-    Array.from(new Set(allEvents.map((x) => x.event.player ? playerName(x.event) : null).filter(Boolean) as string[])),
-    [allEvents]
-  );
+  const players = useMemo(() => {
+    const source = filterTeams.size > 0
+      ? allEvents.filter(({ event }) => filterTeams.has(event.eventTeam?.teamName ?? ""))
+      : allEvents;
+    return Array.from(new Set(
+      source.map((x) => x.event.player ? playerName(x.event) : null).filter(Boolean) as string[]
+    ));
+  }, [allEvents, filterTeams]);
 
   const filtered = useMemo(() => allEvents.filter(({ event }) => {
     if (filterTypes.size > 0 && !Array.from(filterTypes).some((f) => matchesSingleType(event, f))) return false;
@@ -544,6 +548,23 @@ function ClipBrowserPanel({
     if (filterPlayers.size > 0 && !filterPlayers.has(playerName(event))) return false;
     return true;
   }), [allEvents, filterTypes, filterTeams, filterPlayers]);
+
+  function handleGameChange(newMatchId: string | null) {
+    setFilterMatchId(newMatchId);
+    setFilterTeams(new Set());
+    setFilterPlayers(new Set());
+  }
+
+  function handleTeamChange(newTeams: Set<string>) {
+    setFilterTeams(newTeams);
+    const source = newTeams.size > 0
+      ? allEvents.filter(({ event }) => newTeams.has(event.eventTeam?.teamName ?? ""))
+      : allEvents;
+    const validPlayers = new Set(
+      source.map((x) => x.event.player ? playerName(x.event) : null).filter(Boolean) as string[]
+    );
+    setFilterPlayers((prev) => new Set([...prev].filter((p) => validPlayers.has(p))));
+  }
 
   // Keep ref for arrow key handler (avoids stale closures in global listener)
   const filteredRef = useRef(filtered);
@@ -787,7 +808,7 @@ function ClipBrowserPanel({
           <SingleSelectDropdown
             options={matches.map((m) => ({ value: m.id, label: m.title }))}
             value={filterMatchId}
-            onChange={setFilterMatchId}
+            onChange={handleGameChange}
             placeholder="All games"
             required
           />
@@ -808,7 +829,7 @@ function ClipBrowserPanel({
           <MultiSelectDropdown
             options={teams.map((t) => ({ value: t, label: t }))}
             selected={filterTeams}
-            onChange={setFilterTeams}
+            onChange={handleTeamChange}
             placeholder="All teams"
           />
         </div>
