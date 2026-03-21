@@ -18,6 +18,7 @@ import {
   promoteToAdmin,
   createTeam,
   removeOrgMember,
+  removeTeamMember,
 } from "@/lib/profile-db";
 import type { OrgContext, OrgTeam, TeamInvite, OrgInvite, UserProfile } from "@/types/org";
 import { toast } from "sonner";
@@ -186,19 +187,21 @@ function OrgInviteSection({ orgId, orgName }: { orgId: string; orgName: string }
 function TeamInviteSection({
   team,
   orgMembers,
+  isAdmin,
   onContextReload,
 }: {
   team: OrgTeam;
   orgMembers: UserProfile[];
+  isAdmin: boolean;
   onContextReload: () => void;
 }) {
   const [invites, setInvites] = useState<TeamInvite[]>([]);
   const [loadingInvites, setLoadingInvites] = useState(true);
   const [regeneratingRole, setRegeneratingRole] = useState<string | null>(null);
-
+  const [teamMemberDetails, setTeamMemberDetails] = useState<{ userId: string; role: string }[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(true);
+  const [removingTeamMemberId, setRemovingTeamMemberId] = useState<string | null>(null);
   const [showAddMember, setShowAddMember] = useState(false);
-  const [currentMemberIds, setCurrentMemberIds] = useState<Set<string>>(new Set());
-  const [loadingMembers, setLoadingMembers] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState("");
   const [addingMember, setAddingMember] = useState(false);
 
@@ -215,20 +218,20 @@ function TeamInviteSection({
     }
   }
 
-  useEffect(() => { load(); }, [team.id]);
-
   async function loadCurrentMembers() {
     setLoadingMembers(true);
     try {
       const { data } = await supabase
         .from("team_members")
-        .select("user_id")
+        .select("user_id, role")
         .eq("team_id", team.id);
-      setCurrentMemberIds(new Set((data ?? []).map((r: { user_id: string }) => r.user_id)));
+      setTeamMemberDetails((data ?? []).map((r: { user_id: string; role: string }) => ({ userId: r.user_id, role: r.role })));
     } finally {
       setLoadingMembers(false);
     }
   }
+
+  useEffect(() => { load(); loadCurrentMembers(); }, [team.id]);
 
   async function handleRegenerate(role: "coach" | "player") {
     setRegeneratingRole(role);
@@ -244,12 +247,18 @@ function TeamInviteSection({
     }
   }
 
-  function toggleAddMember() {
-    if (!showAddMember) {
+  async function handleRemoveTeamMember(userId: string) {
+    setRemovingTeamMemberId(userId);
+    try {
+      await removeTeamMember(userId, team.id);
+      toast.success("Member removed from team");
+      onContextReload();
       loadCurrentMembers();
-      setSelectedUserId("");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setRemovingTeamMemberId(null);
     }
-    setShowAddMember((v) => !v);
   }
 
   async function handleAddMember() {
@@ -263,6 +272,7 @@ function TeamInviteSection({
       setShowAddMember(false);
       setSelectedUserId("");
       onContextReload();
+      loadCurrentMembers();
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -270,16 +280,52 @@ function TeamInviteSection({
     }
   }
 
-  const availableToAdd = orgMembers.filter((m) => !currentMemberIds.has(m.id));
+  const currentMemberIdSet = new Set(teamMemberDetails.map((m) => m.userId));
+  const availableToAdd = orgMembers.filter((m) => !currentMemberIdSet.has(m.id));
   const coachInvite = invites.find((i) => i.role === "coach");
   const playerInvite = invites.find((i) => i.role === "player");
 
   if (loadingInvites) {
-    return <p className="text-xs text-muted-foreground px-4 pb-3">Loading invite codes…</p>;
+    return <p className="text-xs text-muted-foreground px-4 pb-3">Loading…</p>;
   }
 
   return (
     <div className="px-4 pb-4 space-y-3 border-t border-border pt-3">
+      {/* Member list */}
+      {!loadingMembers && teamMemberDetails.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">Members ({teamMemberDetails.length})</p>
+          {teamMemberDetails.map((tm) => {
+            const profile = orgMembers.find((m) => m.id === tm.userId);
+            const displayName = profile?.fullName ?? profile?.email ?? tm.userId.slice(0, 8);
+            const secondaryText = profile?.fullName && profile?.email ? profile.email : null;
+            return (
+              <div key={tm.userId} className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                <div>
+                  <span className="text-sm">{displayName}</span>
+                  {secondaryText && (
+                    <p className="text-xs text-muted-foreground">{secondaryText}</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant={roleBadgeVariant(tm.role)} className="text-xs">{tm.role}</Badge>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-xs text-destructive hover:text-destructive"
+                    disabled={removingTeamMemberId === tm.userId}
+                    onClick={() => handleRemoveTeamMember(tm.userId)}
+                  >
+                    {removingTeamMemberId === tm.userId ? "Removing…" : "Remove"}
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Invite cards */}
       <div className="grid gap-3 sm:grid-cols-2">
         <InviteCard
           label="Player Invite"
@@ -299,16 +345,15 @@ function TeamInviteSection({
         />
       </div>
 
-      {orgMembers.length > 0 && (
+      {/* Add Member (admin only) */}
+      {isAdmin && orgMembers.length > 0 && (
         <div className="space-y-2">
-          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={toggleAddMember}>
+          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { setShowAddMember((v) => !v); setSelectedUserId(""); }}>
             {showAddMember ? "Cancel" : "Add Member"}
           </Button>
           {showAddMember && (
             <div className="flex items-center gap-2">
-              {loadingMembers ? (
-                <p className="text-xs text-muted-foreground">Loading members…</p>
-              ) : availableToAdd.length === 0 ? (
+              {availableToAdd.length === 0 ? (
                 <p className="text-xs text-muted-foreground">All org members are already in this team.</p>
               ) : (
                 <>
@@ -320,7 +365,7 @@ function TeamInviteSection({
                     <option value="">Select member…</option>
                     {availableToAdd.map((m) => (
                       <option key={m.id} value={m.id}>
-                        {m.fullName ?? m.id.slice(0, 8)} ({m.role})
+                        {m.fullName ?? m.email ?? m.id.slice(0, 8)} ({m.role})
                       </option>
                     ))}
                   </select>
@@ -351,6 +396,7 @@ function TeamCard({
   memberCount,
   userTeamRole,
   canManage,
+  isAdmin,
   orgMembers,
   onContextReload,
 }: {
@@ -358,6 +404,7 @@ function TeamCard({
   memberCount: number;
   userTeamRole: string;
   canManage: boolean;
+  isAdmin: boolean;
   orgMembers: UserProfile[];
   onContextReload: () => void;
 }) {
@@ -389,7 +436,7 @@ function TeamCard({
         )}
       </button>
       {expanded && canManage && (
-        <TeamInviteSection team={team} orgMembers={orgMembers} onContextReload={onContextReload} />
+        <TeamInviteSection team={team} orgMembers={orgMembers} isAdmin={isAdmin} onContextReload={onContextReload} />
       )}
     </div>
   );
@@ -669,7 +716,8 @@ export function OrganizationPage() {
                     memberCount={memberCounts[team.id] ?? 0}
                     userTeamRole={myTeamRoles[team.id] ?? profile.role}
                     canManage={canManageTeams}
-                    orgMembers={isAdmin ? ctx.orgMembers : []}
+                    isAdmin={isAdmin}
+                    orgMembers={ctx.orgMembers}
                     onContextReload={load}
                   />
                 ))}
@@ -722,7 +770,12 @@ export function OrganizationPage() {
                     className="flex items-center justify-between rounded-lg border border-border px-4 py-3"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="text-sm">{m.fullName ?? m.id.slice(0, 8)}</span>
+                      <div>
+                        <span className="text-sm">{m.fullName ?? m.email ?? m.id.slice(0, 8)}</span>
+                        {m.fullName && m.email && (
+                          <p className="text-xs text-muted-foreground">{m.email}</p>
+                        )}
+                      </div>
                       <Badge variant={roleBadgeVariant(m.role, m.isPlatformAdmin)} className="text-xs">
                         {m.isPlatformAdmin ? "platform admin" : m.role}
                       </Badge>

@@ -26,6 +26,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       profile = {
         id: data.id,
         fullName: data.full_name,
+        email: user.email ?? null,
         avatarUrl: data.avatar_url,
         role: data.role as UserProfile["role"],
         orgId: data.org_id,
@@ -37,8 +38,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     // Profile may not exist yet
   }
 
-  // Redirect org-less non-admin users to onboarding
-  if (profile && !profile.orgId && !profile.isPlatformAdmin) {
+  // Redirect to onboarding when the user has no org yet.
+  // Also covers the brief window after signup where the profile row
+  // hasn't been created yet (auth trigger is async).
+  const needsOnboarding = !profile?.isPlatformAdmin && !profile?.orgId;
+  if (needsOnboarding) {
     const headersList = await headers();
     const pathname = headersList.get("x-pathname") ?? "";
     if (pathname !== "/onboarding") {

@@ -7,6 +7,7 @@ export type UserRole = 'coach' | 'player' | 'admin';
 export interface UserProfile {
   id: string;
   fullName: string | null;
+  email?: string | null;
   avatarUrl: string | null;
   role: UserRole;
   orgId: string | null;

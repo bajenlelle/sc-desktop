@@ -1156,9 +1156,7 @@ export function PlaylistsPage() {
     const createNew = state?.createNew;
     Promise.all([listPlaylists(), listMatchesLight(), listFolders(), getOrgContext().catch(() => null)])
       .then(async ([loadedPlaylists, matchShells, loadedFolders, orgCtx]) => {
-        const matchIds = [...new Set(
-          loadedPlaylists.flatMap((p) => p.items.filter(isClipItem).map((i) => i.matchId))
-        )];
+        const matchIds = matchShells.map((m) => m.id);
         const eventsByMatch = await listEventsForMatches(matchIds).catch(() => ({}));
         const loadedMatches = matchShells.map((m) => ({ ...m, events: eventsByMatch[m.id] ?? [] }));
 

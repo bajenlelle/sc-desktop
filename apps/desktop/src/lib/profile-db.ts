@@ -18,6 +18,7 @@ interface ProfileRow {
   org_id: string | null;
   created_at: string;
   is_platform_admin: boolean;
+  email?: string | null;
 }
 
 interface OrgRow {
@@ -79,6 +80,7 @@ function rowToProfile(r: ProfileRow): UserProfile {
   return {
     id: r.id,
     fullName: r.full_name,
+    email: (r as any).email ?? null,
     avatarUrl: r.avatar_url,
     role: r.role as UserProfile['role'],
     orgId: r.org_id,
@@ -190,7 +192,7 @@ export async function getOrgContext(): Promise<OrgContext> {
     const [orgRes, teamsRes, membersRes] = await Promise.all([
       supabase.from("organizations").select("id, name, logo_url, created_at, coach_seat_limit, player_seat_limit, expires_at").eq("id", profile.orgId).single(),
       supabase.from("teams").select("id, org_id, name, sport, season, created_at").eq("org_id", profile.orgId),
-      supabase.from("profiles").select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin").eq("org_id", profile.orgId),
+      supabase.rpc("get_org_members_with_email"),
     ]);
     if (orgRes.data) org = rowToOrg(orgRes.data as OrgRow);
     if (teamsRes.data) allOrgTeams = (teamsRes.data as TeamRow[]).map(rowToTeam);
@@ -472,6 +474,18 @@ export async function updateOrgLicense(
   if (error) {
     if (error.message.includes("not_platform_admin")) throw new Error("Not authorized as platform admin.");
     throw new Error(`Failed to update license: ${error.message}`);
+  }
+}
+
+export async function removeTeamMember(userId: string, teamId: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.rpc("remove_member_from_team", {
+    p_user_id: userId,
+    p_team_id: teamId,
+  });
+  if (error) {
+    if (error.message.includes("not_authorized")) throw new Error("Not authorized to remove team members.");
+    throw new Error(`Failed to remove member: ${error.message}`);
   }
 }
 

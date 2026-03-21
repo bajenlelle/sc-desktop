@@ -6,7 +6,6 @@ import { Activity, Menu, Moon, Sun, LogOut, User as UserIcon } from "lucide-reac
 import { useTheme } from "next-themes";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import {
   DropdownMenu,
@@ -48,14 +47,7 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
     ...(profile?.isPlatformAdmin ? [{ href: "/admin", label: "Admin" }] : []),
   ];
 
-  const initials = profile?.fullName
-    ? profile.fullName
-        .split(" ")
-        .map((n) => n[0])
-        .join("")
-        .slice(0, 2)
-        .toUpperCase()
-    : "?";
+  const initials = (profile?.fullName || profile?.email || "?").slice(0, 2).toUpperCase();
 
   async function handleSignOut() {
     const supabase = createClient();
@@ -104,18 +96,18 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
           {/* Profile dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="h-8 w-8 rounded-full p-0">
-                <Avatar className="h-8 w-8">
-                  <AvatarImage src={profile?.avatarUrl ?? undefined} />
-                  <AvatarFallback className="text-xs">{initials}</AvatarFallback>
-                </Avatar>
-              </Button>
+              <button className="h-8 w-8 rounded-full overflow-hidden bg-primary/15 flex items-center justify-center text-xs font-semibold text-primary hover:opacity-80 transition-opacity shrink-0">
+                {profile?.avatarUrl
+                  ? <img src={profile.avatarUrl} alt="Avatar" className="h-full w-full object-cover" />
+                  : <span>{initials}</span>
+                }
+              </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              {profile?.fullName && (
+              {(profile?.fullName || profile?.email) && (
                 <>
-                  <div className="px-2 py-1.5 text-sm font-medium text-foreground">
-                    {profile.fullName}
+                  <div className="px-2 py-1.5 text-sm font-medium text-foreground truncate">
+                    {profile.fullName ?? profile.email}
                   </div>
                   <DropdownMenuSeparator />
                 </>
