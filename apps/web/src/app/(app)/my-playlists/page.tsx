@@ -530,13 +530,13 @@ export default function MyPlaylistsPage() {
                       {overlappingDirectIds.has(pl.id) && (
                         <User2
                           className="h-3 w-3 shrink-0 text-primary/60"
-                          title="Also shared directly with you"
+                          aria-label="Also shared directly with you"
                         />
                       )}
                       {overlappingSharedOutIds.has(pl.id) && (
                         <User2
                           className="h-3 w-3 shrink-0 text-primary/60"
-                          title="Also shared directly with players"
+                          aria-label="Also shared directly with players"
                         />
                       )}
                       {pl.createdBy === currentUserId && (
