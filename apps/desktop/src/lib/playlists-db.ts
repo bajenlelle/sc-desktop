@@ -24,3 +24,4 @@ export const assignPlaylistToTeam = (playlistId: string, teamId: string | null) 
 export const setPlaylistTeams = (playlistId: string, teamIds: string[]) => db.setPlaylistTeams(c(), playlistId, teamIds);
 export const setPlaylistUsers = (playlistId: string, userIds: string[]) => db.setPlaylistUsers(c(), playlistId, userIds);
 export const getMyDirectPlaylists = () => db.getMyDirectPlaylists(c());
+export const getMySharedOutPlaylists = () => db.getMySharedOutPlaylists(c());

@@ -461,10 +461,14 @@ export async function setPlaylistUsers(
 // ---------------------------------------------------------------------------
 
 export async function getMyDirectPlaylists(supabase: SupabaseClient): Promise<Playlist[]> {
-  // 1. Get playlist IDs shared with current user
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  // 1. Get playlist IDs shared with current user (recipient rows only)
   const { data: shareRows, error: shareError } = await supabase
     .from("playlist_user_shares")
-    .select("playlist_id");
+    .select("playlist_id")
+    .eq("user_id", user.id);
   if (shareError) { console.error("getMyDirectPlaylists shares:", shareError.message); return []; }
   if (!shareRows || shareRows.length === 0) return [];
 
@@ -483,4 +487,31 @@ export async function getMyDirectPlaylists(supabase: SupabaseClient): Promise<Pl
     ...rowToPlaylist(row),
     directShare: true,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Get playlists the current user has shared out to individual players (sender view)
+// ---------------------------------------------------------------------------
+
+export async function getMySharedOutPlaylists(supabase: SupabaseClient): Promise<Playlist[]> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data: shareRows, error: shareError } = await supabase
+    .from("playlist_user_shares")
+    .select("playlist_id")
+    .eq("shared_by", user.id);
+  if (shareError) { console.error("getMySharedOutPlaylists:", shareError.message); return []; }
+  if (!shareRows || shareRows.length === 0) return [];
+
+  const playlistIds = [...new Set(shareRows.map((r: { playlist_id: string }) => r.playlist_id))];
+
+  const { data, error } = await supabase
+    .from("playlists")
+    .select(PLAYLIST_SELECT)
+    .in("id", playlistIds)
+    .order("created_at", { ascending: false });
+  if (error) { console.error("getMySharedOutPlaylists playlists:", error.message); return []; }
+  if (!data) return [];
+  return (data as PlaylistRow[]).map(rowToPlaylist);
 }
