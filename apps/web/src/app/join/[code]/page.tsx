@@ -33,7 +33,7 @@ export default function JoinPage() {
   useEffect(() => {
     const supabase = createClient();
     Promise.all([
-      supabase.rpc("get_invite_preview", { p_code: code.toUpperCase() }).then(({ data }) => {
+      Promise.resolve(supabase.rpc("get_invite_preview", { p_code: code.toUpperCase() })).then(({ data }) => {
         const r = data as { valid: boolean; org_name?: string; team_name?: string | null; role?: string } | null;
         if (!r) { setPreview({ valid: false }); return; }
         setPreview({ valid: r.valid, orgName: r.org_name, teamName: r.team_name, role: r.role });
