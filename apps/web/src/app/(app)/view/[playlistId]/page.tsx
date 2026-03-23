@@ -167,7 +167,7 @@ export default function ViewPlaylistPage() {
   const matchLookup = new Map(matches.map((m) => [m.id, m]));
 
   const displayItems: (PlaybackItem & { hasR2?: boolean })[] = playlist
-    ? playlist.items.flatMap((item) => {
+    ? playlist.items.flatMap((item): (PlaybackItem & { hasR2?: boolean })[] => {
         if (isTextCard(item)) return [item as PlaylistTextCard];
         if (isClipItem(item)) {
           const match = matchLookup.get(item.matchId);
