@@ -290,6 +290,21 @@ export async function joinTeamByCode(code: string): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
+// Get all user IDs that are members of the given teams
+// ---------------------------------------------------------------------------
+
+export async function getTeamMemberIds(teamIds: string[]): Promise<string[]> {
+  if (teamIds.length === 0) return [];
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("team_members")
+    .select("user_id")
+    .in("team_id", teamIds);
+  if (error) return [];
+  return (data ?? []).map((r: { user_id: string }) => r.user_id);
+}
+
+// ---------------------------------------------------------------------------
 // Team member count helper (used in profile page roster display)
 // ---------------------------------------------------------------------------
 

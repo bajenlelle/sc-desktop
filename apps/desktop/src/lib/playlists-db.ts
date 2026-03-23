@@ -22,3 +22,5 @@ export const updateClip = (playlistId: string, matchId: string, eventId: number,
 export const updateClipR2Url = (playlistId: string, matchId: string, eventId: number, r2Url: string) => db.updateClipR2Url(c(), playlistId, matchId, eventId, r2Url);
 export const assignPlaylistToTeam = (playlistId: string, teamId: string | null) => db.assignPlaylistToTeam(c(), playlistId, teamId);
 export const setPlaylistTeams = (playlistId: string, teamIds: string[]) => db.setPlaylistTeams(c(), playlistId, teamIds);
+export const setPlaylistUsers = (playlistId: string, userIds: string[]) => db.setPlaylistUsers(c(), playlistId, userIds);
+export const getMyDirectPlaylists = () => db.getMyDirectPlaylists(c());

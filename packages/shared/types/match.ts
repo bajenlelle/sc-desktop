@@ -180,6 +180,8 @@ export interface Playlist {
   folderId?: string; // references PlaylistFolder.id; undefined = Uncategorized
   teamId?: string;   // kept for backward compat; prefer teamIds
   teamIds?: string[]; // all teams this playlist is shared with (from playlist_shares)
+  userIds?: string[]; // user IDs this playlist is directly shared with (coach view)
+  directShare?: boolean; // true when current user has a direct share record (receiver view)
   createdBy?: string; // user_id of the coach who created it
 }
 

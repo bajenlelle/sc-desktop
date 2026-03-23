@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, ChevronDown, ChevronRight, Share2, Users, Link2 } from "lucide-react";
+import { BookOpen, ChevronDown, ChevronRight, Share2, User2, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +10,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { VideoPlayer } from "@/components/video-player";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
-import { getMyTeamPlaylists, setPlaylistTeams } from "@scoutable/shared/lib/playlists-db";
+import { getMyTeamPlaylists, getMyDirectPlaylists, setPlaylistTeams } from "@scoutable/shared/lib/playlists-db";
 import { listMatches } from "@scoutable/shared/lib/matches-db";
 import { getOrgContext } from "@/lib/profile-db";
 import { cn } from "@/lib/utils";
@@ -59,12 +59,14 @@ function playerName(event: PlayByPlayEvent): string {
 
 export default function MyPlaylistsPage() {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [directPlaylists, setDirectPlaylists] = useState<Playlist[]>([]);
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Playlist | null>(null);
   const [teamMap, setTeamMap] = useState<Map<string, OrgTeam>>(new Map());
   const [memberMap, setMemberMap] = useState<Map<string, UserProfile>>(new Map());
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
+  const [directSectionExpanded, setDirectSectionExpanded] = useState(true);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -101,11 +103,13 @@ export default function MyPlaylistsPage() {
     Promise.all([
       supabase.auth.getUser(),
       getMyTeamPlaylists(supabase).catch(() => [] as Playlist[]),
+      getMyDirectPlaylists(supabase).catch(() => [] as Playlist[]),
       listMatches(supabase).catch(() => [] as StoredMatch[]),
       getOrgContext().catch(() => null),
-    ]).then(([{ data: { user } }, pls, ms, orgCtx]) => {
+    ]).then(([{ data: { user } }, pls, directPls, ms, orgCtx]) => {
       setCurrentUserId(user?.id ?? null);
       setPlaylists(pls);
+      setDirectPlaylists(directPls);
       setMatches(ms);
       if (orgCtx) {
         setUserRole(orgCtx.profile?.role ?? null);
@@ -134,6 +138,16 @@ export default function MyPlaylistsPage() {
     }
     return map;
   }, [playlists]);
+
+  const { directOnlyPlaylists, overlappingDirectIds } = useMemo(() => {
+    const teamPlaylistIds = new Set(playlists.map((p) => p.id));
+    return {
+      directOnlyPlaylists: directPlaylists.filter((p) => !teamPlaylistIds.has(p.id)),
+      overlappingDirectIds: new Set(
+        directPlaylists.filter((p) => teamPlaylistIds.has(p.id)).map((p) => p.id)
+      ),
+    };
+  }, [playlists, directPlaylists]);
 
   function toggleTeam(key: string) {
     setExpandedTeams((prev) => {
@@ -391,7 +405,7 @@ export default function MyPlaylistsPage() {
   }
 
   function PlaylistTree({ onSelect }: { onSelect: (pl: Playlist) => void }) {
-    if (playlists.length === 0) {
+    if (playlists.length === 0 && directOnlyPlaylists.length === 0) {
       return (
         <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
           <p className="text-sm font-medium text-foreground">No playlists yet</p>
@@ -401,6 +415,51 @@ export default function MyPlaylistsPage() {
     }
     return (
       <>
+        {/* "Shared with me" section — direct shares only */}
+        {directOnlyPlaylists.length > 0 && (
+          <div>
+            <button
+              type="button"
+              onClick={() => setDirectSectionExpanded((v) => !v)}
+              className="flex w-full items-center gap-1.5 px-3 py-2 hover:bg-muted/50 transition-colors select-none"
+            >
+              {directSectionExpanded ? (
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              )}
+              <User2 className="h-3 w-3 shrink-0 text-primary/70" />
+              <span className="flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Shared with me
+              </span>
+              <span className="text-xs text-muted-foreground">{directOnlyPlaylists.length}</span>
+            </button>
+            {directSectionExpanded && directOnlyPlaylists.map((pl) => {
+              const creatorName = pl.createdBy
+                ? (memberMap.get(pl.createdBy)?.fullName ?? null)
+                : null;
+              return (
+                <div
+                  key={pl.id}
+                  className={cn(
+                    "w-full flex items-center gap-1 px-4 py-2.5 transition-colors hover:bg-muted/50 cursor-pointer",
+                    pl.id === selected?.id && "bg-muted"
+                  )}
+                  onClick={() => onSelect(pl)}
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">{pl.name}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {pl.items.length} item{pl.items.length !== 1 ? "s" : ""}
+                      {creatorName ? ` · Shared by ${creatorName}` : ""}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {Array.from(grouped.entries()).map(([teamKey, teamPlaylists]) => {
           const team = teamKey !== "__none__" ? teamMap.get(teamKey) : undefined;
           const teamName = team?.name ?? "Unassigned";
@@ -443,6 +502,12 @@ export default function MyPlaylistsPage() {
                           {creatorName ? ` · ${creatorName}` : ""}
                         </p>
                       </div>
+                      {overlappingDirectIds.has(pl.id) && (
+                        <User2
+                          className="h-3 w-3 shrink-0 text-primary/60"
+                          title="Also shared directly with you"
+                        />
+                      )}
                       {pl.createdBy === currentUserId && (
                         <button
                           type="button"

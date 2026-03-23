@@ -32,6 +32,10 @@ interface PlaylistShareRow {
   team_id: string;
 }
 
+interface PlaylistUserShareRow {
+  user_id: string;
+}
+
 interface PlaylistRow {
   id: string;
   user_id: string;
@@ -42,6 +46,7 @@ interface PlaylistRow {
   updated_at: string;
   playlist_clips: PlaylistClipRow[];
   playlist_shares: PlaylistShareRow[];
+  playlist_user_shares: PlaylistUserShareRow[];
 }
 
 function rowToPlaylist(row: PlaylistRow): Playlist {
@@ -71,6 +76,7 @@ function rowToPlaylist(row: PlaylistRow): Playlist {
     })
     .filter((x): x is PlaylistItem => x !== null);
   const teamIds = (row.playlist_shares ?? []).map((s) => s.team_id);
+  const userIds = (row.playlist_user_shares ?? []).map((s) => s.user_id);
   return {
     id: row.id,
     name: row.name,
@@ -78,6 +84,7 @@ function rowToPlaylist(row: PlaylistRow): Playlist {
     folderId: row.folder_id ?? undefined,
     teamId: row.team_id ?? undefined,
     teamIds,
+    userIds,
     createdBy: row.user_id,
   };
 }
@@ -105,7 +112,8 @@ const PLAYLIST_SELECT = `
   created_at,
   updated_at,
   playlist_clips (${CLIPS_SELECT}),
-  playlist_shares (team_id)
+  playlist_shares (team_id),
+  playlist_user_shares (user_id)
 `;
 
 // ---------------------------------------------------------------------------
@@ -412,4 +420,67 @@ export async function setPlaylistTeams(
     .update({ team_id: teamIds[0] ?? null })
     .eq("id", playlistId);
   if (syncError) throw new Error(`Failed to sync team_id: ${syncError.message}`);
+}
+
+// ---------------------------------------------------------------------------
+// Set the full list of individual users a playlist is directly shared with
+// ---------------------------------------------------------------------------
+
+export async function setPlaylistUsers(
+  supabase: SupabaseClient,
+  playlistId: string,
+  userIds: string[]
+): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  // 1. Delete existing shares not in the new list
+  let delQuery = supabase.from("playlist_user_shares").delete().eq("playlist_id", playlistId);
+  if (userIds.length > 0) {
+    delQuery = delQuery.not("user_id", "in", `(${userIds.join(",")})`);
+  }
+  const { error: delError } = await delQuery;
+  if (delError) throw new Error(`Failed to remove user shares: ${delError.message}`);
+
+  // 2. Upsert new shares
+  if (userIds.length > 0) {
+    const rows = userIds.map((uid) => ({
+      playlist_id: playlistId,
+      user_id: uid,
+      shared_by: user.id,
+    }));
+    const { error: upsertError } = await supabase
+      .from("playlist_user_shares")
+      .upsert(rows, { onConflict: "playlist_id,user_id" });
+    if (upsertError) throw new Error(`Failed to upsert user shares: ${upsertError.message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Get playlists directly shared with the current user (receiver view)
+// ---------------------------------------------------------------------------
+
+export async function getMyDirectPlaylists(supabase: SupabaseClient): Promise<Playlist[]> {
+  // 1. Get playlist IDs shared with current user
+  const { data: shareRows, error: shareError } = await supabase
+    .from("playlist_user_shares")
+    .select("playlist_id");
+  if (shareError) { console.error("getMyDirectPlaylists shares:", shareError.message); return []; }
+  if (!shareRows || shareRows.length === 0) return [];
+
+  const playlistIds = shareRows.map((r: { playlist_id: string }) => r.playlist_id);
+
+  // 2. Fetch those playlists
+  const { data, error } = await supabase
+    .from("playlists")
+    .select(PLAYLIST_SELECT)
+    .in("id", playlistIds)
+    .order("created_at", { ascending: false });
+  if (error) { console.error("getMyDirectPlaylists playlists:", error.message); return []; }
+  if (!data) return [];
+
+  return (data as PlaylistRow[]).map((row) => ({
+    ...rowToPlaylist(row),
+    directShare: true,
+  }));
 }
