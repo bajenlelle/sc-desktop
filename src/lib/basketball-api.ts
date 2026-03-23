@@ -31,6 +31,7 @@ export interface League {
 }
 
 const COMMON_PARAMS = "seasonUuid=ye02q4jwit&gameTypeUuid=qZn-4XtW2vrrT&gamePlace=all&played=all";
+const PLAYOFF_PARAMS = "seasonUuid=ye02q4jwit&gameTypeUuid=qZn-4XuTzFdn0&gamePlace=all&played=all";
 
 export const LEAGUES: League[] = [
   {
@@ -44,6 +45,18 @@ export const LEAGUES: League[] = [
     name: "SBL Dam",
     baseUrl: "https://www.sbldam.se",
     scheduleParams: `seriesUuid=qZo-87H8Vw291&${COMMON_PARAMS}`,
+  },
+  {
+    id: "sbl-herr-playoff",
+    name: "SBL Herr Playoff",
+    baseUrl: "https://www.sblherr.se",
+    scheduleParams: `seriesUuid=qZn-4Xda9zkK3&${PLAYOFF_PARAMS}`,
+  },
+  {
+    id: "sbl-dam-playoff",
+    name: "SBL Dam Playoff",
+    baseUrl: "https://www.sbldam.se",
+    scheduleParams: `seriesUuid=qZo-87H8Vw291&${PLAYOFF_PARAMS}`,
   },
   {
     id: "superettan-herr",
