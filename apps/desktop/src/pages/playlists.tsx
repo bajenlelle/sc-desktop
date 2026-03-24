@@ -164,7 +164,9 @@ const EVENT_TYPE_OPTIONS = [
   { value: "3pt-miss", label: "3PT Miss" },
   { value: "freethrow-made", label: "FT Made" },
   { value: "freethrow-miss", label: "FT Miss" },
-  { value: "rebound", label: "Rebound" },
+  { value: "rebound-off", label: "Off Rebound" },
+  { value: "rebound-def", label: "Def Rebound" },
+  { value: "rebound-inbound", label: "Inbound Play" },
   { value: "turnover", label: "Turnover" },
   { value: "steal", label: "Steal" },
   { value: "assist", label: "Assist" },
@@ -172,14 +174,67 @@ const EVENT_TYPE_OPTIONS = [
   { value: "block", label: "Block" },
 ];
 
+const SHOT_TYPE_OPTIONS = [
+  { value: "subtype:layup", label: "Layup" },
+  { value: "subtype:floater", label: "Floater" },
+  { value: "subtype:jumpshot", label: "Jump Shot" },
+  { value: "subtype:dunk", label: "Dunk / Alley-oop" },
+  { value: "subtype:tipin", label: "Tip-in" },
+];
+
+const SITUATION_OPTIONS = [
+  { value: "qual:fastbreak", label: "Fast Break" },
+  { value: "qual:pointsinthepaint", label: "In the Paint" },
+  { value: "qual:2ndchance", label: "2nd Chance" },
+  { value: "qual:fromturnover", label: "From Turnover" },
+  { value: "qual:shooting", label: "Shooting Foul" },
+  { value: "subtype:charge", label: "Charge" },
+  { value: "subtype:technical", label: "Technical Foul" },
+  { value: "subtype:badpass", label: "Bad Pass" },
+  { value: "subtype:ballhandling", label: "Ball Handling" },
+  { value: "subtype:travel", label: "Travel" },
+  { value: "subtype:24sec", label: "Shot Clock" },
+];
+
 function matchesSingleType(e: PlayByPlayEvent, filter: string): boolean {
+  if (filter === "rebound-off") return e.type === "rebound" && e.subType === "offensive";
+  if (filter === "rebound-def") return e.type === "rebound" && e.subType === "defensive";
+  if (filter === "rebound-inbound") return e.type === "rebound" && e.subType === "offensivedeadball";
   const [type, outcome] = filter.split("-");
   if (e.type !== type) return false;
   if (outcome === "made") return e.isSuccessful === 1;
   if (outcome === "miss") return e.isSuccessful === 0;
-  if (type === "rebound") return e.type === "rebound";
   if (type === "foul") return e.type === "foul" || e.type === "foulon";
   return true;
+}
+
+function matchesShotType(e: PlayByPlayEvent, f: string): boolean {
+  const sub = e.subType ?? "";
+  switch (f) {
+    case "subtype:layup":    return ["layup", "drivinglayup", "reverselayup"].includes(sub);
+    case "subtype:floater":  return sub === "floatingjumpshot";
+    case "subtype:jumpshot": return ["jumpshot", "pullupjumpshot", "turnaroundjumpshot", "fadeaway", "stepbackjumpshot", "hookshot"].includes(sub);
+    case "subtype:dunk":     return ["dunk", "alleyoop", "alleyoopdunk"].includes(sub);
+    case "subtype:tipin":    return ["tipinlayup", "tipindunk"].includes(sub);
+    default: return false;
+  }
+}
+
+function matchesSituation(e: PlayByPlayEvent, f: string): boolean {
+  switch (f) {
+    case "qual:fastbreak":        return e.qualifiers.includes("fastbreak");
+    case "qual:pointsinthepaint": return e.qualifiers.includes("pointsinthepaint");
+    case "qual:2ndchance":        return e.qualifiers.includes("2ndchance");
+    case "qual:fromturnover":     return e.qualifiers.includes("fromturnover");
+    case "qual:shooting":         return e.type === "foul" && e.qualifiers.includes("shooting");
+    case "subtype:charge":        return e.type === "foul" && e.subType === "offensive";
+    case "subtype:technical":     return e.type === "foul" && ["technical", "benchTechnical", "coachTechnical"].includes(e.subType ?? "");
+    case "subtype:badpass":       return e.type === "turnover" && e.subType === "badpass";
+    case "subtype:ballhandling":  return e.type === "turnover" && e.subType === "ballhandling";
+    case "subtype:travel":        return e.type === "turnover" && e.subType === "travel";
+    case "subtype:24sec":         return e.type === "turnover" && e.subType === "24sec";
+    default: return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -504,6 +559,8 @@ function ClipBrowserPanel({
 }) {
   const [filterMatchId, setFilterMatchId] = useState<string | null>(matches[0]?.id ?? null);
   const [filterTypes, setFilterTypes] = useState<Set<string>>(new Set());
+  const [filterSubTypes, setFilterSubTypes] = useState<Set<string>>(new Set());
+  const [filterSituations, setFilterSituations] = useState<Set<string>>(new Set());
   const [filterTeams, setFilterTeams] = useState<Set<string>>(new Set());
   const [filterPlayers, setFilterPlayers] = useState<Set<string>>(new Set());
   const [preRoll, setPreRoll] = useState(10);
@@ -552,10 +609,12 @@ function ClipBrowserPanel({
 
   const filtered = useMemo(() => allEvents.filter(({ event }) => {
     if (filterTypes.size > 0 && !Array.from(filterTypes).some((f) => matchesSingleType(event, f))) return false;
+    if (filterSubTypes.size > 0 && !Array.from(filterSubTypes).some((f) => matchesShotType(event, f))) return false;
+    if (filterSituations.size > 0 && !Array.from(filterSituations).some((f) => matchesSituation(event, f))) return false;
     if (filterTeams.size > 0 && !filterTeams.has(event.eventTeam?.teamName ?? "")) return false;
     if (filterPlayers.size > 0 && !filterPlayers.has(playerName(event))) return false;
     return true;
-  }), [allEvents, filterTypes, filterTeams, filterPlayers]);
+  }), [allEvents, filterTypes, filterSubTypes, filterSituations, filterTeams, filterPlayers]);
 
   function handleGameChange(newMatchId: string | null) {
     setFilterMatchId(newMatchId);
@@ -829,6 +888,26 @@ function ClipBrowserPanel({
             selected={filterTypes}
             onChange={setFilterTypes}
             placeholder="All types"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">Shot type</label>
+          <MultiSelectDropdown
+            options={SHOT_TYPE_OPTIONS}
+            selected={filterSubTypes}
+            onChange={setFilterSubTypes}
+            placeholder="All shots"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">Situation</label>
+          <MultiSelectDropdown
+            options={SITUATION_OPTIONS}
+            selected={filterSituations}
+            onChange={setFilterSituations}
+            placeholder="Any situation"
           />
         </div>
 
