@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { trackEvent } from "@/lib/analytics";
 import { useNavigate } from "react-router-dom";
 import { Film, X, Loader2, Search, ChevronRight } from "lucide-react";
@@ -142,7 +143,6 @@ export function UploadZone() {
   // Video state
   const [videoPath, setVideoPath] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
-
   const [syncSeconds, setSyncSeconds] = useState<number | null>(null);
   const [submitStatus, setSubmitStatus] = useState<"idle" | "saving" | "error">("idle");
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -156,6 +156,24 @@ export function UploadZone() {
       navigate("/playlists");
     }
   }, [animationDone, pendingNavigate, navigate]);
+
+  // Accept file drops from Finder — listener is scoped to this page via component lifecycle
+  useEffect(() => {
+    const unlisten = getCurrentWebview().onDragDropEvent((event) => {
+      if (event.payload.type === "enter" || event.payload.type === "over") {
+        setDragActive(true);
+      } else if (event.payload.type === "leave") {
+        setDragActive(false);
+      } else if (event.payload.type === "drop") {
+        setDragActive(false);
+        const dropped = event.payload.paths.find((p) =>
+          VIDEO_EXTS.includes(p.split(".").pop()?.toLowerCase() ?? "")
+        );
+        if (dropped) setVideoPath(dropped);
+      }
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
 
   useEffect(() => {
     setScheduleStatus("loading");
@@ -494,34 +512,7 @@ export function UploadZone() {
             {/* Video file picker */}
             <div className="space-y-2">
               <div
-                onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-                onDragLeave={(e) => {
-                  if (!e.currentTarget.contains(e.relatedTarget as Node))
-                    setDragActive(false);
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setDragActive(false);
-                  // Try text/uri-list (standard web format)
-                  const uriList = e.dataTransfer.getData("text/uri-list");
-                  if (uriList) {
-                    const uri = uriList.split(/\r?\n/).find(u => u.trim().startsWith("file://"))?.trim();
-                    if (uri) {
-                      const path = decodeURIComponent(new URL(uri).pathname);
-                      const ext = path.split(".").pop()?.toLowerCase() ?? "";
-                      if (VIDEO_EXTS.includes(ext)) { setVideoPath(path); return; }
-                    }
-                  }
-                  // Fallback: WKWebView exposes File.path (non-standard) for Finder drags
-                  const files = Array.from(e.dataTransfer.files);
-                  const videoFile = files.find(f =>
-                    VIDEO_EXTS.includes(f.name.split(".").pop()?.toLowerCase() ?? "")
-                  );
-                  if (videoFile) {
-                    const nativePath = (videoFile as any).path as string | undefined;
-                    if (nativePath) setVideoPath(nativePath);
-                  }
-                }}
+                onDrop={(e) => { e.preventDefault(); setDragActive(false); }}
                 className={cn(
                   "flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 transition-colors",
                   dragActive
