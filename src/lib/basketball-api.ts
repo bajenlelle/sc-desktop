@@ -264,6 +264,7 @@ export async function fetchPlayByPlay(gameId: string, baseUrl: string): Promise<
 
   const tipoffEvent = allEvents.find(
     (e) => e.type === "period" && e.subType === "start" && e.period === 1
+      && String(e.periodType ?? "").toUpperCase() === "REGULAR"
   );
   const tipoffRealWorldTime = (tipoffEvent?.realWorldTime as string) ?? null;
 
