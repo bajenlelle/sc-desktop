@@ -81,21 +81,21 @@ export async function saveMatch(supabase: SupabaseClient, match: StoredMatch): P
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) throw new Error("Not authenticated");
 
-  const { error: matchError } = await supabase.from("matches").upsert(
-    {
-      id: match.id,
-      user_id: user.id,
-      title: match.title,
-      game_date: match.date || null,
-      home_team: match.homeTeam,
-      away_team: match.awayTeam,
-      home_roster: match.homeRoster,
-      away_roster: match.awayRoster,
-      video_url: match.videoUrl ?? null,
-      sync_point: match.syncPoint ?? null,
-    },
-    { onConflict: "id" }
-  );
+  const matchData: Record<string, unknown> = {
+    id: match.id,
+    user_id: user.id,
+    title: match.title,
+    game_date: match.date || null,
+    home_team: match.homeTeam,
+    away_team: match.awayTeam,
+    home_roster: match.homeRoster,
+    away_roster: match.awayRoster,
+    video_url: match.videoUrl ?? null,
+  };
+  if (match.syncPoint !== undefined) {
+    matchData.sync_point = match.syncPoint;
+  }
+  const { error: matchError } = await supabase.from("matches").upsert(matchData, { onConflict: "id" });
   if (matchError) throw new Error(`Failed to save match: ${matchError.message}`);
 
   if (match.events.length > 0) {

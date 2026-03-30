@@ -158,7 +158,7 @@ export async function fetchPlayByPlaySportradar(fixtureId: string, seasonId: str
           eventId: idx,
           type,
           subType: String(e.eventSubType ?? ""),
-          period: Number(e.periodId ?? 0),
+          period: Number(period),  // outer loop key = global period (OT1 = 5, OT2 = 6, …)
           gameClockTime: parseSportradarClock(String(e.clock ?? "")),
           realWorldTime: "",
           isSuccessful: e.success === true ? 1 : 0,
@@ -264,23 +264,34 @@ export async function fetchPlayByPlay(gameId: string, baseUrl: string): Promise<
 
   const tipoffEvent = allEvents.find(
     (e) => e.type === "period" && e.subType === "start" && e.period === 1
+      && String(e.periodType ?? "").toUpperCase() === "REGULAR"
   );
   const tipoffRealWorldTime = (tipoffEvent?.realWorldTime as string) ?? null;
 
   const events: PlayByPlayEvent[] = allEvents
     .filter((e) => ACTIONABLE_TYPES.has(String(e.type ?? "")))
-    .map((e) => ({
-      eventId: e.eventId as number,
-      type: e.type as string,
-      subType: (e.subType as string) ?? "",
-      period: (e.period as number) ?? 0,
-      gameClockTime: (e.gameClockTime as string) || (e.time as string) || "",
-      realWorldTime: (e.realWorldTime as string) ?? "",
-      isSuccessful: (e.isSuccessful as number) ?? 0,
-      player: (e.player as PlayByPlayEvent["player"]) ?? null,
-      eventTeam: (e.eventTeam as PlayByPlayEvent["eventTeam"]) ?? null,
-      qualifiers: Array.isArray(e.qualifiers) ? (e.qualifiers as string[]) : [],
-    }));
+    .map((e) => {
+      const rawPeriod = (e.period as number) ?? 0;
+      const isOT = String(e.periodType ?? "").toUpperCase().includes("OVERTIME");
+      const globalPeriod = isOT ? 4 + rawPeriod : rawPeriod;
+      // Only offset OT event IDs — regulation IDs are globally unique within a match,
+      // but OT resets per-period IDs from 1, colliding with Q1. Prefix keeps them distinct.
+      const globalEventId = isOT
+        ? globalPeriod * 100000 + ((e.eventId as number) ?? 0)
+        : ((e.eventId as number) ?? 0);
+      return {
+        eventId: globalEventId,
+        type: e.type as string,
+        subType: (e.subType as string) ?? "",
+        period: globalPeriod,
+        gameClockTime: (e.gameClockTime as string) || (e.time as string) || "",
+        realWorldTime: (e.realWorldTime as string) ?? "",
+        isSuccessful: (e.isSuccessful as number) ?? 0,
+        player: (e.player as PlayByPlayEvent["player"]) ?? null,
+        eventTeam: (e.eventTeam as PlayByPlayEvent["eventTeam"]) ?? null,
+        qualifiers: Array.isArray(e.qualifiers) ? (e.qualifiers as string[]) : [],
+      };
+    });
 
   return { events, tipoffRealWorldTime };
 }

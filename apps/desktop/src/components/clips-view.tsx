@@ -79,6 +79,10 @@ function playerName(e: PlayByPlayEvent): string {
   return `${e.player.firstName} ${e.player.familyName}`.trim();
 }
 
+function periodLabel(period: number): string {
+  return period > 4 ? `OT${period - 4}` : `Q${period}`;
+}
+
 function formatGameClock(raw: string): string {
   if (!raw) return "—";
   const parts = raw.split(":");
@@ -250,7 +254,7 @@ function DraggableClipsRow({
           />
         </td>
       )}
-      <td className="px-4 py-2.5 text-muted-foreground">Q{event.period}</td>
+      <td className="px-4 py-2.5 text-muted-foreground">{periodLabel(event.period)}</td>
       <td className="px-4 py-2.5 font-mono text-muted-foreground">
         {formatGameClock(event.gameClockTime)}
       </td>
@@ -554,6 +558,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
   const sortedDisplayEvents = useMemo(() => {
     if (clockSort === "none") return displayEvents;
     return [...displayEvents].sort((a, b) => {
+      if (a.period !== b.period) return clockSort === "asc" ? a.period - b.period : b.period - a.period;
       const aT = parseGameClock(formatGameClock(a.gameClockTime));
       const bT = parseGameClock(formatGameClock(b.gameClockTime));
       // clock counts DOWN — "asc" = chronological = high clock first
@@ -588,9 +593,13 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
       if (videoTime === null) return;
       const { pre, post } = getClipOffset(event.eventId);
       const seekTo = Math.max(0, Math.min(videoTime, videoTime - preRollRef.current - (preOverride ?? pre)));
-      clipEndRef.current = Math.max(videoTime, videoTime + postRollRef.current + (postOverride ?? post));
+      const clipEnd = Math.max(videoTime, videoTime + postRollRef.current + (postOverride ?? post));
+      clipEndRef.current = undefined; // clear so timeupdate ignores stale position while seeking
       video.pause();
-      video.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
+      video.addEventListener("seeked", () => {
+        clipEndRef.current = clipEnd; // only arm the end-gate after seek lands
+        video.play().catch(() => {});
+      }, { once: true });
       video.currentTime = seekTo;
     },
     [videoRef] // eslint-disable-line react-hooks/exhaustive-deps
@@ -647,12 +656,13 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
               (c) => c.matchId === matchId && c.eventId === nextEvent.eventId
             );
             const seekTo = Math.max(0, videoTime - preRollRef.current - (nextClip?.preRollOffset ?? 0));
-            clipEndRef.current = Math.max(
-              videoTime,
-              videoTime + postRollRef.current + (nextClip?.postRollOffset ?? 0),
-            );
+            const newEnd = Math.max(videoTime, videoTime + postRollRef.current + (nextClip?.postRollOffset ?? 0));
+            // clipEndRef was already cleared above — keep it undefined until seeked
             video.pause();
-            video.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
+            video.addEventListener("seeked", () => {
+              clipEndRef.current = newEnd;
+              video.play().catch(() => {});
+            }, { once: true });
             video.currentTime = seekTo;
           }
         }
@@ -1421,7 +1431,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                         </td>
                       )}
                       <td className="px-4 py-2.5 text-muted-foreground">
-                        Q{event.period}
+                        {periodLabel(event.period)}
                       </td>
                       <td className="px-4 py-2.5 font-mono text-muted-foreground">
                         {formatGameClock(event.gameClockTime)}

@@ -654,9 +654,16 @@ function ClipBrowserPanel({
     const videoTime = computeVideoTime(event, match.syncPoint);
     if (videoTime === null) return;
     const seekTo = Math.max(0, videoTime - preRollRef.current);
-    clipEndRef.current = videoTime + postRollRef.current;
+    const clipEnd = videoTime + postRollRef.current;
+    clipEndRef.current = undefined;
     video.pause();
-    video.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
+    const target1 = seekTo;
+    function onSeeked1() {
+      if (video.currentTime > target1 + 2) { video.addEventListener("seeked", onSeeked1, { once: true }); return; }
+      clipEndRef.current = clipEnd;
+      video.play().catch(() => {});
+    }
+    video.addEventListener("seeked", onSeeked1, { once: true });
     video.currentTime = seekTo;
   }, [matchLookup]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -673,6 +680,8 @@ function ClipBrowserPanel({
       const end = clipEndRef.current;
       if (end === undefined || !video) return;
       if (video.currentTime < end) return;
+      // Guard: if we're >60s past clipEnd the video is at a stale position (seek in progress)
+      if (video.currentTime > end + 60) return;
 
       clipEndRef.current = undefined;
       video.pause();
@@ -1354,9 +1363,17 @@ export function PlaylistsPage() {
       if (!pendingSeekRef.current) return;
       const { seekTo, clipEnd } = pendingSeekRef.current;
       pendingSeekRef.current = null;
-      clipEndRef.current = clipEnd;
-      video!.currentTime = seekTo;
-      video!.addEventListener("seeked", () => video!.play().catch(() => {}), { once: true });
+      clipEndRef.current = undefined;
+      const targetP = seekTo;
+      const endP = clipEnd;
+      const videoP = video!;
+      function onSeekedPending() {
+        if (videoP.currentTime > targetP + 2) { videoP.addEventListener("seeked", onSeekedPending, { once: true }); return; }
+        clipEndRef.current = endP;
+        videoP.play().catch(() => {});
+      }
+      videoP.addEventListener("seeked", onSeekedPending, { once: true });
+      videoP.currentTime = seekTo;
     }
     video.addEventListener("canplay", handleCanPlay, { once: true });
     return () => video.removeEventListener("canplay", handleCanPlay);
@@ -1452,8 +1469,12 @@ export function PlaylistsPage() {
     if (hasTextCards || clockSort === "none") return displayItems;
     return [...displayItems].sort((a, b) => {
       if (isTextCard(a) || isTextCard(b)) return 0;
-      const aT = parseGameClock(formatGameClock((a as QueueItem).event.gameClockTime));
-      const bT = parseGameClock(formatGameClock((b as QueueItem).event.gameClockTime));
+      const aEv = (a as QueueItem).event;
+      const bEv = (b as QueueItem).event;
+      if (aEv.period !== bEv.period)
+        return clockSort === "asc" ? aEv.period - bEv.period : bEv.period - aEv.period;
+      const aT = parseGameClock(formatGameClock(aEv.gameClockTime));
+      const bT = parseGameClock(formatGameClock(bEv.gameClockTime));
       return clockSort === "asc" ? bT - aT : aT - bT;
     });
   }, [displayItems, clockSort, hasTextCards]);
@@ -1558,9 +1579,16 @@ export function PlaylistsPage() {
     if (videoTime === null) return;
     const { pre, post } = getClipOffsets(item.matchId, item.event.eventId);
     const seekTo = Math.max(0, Math.min(videoTime, videoTime - preRollRef.current - (preOverride ?? pre)));
-    clipEndRef.current = Math.max(videoTime, videoTime + postRollRef.current + (postOverride ?? post));
+    const clipEnd = Math.max(videoTime, videoTime + postRollRef.current + (postOverride ?? post));
+    clipEndRef.current = undefined;
     video.pause();
-    video.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
+    const target2 = seekTo;
+    function onSeeked2() {
+      if (video.currentTime > target2 + 2) { video.addEventListener("seeked", onSeeked2, { once: true }); return; }
+      clipEndRef.current = clipEnd;
+      video.play().catch(() => {});
+    }
+    video.addEventListener("seeked", onSeeked2, { once: true });
     video.currentTime = seekTo;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1601,11 +1629,20 @@ export function PlaylistsPage() {
               pendingSeekRef.current = { seekTo, clipEnd };
               setActiveMatchId(clipItem.matchId);
             } else {
-              clipEndRef.current = clipEnd;
               const video = videoRef.current;
+              clipEndRef.current = undefined;
               video?.pause();
-              video?.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
-              if (video) video.currentTime = seekTo;
+              if (video) {
+                const target3 = seekTo;
+                const end3 = clipEnd;
+                function onSeeked3() {
+                  if (video.currentTime > target3 + 2) { video.addEventListener("seeked", onSeeked3, { once: true }); return; }
+                  clipEndRef.current = end3;
+                  video.play().catch(() => {});
+                }
+                video.addEventListener("seeked", onSeeked3, { once: true });
+                video.currentTime = seekTo;
+              }
             }
           }
         }
@@ -1641,6 +1678,8 @@ export function PlaylistsPage() {
       const end = clipEndRef.current;
       if (end === undefined || !video) return;
       if (video.currentTime < end) return;
+      // Guard: if we're >60s past clipEnd the video is at a stale position (seek in progress)
+      if (video.currentTime > end + 60) return;
 
       clipEndRef.current = undefined;
       video.pause();
@@ -1667,9 +1706,16 @@ export function PlaylistsPage() {
                 pendingSeekRef.current = { seekTo, clipEnd };
                 setActiveMatchId(clipItem.matchId);
               } else {
-                clipEndRef.current = clipEnd;
+                // clipEndRef was already cleared above — keep it undefined until seeked
                 video.pause();
-                video.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
+                const target4 = seekTo;
+                const end4 = clipEnd;
+                function onSeeked4() {
+                  if (video.currentTime > target4 + 2) { video.addEventListener("seeked", onSeeked4, { once: true }); return; }
+                  clipEndRef.current = end4;
+                  video.play().catch(() => {});
+                }
+                video.addEventListener("seeked", onSeeked4, { once: true });
                 video.currentTime = seekTo;
               }
             }
