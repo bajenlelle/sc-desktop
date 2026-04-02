@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { trackEvent } from "@/lib/analytics";
 import { useNavigate } from "react-router-dom";
 import { Film, X, Loader2, Search, ChevronRight } from "lucide-react";
@@ -157,23 +156,6 @@ export function UploadZone() {
     }
   }, [animationDone, pendingNavigate, navigate]);
 
-  // Accept file drops from Finder — listener is scoped to this page via component lifecycle
-  useEffect(() => {
-    const unlisten = getCurrentWebview().onDragDropEvent((event) => {
-      if (event.payload.type === "enter" || event.payload.type === "over") {
-        setDragActive(true);
-      } else if (event.payload.type === "leave") {
-        setDragActive(false);
-      } else if (event.payload.type === "drop") {
-        setDragActive(false);
-        const dropped = event.payload.paths.find((p) =>
-          VIDEO_EXTS.includes(p.split(".").pop()?.toLowerCase() ?? "")
-        );
-        if (dropped) setVideoPath(dropped);
-      }
-    });
-    return () => { unlisten.then((fn) => fn()); };
-  }, []);
 
   useEffect(() => {
     setScheduleStatus("loading");
@@ -512,6 +494,8 @@ export function UploadZone() {
             {/* Video file picker */}
             <div className="space-y-2">
               <div
+                onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                onDragLeave={() => setDragActive(false)}
                 onDrop={(e) => { e.preventDefault(); setDragActive(false); }}
                 className={cn(
                   "flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 transition-colors",

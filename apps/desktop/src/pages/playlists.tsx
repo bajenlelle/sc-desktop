@@ -659,9 +659,9 @@ function ClipBrowserPanel({
     video.pause();
     const target1 = seekTo;
     function onSeeked1() {
-      if (video.currentTime > target1 + 2) { video.addEventListener("seeked", onSeeked1, { once: true }); return; }
+      if (video!.currentTime > target1 + 2) { video!.addEventListener("seeked", onSeeked1, { once: true }); return; }
       clipEndRef.current = clipEnd;
-      video.play().catch(() => {});
+      video!.play().catch(() => {});
     }
     video.addEventListener("seeked", onSeeked1, { once: true });
     video.currentTime = seekTo;
@@ -1179,9 +1179,9 @@ export function PlaylistsPage() {
   });
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editFolderName, setEditFolderName] = useState("");
+  const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
   const [pendingNewFolderId, setPendingNewFolderId] = useState<string | null>(null);
   const [pendingNewPlaylistId, setPendingNewPlaylistId] = useState<string | null>(null);
-  const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
   const [editingPlaylistId, setEditingPlaylistId] = useState<string | null>(null);
   const [editPlaylistName, setEditPlaylistName] = useState("");
   const [openMenuPlaylistId, setOpenMenuPlaylistId] = useState<string | null>(null);
@@ -1277,7 +1277,7 @@ export function PlaylistsPage() {
     Promise.all([listPlaylists(), listMatchesLight(), listFolders(), getOrgContext().catch(() => null)])
       .then(async ([loadedPlaylists, matchShells, loadedFolders, orgCtx]) => {
         const matchIds = matchShells.map((m) => m.id);
-        const eventsByMatch = await listEventsForMatches(matchIds).catch(() => ({}));
+        const eventsByMatch = await listEventsForMatches(matchIds).catch(() => ({} as Record<string, PlayByPlayEvent[]>));
         const loadedMatches = matchShells.map((m) => ({ ...m, events: eventsByMatch[m.id] ?? [] }));
 
         setPlaylists(loadedPlaylists);
@@ -1584,9 +1584,9 @@ export function PlaylistsPage() {
     video.pause();
     const target2 = seekTo;
     function onSeeked2() {
-      if (video.currentTime > target2 + 2) { video.addEventListener("seeked", onSeeked2, { once: true }); return; }
+      if (video!.currentTime > target2 + 2) { video!.addEventListener("seeked", onSeeked2, { once: true }); return; }
       clipEndRef.current = clipEnd;
-      video.play().catch(() => {});
+      video!.play().catch(() => {});
     }
     video.addEventListener("seeked", onSeeked2, { once: true });
     video.currentTime = seekTo;
@@ -1636,9 +1636,9 @@ export function PlaylistsPage() {
                 const target3 = seekTo;
                 const end3 = clipEnd;
                 function onSeeked3() {
-                  if (video.currentTime > target3 + 2) { video.addEventListener("seeked", onSeeked3, { once: true }); return; }
+                  if (video!.currentTime > target3 + 2) { video!.addEventListener("seeked", onSeeked3, { once: true }); return; }
                   clipEndRef.current = end3;
-                  video.play().catch(() => {});
+                  video!.play().catch(() => {});
                 }
                 video.addEventListener("seeked", onSeeked3, { once: true });
                 video.currentTime = seekTo;
@@ -1711,9 +1711,9 @@ export function PlaylistsPage() {
                 const target4 = seekTo;
                 const end4 = clipEnd;
                 function onSeeked4() {
-                  if (video.currentTime > target4 + 2) { video.addEventListener("seeked", onSeeked4, { once: true }); return; }
+                  if (video!.currentTime > target4 + 2) { video!.addEventListener("seeked", onSeeked4, { once: true }); return; }
                   clipEndRef.current = end4;
-                  video.play().catch(() => {});
+                  video!.play().catch(() => {});
                 }
                 video.addEventListener("seeked", onSeeked4, { once: true });
                 video.currentTime = seekTo;
@@ -1866,7 +1866,7 @@ export function PlaylistsPage() {
   }
 
   // ---------------------------------------------------------------------------
-  // Clip drag handlers (HTML5)
+  // Drag handlers (HTML5)
   // ---------------------------------------------------------------------------
 
   function recalcDragPosition(x: number, y: number) {
@@ -2534,7 +2534,6 @@ export function PlaylistsPage() {
         collapsible
         collapsedSize={0}
         className="flex flex-col border-r border-border bg-card overflow-y-auto"
-        onDragOver={(e: React.DragEvent) => e.preventDefault()}
       >
         {/* Header */}
         <div className="sticky top-0 z-10 border-b border-border bg-card px-3 py-3 space-y-2">
