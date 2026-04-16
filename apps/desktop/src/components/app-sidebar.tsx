@@ -1,7 +1,6 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
 import {
-  Activity,
   BookOpen,
   Building2,
   Film,
@@ -12,6 +11,7 @@ import {
   Moon,
   LogOut,
 } from "lucide-react";
+import { LogoMark } from "@/components/logo";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/auth-context";
@@ -94,9 +94,7 @@ export function AppSidebar() {
       {/* Logo */}
       <div className="flex h-14 items-center justify-center border-b border-sidebar-border">
         <Link to="/">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-            <Activity className="h-4 w-4 text-primary-foreground" />
-          </div>
+          <LogoMark className="h-9 w-9 rounded-lg" />
         </Link>
       </div>
 

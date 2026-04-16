@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Activity } from "lucide-react";
+import { LogoMark } from "@/components/logo";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { joinByCode } from "@/lib/profile-db";
@@ -34,9 +34,7 @@ export function OnboardingPage() {
       <div className="w-full max-w-sm space-y-8">
         {/* Logo */}
         <div className="flex flex-col items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary">
-            <Activity className="h-6 w-6 text-primary-foreground" />
-          </div>
+          <LogoMark className="h-14 w-14 rounded-xl" />
           <div className="text-center">
             <h1 className="text-xl font-bold tracking-tight text-foreground">Welcome to Scoutable</h1>
             <p className="mt-1 text-sm text-muted-foreground">

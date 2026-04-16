@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Activity, Menu, Moon, Sun, LogOut, User as UserIcon } from "lucide-react";
+import { Menu, Moon, Sun, LogOut, User as UserIcon } from "lucide-react";
+import { LogoMark, Wordmark } from "@/components/logo";
 import { useTheme } from "next-themes";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -60,10 +61,8 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
       <div className="mx-auto flex h-full max-w-7xl items-center gap-4 px-4 sm:px-6">
         {/* Logo */}
         <Link href="/my-playlists" className="flex items-center gap-2 shrink-0">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary">
-            <Activity className="h-4 w-4 text-primary-foreground" />
-          </div>
-          <span className="font-bold text-foreground hidden sm:block">Scoutable</span>
+          <LogoMark className="h-7 w-7 rounded-lg" />
+          <Wordmark className="h-4 hidden sm:block" />
         </Link>
 
         {/* Desktop nav */}
@@ -140,10 +139,8 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
             <SheetContent side="left" className="w-64">
               <SheetHeader>
                 <SheetTitle className="flex items-center gap-2">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary">
-                    <Activity className="h-4 w-4 text-primary-foreground" />
-                  </div>
-                  Scoutable
+                  <LogoMark className="h-7 w-7 rounded-lg" />
+                  <Wordmark className="h-4" />
                 </SheetTitle>
               </SheetHeader>
               <nav className="mt-6 flex flex-col gap-1">

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Activity } from "lucide-react";
+import { LogoMark, Wordmark } from "@/components/logo";
 import { createClient, signInWithProvider } from "@/lib/supabase/client";
 import { trackEvent } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
@@ -66,12 +66,8 @@ export function SignupPage() {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center gap-2 text-center">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary">
-            <Activity className="h-5 w-5 text-primary-foreground" />
-          </div>
-          <span className="text-xl font-bold tracking-tight text-foreground">
-            Scoutable
-          </span>
+          <LogoMark className="h-12 w-12 rounded-xl" />
+          <Wordmark className="h-6" />
         </div>
 
         <Card>
