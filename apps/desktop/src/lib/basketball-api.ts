@@ -65,6 +65,12 @@ export const LEAGUES: League[] = [
     scheduleParams: `seriesUuid=qZn-4XdsoSWdh&${COMMON_PARAMS}`,
   },
   {
+    id: "superettan-herr-playoff",
+    name: "Superettan Herr Playoff",
+    baseUrl: "https://www.superettanherr.se",
+    scheduleParams: `seriesUuid=qZn-4XdsoSWdh&${PLAYOFF_PARAMS}`,
+  },
+  {
     id: "austria-zweite-liga",
     name: "Zweite Liga",
     baseUrl: "",
