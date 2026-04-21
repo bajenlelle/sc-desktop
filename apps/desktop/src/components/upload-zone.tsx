@@ -304,10 +304,10 @@ export function UploadZone() {
     setPendingNavigate(null);
 
     let syncPoint: SyncPoint | undefined;
-    if (tipoffRealWorldTime && syncSeconds !== null) {
+    if (syncSeconds !== null) {
       syncPoint = {
         syncVideoTime: syncSeconds,
-        syncRealWorldTime: tipoffRealWorldTime,
+        syncRealWorldTime: tipoffRealWorldTime ?? "",
       };
     }
 
