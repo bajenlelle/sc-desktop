@@ -65,6 +65,12 @@ export const LEAGUES: League[] = [
     scheduleParams: `seriesUuid=qZn-4XdsoSWdh&${COMMON_PARAMS}`,
   },
   {
+    id: "superettan-herr-playoff",
+    name: "Superettan Herr Playoff",
+    baseUrl: "https://www.superettanherr.se",
+    scheduleParams: `seriesUuid=qZn-4XdsoSWdh&${PLAYOFF_PARAMS}`,
+  },
+  {
     id: "austria-zweite-liga",
     name: "Zweite Liga",
     baseUrl: "",
@@ -264,7 +270,7 @@ export async function fetchPlayByPlay(gameId: string, baseUrl: string): Promise<
 
   const tipoffEvent = allEvents.find(
     (e) => e.type === "period" && e.subType === "start" && e.period === 1
-      && String(e.periodType ?? "").toUpperCase() === "REGULAR"
+      && !String(e.periodType ?? "").toUpperCase().includes("OVERTIME")
   );
   const tipoffRealWorldTime = (tipoffEvent?.realWorldTime as string) ?? null;
 
