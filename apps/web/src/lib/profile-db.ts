@@ -295,17 +295,13 @@ export async function deleteInvite(inviteId: string): Promise<void> {
   if (error) throw new Error(`Failed to delete invite: ${error.message}`);
 }
 
-export async function getTeamMemberCounts(teamIds: string[]): Promise<Record<string, number>> {
-  if (teamIds.length === 0) return {};
+export async function getTeamMemberCounts(orgId: string): Promise<Record<string, number>> {
   const supabase = createClient();
-  const { data, error } = await supabase
-    .from("team_members")
-    .select("team_id")
-    .in("team_id", teamIds);
+  const { data, error } = await supabase.rpc("get_team_member_counts", { org_id: orgId });
   if (error) return {};
   const counts: Record<string, number> = {};
-  for (const row of (data ?? []) as { team_id: string }[]) {
-    counts[row.team_id] = (counts[row.team_id] ?? 0) + 1;
+  for (const row of (data ?? []) as { team_id: string; member_count: number }[]) {
+    counts[row.team_id] = row.member_count;
   }
   return counts;
 }

@@ -472,8 +472,8 @@ export default function OrganizationPage() {
       const context = await getOrgContext();
       setCtx(context);
 
-      if (context.allOrgTeams.length > 0) {
-        const counts = await getTeamMemberCounts(context.allOrgTeams.map((t) => t.id));
+      if (context.org) {
+        const counts = await getTeamMemberCounts(context.org.id);
         setMemberCounts(counts);
       }
 
