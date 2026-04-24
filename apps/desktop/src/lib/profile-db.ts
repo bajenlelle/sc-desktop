@@ -540,12 +540,13 @@ export async function getAllOrgsWithCounts(): Promise<OrgWithCount[]> {
 
 export async function getSubscriptionStatus(): Promise<{
   isActive: boolean;
+  status: string | null;
   plan: string | null;
   currentPeriodEnd: string | null;
 }> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user?.email) return { isActive: false, plan: null, currentPeriodEnd: null };
+  if (!user?.email) return { isActive: false, status: null, plan: null, currentPeriodEnd: null };
 
   const { data } = await supabase
     .from("stripe_customers")
@@ -556,6 +557,7 @@ export async function getSubscriptionStatus(): Promise<{
   const isActive = ["active", "trialing"].includes(data?.subscription_status ?? "");
   return {
     isActive,
+    status: data?.subscription_status ?? null,
     plan: data?.plan_name ?? null,
     currentPeriodEnd: data?.current_period_end ?? null,
   };

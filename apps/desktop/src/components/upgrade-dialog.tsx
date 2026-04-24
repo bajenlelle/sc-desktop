@@ -9,9 +9,11 @@ interface Props {
   open: boolean;
   onClose: () => void;
   featureName?: string;
+  description?: string;
 }
 
-export function UpgradeDialog({ open, onClose, featureName = "This feature" }: Props) {
+export function UpgradeDialog({ open, onClose, featureName = "This feature", description }: Props) {
+  const body = description ?? "Export your playlists as MP4 video files with a Rookie or Pro plan. Start with a 14-day free trial — no credit card required upfront.";
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="max-w-md">
@@ -19,10 +21,9 @@ export function UpgradeDialog({ open, onClose, featureName = "This feature" }: P
           <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
             <Lock className="h-5 w-5 text-muted-foreground" />
           </div>
-          <DialogTitle className="text-center">{featureName} is a paid feature</DialogTitle>
+          <DialogTitle className="text-center">{featureName}</DialogTitle>
           <DialogDescription className="text-center">
-            Export your playlists as MP4 video files with a Rookie or Pro plan.
-            Start with a 14-day free trial — no credit card required upfront.
+            {body}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="flex-col gap-2 sm:flex-col">

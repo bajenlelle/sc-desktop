@@ -4007,7 +4007,7 @@ export function PlaylistsPage() {
           <UpgradeDialog
             open={upgradeDialogOpen}
             onClose={() => setUpgradeDialogOpen(false)}
-            featureName="Export Playlist"
+            featureName="Export Playlist is a paid feature"
           />
           {/* Share dialog — multi-team */}
           <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>

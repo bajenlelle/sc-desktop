@@ -32,3 +32,4 @@ export const createFolder = (name: string) => db.createFolder(c(), name);
 export const updateFolder = (id: string, patch: { name?: string; sortOrder?: number }) => db.updateFolder(c(), id, patch);
 export const deleteFolder = (id: string) => db.deleteFolder(c(), id);
 export const listMatchesLight = () => db.listMatchesLight(c());
+export const countMatchesThisMonth = () => db.countMatchesThisMonth(c());

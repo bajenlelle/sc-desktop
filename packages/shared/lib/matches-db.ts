@@ -332,3 +332,13 @@ export async function listMatchesLight(supabase: SupabaseClient): Promise<Stored
   if (error || !data) return [];
   return (data as MatchRow[]).map((row) => rowToStoredMatch(row, []));
 }
+
+export async function countMatchesThisMonth(supabase: SupabaseClient): Promise<number> {
+  const now = new Date();
+  const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+  const { count } = await supabase
+    .from("matches")
+    .select("*", { count: "exact", head: true })
+    .gte("created_at", startOfMonth);
+  return count ?? 0;
+}

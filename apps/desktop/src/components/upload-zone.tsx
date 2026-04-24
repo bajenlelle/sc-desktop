@@ -8,7 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { saveMatch } from "@/lib/matches-db";
+import { saveMatch, countMatchesThisMonth } from "@/lib/matches-db";
+import { getSubscriptionStatus } from "@/lib/profile-db";
+import { UpgradeDialog } from "@/components/upgrade-dialog";
 import { fetchBoxscore, fetchPlayByPlay, fetchPlayByPlaySportradar, fetchSchedule, fetchScheduleSportradar, LEAGUES } from "@/lib/basketball-api";
 import type { ScheduleGame, League } from "@/lib/basketball-api";
 import type { StoredMatch, SyncPoint, PlayByPlayEvent } from "@/types/match";
@@ -49,6 +51,13 @@ function StepLabel({
 function basename(path: string): string {
   return path.replace(/.*[\\/]/, "");
 }
+
+function getMonthlyImportLimit(sub: { isActive: boolean; plan: string | null } | null): number | null {
+  if (!sub || !sub.isActive) return 2;
+  if (sub.plan === "rookie") return 10;
+  return null;
+}
+
 
 function GameRow({
   game,
@@ -145,10 +154,11 @@ export function UploadZone() {
   const [syncSeconds, setSyncSeconds] = useState<number | null>(null);
   const [submitStatus, setSubmitStatus] = useState<"idle" | "saving" | "error">("idle");
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [importLimitDialogOpen, setImportLimitDialogOpen] = useState(false);
+  const [importLimitInfo, setImportLimitInfo] = useState<{ count: number; limit: number } | null>(null);
   const [generatingVisible, setGeneratingVisible] = useState(false);
   const [animationDone, setAnimationDone] = useState(false);
   const [pendingNavigate, setPendingNavigate] = useState<string | null>(null);
-
   // Navigate once both the animation and the save are done
   useEffect(() => {
     if (animationDone && pendingNavigate) {
@@ -292,6 +302,14 @@ export function UploadZone() {
   }
 
   async function handleSubmit() {
+    const [sub, count] = await Promise.all([getSubscriptionStatus(), countMatchesThisMonth()]);
+    const limit = getMonthlyImportLimit(sub);
+    if (limit !== null && count >= limit) {
+      setImportLimitInfo({ count, limit });
+      setImportLimitDialogOpen(true);
+      return;
+    }
+
     if (!selectedGame) {
       setSubmitError("Select a game first to continue.");
       return;
@@ -357,6 +375,15 @@ export function UploadZone() {
   const isSubmitting = submitStatus === "saving";
 
   return (
+    <>
+    <UpgradeDialog
+      open={importLimitDialogOpen}
+      onClose={() => setImportLimitDialogOpen(false)}
+      featureName="Monthly import limit reached"
+      description={importLimitInfo
+        ? `You've used all ${importLimitInfo.limit} game imports for this month on your current plan. Upgrade to Rookie for 10 imports/month, or Pro for unlimited.`
+        : undefined}
+    />
     <div className="mx-auto max-w-2xl space-y-8">
       {/* Page header */}
       <div>
@@ -614,5 +641,6 @@ export function UploadZone() {
         onComplete={() => setAnimationDone(true)}
       />
     </div>
+    </>
   );
 }
