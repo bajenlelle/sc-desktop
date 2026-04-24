@@ -80,6 +80,23 @@ export const LEAGUES: League[] = [
   },
 ];
 
+// Placeholder leagues for national team coaches — fill in baseUrl/scheduleParams
+// once the data source (provider TBD) is decided.
+export const NATIONAL_TEAM_LEAGUES: League[] = [
+  {
+    id: "sweden-national-men",
+    name: "Sweden Men",
+    baseUrl: "",
+    scheduleParams: "",
+  },
+  {
+    id: "sweden-national-women",
+    name: "Sweden Women",
+    baseUrl: "",
+    scheduleParams: "",
+  },
+];
+
 export async function fetchScheduleSportradar(fixturesUrl: string): Promise<ScheduleGame[]> {
   const res = await fetch(fixturesUrl, { headers: { Accept: "application/json" } });
   if (!res.ok) throw new Error("Failed to fetch fixtures");

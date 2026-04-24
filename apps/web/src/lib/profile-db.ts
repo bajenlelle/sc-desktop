@@ -23,6 +23,7 @@ interface ProfileRow {
   org_id: string | null;
   created_at: string;
   is_platform_admin: boolean;
+  is_national_team: boolean;
   email?: string | null;
 }
 
@@ -96,6 +97,7 @@ function rowToProfile(r: ProfileRow): UserProfile {
     orgId: r.org_id,
     createdAt: r.created_at,
     isPlatformAdmin: r.is_platform_admin ?? false,
+    isNationalTeam: r.is_national_team ?? false,
   };
 }
 
@@ -164,7 +166,7 @@ export async function getMyProfile(userId: string): Promise<UserProfile> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin")
+    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin, is_national_team")
     .eq("id", userId)
     .single();
   if (error || !data) throw new Error(`Failed to load profile: ${error?.message}`);
@@ -208,7 +210,7 @@ export async function getOrgContext(): Promise<OrgContext> {
 
   const profileRes = await supabase
     .from("profiles")
-    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin")
+    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin, is_national_team")
     .eq("id", user.id)
     .single();
   if (profileRes.error || !profileRes.data)
@@ -432,7 +434,7 @@ export async function getOrgMembersForAdmin(orgId: string): Promise<UserProfile[
   const supabase = createClient();
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin")
+    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin, is_national_team")
     .eq("org_id", orgId);
   if (error) throw new Error(`Failed to load org members: ${error.message}`);
   return (data ?? []).map((r) => rowToProfile(r as ProfileRow));

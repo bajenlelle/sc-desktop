@@ -13,6 +13,7 @@ export interface UserProfile {
   orgId: string | null;
   createdAt: string;
   isPlatformAdmin: boolean;
+  isNationalTeam: boolean;
 }
 
 export interface Organization {
@@ -64,6 +65,7 @@ export interface OrgInvite {
   expiresAt: string | null;
   usedCount: number;
   maxUses: number | null;
+  isNationalTeam: boolean;
 }
 
 export interface OrgWithCount {

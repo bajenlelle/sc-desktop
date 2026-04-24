@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { saveMatch, countMatchesThisMonth } from "@/lib/matches-db";
 import { getSubscriptionStatus } from "@/lib/profile-db";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
-import { fetchBoxscore, fetchPlayByPlay, fetchPlayByPlaySportradar, fetchSchedule, fetchScheduleSportradar, LEAGUES } from "@/lib/basketball-api";
+import { fetchBoxscore, fetchPlayByPlay, fetchPlayByPlaySportradar, fetchSchedule, fetchScheduleSportradar, LEAGUES, NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
 import type { ScheduleGame, League } from "@/lib/basketball-api";
 import type { StoredMatch, SyncPoint, PlayByPlayEvent } from "@/types/match";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -118,11 +118,15 @@ function GameRow({
   );
 }
 
-export function UploadZone() {
+export function UploadZone({ isNationalTeam = false }: { isNationalTeam?: boolean }) {
   const navigate = useNavigate();
 
+  const leagueList = isNationalTeam
+    ? NATIONAL_TEAM_LEAGUES
+    : LEAGUES.filter((l) => l.id !== "austria-zweite-liga");
+
   // League + schedule picker state
-  const [selectedLeague, setSelectedLeague] = useState<League>(LEAGUES[0]);
+  const [selectedLeague, setSelectedLeague] = useState<League>(leagueList[0]);
   const [scheduleGames, setScheduleGames] = useState<ScheduleGame[]>([]);
   const [scheduleStatus, setScheduleStatus] = useState<"loading" | "idle" | "error">("loading");
   const [searchQuery, setSearchQuery] = useState("");
@@ -400,7 +404,7 @@ export function UploadZone() {
           <CardContent className="p-4 space-y-3">
             {/* League selector */}
             <div className="flex rounded-lg border border-border p-1 gap-1">
-              {LEAGUES.filter((l) => l.id !== "austria-zweite-liga").map((league) => (
+              {leagueList.map((league) => (
                 <button
                   key={league.id}
                   type="button"

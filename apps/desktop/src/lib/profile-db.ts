@@ -18,6 +18,7 @@ interface ProfileRow {
   org_id: string | null;
   created_at: string;
   is_platform_admin: boolean;
+  is_national_team: boolean;
   email?: string | null;
 }
 
@@ -70,6 +71,7 @@ interface OrgInviteRow {
   expires_at: string | null;
   used_count: number;
   max_uses: number | null;
+  is_national_team: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -86,6 +88,7 @@ function rowToProfile(r: ProfileRow): UserProfile {
     orgId: r.org_id,
     createdAt: r.created_at,
     isPlatformAdmin: r.is_platform_admin ?? false,
+    isNationalTeam: r.is_national_team ?? false,
   };
 }
 
@@ -124,6 +127,7 @@ function rowToOrgInvite(r: OrgInviteRow): OrgInvite {
     role: r.role as OrgInvite['role'], createdBy: r.created_by,
     createdAt: r.created_at, expiresAt: r.expires_at,
     usedCount: r.used_count, maxUses: r.max_uses,
+    isNationalTeam: r.is_national_team ?? false,
   };
 }
 
@@ -135,7 +139,7 @@ export async function getMyProfile(userId: string): Promise<UserProfile> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin")
+    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin, is_national_team")
     .eq("id", userId)
     .single();
   if (error || !data) throw new Error(`Failed to load profile: ${error?.message}`);
@@ -178,7 +182,7 @@ export async function getOrgContext(): Promise<OrgContext> {
 
   const profileRes = await supabase
     .from("profiles")
-    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin")
+    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin, is_national_team")
     .eq("id", user.id)
     .single();
   if (profileRes.error || !profileRes.data) throw new Error(`Failed to load profile: ${profileRes.error?.message}`);
@@ -326,6 +330,7 @@ export async function getTeamMemberCounts(orgId: string): Promise<Record<string,
 export async function generateOrgInviteCode(
   orgId: string,
   role: 'coach' | 'player',
+  isNationalTeam = false,
   maxUses?: number
 ): Promise<string> {
   const supabase = createClient();
@@ -334,6 +339,7 @@ export async function generateOrgInviteCode(
     p_role: role,
     p_max_uses: maxUses ?? null,
     p_expires_in_hours: null,
+    p_is_national_team: isNationalTeam,
   });
   if (error) throw new Error(`Failed to generate org invite: ${error.message}`);
   return data as string;
@@ -343,7 +349,7 @@ export async function listOrgInvites(orgId: string): Promise<OrgInvite[]> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("org_invites")
-    .select("id, org_id, code, role, created_by, created_at, expires_at, used_count, max_uses")
+    .select("id, org_id, code, role, created_by, created_at, expires_at, used_count, max_uses, is_national_team")
     .eq("org_id", orgId)
     .order("created_at", { ascending: false });
   if (error) throw new Error(`Failed to list org invites: ${error.message}`);
@@ -373,7 +379,7 @@ export async function getOrgMembers(orgId: string): Promise<UserProfile[]> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin")
+    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin, is_national_team")
     .eq("org_id", orgId);
   if (error) throw new Error(`Failed to load org members: ${error.message}`);
   return (data ?? []).map((r) => rowToProfile(r as ProfileRow));

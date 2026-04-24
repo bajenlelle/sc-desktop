@@ -116,7 +116,7 @@ function InviteCard({
 // OrgInviteSection — org-level invite cards (coach + player)
 // ---------------------------------------------------------------------------
 
-function OrgInviteSection({ orgId, orgName }: { orgId: string; orgName: string }) {
+function OrgInviteSection({ orgId, orgName, isPlatformAdmin }: { orgId: string; orgName: string; isPlatformAdmin: boolean }) {
   const [invites, setInvites] = useState<OrgInvite[]>([]);
   const [loadingInvites, setLoadingInvites] = useState(true);
   const [regeneratingRole, setRegeneratingRole] = useState<string | null>(null);
@@ -134,12 +134,13 @@ function OrgInviteSection({ orgId, orgName }: { orgId: string; orgName: string }
 
   useEffect(() => { load(); }, [orgId]);
 
-  async function handleRegenerate(role: "coach" | "player") {
-    setRegeneratingRole(role);
+  async function handleRegenerate(role: "coach" | "player", isNationalTeam = false) {
+    const key = isNationalTeam ? `${role}-national` : role;
+    setRegeneratingRole(key);
     try {
-      const toDelete = invites.filter((i) => i.role === role);
+      const toDelete = invites.filter((i) => i.role === role && i.isNationalTeam === isNationalTeam);
       await Promise.all(toDelete.map((i) => deleteOrgInvite(i.id)));
-      await generateOrgInviteCode(orgId, role);
+      await generateOrgInviteCode(orgId, role, isNationalTeam);
       await load();
     } catch (e) {
       toast.error((e as Error).message);
@@ -152,8 +153,9 @@ function OrgInviteSection({ orgId, orgName }: { orgId: string; orgName: string }
     return <p className="text-sm text-muted-foreground">Loading invite codes…</p>;
   }
 
-  const coachInvite = invites.find((i) => i.role === "coach");
+  const coachInvite = invites.find((i) => i.role === "coach" && !i.isNationalTeam);
   const playerInvite = invites.find((i) => i.role === "player");
+  const nationalTeamInvite = invites.find((i) => i.role === "coach" && i.isNationalTeam);
 
   return (
     <div className="space-y-3">
@@ -175,6 +177,16 @@ function OrgInviteSection({ orgId, orgName }: { orgId: string; orgName: string }
           onRegenerate={() => handleRegenerate("player")}
           regenerating={regeneratingRole === "player"}
         />
+        {isPlatformAdmin && (
+          <InviteCard
+            label="National Team Coach Invite"
+            description="Share this code with national team coaches — gives access to national team schedules"
+            code={nationalTeamInvite?.code ?? null}
+            entityName={orgName}
+            onRegenerate={() => handleRegenerate("coach", true)}
+            regenerating={regeneratingRole === "coach-national"}
+          />
+        )}
       </div>
     </div>
   );
@@ -658,7 +670,7 @@ export function OrganizationPage() {
 
           {/* Org-level invite codes */}
           {canManageTeams && (
-            <OrgInviteSection orgId={org.id} orgName={org.name} />
+            <OrgInviteSection orgId={org.id} orgName={org.name} isPlatformAdmin={profile.isPlatformAdmin} />
           )}
 
           {/* Platform admin link */}

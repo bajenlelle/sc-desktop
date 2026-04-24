@@ -4014,9 +4014,6 @@ export function PlaylistsPage() {
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Share Playlist</DialogTitle>
-                <DialogDescription>
-                  Clips will be uploaded to the cloud before sharing.
-                </DialogDescription>
               </DialogHeader>
               <div className="py-1">
                 {/* Teams section */}
