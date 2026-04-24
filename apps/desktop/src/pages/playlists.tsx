@@ -10,6 +10,7 @@ import {
   Columns2,
   FileDown,
   FolderPlus,
+  Lock,
   Share2,
   Users,
   User2,
@@ -40,7 +41,8 @@ import { usePanelRef } from "react-resizable-panels";
 import { VideoClipControls } from "@/components/video-clip-controls";
 import { listMatchesLight, listEventsForMatches, listFolders, createFolder, updateFolder, deleteFolder } from "@/lib/matches-db";
 import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderItems, updateClip, insertTextCard, updateTextCard, setPlaylistTeams, setPlaylistUsers } from "@/lib/playlists-db";
-import { getOrgContext, getTeamMemberIds } from "@/lib/profile-db";
+import { getOrgContext, getTeamMemberIds, getSubscriptionStatus } from "@/lib/profile-db";
+import { UpgradeDialog } from "@/components/upgrade-dialog";
 import type { OrgTeam, UserProfile } from "@/types/org";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
@@ -1188,6 +1190,8 @@ export function PlaylistsPage() {
   const [openMenuFolderId, setOpenMenuFolderId] = useState<string | null>(null);
   const [clockSort, setClockSort] = useState<ClockSort>("none");
   const [search, setSearch] = useState("");
+  const [subStatus, setSubStatus] = useState<{ isActive: boolean; plan: string | null } | null>(null);
+  const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [isShipping, setIsShipping] = useState(false);
@@ -1240,6 +1244,10 @@ export function PlaylistsPage() {
   useEffect(() => {
     sessionStorage.setItem("playlists-theater-mode", String(theaterMode));
   }, [theaterMode]);
+
+  useEffect(() => {
+    getSubscriptionStatus().then(setSubStatus);
+  }, []);
   const clipNoteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clipEndRef = useRef<number | undefined>(undefined);
   const pendingSeekRef = useRef<{ seekTo: number; clipEnd: number } | null>(null);
@@ -1975,6 +1983,10 @@ export function PlaylistsPage() {
   // ---------------------------------------------------------------------------
 
   async function handleExport() {
+    if (subStatus && !subStatus.isActive) {
+      setUpgradeDialogOpen(true);
+      return;
+    }
     setIsExporting(true);
     setExportError(null);
     let segmentCount = 0;
@@ -3421,7 +3433,10 @@ export function PlaylistsPage() {
                         disabled={!!exportDisabledReason}
                         title={exportDisabledReason ?? "Export playlist as MP4"}
                       >
-                        <FileDown className="h-3.5 w-3.5" />
+                        {subStatus && !subStatus.isActive
+                          ? <Lock className="h-3.5 w-3.5" />
+                          : <FileDown className="h-3.5 w-3.5" />
+                        }
                         {selectedClipIds.size > 0
                           ? `Export ${selectedClipIds.size} selected`
                           : 'Export Playlist'}
@@ -3708,7 +3723,10 @@ export function PlaylistsPage() {
                         disabled={!!exportDisabledReason}
                         title={exportDisabledReason ?? "Export playlist as MP4"}
                       >
-                        <FileDown className="h-3.5 w-3.5" />
+                        {subStatus && !subStatus.isActive
+                          ? <Lock className="h-3.5 w-3.5" />
+                          : <FileDown className="h-3.5 w-3.5" />
+                        }
                         {selectedClipIds.size > 0
                           ? `Export ${selectedClipIds.size} selected`
                           : 'Export Playlist'}
@@ -3985,6 +4003,12 @@ export function PlaylistsPage() {
               />
             </DialogContent>
           </Dialog>
+          {/* Upgrade dialog — shown when free user tries a paid feature */}
+          <UpgradeDialog
+            open={upgradeDialogOpen}
+            onClose={() => setUpgradeDialogOpen(false)}
+            featureName="Export Playlist"
+          />
           {/* Share dialog — multi-team */}
           <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
             <DialogContent>

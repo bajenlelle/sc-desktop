@@ -536,3 +536,27 @@ export async function getAllOrgsWithCounts(): Promise<OrgWithCount[]> {
     teamCount: Number(r.team_count),
   }));
 }
+
+
+export async function getSubscriptionStatus(): Promise<{
+  isActive: boolean;
+  plan: string | null;
+  currentPeriodEnd: string | null;
+}> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user?.email) return { isActive: false, plan: null, currentPeriodEnd: null };
+
+  const { data } = await supabase
+    .from("stripe_customers")
+    .select("subscription_status, plan_name, current_period_end")
+    .eq("email", user.email)
+    .maybeSingle();
+
+  const isActive = ["active", "trialing"].includes(data?.subscription_status ?? "");
+  return {
+    isActive,
+    plan: data?.plan_name ?? null,
+    currentPeriodEnd: data?.current_period_end ?? null,
+  };
+}
