@@ -19,7 +19,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   try {
     const { data } = await supabase
       .from("profiles")
-      .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin")
+      .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin, is_national_team")
       .eq("id", user.id)
       .single();
     if (data) {
@@ -32,6 +32,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         orgId: data.org_id,
         createdAt: data.created_at,
         isPlatformAdmin: data.is_platform_admin ?? false,
+        isNationalTeam: data.is_national_team ?? false,
       };
     }
   } catch {
