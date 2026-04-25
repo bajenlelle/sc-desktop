@@ -76,6 +76,7 @@ interface OrgInviteRow {
   expires_at: string | null;
   used_count: number;
   max_uses: number | null;
+  is_national_team: boolean;
 }
 
 interface OrgWithCountRow {
@@ -159,6 +160,7 @@ function rowToOrgInvite(r: OrgInviteRow): OrgInvite {
     expiresAt: r.expires_at,
     usedCount: r.used_count,
     maxUses: r.max_uses,
+    isNationalTeam: r.is_national_team ?? false,
   };
 }
 
@@ -328,7 +330,7 @@ export async function listOrgInvites(orgId: string): Promise<OrgInvite[]> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("org_invites")
-    .select("id, org_id, code, role, created_by, created_at, expires_at, used_count, max_uses")
+    .select("id, org_id, code, role, created_by, created_at, expires_at, used_count, max_uses, is_national_team")
     .eq("org_id", orgId)
     .order("created_at", { ascending: false });
   if (error) throw new Error(`Failed to list org invites: ${error.message}`);
