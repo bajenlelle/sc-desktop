@@ -16,12 +16,14 @@ import {
 } from "@/lib/profile-db";
 import { countMatchesThisMonth } from "@/lib/matches-db";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import type { OrgContext } from "@/types/org";
 import { toast } from "sonner";
 import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 
 const PRICING_URL = "https://scoutable.se/#pricing";
+const BILLING_PORTAL_URL = "https://app.scoutable.se/api/billing-portal";
 
 type SubStatus = {
   isActive: boolean;
@@ -133,6 +135,30 @@ export function ProfilePage() {
     const supabase = createClient();
     await supabase.auth.signOut();
     navigate("/auth/login");
+  }
+
+  async function handleManageSubscription() {
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { toast.error("Not signed in"); return; }
+      const res = await tauriFetch(BILLING_PORTAL_URL, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("Billing portal response:", res.status, text);
+        toast.error("Failed to open subscription portal");
+        return;
+      }
+      const { url, error } = await res.json();
+      if (error) { toast.error(error); return; }
+      if (url) await openUrl(url);
+    } catch (e) {
+      console.error("Manage subscription error:", e);
+      toast.error("Failed to open subscription portal");
+    }
   }
 
   if (loading) {
@@ -257,6 +283,18 @@ export function ProfilePage() {
                 />
               </div>
             </div>
+          )}
+
+          {sub?.isActive && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full gap-1.5"
+              onClick={handleManageSubscription}
+            >
+              <ArrowUpRight className="h-3.5 w-3.5" />
+              Manage subscription
+            </Button>
           )}
 
           {isFreeOrRookie && (

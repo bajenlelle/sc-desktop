@@ -117,6 +117,17 @@ export default function ProfilePage() {
     router.push("/login");
   }
 
+  async function handleManageSubscription() {
+    try {
+      const res = await fetch("/api/billing-portal", { method: "POST" });
+      const { url, error } = await res.json();
+      if (error) { toast.error(error); return; }
+      if (url) window.location.href = url;
+    } catch {
+      toast.error("Failed to open subscription portal");
+    }
+  }
+
   if (loading) {
     return (
       <div className="p-6 max-w-2xl mx-auto space-y-4">
@@ -216,6 +227,18 @@ export default function ProfilePage() {
               <span className="text-xs text-muted-foreground">{dateLabel} {periodDate}</span>
             )}
           </div>
+
+          {sub?.isActive && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full gap-1.5"
+              onClick={handleManageSubscription}
+            >
+              <ArrowUpRight className="h-3.5 w-3.5" />
+              Manage subscription
+            </Button>
+          )}
 
           {isFreeOrRookie && (
             <Button

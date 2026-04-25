@@ -68,7 +68,7 @@ function InviteCard({
 
   function handleCopyLink() {
     if (!code) return;
-    navigator.clipboard.writeText(`https://scoutable.app/join/${code}`);
+    navigator.clipboard.writeText(`https://app.scoutable.se/join/${code}`);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
   }
