@@ -12,7 +12,7 @@ import { useAuth } from "@/components/auth-context";
 import { getOrgContext, updateMyProfile, uploadAvatar, getSubscriptionStatus } from "@/lib/profile-db";
 import type { OrgContext } from "@scoutable/shared/types/org";
 import { toast } from "sonner";
-import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight } from "lucide-react";
+import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Loader2 } from "lucide-react";
 import Link from "next/link";
 
 const PRICING_URL = "https://scoutable.se/#pricing";
@@ -58,6 +58,7 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [sub, setSub] = useState<SubStatus | null>(null);
+  const [loadingPortal, setLoadingPortal] = useState(false);
 
   const [fullName, setFullName] = useState("");
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -118,6 +119,7 @@ export default function ProfilePage() {
   }
 
   async function handleManageSubscription() {
+    setLoadingPortal(true);
     try {
       const res = await fetch("/api/billing-portal", { method: "POST" });
       const { url, error } = await res.json();
@@ -125,6 +127,8 @@ export default function ProfilePage() {
       if (url) window.location.href = url;
     } catch {
       toast.error("Failed to open subscription portal");
+    } finally {
+      setLoadingPortal(false);
     }
   }
 
@@ -234,9 +238,10 @@ export default function ProfilePage() {
               size="sm"
               className="w-full gap-1.5"
               onClick={handleManageSubscription}
+              disabled={loadingPortal}
             >
-              <ArrowUpRight className="h-3.5 w-3.5" />
-              Manage subscription
+              {loadingPortal ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
+              {loadingPortal ? "Opening…" : "Manage subscription"}
             </Button>
           )}
 

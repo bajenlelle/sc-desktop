@@ -19,7 +19,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import type { OrgContext } from "@/types/org";
 import { toast } from "sonner";
-import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight } from "lucide-react";
+import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
 
 const PRICING_URL = "https://scoutable.se/#pricing";
@@ -72,6 +72,7 @@ export function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [sub, setSub] = useState<SubStatus | null>(null);
+  const [loadingPortal, setLoadingPortal] = useState(false);
   const [monthCount, setMonthCount] = useState<number | null>(null);
 
   const [fullName, setFullName] = useState("");
@@ -138,6 +139,7 @@ export function ProfilePage() {
   }
 
   async function handleManageSubscription() {
+    setLoadingPortal(true);
     try {
       const supabase = createClient();
       const { data: { session } } = await supabase.auth.getSession();
@@ -158,6 +160,8 @@ export function ProfilePage() {
     } catch (e) {
       console.error("Manage subscription error:", e);
       toast.error("Failed to open subscription portal");
+    } finally {
+      setLoadingPortal(false);
     }
   }
 
@@ -291,9 +295,10 @@ export function ProfilePage() {
               size="sm"
               className="w-full gap-1.5"
               onClick={handleManageSubscription}
+              disabled={loadingPortal}
             >
-              <ArrowUpRight className="h-3.5 w-3.5" />
-              Manage subscription
+              {loadingPortal ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
+              {loadingPortal ? "Opening…" : "Manage subscription"}
             </Button>
           )}
 
