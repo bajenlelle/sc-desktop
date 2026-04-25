@@ -196,6 +196,7 @@ export interface StoredMatch {
   videoUrl?: string;
   syncPoint?: SyncPoint;
   events: PlayByPlayEvent[];
+  leagueId?: string;
 }
 
 // --- Match -------------------------------------------------------------------

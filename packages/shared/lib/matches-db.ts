@@ -24,6 +24,7 @@ interface MatchRow {
   away_roster: Array<{ jerseyNumber: string; playerName: string }>;
   video_url: string | null;
   sync_point: SyncPoint | null;
+  league_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -58,6 +59,7 @@ function rowToStoredMatch(row: MatchRow, events: EventRow[]): StoredMatch {
     awayRoster: row.away_roster,
     videoUrl: row.video_url ?? undefined,
     syncPoint: row.sync_point ?? undefined,
+    leagueId: row.league_id ?? undefined,
     events: events.map((e) => ({
       eventId: e.event_id ?? 0,
       type: e.type,
@@ -94,6 +96,9 @@ export async function saveMatch(supabase: SupabaseClient, match: StoredMatch): P
   };
   if (match.syncPoint !== undefined) {
     matchData.sync_point = match.syncPoint;
+  }
+  if (match.leagueId !== undefined) {
+    matchData.league_id = match.leagueId;
   }
   const { error: matchError } = await supabase.from("matches").upsert(matchData, { onConflict: "id" });
   if (matchError) throw new Error(`Failed to save match: ${matchError.message}`);
@@ -341,4 +346,14 @@ export async function countMatchesThisMonth(supabase: SupabaseClient): Promise<n
     .select("*", { count: "exact", head: true })
     .gte("created_at", startOfMonth);
   return count ?? 0;
+}
+
+export async function countClubMatchesThisMonth(
+  supabase: SupabaseClient,
+  ntLeagueIds: string[]
+): Promise<number> {
+  const { data } = await supabase.rpc("count_club_matches_this_month", {
+    p_nt_league_ids: ntLeagueIds,
+  });
+  return (data as number) ?? 0;
 }

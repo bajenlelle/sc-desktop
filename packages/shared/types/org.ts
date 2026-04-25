@@ -77,6 +77,12 @@ export interface OrgWithCount {
   teamCount: number;
 }
 
+export interface NtMembership {
+  ntOrgId: string;
+  ntOrgName: string;
+  role: 'coach' | 'admin';
+}
+
 /** Loaded once on profile mount; bundles everything the profile page needs. */
 export interface OrgContext {
   profile: UserProfile;
@@ -84,4 +90,5 @@ export interface OrgContext {
   myTeams: OrgTeam[];       // teams the current user belongs to
   allOrgTeams: OrgTeam[];   // all teams in the org (admin view)
   orgMembers: UserProfile[]; // all profiles with this org_id (admin load)
+  ntMemberships: NtMembership[]; // national team org memberships
 }

@@ -1,17 +1,22 @@
 import { useEffect, useState } from "react";
 import { UploadZone } from "@/components/upload-zone";
-import { getOrgContext } from "@/lib/profile-db";
+import { getOrgContext, getSubscriptionStatus } from "@/lib/profile-db";
+import type { NtMembership } from "@/types/org";
 
 export function UploadPage() {
-  const [isNationalTeam, setIsNationalTeam] = useState(false);
+  const [ntMemberships, setNtMemberships] = useState<NtMembership[]>([]);
+  const [hasClubAccess, setHasClubAccess] = useState(false);
 
   useEffect(() => {
-    getOrgContext().then((ctx) => setIsNationalTeam(ctx.profile.isNationalTeam));
+    Promise.all([getOrgContext(), getSubscriptionStatus()]).then(([ctx, sub]) => {
+      setNtMemberships(ctx.ntMemberships);
+      setHasClubAccess(!!ctx.profile.orgId || sub.isActive);
+    });
   }, []);
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
-      <UploadZone isNationalTeam={isNationalTeam} />
+      <UploadZone ntMemberships={ntMemberships} hasClubAccess={hasClubAccess} />
     </div>
   );
 }

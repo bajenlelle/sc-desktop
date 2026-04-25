@@ -8,8 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { saveMatch, countMatchesThisMonth } from "@/lib/matches-db";
+import { saveMatch, countClubMatchesThisMonth } from "@/lib/matches-db";
 import { getSubscriptionStatus } from "@/lib/profile-db";
+import type { NtMembership } from "@/types/org";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
 import { fetchBoxscore, fetchPlayByPlay, fetchPlayByPlaySportradar, fetchSchedule, fetchScheduleSportradar, LEAGUES, NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
 import type { ScheduleGame, League } from "@/lib/basketball-api";
@@ -118,12 +119,20 @@ function GameRow({
   );
 }
 
-export function UploadZone({ isNationalTeam = false }: { isNationalTeam?: boolean }) {
+export function UploadZone({
+  ntMemberships = [],
+  hasClubAccess = false,
+}: {
+  ntMemberships?: NtMembership[];
+  hasClubAccess?: boolean;
+}) {
   const navigate = useNavigate();
 
-  const leagueList = isNationalTeam
-    ? NATIONAL_TEAM_LEAGUES
-    : LEAGUES.filter((l) => l.id !== "austria-zweite-liga");
+  const hasNtAccess = ntMemberships.length > 0;
+  const leagueList = [
+    ...(hasClubAccess ? LEAGUES.filter((l) => l.id !== "austria-zweite-liga") : []),
+    ...(hasNtAccess ? NATIONAL_TEAM_LEAGUES : []),
+  ];
 
   // League + schedule picker state
   const [selectedLeague, setSelectedLeague] = useState<League>(leagueList[0]);
@@ -306,12 +315,17 @@ export function UploadZone({ isNationalTeam = false }: { isNationalTeam?: boolea
   }
 
   async function handleSubmit() {
-    const [sub, count] = await Promise.all([getSubscriptionStatus(), countMatchesThisMonth()]);
-    const limit = getMonthlyImportLimit(sub);
-    if (limit !== null && count >= limit) {
-      setImportLimitInfo({ count, limit });
-      setImportLimitDialogOpen(true);
-      return;
+    const isNtLeague = NATIONAL_TEAM_LEAGUES.some((l) => l.id === selectedLeague.id);
+
+    if (!isNtLeague) {
+      const ntLeagueIds = NATIONAL_TEAM_LEAGUES.map((l) => l.id);
+      const [sub, count] = await Promise.all([getSubscriptionStatus(), countClubMatchesThisMonth(ntLeagueIds)]);
+      const limit = getMonthlyImportLimit(sub);
+      if (limit !== null && count >= limit) {
+        setImportLimitInfo({ count, limit });
+        setImportLimitDialogOpen(true);
+        return;
+      }
     }
 
     if (!selectedGame) {
@@ -345,6 +359,7 @@ export function UploadZone({ isNationalTeam = false }: { isNationalTeam?: boolea
       videoUrl: videoPath ?? undefined,
       syncPoint,
       events: playByPlayEvents,
+      leagueId: selectedLeague.id,
     };
 
     try {

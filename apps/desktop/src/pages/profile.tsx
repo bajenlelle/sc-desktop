@@ -14,7 +14,8 @@ import {
   uploadAvatar,
   getSubscriptionStatus,
 } from "@/lib/profile-db";
-import { countMatchesThisMonth } from "@/lib/matches-db";
+import { countClubMatchesThisMonth } from "@/lib/matches-db";
+import { NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import type { OrgContext } from "@/types/org";
@@ -82,10 +83,11 @@ export function ProfilePage() {
 
   async function load() {
     try {
+      const ntLeagueIds = NATIONAL_TEAM_LEAGUES.map((l) => l.id);
       const [context, subStatus, count] = await Promise.all([
         getOrgContext(),
         getSubscriptionStatus(),
-        countMatchesThisMonth(),
+        countClubMatchesThisMonth(ntLeagueIds),
       ]);
       setCtx(context);
       setSub(subStatus);
@@ -236,6 +238,11 @@ export function ProfilePage() {
                     {ctx.org.name}
                   </span>
                 )}
+                {ctx.ntMemberships.map((nt) => (
+                  <Badge key={nt.ntOrgId} variant="outline" className="text-xs border-amber-500/50 text-amber-600">
+                    {nt.ntOrgName}
+                  </Badge>
+                ))}
               </div>
             </div>
           </div>

@@ -33,3 +33,4 @@ export const updateFolder = (id: string, patch: { name?: string; sortOrder?: num
 export const deleteFolder = (id: string) => db.deleteFolder(c(), id);
 export const listMatchesLight = () => db.listMatchesLight(c());
 export const countMatchesThisMonth = () => db.countMatchesThisMonth(c());
+export const countClubMatchesThisMonth = (ntLeagueIds: string[]) => db.countClubMatchesThisMonth(c(), ntLeagueIds);
