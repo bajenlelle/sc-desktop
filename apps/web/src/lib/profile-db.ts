@@ -393,14 +393,26 @@ export async function promoteToAdmin(userId: string): Promise<void> {
   }
 }
 
-export async function createOrgForPlatform(name: string): Promise<string> {
+export async function createOrgForPlatform(name: string, isNtOrg = false): Promise<string> {
   const supabase = createClient();
-  const { data, error } = await supabase.rpc("create_org_for_platform", { org_name: name });
+  const { data, error } = await supabase.rpc("create_org_for_platform", {
+    org_name: name,
+    p_is_nt_org: isNtOrg,
+  });
   if (error) {
     if (error.message.includes("not_platform_admin")) throw new Error("Not authorized as platform admin.");
     throw new Error(`Failed to create organization: ${error.message}`);
   }
   return data as string;
+}
+
+export async function deleteOrgForPlatform(orgId: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.rpc("delete_org_for_platform", { p_org_id: orgId });
+  if (error) {
+    if (error.message.includes("not_platform_admin")) throw new Error("Not authorized as platform admin.");
+    throw new Error(`Failed to delete organization: ${error.message}`);
+  }
 }
 
 export async function generateAdminOrgInviteCode(orgId: string): Promise<string> {

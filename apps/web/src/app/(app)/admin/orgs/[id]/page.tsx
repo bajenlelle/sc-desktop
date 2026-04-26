@@ -23,6 +23,7 @@ import {
   generateAdminOrgInviteCode,
   updateOrgLicense,
   removeOrgMember,
+  deleteOrgForPlatform,
 } from "@/lib/profile-db";
 import type { Organization, UserProfile } from "@scoutable/shared/types/org";
 import { useAuth } from "@/components/auth-context";
@@ -84,6 +85,8 @@ export default function OrgDetailPage() {
   const [copied, setCopied] = useState(false);
 
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -179,6 +182,20 @@ export default function OrgDetailPage() {
     setTimeout(() => setCopied(false), 2000);
   }
 
+  async function handleDeleteOrg() {
+    if (!orgId) return;
+    setDeleting(true);
+    try {
+      await deleteOrgForPlatform(orgId);
+      toast.success("Organization deleted");
+      router.replace("/admin");
+    } catch (e) {
+      toast.error((e as Error).message);
+      setDeleting(false);
+      setDeleteDialogOpen(false);
+    }
+  }
+
   async function handleRemoveMember(memberId: string) {
     setRemovingId(memberId);
     try {
@@ -227,9 +244,14 @@ export default function OrgDetailPage() {
           <span className="text-muted-foreground">/</span>
           <h1 className="text-xl font-bold tracking-tight text-foreground">{org.name}</h1>
         </div>
-        <Button variant="outline" size="sm" onClick={() => { setEditName(org.name); setEditNameOpen(true); }}>
-          Edit Name
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => { setEditName(org.name); setEditNameOpen(true); }}>
+            Edit Name
+          </Button>
+          <Button variant="destructive" size="sm" onClick={() => setDeleteDialogOpen(true)}>
+            Delete
+          </Button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -387,6 +409,24 @@ export default function OrgDetailPage() {
             <Button variant="outline" onClick={() => setEditNameOpen(false)}>Cancel</Button>
             <Button onClick={handleSaveName} disabled={savingName || !editName.trim()}>
               {savingName ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Org Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {org.name}?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This will permanently delete the organization. All members will be detached from the org but their accounts remain intact. This cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={deleting}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDeleteOrg} disabled={deleting}>
+              {deleting ? "Deleting…" : "Delete organization"}
             </Button>
           </DialogFooter>
         </DialogContent>

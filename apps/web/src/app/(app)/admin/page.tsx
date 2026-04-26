@@ -27,6 +27,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newOrgName, setNewOrgName] = useState("");
+  const [newOrgIsNt, setNewOrgIsNt] = useState(false);
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
@@ -62,9 +63,10 @@ export default function AdminPage() {
     if (!newOrgName.trim()) return;
     setCreating(true);
     try {
-      await createOrgForPlatform(newOrgName.trim());
+      await createOrgForPlatform(newOrgName.trim(), newOrgIsNt);
       toast.success("Organization created");
       setNewOrgName("");
+      setNewOrgIsNt(false);
       setDialogOpen(false);
       await loadOrgs();
     } catch (e) {
@@ -161,6 +163,18 @@ export default function AdminPage() {
             onKeyDown={(e) => e.key === "Enter" && handleCreateOrg()}
             autoFocus
           />
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={newOrgIsNt}
+              onChange={(e) => setNewOrgIsNt(e.target.checked)}
+              className="h-4 w-4 rounded border-border"
+            />
+            <div>
+              <span className="text-sm font-medium">National Team organization</span>
+              <p className="text-xs text-muted-foreground">Coaches join as secondary members (no org switch required)</p>
+            </div>
+          </label>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               Cancel
