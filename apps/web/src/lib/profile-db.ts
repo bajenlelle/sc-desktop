@@ -522,7 +522,7 @@ export async function getOrgMembersForAdmin(orgId: string): Promise<UserProfile[
   const supabase = createClient();
   const { data, error } = await supabase.rpc("get_org_members", { p_org_id: orgId });
   if (error) throw new Error(`Failed to load org members: ${error.message}`);
-  return (data ?? []).map((r) => rowToOrgMember(r as OrgMemberRow));
+  return (data ?? []).map((r: OrgMemberRow) => rowToOrgMember(r));
 }
 
 export async function joinByCode(code: string): Promise<{ type: "org" | "team" | "secondary_org"; orgId: string; teamId?: string }> {
