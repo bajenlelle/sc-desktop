@@ -208,22 +208,26 @@ export async function getOrgContext(): Promise<OrgContext> {
     .eq("id", user.id)
     .single();
   if (profileRes.error || !profileRes.data) throw new Error(`Failed to load profile: ${profileRes.error?.message}`);
-  const profile = rowToProfile(profileRes.data as ProfileRow);
+  const baseProfile = rowToProfile(profileRes.data as ProfileRow);
 
   let org: Organization | null = null;
   let allOrgTeams: OrgTeam[] = [];
   let orgMembers: UserProfile[] = [];
 
-  if (profile.orgId) {
+  if (baseProfile.orgId) {
     const [orgRes, teamsRes, membersRes] = await Promise.all([
-      supabase.from("organizations").select("id, name, logo_url, created_at, coach_seat_limit, player_seat_limit, expires_at, is_nt_org").eq("id", profile.orgId).single(),
-      supabase.from("teams").select("id, org_id, name, sport, season, created_at").eq("org_id", profile.orgId),
-      supabase.rpc("get_org_members", { p_org_id: profile.orgId }),
+      supabase.from("organizations").select("id, name, logo_url, created_at, coach_seat_limit, player_seat_limit, expires_at, is_nt_org").eq("id", baseProfile.orgId).single(),
+      supabase.from("teams").select("id, org_id, name, sport, season, created_at").eq("org_id", baseProfile.orgId),
+      supabase.rpc("get_org_members", { p_org_id: baseProfile.orgId }),
     ]);
     if (orgRes.data) org = rowToOrg(orgRes.data as OrgRow);
     if (teamsRes.data) allOrgTeams = (teamsRes.data as TeamRow[]).map(rowToTeam);
     if (membersRes.data) orgMembers = (membersRes.data as OrgMemberRow[]).map(rowToOrgMember);
   }
+
+  // Use org_memberships role as the authoritative role (profiles.role may be stale)
+  const myMembership = orgMembers.find((m) => m.id === user.id);
+  const profile: UserProfile = { ...baseProfile, role: (myMembership?.role ?? baseProfile.role) as UserProfile["role"] };
 
   const membershipsRes = await supabase
     .from("team_members")
