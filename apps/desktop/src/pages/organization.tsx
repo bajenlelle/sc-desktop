@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   getOrgContext,
+  getOrgContextForOrg,
   generateInviteCode,
   listInvitesForTeam,
   deleteInvite,
@@ -461,14 +462,15 @@ export function OrganizationPage() {
   const [newTeamName, setNewTeamName] = useState("");
   const [newTeamSeason, setNewTeamSeason] = useState("");
   const [creatingTeam, setCreatingTeam] = useState(false);
+  const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
 
-  async function load() {
+  async function load(orgId?: string) {
     try {
-      const context = await getOrgContext();
+      const context = orgId ? await getOrgContextForOrg(orgId) : await getOrgContext();
       setCtx(context);
 
-      if (context.allOrgTeams.length > 0) {
-        const counts = await getTeamMemberCounts(context.org!.id);
+      if (context.org && context.allOrgTeams.length > 0) {
+        const counts = await getTeamMemberCounts(context.org.id);
         setMemberCounts(counts);
       }
 
@@ -494,16 +496,31 @@ export function OrganizationPage() {
 
   useEffect(() => { load(); }, []);
 
+  function handleSelectOrg(orgId: string | null) {
+    setSelectedOrgId(orgId);
+    setLoading(true);
+    load(orgId ?? undefined);
+  }
+
+  const ctxSecondaryOrgs = ctx?.secondaryOrgs ?? [];
+
+  // Auto-select first secondary org if user has no primary org
+  useEffect(() => {
+    if (!loading && ctx?.org === null && ctxSecondaryOrgs.length > 0 && selectedOrgId === null) {
+      handleSelectOrg(ctxSecondaryOrgs[0].orgId);
+    }
+  }, [loading, ctx?.org, ctxSecondaryOrgs.length]);
+
   async function handleCreateTeam() {
     if (!newTeamName.trim()) return;
     setCreatingTeam(true);
     try {
-      await createTeam(newTeamName.trim(), newTeamSeason.trim() || undefined);
+      await createTeam(newTeamName.trim(), newTeamSeason.trim() || undefined, selectedOrgId ?? undefined);
       toast.success("Team created");
       setNewTeamName("");
       setNewTeamSeason("");
       setShowNewTeam(false);
-      await load();
+      await load(selectedOrgId ?? undefined);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -516,7 +533,7 @@ export function OrganizationPage() {
     try {
       await joinOrgTeam(teamId);
       toast.success("Joined team!");
-      await load();
+      await load(selectedOrgId ?? undefined);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -530,7 +547,7 @@ export function OrganizationPage() {
     try {
       await promoteToAdmin(userId, orgId);
       toast.success("Member promoted to admin");
-      await load();
+      await load(selectedOrgId ?? undefined);
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -543,7 +560,7 @@ export function OrganizationPage() {
     try {
       await removeOrgMember(userId, orgId);
       toast.success("Member removed");
-      await load();
+      await load(selectedOrgId ?? undefined);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -580,6 +597,9 @@ export function OrganizationPage() {
   const canManageTeams = isAdmin || isCoach;
 
   if (ctx.org === null) {
+    if (ctxSecondaryOrgs.length > 0 && selectedOrgId === null) {
+      return <div className="p-6 max-w-3xl mx-auto"><p className="text-sm text-muted-foreground">Loading…</p></div>;
+    }
     return (
       <div className="p-6 max-w-3xl mx-auto space-y-4">
         <div>
@@ -600,8 +620,37 @@ export function OrganizationPage() {
   const myTeamIds = new Set(ctx.myTeams.map((t) => t.id));
   const otherTeams = ctx.allOrgTeams.filter((t) => !myTeamIds.has(t.id));
 
+  const primaryOrgId = ctx.profile.orgId;
+  const allOrgTabs = [
+    ...(primaryOrgId ? [{ orgId: primaryOrgId, orgName: org.name, isNtOrg: org.isNtOrg }] : []),
+    ...ctxSecondaryOrgs.map((s) => ({ orgId: s.orgId, orgName: s.orgName, isNtOrg: s.isNtOrg })),
+  ];
+  const showOrgTabs = allOrgTabs.length > 1;
+  const currentOrgTabId = selectedOrgId ?? primaryOrgId ?? null;
+
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
+      {/* Org switcher tabs */}
+      {showOrgTabs && (
+        <div className="flex gap-1 border-b border-border -mb-2">
+          {allOrgTabs.map((tab) => (
+            <button
+              key={tab.orgId}
+              type="button"
+              onClick={() => handleSelectOrg(tab.orgId === primaryOrgId ? null : tab.orgId)}
+              className={[
+                "px-3 py-2 text-sm font-medium rounded-t-md border border-transparent transition-colors",
+                currentOrgTabId === tab.orgId
+                  ? "border-border border-b-background bg-background -mb-px text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              ].join(" ")}
+            >
+              {tab.orgName}{tab.isNtOrg && <span className="ml-1 text-xs opacity-60">NT</span>}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center gap-3">
         <div>

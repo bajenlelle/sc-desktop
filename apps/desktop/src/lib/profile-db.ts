@@ -252,6 +252,35 @@ export async function getMySecondaryOrgs(): Promise<SecondaryOrg[]> {
   );
 }
 
+export async function getOrgContextForOrg(orgId: string): Promise<OrgContext> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  const [profileRes, orgRes, teamsRes, membersRes] = await Promise.all([
+    supabase.from("profiles").select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin").eq("id", user.id).single(),
+    supabase.from("organizations").select("id, name, logo_url, created_at, coach_seat_limit, player_seat_limit, expires_at, is_nt_org").eq("id", orgId).single(),
+    supabase.from("teams").select("id, org_id, name, sport, season, created_at").eq("org_id", orgId),
+    supabase.rpc("get_org_members", { p_org_id: orgId }),
+  ]);
+
+  if (profileRes.error || !profileRes.data) throw new Error(`Failed to load profile: ${profileRes.error?.message}`);
+  const baseProfile = rowToProfile(profileRes.data as ProfileRow);
+  const org = orgRes.data ? rowToOrg(orgRes.data as OrgRow) : null;
+  const allOrgTeams = teamsRes.data ? (teamsRes.data as TeamRow[]).map(rowToTeam) : [];
+  const orgMembers = membersRes.data ? (membersRes.data as OrgMemberRow[]).map(rowToOrgMember) : [];
+
+  const myMembership = orgMembers.find((m) => m.id === user.id);
+  const profile: UserProfile = { ...baseProfile, role: (myMembership?.role ?? baseProfile.role) as UserProfile["role"] };
+
+  const membershipsRes = await supabase.from("team_members").select("id, team_id, user_id, role, joined_at").eq("user_id", user.id);
+  const memberTeamIds = new Set(membershipsRes.error ? [] : (membershipsRes.data ?? []).map((m: TeamMemberRow) => m.team_id));
+  const myTeams = allOrgTeams.filter((t) => memberTeamIds.has(t.id));
+  const secondaryOrgs = await getMySecondaryOrgs();
+
+  return { profile, org, myTeams, allOrgTeams, orgMembers, secondaryOrgs };
+}
+
 // ---------------------------------------------------------------------------
 // Org / Team creation (via SECURITY DEFINER RPCs)
 // ---------------------------------------------------------------------------

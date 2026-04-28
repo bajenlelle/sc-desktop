@@ -324,7 +324,7 @@ export function ProfilePage() {
       </Card>
 
       {/* ── Org & Teams ── */}
-      {ctx.org && ctx.myTeams.length > 0 && (
+      {(ctx.org || ctx.secondaryOrgs.length > 0) && (
         <Card>
           <CardContent className="p-6 space-y-3">
             <div className="flex items-center justify-between">
@@ -336,9 +336,17 @@ export function ProfilePage() {
                 Manage <ChevronRight className="h-3 w-3" />
               </Link>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-foreground">{ctx.org.name}</span>
-            </div>
+            {ctx.org && (
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-foreground">{ctx.org.name}</span>
+              </div>
+            )}
+            {ctx.secondaryOrgs.map((s) => (
+              <div key={s.orgId} className="flex items-center justify-between">
+                <span className="text-sm text-foreground">{s.orgName}</span>
+                {s.isNtOrg && <span className="text-xs text-muted-foreground">NT</span>}
+              </div>
+            ))}
             {ctx.myTeams.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {ctx.myTeams.map((team) => (

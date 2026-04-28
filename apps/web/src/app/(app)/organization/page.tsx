@@ -29,6 +29,7 @@ import { Clipboard, Check, RefreshCw, ChevronDown, ChevronUp, Link2 } from "luci
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth-context";
 import Link from "next/link";
+import { cn } from "@/lib/utils";
 
 function roleBadgeVariant(
   role: string,

@@ -135,7 +135,14 @@ export function UploadZone({
   ];
 
   // League + schedule picker state
-  const [selectedLeague, setSelectedLeague] = useState<League>(leagueList[0]);
+  const [selectedLeague, setSelectedLeague] = useState<League | null>(null);
+
+  // Auto-select first league once leagueList is populated (props load async)
+  useEffect(() => {
+    if (leagueList.length > 0 && selectedLeague === null) {
+      setSelectedLeague(leagueList[0]);
+    }
+  }, [leagueList.length]);
   const [scheduleGames, setScheduleGames] = useState<ScheduleGame[]>([]);
   const [scheduleStatus, setScheduleStatus] = useState<"loading" | "idle" | "error">("loading");
   const [searchQuery, setSearchQuery] = useState("");
@@ -181,6 +188,7 @@ export function UploadZone({
 
 
   useEffect(() => {
+    if (!selectedLeague) return;
     setScheduleStatus("loading");
     setScheduleGames([]);
     const promise = selectedLeague.provider === "sportradar"
@@ -204,13 +212,14 @@ export function UploadZone({
   });
 
   function handleLeagueChange(league: League) {
-    if (league.id === selectedLeague.id) return;
+    if (selectedLeague && league.id === selectedLeague.id) return;
     setSelectedLeague(league);
     setSelectedGame(null);
     setSearchQuery("");
   }
 
   async function handleSelectGame(game: ScheduleGame) {
+    if (!selectedLeague) return;
     setSelectedGame(game);
     setFetchStatus("loading");
     setFetchError(null);
@@ -315,6 +324,7 @@ export function UploadZone({
   }
 
   async function handleSubmit() {
+    if (!selectedLeague) return;
     const isNtLeague = NATIONAL_TEAM_LEAGUES.some((l) => l.id === selectedLeague.id);
 
     if (!isNtLeague) {
@@ -392,6 +402,8 @@ export function UploadZone({
     : null;
 
   const isSubmitting = submitStatus === "saving";
+
+  if (!selectedLeague) return null;
 
   return (
     <>
