@@ -2,14 +2,15 @@ import { createContext, useContext, useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { identifyUser, resetUser, trackEvent } from "@/lib/analytics";
-import { getMyProfile } from "@/lib/profile-db";
-import type { UserProfile } from "@/types/org";
+import { getMyProfile, getMySecondaryOrgs } from "@/lib/profile-db";
+import type { UserProfile, SecondaryOrg } from "@/types/org";
 
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
   profile: UserProfile | null;
   profileLoading: boolean;
+  secondaryOrgs: SecondaryOrg[];
   reloadProfile: () => Promise<void>;
 }
 
@@ -18,6 +19,7 @@ const AuthContext = createContext<AuthContextValue>({
   loading: true,
   profile: null,
   profileLoading: true,
+  secondaryOrgs: [],
   reloadProfile: async () => {},
 });
 
@@ -26,15 +28,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
+  const [secondaryOrgs, setSecondaryOrgs] = useState<SecondaryOrg[]>([]);
 
   async function loadProfile(userId: string) {
     setProfileLoading(true);
     try {
-      const p = await getMyProfile(userId);
+      const [p, orgs] = await Promise.all([getMyProfile(userId), getMySecondaryOrgs()]);
       setProfile(p);
+      setSecondaryOrgs(orgs);
     } catch (err) {
       console.error("[auth] loadProfile failed:", err);
       setProfile(null);
+      setSecondaryOrgs([]);
     } finally {
       setProfileLoading(false);
     }
@@ -57,6 +62,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           resetUser();
         }
         setProfile(null);
+        setSecondaryOrgs([]);
         setProfileLoading(false);
       }
 
@@ -66,7 +72,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, profile, profileLoading, reloadProfile: () => user ? loadProfile(user.id) : Promise.resolve() }}>
+    <AuthContext.Provider value={{ user, loading, profile, profileLoading, secondaryOrgs, reloadProfile: () => user ? loadProfile(user.id) : Promise.resolve() }}>
       {children}
     </AuthContext.Provider>
   );

@@ -10,7 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { saveMatch, countClubMatchesThisMonth } from "@/lib/matches-db";
 import { getSubscriptionStatus } from "@/lib/profile-db";
-import type { NtMembership } from "@/types/org";
+import type { SecondaryOrg } from "@/types/org";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
 import { fetchBoxscore, fetchPlayByPlay, fetchPlayByPlaySportradar, fetchSchedule, fetchScheduleSportradar, LEAGUES, NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
 import type { ScheduleGame, League } from "@/lib/basketball-api";
@@ -123,7 +123,7 @@ export function UploadZone({
   ntMemberships = [],
   hasClubAccess = false,
 }: {
-  ntMemberships?: NtMembership[];
+  ntMemberships?: SecondaryOrg[];
   hasClubAccess?: boolean;
 }) {
   const navigate = useNavigate();

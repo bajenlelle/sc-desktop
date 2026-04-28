@@ -18,6 +18,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import type { UserProfile } from "@scoutable/shared/types/org";
+import { useAuth } from "@/components/auth-context";
 
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
@@ -39,9 +40,10 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
   const pathname = usePathname();
   const router = useRouter();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const { secondaryOrgs } = useAuth();
 
   const isCoachOrAdmin = profile?.role === "coach" || profile?.role === "admin";
-  const hasOrg = !profile || !!profile.orgId || !!profile.isPlatformAdmin;
+  const hasOrg = !profile || !!profile.orgId || !!profile.isPlatformAdmin || secondaryOrgs.length > 0;
   const navLinks = [
     { href: "/my-playlists", label: isCoachOrAdmin ? "Shared Playlists" : "My Playlists" },
     { href: "/organization", label: "Organization" },

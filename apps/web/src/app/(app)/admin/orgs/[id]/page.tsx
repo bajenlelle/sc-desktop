@@ -199,7 +199,7 @@ export default function OrgDetailPage() {
   async function handleRemoveMember(memberId: string) {
     setRemovingId(memberId);
     try {
-      await removeOrgMember(memberId);
+      await removeOrgMember(memberId, orgId);
       toast.success("Member removed");
       await loadData();
     } catch (e) {
@@ -318,18 +318,14 @@ export default function OrgDetailPage() {
                   className="flex items-center justify-between rounded-lg border border-border px-4 py-3"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-sm">{m.fullName ?? m.id.slice(0, 8)}</span>
+                    <span className="text-sm">{m.fullName ?? m.email ?? m.id.slice(0, 8)}</span>
                     <Badge variant={roleBadgeVariant(m.role, m.isPlatformAdmin)} className="text-xs">
                       {m.isPlatformAdmin ? "platform admin" : m.role}
                     </Badge>
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-xs text-muted-foreground">
-                      {new Date(m.createdAt).toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                      })}
+                      {new Date(m.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </span>
                     {!m.isPlatformAdmin && (
                       <Button

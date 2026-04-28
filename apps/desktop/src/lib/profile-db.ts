@@ -4,7 +4,7 @@
  */
 
 import { createClient } from "@/lib/supabase/client";
-import type { UserProfile, Organization, OrgTeam, TeamMember, TeamInvite, OrgInvite, OrgContext, OrgWithCount, NtMembership } from "@/types/org";
+import type { UserProfile, Organization, OrgTeam, TeamMember, TeamInvite, OrgInvite, OrgContext, OrgWithCount, SecondaryOrg } from "@/types/org";
 
 // ---------------------------------------------------------------------------
 // Row types (snake_case Postgres columns)
@@ -18,8 +18,16 @@ interface ProfileRow {
   org_id: string | null;
   created_at: string;
   is_platform_admin: boolean;
-  is_national_team: boolean;
   email?: string | null;
+}
+
+interface OrgMemberRow {
+  id: string;
+  full_name: string | null;
+  avatar_url: string | null;
+  email: string | null;
+  role: string;
+  joined_at: string;
 }
 
 interface OrgRow {
@@ -30,6 +38,7 @@ interface OrgRow {
   coach_seat_limit: number | null;
   player_seat_limit: number | null;
   expires_at: string | null;
+  is_nt_org?: boolean;
 }
 
 interface TeamRow {
@@ -88,7 +97,19 @@ function rowToProfile(r: ProfileRow): UserProfile {
     orgId: r.org_id,
     createdAt: r.created_at,
     isPlatformAdmin: r.is_platform_admin ?? false,
-    isNationalTeam: r.is_national_team ?? false,
+  };
+}
+
+function rowToOrgMember(r: OrgMemberRow): UserProfile {
+  return {
+    id: r.id,
+    fullName: r.full_name,
+    email: r.email,
+    avatarUrl: r.avatar_url,
+    role: r.role as UserProfile['role'],
+    orgId: null,
+    createdAt: r.joined_at,
+    isPlatformAdmin: false,
   };
 }
 
@@ -101,6 +122,7 @@ function rowToOrg(r: OrgRow): Organization {
     coachSeatLimit: r.coach_seat_limit ?? null,
     playerSeatLimit: r.player_seat_limit ?? null,
     expiresAt: r.expires_at ?? null,
+    isNtOrg: r.is_nt_org ?? false,
   };
 }
 
@@ -139,7 +161,7 @@ export async function getMyProfile(userId: string): Promise<UserProfile> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin, is_national_team")
+    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin")
     .eq("id", userId)
     .single();
   if (error || !data) throw new Error(`Failed to load profile: ${error?.message}`);
@@ -182,7 +204,7 @@ export async function getOrgContext(): Promise<OrgContext> {
 
   const profileRes = await supabase
     .from("profiles")
-    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin, is_national_team")
+    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin")
     .eq("id", user.id)
     .single();
   if (profileRes.error || !profileRes.data) throw new Error(`Failed to load profile: ${profileRes.error?.message}`);
@@ -194,17 +216,15 @@ export async function getOrgContext(): Promise<OrgContext> {
 
   if (profile.orgId) {
     const [orgRes, teamsRes, membersRes] = await Promise.all([
-      supabase.from("organizations").select("id, name, logo_url, created_at, coach_seat_limit, player_seat_limit, expires_at").eq("id", profile.orgId).single(),
+      supabase.from("organizations").select("id, name, logo_url, created_at, coach_seat_limit, player_seat_limit, expires_at, is_nt_org").eq("id", profile.orgId).single(),
       supabase.from("teams").select("id, org_id, name, sport, season, created_at").eq("org_id", profile.orgId),
-      supabase.rpc("get_org_members_with_email"),
+      supabase.rpc("get_org_members", { p_org_id: profile.orgId }),
     ]);
     if (orgRes.data) org = rowToOrg(orgRes.data as OrgRow);
     if (teamsRes.data) allOrgTeams = (teamsRes.data as TeamRow[]).map(rowToTeam);
-    if (membersRes.data) orgMembers = (membersRes.data as ProfileRow[]).map(rowToProfile);
+    if (membersRes.data) orgMembers = (membersRes.data as OrgMemberRow[]).map(rowToOrgMember);
   }
 
-  // My teams: teams where I have a team_members row.
-  // Non-fatal: table may not exist yet if migrations haven't been pushed.
   const membershipsRes = await supabase
     .from("team_members")
     .select("id, team_id, user_id, role, joined_at")
@@ -214,17 +234,22 @@ export async function getOrgContext(): Promise<OrgContext> {
   );
   const myTeams = allOrgTeams.filter((t) => memberTeamIds.has(t.id));
 
-  // Fetch NT memberships
-  const ntRes = await supabase.rpc("get_my_nt_memberships");
-  const ntMemberships: NtMembership[] = (ntRes.data ?? []).map(
-    (r: { nt_org_id: string; nt_org_name: string; role: string }) => ({
-      ntOrgId: r.nt_org_id,
-      ntOrgName: r.nt_org_name,
+  const secondaryOrgs = await getMySecondaryOrgs();
+
+  return { profile, org, myTeams, allOrgTeams, orgMembers, secondaryOrgs };
+}
+
+export async function getMySecondaryOrgs(): Promise<SecondaryOrg[]> {
+  const supabase = createClient();
+  const res = await supabase.rpc("get_my_secondary_orgs");
+  return (res.data ?? []).map(
+    (r: { org_id: string; org_name: string; role: string; is_nt_org: boolean }) => ({
+      orgId: r.org_id,
+      orgName: r.org_name,
       role: r.role as 'coach' | 'admin',
+      isNtOrg: r.is_nt_org,
     })
   );
-
-  return { profile, org, myTeams, allOrgTeams, orgMembers, ntMemberships };
 }
 
 // ---------------------------------------------------------------------------
@@ -241,11 +266,12 @@ export async function createOrg(name: string): Promise<string> {
   return data as string;
 }
 
-export async function createTeam(name: string, season?: string): Promise<string> {
+export async function createTeam(name: string, season?: string, orgId?: string): Promise<string> {
   const supabase = createClient();
   const { data, error } = await supabase.rpc("create_team_for_org", {
     team_name: name,
     team_season: season ?? null,
+    p_org_id: orgId ?? null,
   });
   if (error) {
     if (error.message.includes("not_admin")) throw new Error("Only org admins can create teams.");
@@ -340,7 +366,6 @@ export async function getTeamMemberCounts(orgId: string): Promise<Record<string,
 export async function generateOrgInviteCode(
   orgId: string,
   role: 'coach' | 'player',
-  isNationalTeam = false,
   maxUses?: number
 ): Promise<string> {
   const supabase = createClient();
@@ -349,7 +374,6 @@ export async function generateOrgInviteCode(
     p_role: role,
     p_max_uses: maxUses ?? null,
     p_expires_in_hours: null,
-    p_is_national_team: isNationalTeam,
   });
   if (error) throw new Error(`Failed to generate org invite: ${error.message}`);
   return data as string;
@@ -387,12 +411,9 @@ export async function joinOrgByCode(code: string): Promise<string> {
 
 export async function getOrgMembers(orgId: string): Promise<UserProfile[]> {
   const supabase = createClient();
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin, is_national_team")
-    .eq("org_id", orgId);
+  const { data, error } = await supabase.rpc("get_org_members", { p_org_id: orgId });
   if (error) throw new Error(`Failed to load org members: ${error.message}`);
-  return (data ?? []).map((r) => rowToProfile(r as ProfileRow));
+  return (data ?? []).map((r) => rowToOrgMember(r as OrgMemberRow));
 }
 
 export async function assignMemberToTeam(
@@ -458,7 +479,7 @@ interface OrgWithCountRow {
   team_count: number;
 }
 
-export async function joinByCode(code: string): Promise<{ type: 'org' | 'team' | 'nt_org'; orgId: string; teamId?: string }> {
+export async function joinByCode(code: string): Promise<{ type: 'org' | 'team' | 'secondary_org'; orgId: string; teamId?: string }> {
   const supabase = createClient();
   const { data, error } = await supabase.rpc("join_by_code", { p_code: code.toUpperCase() });
   if (error) {
@@ -469,7 +490,7 @@ export async function joinByCode(code: string): Promise<{ type: 'org' | 'team' |
     throw new Error(`Failed to join: ${error.message}`);
   }
   const result = data as { type: string; org_id: string; team_id?: string };
-  return { type: result.type as 'org' | 'team' | 'nt_org', orgId: result.org_id, teamId: result.team_id };
+  return { type: result.type as 'org' | 'team' | 'secondary_org', orgId: result.org_id, teamId: result.team_id };
 }
 
 export async function getInvitePreview(code: string): Promise<{
@@ -516,9 +537,9 @@ export async function removeTeamMember(userId: string, teamId: string): Promise<
   }
 }
 
-export async function removeOrgMember(userId: string): Promise<void> {
+export async function removeOrgMember(userId: string, orgId: string): Promise<void> {
   const supabase = createClient();
-  const { error } = await supabase.rpc("remove_member_from_org", { p_user_id: userId });
+  const { error } = await supabase.rpc("remove_member_from_org", { p_user_id: userId, p_org_id: orgId });
   if (error) {
     if (error.message.includes("not_admin")) throw new Error("Only org admins can remove members.");
     if (error.message.includes("user_not_in_org")) throw new Error("User is not in your organization.");
@@ -526,9 +547,9 @@ export async function removeOrgMember(userId: string): Promise<void> {
   }
 }
 
-export async function promoteToAdmin(userId: string): Promise<void> {
+export async function promoteToAdmin(userId: string, orgId?: string): Promise<void> {
   const supabase = createClient();
-  const { error } = await supabase.rpc("promote_to_admin", { p_user_id: userId });
+  const { error } = await supabase.rpc("promote_to_admin", { p_user_id: userId, p_org_id: orgId ?? null });
   if (error) {
     if (error.message.includes("not_admin")) throw new Error("Only org admins can promote members.");
     if (error.message.includes("user_not_in_org")) throw new Error("User is not in your organization.");
@@ -553,32 +574,6 @@ export async function getAllOrgsWithCounts(): Promise<OrgWithCount[]> {
   }));
 }
 
-
-// ---------------------------------------------------------------------------
-// NT membership management
-// ---------------------------------------------------------------------------
-
-export async function getNtOrgMembers(ntOrgId: string): Promise<{ userId: string; fullName: string | null; avatarUrl: string | null; role: string; joinedAt: string }[]> {
-  const supabase = createClient();
-  const { data, error } = await supabase.rpc("get_nt_org_members", { p_nt_org_id: ntOrgId });
-  if (error) throw new Error(`Failed to load NT org members: ${error.message}`);
-  return (data ?? []).map((r: { user_id: string; full_name: string | null; avatar_url: string | null; role: string; joined_at: string }) => ({
-    userId: r.user_id,
-    fullName: r.full_name,
-    avatarUrl: r.avatar_url,
-    role: r.role,
-    joinedAt: r.joined_at,
-  }));
-}
-
-export async function removeNtMember(userId: string, ntOrgId: string): Promise<void> {
-  const supabase = createClient();
-  const { error } = await supabase.rpc("remove_nt_member", { p_user_id: userId, p_nt_org_id: ntOrgId });
-  if (error) {
-    if (error.message.includes("not_admin")) throw new Error("Only NT org admins can remove members.");
-    throw new Error(`Failed to remove NT member: ${error.message}`);
-  }
-}
 
 export async function getSubscriptionStatus(): Promise<{
   isActive: boolean;

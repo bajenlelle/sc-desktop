@@ -198,9 +198,9 @@ export default function ProfilePage() {
                     {ctx.org.name}
                   </span>
                 )}
-                {ctx.ntMemberships.map((nt) => (
-                  <Badge key={nt.ntOrgId} variant="outline" className="text-xs border-amber-500/50 text-amber-600">
-                    {nt.ntOrgName}
+                {ctx.secondaryOrgs.map((s) => (
+                  <Badge key={s.orgId} variant="outline" className="text-xs border-amber-500/50 text-amber-600">
+                    {s.orgName}
                   </Badge>
                 ))}
               </div>

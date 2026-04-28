@@ -4,7 +4,7 @@ import { useAuth } from "@/lib/auth-context";
 const PLAYER_BLOCKED_PATHS = ["/matches", "/upload", "/playlists"];
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading, profile, profileLoading } = useAuth();
+  const { user, loading, profile, profileLoading, secondaryOrgs } = useAuth();
   const { pathname } = useLocation();
 
   if (loading || (user && profileLoading)) {
@@ -13,13 +13,15 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (!user) return <Navigate to="/auth/login" replace />;
 
+  const needsOnboarding = profile && !profile.isPlatformAdmin && profile.orgId === null && secondaryOrgs.length === 0;
+
   // Authenticated but no org → onboarding
-  if (profile && profile.orgId === null && pathname !== "/onboarding") {
+  if (needsOnboarding && pathname !== "/onboarding") {
     return <Navigate to="/onboarding" replace />;
   }
 
   // Already in an org and trying to hit onboarding → home
-  if (profile && profile.orgId !== null && pathname === "/onboarding") {
+  if (profile && !needsOnboarding && pathname === "/onboarding") {
     return <Navigate to="/" replace />;
   }
 

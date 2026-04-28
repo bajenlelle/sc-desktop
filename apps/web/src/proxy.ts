@@ -2,6 +2,8 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -28,13 +30,13 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { pathname } = request.nextUrl;
-
   // Redirect unauthenticated users away from app routes
   const isAppRoute =
     pathname.startsWith("/my-playlists") ||
     pathname.startsWith("/organization") ||
-    pathname.startsWith("/profile");
+    pathname.startsWith("/profile") ||
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/onboarding");
 
   if (!user && isAppRoute) {
     const url = request.nextUrl.clone();
@@ -56,8 +58,17 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Expose current pathname to server layouts via header
-  supabaseResponse.headers.set("x-pathname", pathname);
+  // Onboarding guard: authenticated users without an org must go to /onboarding.
+  // Done here (not in layout) so Next.js issues a real HTTP redirect, not a soft
+  // client-router redirect that skips re-running the shared layout.
+  if (user && !pathname.startsWith("/onboarding") && !pathname.startsWith("/view/") && !pathname.startsWith("/join/")) {
+    const { data: needsOnboarding } = await supabase.rpc("check_onboarding_needed");
+    if (needsOnboarding) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/onboarding";
+      return NextResponse.redirect(url);
+    }
+  }
 
   return supabaseResponse;
 }

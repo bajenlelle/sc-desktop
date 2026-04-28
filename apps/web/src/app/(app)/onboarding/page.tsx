@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { joinByCode } from "@/lib/profile-db";
 import { createClient } from "@/lib/supabase/client";
+import { useAuth } from "@/components/auth-context";
 
 function extractCode(input: string): string {
   const trimmed = input.trim();
@@ -18,6 +19,7 @@ function extractCode(input: string): string {
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const { reloadProfile } = useAuth();
   const [input, setInput] = useState("");
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +31,7 @@ export default function OnboardingPage() {
     setError(null);
     try {
       await joinByCode(code);
+      await reloadProfile();
       router.push("/my-playlists");
     } catch (e) {
       setError((e as Error).message);

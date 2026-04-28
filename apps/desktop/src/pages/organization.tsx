@@ -134,13 +134,12 @@ function OrgInviteSection({ orgId, orgName, isPlatformAdmin }: { orgId: string; 
 
   useEffect(() => { load(); }, [orgId]);
 
-  async function handleRegenerate(role: "coach" | "player", isNationalTeam = false) {
-    const key = isNationalTeam ? `${role}-national` : role;
-    setRegeneratingRole(key);
+  async function handleRegenerate(role: "coach" | "player") {
+    setRegeneratingRole(role);
     try {
-      const toDelete = invites.filter((i) => i.role === role && i.isNationalTeam === isNationalTeam);
+      const toDelete = invites.filter((i) => i.role === role);
       await Promise.all(toDelete.map((i) => deleteOrgInvite(i.id)));
-      await generateOrgInviteCode(orgId, role, isNationalTeam);
+      await generateOrgInviteCode(orgId, role);
       await load();
     } catch (e) {
       toast.error((e as Error).message);
@@ -153,9 +152,8 @@ function OrgInviteSection({ orgId, orgName, isPlatformAdmin }: { orgId: string; 
     return <p className="text-sm text-muted-foreground">Loading invite codes…</p>;
   }
 
-  const coachInvite = invites.find((i) => i.role === "coach" && !i.isNationalTeam);
+  const coachInvite = invites.find((i) => i.role === "coach");
   const playerInvite = invites.find((i) => i.role === "player");
-  const nationalTeamInvite = invites.find((i) => i.role === "coach" && i.isNationalTeam);
 
   return (
     <div className="space-y-3">
@@ -177,16 +175,6 @@ function OrgInviteSection({ orgId, orgName, isPlatformAdmin }: { orgId: string; 
           onRegenerate={() => handleRegenerate("player")}
           regenerating={regeneratingRole === "player"}
         />
-        {isPlatformAdmin && (
-          <InviteCard
-            label="National Team Coach Invite"
-            description="Share this code with national team coaches — gives access to national team schedules"
-            code={nationalTeamInvite?.code ?? null}
-            entityName={orgName}
-            onRegenerate={() => handleRegenerate("coach", true)}
-            regenerating={regeneratingRole === "coach-national"}
-          />
-        )}
       </div>
     </div>
   );
@@ -537,8 +525,10 @@ export function OrganizationPage() {
   }
 
   async function handlePromoteToAdmin(userId: string) {
+    const orgId = ctx?.org?.id;
+    if (!orgId) return;
     try {
-      await promoteToAdmin(userId);
+      await promoteToAdmin(userId, orgId);
       toast.success("Member promoted to admin");
       await load();
     } catch (e) {
@@ -547,9 +537,11 @@ export function OrganizationPage() {
   }
 
   async function handleRemoveMember(userId: string) {
+    const orgId = ctx?.org?.id;
+    if (!orgId) return;
     setRemovingMemberId(userId);
     try {
-      await removeOrgMember(userId);
+      await removeOrgMember(userId, orgId);
       toast.success("Member removed");
       await load();
     } catch (e) {

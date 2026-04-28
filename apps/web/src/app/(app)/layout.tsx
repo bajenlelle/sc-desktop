@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { Navbar } from "@/components/navbar";
 import { AuthProvider } from "@/components/auth-context";
@@ -19,7 +18,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   try {
     const { data } = await supabase
       .from("profiles")
-      .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin, is_national_team")
+      .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin")
       .eq("id", user.id)
       .single();
     if (data) {
@@ -32,23 +31,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         orgId: data.org_id,
         createdAt: data.created_at,
         isPlatformAdmin: data.is_platform_admin ?? false,
-        isNationalTeam: data.is_national_team ?? false,
       };
     }
   } catch {
     // Profile may not exist yet
-  }
-
-  // Redirect to onboarding when the user has no org yet.
-  // Also covers the brief window after signup where the profile row
-  // hasn't been created yet (auth trigger is async).
-  const needsOnboarding = !profile?.isPlatformAdmin && !profile?.orgId;
-  if (needsOnboarding) {
-    const headersList = await headers();
-    const pathname = headersList.get("x-pathname") ?? "";
-    if (pathname !== "/onboarding") {
-      redirect("/onboarding");
-    }
   }
 
   return (

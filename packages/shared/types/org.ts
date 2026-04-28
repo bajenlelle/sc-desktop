@@ -13,7 +13,6 @@ export interface UserProfile {
   orgId: string | null;
   createdAt: string;
   isPlatformAdmin: boolean;
-  isNationalTeam: boolean;
 }
 
 export interface Organization {
@@ -24,6 +23,7 @@ export interface Organization {
   coachSeatLimit: number | null;
   playerSeatLimit: number | null;
   expiresAt: string | null;
+  isNtOrg: boolean;
 }
 
 export interface OrgTeam {
@@ -77,18 +77,19 @@ export interface OrgWithCount {
   teamCount: number;
 }
 
-export interface NtMembership {
-  ntOrgId: string;
-  ntOrgName: string;
+export interface SecondaryOrg {
+  orgId: string;
+  orgName: string;
   role: 'coach' | 'admin';
+  isNtOrg: boolean;
 }
 
 /** Loaded once on profile mount; bundles everything the profile page needs. */
 export interface OrgContext {
   profile: UserProfile;
   org: Organization | null;
-  myTeams: OrgTeam[];       // teams the current user belongs to
-  allOrgTeams: OrgTeam[];   // all teams in the org (admin view)
-  orgMembers: UserProfile[]; // all profiles with this org_id (admin load)
-  ntMemberships: NtMembership[]; // national team org memberships
+  myTeams: OrgTeam[];        // teams the current user belongs to
+  allOrgTeams: OrgTeam[];    // all teams in the org (admin view)
+  orgMembers: UserProfile[]; // all members of this org (admin load)
+  secondaryOrgs: SecondaryOrg[]; // orgs the user belongs to other than their primary org
 }
