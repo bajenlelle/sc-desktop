@@ -624,6 +624,73 @@ export async function updateOrgNameForPlatform(orgId: string, name: string): Pro
 }
 
 
+export async function sendEmailInvites(orgId: string, emails: string[], role: string): Promise<number> {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("send_org_invite_emails", {
+    p_org_id: orgId,
+    p_emails: emails,
+    p_role: role,
+  });
+  if (error) {
+    if (error.message.includes("not_admin")) throw new Error("Only org admins and coaches can send invites.");
+    if (error.message.includes("invalid_role")) throw new Error("Invalid role.");
+    throw new Error(`Failed to send invites: ${error.message}`);
+  }
+  return data as number;
+}
+
+export async function getOrCreateLinkInvite(
+  orgId: string,
+  role: string,
+  expiryHours?: number | null
+): Promise<OrgInvite> {
+  const supabase = createClient();
+
+  // Find existing link invite (no email, not exhausted, not expired)
+  const { data: existing } = await supabase
+    .from("org_invites")
+    .select("id, org_id, code, role, created_by, created_at, expires_at, used_count, max_uses, is_national_team")
+    .eq("org_id", orgId)
+    .eq("role", role)
+    .is("email", null)
+    .is("max_uses", null) // persistent = no max_uses cap
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existing) return rowToOrgInvite(existing as OrgInviteRow);
+
+  // Create a new one
+  const { data: code, error } = await supabase.rpc("generate_org_invite", {
+    p_org_id: orgId,
+    p_role: role,
+    p_max_uses: null,
+    p_expires_in_hours: expiryHours ?? null,
+  });
+  if (error) throw new Error(`Failed to create link invite: ${error.message}`);
+
+  const { data: created, error: fetchErr } = await supabase
+    .from("org_invites")
+    .select("id, org_id, code, role, created_by, created_at, expires_at, used_count, max_uses, is_national_team")
+    .eq("code", code as string)
+    .single();
+  if (fetchErr || !created) throw new Error("Failed to fetch created invite");
+  return rowToOrgInvite(created as OrgInviteRow);
+}
+
+export async function updateOrgInviteExpiry(inviteId: string, expiryHours: number | null): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.rpc("update_org_invite_expiry", {
+    p_invite_id: inviteId,
+    p_expires_in_hours: expiryHours,
+  });
+  if (error) {
+    if (error.message.includes("not_found")) throw new Error("Invite not found.");
+    if (error.message.includes("not_admin")) throw new Error("Only org admins can update invite settings.");
+    throw new Error(`Failed to update invite: ${error.message}`);
+  }
+}
+
 export async function getSubscriptionStatus(): Promise<{
   isActive: boolean;
   status: string | null;

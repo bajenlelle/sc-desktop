@@ -13,9 +13,6 @@ import {
   listInvitesForTeam,
   deleteInvite,
   getTeamMemberCounts,
-  generateOrgInviteCode,
-  listOrgInvites,
-  deleteOrgInvite,
   assignMemberToTeam,
   joinOrgTeam,
   promoteToAdmin,
@@ -23,9 +20,10 @@ import {
   removeOrgMember,
   removeTeamMember,
 } from "@/lib/profile-db";
-import type { OrgContext, OrgTeam, TeamInvite, OrgInvite, UserProfile } from "@scoutable/shared/types/org";
+import { InviteModal } from "@/components/invite-modal";
+import type { OrgContext, OrgTeam, TeamInvite, UserProfile } from "@scoutable/shared/types/org";
 import { toast } from "sonner";
-import { Clipboard, Check, RefreshCw, ChevronDown, ChevronUp, Link2 } from "lucide-react";
+import { Clipboard, Check, RefreshCw, ChevronDown, ChevronUp, Link2, UserPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth-context";
 import Link from "next/link";
@@ -119,74 +117,6 @@ function InviteCard({
         )}
       </CardContent>
     </Card>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// OrgInviteSection
-// ---------------------------------------------------------------------------
-
-function OrgInviteSection({ orgId, orgName }: { orgId: string; orgName: string }) {
-  const [invites, setInvites] = useState<OrgInvite[]>([]);
-  const [loadingInvites, setLoadingInvites] = useState(true);
-  const [regeneratingRole, setRegeneratingRole] = useState<string | null>(null);
-
-  async function load() {
-    setLoadingInvites(true);
-    try {
-      setInvites(await listOrgInvites(orgId));
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setLoadingInvites(false);
-    }
-  }
-
-  useEffect(() => { load(); }, [orgId]);
-
-  async function handleRegenerate(role: "coach" | "player") {
-    setRegeneratingRole(role);
-    try {
-      const toDelete = invites.filter((i) => i.role === role);
-      await Promise.all(toDelete.map((i) => deleteOrgInvite(i.id)));
-      await generateOrgInviteCode(orgId, role);
-      await load();
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setRegeneratingRole(null);
-    }
-  }
-
-  if (loadingInvites) {
-    return <p className="text-sm text-muted-foreground">Loading invite codes…</p>;
-  }
-
-  const coachInvite = invites.find((i) => i.role === "coach");
-  const playerInvite = invites.find((i) => i.role === "player");
-
-  return (
-    <div className="space-y-3">
-      <p className="text-sm font-medium text-foreground">Invite Codes</p>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <InviteCard
-          label="Coach Invite"
-          description="Share this code with coaches to join your organization"
-          code={coachInvite?.code ?? null}
-          entityName={orgName}
-          onRegenerate={() => handleRegenerate("coach")}
-          regenerating={regeneratingRole === "coach"}
-        />
-        <InviteCard
-          label="Player Invite"
-          description="Share this code with players to join your organization"
-          code={playerInvite?.code ?? null}
-          entityName={orgName}
-          onRegenerate={() => handleRegenerate("player")}
-          regenerating={regeneratingRole === "player"}
-        />
-      </div>
-    </div>
   );
 }
 
@@ -469,6 +399,7 @@ export default function OrganizationPage() {
   const [newTeamSeason, setNewTeamSeason] = useState("");
   const [creatingTeam, setCreatingTeam] = useState(false);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
+  const [showInviteModal, setShowInviteModal] = useState(false);
 
   async function load(orgId?: string) {
     try {
@@ -721,7 +652,17 @@ export default function OrganizationPage() {
             </div>
           )}
 
-          {canManageTeams && <OrgInviteSection orgId={org.id} orgName={org.name} />}
+          {canManageTeams && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setShowInviteModal(true)}
+            >
+              <UserPlus className="h-4 w-4" />
+              Invite people
+            </Button>
+          )}
           {profile.isPlatformAdmin && (
             <div className="pt-2">
               <Link href="/admin" className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4">
@@ -870,6 +811,14 @@ export default function OrganizationPage() {
           </TabsContent>
         )}
       </Tabs>
+
+      <InviteModal
+        open={showInviteModal}
+        onClose={() => setShowInviteModal(false)}
+        orgId={org.id}
+        orgName={org.name}
+        isAdmin={isAdmin}
+      />
     </div>
   );
 }

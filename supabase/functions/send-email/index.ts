@@ -15,7 +15,8 @@ type TemplateId =
   | "added_to_team"
   | "user_joined_org"
   | "removed_from_org"
-  | "promoted_to_admin";
+  | "promoted_to_admin"
+  | "org_invite";
 
 interface SendEmailRequest {
   to: string;
@@ -206,6 +207,25 @@ ${ctaButton(orgUrl, "See Members")}`,
 </p>
 ${ctaButton(appUrl + "/organization", "Manage Organization")}`,
           "You received this because your role was updated by an admin.",
+        ),
+      };
+    }
+
+    case "org_invite": {
+      const orgName = d("org_name", "an organization");
+      const role = d("role", "coach");
+      const inviteUrl = d("invite_url", appUrl + "/join");
+      const roleLabel = role.charAt(0).toUpperCase() + role.slice(1);
+      return {
+        subject: `You've been invited to join ${orgName} on Scoutable`,
+        html: wrapEmail(
+          `Join ${orgName} on Scoutable`,
+          `<h1 style="margin:0 0 12px 0;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">You're invited to join ${esc(orgName)}</h1>
+<p style="margin:0 0 32px 0;font-size:14px;line-height:1.65;color:#6b7280;">
+  You've been invited to join <strong>${esc(orgName)}</strong> on Scoutable as a <strong>${esc(roleLabel)}</strong>. Click below to accept your invitation.
+</p>
+${ctaButton(inviteUrl, "Accept Invitation")}`,
+          "This invitation expires in 7 days. If you weren't expecting this, you can ignore this email.",
         ),
       };
     }
