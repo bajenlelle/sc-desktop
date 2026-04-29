@@ -392,6 +392,7 @@ export default function OrganizationPage() {
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showCreateTeam, setShowCreateTeam] = useState(false);
+  const [primaryOrgMeta, setPrimaryOrgMeta] = useState<{ name: string; isNtOrg: boolean } | null>(null);
 
   // Members tab search/filter
   const [memberSearch, setMemberSearch] = useState("");
@@ -405,6 +406,10 @@ export default function OrganizationPage() {
       if (context.org) {
         const counts = await getTeamMemberCounts(context.org.id);
         setMemberCounts(counts);
+        // Capture primary org metadata once (don't overwrite when viewing a secondary org)
+        if (!orgId) {
+          setPrimaryOrgMeta({ name: context.org.name, isNtOrg: context.org.isNtOrg ?? false });
+        }
       }
 
       if (user && context.myTeams.length > 0) {
@@ -569,7 +574,7 @@ export default function OrganizationPage() {
   const primaryOrgId = ctx.profile.orgId;
   const allOrgTabs = [
     ...(primaryOrgId
-      ? [{ orgId: primaryOrgId, orgName: org.name, isNtOrg: org.isNtOrg ?? false }]
+      ? [{ orgId: primaryOrgId, orgName: primaryOrgMeta?.name ?? org.name, isNtOrg: primaryOrgMeta?.isNtOrg ?? false }]
       : []),
     ...ctxSecondaryOrgs.map((s) => ({ orgId: s.orgId, orgName: s.orgName, isNtOrg: s.isNtOrg })),
   ];

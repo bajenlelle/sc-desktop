@@ -379,6 +379,7 @@ export function OrganizationPage() {
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showCreateTeam, setShowCreateTeam] = useState(false);
+  const [primaryOrgMeta, setPrimaryOrgMeta] = useState<{ name: string; isNtOrg: boolean } | null>(null);
 
   // Members tab search/filter
   const [memberSearch, setMemberSearch] = useState("");
@@ -389,9 +390,14 @@ export function OrganizationPage() {
       const context = orgId ? await getOrgContextForOrg(orgId) : await getOrgContext();
       setCtx(context);
 
-      if (context.org && context.allOrgTeams.length > 0) {
-        const counts = await getTeamMemberCounts(context.org.id);
-        setMemberCounts(counts);
+      if (context.org) {
+        if (context.allOrgTeams.length > 0) {
+          const counts = await getTeamMemberCounts(context.org.id);
+          setMemberCounts(counts);
+        }
+        if (!orgId) {
+          setPrimaryOrgMeta({ name: context.org.name, isNtOrg: context.org.isNtOrg ?? false });
+        }
       }
 
       if (user && context.myTeams.length > 0) {
@@ -549,7 +555,7 @@ export function OrganizationPage() {
 
   const primaryOrgId = ctx.profile.orgId;
   const allOrgTabs = [
-    ...(primaryOrgId ? [{ orgId: primaryOrgId, orgName: org.name, isNtOrg: org.isNtOrg }] : []),
+    ...(primaryOrgId ? [{ orgId: primaryOrgId, orgName: primaryOrgMeta?.name ?? org.name, isNtOrg: primaryOrgMeta?.isNtOrg ?? false }] : []),
     ...ctxSecondaryOrgs.map((s) => ({ orgId: s.orgId, orgName: s.orgName, isNtOrg: s.isNtOrg })),
   ];
   const showOrgTabs = allOrgTabs.length > 1;

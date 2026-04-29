@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/client";
 import { joinByCode } from "@/lib/profile-db";
+import { toast } from "sonner";
 
 async function signOutAndRedirect(redirectTo: string) {
   const supabase = createClient();
@@ -32,10 +33,16 @@ export default function JoinPage() {
     role?: string;
     email?: string | null;
   } | null>(null);
-  const [userId, setUserId] = useState<string | null | undefined>(undefined); // undefined = loading
-  const [userEmail, setUserEmail] = useState<string | null | undefined>(undefined); // undefined = loading
+  const [userId, setUserId] = useState<string | null | undefined>(undefined);
+  const [userEmail, setUserEmail] = useState<string | null | undefined>(undefined);
+  const [userCreatedAt, setUserCreatedAt] = useState<string | null>(null);
   const [mismatchConfirmed, setMismatchConfirmed] = useState(false);
   const [joining, setJoining] = useState(false);
+  const [joinResult, setJoinResult] = useState<{
+    type: "org" | "team" | "secondary_org";
+    orgId: string;
+    teamId?: string;
+  } | null>(null);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -50,6 +57,7 @@ export default function JoinPage() {
       supabase.auth.getUser().then(({ data: { user } }) => {
         setUserId(user?.id ?? null);
         setUserEmail(user?.email ?? null);
+        setUserCreatedAt(user?.created_at ?? null);
       }),
     ]);
   }, [code]);
@@ -60,11 +68,23 @@ export default function JoinPage() {
     userEmail !== undefined &&
     preview.email.toLowerCase() !== userEmail.toLowerCase();
 
+  const isNewAccount =
+    !!userCreatedAt &&
+    Date.now() - new Date(userCreatedAt).getTime() < 5 * 60 * 1000;
+
   useEffect(() => {
-    if (userId && preview?.valid && !joining && (!emailMismatch || mismatchConfirmed)) {
+    if (userId && preview?.valid && !joining && !joinResult && (!emailMismatch || mismatchConfirmed)) {
       setJoining(true);
       joinByCode(code)
-        .then(() => router.push("/my-playlists"))
+        .then((result) => {
+          setJoining(false);
+          if (result.type === "secondary_org") {
+            toast.success(`You joined ${preview.orgName ?? "the organization"}!`);
+            router.push("/my-playlists");
+          } else {
+            setJoinResult(result);
+          }
+        })
         .catch((e) => {
           setJoining(false);
           setJoinError((e as Error).message);
@@ -160,6 +180,42 @@ export default function JoinPage() {
                 onClick={() => signOutAndRedirect(`/login?next=/join/${code}`)}
               >
                 Sign in with another account
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (joinResult) {
+    const destination = preview.teamName
+      ? `${preview.orgName} — ${preview.teamName}`
+      : preview.orgName ?? "the organization";
+
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <Card className="w-full max-w-sm">
+          <CardContent className="p-6 space-y-4">
+            <div className="text-center space-y-1">
+              <p className="text-lg font-semibold text-foreground">
+                {isNewAccount ? "Welcome to Scoutable!" : "You're in!"}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                You&apos;ve been added to{" "}
+                <span className="font-medium text-foreground">{destination}</span>
+                {preview.role && (
+                  <> as <Badge variant={roleBadgeVariant(preview.role)} className="text-xs ml-0.5">{preview.role}</Badge></>
+                )}
+                .
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Button className="w-full" size="sm" onClick={() => router.push("/organization")}>
+                Go to organization
+              </Button>
+              <Button asChild variant="outline" className="w-full" size="sm">
+                <Link href="/my-playlists">Go to my playlists</Link>
               </Button>
             </div>
           </CardContent>
