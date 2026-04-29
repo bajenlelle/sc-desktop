@@ -1,10 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Avatar,
+  AvatarImage,
+  AvatarFallback,
+} from "@/components/ui/avatar";
 import {
   getOrgContext,
   getOrgContextForOrg,
@@ -12,18 +24,23 @@ import {
   assignMemberToTeam,
   joinOrgTeam,
   promoteToAdmin,
-  createTeam,
   removeOrgMember,
   removeTeamMember,
 } from "@/lib/profile-db";
 import { InviteModal } from "@/components/invite-modal";
+import { AddMembersToTeamModal } from "@/components/add-members-to-team-modal";
+import { CreateTeamDialog } from "@/components/create-team-dialog";
 import type { OrgContext, OrgTeam, UserProfile } from "@scoutable/shared/types/org";
 import { toast } from "sonner";
-import { ChevronDown, ChevronUp, UserPlus } from "lucide-react";
+import { ChevronDown, ChevronUp, MoreHorizontal, Search, UserPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth-context";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function roleBadgeVariant(
   role: string,
@@ -33,6 +50,83 @@ function roleBadgeVariant(
   if (role === "admin") return "default";
   if (role === "coach") return "secondary";
   return "outline";
+}
+
+function memberInitials(m: UserProfile): string {
+  return (m.fullName ?? m.email ?? "?")[0].toUpperCase();
+}
+
+// ---------------------------------------------------------------------------
+// MemberRow
+// ---------------------------------------------------------------------------
+
+function MemberRow({
+  member,
+  isAdmin,
+  canManageTeams,
+  isMe,
+  removingId,
+  onPromote,
+  onRemove,
+}: {
+  member: UserProfile;
+  isAdmin: boolean;
+  canManageTeams: boolean;
+  isMe: boolean;
+  removingId: string | null;
+  onPromote: (id: string) => void;
+  onRemove: (id: string) => void;
+}) {
+  const showMenu = isAdmin && !isMe && !member.isPlatformAdmin;
+  const removing = removingId === member.id;
+
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+      <div className="flex items-center gap-2.5 min-w-0">
+        <Avatar size="sm">
+          <AvatarImage src={member.avatarUrl ?? undefined} />
+          <AvatarFallback>{memberInitials(member)}</AvatarFallback>
+        </Avatar>
+        <div className="min-w-0">
+          <p className="text-sm truncate">{member.fullName ?? member.email ?? member.id.slice(0, 8)}</p>
+          {canManageTeams && member.fullName && member.email && (
+            <p className="text-xs text-muted-foreground truncate">{member.email}</p>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <Badge variant={roleBadgeVariant(member.role, member.isPlatformAdmin)} className="text-xs">
+          {member.isPlatformAdmin ? "platform admin" : member.role}
+        </Badge>
+        {showMenu && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={removing}>
+                <MoreHorizontal className="h-4 w-4" />
+                <span className="sr-only">Member actions</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {member.role === "coach" && (
+                <>
+                  <DropdownMenuItem onClick={() => onPromote(member.id)}>
+                    Promote to admin
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={() => onRemove(member.id)}
+              >
+                {removing ? "Removing…" : "Remove from org"}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -45,19 +139,18 @@ function TeamInviteSection({
   isAdmin,
   onContextReload,
   onInvite,
+  onAddMembers,
 }: {
   team: OrgTeam;
   orgMembers: UserProfile[];
   isAdmin: boolean;
   onContextReload: () => void;
   onInvite: () => void;
+  onAddMembers: (memberIds: Set<string>) => void;
 }) {
   const [teamMemberDetails, setTeamMemberDetails] = useState<{ userId: string; role: string }[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [removingTeamMemberId, setRemovingTeamMemberId] = useState<string | null>(null);
-  const [showAddMember, setShowAddMember] = useState(false);
-  const [selectedUserId, setSelectedUserId] = useState("");
-  const [addingMember, setAddingMember] = useState(false);
 
   const supabase = createClient();
 
@@ -68,7 +161,12 @@ function TeamInviteSection({
         .from("team_members")
         .select("user_id, role")
         .eq("team_id", team.id);
-      setTeamMemberDetails((data ?? []).map((r: { user_id: string; role: string }) => ({ userId: r.user_id, role: r.role })));
+      setTeamMemberDetails(
+        (data ?? []).map((r: { user_id: string; role: string }) => ({
+          userId: r.user_id,
+          role: r.role,
+        }))
+      );
     } finally {
       setLoadingMembers(false);
     }
@@ -90,47 +188,38 @@ function TeamInviteSection({
     }
   }
 
-  async function handleAddMember() {
-    if (!selectedUserId) return;
-    const member = availableToAdd.find((m) => m.id === selectedUserId);
-    if (!member) return;
-    setAddingMember(true);
-    try {
-      await assignMemberToTeam(selectedUserId, team.id, member.role as "coach" | "player");
-      toast.success("Member added to team");
-      setShowAddMember(false);
-      setSelectedUserId("");
-      onContextReload();
-      loadCurrentMembers();
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setAddingMember(false);
-    }
-  }
-
   const currentMemberIdSet = new Set(teamMemberDetails.map((m) => m.userId));
-  const availableToAdd = orgMembers.filter((m) => !currentMemberIdSet.has(m.id));
 
   return (
     <div className="px-4 pb-4 space-y-3 border-t border-border pt-3">
       {/* Member list */}
       {!loadingMembers && teamMemberDetails.length > 0 && (
         <div className="space-y-1">
-          <p className="text-xs font-medium text-muted-foreground">Members ({teamMemberDetails.length})</p>
+          <p className="text-xs font-medium text-muted-foreground">
+            Members ({teamMemberDetails.length})
+          </p>
           {teamMemberDetails.map((tm) => {
             const profile = orgMembers.find((m) => m.id === tm.userId);
             const displayName = profile?.fullName ?? profile?.email ?? tm.userId.slice(0, 8);
             const secondaryText = profile?.fullName && profile?.email ? profile.email : null;
             return (
-              <div key={tm.userId} className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                <div>
-                  <span className="text-sm">{displayName}</span>
-                  {secondaryText && (
-                    <p className="text-xs text-muted-foreground">{secondaryText}</p>
-                  )}
+              <div
+                key={tm.userId}
+                className="flex items-center justify-between rounded-md border border-border px-3 py-2"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <Avatar size="sm">
+                    <AvatarImage src={profile?.avatarUrl ?? undefined} />
+                    <AvatarFallback>{(displayName[0] ?? "?").toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0">
+                    <p className="text-sm truncate">{displayName}</p>
+                    {secondaryText && (
+                      <p className="text-xs text-muted-foreground truncate">{secondaryText}</p>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                   <Badge variant={roleBadgeVariant(tm.role)} className="text-xs">{tm.role}</Badge>
                   {isAdmin && (
                     <Button
@@ -150,50 +239,23 @@ function TeamInviteSection({
         </div>
       )}
 
-      {/* Invite + Add Member row */}
+      {/* Actions */}
       <div className="flex flex-wrap gap-2">
         <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={onInvite}>
           <UserPlus className="h-3.5 w-3.5" />
           Invite to team
         </Button>
-        {isAdmin && orgMembers.length > 0 && (
-          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { setShowAddMember((v) => !v); setSelectedUserId(""); }}>
-            {showAddMember ? "Cancel" : "Add existing member"}
+        {isAdmin && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={() => onAddMembers(currentMemberIdSet)}
+          >
+            Add members
           </Button>
         )}
       </div>
-
-      {/* Add Member dropdown */}
-      {showAddMember && (
-        <div className="flex items-center gap-2">
-          {availableToAdd.length === 0 ? (
-            <p className="text-xs text-muted-foreground">All org members are already in this team.</p>
-          ) : (
-            <>
-              <select
-                className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-sm"
-                value={selectedUserId}
-                onChange={(e) => setSelectedUserId(e.target.value)}
-              >
-                <option value="">Select member…</option>
-                {availableToAdd.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.fullName ?? m.email ?? m.id.slice(0, 8)} ({m.role})
-                  </option>
-                ))}
-              </select>
-              <Button
-                size="sm"
-                className="h-8 text-xs"
-                disabled={!selectedUserId || addingMember}
-                onClick={handleAddMember}
-              >
-                {addingMember ? "Adding…" : "Add"}
-              </Button>
-            </>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -227,6 +289,8 @@ function TeamCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showAddMembers, setShowAddMembers] = useState(false);
+  const [currentTeamMemberIds, setCurrentTeamMemberIds] = useState<Set<string>>(new Set());
 
   return (
     <div className="rounded-lg border border-border">
@@ -253,6 +317,7 @@ function TeamCard({
             : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
         )}
       </button>
+
       {expanded && canManage && (
         <TeamInviteSection
           team={team}
@@ -260,8 +325,13 @@ function TeamCard({
           isAdmin={isAdmin}
           onContextReload={onContextReload}
           onInvite={() => setShowInviteModal(true)}
+          onAddMembers={(ids) => {
+            setCurrentTeamMemberIds(ids);
+            setShowAddMembers(true);
+          }}
         />
       )}
+
       <InviteModal
         open={showInviteModal}
         onClose={() => setShowInviteModal(false)}
@@ -270,6 +340,15 @@ function TeamCard({
         orgTeams={orgTeams}
         isAdmin={isAdmin}
         initialTeamId={team.id}
+      />
+
+      <AddMembersToTeamModal
+        open={showAddMembers}
+        onClose={() => setShowAddMembers(false)}
+        team={team}
+        orgMembers={orgMembers}
+        currentTeamMemberIds={currentTeamMemberIds}
+        onAdded={() => onContextReload()}
       />
     </div>
   );
@@ -287,12 +366,13 @@ export default function OrganizationPage() {
   const [myTeamRoles, setMyTeamRoles] = useState<Record<string, string>>({});
   const [joiningTeamId, setJoiningTeamId] = useState<string | null>(null);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
-  const [showNewTeam, setShowNewTeam] = useState(false);
-  const [newTeamName, setNewTeamName] = useState("");
-  const [newTeamSeason, setNewTeamSeason] = useState("");
-  const [creatingTeam, setCreatingTeam] = useState(false);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showCreateTeam, setShowCreateTeam] = useState(false);
+
+  // Members tab search/filter
+  const [memberSearch, setMemberSearch] = useState("");
+  const [memberRoleFilter, setMemberRoleFilter] = useState<"" | "admin" | "coach" | "player">("");
 
   async function load(orgId?: string) {
     try {
@@ -325,30 +405,12 @@ export default function OrganizationPage() {
 
   useEffect(() => { load(); }, []);
 
-  // If user has no primary org but has secondary orgs, auto-select the first one
   const ctxSecondaryOrgs = ctx?.secondaryOrgs ?? [];
   useEffect(() => {
     if (!loading && ctx?.org === null && ctxSecondaryOrgs.length > 0 && selectedOrgId === null) {
       handleSelectOrg(ctxSecondaryOrgs[0].orgId);
     }
   }, [loading, ctx?.org, ctxSecondaryOrgs.length]);
-
-  async function handleCreateTeam() {
-    if (!newTeamName.trim()) return;
-    setCreatingTeam(true);
-    try {
-      await createTeam(newTeamName.trim(), newTeamSeason.trim() || undefined, selectedOrgId ?? undefined);
-      toast.success("Team created");
-      setNewTeamName("");
-      setNewTeamSeason("");
-      setShowNewTeam(false);
-      await load(selectedOrgId ?? undefined);
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setCreatingTeam(false);
-    }
-  }
 
   async function handleJoinTeam(teamId: string) {
     setJoiningTeamId(teamId);
@@ -396,6 +458,24 @@ export default function OrganizationPage() {
     await load(orgId ?? undefined);
   }
 
+  // Filtered + grouped members
+  const filteredMembers = useMemo(() => {
+    if (!ctx) return [];
+    let list = ctx.orgMembers;
+    if (memberRoleFilter) list = list.filter((m) => m.role === memberRoleFilter);
+    if (memberSearch.trim()) {
+      const q = memberSearch.toLowerCase();
+      list = list.filter(
+        (m) =>
+          m.fullName?.toLowerCase().includes(q) ||
+          m.email?.toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [ctx, memberSearch, memberRoleFilter]);
+
+  // ── Loading / error states ──────────────────────────────────────────────
+
   if (loading) {
     return (
       <div className="p-6 max-w-3xl mx-auto">
@@ -425,7 +505,6 @@ export default function OrganizationPage() {
   const canManageTeams = profile.role === "admin" || profile.role === "coach";
 
   if (ctx.org === null) {
-    // Auto-selecting a secondary org — show loading while the useEffect fires
     if (ctxSecondaryOrgs.length > 0 && selectedOrgId === null) {
       return (
         <div className="p-6 max-w-3xl mx-auto">
@@ -450,23 +529,25 @@ export default function OrganizationPage() {
     );
   }
 
-  // Build tab list: primary org first, then secondary orgs
+  const org = ctx.org;
+  const myTeamIds = new Set(ctx.myTeams.map((t) => t.id));
+  const otherTeams = ctx.allOrgTeams.filter((t) => !myTeamIds.has(t.id));
+
   const primaryOrgId = ctx.profile.orgId;
   const allOrgTabs = [
-    ...(primaryOrgId ? [{ orgId: primaryOrgId, orgName: ctx.org?.name ?? "My Org", isNtOrg: ctx.org?.isNtOrg ?? false }] : []),
+    ...(primaryOrgId
+      ? [{ orgId: primaryOrgId, orgName: org.name, isNtOrg: org.isNtOrg ?? false }]
+      : []),
     ...ctxSecondaryOrgs.map((s) => ({ orgId: s.orgId, orgName: s.orgName, isNtOrg: s.isNtOrg })),
   ];
   const showOrgTabs = allOrgTabs.length > 1;
   const currentOrgTabId = selectedOrgId ?? primaryOrgId ?? null;
 
-  const org = ctx.org;
-  const myTeamIds = new Set(ctx.myTeams.map((t) => t.id));
-  const otherTeams = ctx.allOrgTeams.filter((t) => !myTeamIds.has(t.id));
-
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
+      {/* Org switcher */}
       {showOrgTabs && (
-        <div className="flex gap-1 border-b border-border pb-0 -mb-2">
+        <div className="flex gap-1 border-b border-border -mb-2">
           {allOrgTabs.map((tab) => (
             <button
               key={tab.orgId}
@@ -486,85 +567,75 @@ export default function OrganizationPage() {
         </div>
       )}
 
-      <div className="flex items-center gap-3">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">{org.name}</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
             {ctx.orgMembers.length} member{ctx.orgMembers.length !== 1 ? "s" : ""}
+            {" · "}
+            {ctx.allOrgTeams.length} team{ctx.allOrgTeams.length !== 1 ? "s" : ""}
           </p>
         </div>
+        {canManageTeams && (
+          <Button size="sm" className="gap-1.5 shrink-0" onClick={() => setShowInviteModal(true)}>
+            <UserPlus className="h-4 w-4" />
+            Invite people
+          </Button>
+        )}
       </div>
 
-      <Tabs defaultValue="overview">
+      {/* License banner — admin only */}
+      {isAdmin && (org.coachSeatLimit !== null || org.playerSeatLimit !== null || org.expiresAt !== null) && (
+        <div className="text-xs text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 border border-border rounded-md px-3 py-2">
+          {org.coachSeatLimit !== null && (
+            <span>
+              Coaches:{" "}
+              <span className="text-foreground font-medium">
+                {ctx.orgMembers.filter((m) => m.role !== "player").length} / {org.coachSeatLimit}
+              </span>
+            </span>
+          )}
+          {org.playerSeatLimit !== null && (
+            <span>
+              Players:{" "}
+              <span className="text-foreground font-medium">
+                {ctx.orgMembers.filter((m) => m.role === "player").length} / {org.playerSeatLimit}
+              </span>
+            </span>
+          )}
+          {org.expiresAt && (
+            <span>
+              Expires:{" "}
+              <span className="text-foreground font-medium">
+                {new Date(org.expiresAt).toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+              </span>
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Platform admin link */}
+      {profile.isPlatformAdmin && (
+        <Link
+          href="/admin"
+          className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4"
+        >
+          Go to Platform Admin Dashboard →
+        </Link>
+      )}
+
+      <Tabs defaultValue="teams">
         <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="teams">Teams</TabsTrigger>
-          {canManageTeams && <TabsTrigger value="members">Members</TabsTrigger>}
+          <TabsTrigger value="members">Members</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="space-y-6 pt-4">
-          <div className="flex gap-6">
-            <div>
-              <p className="text-2xl font-bold">{ctx.allOrgTeams.length}</p>
-              <p className="text-xs text-muted-foreground">
-                team{ctx.allOrgTeams.length !== 1 ? "s" : ""}
-              </p>
-            </div>
-            <div>
-              <p className="text-2xl font-bold">{ctx.orgMembers.length}</p>
-              <p className="text-xs text-muted-foreground">
-                member{ctx.orgMembers.length !== 1 ? "s" : ""}
-              </p>
-            </div>
-          </div>
-
-          {/* License info (read-only) */}
-          {(org.coachSeatLimit !== null || org.playerSeatLimit !== null || org.expiresAt !== null) && (
-            <div className="text-xs text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 border border-border rounded-md px-3 py-2">
-              {(org.coachSeatLimit !== null) && (
-                <span>
-                  Coaches: <span className="text-foreground font-medium">
-                    {ctx.orgMembers.filter((m) => m.role !== "player").length} / {org.coachSeatLimit}
-                  </span>
-                </span>
-              )}
-              {(org.playerSeatLimit !== null) && (
-                <span>
-                  Players: <span className="text-foreground font-medium">
-                    {ctx.orgMembers.filter((m) => m.role === "player").length} / {org.playerSeatLimit}
-                  </span>
-                </span>
-              )}
-              {org.expiresAt && (
-                <span>
-                  Expires: <span className="text-foreground font-medium">
-                    {new Date(org.expiresAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                  </span>
-                </span>
-              )}
-            </div>
-          )}
-
-          {canManageTeams && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
-              onClick={() => setShowInviteModal(true)}
-            >
-              <UserPlus className="h-4 w-4" />
-              Invite people
-            </Button>
-          )}
-          {profile.isPlatformAdmin && (
-            <div className="pt-2">
-              <Link href="/admin" className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4">
-                Go to Platform Admin Dashboard →
-              </Link>
-            </div>
-          )}
-        </TabsContent>
-
+        {/* ── Teams ── */}
         <TabsContent value="teams" className="space-y-6 pt-4">
           <div className="space-y-3">
             <div className="flex items-center justify-between">
@@ -574,30 +645,12 @@ export default function OrganizationPage() {
                   size="sm"
                   variant="outline"
                   className="h-7 text-xs"
-                  onClick={() => setShowNewTeam((v) => !v)}
+                  onClick={() => setShowCreateTeam(true)}
                 >
-                  {showNewTeam ? "Cancel" : "New Team"}
+                  New Team
                 </Button>
               )}
             </div>
-            {showNewTeam && (
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Team name"
-                  value={newTeamName}
-                  onChange={(e) => setNewTeamName(e.target.value)}
-                />
-                <Input
-                  placeholder="Season (optional)"
-                  value={newTeamSeason}
-                  onChange={(e) => setNewTeamSeason(e.target.value)}
-                  className="w-36"
-                />
-                <Button onClick={handleCreateTeam} disabled={creatingTeam || !newTeamName.trim()}>
-                  {creatingTeam ? "Creating…" : "Create"}
-                </Button>
-              </div>
-            )}
             {ctx.myTeams.length === 0 ? (
               <p className="text-sm text-muted-foreground">You&apos;re not in any teams yet.</p>
             ) : (
@@ -655,57 +708,66 @@ export default function OrganizationPage() {
           )}
         </TabsContent>
 
-        {canManageTeams && (
-          <TabsContent value="members" className="pt-4">
-            {ctx.orgMembers.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No members yet.</p>
-            ) : (
-              <div className="space-y-1">
-                {ctx.orgMembers.map((m) => (
-                  <div
-                    key={m.id}
-                    className="flex items-center justify-between rounded-lg border border-border px-4 py-3"
-                  >
-                    <div className="flex items-center gap-2">
-                      <div>
-                        <span className="text-sm">{m.fullName ?? m.email ?? m.id.slice(0, 8)}</span>
-                        {m.fullName && m.email && (
-                          <p className="text-xs text-muted-foreground">{m.email}</p>
-                        )}
-                      </div>
-                      <Badge variant={roleBadgeVariant(m.role, m.isPlatformAdmin)} className="text-xs">
-                        {m.isPlatformAdmin ? "platform admin" : m.role}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {isAdmin && m.role === "coach" && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-xs"
-                          onClick={() => handlePromoteToAdmin(m.id)}
-                        >
-                          Promote to admin
-                        </Button>
-                      )}
-                      {isAdmin && m.id !== profile.id && !m.isPlatformAdmin && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-xs text-destructive hover:text-destructive"
-                          disabled={removingMemberId === m.id}
-                          onClick={() => handleRemoveMember(m.id)}
-                        >
-                          {removingMemberId === m.id ? "Removing…" : "Remove"}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ))}
+        {/* ── Members ── */}
+        <TabsContent value="members" className="space-y-4 pt-4">
+          {/* Search + filter — admin/coach only */}
+          {canManageTeams && (
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  className="pl-8"
+                  placeholder="Search members…"
+                  value={memberSearch}
+                  onChange={(e) => setMemberSearch(e.target.value)}
+                />
               </div>
-            )}
-          </TabsContent>
-        )}
+              <select
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                value={memberRoleFilter}
+                onChange={(e) => setMemberRoleFilter(e.target.value as typeof memberRoleFilter)}
+              >
+                <option value="">All roles</option>
+                <option value="admin">Admins</option>
+                <option value="coach">Coaches</option>
+                <option value="player">Players</option>
+              </select>
+            </div>
+          )}
+
+          {ctx.orgMembers.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No members yet.</p>
+          ) : filteredMembers.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No members match your search.</p>
+          ) : (
+            <div className="space-y-4">
+              {(["admin", "coach", "player"] as const).map((role) => {
+                const group = filteredMembers.filter((m) => m.role === role);
+                if (group.length === 0) return null;
+                const label = role === "admin" ? "Admins" : role === "coach" ? "Coaches" : "Players";
+                return (
+                  <div key={role} className="space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-1">
+                      {label} ({group.length})
+                    </p>
+                    {group.map((m) => (
+                      <MemberRow
+                        key={m.id}
+                        member={m}
+                        isAdmin={isAdmin}
+                        canManageTeams={canManageTeams}
+                        isMe={m.id === profile.id}
+                        removingId={removingMemberId}
+                        onPromote={handlePromoteToAdmin}
+                        onRemove={handleRemoveMember}
+                      />
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </TabsContent>
       </Tabs>
 
       <InviteModal
@@ -715,6 +777,13 @@ export default function OrganizationPage() {
         orgName={org.name}
         orgTeams={ctx.allOrgTeams}
         isAdmin={isAdmin}
+      />
+
+      <CreateTeamDialog
+        open={showCreateTeam}
+        onClose={() => setShowCreateTeam(false)}
+        onCreated={() => load(selectedOrgId ?? undefined)}
+        orgId={selectedOrgId ?? undefined}
       />
     </div>
   );
