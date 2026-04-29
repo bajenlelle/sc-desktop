@@ -26,6 +26,7 @@ import {
   promoteToAdmin,
   removeOrgMember,
   removeTeamMember,
+  deleteTeam,
 } from "@/lib/profile-db";
 import { InviteModal } from "@/components/invite-modal";
 import { AddMembersToTeamModal } from "@/components/add-members-to-team-modal";
@@ -275,6 +276,7 @@ function TeamCard({
   orgTeams,
   orgMembers,
   onContextReload,
+  onDelete,
 }: {
   team: OrgTeam;
   memberCount: number;
@@ -286,6 +288,7 @@ function TeamCard({
   orgTeams: OrgTeam[];
   orgMembers: UserProfile[];
   onContextReload: () => void;
+  onDelete: (teamId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -294,29 +297,49 @@ function TeamCard({
 
   return (
     <div className="rounded-lg border border-border">
-      <button
-        type="button"
-        className="w-full flex items-center justify-between p-4 text-left hover:bg-accent/50 transition-colors rounded-lg"
-        onClick={() => { if (canManage) setExpanded((v) => !v); }}
-      >
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-medium text-sm">{team.name}</span>
-          {team.season && (
-            <Badge variant="outline" className="text-xs">{team.season}</Badge>
+      <div className="flex items-center">
+        <button
+          type="button"
+          className="flex-1 flex items-center justify-between p-4 text-left hover:bg-accent/50 transition-colors rounded-lg"
+          onClick={() => { if (canManage) setExpanded((v) => !v); }}
+        >
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium text-sm">{team.name}</span>
+            {team.season && (
+              <Badge variant="outline" className="text-xs">{team.season}</Badge>
+            )}
+            <span className="text-xs text-muted-foreground">
+              {memberCount} member{memberCount !== 1 ? "s" : ""}
+            </span>
+            <Badge variant={roleBadgeVariant(userTeamRole)} className="text-xs">
+              {userTeamRole}
+            </Badge>
+          </div>
+          {canManage && (
+            expanded
+              ? <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" />
+              : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
           )}
-          <span className="text-xs text-muted-foreground">
-            {memberCount} member{memberCount !== 1 ? "s" : ""}
-          </span>
-          <Badge variant={roleBadgeVariant(userTeamRole)} className="text-xs">
-            {userTeamRole}
-          </Badge>
-        </div>
-        {canManage && (
-          expanded
-            ? <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" />
-            : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+        </button>
+        {isAdmin && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 mr-2 shrink-0">
+                <MoreHorizontal className="h-4 w-4" />
+                <span className="sr-only">Team actions</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={() => onDelete(team.id)}
+              >
+                Delete team
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
-      </button>
+      </div>
 
       {expanded && canManage && (
         <TeamInviteSection
@@ -411,6 +434,16 @@ export default function OrganizationPage() {
       handleSelectOrg(ctxSecondaryOrgs[0].orgId);
     }
   }, [loading, ctx?.org, ctxSecondaryOrgs.length]);
+
+  async function handleDeleteTeam(teamId: string) {
+    try {
+      await deleteTeam(teamId);
+      toast.success("Team deleted");
+      await load(selectedOrgId ?? undefined);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
 
   async function handleJoinTeam(teamId: string) {
     setJoiningTeamId(teamId);
@@ -667,7 +700,8 @@ export default function OrganizationPage() {
                     orgName={org.name}
                     orgTeams={ctx.allOrgTeams}
                     orgMembers={ctx.orgMembers}
-                    onContextReload={load}
+                    onContextReload={() => load(selectedOrgId ?? undefined)}
+                    onDelete={handleDeleteTeam}
                   />
                 ))}
               </div>

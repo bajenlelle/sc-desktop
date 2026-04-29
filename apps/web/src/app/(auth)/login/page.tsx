@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { LogoMark, Wordmark } from "@/components/logo";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,8 @@ import {
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const nextParam = searchParams.get("next") ?? "/my-playlists";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -163,7 +165,7 @@ export default function LoginPage() {
 
               <p className="text-center text-sm text-muted-foreground">
                 Don&apos;t have an account?{" "}
-                <Link href="/signup" className="text-primary hover:underline font-medium">
+                <Link href={"/signup?next=" + encodeURIComponent(nextParam)} className="text-primary hover:underline font-medium">
                   Sign up
                 </Link>
               </p>

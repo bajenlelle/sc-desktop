@@ -592,6 +592,15 @@ export async function removeTeamMember(userId: string, teamId: string): Promise<
   }
 }
 
+export async function deleteTeam(teamId: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.rpc("delete_team", { p_team_id: teamId });
+  if (error) {
+    if (error.message.includes("not_admin")) throw new Error("Only org admins can delete teams.");
+    throw new Error(`Failed to delete team: ${error.message}`);
+  }
+}
+
 export async function removeOrgMember(userId: string, orgId: string): Promise<void> {
   const supabase = createClient();
   const { error } = await supabase.rpc("remove_member_from_org", { p_user_id: userId, p_org_id: orgId });

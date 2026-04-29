@@ -102,7 +102,8 @@ export function AddMembersToTeamModal({
     try {
       for (const userId of selectedIds) {
         const member = orgMembers.find((m) => m.id === userId)!;
-        await assignMemberToTeam(userId, team.id, member.role as "coach" | "player");
+        const teamRole = member.role === "player" ? "player" : "coach";
+        await assignMemberToTeam(userId, team.id, teamRole);
       }
       toast.success(
         `${selectedIds.size} member${selectedIds.size !== 1 ? "s" : ""} added to ${team.name}`

@@ -9,6 +9,12 @@ import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/client";
 import { joinByCode } from "@/lib/profile-db";
 
+async function signOutAndRedirect(redirectTo: string) {
+  const supabase = createClient();
+  await supabase.auth.signOut();
+  window.location.href = redirectTo;
+}
+
 function roleBadgeVariant(role: string): "default" | "secondary" | "outline" {
   if (role === "admin") return "default";
   if (role === "coach") return "secondary";
@@ -24,8 +30,11 @@ export default function JoinPage() {
     orgName?: string;
     teamName?: string | null;
     role?: string;
+    email?: string | null;
   } | null>(null);
   const [userId, setUserId] = useState<string | null | undefined>(undefined); // undefined = loading
+  const [userEmail, setUserEmail] = useState<string | null | undefined>(undefined); // undefined = loading
+  const [mismatchConfirmed, setMismatchConfirmed] = useState(false);
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -34,16 +43,25 @@ export default function JoinPage() {
     const supabase = createClient();
     Promise.all([
       Promise.resolve(supabase.rpc("get_invite_preview", { p_code: code.toUpperCase() })).then(({ data }) => {
-        const r = data as { valid: boolean; org_name?: string; team_name?: string | null; role?: string } | null;
+        const r = data as { valid: boolean; org_name?: string; team_name?: string | null; role?: string; email?: string | null } | null;
         if (!r) { setPreview({ valid: false }); return; }
-        setPreview({ valid: r.valid, orgName: r.org_name, teamName: r.team_name, role: r.role });
+        setPreview({ valid: r.valid, orgName: r.org_name, teamName: r.team_name, role: r.role, email: r.email ?? null });
       }).catch(() => setLoadError("Failed to load invite details.")),
-      supabase.auth.getUser().then(({ data: { user } }) => setUserId(user?.id ?? null)),
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        setUserId(user?.id ?? null);
+        setUserEmail(user?.email ?? null);
+      }),
     ]);
   }, [code]);
 
+  const emailMismatch =
+    !!preview?.email &&
+    userEmail !== null &&
+    userEmail !== undefined &&
+    preview.email.toLowerCase() !== userEmail.toLowerCase();
+
   useEffect(() => {
-    if (userId && preview?.valid && !joining) {
+    if (userId && preview?.valid && !joining && (!emailMismatch || mismatchConfirmed)) {
       setJoining(true);
       joinByCode(code)
         .then(() => router.push("/my-playlists"))
@@ -52,7 +70,7 @@ export default function JoinPage() {
           setJoinError((e as Error).message);
         });
     }
-  }, [userId, preview]);
+  }, [userId, preview, mismatchConfirmed]);
 
   if (loadError) {
     return (
@@ -67,7 +85,7 @@ export default function JoinPage() {
     );
   }
 
-  if (preview === null || userId === undefined) {
+  if (preview === null || userId === undefined || userEmail === undefined) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <p className="text-sm text-muted-foreground">Loading…</p>
@@ -109,6 +127,41 @@ export default function JoinPage() {
               This invite link is no longer valid. Ask your admin to generate a new one.
             </p>
             <Link href="/" className="text-sm text-primary underline">Go home</Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (userId !== null && emailMismatch && !mismatchConfirmed) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <Card className="w-full max-w-sm">
+          <CardContent className="p-6 space-y-4">
+            <div className="text-center space-y-1">
+              <p className="font-semibold text-foreground">Account mismatch</p>
+              <p className="text-sm text-muted-foreground">
+                This invite was sent to{" "}
+                <span className="font-medium text-foreground">{preview.email}</span>.
+              </p>
+              <p className="text-sm text-muted-foreground">
+                You&apos;re signed in as{" "}
+                <span className="font-medium text-foreground">{userEmail}</span>.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Button className="w-full" size="sm" onClick={() => setMismatchConfirmed(true)}>
+                Accept as {userEmail}
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full"
+                size="sm"
+                onClick={() => signOutAndRedirect(`/login?next=/join/${code}`)}
+              >
+                Sign in with another account
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>
