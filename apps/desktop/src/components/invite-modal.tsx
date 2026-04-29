@@ -13,7 +13,7 @@ import {
   updateOrgInviteExpiry,
   deleteOrgInvite,
 } from "@/lib/profile-db";
-import type { OrgInvite } from "@/types/org";
+import type { OrgInvite, OrgTeam } from "@/types/org";
 import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
@@ -27,7 +27,9 @@ interface InviteModalProps {
   onClose: () => void;
   orgId: string;
   orgName: string;
+  orgTeams: OrgTeam[];
   isAdmin: boolean;
+  initialTeamId?: string;
 }
 
 const EXPIRY_OPTIONS: { label: string; hours: number | null }[] = [
@@ -46,8 +48,17 @@ const APP_URL = "https://app.scoutable.se";
 // InviteModal
 // ---------------------------------------------------------------------------
 
-export function InviteModal({ open, onClose, orgId, orgName, isAdmin }: InviteModalProps) {
+export function InviteModal({
+  open,
+  onClose,
+  orgId,
+  orgName,
+  orgTeams,
+  isAdmin,
+  initialTeamId,
+}: InviteModalProps) {
   const [selectedRole, setSelectedRole] = useState<Role>("coach");
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(initialTeamId ?? null);
   const [emails, setEmails] = useState<string[]>([]);
   const [emailInput, setEmailInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -71,19 +82,20 @@ export function InviteModal({ open, onClose, orgId, orgName, isAdmin }: InviteMo
       setEmailInput("");
       setShowSettings(false);
       setSelectedRole("coach");
+      setSelectedTeamId(initialTeamId ?? null);
       setLinkInvite(null);
     }
   }, [open]);
 
   useEffect(() => {
     if (!open) return;
-    loadLinkInvite(selectedRole);
-  }, [open, selectedRole]);
+    loadLinkInvite(selectedRole, selectedTeamId);
+  }, [open, selectedRole, selectedTeamId]);
 
-  async function loadLinkInvite(role: Role) {
+  async function loadLinkInvite(role: Role, teamId: string | null) {
     setLoadingLink(true);
     try {
-      const invite = await getOrCreateLinkInvite(orgId, role);
+      const invite = await getOrCreateLinkInvite(orgId, role, teamId);
       setLinkInvite(invite);
       setSettingsExpiryHours(
         invite.expiresAt
@@ -133,7 +145,7 @@ export function InviteModal({ open, onClose, orgId, orgName, isAdmin }: InviteMo
     if (emails.length === 0) return;
     setSending(true);
     try {
-      const count = await sendEmailInvites(orgId, emails, selectedRole);
+      const count = await sendEmailInvites(orgId, emails, selectedRole, selectedTeamId);
       toast.success(`Invitation${count !== 1 ? "s" : ""} sent to ${count} address${count !== 1 ? "es" : ""}`);
       setEmails([]);
       onClose();
@@ -159,7 +171,7 @@ export function InviteModal({ open, onClose, orgId, orgName, isAdmin }: InviteMo
       await updateOrgInviteExpiry(linkInvite.id, settingsExpiryHours);
       toast.success("Link settings saved");
       setShowSettings(false);
-      await loadLinkInvite(selectedRole);
+      await loadLinkInvite(selectedRole, selectedTeamId);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -187,6 +199,13 @@ export function InviteModal({ open, onClose, orgId, orgName, isAdmin }: InviteMo
     { value: "player", label: "Player" },
     ...(isAdmin ? [{ value: "admin" as Role, label: "Admin" }] : []),
   ];
+
+  const selectedTeamName = orgTeams.find((t) => t.id === selectedTeamId)?.name ?? null;
+
+  const linkLabel = (() => {
+    const teamPart = selectedTeamName ? ` to ${selectedTeamName}` : "";
+    return `Copy ${selectedRole} link${teamPart}`;
+  })();
 
   const expiryLabel = (() => {
     if (!linkInvite?.expiresAt) return "no expiry";
@@ -274,19 +293,36 @@ export function InviteModal({ open, onClose, orgId, orgName, isAdmin }: InviteMo
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Role selector */}
-          <div className="flex items-center gap-3">
-            <label className="text-sm font-medium shrink-0">Role</label>
-            <select
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-              value={selectedRole}
-              onChange={(e) => setSelectedRole(e.target.value as Role)}
-              disabled={!isAdmin}
-            >
-              {roleOptions.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
+          {/* Role + Team selectors */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Role</label>
+              <select
+                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                value={selectedRole}
+                onChange={(e) => setSelectedRole(e.target.value as Role)}
+                disabled={!isAdmin}
+              >
+                {roleOptions.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+            {orgTeams.length > 0 && (
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Team <span className="text-muted-foreground font-normal">(optional)</span></label>
+                <select
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  value={selectedTeamId ?? ""}
+                  onChange={(e) => setSelectedTeamId(e.target.value || null)}
+                >
+                  <option value="">No specific team</option>
+                  {orgTeams.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}{t.season ? ` (${t.season})` : ""}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           {/* Email chip input */}
@@ -338,9 +374,7 @@ export function InviteModal({ open, onClose, orgId, orgName, isAdmin }: InviteMo
             <div className="flex items-center gap-2 min-w-0">
               <Link2 className="h-4 w-4 text-muted-foreground shrink-0" />
               <div className="min-w-0">
-                <span className="text-sm font-medium">
-                  Copy {selectedRole} link
-                </span>
+                <span className="text-sm font-medium">{linkLabel}</span>
                 {linkInvite && (
                   <span className="ml-1.5 text-xs text-muted-foreground">({expiryLabel})</span>
                 )}

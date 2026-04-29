@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,9 +8,6 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   getOrgContext,
   getOrgContextForOrg,
-  generateInviteCode,
-  listInvitesForTeam,
-  deleteInvite,
   getTeamMemberCounts,
   assignMemberToTeam,
   joinOrgTeam,
@@ -21,9 +17,9 @@ import {
   removeTeamMember,
 } from "@/lib/profile-db";
 import { InviteModal } from "@/components/invite-modal";
-import type { OrgContext, OrgTeam, TeamInvite, UserProfile } from "@scoutable/shared/types/org";
+import type { OrgContext, OrgTeam, UserProfile } from "@scoutable/shared/types/org";
 import { toast } from "sonner";
-import { Clipboard, Check, RefreshCw, ChevronDown, ChevronUp, Link2, UserPlus } from "lucide-react";
+import { ChevronDown, ChevronUp, UserPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth-context";
 import Link from "next/link";
@@ -40,87 +36,6 @@ function roleBadgeVariant(
 }
 
 // ---------------------------------------------------------------------------
-// InviteCard
-// ---------------------------------------------------------------------------
-
-function InviteCard({
-  label,
-  description,
-  code,
-  entityName,
-  onRegenerate,
-  regenerating,
-}: {
-  label: string;
-  description: string;
-  code: string | null;
-  entityName: string;
-  onRegenerate: () => void;
-  regenerating: boolean;
-}) {
-  const [copied, setCopied] = useState(false);
-  const [copiedLink, setCopiedLink] = useState(false);
-
-  function handleCopy() {
-    if (!code) return;
-    navigator.clipboard.writeText(`Join ${entityName} on Scoutable — Code: ${code}`);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-
-  function handleCopyLink() {
-    if (!code) return;
-    navigator.clipboard.writeText(`${window.location.origin}/join/${code}`);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2000);
-  }
-
-  return (
-    <Card>
-      <CardContent className="p-4 space-y-3">
-        <p className="text-sm font-medium text-foreground">{label}</p>
-        <p className="text-xs text-muted-foreground">{description}</p>
-        {code ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="rounded-md border border-border bg-muted/50 px-3 py-1.5 font-mono text-sm font-medium shrink-0">
-              {code}
-            </div>
-            <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={handleCopy}>
-              {copied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Clipboard className="h-3.5 w-3.5" />}
-              {copied ? "Copied!" : "Copy Code"}
-            </Button>
-            <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={handleCopyLink}>
-              {copiedLink ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Link2 className="h-3.5 w-3.5" />}
-              {copiedLink ? "Copied!" : "Copy Link"}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8 text-xs gap-1.5 text-muted-foreground"
-              onClick={onRegenerate}
-              disabled={regenerating}
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${regenerating ? "animate-spin" : ""}`} />
-              {regenerating ? "Regenerating…" : "Regenerate"}
-            </Button>
-          </div>
-        ) : (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 text-xs"
-            onClick={onRegenerate}
-            disabled={regenerating}
-          >
-            {regenerating ? "Generating…" : "Generate Code"}
-          </Button>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // TeamInviteSection
 // ---------------------------------------------------------------------------
 
@@ -129,15 +44,14 @@ function TeamInviteSection({
   orgMembers,
   isAdmin,
   onContextReload,
+  onInvite,
 }: {
   team: OrgTeam;
   orgMembers: UserProfile[];
   isAdmin: boolean;
   onContextReload: () => void;
+  onInvite: () => void;
 }) {
-  const [invites, setInvites] = useState<TeamInvite[]>([]);
-  const [loadingInvites, setLoadingInvites] = useState(true);
-  const [regeneratingRole, setRegeneratingRole] = useState<string | null>(null);
   const [teamMemberDetails, setTeamMemberDetails] = useState<{ userId: string; role: string }[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [removingTeamMemberId, setRemovingTeamMemberId] = useState<string | null>(null);
@@ -146,17 +60,6 @@ function TeamInviteSection({
   const [addingMember, setAddingMember] = useState(false);
 
   const supabase = createClient();
-
-  async function load() {
-    setLoadingInvites(true);
-    try {
-      setInvites(await listInvitesForTeam(team.id));
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setLoadingInvites(false);
-    }
-  }
 
   async function loadCurrentMembers() {
     setLoadingMembers(true);
@@ -171,21 +74,7 @@ function TeamInviteSection({
     }
   }
 
-  useEffect(() => { load(); loadCurrentMembers(); }, [team.id]);
-
-  async function handleRegenerate(role: "coach" | "player") {
-    setRegeneratingRole(role);
-    try {
-      const toDelete = invites.filter((i) => i.role === role);
-      await Promise.all(toDelete.map((i) => deleteInvite(i.id)));
-      await generateInviteCode(team.id, role);
-      await load();
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setRegeneratingRole(null);
-    }
-  }
+  useEffect(() => { loadCurrentMembers(); }, [team.id]);
 
   async function handleRemoveTeamMember(userId: string) {
     setRemovingTeamMemberId(userId);
@@ -222,12 +111,6 @@ function TeamInviteSection({
 
   const currentMemberIdSet = new Set(teamMemberDetails.map((m) => m.userId));
   const availableToAdd = orgMembers.filter((m) => !currentMemberIdSet.has(m.id));
-  const coachInvite = invites.find((i) => i.role === "coach");
-  const playerInvite = invites.find((i) => i.role === "player");
-
-  if (loadingInvites) {
-    return <p className="text-xs text-muted-foreground px-4 pb-3">Loading…</p>;
-  }
 
   return (
     <div className="px-4 pb-4 space-y-3 border-t border-border pt-3">
@@ -249,15 +132,17 @@ function TeamInviteSection({
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge variant={roleBadgeVariant(tm.role)} className="text-xs">{tm.role}</Badge>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 text-xs text-destructive hover:text-destructive"
-                    disabled={removingTeamMemberId === tm.userId}
-                    onClick={() => handleRemoveTeamMember(tm.userId)}
-                  >
-                    {removingTeamMemberId === tm.userId ? "Removing…" : "Remove"}
-                  </Button>
+                  {isAdmin && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs text-destructive hover:text-destructive"
+                      disabled={removingTeamMemberId === tm.userId}
+                      onClick={() => handleRemoveTeamMember(tm.userId)}
+                    >
+                      {removingTeamMemberId === tm.userId ? "Removing…" : "Remove"}
+                    </Button>
+                  )}
                 </div>
               </div>
             );
@@ -265,61 +150,47 @@ function TeamInviteSection({
         </div>
       )}
 
-      {/* Invite cards */}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <InviteCard
-          label="Player Invite"
-          description="Share with players to join this team"
-          code={playerInvite?.code ?? null}
-          entityName={team.name}
-          onRegenerate={() => handleRegenerate("player")}
-          regenerating={regeneratingRole === "player"}
-        />
-        <InviteCard
-          label="Coach Invite"
-          description="Share with coaches to join this team"
-          code={coachInvite?.code ?? null}
-          entityName={team.name}
-          onRegenerate={() => handleRegenerate("coach")}
-          regenerating={regeneratingRole === "coach"}
-        />
+      {/* Invite + Add Member row */}
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={onInvite}>
+          <UserPlus className="h-3.5 w-3.5" />
+          Invite to team
+        </Button>
+        {isAdmin && orgMembers.length > 0 && (
+          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { setShowAddMember((v) => !v); setSelectedUserId(""); }}>
+            {showAddMember ? "Cancel" : "Add existing member"}
+          </Button>
+        )}
       </div>
 
-      {/* Add Member (admin only) */}
-      {isAdmin && orgMembers.length > 0 && (
-        <div className="space-y-2">
-          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { setShowAddMember((v) => !v); setSelectedUserId(""); }}>
-            {showAddMember ? "Cancel" : "Add Member"}
-          </Button>
-          {showAddMember && (
-            <div className="flex items-center gap-2">
-              {availableToAdd.length === 0 ? (
-                <p className="text-xs text-muted-foreground">All org members are already in this team.</p>
-              ) : (
-                <>
-                  <select
-                    className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-sm"
-                    value={selectedUserId}
-                    onChange={(e) => setSelectedUserId(e.target.value)}
-                  >
-                    <option value="">Select member…</option>
-                    {availableToAdd.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.fullName ?? m.email ?? m.id.slice(0, 8)} ({m.role})
-                      </option>
-                    ))}
-                  </select>
-                  <Button
-                    size="sm"
-                    className="h-8 text-xs"
-                    disabled={!selectedUserId || addingMember}
-                    onClick={handleAddMember}
-                  >
-                    {addingMember ? "Adding…" : "Add"}
-                  </Button>
-                </>
-              )}
-            </div>
+      {/* Add Member dropdown */}
+      {showAddMember && (
+        <div className="flex items-center gap-2">
+          {availableToAdd.length === 0 ? (
+            <p className="text-xs text-muted-foreground">All org members are already in this team.</p>
+          ) : (
+            <>
+              <select
+                className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-sm"
+                value={selectedUserId}
+                onChange={(e) => setSelectedUserId(e.target.value)}
+              >
+                <option value="">Select member…</option>
+                {availableToAdd.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.fullName ?? m.email ?? m.id.slice(0, 8)} ({m.role})
+                  </option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                className="h-8 text-xs"
+                disabled={!selectedUserId || addingMember}
+                onClick={handleAddMember}
+              >
+                {addingMember ? "Adding…" : "Add"}
+              </Button>
+            </>
           )}
         </div>
       )}
@@ -337,6 +208,9 @@ function TeamCard({
   userTeamRole,
   canManage,
   isAdmin,
+  orgId,
+  orgName,
+  orgTeams,
   orgMembers,
   onContextReload,
 }: {
@@ -345,10 +219,14 @@ function TeamCard({
   userTeamRole: string;
   canManage: boolean;
   isAdmin: boolean;
+  orgId: string;
+  orgName: string;
+  orgTeams: OrgTeam[];
   orgMembers: UserProfile[];
   onContextReload: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
 
   return (
     <div className="rounded-lg border border-border">
@@ -376,8 +254,23 @@ function TeamCard({
         )}
       </button>
       {expanded && canManage && (
-        <TeamInviteSection team={team} orgMembers={orgMembers} isAdmin={isAdmin} onContextReload={onContextReload} />
+        <TeamInviteSection
+          team={team}
+          orgMembers={orgMembers}
+          isAdmin={isAdmin}
+          onContextReload={onContextReload}
+          onInvite={() => setShowInviteModal(true)}
+        />
       )}
+      <InviteModal
+        open={showInviteModal}
+        onClose={() => setShowInviteModal(false)}
+        orgId={orgId}
+        orgName={orgName}
+        orgTeams={orgTeams}
+        isAdmin={isAdmin}
+        initialTeamId={team.id}
+      />
     </div>
   );
 }
@@ -717,6 +610,9 @@ export default function OrganizationPage() {
                     userTeamRole={myTeamRoles[team.id] ?? profile.role}
                     canManage={canManageTeams}
                     isAdmin={isAdmin}
+                    orgId={org.id}
+                    orgName={org.name}
+                    orgTeams={ctx.allOrgTeams}
                     orgMembers={ctx.orgMembers}
                     onContextReload={load}
                   />
@@ -817,6 +713,7 @@ export default function OrganizationPage() {
         onClose={() => setShowInviteModal(false)}
         orgId={org.id}
         orgName={org.name}
+        orgTeams={ctx.allOrgTeams}
         isAdmin={isAdmin}
       />
     </div>
