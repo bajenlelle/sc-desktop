@@ -67,6 +67,7 @@ export interface OrgInvite {
   maxUses: number | null;
   isNationalTeam: boolean;
   teamId: string | null;
+  email: string | null;
 }
 
 export interface OrgWithCount {

@@ -348,6 +348,7 @@ function TeamCard({
         orgId={orgId}
         orgName={orgName}
         orgTeams={orgTeams}
+        orgMembers={orgMembers}
         isAdmin={isAdmin}
         initialTeamId={team.id}
       />
@@ -789,6 +790,7 @@ export function OrganizationPage() {
         orgId={org.id}
         orgName={org.name}
         orgTeams={ctx.allOrgTeams}
+        orgMembers={ctx.orgMembers}
         isAdmin={isAdmin}
       />
 

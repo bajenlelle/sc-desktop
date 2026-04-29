@@ -82,6 +82,7 @@ interface OrgInviteRow {
   max_uses: number | null;
   is_national_team: boolean;
   team_id: string | null;
+  email: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,6 +153,7 @@ function rowToOrgInvite(r: OrgInviteRow): OrgInvite {
     usedCount: r.used_count, maxUses: r.max_uses,
     isNationalTeam: r.is_national_team ?? false,
     teamId: r.team_id ?? null,
+    email: r.email ?? null,
   };
 }
 
@@ -418,7 +420,7 @@ export async function listOrgInvites(orgId: string): Promise<OrgInvite[]> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("org_invites")
-    .select("id, org_id, code, role, created_by, created_at, expires_at, used_count, max_uses, is_national_team, team_id")
+    .select("id, org_id, code, role, created_by, created_at, expires_at, used_count, max_uses, is_national_team, team_id, email")
     .eq("org_id", orgId)
     .order("created_at", { ascending: false });
   if (error) throw new Error(`Failed to list org invites: ${error.message}`);
@@ -635,6 +637,17 @@ export async function sendEmailInvites(orgId: string, emails: string[], role: st
   return data as number;
 }
 
+export async function resendEmailInvite(
+  inviteId: string,
+  orgId: string,
+  email: string,
+  role: string,
+  teamId?: string | null
+): Promise<void> {
+  await deleteOrgInvite(inviteId);
+  await sendEmailInvites(orgId, [email], role, teamId);
+}
+
 export async function getOrCreateLinkInvite(
   orgId: string,
   role: string,
@@ -645,7 +658,7 @@ export async function getOrCreateLinkInvite(
 
   let query = supabase
     .from("org_invites")
-    .select("id, org_id, code, role, created_by, created_at, expires_at, used_count, max_uses, is_national_team, team_id")
+    .select("id, org_id, code, role, created_by, created_at, expires_at, used_count, max_uses, is_national_team, team_id, email")
     .eq("org_id", orgId)
     .eq("role", role)
     .is("email", null)
@@ -673,7 +686,7 @@ export async function getOrCreateLinkInvite(
 
   const { data: created, error: fetchErr } = await supabase
     .from("org_invites")
-    .select("id, org_id, code, role, created_by, created_at, expires_at, used_count, max_uses, is_national_team, team_id")
+    .select("id, org_id, code, role, created_by, created_at, expires_at, used_count, max_uses, is_national_team, team_id, email")
     .eq("code", code as string)
     .single();
   if (fetchErr || !created) throw new Error("Failed to fetch created invite");

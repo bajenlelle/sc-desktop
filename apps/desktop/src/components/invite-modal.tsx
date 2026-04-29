@@ -6,14 +6,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Check, ChevronLeft, Copy, Link2, Loader2, Settings2, X } from "lucide-react";
+import { Check, ChevronLeft, Link2, Loader2, Settings2, X } from "lucide-react";
 import {
   sendEmailInvites,
+  resendEmailInvite,
+  listOrgInvites,
   getOrCreateLinkInvite,
   updateOrgInviteExpiry,
   deleteOrgInvite,
 } from "@/lib/profile-db";
-import type { OrgInvite, OrgTeam } from "@/types/org";
+import type { OrgInvite, OrgTeam, UserProfile } from "@/types/org";
 import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
@@ -28,6 +30,7 @@ interface InviteModalProps {
   orgId: string;
   orgName: string;
   orgTeams: OrgTeam[];
+  orgMembers: UserProfile[];
   isAdmin: boolean;
   initialTeamId?: string;
 }
@@ -54,6 +57,7 @@ export function InviteModal({
   orgId,
   orgName,
   orgTeams,
+  orgMembers,
   isAdmin,
   initialTeamId,
 }: InviteModalProps) {
@@ -62,6 +66,9 @@ export function InviteModal({
   const [emails, setEmails] = useState<string[]>([]);
   const [emailInput, setEmailInput] = useState("");
   const [sending, setSending] = useState(false);
+
+  // Pending email invites (for duplicate detection)
+  const [pendingInvites, setPendingInvites] = useState<OrgInvite[]>([]);
 
   // Link invite state
   const [linkInvite, setLinkInvite] = useState<OrgInvite | null>(null);
@@ -84,6 +91,9 @@ export function InviteModal({
       setSelectedRole("coach");
       setSelectedTeamId(initialTeamId ?? null);
       setLinkInvite(null);
+      listOrgInvites(orgId).then((invites) =>
+        setPendingInvites(invites.filter((i) => !!i.email && i.maxUses === 1))
+      );
     }
   }, [open]);
 
@@ -109,9 +119,47 @@ export function InviteModal({
     }
   }
 
+  function findPendingInvite(email: string): OrgInvite | null {
+    const now = Date.now();
+    return (
+      pendingInvites.find(
+        (i) =>
+          i.email?.toLowerCase() === email &&
+          (i.expiresAt === null || new Date(i.expiresAt).getTime() > now) &&
+          (i.maxUses === null || i.usedCount < i.maxUses)
+      ) ?? null
+    );
+  }
+
   function addEmail(raw: string) {
     const email = raw.trim().toLowerCase();
     if (!email) return;
+
+    if (orgMembers.some((m) => m.email?.toLowerCase() === email)) {
+      toast.error(`${email} is already a member of this organization.`);
+      return;
+    }
+
+    const existing = findPendingInvite(email);
+    if (existing) {
+      toast.error(`${email} already has a pending invite.`, {
+        description: "They haven't accepted yet.",
+        action: {
+          label: "Resend invite",
+          onClick: async () => {
+            try {
+              await resendEmailInvite(existing.id, orgId, email, selectedRole, selectedTeamId);
+              setPendingInvites((prev) => prev.filter((i) => i.id !== existing.id));
+              toast.success(`Invite resent to ${email}`);
+            } catch (e) {
+              toast.error((e as Error).message);
+            }
+          },
+        },
+      });
+      return;
+    }
+
     if (!isValidEmail(email)) {
       toast.error(`"${email}" is not a valid email address`);
       return;
@@ -301,7 +349,6 @@ export function InviteModal({
                 className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
                 value={selectedRole}
                 onChange={(e) => setSelectedRole(e.target.value as Role)}
-                disabled={!isAdmin}
               >
                 {roleOptions.map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
@@ -371,41 +418,35 @@ export function InviteModal({
 
           {/* Persistent link */}
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
+            <button
+              type="button"
+              className="flex items-center gap-2 min-w-0 text-left group"
+              onClick={handleCopyLink}
+              disabled={!linkInvite || loadingLink}
+            >
               <Link2 className="h-4 w-4 text-muted-foreground shrink-0" />
               <div className="min-w-0">
-                <span className="text-sm font-medium">{linkLabel}</span>
-                {linkInvite && (
+                <span className="text-sm font-medium group-hover:underline underline-offset-2">
+                  {copiedLink ? "Copied!" : linkLabel}
+                </span>
+                {linkInvite && !copiedLink && (
                   <span className="ml-1.5 text-xs text-muted-foreground">({expiryLabel})</span>
                 )}
               </div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {loadingLink ? (
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs gap-1.5"
-                  onClick={handleCopyLink}
-                  disabled={!linkInvite}
-                >
-                  {copiedLink ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
-                  {copiedLink ? "Copied!" : "Copy"}
-                </Button>
-              )}
-              {isAdmin && (
-                <button
-                  type="button"
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
-                  onClick={() => setShowSettings(true)}
-                >
-                  <Settings2 className="h-3.5 w-3.5" />
-                  Edit settings
-                </button>
-              )}
-            </div>
+              {loadingLink
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" />
+                : copiedLink
+                ? <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                : null}
+            </button>
+            <button
+              type="button"
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 shrink-0"
+              onClick={() => setShowSettings(true)}
+            >
+              <Settings2 className="h-3.5 w-3.5" />
+              Edit settings
+            </button>
           </div>
         </div>
 
