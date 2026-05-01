@@ -28,7 +28,7 @@ import {
 import type { Organization, UserProfile } from "@scoutable/shared/types/org";
 import { useAuth } from "@/components/auth-context";
 import { toast } from "sonner";
-import { ArrowLeft, Clipboard, Check, RefreshCw } from "lucide-react";
+import { ArrowLeft, Clipboard, Check, Loader2, RefreshCw } from "lucide-react";
 
 function roleBadgeVariant(
   role: string,
@@ -211,8 +211,9 @@ export default function OrgDetailPage() {
 
   if (!checked || loading) {
     return (
-      <div className="p-6 max-w-3xl mx-auto">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+      <div className="p-6 max-w-3xl mx-auto flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading…
       </div>
     );
   }

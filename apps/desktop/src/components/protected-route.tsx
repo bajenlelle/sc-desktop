@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth-context";
+import { Loader2 } from "lucide-react";
 
 const PLAYER_BLOCKED_PATHS = ["/matches", "/upload", "/playlists"];
 
@@ -8,7 +9,12 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
 
   if (loading || (user && profileLoading)) {
-    return <div className="py-24 text-center text-sm text-muted-foreground">Loading…</div>;
+    return (
+      <div className="py-24 flex flex-col items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        Loading…
+      </div>
+    );
   }
 
   if (!user) return <Navigate to="/auth/login" replace />;

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
-import { ArrowLeft, CalendarIcon, Film, FolderOpen } from "lucide-react";
+import { ArrowLeft, CalendarIcon, Film, FolderOpen, Loader2 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { DeleteMatchDialog } from "@/components/delete-match-dialog";
 import { SyncPointPicker } from "@/components/sync-point-picker";
@@ -245,8 +245,9 @@ export function MatchDetailPage() {
   if (!storedMatch) {
     return (
       <div className="p-6">
-        <div className="py-24 text-center">
-          <p className="text-muted-foreground">Loading…</p>
+        <div className="py-24 text-center flex flex-col items-center gap-2 text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <p className="text-sm">Loading…</p>
         </div>
       </div>
     );

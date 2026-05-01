@@ -279,9 +279,23 @@ export async function getOrgContext(): Promise<OrgContext> {
   const memberTeamIds = new Set(
     membershipsRes.error ? [] : (membershipsRes.data ?? []).map((m: TeamMemberRow) => m.team_id)
   );
-  const myTeams = allOrgTeams.filter((t) => memberTeamIds.has(t.id));
 
   const secondaryOrgs = await getMySecondaryOrgs();
+
+  let secondaryOrgTeams: OrgTeam[] = [];
+  if (secondaryOrgs.length > 0) {
+    const secOrgIds = secondaryOrgs.map((s) => s.orgId);
+    const { data } = await supabase
+      .from("teams")
+      .select("id, org_id, name, sport, season, created_at")
+      .in("org_id", secOrgIds);
+    if (data) secondaryOrgTeams = (data as TeamRow[]).map(rowToTeam);
+  }
+
+  const myTeams = [
+    ...allOrgTeams.filter((t) => memberTeamIds.has(t.id)),
+    ...secondaryOrgTeams.filter((t) => memberTeamIds.has(t.id)),
+  ];
 
   return { profile, org, myTeams, allOrgTeams, orgMembers, secondaryOrgs };
 }

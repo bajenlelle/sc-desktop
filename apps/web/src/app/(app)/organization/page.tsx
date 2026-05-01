@@ -33,7 +33,7 @@ import { AddMembersToTeamModal } from "@/components/add-members-to-team-modal";
 import { CreateTeamDialog } from "@/components/create-team-dialog";
 import type { OrgContext, OrgTeam, UserProfile } from "@scoutable/shared/types/org";
 import { toast } from "sonner";
-import { ChevronDown, ChevronUp, MoreHorizontal, Search, UserPlus } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2, MoreHorizontal, Search, UserPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth-context";
 import Link from "next/link";
@@ -517,8 +517,9 @@ export default function OrganizationPage() {
 
   if (loading) {
     return (
-      <div className="p-6 max-w-3xl mx-auto">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+      <div className="p-6 max-w-3xl mx-auto flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading…
       </div>
     );
   }
@@ -569,7 +570,8 @@ export default function OrganizationPage() {
   }
 
   const org = ctx.org;
-  const myTeamIds = new Set(ctx.myTeams.map((t) => t.id));
+  const myTeamsForOrg = ctx.myTeams.filter((t) => t.orgId === org.id);
+  const myTeamIds = new Set(myTeamsForOrg.map((t) => t.id));
   const otherTeams = ctx.allOrgTeams.filter((t) => !myTeamIds.has(t.id));
 
   const primaryOrgId = ctx.profile.orgId;
@@ -690,11 +692,11 @@ export default function OrganizationPage() {
                 </Button>
               )}
             </div>
-            {ctx.myTeams.length === 0 ? (
+            {myTeamsForOrg.length === 0 ? (
               <p className="text-sm text-muted-foreground">You&apos;re not in any teams yet.</p>
             ) : (
               <div className="space-y-2">
-                {ctx.myTeams.map((team) => (
+                {myTeamsForOrg.map((team) => (
                   <TeamCard
                     key={team.id}
                     team={team}

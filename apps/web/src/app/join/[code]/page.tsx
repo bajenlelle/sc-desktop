@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
@@ -108,7 +109,7 @@ export default function JoinPage() {
   if (preview === null || userId === undefined || userEmail === undefined) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       </div>
     );
   }

@@ -16,7 +16,7 @@ import { getAllOrgsWithCounts, createOrgForPlatform } from "@/lib/profile-db";
 import type { OrgWithCount } from "@scoutable/shared/types/org";
 import { useAuth } from "@/components/auth-context";
 import { toast } from "sonner";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Loader2 } from "lucide-react";
 import { getOrgContext } from "@/lib/profile-db";
 
 export default function AdminPage() {
@@ -78,8 +78,9 @@ export default function AdminPage() {
 
   if (!checked) {
     return (
-      <div className="p-6 max-w-5xl mx-auto">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+      <div className="p-6 max-w-5xl mx-auto flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading…
       </div>
     );
   }
