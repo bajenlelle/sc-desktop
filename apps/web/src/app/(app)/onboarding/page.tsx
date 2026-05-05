@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { joinByCode } from "@/lib/profile-db";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth-context";
+import { toast } from "sonner";
 
 function extractCode(input: string): string {
   const trimmed = input.trim();
@@ -31,6 +32,7 @@ export default function OnboardingPage() {
     setError(null);
     try {
       await joinByCode(code);
+      toast.success("You've joined successfully!");
       await reloadProfile();
       router.push("/my-playlists");
     } catch (e) {

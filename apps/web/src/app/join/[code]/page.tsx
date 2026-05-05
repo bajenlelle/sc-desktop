@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,6 @@ function roleBadgeVariant(role: string): "default" | "secondary" | "outline" {
 
 export default function JoinPage() {
   const { code } = useParams<{ code: string }>();
-  const router = useRouter();
 
   const [preview, setPreview] = useState<{
     valid: boolean;
@@ -81,7 +80,7 @@ export default function JoinPage() {
           setJoining(false);
           if (result.type === "secondary_org") {
             toast.success(`You joined ${preview.orgName ?? "the organization"}!`);
-            router.push("/my-playlists");
+            window.location.href = "/my-playlists";
           } else {
             setJoinResult(result);
           }
@@ -121,8 +120,8 @@ export default function JoinPage() {
           <CardContent className="p-6 text-center space-y-3">
             <p className="font-semibold text-foreground">Unable to join</p>
             <p className="text-sm text-muted-foreground">{joinError}</p>
-            <Button asChild className="w-full" size="sm">
-              <Link href="/onboarding">Continue to onboarding</Link>
+            <Button asChild variant="outline" className="w-full" size="sm">
+              <Link href="/">Go home</Link>
             </Button>
           </CardContent>
         </Card>
@@ -212,7 +211,7 @@ export default function JoinPage() {
               </p>
             </div>
             <div className="space-y-2">
-              <Button className="w-full" size="sm" onClick={() => router.push("/organization")}>
+              <Button className="w-full" size="sm" onClick={() => { window.location.href = "/organization"; }}>
                 Go to organization
               </Button>
               <Button asChild variant="outline" className="w-full" size="sm">

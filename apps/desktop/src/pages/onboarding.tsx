@@ -1,14 +1,13 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { LogoMark } from "@/components/logo";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { joinByCode } from "@/lib/profile-db";
 import { useAuth } from "@/lib/auth-context";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "sonner";
 
 export function OnboardingPage() {
-  const navigate = useNavigate();
   const { reloadProfile } = useAuth();
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
@@ -20,8 +19,9 @@ export function OnboardingPage() {
     setError(null);
     try {
       await joinByCode(code);
+      toast.success("You've joined successfully!");
       await reloadProfile();
-      navigate("/", { replace: true });
+      // ProtectedRoute redirects away from /onboarding once needsOnboarding is false
     } catch (e) {
       setError((e as Error).message);
     } finally {

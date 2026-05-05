@@ -524,6 +524,9 @@ export async function joinByCode(code: string): Promise<{ type: 'org' | 'team' |
     if (error.message.includes("code_expired")) throw new Error("This invite code has expired.");
     if (error.message.includes("code_exhausted")) throw new Error("This invite code has reached its maximum uses.");
     if (error.message.includes("already_in_different_org")) throw new Error("You are already in a different organization.");
+    if (error.message.includes("license_expired")) throw new Error("This organization's license has expired. Contact your admin.");
+    if (error.message.includes("coach_seat_limit_reached")) throw new Error("This organization has reached its coach seat limit. Contact your organization admin.");
+    if (error.message.includes("player_seat_limit_reached")) throw new Error("This organization has reached its player seat limit. Contact your organization admin.");
     throw new Error(`Failed to join: ${error.message}`);
   }
   const result = data as { type: string; org_id: string; team_id?: string };

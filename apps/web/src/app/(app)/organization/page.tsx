@@ -201,7 +201,7 @@ function TeamInviteSection({
           </p>
           {teamMemberDetails.map((tm) => {
             const profile = orgMembers.find((m) => m.id === tm.userId);
-            const displayName = profile?.fullName ?? profile?.email ?? tm.userId.slice(0, 8);
+            const displayName = profile?.fullName ?? profile?.email ?? "Unknown member";
             const secondaryText = profile?.fullName && profile?.email ? profile.email : null;
             return (
               <div
