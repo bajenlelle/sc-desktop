@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { trackEvent } from "@/lib/analytics";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowDown,
   ArrowUp,
@@ -1161,8 +1161,15 @@ function AddToDropdown({
 // ---------------------------------------------------------------------------
 
 export function PlaylistsPage() {
-  const { activeOrgId, activeOrgPlan } = useAuth();
+  const { activeOrgId, activeOrgPlan, activeOrgRole, activeOrgIsPersonal, profileLoading } = useAuth();
+  const navigate = useNavigate();
   const location = useLocation();
+  const canAccess = activeOrgIsPersonal || activeOrgRole === "coach" || activeOrgRole === "admin";
+
+  useEffect(() => {
+    if (profileLoading) return;
+    if (activeOrgId && !canAccess) navigate("/my-playlists", { replace: true });
+  }, [activeOrgId, canAccess, profileLoading, navigate]);
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2539,6 +2546,8 @@ export function PlaylistsPage() {
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
+
+  if (!profileLoading && !canAccess) return null;
 
   return (
     <>

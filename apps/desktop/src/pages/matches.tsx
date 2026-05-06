@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,10 +9,17 @@ import { useAuth } from "@/lib/auth-context";
 import type { StoredMatch } from "@/types/match";
 
 export function MatchesPage() {
-  const { activeOrgId } = useAuth();
+  const { activeOrgId, activeOrgRole, activeOrgIsPersonal, profileLoading } = useAuth();
+  const navigate = useNavigate();
+  const canAccess = activeOrgIsPersonal || activeOrgRole === "coach" || activeOrgRole === "admin";
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    if (profileLoading) return;
+    if (activeOrgId && !canAccess) navigate("/my-playlists", { replace: true });
+  }, [activeOrgId, canAccess, profileLoading, navigate]);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return matches;
@@ -26,12 +33,15 @@ export function MatchesPage() {
   }, [matches, search]);
 
   useEffect(() => {
+    if (!canAccess) return;
     setLoading(true);
     listMatches(activeOrgId ?? undefined)
       .then(setMatches)
       .catch(() => setMatches([]))
       .finally(() => setLoading(false));
-  }, [activeOrgId]);
+  }, [activeOrgId, canAccess]);
+
+  if (!profileLoading && !canAccess) return null;
 
   return (
     <div className="p-6">
