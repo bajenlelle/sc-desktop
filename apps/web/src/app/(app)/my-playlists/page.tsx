@@ -12,7 +12,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { createClient } from "@/lib/supabase/client";
 import { getMyTeamPlaylists, getMyDirectPlaylists, getMySharedOutPlaylists, setPlaylistTeams, setPlaylistUsers } from "@scoutable/shared/lib/playlists-db";
 import { listMatches } from "@scoutable/shared/lib/matches-db";
-import { getOrgContext } from "@/lib/profile-db";
+import { getOrgContext, getOrgContextForOrg } from "@/lib/profile-db";
+import { useAuth } from "@/components/auth-context";
 import { cn } from "@/lib/utils";
 import type {
   Playlist,
@@ -58,6 +59,7 @@ function playerName(event: PlayByPlayEvent): string {
 // ---------------------------------------------------------------------------
 
 export default function MyPlaylistsPage() {
+  const { activeOrgId } = useAuth();
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [directPlaylists, setDirectPlaylists] = useState<Playlist[]>([]);
   const [sharedOutPlaylists, setSharedOutPlaylists] = useState<Playlist[]>([]);
@@ -109,8 +111,8 @@ export default function MyPlaylistsPage() {
       getMyTeamPlaylists(supabase).catch(() => [] as Playlist[]),
       getMyDirectPlaylists(supabase).catch(() => [] as Playlist[]),
       getMySharedOutPlaylists(supabase).catch(() => [] as Playlist[]),
-      listMatches(supabase).catch(() => [] as StoredMatch[]),
-      getOrgContext().catch(() => null),
+      listMatches(supabase, activeOrgId ?? undefined).catch(() => [] as StoredMatch[]),
+      (activeOrgId ? getOrgContextForOrg(activeOrgId) : getOrgContext()).catch(() => null),
     ]).then(([{ data: { user } }, pls, directPls, sharedOutPls, ms, orgCtx]) => {
       setCurrentUserId(user?.id ?? null);
       setPlaylists(pls);
@@ -128,7 +130,7 @@ export default function MyPlaylistsPage() {
       setLoading(false);
       if (window.innerWidth < 1024) setSheetOpen(true);
     });
-  }, []);
+  }, [activeOrgId]);
 
   const matchLookup = useMemo(() => new Map(matches.map((m) => [m.id, m])), [matches]);
   useEffect(() => { matchLookupRef.current = matchLookup; }, [matchLookup]);

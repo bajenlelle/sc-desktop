@@ -383,17 +383,15 @@ function TeamCard({
 // ---------------------------------------------------------------------------
 
 export default function OrganizationPage() {
-  const { user } = useAuth();
+  const { user, activeOrgId } = useAuth();
   const [ctx, setCtx] = useState<OrgContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [memberCounts, setMemberCounts] = useState<Record<string, number>>({});
   const [myTeamRoles, setMyTeamRoles] = useState<Record<string, string>>({});
   const [joiningTeamId, setJoiningTeamId] = useState<string | null>(null);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
-  const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showCreateTeam, setShowCreateTeam] = useState(false);
-  const [primaryOrgMeta, setPrimaryOrgMeta] = useState<{ name: string; isNtOrg: boolean } | null>(null);
 
   // Members tab search/filter
   const [memberSearch, setMemberSearch] = useState("");
@@ -407,10 +405,6 @@ export default function OrganizationPage() {
       if (context.org) {
         const counts = await getTeamMemberCounts(context.org.id);
         setMemberCounts(counts);
-        // Capture primary org metadata once (don't overwrite when viewing a secondary org)
-        if (!orgId) {
-          setPrimaryOrgMeta({ name: context.org.name, isNtOrg: context.org.isNtOrg ?? false });
-        }
       }
 
       if (user && context.myTeams.length > 0) {
@@ -432,20 +426,13 @@ export default function OrganizationPage() {
     }
   }
 
-  useEffect(() => { load(); }, []);
-
-  const ctxSecondaryOrgs = ctx?.secondaryOrgs ?? [];
-  useEffect(() => {
-    if (!loading && ctx?.org === null && ctxSecondaryOrgs.length > 0 && selectedOrgId === null) {
-      handleSelectOrg(ctxSecondaryOrgs[0].orgId);
-    }
-  }, [loading, ctx?.org, ctxSecondaryOrgs.length]);
+  useEffect(() => { load(activeOrgId ?? undefined); }, [activeOrgId]);
 
   async function handleDeleteTeam(teamId: string) {
     try {
       await deleteTeam(teamId);
       toast.success("Team deleted");
-      await load(selectedOrgId ?? undefined);
+      await load(activeOrgId ?? undefined);
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -456,7 +443,7 @@ export default function OrganizationPage() {
     try {
       await joinOrgTeam(teamId);
       toast.success("Joined team!");
-      await load(selectedOrgId ?? undefined);
+      await load(activeOrgId ?? undefined);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -470,7 +457,7 @@ export default function OrganizationPage() {
     try {
       await promoteToAdmin(userId, orgId);
       toast.success("Member promoted to admin");
-      await load(selectedOrgId ?? undefined);
+      await load(activeOrgId ?? undefined);
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -483,18 +470,12 @@ export default function OrganizationPage() {
     try {
       await removeOrgMember(userId, orgId);
       toast.success("Member removed");
-      await load(selectedOrgId ?? undefined);
+      await load(activeOrgId ?? undefined);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
       setRemovingMemberId(null);
     }
-  }
-
-  async function handleSelectOrg(orgId: string | null) {
-    setSelectedOrgId(orgId);
-    setLoading(true);
-    await load(orgId ?? undefined);
   }
 
   // Filtered + grouped members
@@ -545,13 +526,6 @@ export default function OrganizationPage() {
   const canManageTeams = profile.role === "admin" || profile.role === "coach";
 
   if (ctx.org === null) {
-    if (ctxSecondaryOrgs.length > 0 && selectedOrgId === null) {
-      return (
-        <div className="p-6 max-w-3xl mx-auto">
-          <p className="text-sm text-muted-foreground">Loading…</p>
-        </div>
-      );
-    }
     return (
       <div className="p-6 max-w-3xl mx-auto space-y-4">
         <div>
@@ -574,39 +548,8 @@ export default function OrganizationPage() {
   const myTeamIds = new Set(myTeamsForOrg.map((t) => t.id));
   const otherTeams = ctx.allOrgTeams.filter((t) => !myTeamIds.has(t.id));
 
-  const primaryOrgId = ctx.profile.orgId;
-  const allOrgTabs = [
-    ...(primaryOrgId
-      ? [{ orgId: primaryOrgId, orgName: primaryOrgMeta?.name ?? org.name, isNtOrg: primaryOrgMeta?.isNtOrg ?? false }]
-      : []),
-    ...ctxSecondaryOrgs.map((s) => ({ orgId: s.orgId, orgName: s.orgName, isNtOrg: s.isNtOrg })),
-  ];
-  const showOrgTabs = allOrgTabs.length > 1;
-  const currentOrgTabId = selectedOrgId ?? primaryOrgId ?? null;
-
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
-      {/* Org switcher */}
-      {showOrgTabs && (
-        <div className="flex gap-1 border-b border-border -mb-2">
-          {allOrgTabs.map((tab) => (
-            <button
-              key={tab.orgId}
-              type="button"
-              onClick={() => handleSelectOrg(tab.orgId === primaryOrgId ? null : tab.orgId)}
-              className={cn(
-                "px-3 py-2 text-sm font-medium rounded-t-md border border-transparent transition-colors",
-                currentOrgTabId === tab.orgId
-                  ? "border-border border-b-background bg-background -mb-px text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {tab.orgName}
-              {tab.isNtOrg && <span className="ml-1 text-xs opacity-60">NT</span>}
-            </button>
-          ))}
-        </div>
-      )}
 
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
@@ -708,7 +651,7 @@ export default function OrganizationPage() {
                     orgName={org.name}
                     orgTeams={ctx.allOrgTeams}
                     orgMembers={ctx.orgMembers}
-                    onContextReload={() => load(selectedOrgId ?? undefined)}
+                    onContextReload={() => load(activeOrgId ?? undefined)}
                     onDelete={handleDeleteTeam}
                   />
                 ))}
@@ -825,8 +768,8 @@ export default function OrganizationPage() {
       <CreateTeamDialog
         open={showCreateTeam}
         onClose={() => setShowCreateTeam(false)}
-        onCreated={() => load(selectedOrgId ?? undefined)}
-        orgId={selectedOrgId ?? undefined}
+        onCreated={() => load(activeOrgId ?? undefined)}
+        orgId={activeOrgId ?? undefined}
       />
     </div>
   );

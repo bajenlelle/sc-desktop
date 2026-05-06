@@ -5,9 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MatchRow } from "@/components/match-row";
 import { listMatches } from "@/lib/matches-db";
+import { useAuth } from "@/lib/auth-context";
 import type { StoredMatch } from "@/types/match";
 
 export function MatchesPage() {
+  const { activeOrgId } = useAuth();
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -24,11 +26,12 @@ export function MatchesPage() {
   }, [matches, search]);
 
   useEffect(() => {
-    listMatches()
+    setLoading(true);
+    listMatches(activeOrgId ?? undefined)
       .then(setMatches)
       .catch(() => setMatches([]))
       .finally(() => setLoading(false));
-  }, []);
+  }, [activeOrgId]);
 
   return (
     <div className="p-6">

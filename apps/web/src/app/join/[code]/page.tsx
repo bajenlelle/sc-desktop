@@ -78,7 +78,7 @@ export default function JoinPage() {
       joinByCode(code)
         .then((result) => {
           setJoining(false);
-          if (result.type === "secondary_org") {
+          if (result.type === "org" || result.type === "secondary_org") {
             toast.success(`You joined ${preview.orgName ?? "the organization"}!`);
             window.location.href = "/my-playlists";
           } else {

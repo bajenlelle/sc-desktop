@@ -18,7 +18,7 @@ import { countClubMatchesThisMonth } from "@/lib/matches-db";
 import { NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import type { OrgContext } from "@/types/org";
+import type { OrgContext, OrgPlanTier } from "@/types/org";
 import { toast } from "sonner";
 import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -33,24 +33,36 @@ type SubStatus = {
   currentPeriodEnd: string | null;
 };
 
-function getMonthlyImportLimit(sub: SubStatus | null): number | null {
-  if (!sub || !sub.isActive) return 2;
-  if (sub.plan === "rookie") return 10;
+function getOrgImportLimit(tier: OrgPlanTier): number | null {
+  if (tier === 'free') return 2;
+  if (tier === 'pro') return 10;
   return null;
 }
 
-function planLabel(sub: SubStatus | null): string {
-  if (!sub || !sub.isActive) return "Free";
-  const map: Record<string, string> = { rookie: "Rookie", pro: "Pro", franchise: "Franchise" };
-  return map[sub.plan ?? ""] ?? "Free";
+function orgPlanLabel(tier: OrgPlanTier): string {
+  const map: Record<OrgPlanTier, string> = { free: "Free", pro: "Pro", max: "Max", franchise: "Franchise" };
+  return map[tier];
 }
 
-function planColors(sub: SubStatus | null): { dot: string; badge: string } {
+function orgPlanColors(tier: OrgPlanTier): { dot: string; badge: string } {
+  if (tier === 'free') return { dot: "bg-muted-foreground", badge: "bg-muted text-muted-foreground" };
+  if (tier === 'pro') return { dot: "bg-violet-500", badge: "bg-violet-500/10 text-violet-500" };
+  if (tier === 'max') return { dot: "bg-blue-500", badge: "bg-blue-500/10 text-blue-500" };
+  return { dot: "bg-amber-500", badge: "bg-amber-500/10 text-amber-500" };
+}
+
+function stripeSubLabel(sub: SubStatus | null): string {
+  if (!sub || !sub.isActive) return "Free";
+  const map: Record<string, string> = { rookie: "Pro", pro: "Max" };
+  return map[sub.plan ?? ""] ?? sub.plan ?? "Active";
+}
+
+function stripeSubColors(sub: SubStatus | null): { dot: string; badge: string } {
   if (!sub || !sub.isActive) return { dot: "bg-muted-foreground", badge: "bg-muted text-muted-foreground" };
-  if (sub.plan === "rookie") return { dot: "bg-blue-500", badge: "bg-blue-500/10 text-blue-500" };
-  if (sub.plan === "pro") return { dot: "bg-violet-500", badge: "bg-violet-500/10 text-violet-500" };
-  if (sub.plan === "franchise") return { dot: "bg-amber-500", badge: "bg-amber-500/10 text-amber-500" };
-  return { dot: "bg-muted-foreground", badge: "bg-muted text-muted-foreground" };
+  const p = sub.plan ?? "";
+  if (p === "rookie") return { dot: "bg-violet-500", badge: "bg-violet-500/10 text-violet-500" };
+  if (p === "pro") return { dot: "bg-blue-500", badge: "bg-blue-500/10 text-blue-500" };
+  return { dot: "bg-primary", badge: "bg-primary/10 text-primary" };
 }
 
 function formatDate(iso: string | null): string | null {
@@ -58,7 +70,7 @@ function formatDate(iso: string | null): string | null {
   return new Date(iso).toLocaleDateString("en-SE", { day: "numeric", month: "long", year: "numeric" });
 }
 
-function roleBadgeVariant(role: string, isPlatformAdmin: boolean): "default" | "secondary" | "outline" | "destructive" {
+function roleBadgeVariant(role: string | null, isPlatformAdmin: boolean): "default" | "secondary" | "outline" | "destructive" {
   if (isPlatformAdmin) return "destructive";
   if (role === "admin") return "default";
   if (role === "coach") return "secondary";
@@ -66,7 +78,7 @@ function roleBadgeVariant(role: string, isPlatformAdmin: boolean): "default" | "
 }
 
 export function ProfilePage() {
-  const { user } = useAuth();
+  const { user, activeOrgId, activeOrgPlan, activeOrgRole, activeOrgIsPersonal } = useAuth();
   const navigate = useNavigate();
 
   const [ctx, setCtx] = useState<OrgContext | null>(null);
@@ -84,14 +96,15 @@ export function ProfilePage() {
   async function load() {
     try {
       const ntLeagueIds = NATIONAL_TEAM_LEAGUES.map((l) => l.id);
-      const [context, subStatus, count] = await Promise.all([
+      const promises: [Promise<OrgContext>, Promise<number>, Promise<SubStatus | null>] = [
         getOrgContext(),
-        getSubscriptionStatus(),
-        countClubMatchesThisMonth(ntLeagueIds),
-      ]);
+        countClubMatchesThisMonth(ntLeagueIds, activeOrgId ?? undefined),
+        activeOrgIsPersonal ? getSubscriptionStatus() : Promise.resolve(null),
+      ];
+      const [context, count, subStatus] = await Promise.all(promises);
       setCtx(context);
-      setSub(subStatus);
       setMonthCount(count);
+      setSub(subStatus);
       setFullName(context.profile.fullName ?? "");
       setAvatarPreview(context.profile.avatarUrl ?? null);
     } catch {
@@ -101,7 +114,7 @@ export function ProfilePage() {
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [activeOrgId, activeOrgIsPersonal]);
 
   function handleAvatarFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -150,17 +163,11 @@ export function ProfilePage() {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
-      if (!res.ok) {
-        const text = await res.text();
-        console.error("Billing portal response:", res.status, text);
-        toast.error("Failed to open subscription portal");
-        return;
-      }
+      if (!res.ok) { toast.error("Failed to open subscription portal"); return; }
       const { url, error } = await res.json();
       if (error) { toast.error(error); return; }
       if (url) await openUrl(url);
-    } catch (e) {
-      console.error("Manage subscription error:", e);
+    } catch {
       toast.error("Failed to open subscription portal");
     } finally {
       setLoadingPortal(false);
@@ -189,14 +196,19 @@ export function ProfilePage() {
   }
 
   const profile = ctx.profile;
-  const colors = planColors(sub);
-  const monthlyLimit = getMonthlyImportLimit(sub);
+  const displayRole = activeOrgRole ?? profile.role;
+  const initials = (fullName || user?.email || "?").slice(0, 2).toUpperCase();
+
+  // Plan & Usage — personal org: Stripe-based; club org: org plan tier
+  const planColors = activeOrgIsPersonal ? stripeSubColors(sub) : orgPlanColors(activeOrgPlan);
+  const planName = activeOrgIsPersonal ? stripeSubLabel(sub) : orgPlanLabel(activeOrgPlan);
+  const monthlyLimit = activeOrgIsPersonal
+    ? (!sub?.isActive ? 2 : sub.plan === "rookie" ? 10 : null)
+    : getOrgImportLimit(activeOrgPlan);
   const showUsage = monthlyLimit !== null && monthCount !== null;
   const isTrialing = sub?.status === "trialing";
-  const isFreeOrRookie = !sub?.isActive || sub.plan === "rookie";
-  const dateLabel = isTrialing ? "Trial ends" : "Renews";
   const periodDate = formatDate(sub?.currentPeriodEnd ?? null);
-  const initials = (fullName || user?.email || "?").slice(0, 2).toUpperCase();
+  const isFreeOrRookie = !sub?.isActive || sub.plan === "rookie";
 
   return (
     <div className="p-6 max-w-2xl mx-auto space-y-4">
@@ -229,19 +241,14 @@ export function ProfilePage() {
                 {fullName || user?.email?.split("@")[0] || "—"}
               </p>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
-                <Badge variant={roleBadgeVariant(profile.role, profile.isPlatformAdmin)} className="text-xs">
-                  {profile.isPlatformAdmin ? "Platform admin" : profile.role.charAt(0).toUpperCase() + profile.role.slice(1)}
+                <Badge variant={roleBadgeVariant(displayRole, profile.isPlatformAdmin)} className="text-xs">
+                  {profile.isPlatformAdmin ? "Platform admin" : displayRole.charAt(0).toUpperCase() + displayRole.slice(1)}
                 </Badge>
-                {ctx.org && (
-                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                {ctx.myOrgs.filter((s) => !s.isPersonal).map((s) => (
+                  <span key={s.orgId} className="flex items-center gap-1 text-xs text-muted-foreground">
                     <Building2 className="h-3 w-3" />
-                    {ctx.org.name}
-                  </span>
-                )}
-                {ctx.secondaryOrgs.map((s) => (
-                  <Badge key={s.orgId} variant="outline" className="text-xs border-amber-500/50 text-amber-600">
                     {s.orgName}
-                  </Badge>
+                  </span>
                 ))}
               </div>
             </div>
@@ -252,30 +259,30 @@ export function ProfilePage() {
       {/* ── Plan & Usage ── */}
       <Card>
         <CardContent className="p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-              <Zap className="h-4 w-4 text-muted-foreground" />
-              Plan & Usage
-            </h2>
-          </div>
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Zap className="h-4 w-4 text-muted-foreground" />
+            Plan & Usage
+          </h2>
 
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className={`h-2 w-2 rounded-full ${colors.dot} flex-shrink-0`} />
-              <span className="font-semibold text-foreground">{planLabel(sub)}</span>
-              {sub?.isActive && (
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${colors.badge}`}>
+              <span className={`h-2 w-2 rounded-full ${planColors.dot} flex-shrink-0`} />
+              <span className="font-semibold text-foreground">{planName}</span>
+              {activeOrgIsPersonal && sub?.isActive && (
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${planColors.badge}`}>
                   {isTrialing ? "Trial" : "Active"}
                 </span>
               )}
-              {!sub?.isActive && (
-                <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-muted text-muted-foreground">
-                  Free
+              {!activeOrgIsPersonal && (
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${planColors.badge}`}>
+                  Org plan
                 </span>
               )}
             </div>
-            {periodDate && (
-              <span className="text-xs text-muted-foreground">{dateLabel} {periodDate}</span>
+            {activeOrgIsPersonal && periodDate && (
+              <span className="text-xs text-muted-foreground">
+                {isTrialing ? "Trial ends" : "Renews"} {periodDate}
+              </span>
             )}
           </div>
 
@@ -283,48 +290,55 @@ export function ProfilePage() {
             <div className="space-y-1.5">
               <div className="flex justify-between text-xs text-muted-foreground">
                 <span>Games imported this month</span>
-                <span className={monthCount >= monthlyLimit ? "text-destructive font-medium" : ""}>
+                <span className={monthCount! >= monthlyLimit! ? "text-destructive font-medium" : ""}>
                   {monthCount} / {monthlyLimit}
                 </span>
               </div>
               <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                 <div
-                  className={`h-full rounded-full transition-all ${monthCount >= monthlyLimit ? "bg-destructive" : "bg-primary"}`}
-                  style={{ width: `${Math.min(100, (monthCount / monthlyLimit) * 100)}%` }}
+                  className={`h-full rounded-full transition-all ${monthCount! >= monthlyLimit! ? "bg-destructive" : "bg-primary"}`}
+                  style={{ width: `${Math.min(100, (monthCount! / monthlyLimit!) * 100)}%` }}
                 />
               </div>
             </div>
           )}
 
-          {sub?.isActive && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full gap-1.5"
-              onClick={handleManageSubscription}
-              disabled={loadingPortal}
-            >
-              {loadingPortal ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
-              {loadingPortal ? "Opening…" : "Manage subscription"}
-            </Button>
-          )}
-
-          {isFreeOrRookie && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full gap-1.5"
-              onClick={() => openUrl(PRICING_URL)}
-            >
-              <ArrowUpRight className="h-3.5 w-3.5" />
-              {!sub?.isActive ? "Upgrade to Rookie or Pro" : "Upgrade to Pro"}
-            </Button>
+          {activeOrgIsPersonal ? (
+            <>
+              {sub?.isActive && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full gap-1.5"
+                  onClick={handleManageSubscription}
+                  disabled={loadingPortal}
+                >
+                  {loadingPortal ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
+                  {loadingPortal ? "Opening…" : "Manage subscription"}
+                </Button>
+              )}
+              {isFreeOrRookie && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full gap-1.5"
+                  onClick={() => openUrl(PRICING_URL)}
+                >
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                  {!sub?.isActive ? "Upgrade to Pro or Max" : "Upgrade to Max"}
+                </Button>
+              )}
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Plan managed by your organisation admin.
+            </p>
           )}
         </CardContent>
       </Card>
 
       {/* ── Org & Teams ── */}
-      {(ctx.org || ctx.secondaryOrgs.length > 0) && (
+      {ctx.myOrgs.some((o) => !o.isPersonal) && (
         <Card>
           <CardContent className="p-6 space-y-3">
             <div className="flex items-center justify-between">
@@ -336,15 +350,13 @@ export function ProfilePage() {
                 Manage <ChevronRight className="h-3 w-3" />
               </Link>
             </div>
-            {ctx.org && (
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-foreground">{ctx.org.name}</span>
-              </div>
-            )}
-            {ctx.secondaryOrgs.map((s) => (
+            {ctx.myOrgs.filter((s) => !s.isPersonal).map((s) => (
               <div key={s.orgId} className="flex items-center justify-between">
                 <span className="text-sm text-foreground">{s.orgName}</span>
-                {s.isNtOrg && <span className="text-xs text-muted-foreground">NT</span>}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground capitalize">{s.role}</span>
+                  {s.isNtOrg && <span className="text-xs text-muted-foreground">NT</span>}
+                </div>
               </div>
             ))}
             {ctx.myTeams.length > 0 && (

@@ -12,8 +12,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { getAllOrgsWithCounts, createOrgForPlatform } from "@/lib/profile-db";
-import type { OrgWithCount } from "@scoutable/shared/types/org";
+import { getAllOrgsWithCounts, createOrgForPlatform, updateOrgPlanTier } from "@/lib/profile-db";
+import type { OrgWithCount, OrgPlanTier } from "@scoutable/shared/types/org";
 import { useAuth } from "@/components/auth-context";
 import { toast } from "sonner";
 import { ArrowRight, Loader2 } from "lucide-react";
@@ -76,6 +76,16 @@ export default function AdminPage() {
     }
   }
 
+  async function handlePlanTierChange(orgId: string, tier: OrgPlanTier) {
+    try {
+      await updateOrgPlanTier(orgId, tier);
+      setOrgs((prev) => prev.map((o) => o.id === orgId ? { ...o, planTier: tier } : o));
+      toast.success("Plan tier updated");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
   if (!checked) {
     return (
       <div className="p-6 max-w-5xl mx-auto flex items-center gap-2 text-sm text-muted-foreground">
@@ -109,6 +119,7 @@ export default function AdminPage() {
                     <th className="px-4 py-3 font-medium text-muted-foreground">Name</th>
                     <th className="px-4 py-3 font-medium text-muted-foreground">Members</th>
                     <th className="px-4 py-3 font-medium text-muted-foreground">Teams</th>
+                    <th className="px-4 py-3 font-medium text-muted-foreground">Plan</th>
                     <th className="px-4 py-3 font-medium text-muted-foreground">Created</th>
                     <th className="px-4 py-3 font-medium text-muted-foreground">Actions</th>
                   </tr>
@@ -123,6 +134,18 @@ export default function AdminPage() {
                       <td className="px-4 py-3 font-medium">{org.name}</td>
                       <td className="px-4 py-3 text-muted-foreground">{org.memberCount}</td>
                       <td className="px-4 py-3 text-muted-foreground">{org.teamCount}</td>
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        <select
+                          value={org.planTier}
+                          onChange={(e) => handlePlanTierChange(org.id, e.target.value as OrgPlanTier)}
+                          className="text-xs rounded border border-border bg-background px-2 py-1 cursor-pointer"
+                        >
+                          <option value="free">Free</option>
+                          <option value="pro">Pro</option>
+                          <option value="max">Max</option>
+                          <option value="franchise">Franchise</option>
+                        </select>
+                      </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         {new Date(org.createdAt).toLocaleDateString("en-US", {
                           month: "short",

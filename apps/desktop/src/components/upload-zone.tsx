@@ -9,8 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { saveMatch, countClubMatchesThisMonth } from "@/lib/matches-db";
-import { getSubscriptionStatus } from "@/lib/profile-db";
-import type { SecondaryOrg } from "@/types/org";
+import { useAuth } from "@/lib/auth-context";
+import type { OrgMembership, OrgPlanTier } from "@/types/org";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
 import { fetchBoxscore, fetchPlayByPlay, fetchPlayByPlaySportradar, fetchSchedule, fetchScheduleSportradar, LEAGUES, NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
 import type { ScheduleGame, League } from "@/lib/basketball-api";
@@ -53,10 +53,10 @@ function basename(path: string): string {
   return path.replace(/.*[\\/]/, "");
 }
 
-function getMonthlyImportLimit(sub: { isActive: boolean; plan: string | null } | null): number | null {
-  if (!sub || !sub.isActive) return 2;
-  if (sub.plan === "rookie") return 10;
-  return null;
+function getOrgImportLimit(tier: OrgPlanTier): number | null {
+  if (tier === 'free') return 2;
+  if (tier === 'pro') return 10;
+  return null; // max and franchise: unlimited
 }
 
 
@@ -123,10 +123,11 @@ export function UploadZone({
   ntMemberships = [],
   hasClubAccess = false,
 }: {
-  ntMemberships?: SecondaryOrg[];
+  ntMemberships?: OrgMembership[];
   hasClubAccess?: boolean;
 }) {
   const navigate = useNavigate();
+  const { activeOrgId, activeOrgPlan } = useAuth();
 
   const hasNtAccess = ntMemberships.length > 0;
   const leagueList = [
@@ -329,12 +330,14 @@ export function UploadZone({
 
     if (!isNtLeague) {
       const ntLeagueIds = NATIONAL_TEAM_LEAGUES.map((l) => l.id);
-      const [sub, count] = await Promise.all([getSubscriptionStatus(), countClubMatchesThisMonth(ntLeagueIds)]);
-      const limit = getMonthlyImportLimit(sub);
-      if (limit !== null && count >= limit) {
-        setImportLimitInfo({ count, limit });
-        setImportLimitDialogOpen(true);
-        return;
+      const limit = getOrgImportLimit(activeOrgPlan);
+      if (limit !== null) {
+        const count = await countClubMatchesThisMonth(ntLeagueIds, activeOrgId ?? undefined);
+        if (count >= limit) {
+          setImportLimitInfo({ count, limit });
+          setImportLimitDialogOpen(true);
+          return;
+        }
       }
     }
 
@@ -370,6 +373,7 @@ export function UploadZone({
       syncPoint,
       events: playByPlayEvents,
       leagueId: selectedLeague.id,
+      orgId: activeOrgId ?? undefined,
     };
 
     try {
@@ -412,7 +416,7 @@ export function UploadZone({
       onClose={() => setImportLimitDialogOpen(false)}
       featureName="Monthly import limit reached"
       description={importLimitInfo
-        ? `You've used all ${importLimitInfo.limit} game imports for this month on your current plan. Upgrade to Rookie for 10 imports/month, or Pro for unlimited.`
+        ? `You've used all ${importLimitInfo.limit} game imports for this month on the free plan. Upgrade to Pro for 10 imports/month, or Max for unlimited.`
         : undefined}
     />
     <div className="mx-auto max-w-2xl space-y-8">

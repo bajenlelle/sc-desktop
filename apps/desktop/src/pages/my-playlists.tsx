@@ -5,7 +5,8 @@ import { VideoClipControls } from "@/components/video-clip-controls";
 import { VideoPlaceholder } from "@/components/video-placeholder";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getMyTeamPlaylists, getMyDirectPlaylists, getMySharedOutPlaylists, setPlaylistTeams, setPlaylistUsers } from "@/lib/playlists-db";
-import { getOrgContext } from "@/lib/profile-db";
+import { getOrgContext, getOrgContextForOrg } from "@/lib/profile-db";
+import { useAuth } from "@/lib/auth-context";
 import { listMatches } from "@/lib/matches-db";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { isClipItem } from "@/types/match";
@@ -54,6 +55,7 @@ function playerName(event: PlayByPlayEvent): string {
 // ---------------------------------------------------------------------------
 
 export function MyPlaylistsPage() {
+  const { activeOrgId } = useAuth();
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [directPlaylists, setDirectPlaylists] = useState<Playlist[]>([]);
   const [sharedOutPlaylists, setSharedOutPlaylists] = useState<Playlist[]>([]);
@@ -103,8 +105,8 @@ export function MyPlaylistsPage() {
       getMyTeamPlaylists().catch(() => [] as Playlist[]),
       getMyDirectPlaylists().catch(() => [] as Playlist[]),
       getMySharedOutPlaylists().catch(() => [] as Playlist[]),
-      listMatches().catch(() => [] as StoredMatch[]),
-      getOrgContext().catch(() => null),
+      listMatches(activeOrgId ?? undefined).catch(() => [] as StoredMatch[]),
+      (activeOrgId ? getOrgContextForOrg(activeOrgId) : getOrgContext()).catch(() => null),
     ]).then(([pls, directPls, sharedOutPls, ms, orgCtx]) => {
       setPlaylists(pls);
       setDirectPlaylists(directPls);
@@ -120,7 +122,7 @@ export function MyPlaylistsPage() {
         setExpandedTeams(new Set(pls.flatMap((p) => (p.teamIds && p.teamIds.length > 0) ? p.teamIds : [p.teamId ?? '__none__'])));
       }
     }).finally(() => setLoading(false));
-  }, []);
+  }, [activeOrgId]);
 
   const matchLookup = useMemo(
     () => new Map(matches.map((m) => [m.id, m])),

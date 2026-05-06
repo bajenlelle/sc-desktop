@@ -25,6 +25,7 @@ interface MatchRow {
   video_url: string | null;
   sync_point: SyncPoint | null;
   league_id: string | null;
+  org_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -60,6 +61,7 @@ function rowToStoredMatch(row: MatchRow, events: EventRow[]): StoredMatch {
     videoUrl: row.video_url ?? undefined,
     syncPoint: row.sync_point ?? undefined,
     leagueId: row.league_id ?? undefined,
+    orgId: row.org_id ?? undefined,
     events: events.map((e) => ({
       eventId: e.event_id ?? 0,
       type: e.type,
@@ -99,6 +101,9 @@ export async function saveMatch(supabase: SupabaseClient, match: StoredMatch): P
   }
   if (match.leagueId !== undefined) {
     matchData.league_id = match.leagueId;
+  }
+  if (match.orgId !== undefined) {
+    matchData.org_id = match.orgId;
   }
   const { error: matchError } = await supabase.from("matches").upsert(matchData, { onConflict: "id" });
   if (matchError) throw new Error(`Failed to save match: ${matchError.message}`);
@@ -155,12 +160,14 @@ export async function getMatch(supabase: SupabaseClient, id: string): Promise<St
 // List all matches for the current user
 // ---------------------------------------------------------------------------
 
-export async function listMatches(supabase: SupabaseClient): Promise<StoredMatch[]> {
-  const { data, error } = await supabase
+export async function listMatches(supabase: SupabaseClient, orgId?: string): Promise<StoredMatch[]> {
+  let query = supabase
     .from("matches")
     .select("*, play_by_play_events(*)")
     .order("created_at", { ascending: false });
+  if (orgId) query = query.eq("org_id", orgId);
 
+  const { data, error } = await query;
   if (error || !data) return [];
 
   return (data as (MatchRow & { play_by_play_events: EventRow[] })[]).map((row) =>
@@ -329,11 +336,13 @@ export async function deleteFolder(supabase: SupabaseClient, id: string): Promis
 // List all matches WITHOUT loading events (fast — for match title resolution)
 // ---------------------------------------------------------------------------
 
-export async function listMatchesLight(supabase: SupabaseClient): Promise<StoredMatch[]> {
-  const { data, error } = await supabase
+export async function listMatchesLight(supabase: SupabaseClient, orgId?: string): Promise<StoredMatch[]> {
+  let query = supabase
     .from("matches")
     .select("*")
     .order("created_at", { ascending: false });
+  if (orgId) query = query.eq("org_id", orgId);
+  const { data, error } = await query;
   if (error || !data) return [];
   return (data as MatchRow[]).map((row) => rowToStoredMatch(row, []));
 }
@@ -350,10 +359,12 @@ export async function countMatchesThisMonth(supabase: SupabaseClient): Promise<n
 
 export async function countClubMatchesThisMonth(
   supabase: SupabaseClient,
-  ntLeagueIds: string[]
+  ntLeagueIds: string[],
+  orgId?: string
 ): Promise<number> {
   const { data } = await supabase.rpc("count_club_matches_this_month", {
     p_nt_league_ids: ntLeagueIds,
+    ...(orgId ? { p_org_id: orgId } : {}),
   });
   return (data as number) ?? 0;
 }

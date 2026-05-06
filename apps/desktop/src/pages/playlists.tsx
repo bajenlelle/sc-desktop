@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "@/lib/auth-context";
 import { trackEvent } from "@/lib/analytics";
 import { Link, useLocation } from "react-router-dom";
 import {
@@ -41,7 +42,7 @@ import { usePanelRef } from "react-resizable-panels";
 import { VideoClipControls } from "@/components/video-clip-controls";
 import { listMatchesLight, listEventsForMatches, listFolders, createFolder, updateFolder, deleteFolder } from "@/lib/matches-db";
 import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderItems, updateClip, insertTextCard, updateTextCard, setPlaylistTeams, setPlaylistUsers } from "@/lib/playlists-db";
-import { getOrgContext, getTeamMemberIds, getSubscriptionStatus } from "@/lib/profile-db";
+import { getOrgContext, getOrgContextForOrg, getOrgMembers, getTeamMemberIds } from "@/lib/profile-db";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
 import type { OrgTeam, UserProfile } from "@/types/org";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
@@ -1160,6 +1161,7 @@ function AddToDropdown({
 // ---------------------------------------------------------------------------
 
 export function PlaylistsPage() {
+  const { activeOrgId, activeOrgPlan } = useAuth();
   const location = useLocation();
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -1190,7 +1192,6 @@ export function PlaylistsPage() {
   const [openMenuFolderId, setOpenMenuFolderId] = useState<string | null>(null);
   const [clockSort, setClockSort] = useState<ClockSort>("none");
   const [search, setSearch] = useState("");
-  const [subStatus, setSubStatus] = useState<{ isActive: boolean; plan: string | null } | null>(null);
   const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -1245,9 +1246,6 @@ export function PlaylistsPage() {
     sessionStorage.setItem("playlists-theater-mode", String(theaterMode));
   }, [theaterMode]);
 
-  useEffect(() => {
-    getSubscriptionStatus().then(setSubStatus);
-  }, []);
   const clipNoteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clipEndRef = useRef<number | undefined>(undefined);
   const pendingSeekRef = useRef<{ seekTo: number; clipEnd: number } | null>(null);
@@ -1282,7 +1280,7 @@ export function PlaylistsPage() {
     const state = location.state as { restore?: { playlistId: string }; createNew?: boolean } | null;
     const restore = state?.restore;
     const createNew = state?.createNew;
-    Promise.all([listPlaylists(), listMatchesLight(), listFolders(), getOrgContext().catch(() => null)])
+    Promise.all([listPlaylists(), listMatchesLight(activeOrgId ?? undefined), listFolders(), (activeOrgId ? getOrgContextForOrg(activeOrgId) : getOrgContext()).catch(() => null)])
       .then(async ([loadedPlaylists, matchShells, loadedFolders, orgCtx]) => {
         const matchIds = matchShells.map((m) => m.id);
         const eventsByMatch = await listEventsForMatches(matchIds).catch(() => ({} as Record<string, PlayByPlayEvent[]>));
@@ -1294,14 +1292,21 @@ export function PlaylistsPage() {
         setFolders(sorted);
         if (orgCtx) {
           setUserTeams(orgCtx.myTeams);
-          // Load members of coach's teams for individual sharing
+          // Load members of coach's teams for individual sharing (includes secondary org members)
           const myTeamIds = orgCtx.myTeams.map((t) => t.id);
           if (myTeamIds.length > 0) {
-            getTeamMemberIds(myTeamIds).then((memberIds) => {
+            const secondaryOrgIds = orgCtx.myOrgs.filter((o) => o.orgId !== orgCtx.org?.id).map((o) => o.orgId);
+            Promise.all([
+              getTeamMemberIds(myTeamIds),
+              ...secondaryOrgIds.map((id) => getOrgMembers(id)),
+            ]).then(([memberIds, ...secondaryMemberArrays]) => {
               const memberIdSet = new Set(memberIds);
               const currentUid = orgCtx.profile.id;
+              const allMembers = new Map<string, (typeof orgCtx.orgMembers)[0]>(
+                [...orgCtx.orgMembers, ...secondaryMemberArrays.flat()].map((m) => [m.id, m])
+              );
               setShareableMembers(
-                orgCtx.orgMembers.filter((m) => memberIdSet.has(m.id) && m.id !== currentUid)
+                [...allMembers.values()].filter((m) => memberIdSet.has(m.id) && m.id !== currentUid)
               );
             });
           }
@@ -1329,7 +1334,7 @@ export function PlaylistsPage() {
       .catch(() => {})
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [activeOrgId]);
 
   // Build match lookup for cross-match event resolution
   const matchLookup = useMemo(
@@ -1983,7 +1988,7 @@ export function PlaylistsPage() {
   // ---------------------------------------------------------------------------
 
   async function handleExport() {
-    if (subStatus && !subStatus.isActive) {
+    if (activeOrgPlan === 'free') {
       setUpgradeDialogOpen(true);
       return;
     }
@@ -3433,7 +3438,7 @@ export function PlaylistsPage() {
                         disabled={!!exportDisabledReason}
                         title={exportDisabledReason ?? "Export playlist as MP4"}
                       >
-                        {subStatus && !subStatus.isActive
+                        {activeOrgPlan === 'free'
                           ? <Lock className="h-3.5 w-3.5" />
                           : <FileDown className="h-3.5 w-3.5" />
                         }
@@ -3723,7 +3728,7 @@ export function PlaylistsPage() {
                         disabled={!!exportDisabledReason}
                         title={exportDisabledReason ?? "Export playlist as MP4"}
                       >
-                        {subStatus && !subStatus.isActive
+                        {activeOrgPlan === 'free'
                           ? <Lock className="h-3.5 w-3.5" />
                           : <FileDown className="h-3.5 w-3.5" />
                         }

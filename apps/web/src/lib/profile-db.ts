@@ -13,7 +13,9 @@ import type {
   OrgInvite,
   OrgContext,
   OrgWithCount,
+  OrgMembership,
   SecondaryOrg,
+  OrgPlanTier,
 } from "@scoutable/shared/types/org";
 
 interface ProfileRow {
@@ -45,6 +47,7 @@ interface OrgRow {
   player_seat_limit: number | null;
   expires_at: string | null;
   is_nt_org?: boolean;
+  plan_tier?: string;
 }
 
 interface TeamRow {
@@ -98,6 +101,7 @@ interface OrgWithCountRow {
   created_at: string;
   member_count: number;
   team_count: number;
+  plan_tier: string;
 }
 
 function rowToProfile(r: ProfileRow): UserProfile {
@@ -136,6 +140,7 @@ function rowToOrg(r: OrgRow): Organization {
     playerSeatLimit: r.player_seat_limit ?? null,
     expiresAt: r.expires_at ?? null,
     isNtOrg: r.is_nt_org ?? false,
+    planTier: (r.plan_tier ?? 'free') as OrgPlanTier,
   };
 }
 
@@ -254,7 +259,7 @@ export async function getOrgContext(): Promise<OrgContext> {
     const [orgRes, teamsRes, membersRes] = await Promise.all([
       supabase
         .from("organizations")
-        .select("id, name, logo_url, created_at, coach_seat_limit, player_seat_limit, expires_at, is_nt_org")
+        .select("id, name, logo_url, created_at, coach_seat_limit, player_seat_limit, expires_at, is_nt_org, plan_tier")
         .eq("id", baseProfile.orgId)
         .single(),
       supabase
@@ -280,16 +285,18 @@ export async function getOrgContext(): Promise<OrgContext> {
     membershipsRes.error ? [] : (membershipsRes.data ?? []).map((m: TeamMemberRow) => m.team_id)
   );
 
-  const secondaryOrgs = await getMySecondaryOrgs();
+  const myOrgs = await getMyOrgs();
 
   let secondaryOrgTeams: OrgTeam[] = [];
-  if (secondaryOrgs.length > 0) {
-    const secOrgIds = secondaryOrgs.map((s) => s.orgId);
-    const { data } = await supabase
-      .from("teams")
-      .select("id, org_id, name, sport, season, created_at")
-      .in("org_id", secOrgIds);
-    if (data) secondaryOrgTeams = (data as TeamRow[]).map(rowToTeam);
+  if (myOrgs.length > 0) {
+    const otherOrgIds = myOrgs.filter((o) => o.orgId !== baseProfile.orgId).map((o) => o.orgId);
+    if (otherOrgIds.length > 0) {
+      const { data } = await supabase
+        .from("teams")
+        .select("id, org_id, name, sport, season, created_at")
+        .in("org_id", otherOrgIds);
+      if (data) secondaryOrgTeams = (data as TeamRow[]).map(rowToTeam);
+    }
   }
 
   const myTeams = [
@@ -297,7 +304,7 @@ export async function getOrgContext(): Promise<OrgContext> {
     ...secondaryOrgTeams.filter((t) => memberTeamIds.has(t.id)),
   ];
 
-  return { profile, org, myTeams, allOrgTeams, orgMembers, secondaryOrgs };
+  return { profile, org, myTeams, allOrgTeams, orgMembers, myOrgs, secondaryOrgs: myOrgs };
 }
 
 export async function getOrgContextForOrg(orgId: string): Promise<OrgContext> {
@@ -315,7 +322,7 @@ export async function getOrgContextForOrg(orgId: string): Promise<OrgContext> {
       .single(),
     supabase
       .from("organizations")
-      .select("id, name, logo_url, created_at, coach_seat_limit, player_seat_limit, expires_at, is_nt_org")
+      .select("id, name, logo_url, created_at, coach_seat_limit, player_seat_limit, expires_at, is_nt_org, plan_tier")
       .eq("id", orgId)
       .single(),
     supabase.from("teams").select("id, org_id, name, sport, season, created_at").eq("org_id", orgId),
@@ -343,9 +350,9 @@ export async function getOrgContextForOrg(orgId: string): Promise<OrgContext> {
   );
   const myTeams = allOrgTeams.filter((t) => memberTeamIds.has(t.id));
 
-  const secondaryOrgs = await getMySecondaryOrgs();
+  const myOrgs = await getMyOrgs();
 
-  return { profile, org, myTeams, allOrgTeams, orgMembers, secondaryOrgs };
+  return { profile, org, myTeams, allOrgTeams, orgMembers, myOrgs, secondaryOrgs: myOrgs };
 }
 
 export async function createTeam(name: string, season?: string, orgId?: string): Promise<string> {
@@ -526,6 +533,7 @@ export async function getAllOrgsWithCounts(): Promise<OrgWithCount[]> {
     createdAt: r.created_at,
     memberCount: Number(r.member_count),
     teamCount: Number(r.team_count),
+    planTier: (r.plan_tier ?? 'free') as OrgPlanTier,
   }));
 }
 
@@ -533,7 +541,7 @@ export async function getOrgById(orgId: string): Promise<Organization> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("organizations")
-    .select("id, name, logo_url, created_at, coach_seat_limit, player_seat_limit, expires_at, is_nt_org")
+    .select("id, name, logo_url, created_at, coach_seat_limit, player_seat_limit, expires_at, is_nt_org, plan_tier")
     .eq("id", orgId)
     .single();
   if (error || !data) throw new Error(`Failed to load organization: ${error?.message}`);
@@ -627,15 +635,31 @@ export async function removeOrgMember(userId: string, orgId: string): Promise<vo
   }
 }
 
-export async function getMySecondaryOrgs(): Promise<SecondaryOrg[]> {
+export async function getMyOrgs(): Promise<OrgMembership[]> {
   const supabase = createClient();
-  const { data } = await supabase.rpc("get_my_secondary_orgs");
-  return (data ?? []).map((r: { org_id: string; org_name: string; role: string; is_nt_org: boolean }) => ({
+  const { data } = await supabase.rpc("get_my_orgs");
+  return (data ?? []).map((r: { org_id: string; org_name: string; role: string; is_nt_org: boolean; plan_tier: string; is_personal: boolean }) => ({
     orgId: r.org_id,
     orgName: r.org_name,
-    role: r.role as 'coach' | 'admin',
+    role: r.role as OrgMembership['role'],
     isNtOrg: r.is_nt_org,
+    planTier: (r.plan_tier ?? 'free') as OrgPlanTier,
+    isPersonal: r.is_personal ?? false,
   }));
+}
+
+export async function updateOrgPlanTier(orgId: string, tier: OrgPlanTier): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("organizations")
+    .update({ plan_tier: tier })
+    .eq("id", orgId);
+  if (error) throw new Error(`Failed to update plan tier: ${error.message}`);
+}
+
+/** @deprecated Use getMyOrgs */
+export async function getMySecondaryOrgs(): Promise<OrgMembership[]> {
+  return getMyOrgs();
 }
 
 export async function updateOrgNameForPlatform(orgId: string, name: string): Promise<void> {

@@ -1,18 +1,18 @@
 import { useEffect, useState } from "react";
 import { UploadZone } from "@/components/upload-zone";
-import { getOrgContext, getSubscriptionStatus } from "@/lib/profile-db";
-import type { SecondaryOrg } from "@/types/org";
+import { useAuth } from "@/lib/auth-context";
+import type { OrgMembership } from "@/types/org";
 
 export function UploadPage() {
-  const [ntOrgs, setNtOrgs] = useState<SecondaryOrg[]>([]);
+  const { myOrgs, activeOrgId } = useAuth();
+  const [ntOrgs, setNtOrgs] = useState<OrgMembership[]>([]);
   const [hasClubAccess, setHasClubAccess] = useState(false);
 
   useEffect(() => {
-    Promise.all([getOrgContext(), getSubscriptionStatus()]).then(([ctx, sub]) => {
-      setNtOrgs(ctx.secondaryOrgs.filter((s) => s.isNtOrg));
-      setHasClubAccess(!!ctx.profile.orgId || sub.isActive);
-    });
-  }, []);
+    const activeOrg = myOrgs.find((o) => o.orgId === activeOrgId);
+    setNtOrgs(activeOrg?.isNtOrg ? [activeOrg] : []);
+    setHasClubAccess(!!activeOrg && !activeOrg.isNtOrg);
+  }, [activeOrgId, myOrgs]);
 
   return (
     <div className="p-6 max-w-3xl mx-auto">

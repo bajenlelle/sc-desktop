@@ -197,6 +197,7 @@ export interface StoredMatch {
   syncPoint?: SyncPoint;
   events: PlayByPlayEvent[];
   leagueId?: string;
+  orgId?: string;
 }
 
 // --- Match -------------------------------------------------------------------

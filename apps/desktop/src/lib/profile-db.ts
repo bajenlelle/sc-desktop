@@ -4,7 +4,7 @@
  */
 
 import { createClient } from "@/lib/supabase/client";
-import type { UserProfile, Organization, OrgTeam, TeamMember, TeamInvite, OrgInvite, OrgContext, OrgWithCount, SecondaryOrg } from "@/types/org";
+import type { UserProfile, Organization, OrgTeam, TeamMember, TeamInvite, OrgInvite, OrgContext, OrgWithCount, OrgMembership, SecondaryOrg, OrgPlanTier } from "@/types/org";
 
 // ---------------------------------------------------------------------------
 // Row types (snake_case Postgres columns)
@@ -39,6 +39,7 @@ interface OrgRow {
   player_seat_limit: number | null;
   expires_at: string | null;
   is_nt_org?: boolean;
+  plan_tier?: string;
 }
 
 interface TeamRow {
@@ -125,6 +126,7 @@ function rowToOrg(r: OrgRow): Organization {
     playerSeatLimit: r.player_seat_limit ?? null,
     expiresAt: r.expires_at ?? null,
     isNtOrg: r.is_nt_org ?? false,
+    planTier: (r.plan_tier ?? 'free') as OrgPlanTier,
   };
 }
 
@@ -220,7 +222,7 @@ export async function getOrgContext(): Promise<OrgContext> {
 
   if (baseProfile.orgId) {
     const [orgRes, teamsRes, membersRes] = await Promise.all([
-      supabase.from("organizations").select("id, name, logo_url, created_at, coach_seat_limit, player_seat_limit, expires_at, is_nt_org").eq("id", baseProfile.orgId).single(),
+      supabase.from("organizations").select("id, name, logo_url, created_at, coach_seat_limit, player_seat_limit, expires_at, is_nt_org, plan_tier").eq("id", baseProfile.orgId).single(),
       supabase.from("teams").select("id, org_id, name, sport, season, created_at").eq("org_id", baseProfile.orgId),
       supabase.rpc("get_org_members", { p_org_id: baseProfile.orgId }),
     ]);
@@ -240,24 +242,50 @@ export async function getOrgContext(): Promise<OrgContext> {
   const memberTeamIds = new Set(
     membershipsRes.error ? [] : (membershipsRes.data ?? []).map((m: TeamMemberRow) => m.team_id)
   );
-  const myTeams = allOrgTeams.filter((t) => memberTeamIds.has(t.id));
+  const myOrgs = await getMyOrgs();
 
-  const secondaryOrgs = await getMySecondaryOrgs();
+  // Also include teams from other orgs the user belongs to
+  let otherOrgTeams: OrgTeam[] = [];
+  if (myOrgs.length > 0) {
+    const otherOrgIds = myOrgs.filter((o) => o.orgId !== baseProfile.orgId).map((o) => o.orgId);
+    if (otherOrgIds.length > 0) {
+      const { data } = await supabase
+        .from("teams")
+        .select("id, org_id, name, sport, season, created_at")
+        .in("org_id", otherOrgIds);
+      if (data) otherOrgTeams = (data as TeamRow[]).map(rowToTeam);
+    }
+  }
+  const myTeams = [
+    ...allOrgTeams.filter((t) => memberTeamIds.has(t.id)),
+    ...otherOrgTeams.filter((t) => memberTeamIds.has(t.id)),
+  ];
 
-  return { profile, org, myTeams, allOrgTeams, orgMembers, secondaryOrgs };
+  return { profile, org, myTeams, allOrgTeams, orgMembers, myOrgs, secondaryOrgs: myOrgs };
 }
 
-export async function getMySecondaryOrgs(): Promise<SecondaryOrg[]> {
+export async function getOrgMembers(orgId: string): Promise<UserProfile[]> {
   const supabase = createClient();
-  const res = await supabase.rpc("get_my_secondary_orgs");
-  return (res.data ?? []).map(
-    (r: { org_id: string; org_name: string; role: string; is_nt_org: boolean }) => ({
-      orgId: r.org_id,
-      orgName: r.org_name,
-      role: r.role as 'coach' | 'admin',
-      isNtOrg: r.is_nt_org,
-    })
-  );
+  const { data } = await supabase.rpc("get_org_members", { p_org_id: orgId });
+  return data ? (data as OrgMemberRow[]).map(rowToOrgMember) : [];
+}
+
+export async function getMyOrgs(): Promise<OrgMembership[]> {
+  const supabase = createClient();
+  const { data } = await supabase.rpc("get_my_orgs");
+  return (data ?? []).map((r: { org_id: string; org_name: string; role: string; is_nt_org: boolean; plan_tier: string; is_personal: boolean }) => ({
+    orgId: r.org_id,
+    orgName: r.org_name,
+    role: r.role as OrgMembership['role'],
+    isNtOrg: r.is_nt_org,
+    planTier: (r.plan_tier ?? 'free') as OrgPlanTier,
+    isPersonal: r.is_personal ?? false,
+  }));
+}
+
+/** @deprecated Use getMyOrgs */
+export async function getMySecondaryOrgs(): Promise<OrgMembership[]> {
+  return getMyOrgs();
 }
 
 export async function getOrgContextForOrg(orgId: string): Promise<OrgContext> {
@@ -267,7 +295,7 @@ export async function getOrgContextForOrg(orgId: string): Promise<OrgContext> {
 
   const [profileRes, orgRes, teamsRes, membersRes] = await Promise.all([
     supabase.from("profiles").select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin").eq("id", user.id).single(),
-    supabase.from("organizations").select("id, name, logo_url, created_at, coach_seat_limit, player_seat_limit, expires_at, is_nt_org").eq("id", orgId).single(),
+    supabase.from("organizations").select("id, name, logo_url, created_at, coach_seat_limit, player_seat_limit, expires_at, is_nt_org, plan_tier").eq("id", orgId).single(),
     supabase.from("teams").select("id, org_id, name, sport, season, created_at").eq("org_id", orgId),
     supabase.rpc("get_org_members", { p_org_id: orgId }),
   ]);
@@ -284,9 +312,9 @@ export async function getOrgContextForOrg(orgId: string): Promise<OrgContext> {
   const membershipsRes = await supabase.from("team_members").select("id, team_id, user_id, role, joined_at").eq("user_id", user.id);
   const memberTeamIds = new Set(membershipsRes.error ? [] : (membershipsRes.data ?? []).map((m: TeamMemberRow) => m.team_id));
   const myTeams = allOrgTeams.filter((t) => memberTeamIds.has(t.id));
-  const secondaryOrgs = await getMySecondaryOrgs();
+  const myOrgs = await getMyOrgs();
 
-  return { profile, org, myTeams, allOrgTeams, orgMembers, secondaryOrgs };
+  return { profile, org, myTeams, allOrgTeams, orgMembers, myOrgs, secondaryOrgs: myOrgs };
 }
 
 // ---------------------------------------------------------------------------
@@ -446,12 +474,6 @@ export async function joinOrgByCode(code: string): Promise<string> {
   return data as string;
 }
 
-export async function getOrgMembers(orgId: string): Promise<UserProfile[]> {
-  const supabase = createClient();
-  const { data, error } = await supabase.rpc("get_org_members", { p_org_id: orgId });
-  if (error) throw new Error(`Failed to load org members: ${error.message}`);
-  return (data ?? []).map((r: OrgMemberRow) => rowToOrgMember(r));
-}
 
 export async function assignMemberToTeam(
   userId: string,

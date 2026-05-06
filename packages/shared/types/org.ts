@@ -3,6 +3,7 @@
 // =============================================================================
 
 export type UserRole = 'coach' | 'player' | 'admin';
+export type OrgPlanTier = 'free' | 'pro' | 'max' | 'franchise';
 
 export interface UserProfile {
   id: string;
@@ -24,6 +25,7 @@ export interface Organization {
   playerSeatLimit: number | null;
   expiresAt: string | null;
   isNtOrg: boolean;
+  planTier: OrgPlanTier;
 }
 
 export interface OrgTeam {
@@ -77,14 +79,21 @@ export interface OrgWithCount {
   createdAt: string;
   memberCount: number;
   teamCount: number;
+  planTier: OrgPlanTier;
 }
 
-export interface SecondaryOrg {
+/** A single org the current user belongs to (replaces SecondaryOrg). */
+export interface OrgMembership {
   orgId: string;
   orgName: string;
-  role: 'coach' | 'admin';
+  role: 'coach' | 'admin' | 'player';
   isNtOrg: boolean;
+  planTier: OrgPlanTier;
+  isPersonal: boolean;
 }
+
+/** @deprecated Use OrgMembership */
+export type SecondaryOrg = OrgMembership;
 
 /** Loaded once on profile mount; bundles everything the profile page needs. */
 export interface OrgContext {
@@ -93,5 +102,7 @@ export interface OrgContext {
   myTeams: OrgTeam[];        // teams the current user belongs to
   allOrgTeams: OrgTeam[];    // all teams in the org (admin view)
   orgMembers: UserProfile[]; // all members of this org (admin load)
-  secondaryOrgs: SecondaryOrg[]; // orgs the user belongs to other than their primary org
+  myOrgs: OrgMembership[];   // all orgs the user belongs to
+  /** @deprecated Use myOrgs */
+  secondaryOrgs: OrgMembership[];
 }

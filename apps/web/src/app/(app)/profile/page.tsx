@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth-context";
 import { getOrgContext, updateMyProfile, uploadAvatar, getSubscriptionStatus } from "@/lib/profile-db";
-import type { OrgContext } from "@scoutable/shared/types/org";
+import type { OrgContext, OrgPlanTier } from "@scoutable/shared/types/org";
 import { toast } from "sonner";
 import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Loader2 } from "lucide-react";
 import Link from "next/link";
@@ -24,18 +24,35 @@ type SubStatus = {
   currentPeriodEnd: string | null;
 };
 
-function planLabel(sub: SubStatus | null): string {
+function stripePlanLabel(sub: SubStatus | null): string {
   if (!sub || !sub.isActive) return "Free";
-  const map: Record<string, string> = { rookie: "Rookie", pro: "Pro", franchise: "Franchise" };
+  const map: Record<string, string> = { rookie: "Pro", pro: "Max" };
   return map[sub.plan ?? ""] ?? "Free";
 }
 
-function planColors(sub: SubStatus | null): { dot: string; badge: string } {
+function stripePlanColors(sub: SubStatus | null): { dot: string; badge: string } {
   if (!sub || !sub.isActive) return { dot: "bg-muted-foreground", badge: "bg-muted text-muted-foreground" };
   if (sub.plan === "rookie") return { dot: "bg-blue-500", badge: "bg-blue-500/10 text-blue-500" };
   if (sub.plan === "pro") return { dot: "bg-violet-500", badge: "bg-violet-500/10 text-violet-500" };
-  if (sub.plan === "franchise") return { dot: "bg-amber-500", badge: "bg-amber-500/10 text-amber-500" };
   return { dot: "bg-muted-foreground", badge: "bg-muted text-muted-foreground" };
+}
+
+function orgPlanLabel(tier: OrgPlanTier): string {
+  const map: Record<OrgPlanTier, string> = { free: "Free", pro: "Pro", max: "Max", franchise: "Franchise" };
+  return map[tier] ?? "Free";
+}
+
+function orgPlanColors(tier: OrgPlanTier): { dot: string; badge: string } {
+  if (tier === "franchise") return { dot: "bg-amber-500", badge: "bg-amber-500/10 text-amber-500" };
+  if (tier === "max") return { dot: "bg-violet-500", badge: "bg-violet-500/10 text-violet-500" };
+  if (tier === "pro") return { dot: "bg-blue-500", badge: "bg-blue-500/10 text-blue-500" };
+  return { dot: "bg-muted-foreground", badge: "bg-muted text-muted-foreground" };
+}
+
+function getOrgImportLimit(tier: OrgPlanTier): number | null {
+  if (tier === "free") return 2;
+  if (tier === "pro") return 10;
+  return null;
 }
 
 function formatDate(iso: string | null): string | null {
@@ -51,13 +68,14 @@ function roleBadgeVariant(role: string, isPlatformAdmin: boolean): "default" | "
 }
 
 export default function ProfilePage() {
-  const { user } = useAuth();
+  const { user, activeOrgId, activeOrgRole, activeOrgPlan, activeOrgIsPersonal } = useAuth();
   const router = useRouter();
 
   const [ctx, setCtx] = useState<OrgContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [sub, setSub] = useState<SubStatus | null>(null);
+  const [importCount, setImportCount] = useState<number | null>(null);
   const [loadingPortal, setLoadingPortal] = useState(false);
 
   const [fullName, setFullName] = useState("");
@@ -66,12 +84,28 @@ export default function ProfilePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function load() {
+    setLoading(true);
+    setSub(null);
+    setImportCount(null);
     try {
-      const [context, subStatus] = await Promise.all([getOrgContext(), getSubscriptionStatus()]);
+      const [context, subStatus] = await Promise.all([
+        getOrgContext(),
+        activeOrgIsPersonal ? getSubscriptionStatus() : Promise.resolve(null),
+      ]);
       setCtx(context);
       setSub(subStatus);
       setFullName(context.profile.fullName ?? "");
       setAvatarPreview(context.profile.avatarUrl ?? null);
+
+      if (!activeOrgIsPersonal && activeOrgId) {
+        const ntLeagueIds = context.myOrgs.filter((o) => o.isNtOrg).map((o) => o.orgId);
+        const supabase = createClient();
+        const { data } = await supabase.rpc("count_club_matches_this_month", {
+          p_nt_league_ids: ntLeagueIds,
+          p_org_id: activeOrgId,
+        });
+        setImportCount((data as number) ?? 0);
+      }
     } catch {
       toast.error("Failed to load profile");
     } finally {
@@ -79,7 +113,7 @@ export default function ProfilePage() {
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [activeOrgId]);
 
   function handleAvatarFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -154,12 +188,19 @@ export default function ProfilePage() {
   }
 
   const profile = ctx.profile;
-  const colors = planColors(sub);
+  const displayRole = activeOrgRole ?? profile.role;
+  const initials = (fullName || user?.email || "?").slice(0, 2).toUpperCase();
+
+  // Personal org — Stripe subscription display
+  const stripeColors = stripePlanColors(sub);
   const isTrialing = sub?.status === "trialing";
   const isFreeOrRookie = !sub?.isActive || sub.plan === "rookie";
   const dateLabel = isTrialing ? "Trial ends" : "Renews";
   const periodDate = formatDate(sub?.currentPeriodEnd ?? null);
-  const initials = (fullName || user?.email || "?").slice(0, 2).toUpperCase();
+
+  // Club org — org plan display
+  const orgColors = orgPlanColors(activeOrgPlan);
+  const importLimit = getOrgImportLimit(activeOrgPlan);
 
   return (
     <div className="p-6 max-w-2xl mx-auto space-y-4">
@@ -189,19 +230,14 @@ export default function ProfilePage() {
                 {fullName || user?.email?.split("@")[0] || "—"}
               </p>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
-                <Badge variant={roleBadgeVariant(profile.role, profile.isPlatformAdmin)} className="text-xs">
-                  {profile.isPlatformAdmin ? "Platform admin" : profile.role.charAt(0).toUpperCase() + profile.role.slice(1)}
+                <Badge variant={roleBadgeVariant(displayRole, profile.isPlatformAdmin)} className="text-xs">
+                  {profile.isPlatformAdmin ? "Platform admin" : displayRole.charAt(0).toUpperCase() + displayRole.slice(1)}
                 </Badge>
-                {ctx.org && (
-                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                {ctx.myOrgs.filter((s) => !s.isPersonal).map((s) => (
+                  <span key={s.orgId} className="flex items-center gap-1 text-xs text-muted-foreground">
                     <Building2 className="h-3 w-3" />
-                    {ctx.org.name}
-                  </span>
-                )}
-                {ctx.secondaryOrgs.map((s) => (
-                  <Badge key={s.orgId} variant="outline" className="text-xs border-amber-500/50 text-amber-600">
                     {s.orgName}
-                  </Badge>
+                  </span>
                 ))}
               </div>
             </div>
@@ -217,55 +253,80 @@ export default function ProfilePage() {
             Plan & Usage
           </h2>
 
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className={`h-2 w-2 rounded-full ${colors.dot} flex-shrink-0`} />
-              <span className="font-semibold text-foreground">{planLabel(sub)}</span>
+          {activeOrgIsPersonal ? (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className={`h-2 w-2 rounded-full ${stripeColors.dot} flex-shrink-0`} />
+                  <span className="font-semibold text-foreground">{stripePlanLabel(sub)}</span>
+                  {sub?.isActive && (
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${stripeColors.badge}`}>
+                      {isTrialing ? "Trial" : "Active"}
+                    </span>
+                  )}
+                  {!sub?.isActive && (
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-muted text-muted-foreground">
+                      Free
+                    </span>
+                  )}
+                </div>
+                {periodDate && (
+                  <span className="text-xs text-muted-foreground">{dateLabel} {periodDate}</span>
+                )}
+              </div>
+
               {sub?.isActive && (
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${colors.badge}`}>
-                  {isTrialing ? "Trial" : "Active"}
-                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full gap-1.5"
+                  onClick={handleManageSubscription}
+                  disabled={loadingPortal}
+                >
+                  {loadingPortal ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
+                  {loadingPortal ? "Opening…" : "Manage subscription"}
+                </Button>
               )}
-              {!sub?.isActive && (
-                <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-muted text-muted-foreground">
-                  Free
-                </span>
+
+              {isFreeOrRookie && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full gap-1.5"
+                  onClick={() => window.open(PRICING_URL, "_blank")}
+                >
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                  {!sub?.isActive ? "Upgrade to Pro or Max" : "Upgrade to Max"}
+                </Button>
               )}
-            </div>
-            {periodDate && (
-              <span className="text-xs text-muted-foreground">{dateLabel} {periodDate}</span>
-            )}
-          </div>
-
-          {sub?.isActive && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full gap-1.5"
-              onClick={handleManageSubscription}
-              disabled={loadingPortal}
-            >
-              {loadingPortal ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
-              {loadingPortal ? "Opening…" : "Manage subscription"}
-            </Button>
-          )}
-
-          {isFreeOrRookie && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full gap-1.5"
-              onClick={() => window.open(PRICING_URL, "_blank")}
-            >
-              <ArrowUpRight className="h-3.5 w-3.5" />
-              {!sub?.isActive ? "Upgrade to Rookie or Pro" : "Upgrade to Pro"}
-            </Button>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <span className={`h-2 w-2 rounded-full ${orgColors.dot} flex-shrink-0`} />
+                <span className="font-semibold text-foreground">{orgPlanLabel(activeOrgPlan)}</span>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${orgColors.badge}`}>
+                  Active
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Plan managed by your organisation admin.
+              </p>
+              {importCount !== null && (
+                <div className="text-xs text-muted-foreground">
+                  Imports this month:{" "}
+                  <span className="font-medium text-foreground">
+                    {importCount}{importLimit !== null ? ` / ${importLimit}` : ""}
+                  </span>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
 
       {/* ── Org & Teams ── */}
-      {(ctx.org || ctx.secondaryOrgs.length > 0) && (
+      {ctx.myOrgs.filter((s) => !s.isPersonal).length > 0 && (
         <Card>
           <CardContent className="p-6 space-y-3">
             <div className="flex items-center justify-between">
@@ -277,12 +338,7 @@ export default function ProfilePage() {
                 Manage <ChevronRight className="h-3 w-3" />
               </Link>
             </div>
-            {ctx.org && (
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-foreground">{ctx.org.name}</span>
-              </div>
-            )}
-            {ctx.secondaryOrgs.map((s) => (
+            {ctx.myOrgs.filter((s) => !s.isPersonal).map((s) => (
               <div key={s.orgId} className="flex items-center justify-between">
                 <span className="text-sm text-foreground">{s.orgName}</span>
                 {s.isNtOrg && <span className="text-xs text-muted-foreground">NT</span>}
