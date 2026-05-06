@@ -40,12 +40,13 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
   const pathname = usePathname();
   const router = useRouter();
   const [sheetOpen, setSheetOpen] = useState(false);
-  const { myOrgs, activeOrgId, activeOrgRole, setActiveOrg } = useAuth();
+  const { myOrgs, activeOrgId, activeOrgRole, activeOrgIsPersonal, setActiveOrg } = useAuth();
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
+  const showOrganization = !activeOrgIsPersonal && isCoachOrAdmin;
   const hasOrg = !profile || !!profile.isPlatformAdmin || myOrgs.length > 0;
   const navLinks = [
     { href: "/my-playlists", label: isCoachOrAdmin ? "Shared Playlists" : "My Playlists" },
-    { href: "/organization", label: "Organization" },
+    ...(showOrganization ? [{ href: "/organization", label: "Organization" }] : []),
     ...(profile?.isPlatformAdmin ? [{ href: "/admin", label: "Admin" }] : []),
   ];
 

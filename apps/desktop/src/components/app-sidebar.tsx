@@ -115,12 +115,13 @@ function WorkspaceIcon({
 }
 
 export function AppSidebar() {
-  const { user, profile, profileLoading, myOrgs, activeOrgId, activeOrgRole, setActiveOrg } = useAuth();
+  const { user, profile, profileLoading, myOrgs, activeOrgId, activeOrgRole, activeOrgIsPersonal, setActiveOrg } = useAuth();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { resolvedTheme, setTheme } = useTheme();
 
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
+  const showOrganization = !activeOrgIsPersonal && isCoachOrAdmin;
   const showWorkspaceSwitcher = myOrgs.length > 1;
 
   async function handleSignOut() {
@@ -183,12 +184,14 @@ export function AppSidebar() {
                 isActive={pathname.startsWith("/matches")}
               />
             )}
-            <SidebarIconButton
-              href="/organization"
-              icon={Building2}
-              label="Organization"
-              isActive={pathname.startsWith("/organization")}
-            />
+            {showOrganization && (
+              <SidebarIconButton
+                href="/organization"
+                icon={Building2}
+                label="Organization"
+                isActive={pathname.startsWith("/organization")}
+              />
+            )}
           </nav>
         )}
 
