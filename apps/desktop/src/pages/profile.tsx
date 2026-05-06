@@ -243,9 +243,11 @@ export function ProfilePage() {
                 {fullName || user?.email?.split("@")[0] || "—"}
               </p>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
-                <Badge variant={roleBadgeVariant(displayRole, profile.isPlatformAdmin)} className="text-xs">
-                  {profile.isPlatformAdmin ? "Platform admin" : displayRole.charAt(0).toUpperCase() + displayRole.slice(1)}
-                </Badge>
+                {(!activeOrgIsPersonal || profile.isPlatformAdmin) && (
+                  <Badge variant={roleBadgeVariant(displayRole, profile.isPlatformAdmin)} className="text-xs">
+                    {profile.isPlatformAdmin ? "Platform admin" : displayRole.charAt(0).toUpperCase() + displayRole.slice(1)}
+                  </Badge>
+                )}
                 {activeOrg && !activeOrg.isPersonal && (
                   <span className="flex items-center gap-1 text-xs text-muted-foreground">
                     <Building2 className="h-3 w-3" />

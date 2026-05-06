@@ -35,6 +35,7 @@ interface InviteModalProps {
   orgMembers: UserProfile[];
   isAdmin: boolean;
   initialTeamId?: string;
+  licenseExpired?: boolean;
 }
 
 const EXPIRY_OPTIONS: { label: string; hours: number | null }[] = [
@@ -65,6 +66,7 @@ export function InviteModal({
   orgMembers,
   isAdmin,
   initialTeamId,
+  licenseExpired,
 }: InviteModalProps) {
   const [selectedRole, setSelectedRole] = useState<Role>("coach");
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(initialTeamId ?? null);
@@ -110,6 +112,10 @@ export function InviteModal({
   }, [open, selectedRole, selectedTeamId]);
 
   async function loadLinkInvite(role: Role, teamId: string | null) {
+    if (licenseExpired) {
+      setLinkInvite(null);
+      return;
+    }
     setLoadingLink(true);
     try {
       const invite = await getOrCreateLinkInvite(orgId, role, teamId);
@@ -239,9 +245,9 @@ export function InviteModal({
     setDeactivating(true);
     try {
       await deleteOrgInvite(linkInvite.id);
-      setLinkInvite(null);
       setShowSettings(false);
       toast.success("Invite link deactivated");
+      await loadLinkInvite(selectedRole, selectedTeamId);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -347,6 +353,15 @@ export function InviteModal({
           <DialogTitle>Invite people to {orgName}</DialogTitle>
         </DialogHeader>
 
+        {licenseExpired && (
+          <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs">
+            <p className="font-semibold text-destructive">License expired</p>
+            <p className="text-muted-foreground mt-0.5">
+              New invites are paused until your license is renewed.
+            </p>
+          </div>
+        )}
+
         <div className="space-y-4">
           {/* Role + Team selectors */}
           <div className="grid grid-cols-2 gap-3">
@@ -427,9 +442,10 @@ export function InviteModal({
           <div className="flex items-center justify-between gap-2">
             <button
               type="button"
-              className="flex items-center gap-2 min-w-0 text-left group"
+              className="flex items-center gap-2 min-w-0 text-left group disabled:opacity-50"
               onClick={handleCopyLink}
-              disabled={!linkInvite || loadingLink}
+              disabled={!linkInvite || loadingLink || licenseExpired}
+              title={licenseExpired ? "License expired" : undefined}
             >
               <Link2 className="h-4 w-4 text-muted-foreground shrink-0" />
               <div className="min-w-0">
@@ -463,7 +479,8 @@ export function InviteModal({
           <Button
             size="sm"
             onClick={handleSend}
-            disabled={emails.length === 0 || sending}
+            disabled={emails.length === 0 || sending || licenseExpired}
+            title={licenseExpired ? "License expired — inviting is paused" : undefined}
           >
             {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
             {sending ? "Sending…" : `Send${emails.length > 0 ? ` (${emails.length})` : ""}`}

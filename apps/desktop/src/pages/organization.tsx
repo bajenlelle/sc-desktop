@@ -29,6 +29,7 @@ import { toast } from "sonner";
 import { ChevronDown, ChevronUp, Loader2, MoreHorizontal, Search, UserPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/auth-context";
+import { useNavigate } from "react-router-dom";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -129,6 +130,7 @@ function TeamInviteSection({
   onContextReload,
   onInvite,
   onAddMembers,
+  inviteDisabled,
 }: {
   team: OrgTeam;
   orgMembers: UserProfile[];
@@ -136,6 +138,7 @@ function TeamInviteSection({
   onContextReload: () => void;
   onInvite: () => void;
   onAddMembers: (memberIds: Set<string>) => void;
+  inviteDisabled?: boolean;
 }) {
   const [teamMemberDetails, setTeamMemberDetails] = useState<{ userId: string; role: string }[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(true);
@@ -229,7 +232,14 @@ function TeamInviteSection({
 
       {/* Actions */}
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={onInvite}>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs gap-1.5"
+          onClick={onInvite}
+          disabled={inviteDisabled}
+          title={inviteDisabled ? "License expired — inviting is paused" : undefined}
+        >
           <UserPlus className="h-3.5 w-3.5" />
           Invite to team
         </Button>
@@ -264,6 +274,7 @@ function TeamCard({
   orgMembers,
   onContextReload,
   onDelete,
+  licenseExpired,
 }: {
   team: OrgTeam;
   memberCount: number;
@@ -276,6 +287,7 @@ function TeamCard({
   orgMembers: UserProfile[];
   onContextReload: () => void;
   onDelete: (teamId: string) => void;
+  licenseExpired?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -339,6 +351,7 @@ function TeamCard({
             setCurrentTeamMemberIds(ids);
             setShowAddMembers(true);
           }}
+          inviteDisabled={licenseExpired}
         />
       )}
 
@@ -351,6 +364,7 @@ function TeamCard({
         orgMembers={orgMembers}
         isAdmin={isAdmin}
         initialTeamId={team.id}
+        licenseExpired={licenseExpired}
       />
 
       <AddMembersToTeamModal
@@ -370,7 +384,13 @@ function TeamCard({
 // ---------------------------------------------------------------------------
 
 export function OrganizationPage() {
-  const { user, activeOrgId } = useAuth();
+  const { user, activeOrgId, activeOrgRole, activeOrgIsPersonal } = useAuth();
+  const navigate = useNavigate();
+  const canAccess = !activeOrgIsPersonal && (activeOrgRole === "coach" || activeOrgRole === "admin");
+
+  useEffect(() => {
+    if (activeOrgId && !canAccess) navigate("/my-playlists", { replace: true });
+  }, [activeOrgId, canAccess, navigate]);
   const [ctx, setCtx] = useState<OrgContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [memberCounts, setMemberCounts] = useState<Record<string, number>>({});
@@ -415,7 +435,9 @@ export function OrganizationPage() {
     }
   }
 
-  useEffect(() => { load(activeOrgId ?? undefined); }, [activeOrgId]);
+  useEffect(() => {
+    if (canAccess) load(activeOrgId ?? undefined);
+  }, [activeOrgId, canAccess]);
 
   async function handleDeleteTeam(teamId: string) {
     try {
@@ -483,6 +505,9 @@ export function OrganizationPage() {
     return list;
   }, [ctx, memberSearch, memberRoleFilter]);
 
+  // ── Access guard ────────────────────────────────────────────────────────
+  if (!canAccess) return null;
+
   // ── Loading / error states ──────────────────────────────────────────────
 
   if (loading) {
@@ -533,6 +558,7 @@ export function OrganizationPage() {
   const myTeamsForOrg = ctx.myTeams.filter((t) => t.orgId === org.id);
   const myTeamIds = new Set(myTeamsForOrg.map((t) => t.id));
   const otherTeams = ctx.allOrgTeams.filter((t) => !myTeamIds.has(t.id));
+  const licenseExpired = !!org.expiresAt && new Date(org.expiresAt).getTime() < Date.now();
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
@@ -548,12 +574,28 @@ export function OrganizationPage() {
           </p>
         </div>
         {canManageTeams && (
-          <Button size="sm" className="gap-1.5 shrink-0" onClick={() => setShowInviteModal(true)}>
+          <Button
+            size="sm"
+            className="gap-1.5 shrink-0"
+            onClick={() => setShowInviteModal(true)}
+            disabled={licenseExpired}
+            title={licenseExpired ? "License expired — inviting is paused" : undefined}
+          >
             <UserPlus className="h-4 w-4" />
             Invite people
           </Button>
         )}
       </div>
+
+      {licenseExpired && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm">
+          <p className="font-semibold text-destructive">License expired</p>
+          <p className="text-muted-foreground mt-0.5">
+            Inviting and adding new members is paused until your platform admin renews your license.
+            Existing members keep access.
+          </p>
+        </div>
+      )}
 
       {/* License banner — admin only */}
       {isAdmin && (org.coachSeatLimit !== null || org.playerSeatLimit !== null || org.expiresAt !== null) && (
@@ -637,6 +679,7 @@ export function OrganizationPage() {
                     orgMembers={ctx.orgMembers}
                     onContextReload={() => load(activeOrgId ?? undefined)}
                     onDelete={handleDeleteTeam}
+                    licenseExpired={licenseExpired}
                   />
                 ))}
               </div>
@@ -744,6 +787,7 @@ export function OrganizationPage() {
         orgTeams={ctx.allOrgTeams}
         orgMembers={ctx.orgMembers}
         isAdmin={isAdmin}
+        licenseExpired={licenseExpired}
       />
 
       <CreateTeamDialog

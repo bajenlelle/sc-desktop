@@ -131,7 +131,9 @@ export default function AdminPage() {
                       className="border-b border-border last:border-0 hover:bg-muted/50 cursor-pointer transition-colors"
                       onClick={() => router.push(`/admin/orgs/${org.id}`)}
                     >
-                      <td className="px-4 py-3 font-medium">{org.name}</td>
+                      <td className="px-4 py-3 font-medium">
+                        {org.isPersonal ? (org.ownerEmail ?? "Personal") : org.name}
+                      </td>
                       <td className="px-4 py-3 text-muted-foreground">{org.memberCount}</td>
                       <td className="px-4 py-3 text-muted-foreground">{org.teamCount}</td>
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
@@ -141,8 +143,8 @@ export default function AdminPage() {
                           className="text-xs rounded border border-border bg-background px-2 py-1 cursor-pointer"
                         >
                           <option value="free">Free</option>
+                          <option value="rookie">Rookie</option>
                           <option value="pro">Pro</option>
-                          <option value="max">Max</option>
                           <option value="franchise">Franchise</option>
                         </select>
                       </td>

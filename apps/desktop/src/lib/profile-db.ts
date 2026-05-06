@@ -4,7 +4,7 @@
  */
 
 import { createClient } from "@/lib/supabase/client";
-import type { UserProfile, Organization, OrgTeam, TeamMember, TeamInvite, OrgInvite, OrgContext, OrgWithCount, OrgMembership, SecondaryOrg, OrgPlanTier } from "@/types/org";
+import type { UserProfile, Organization, OrgTeam, TeamMember, TeamInvite, OrgInvite, OrgContext, OrgWithCount, OrgMembership, SecondaryOrg, OrgPlanTier, InviteInvalidReason } from "@/types/org";
 
 // ---------------------------------------------------------------------------
 // Row types (snake_case Postgres columns)
@@ -457,8 +457,13 @@ export async function listOrgInvites(orgId: string): Promise<OrgInvite[]> {
 
 export async function deleteOrgInvite(inviteId: string): Promise<void> {
   const supabase = createClient();
-  const { error } = await supabase.from("org_invites").delete().eq("id", inviteId);
+  const { data, error } = await supabase
+    .from("org_invites")
+    .delete()
+    .eq("id", inviteId)
+    .select("id");
   if (error) throw new Error(`Failed to delete org invite: ${error.message}`);
+  if (!data || data.length === 0) throw new Error("Not authorized to delete this invite.");
 }
 
 export async function joinOrgByCode(code: string): Promise<string> {
@@ -536,6 +541,9 @@ interface OrgWithCountRow {
   created_at: string;
   member_count: number;
   team_count: number;
+  plan_tier: string;
+  is_personal: boolean;
+  owner_email: string | null;
 }
 
 export async function joinByCode(code: string): Promise<{ type: 'org' | 'team' | 'secondary_org'; orgId: string; teamId?: string }> {
@@ -557,15 +565,31 @@ export async function joinByCode(code: string): Promise<{ type: 'org' | 'team' |
 
 export async function getInvitePreview(code: string): Promise<{
   valid: boolean;
+  reason?: InviteInvalidReason;
   orgName?: string;
   teamName?: string | null;
   role?: string;
+  email?: string | null;
 }> {
   const supabase = createClient();
   const { data, error } = await supabase.rpc("get_invite_preview", { p_code: code.toUpperCase() });
   if (error) throw new Error(`Failed to preview invite: ${error.message}`);
-  const r = data as { valid: boolean; org_name?: string; team_name?: string | null; role?: string };
-  return { valid: r.valid, orgName: r.org_name, teamName: r.team_name, role: r.role };
+  const r = data as {
+    valid: boolean;
+    reason?: string;
+    org_name?: string;
+    team_name?: string | null;
+    role?: string;
+    email?: string | null;
+  };
+  return {
+    valid: r.valid,
+    reason: r.reason as InviteInvalidReason | undefined,
+    orgName: r.org_name,
+    teamName: r.team_name,
+    role: r.role,
+    email: r.email ?? null,
+  };
 }
 
 export async function updateOrgLicense(
@@ -642,6 +666,9 @@ export async function getAllOrgsWithCounts(): Promise<OrgWithCount[]> {
     createdAt: r.created_at,
     memberCount: Number(r.member_count),
     teamCount: Number(r.team_count),
+    planTier: (r.plan_tier ?? 'free') as OrgPlanTier,
+    isPersonal: r.is_personal ?? false,
+    ownerEmail: r.owner_email ?? null,
   }));
 }
 

@@ -9,7 +9,27 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/client";
 import { joinByCode } from "@/lib/profile-db";
+import type { InviteInvalidReason } from "@scoutable/shared/types/org";
 import { toast } from "sonner";
+
+const INVALID_COPY: Record<InviteInvalidReason, { title: string; body: string }> = {
+  expired_license: {
+    title: "Organisation license expired",
+    body: "This invite belongs to an organisation whose license has expired. Ask the organisation's admin to renew before joining.",
+  },
+  expired_invite: {
+    title: "Invite link expired",
+    body: "This invite link has expired. Ask your admin for a new one.",
+  },
+  exhausted: {
+    title: "Invite link no longer available",
+    body: "This invite link has reached its usage limit. Ask your admin for a new one.",
+  },
+  not_found: {
+    title: "Invalid invite",
+    body: "This invite link is not recognised. Double-check the URL or ask for a new one.",
+  },
+};
 
 async function signOutAndRedirect(redirectTo: string) {
   const supabase = createClient();
@@ -28,6 +48,7 @@ export default function JoinPage() {
 
   const [preview, setPreview] = useState<{
     valid: boolean;
+    reason?: InviteInvalidReason;
     orgName?: string;
     teamName?: string | null;
     role?: string;
@@ -50,9 +71,16 @@ export default function JoinPage() {
     const supabase = createClient();
     Promise.all([
       Promise.resolve(supabase.rpc("get_invite_preview", { p_code: code.toUpperCase() })).then(({ data }) => {
-        const r = data as { valid: boolean; org_name?: string; team_name?: string | null; role?: string; email?: string | null } | null;
-        if (!r) { setPreview({ valid: false }); return; }
-        setPreview({ valid: r.valid, orgName: r.org_name, teamName: r.team_name, role: r.role, email: r.email ?? null });
+        const r = data as { valid: boolean; reason?: string; org_name?: string; team_name?: string | null; role?: string; email?: string | null } | null;
+        if (!r) { setPreview({ valid: false, reason: 'not_found' }); return; }
+        setPreview({
+          valid: r.valid,
+          reason: r.reason as InviteInvalidReason | undefined,
+          orgName: r.org_name,
+          teamName: r.team_name,
+          role: r.role,
+          email: r.email ?? null,
+        });
       }).catch(() => setLoadError("Failed to load invite details.")),
       supabase.auth.getUser().then(({ data: { user } }) => {
         setUserId(user?.id ?? null);
@@ -138,14 +166,13 @@ export default function JoinPage() {
   }
 
   if (!preview.valid) {
+    const copy = INVALID_COPY[preview.reason ?? 'not_found'];
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="w-full max-w-sm">
           <CardContent className="p-6 text-center space-y-3">
-            <p className="font-semibold text-foreground">Invalid or expired invite</p>
-            <p className="text-sm text-muted-foreground">
-              This invite link is no longer valid. Ask your admin to generate a new one.
-            </p>
+            <p className="font-semibold text-foreground">{copy.title}</p>
+            <p className="text-sm text-muted-foreground">{copy.body}</p>
             <Link href="/" className="text-sm text-primary underline">Go home</Link>
           </CardContent>
         </Card>

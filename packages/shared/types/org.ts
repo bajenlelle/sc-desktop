@@ -4,6 +4,7 @@
 
 export type UserRole = 'coach' | 'player' | 'admin';
 export type OrgPlanTier = 'free' | 'rookie' | 'pro' | 'franchise';
+export type InviteInvalidReason = 'not_found' | 'expired_invite' | 'exhausted' | 'expired_license';
 
 export interface UserProfile {
   id: string;
@@ -80,6 +81,8 @@ export interface OrgWithCount {
   memberCount: number;
   teamCount: number;
   planTier: OrgPlanTier;
+  isPersonal: boolean;
+  ownerEmail: string | null;
 }
 
 /** A single org the current user belongs to (replaces SecondaryOrg). */
