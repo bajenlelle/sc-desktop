@@ -81,6 +81,7 @@ export interface OrgWithCount {
   memberCount: number;
   teamCount: number;
   planTier: OrgPlanTier;
+  planTierLockedAt: string | null;
   isPersonal: boolean;
   ownerEmail: string | null;
 }

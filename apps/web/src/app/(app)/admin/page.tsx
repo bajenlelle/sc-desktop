@@ -12,7 +12,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { getAllOrgsWithCounts, createOrgForPlatform, updateOrgPlanTier } from "@/lib/profile-db";
+import { getAllOrgsWithCounts, createOrgForPlatform, updateOrgPlanTier, unlockOrgPlanTier } from "@/lib/profile-db";
 import type { OrgWithCount, OrgPlanTier } from "@scoutable/shared/types/org";
 import { useAuth } from "@/components/auth-context";
 import { toast } from "sonner";
@@ -79,8 +79,19 @@ export default function AdminPage() {
   async function handlePlanTierChange(orgId: string, tier: OrgPlanTier) {
     try {
       await updateOrgPlanTier(orgId, tier);
-      setOrgs((prev) => prev.map((o) => o.id === orgId ? { ...o, planTier: tier } : o));
-      toast.success("Plan tier updated");
+      const lockedAt = new Date().toISOString();
+      setOrgs((prev) => prev.map((o) => o.id === orgId ? { ...o, planTier: tier, planTierLockedAt: lockedAt } : o));
+      toast.success("Plan tier updated and locked");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function handleUnlockPlanTier(orgId: string) {
+    try {
+      await unlockOrgPlanTier(orgId);
+      setOrgs((prev) => prev.map((o) => o.id === orgId ? { ...o, planTierLockedAt: null } : o));
+      toast.success("Plan tier unlocked — Stripe will drive future updates");
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -137,16 +148,36 @@ export default function AdminPage() {
                       <td className="px-4 py-3 text-muted-foreground">{org.memberCount}</td>
                       <td className="px-4 py-3 text-muted-foreground">{org.teamCount}</td>
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                        <select
-                          value={org.planTier}
-                          onChange={(e) => handlePlanTierChange(org.id, e.target.value as OrgPlanTier)}
-                          className="text-xs rounded border border-border bg-background px-2 py-1 cursor-pointer"
-                        >
-                          <option value="free">Free</option>
-                          <option value="rookie">Rookie</option>
-                          <option value="pro">Pro</option>
-                          <option value="franchise">Franchise</option>
-                        </select>
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={org.planTier}
+                            onChange={(e) => handlePlanTierChange(org.id, e.target.value as OrgPlanTier)}
+                            className="text-xs rounded border border-border bg-background px-2 py-1 cursor-pointer"
+                          >
+                            <option value="free">Free</option>
+                            <option value="rookie">Rookie</option>
+                            <option value="pro">Pro</option>
+                            <option value="franchise">Franchise</option>
+                          </select>
+                          {org.planTierLockedAt && (
+                            <>
+                              <span
+                                className="text-[10px] uppercase tracking-wide font-medium text-amber-600 dark:text-amber-500"
+                                title={`Locked at ${new Date(org.planTierLockedAt).toLocaleString()} — Stripe webhook will not overwrite`}
+                              >
+                                Manual
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleUnlockPlanTier(org.id)}
+                                className="text-[10px] uppercase tracking-wide text-muted-foreground hover:text-foreground underline underline-offset-2"
+                                title="Unlock — let Stripe drive this org's plan tier again"
+                              >
+                                Unlock
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         {new Date(org.createdAt).toLocaleDateString("en-US", {

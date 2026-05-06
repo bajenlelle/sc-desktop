@@ -51,20 +51,6 @@ function orgPlanColors(tier: OrgPlanTier): { dot: string; badge: string } {
   return { dot: "bg-amber-500", badge: "bg-amber-500/10 text-amber-500" };
 }
 
-function stripeSubLabel(sub: SubStatus | null): string {
-  if (!sub || !sub.isActive) return "Free";
-  const map: Record<string, string> = { rookie: "Rookie", pro: "Pro" };
-  return map[sub.plan ?? ""] ?? "Active";
-}
-
-function stripeSubColors(sub: SubStatus | null): { dot: string; badge: string } {
-  if (!sub || !sub.isActive) return { dot: "bg-muted-foreground", badge: "bg-muted text-muted-foreground" };
-  const p = sub.plan ?? "";
-  if (p === "rookie") return { dot: "bg-violet-500", badge: "bg-violet-500/10 text-violet-500" };
-  if (p === "pro") return { dot: "bg-blue-500", badge: "bg-blue-500/10 text-blue-500" };
-  return { dot: "bg-primary", badge: "bg-primary/10 text-primary" };
-}
-
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
   return new Date(iso).toLocaleDateString("en-SE", { day: "numeric", month: "long", year: "numeric" });
@@ -201,16 +187,15 @@ export function ProfilePage() {
   const activeOrg = ctx.myOrgs.find((o) => o.orgId === activeOrgId) ?? null;
   const activeOrgTeams = activeOrgId ? ctx.myTeams.filter((t) => t.orgId === activeOrgId) : [];
 
-  // Plan & Usage — personal org: Stripe-based; club org: org plan tier
-  const planColors = activeOrgIsPersonal ? stripeSubColors(sub) : orgPlanColors(activeOrgPlan);
-  const planName = activeOrgIsPersonal ? stripeSubLabel(sub) : orgPlanLabel(activeOrgPlan);
-  const monthlyLimit = activeOrgIsPersonal
-    ? (!sub?.isActive ? 2 : sub.plan === 'rookie' ? 10 : null)
-    : getOrgImportLimit(activeOrgPlan);
+  // Plan & Usage — single source of truth: organizations.plan_tier (via activeOrgPlan).
+  // Stripe sub state only drives ancillaries (period-end date, Manage button visibility).
+  const planColors = orgPlanColors(activeOrgPlan);
+  const planName = orgPlanLabel(activeOrgPlan);
+  const monthlyLimit = getOrgImportLimit(activeOrgPlan);
   const showUsage = monthlyLimit !== null && monthCount !== null;
   const isTrialing = sub?.status === "trialing";
   const periodDate = formatDate(sub?.currentPeriodEnd ?? null);
-  const isFreeOrRookie = !sub?.isActive || sub.plan === "rookie";
+  const isFreeOrRookie = activeOrgPlan === 'free' || activeOrgPlan === 'rookie';
 
   return (
     <div className="p-6 max-w-2xl mx-auto space-y-4">
@@ -272,16 +257,11 @@ export function ProfilePage() {
             <div className="flex items-center gap-2">
               <span className={`h-2 w-2 rounded-full ${planColors.dot} flex-shrink-0`} />
               <span className="font-semibold text-foreground">{planName}</span>
-              {activeOrgIsPersonal && sub?.isActive && (
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${planColors.badge}`}>
-                  {isTrialing ? "Trial" : "Active"}
-                </span>
-              )}
-              {!activeOrgIsPersonal && (
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${planColors.badge}`}>
-                  Org plan
-                </span>
-              )}
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${planColors.badge}`}>
+                {activeOrgIsPersonal
+                  ? (sub?.isActive ? (isTrialing ? "Trial" : "Active") : "Free")
+                  : "Org plan"}
+              </span>
             </div>
             {activeOrgIsPersonal && periodDate && (
               <span className="text-xs text-muted-foreground">
@@ -329,7 +309,7 @@ export function ProfilePage() {
                   onClick={() => openUrl(PRICING_URL)}
                 >
                   <ArrowUpRight className="h-3.5 w-3.5" />
-                  {!sub?.isActive ? "Upgrade to Rookie or Pro" : "Upgrade to Pro"}
+                  {activeOrgPlan === 'free' ? "Upgrade to Rookie or Pro" : "Upgrade to Pro"}
                 </Button>
               )}
             </>

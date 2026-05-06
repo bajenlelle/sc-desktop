@@ -542,6 +542,7 @@ interface OrgWithCountRow {
   member_count: number;
   team_count: number;
   plan_tier: string;
+  plan_tier_locked_at: string | null;
   is_personal: boolean;
   owner_email: string | null;
 }
@@ -667,6 +668,7 @@ export async function getAllOrgsWithCounts(): Promise<OrgWithCount[]> {
     memberCount: Number(r.member_count),
     teamCount: Number(r.team_count),
     planTier: (r.plan_tier ?? 'free') as OrgPlanTier,
+    planTierLockedAt: r.plan_tier_locked_at ?? null,
     isPersonal: r.is_personal ?? false,
     ownerEmail: r.owner_email ?? null,
   }));

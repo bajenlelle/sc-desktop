@@ -103,6 +103,7 @@ interface OrgWithCountRow {
   member_count: number;
   team_count: number;
   plan_tier: string;
+  plan_tier_locked_at: string | null;
   is_personal: boolean;
   owner_email: string | null;
 }
@@ -542,6 +543,7 @@ export async function getAllOrgsWithCounts(): Promise<OrgWithCount[]> {
     memberCount: Number(r.member_count),
     teamCount: Number(r.team_count),
     planTier: (r.plan_tier ?? 'free') as OrgPlanTier,
+    planTierLockedAt: r.plan_tier_locked_at ?? null,
     isPersonal: r.is_personal ?? false,
     ownerEmail: r.owner_email ?? null,
   }));
@@ -676,11 +678,24 @@ export async function getMyOrgs(): Promise<OrgMembership[]> {
 
 export async function updateOrgPlanTier(orgId: string, tier: OrgPlanTier): Promise<void> {
   const supabase = createClient();
-  const { error } = await supabase
-    .from("organizations")
-    .update({ plan_tier: tier })
-    .eq("id", orgId);
-  if (error) throw new Error(`Failed to update plan tier: ${error.message}`);
+  const { error } = await supabase.rpc("update_org_plan_tier_for_platform", {
+    p_org_id: orgId,
+    p_tier: tier,
+  });
+  if (error) {
+    if (error.message.includes("not_platform_admin")) throw new Error("Not authorized as platform admin.");
+    if (error.message.includes("invalid_tier")) throw new Error("Invalid plan tier.");
+    throw new Error(`Failed to update plan tier: ${error.message}`);
+  }
+}
+
+export async function unlockOrgPlanTier(orgId: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.rpc("unlock_org_plan_tier_for_platform", { p_org_id: orgId });
+  if (error) {
+    if (error.message.includes("not_platform_admin")) throw new Error("Not authorized as platform admin.");
+    throw new Error(`Failed to unlock plan tier: ${error.message}`);
+  }
 }
 
 /** @deprecated Use getMyOrgs */

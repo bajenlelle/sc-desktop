@@ -24,19 +24,6 @@ type SubStatus = {
   currentPeriodEnd: string | null;
 };
 
-function stripePlanLabel(sub: SubStatus | null): string {
-  if (!sub || !sub.isActive) return "Free";
-  const map: Record<string, string> = { rookie: "Rookie", pro: "Pro" };
-  return map[sub.plan ?? ""] ?? "Free";
-}
-
-function stripePlanColors(sub: SubStatus | null): { dot: string; badge: string } {
-  if (!sub || !sub.isActive) return { dot: "bg-muted-foreground", badge: "bg-muted text-muted-foreground" };
-  if (sub.plan === "rookie") return { dot: "bg-violet-500", badge: "bg-violet-500/10 text-violet-500" };
-  if (sub.plan === "pro") return { dot: "bg-blue-500", badge: "bg-blue-500/10 text-blue-500" };
-  return { dot: "bg-muted-foreground", badge: "bg-muted text-muted-foreground" };
-}
-
 function orgPlanLabel(tier: OrgPlanTier): string {
   const map: Record<OrgPlanTier, string> = { free: "Free", rookie: "Rookie", pro: "Pro", franchise: "Franchise" };
   return map[tier] ?? "Free";
@@ -193,15 +180,12 @@ export default function ProfilePage() {
   const activeOrg = ctx.myOrgs.find((o) => o.orgId === activeOrgId) ?? null;
   const activeOrgTeams = activeOrgId ? ctx.myTeams.filter((t) => t.orgId === activeOrgId) : [];
 
-  // Personal org — Stripe subscription display
-  const stripeColors = stripePlanColors(sub);
+  const planColors = orgPlanColors(activeOrgPlan);
+  const planLabel = orgPlanLabel(activeOrgPlan);
   const isTrialing = sub?.status === "trialing";
-  const isFreeOrRookie = !sub?.isActive || sub.plan === "rookie";
+  const isFreeOrRookie = activeOrgPlan === "free" || activeOrgPlan === "rookie";
   const dateLabel = isTrialing ? "Trial ends" : "Renews";
   const periodDate = formatDate(sub?.currentPeriodEnd ?? null);
-
-  // Club org — org plan display
-  const orgColors = orgPlanColors(activeOrgPlan);
   const importLimit = getOrgImportLimit(activeOrgPlan);
 
   return (
@@ -257,74 +241,57 @@ export default function ProfilePage() {
             Plan & Usage
           </h2>
 
-          {activeOrgIsPersonal ? (
-            <>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className={`h-2 w-2 rounded-full ${stripeColors.dot} flex-shrink-0`} />
-                  <span className="font-semibold text-foreground">{stripePlanLabel(sub)}</span>
-                  {sub?.isActive && (
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${stripeColors.badge}`}>
-                      {isTrialing ? "Trial" : "Active"}
-                    </span>
-                  )}
-                  {!sub?.isActive && (
-                    <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-muted text-muted-foreground">
-                      Free
-                    </span>
-                  )}
-                </div>
-                {periodDate && (
-                  <span className="text-xs text-muted-foreground">{dateLabel} {periodDate}</span>
-                )}
-              </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className={`h-2 w-2 rounded-full ${planColors.dot} flex-shrink-0`} />
+              <span className="font-semibold text-foreground">{planLabel}</span>
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${planColors.badge}`}>
+                {activeOrgIsPersonal ? (sub?.isActive ? (isTrialing ? "Trial" : "Active") : "Free") : "Active"}
+              </span>
+            </div>
+            {activeOrgIsPersonal && periodDate && (
+              <span className="text-xs text-muted-foreground">{dateLabel} {periodDate}</span>
+            )}
+          </div>
 
-              {sub?.isActive && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full gap-1.5"
-                  onClick={handleManageSubscription}
-                  disabled={loadingPortal}
-                >
-                  {loadingPortal ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
-                  {loadingPortal ? "Opening…" : "Manage subscription"}
-                </Button>
-              )}
+          {activeOrgIsPersonal && sub?.isActive && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full gap-1.5"
+              onClick={handleManageSubscription}
+              disabled={loadingPortal}
+            >
+              {loadingPortal ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
+              {loadingPortal ? "Opening…" : "Manage subscription"}
+            </Button>
+          )}
 
-              {isFreeOrRookie && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full gap-1.5"
-                  onClick={() => window.open(PRICING_URL, "_blank")}
-                >
-                  <ArrowUpRight className="h-3.5 w-3.5" />
-                  {!sub?.isActive ? "Upgrade to Rookie or Pro" : "Upgrade to Pro"}
-                </Button>
-              )}
-            </>
-          ) : (
-            <>
-              <div className="flex items-center gap-2">
-                <span className={`h-2 w-2 rounded-full ${orgColors.dot} flex-shrink-0`} />
-                <span className="font-semibold text-foreground">{orgPlanLabel(activeOrgPlan)}</span>
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${orgColors.badge}`}>
-                  Active
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Plan managed by your organisation admin.
-              </p>
-              {importCount !== null && (
-                <div className="text-xs text-muted-foreground">
-                  Imports this month:{" "}
-                  <span className="font-medium text-foreground">
-                    {importCount}{importLimit !== null ? ` / ${importLimit}` : ""}
-                  </span>
-                </div>
-              )}
-            </>
+          {activeOrgIsPersonal && isFreeOrRookie && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full gap-1.5"
+              onClick={() => window.open(PRICING_URL, "_blank")}
+            >
+              <ArrowUpRight className="h-3.5 w-3.5" />
+              {activeOrgPlan === "free" ? "Upgrade to Rookie or Pro" : "Upgrade to Pro"}
+            </Button>
+          )}
+
+          {!activeOrgIsPersonal && (
+            <p className="text-xs text-muted-foreground">
+              Plan managed by your organisation admin.
+            </p>
+          )}
+
+          {!activeOrgIsPersonal && importCount !== null && (
+            <div className="text-xs text-muted-foreground">
+              Imports this month:{" "}
+              <span className="font-medium text-foreground">
+                {importCount}{importLimit !== null ? ` / ${importLimit}` : ""}
+              </span>
+            </div>
           )}
         </CardContent>
       </Card>
