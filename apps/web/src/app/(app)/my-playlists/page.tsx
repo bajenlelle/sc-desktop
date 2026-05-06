@@ -103,27 +103,33 @@ export default function MyPlaylistsPage() {
   useEffect(() => { activeTextCardRef.current = activeTextCard; }, [activeTextCard]);
   useEffect(() => { selectedRef.current = selected; }, [selected]);
 
-  // Load playlists + matches + org context
+  // Load playlists + matches + org context (two stages: orgCtx first to derive
+  // active-org team ids, then playlists scoped to those teams).
   useEffect(() => {
     const supabase = createClient();
     Promise.all([
       supabase.auth.getUser(),
-      getMyTeamPlaylists(supabase).catch(() => [] as Playlist[]),
-      getMyDirectPlaylists(supabase).catch(() => [] as Playlist[]),
-      getMySharedOutPlaylists(supabase).catch(() => [] as Playlist[]),
       listMatches(supabase, activeOrgId ?? undefined).catch(() => [] as StoredMatch[]),
       (activeOrgId ? getOrgContextForOrg(activeOrgId) : getOrgContext()).catch(() => null),
-    ]).then(([{ data: { user } }, pls, directPls, sharedOutPls, ms, orgCtx]) => {
+    ]).then(async ([{ data: { user } }, ms, orgCtx]) => {
       setCurrentUserId(user?.id ?? null);
-      setPlaylists(pls);
-      setDirectPlaylists(directPls);
-      setSharedOutPlaylists(sharedOutPls);
       setMatches(ms);
       if (orgCtx) {
         setUserRole(orgCtx.profile?.role ?? null);
         setAllOrgTeams(orgCtx.allOrgTeams);
         setTeamMap(new Map(orgCtx.myTeams.map((t) => [t.id, t])));
         setMemberMap(new Map(orgCtx.orgMembers.map((m) => [m.id, m])));
+      }
+      const activeTeamIds = orgCtx?.myTeams.map((t) => t.id) ?? [];
+      const [pls, directPls, sharedOutPls] = await Promise.all([
+        getMyTeamPlaylists(supabase, activeTeamIds).catch(() => [] as Playlist[]),
+        getMyDirectPlaylists(supabase, activeTeamIds).catch(() => [] as Playlist[]),
+        getMySharedOutPlaylists(supabase, activeTeamIds).catch(() => [] as Playlist[]),
+      ]);
+      setPlaylists(pls);
+      setDirectPlaylists(directPls);
+      setSharedOutPlaylists(sharedOutPls);
+      if (orgCtx) {
         setExpandedTeams(new Set(pls.flatMap((p) => (p.teamIds && p.teamIds.length > 0) ? p.teamIds : [p.teamId ?? "__none__"])));
       }
     }).finally(() => {

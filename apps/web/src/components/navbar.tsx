@@ -68,14 +68,14 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
           <Wordmark className="h-4 hidden sm:block" />
         </Link>
 
-        {/* Workspace switcher — visible on desktop when user has 2+ orgs */}
-        {myOrgs.length > 1 && (
+        {/* Workspace switcher — always visible for active-org context */}
+        {myOrgs.length > 1 ? (
           <>
-            <div className="hidden md:block h-5 w-px bg-border shrink-0" />
+            <div className="h-5 w-px bg-border shrink-0" />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="hidden md:flex gap-1.5 h-8 px-2 text-sm font-medium">
-                  <span className="max-w-[128px] truncate">{activeOrgName ?? "Select org"}</span>
+                <Button variant="ghost" size="sm" className="flex gap-1.5 h-8 px-2 text-sm font-medium">
+                  <span className="max-w-[100px] sm:max-w-[128px] truncate">{activeOrgName ?? "Select org"}</span>
                   <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                 </Button>
               </DropdownMenuTrigger>
@@ -93,7 +93,14 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
               </DropdownMenuContent>
             </DropdownMenu>
           </>
-        )}
+        ) : myOrgs.length === 1 && !activeOrgIsPersonal ? (
+          <>
+            <div className="h-5 w-px bg-border shrink-0" />
+            <span className="text-sm font-medium max-w-[100px] sm:max-w-[128px] truncate text-muted-foreground">
+              {activeOrgName}
+            </span>
+          </>
+        ) : null}
 
         {/* Desktop nav */}
         {hasOrg && (
@@ -174,27 +181,6 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
                 </SheetTitle>
               </SheetHeader>
               <nav className="mt-6 flex flex-col gap-1">
-                {/* Mobile workspace switcher */}
-                {myOrgs.length > 1 && (
-                  <>
-                    {myOrgs.map((org) => (
-                      <button
-                        key={org.orgId}
-                        onClick={() => { setActiveOrg(org.orgId); setSheetOpen(false); }}
-                        className={cn(
-                          "flex items-center justify-between px-3 py-2 text-sm font-medium rounded-md transition-colors text-left w-full",
-                          org.orgId === activeOrgId
-                            ? "text-foreground bg-muted"
-                            : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                        )}
-                      >
-                        <span className="truncate">{org.orgName}</span>
-                        {org.orgId === activeOrgId && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
-                      </button>
-                    ))}
-                    <div className="my-1 h-px bg-border" />
-                  </>
-                )}
                 {hasOrg && navLinks.map((link) => (
                   <Link
                     key={link.href}

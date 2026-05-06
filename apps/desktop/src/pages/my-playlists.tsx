@@ -99,18 +99,13 @@ export function MyPlaylistsPage() {
   useEffect(() => { activeTextCardRef.current = activeTextCard; }, [activeTextCard]);
   useEffect(() => { selectedRef.current = selected; }, [selected]);
 
-  // Load playlists + matches + org context
+  // Load playlists + matches + org context (two stages: orgCtx first to derive
+  // active-org team ids, then playlists scoped to those teams).
   useEffect(() => {
     Promise.all([
-      getMyTeamPlaylists().catch(() => [] as Playlist[]),
-      getMyDirectPlaylists().catch(() => [] as Playlist[]),
-      getMySharedOutPlaylists().catch(() => [] as Playlist[]),
       listMatches(activeOrgId ?? undefined).catch(() => [] as StoredMatch[]),
       (activeOrgId ? getOrgContextForOrg(activeOrgId) : getOrgContext()).catch(() => null),
-    ]).then(([pls, directPls, sharedOutPls, ms, orgCtx]) => {
-      setPlaylists(pls);
-      setDirectPlaylists(directPls);
-      setSharedOutPlaylists(sharedOutPls);
+    ]).then(async ([ms, orgCtx]) => {
       setMatches(ms);
       if (orgCtx) {
         setCurrentUserId(orgCtx.profile.id);
@@ -118,7 +113,17 @@ export function MyPlaylistsPage() {
         setAllOrgTeams(orgCtx.allOrgTeams);
         setTeamMap(new Map(orgCtx.myTeams.map((t) => [t.id, t])));
         setMemberMap(new Map(orgCtx.orgMembers.map((m) => [m.id, m])));
-        // Start all teams expanded
+      }
+      const activeTeamIds = orgCtx?.myTeams.map((t) => t.id) ?? [];
+      const [pls, directPls, sharedOutPls] = await Promise.all([
+        getMyTeamPlaylists(activeTeamIds).catch(() => [] as Playlist[]),
+        getMyDirectPlaylists(activeTeamIds).catch(() => [] as Playlist[]),
+        getMySharedOutPlaylists(activeTeamIds).catch(() => [] as Playlist[]),
+      ]);
+      setPlaylists(pls);
+      setDirectPlaylists(directPls);
+      setSharedOutPlaylists(sharedOutPls);
+      if (orgCtx) {
         setExpandedTeams(new Set(pls.flatMap((p) => (p.teamIds && p.teamIds.length > 0) ? p.teamIds : [p.teamId ?? '__none__'])));
       }
     }).finally(() => setLoading(false));

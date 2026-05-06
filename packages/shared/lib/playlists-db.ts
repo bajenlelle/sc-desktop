@@ -120,12 +120,18 @@ const PLAYLIST_SELECT = `
 // List playlists assigned to the current user's teams (player view)
 // ---------------------------------------------------------------------------
 
-export async function getMyTeamPlaylists(supabase: SupabaseClient): Promise<Playlist[]> {
-  const { data, error } = await supabase
+export async function getMyTeamPlaylists(
+  supabase: SupabaseClient,
+  teamIds?: string[],
+): Promise<Playlist[]> {
+  if (teamIds && teamIds.length === 0) return [];
+  let query = supabase
     .from("playlists")
     .select(PLAYLIST_SELECT)
     .not("team_id", "is", null)
     .order("created_at", { ascending: false });
+  if (teamIds) query = query.in("team_id", teamIds);
+  const { data, error } = await query;
   if (error) { console.error("getMyTeamPlaylists:", error.message); return []; }
   if (!data) return [];
   return (data as PlaylistRow[]).map(rowToPlaylist);
@@ -460,9 +466,13 @@ export async function setPlaylistUsers(
 // Get playlists directly shared with the current user (receiver view)
 // ---------------------------------------------------------------------------
 
-export async function getMyDirectPlaylists(supabase: SupabaseClient): Promise<Playlist[]> {
+export async function getMyDirectPlaylists(
+  supabase: SupabaseClient,
+  teamIds?: string[],
+): Promise<Playlist[]> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
+  if (teamIds && teamIds.length === 0) return [];
 
   // 1. Get playlist IDs shared with current user (recipient rows only)
   const { data: shareRows, error: shareError } = await supabase
@@ -474,12 +484,16 @@ export async function getMyDirectPlaylists(supabase: SupabaseClient): Promise<Pl
 
   const playlistIds = shareRows.map((r: { playlist_id: string }) => r.playlist_id);
 
-  // 2. Fetch those playlists
-  const { data, error } = await supabase
+  // 2. Fetch those playlists, optionally scoped to the active org's teams.
+  // Strict org scoping: only return shares whose playlist is bound to a team
+  // in the active org. Personal (no-team) playlists are excluded under scoping.
+  let query = supabase
     .from("playlists")
     .select(PLAYLIST_SELECT)
     .in("id", playlistIds)
     .order("created_at", { ascending: false });
+  if (teamIds) query = query.in("team_id", teamIds);
+  const { data, error } = await query;
   if (error) { console.error("getMyDirectPlaylists playlists:", error.message); return []; }
   if (!data) return [];
 
@@ -493,9 +507,13 @@ export async function getMyDirectPlaylists(supabase: SupabaseClient): Promise<Pl
 // Get playlists the current user has shared out to individual players (sender view)
 // ---------------------------------------------------------------------------
 
-export async function getMySharedOutPlaylists(supabase: SupabaseClient): Promise<Playlist[]> {
+export async function getMySharedOutPlaylists(
+  supabase: SupabaseClient,
+  teamIds?: string[],
+): Promise<Playlist[]> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
+  if (teamIds && teamIds.length === 0) return [];
 
   const { data: shareRows, error: shareError } = await supabase
     .from("playlist_user_shares")
@@ -506,11 +524,13 @@ export async function getMySharedOutPlaylists(supabase: SupabaseClient): Promise
 
   const playlistIds = [...new Set(shareRows.map((r: { playlist_id: string }) => r.playlist_id))];
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("playlists")
     .select(PLAYLIST_SELECT)
     .in("id", playlistIds)
     .order("created_at", { ascending: false });
+  if (teamIds) query = query.in("team_id", teamIds);
+  const { data, error } = await query;
   if (error) { console.error("getMySharedOutPlaylists playlists:", error.message); return []; }
   if (!data) return [];
   return (data as PlaylistRow[]).map(rowToPlaylist);

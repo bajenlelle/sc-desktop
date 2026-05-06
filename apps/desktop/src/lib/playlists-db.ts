@@ -8,7 +8,7 @@ import type { PlaylistClipItem, PlaylistItem } from "@/types/match";
 
 const c = () => createClient();
 
-export const getMyTeamPlaylists = () => db.getMyTeamPlaylists(c());
+export const getMyTeamPlaylists = (teamIds?: string[]) => db.getMyTeamPlaylists(c(), teamIds);
 export const listPlaylists = () => db.listPlaylists(c());
 export const createPlaylist = (name: string, folderId?: string) => db.createPlaylist(c(), name, folderId);
 export const updatePlaylist = (id: string, patch: { name?: string; folderId?: string | null }) => db.updatePlaylist(c(), id, patch);
@@ -23,5 +23,5 @@ export const updateClipR2Url = (playlistId: string, matchId: string, eventId: nu
 export const assignPlaylistToTeam = (playlistId: string, teamId: string | null) => db.assignPlaylistToTeam(c(), playlistId, teamId);
 export const setPlaylistTeams = (playlistId: string, teamIds: string[]) => db.setPlaylistTeams(c(), playlistId, teamIds);
 export const setPlaylistUsers = (playlistId: string, userIds: string[]) => db.setPlaylistUsers(c(), playlistId, userIds);
-export const getMyDirectPlaylists = () => db.getMyDirectPlaylists(c());
-export const getMySharedOutPlaylists = () => db.getMySharedOutPlaylists(c());
+export const getMyDirectPlaylists = (teamIds?: string[]) => db.getMyDirectPlaylists(c(), teamIds);
+export const getMySharedOutPlaylists = (teamIds?: string[]) => db.getMySharedOutPlaylists(c(), teamIds);
