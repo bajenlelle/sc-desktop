@@ -55,8 +55,8 @@ function basename(path: string): string {
 
 function getOrgImportLimit(tier: OrgPlanTier): number | null {
   if (tier === 'free') return 2;
-  if (tier === 'pro') return 10;
-  return null; // max and franchise: unlimited
+  if (tier === 'rookie') return 10;
+  return null; // pro and franchise: unlimited
 }
 
 

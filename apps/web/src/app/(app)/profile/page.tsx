@@ -26,32 +26,32 @@ type SubStatus = {
 
 function stripePlanLabel(sub: SubStatus | null): string {
   if (!sub || !sub.isActive) return "Free";
-  const map: Record<string, string> = { rookie: "Pro", pro: "Max" };
+  const map: Record<string, string> = { rookie: "Rookie", pro: "Pro" };
   return map[sub.plan ?? ""] ?? "Free";
 }
 
 function stripePlanColors(sub: SubStatus | null): { dot: string; badge: string } {
   if (!sub || !sub.isActive) return { dot: "bg-muted-foreground", badge: "bg-muted text-muted-foreground" };
-  if (sub.plan === "rookie") return { dot: "bg-blue-500", badge: "bg-blue-500/10 text-blue-500" };
-  if (sub.plan === "pro") return { dot: "bg-violet-500", badge: "bg-violet-500/10 text-violet-500" };
+  if (sub.plan === "rookie") return { dot: "bg-violet-500", badge: "bg-violet-500/10 text-violet-500" };
+  if (sub.plan === "pro") return { dot: "bg-blue-500", badge: "bg-blue-500/10 text-blue-500" };
   return { dot: "bg-muted-foreground", badge: "bg-muted text-muted-foreground" };
 }
 
 function orgPlanLabel(tier: OrgPlanTier): string {
-  const map: Record<OrgPlanTier, string> = { free: "Free", pro: "Pro", max: "Max", franchise: "Franchise" };
+  const map: Record<OrgPlanTier, string> = { free: "Free", rookie: "Rookie", pro: "Pro", franchise: "Franchise" };
   return map[tier] ?? "Free";
 }
 
 function orgPlanColors(tier: OrgPlanTier): { dot: string; badge: string } {
   if (tier === "franchise") return { dot: "bg-amber-500", badge: "bg-amber-500/10 text-amber-500" };
-  if (tier === "max") return { dot: "bg-violet-500", badge: "bg-violet-500/10 text-violet-500" };
   if (tier === "pro") return { dot: "bg-blue-500", badge: "bg-blue-500/10 text-blue-500" };
+  if (tier === "rookie") return { dot: "bg-violet-500", badge: "bg-violet-500/10 text-violet-500" };
   return { dot: "bg-muted-foreground", badge: "bg-muted text-muted-foreground" };
 }
 
 function getOrgImportLimit(tier: OrgPlanTier): number | null {
   if (tier === "free") return 2;
-  if (tier === "pro") return 10;
+  if (tier === "rookie") return 10;
   return null;
 }
 
@@ -298,7 +298,7 @@ export default function ProfilePage() {
                   onClick={() => window.open(PRICING_URL, "_blank")}
                 >
                   <ArrowUpRight className="h-3.5 w-3.5" />
-                  {!sub?.isActive ? "Upgrade to Pro or Max" : "Upgrade to Max"}
+                  {!sub?.isActive ? "Upgrade to Rookie or Pro" : "Upgrade to Pro"}
                 </Button>
               )}
             </>

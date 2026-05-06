@@ -35,26 +35,26 @@ type SubStatus = {
 
 function getOrgImportLimit(tier: OrgPlanTier): number | null {
   if (tier === 'free') return 2;
-  if (tier === 'pro') return 10;
+  if (tier === 'rookie') return 10;
   return null;
 }
 
 function orgPlanLabel(tier: OrgPlanTier): string {
-  const map: Record<OrgPlanTier, string> = { free: "Free", pro: "Pro", max: "Max", franchise: "Franchise" };
+  const map: Record<OrgPlanTier, string> = { free: "Free", rookie: "Rookie", pro: "Pro", franchise: "Franchise" };
   return map[tier];
 }
 
 function orgPlanColors(tier: OrgPlanTier): { dot: string; badge: string } {
   if (tier === 'free') return { dot: "bg-muted-foreground", badge: "bg-muted text-muted-foreground" };
-  if (tier === 'pro') return { dot: "bg-violet-500", badge: "bg-violet-500/10 text-violet-500" };
-  if (tier === 'max') return { dot: "bg-blue-500", badge: "bg-blue-500/10 text-blue-500" };
+  if (tier === 'rookie') return { dot: "bg-violet-500", badge: "bg-violet-500/10 text-violet-500" };
+  if (tier === 'pro') return { dot: "bg-blue-500", badge: "bg-blue-500/10 text-blue-500" };
   return { dot: "bg-amber-500", badge: "bg-amber-500/10 text-amber-500" };
 }
 
 function stripeSubLabel(sub: SubStatus | null): string {
   if (!sub || !sub.isActive) return "Free";
-  const map: Record<string, string> = { rookie: "Pro", pro: "Max" };
-  return map[sub.plan ?? ""] ?? sub.plan ?? "Active";
+  const map: Record<string, string> = { rookie: "Rookie", pro: "Pro" };
+  return map[sub.plan ?? ""] ?? "Active";
 }
 
 function stripeSubColors(sub: SubStatus | null): { dot: string; badge: string } {
@@ -205,7 +205,7 @@ export function ProfilePage() {
   const planColors = activeOrgIsPersonal ? stripeSubColors(sub) : orgPlanColors(activeOrgPlan);
   const planName = activeOrgIsPersonal ? stripeSubLabel(sub) : orgPlanLabel(activeOrgPlan);
   const monthlyLimit = activeOrgIsPersonal
-    ? (!sub?.isActive ? 2 : sub.plan === "rookie" ? 10 : null)
+    ? (!sub?.isActive ? 2 : sub.plan === 'rookie' ? 10 : null)
     : getOrgImportLimit(activeOrgPlan);
   const showUsage = monthlyLimit !== null && monthCount !== null;
   const isTrialing = sub?.status === "trialing";
@@ -327,7 +327,7 @@ export function ProfilePage() {
                   onClick={() => openUrl(PRICING_URL)}
                 >
                   <ArrowUpRight className="h-3.5 w-3.5" />
-                  {!sub?.isActive ? "Upgrade to Pro or Max" : "Upgrade to Max"}
+                  {!sub?.isActive ? "Upgrade to Rookie or Pro" : "Upgrade to Pro"}
                 </Button>
               )}
             </>

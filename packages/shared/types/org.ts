@@ -3,7 +3,7 @@
 // =============================================================================
 
 export type UserRole = 'coach' | 'player' | 'admin';
-export type OrgPlanTier = 'free' | 'pro' | 'max' | 'franchise';
+export type OrgPlanTier = 'free' | 'rookie' | 'pro' | 'franchise';
 
 export interface UserProfile {
   id: string;
