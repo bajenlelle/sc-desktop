@@ -384,13 +384,14 @@ function TeamCard({
 // ---------------------------------------------------------------------------
 
 export function OrganizationPage() {
-  const { user, activeOrgId, activeOrgRole, activeOrgIsPersonal } = useAuth();
+  const { user, activeOrgId, activeOrgRole, activeOrgIsPersonal, profileLoading } = useAuth();
   const navigate = useNavigate();
-  const canAccess = !activeOrgIsPersonal && (activeOrgRole === "coach" || activeOrgRole === "admin");
+  const canAccess = !activeOrgIsPersonal && activeOrgRole !== null;
 
   useEffect(() => {
+    if (profileLoading) return;
     if (activeOrgId && !canAccess) navigate("/my-playlists", { replace: true });
-  }, [activeOrgId, canAccess, navigate]);
+  }, [activeOrgId, canAccess, profileLoading, navigate]);
   const [ctx, setCtx] = useState<OrgContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [memberCounts, setMemberCounts] = useState<Record<string, number>>({});
@@ -506,7 +507,7 @@ export function OrganizationPage() {
   }, [ctx, memberSearch, memberRoleFilter]);
 
   // ── Access guard ────────────────────────────────────────────────────────
-  if (!canAccess) return null;
+  if (!profileLoading && !canAccess) return null;
 
   // ── Loading / error states ──────────────────────────────────────────────
 

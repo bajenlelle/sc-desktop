@@ -121,7 +121,7 @@ export function AppSidebar() {
   const { resolvedTheme, setTheme } = useTheme();
 
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
-  const showOrganization = !activeOrgIsPersonal && isCoachOrAdmin;
+  const showOrganization = !activeOrgIsPersonal && activeOrgRole !== null;
   const showWorkspaceSwitcher = myOrgs.length > 1;
 
   async function handleSignOut() {

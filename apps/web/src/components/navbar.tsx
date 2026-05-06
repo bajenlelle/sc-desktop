@@ -42,7 +42,7 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const { myOrgs, activeOrgId, activeOrgRole, activeOrgIsPersonal, setActiveOrg } = useAuth();
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
-  const showOrganization = !activeOrgIsPersonal && isCoachOrAdmin;
+  const showOrganization = !activeOrgIsPersonal && activeOrgRole !== null;
   const hasOrg = !profile || !!profile.isPlatformAdmin || myOrgs.length > 0;
   const navLinks = [
     { href: "/my-playlists", label: isCoachOrAdmin ? "Shared Playlists" : "My Playlists" },
