@@ -127,6 +127,7 @@ function TeamInviteSection({
   team,
   orgMembers,
   isAdmin,
+  canManage,
   onContextReload,
   onInvite,
   onAddMembers,
@@ -135,6 +136,7 @@ function TeamInviteSection({
   team: OrgTeam;
   orgMembers: UserProfile[];
   isAdmin: boolean;
+  canManage: boolean;
   onContextReload: () => void;
   onInvite: () => void;
   onAddMembers: (memberIds: Set<string>) => void;
@@ -193,7 +195,7 @@ function TeamInviteSection({
           {teamMemberDetails.map((tm) => {
             const profile = orgMembers.find((m) => m.id === tm.userId);
             const displayName = profile?.fullName ?? profile?.email ?? tm.userId.slice(0, 8);
-            const secondaryText = profile?.fullName && profile?.email ? profile.email : null;
+            const secondaryText = canManage && profile?.fullName && profile?.email ? profile.email : null;
             return (
               <div
                 key={tm.userId}
@@ -230,30 +232,37 @@ function TeamInviteSection({
         </div>
       )}
 
-      {/* Actions */}
-      <div className="flex flex-wrap gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 text-xs gap-1.5"
-          onClick={onInvite}
-          disabled={inviteDisabled}
-          title={inviteDisabled ? "License expired — inviting is paused" : undefined}
-        >
-          <UserPlus className="h-3.5 w-3.5" />
-          Invite to team
-        </Button>
-        {isAdmin && (
+      {/* Actions — coaches/admins only */}
+      {canManage && (
+        <div className="flex flex-wrap gap-2">
           <Button
             size="sm"
             variant="outline"
-            className="h-7 text-xs"
-            onClick={() => onAddMembers(currentMemberIdSet)}
+            className="h-7 text-xs gap-1.5"
+            onClick={onInvite}
+            disabled={inviteDisabled}
+            title={inviteDisabled ? "License expired — inviting is paused" : undefined}
           >
-            Add members
+            <UserPlus className="h-3.5 w-3.5" />
+            Invite to team
           </Button>
-        )}
-      </div>
+          {isAdmin && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={() => onAddMembers(currentMemberIdSet)}
+            >
+              Add members
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!loadingMembers && teamMemberDetails.length === 0 && (
+        <p className="text-xs text-muted-foreground">No members on this team yet.</p>
+      )}
     </div>
   );
 }
@@ -300,7 +309,8 @@ function TeamCard({
         <button
           type="button"
           className="flex-1 flex items-center justify-between p-4 text-left hover:bg-accent/50 transition-colors rounded-lg"
-          onClick={() => { if (canManage) setExpanded((v) => !v); }}
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
         >
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-medium text-sm">{team.name}</span>
@@ -314,11 +324,9 @@ function TeamCard({
               {userTeamRole}
             </Badge>
           </div>
-          {canManage && (
-            expanded
-              ? <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" />
-              : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
-          )}
+          {expanded
+            ? <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" />
+            : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />}
         </button>
         {isAdmin && (
           <DropdownMenu>
@@ -340,11 +348,12 @@ function TeamCard({
         )}
       </div>
 
-      {expanded && canManage && (
+      {expanded && (
         <TeamInviteSection
           team={team}
           orgMembers={orgMembers}
           isAdmin={isAdmin}
+          canManage={canManage}
           onContextReload={onContextReload}
           onInvite={() => setShowInviteModal(true)}
           onAddMembers={(ids) => {
@@ -640,10 +649,12 @@ export function OrganizationPage() {
       )}
 
       <Tabs defaultValue="teams">
-        <TabsList>
-          <TabsTrigger value="teams">Teams</TabsTrigger>
-          <TabsTrigger value="members">Members</TabsTrigger>
-        </TabsList>
+        {canManageTeams && (
+          <TabsList>
+            <TabsTrigger value="teams">Teams</TabsTrigger>
+            <TabsTrigger value="members">Members</TabsTrigger>
+          </TabsList>
+        )}
 
         {/* ── Teams ── */}
         <TabsContent value="teams" className="space-y-6 pt-4">
@@ -663,7 +674,11 @@ export function OrganizationPage() {
             </div>
 
             {myTeamsForOrg.length === 0 ? (
-              <p className="text-sm text-muted-foreground">You're not in any teams yet.</p>
+              <p className="text-sm text-muted-foreground">
+                {canManageTeams
+                  ? "You're not in any teams yet."
+                  : "You're not on any teams yet. Ask your coach to add you."}
+              </p>
             ) : (
               <div className="space-y-2">
                 {myTeamsForOrg.map((team) => (
@@ -718,7 +733,8 @@ export function OrganizationPage() {
           )}
         </TabsContent>
 
-        {/* ── Members ── */}
+        {/* ── Members ── (admin/coach only) */}
+        {canManageTeams && (
         <TabsContent value="members" className="space-y-4 pt-4">
           {/* Search + filter — admin/coach only */}
           {canManageTeams && (
@@ -778,6 +794,7 @@ export function OrganizationPage() {
             </div>
           )}
         </TabsContent>
+        )}
       </Tabs>
 
       <InviteModal
