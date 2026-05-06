@@ -190,6 +190,8 @@ export default function ProfilePage() {
   const profile = ctx.profile;
   const displayRole = activeOrgRole ?? profile.role;
   const initials = (fullName || user?.email || "?").slice(0, 2).toUpperCase();
+  const activeOrg = ctx.myOrgs.find((o) => o.orgId === activeOrgId) ?? null;
+  const activeOrgTeams = activeOrgId ? ctx.myTeams.filter((t) => t.orgId === activeOrgId) : [];
 
   // Personal org — Stripe subscription display
   const stripeColors = stripePlanColors(sub);
@@ -233,12 +235,12 @@ export default function ProfilePage() {
                 <Badge variant={roleBadgeVariant(displayRole, profile.isPlatformAdmin)} className="text-xs">
                   {profile.isPlatformAdmin ? "Platform admin" : displayRole.charAt(0).toUpperCase() + displayRole.slice(1)}
                 </Badge>
-                {ctx.myOrgs.filter((s) => !s.isPersonal).map((s) => (
-                  <span key={s.orgId} className="flex items-center gap-1 text-xs text-muted-foreground">
+                {activeOrg && !activeOrg.isPersonal && (
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
                     <Building2 className="h-3 w-3" />
-                    {s.orgName}
+                    {activeOrg.orgName}
                   </span>
-                ))}
+                )}
               </div>
             </div>
           </div>
@@ -326,7 +328,7 @@ export default function ProfilePage() {
       </Card>
 
       {/* ── Org & Teams ── */}
-      {ctx.myOrgs.filter((s) => !s.isPersonal).length > 0 && (
+      {activeOrg && !activeOrg.isPersonal && (
         <Card>
           <CardContent className="p-6 space-y-3">
             <div className="flex items-center justify-between">
@@ -338,15 +340,16 @@ export default function ProfilePage() {
                 Manage <ChevronRight className="h-3 w-3" />
               </Link>
             </div>
-            {ctx.myOrgs.filter((s) => !s.isPersonal).map((s) => (
-              <div key={s.orgId} className="flex items-center justify-between">
-                <span className="text-sm text-foreground">{s.orgName}</span>
-                {s.isNtOrg && <span className="text-xs text-muted-foreground">NT</span>}
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-foreground">{activeOrg.orgName}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground capitalize">{activeOrg.role}</span>
+                {activeOrg.isNtOrg && <span className="text-xs text-muted-foreground">NT</span>}
               </div>
-            ))}
-            {ctx.myTeams.length > 0 && (
+            </div>
+            {activeOrgTeams.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
-                {ctx.myTeams.map((team) => (
+                {activeOrgTeams.map((team) => (
                   <span key={team.id} className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
                     {team.name}
                   </span>
