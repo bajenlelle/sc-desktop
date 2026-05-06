@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { BookOpen, ChevronDown, ChevronRight, Loader2, Send, Share2, User2 } from "lucide-react";
 import { VideoPlayer } from "@/components/video-player";
 import { VideoClipControls } from "@/components/video-clip-controls";
@@ -55,7 +56,14 @@ function playerName(event: PlayByPlayEvent): string {
 // ---------------------------------------------------------------------------
 
 export function MyPlaylistsPage() {
-  const { activeOrgId } = useAuth();
+  const { activeOrgId, activeOrgIsPersonal, profileLoading } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (profileLoading) return;
+    if (activeOrgIsPersonal) navigate("/playlists", { replace: true });
+  }, [activeOrgIsPersonal, profileLoading, navigate]);
+
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [directPlaylists, setDirectPlaylists] = useState<Playlist[]>([]);
   const [sharedOutPlaylists, setSharedOutPlaylists] = useState<Playlist[]>([]);

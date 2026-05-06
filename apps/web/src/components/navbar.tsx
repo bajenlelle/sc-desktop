@@ -45,7 +45,9 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
   const showOrganization = !activeOrgIsPersonal && activeOrgRole !== null;
   const hasOrg = !profile || !!profile.isPlatformAdmin || myOrgs.length > 0;
   const navLinks = [
-    { href: "/my-playlists", label: isCoachOrAdmin ? "Shared Playlists" : "My Playlists" },
+    ...(activeOrgIsPersonal
+      ? []
+      : [{ href: "/my-playlists", label: isCoachOrAdmin ? "Shared Playlists" : "My Playlists" }]),
     ...(showOrganization ? [{ href: "/organization", label: "Organization" }] : []),
     ...(profile?.isPlatformAdmin ? [{ href: "/admin", label: "Admin" }] : []),
   ];

@@ -170,12 +170,14 @@ export function AppSidebar() {
                 onClickWhileActive={() => window.dispatchEvent(new CustomEvent("playlist-browser-toggle"))}
               />
             )}
-            <SidebarIconButton
-              href="/my-playlists"
-              icon={isCoachOrAdmin ? Share2 : BookOpen}
-              label={isCoachOrAdmin ? "Shared Playlists" : "My Playlists"}
-              isActive={pathname.startsWith("/my-playlists")}
-            />
+            {!activeOrgIsPersonal && (
+              <SidebarIconButton
+                href="/my-playlists"
+                icon={isCoachOrAdmin ? Share2 : BookOpen}
+                label={isCoachOrAdmin ? "Shared Playlists" : "My Playlists"}
+                isActive={pathname.startsWith("/my-playlists")}
+              />
+            )}
             {isCoachOrAdmin && (
               <SidebarIconButton
                 href="/matches"

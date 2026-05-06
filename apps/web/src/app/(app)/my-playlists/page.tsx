@@ -14,6 +14,7 @@ import { getMyTeamPlaylists, getMyDirectPlaylists, getMySharedOutPlaylists, setP
 import { listMatches } from "@scoutable/shared/lib/matches-db";
 import { getOrgContext, getOrgContextForOrg } from "@/lib/profile-db";
 import { useAuth } from "@/components/auth-context";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import type {
   Playlist,
@@ -59,7 +60,14 @@ function playerName(event: PlayByPlayEvent): string {
 // ---------------------------------------------------------------------------
 
 export default function MyPlaylistsPage() {
-  const { activeOrgId } = useAuth();
+  const { activeOrgId, activeOrgIsPersonal, profileLoading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (profileLoading) return;
+    if (activeOrgIsPersonal) router.replace("/profile");
+  }, [activeOrgIsPersonal, profileLoading, router]);
+
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [directPlaylists, setDirectPlaylists] = useState<Playlist[]>([]);
   const [sharedOutPlaylists, setSharedOutPlaylists] = useState<Playlist[]>([]);
