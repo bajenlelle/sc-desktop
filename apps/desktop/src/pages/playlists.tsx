@@ -1220,10 +1220,18 @@ export function PlaylistsPage() {
   const [clipDragOverPosition, setClipDragOverPosition] = useState<"above" | "below">("below");
   const [clipDragOverPlaylistId, setClipDragOverPlaylistId] = useState<string | null>(null);
   const [clipExpandFolderId, setClipExpandFolderId] = useState<string | null>(null);
+  const [clipOpenPlaylistId, setClipOpenPlaylistId] = useState<string | null>(null);
   const clipDragFolderExpandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clipDragPlaylistOpenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dragCursorRef = useRef<{ x: number; y: number } | null>(null);
+  const dragCursorListenerRef = useRef<((ev: DragEvent) => void) | null>(null);
   const dragScrollRAFRef = useRef<number | null>(null);
   const playlistScrollRef = useRef<HTMLDivElement | null>(null);
+  const sidebarScrollRef = useRef<HTMLDivElement | null>(null);
+  // Refs mirroring state — used inside the RAF loop where direct state access is stale.
+  // clipDragOverPlaylistIdRef is updated synchronously alongside its state setter (no effect sync).
+  const clipDragOverPlaylistIdRef = useRef<string | null>(null);
+  const playlistsRef = useRef<Playlist[]>([]);
   const browserPanelRef = usePanelRef();
 
   // Text card playback
@@ -1265,6 +1273,7 @@ export function PlaylistsPage() {
   useEffect(() => { postRollRef.current = postRoll; }, [postRoll]);
   useEffect(() => { activeMatchIdRef.current = activeMatchId; }, [activeMatchId]);
   useEffect(() => { selectedRef.current = selected; }, [selected]);
+  useEffect(() => { playlistsRef.current = playlists; }, [playlists]);
   useEffect(() => { sessionStorage.setItem("expandedFolders", JSON.stringify([...expandedFolders])); }, [expandedFolders]);
   useEffect(() => { sessionStorage.setItem("uncategorizedExpanded", String(uncategorizedExpanded)); }, [uncategorizedExpanded]);
 
@@ -1908,21 +1917,73 @@ export function PlaylistsPage() {
     e.dataTransfer.effectAllowed = "move";
     setClipDragKey(key);
 
+    // Track cursor globally so autoscroll works even when the cursor is over
+    // the sidebar (or any non-clip-row area) during the drag.
+    function trackCursor(ev: DragEvent) {
+      dragCursorRef.current = { x: ev.clientX, y: ev.clientY };
+    }
+    window.addEventListener("dragover", trackCursor);
+    dragCursorListenerRef.current = trackCursor;
+
     function step() {
       const cursor = dragCursorRef.current;
-      const scrollEl = playlistScrollRef.current;
-      if (cursor && scrollEl) {
-        const containerRect = scrollEl.getBoundingClientRect();
+      if (cursor) {
         const threshold = 80;
-        let delta = 0;
-        if (cursor.y < containerRect.top + threshold) {
-          delta = -10 * (1 - (cursor.y - containerRect.top) / threshold);
-        } else if (cursor.y > containerRect.bottom - threshold) {
-          delta = 10 * (1 - (containerRect.bottom - cursor.y) / threshold);
+        // Autoscroll whichever container the cursor is currently over.
+        for (const el of [playlistScrollRef.current, sidebarScrollRef.current]) {
+          if (!el) continue;
+          const r = el.getBoundingClientRect();
+          if (cursor.x < r.left || cursor.x > r.right) continue;
+          let delta = 0;
+          if (cursor.y < r.top + threshold) {
+            delta = -10 * (1 - (cursor.y - r.top) / threshold);
+          } else if (cursor.y > r.bottom - threshold) {
+            delta = 10 * (1 - (r.bottom - cursor.y) / threshold);
+          }
+          if (delta !== 0) {
+            el.scrollBy(0, delta);
+            if (el === playlistScrollRef.current) recalcDragPosition(cursor.x, cursor.y);
+          }
         }
-        if (delta !== 0) {
-          scrollEl.scrollBy(0, delta);
-          recalcDragPosition(cursor.x, cursor.y);
+        // After autoscroll the browser may not re-fire dragover on the newly
+        // revealed rows under a stationary cursor, and elementFromPoint can lag
+        // the post-scroll layout by a frame. Iterate the data-playlist-id rows
+        // and resolve via getBoundingClientRect, which forces a synchronous
+        // layout read — always reflects the current scroll position.
+        const sidebarEl = sidebarScrollRef.current;
+        if (sidebarEl) {
+          const r = sidebarEl.getBoundingClientRect();
+          if (cursor.x >= r.left && cursor.x <= r.right && cursor.y >= r.top && cursor.y <= r.bottom) {
+            let foundId: string | null = null;
+            const rows = sidebarEl.querySelectorAll<HTMLElement>("[data-playlist-id]");
+            for (let i = 0; i < rows.length; i++) {
+              const rr = rows[i].getBoundingClientRect();
+              if (cursor.y >= rr.top && cursor.y <= rr.bottom && cursor.x >= rr.left && cursor.x <= rr.right) {
+                foundId = rows[i].dataset.playlistId ?? null;
+                break;
+              }
+            }
+            if (foundId !== clipDragOverPlaylistIdRef.current) {
+              clipDragOverPlaylistIdRef.current = foundId;
+              if (clipDragPlaylistOpenTimerRef.current) {
+                clearTimeout(clipDragPlaylistOpenTimerRef.current);
+                clipDragPlaylistOpenTimerRef.current = null;
+              }
+              setClipOpenPlaylistId(null);
+              setClipDragOverPlaylistId(foundId);
+              if (foundId && selectedRef.current?.id !== foundId) {
+                const pl = playlistsRef.current.find((p) => p.id === foundId);
+                if (pl) {
+                  setClipOpenPlaylistId(foundId);
+                  clipDragPlaylistOpenTimerRef.current = setTimeout(() => {
+                    clipDragPlaylistOpenTimerRef.current = null;
+                    setClipOpenPlaylistId(null);
+                    selectPlaylist(pl);
+                  }, 600);
+                }
+              }
+            }
+          }
         }
       }
       dragScrollRAFRef.current = requestAnimationFrame(step);
@@ -1946,14 +2007,24 @@ export function PlaylistsPage() {
       cancelAnimationFrame(dragScrollRAFRef.current);
       dragScrollRAFRef.current = null;
     }
+    if (dragCursorListenerRef.current) {
+      window.removeEventListener("dragover", dragCursorListenerRef.current);
+      dragCursorListenerRef.current = null;
+    }
     dragCursorRef.current = null;
+    clipDragOverPlaylistIdRef.current = null;
     setClipDragKey(null);
     setClipDragOverIndex(null);
     setClipDragOverPlaylistId(null);
     setClipExpandFolderId(null);
+    setClipOpenPlaylistId(null);
     if (clipDragFolderExpandTimerRef.current) {
       clearTimeout(clipDragFolderExpandTimerRef.current);
       clipDragFolderExpandTimerRef.current = null;
+    }
+    if (clipDragPlaylistOpenTimerRef.current) {
+      clearTimeout(clipDragPlaylistOpenTimerRef.current);
+      clipDragPlaylistOpenTimerRef.current = null;
     }
   }
 
@@ -1963,13 +2034,52 @@ export function PlaylistsPage() {
     if (!key || !selected) return;
     setClipDragOverIndex(null);
     const sourceIndex = sortedEvents.findIndex((i) => itemKey(i) === key);
-    if (sourceIndex === -1 || sourceIndex === targetIndex) return;
     const insertIndex = clipDragOverPosition === "above" ? targetIndex : targetIndex + 1;
+
+    // Cross-playlist drop: the dragged clip didn't originate in the current
+    // playlist (e.g. user spring-loaded into a different playlist mid-drag).
+    if (sourceIndex === -1) {
+      if (key.startsWith("text:")) return; // text cards don't migrate
+      const colonIdx = key.indexOf(":");
+      const matchId = key.slice(0, colonIdx);
+      const eventId = Number(key.slice(colonIdx + 1));
+      if (selected.items.filter(isClipItem).some((c) => c.matchId === matchId && c.eventId === eventId)) return;
+      // Map insertIndex (sortedEvents space) → items space.
+      let itemsInsertIndex: number;
+      if (insertIndex >= sortedEvents.length) {
+        itemsInsertIndex = selected.items.length;
+      } else {
+        const targetItem = sortedEvents[insertIndex];
+        const targetK = itemKey(targetItem);
+        const itemsIdx = selected.items.findIndex((i) => {
+          const k = i.type === "text" ? `text:${(i as PlaylistTextCard).id}` : `${(i as PlaylistClipItem).matchId}:${(i as PlaylistClipItem).eventId}`;
+          return k === targetK;
+        });
+        itemsInsertIndex = itemsIdx >= 0 ? itemsIdx : selected.items.length;
+      }
+      const newClip: PlaylistClipItem = { type: "clip", matchId, eventId };
+      const newItems = [...selected.items];
+      newItems.splice(itemsInsertIndex, 0, newClip);
+      const targetId = selected.id;
+      addClips(targetId, [newClip], itemsInsertIndex);
+      trackEvent("clip_added_to_playlist", { playlist_id: targetId, match_id: matchId });
+      setPlaylists((prev) => prev.map((p) => p.id === targetId ? { ...p, items: newItems } : p));
+      setSelected((prev) => prev ? { ...prev, items: newItems } : prev);
+      handleClipDragEnd();
+      return;
+    }
+
+    // Same-playlist reorder.
+    if (sourceIndex === targetIndex) {
+      handleClipDragEnd();
+      return;
+    }
     const adjusted = insertIndex > sourceIndex ? insertIndex - 1 : insertIndex;
     const next = [...sortedEvents];
     const [moved] = next.splice(sourceIndex, 1);
     next.splice(adjusted, 0, moved);
     handleReorder(next);
+    handleClipDragEnd();
   }
 
   async function handleClipDropOnPlaylist(targetPlaylistId: string, clipKey: string) {
@@ -1979,11 +2089,18 @@ export function PlaylistsPage() {
     const matchId = clipKey.slice(0, colonIdx);
     const eventId = Number(clipKey.slice(colonIdx + 1));
     const target = playlists.find((p) => p.id === targetPlaylistId);
-    if (!target) return;
-    if (target.items.filter(isClipItem).some((c) => c.matchId === matchId && c.eventId === eventId)) return;
+    if (!target) { handleClipDragEnd(); return; }
+    if (target.items.filter(isClipItem).some((c) => c.matchId === matchId && c.eventId === eventId)) {
+      handleClipDragEnd();
+      return;
+    }
     const sourceClip: PlaylistClipItem = selected?.items.filter(isClipItem).find((c) => c.matchId === matchId && c.eventId === eventId)
       ?? { type: 'clip', matchId, eventId };
     const newItems = [...target.items, sourceClip];
+    // Synchronously end the drag bookkeeping before the await — guarantees the
+    // RAF/window listener can't keep firing while we await the network call,
+    // even if dragend never reaches the (possibly unmounted) source row.
+    handleClipDragEnd();
     await addClips(targetPlaylistId, [sourceClip], target.items.length);
     trackEvent('clip_added_to_playlist', { playlist_id: targetPlaylistId, match_id: matchId })
     setPlaylists((prev) => prev.map((p) => p.id === targetPlaylistId ? { ...p, items: newItems } : p));
@@ -2559,8 +2676,9 @@ export function PlaylistsPage() {
         minSize={15}
         collapsible
         collapsedSize={0}
-        className="flex flex-col border-r border-border bg-card overflow-y-auto"
+        className="flex flex-col border-r border-border bg-card"
       >
+        <div ref={sidebarScrollRef} className="flex flex-1 flex-col overflow-y-auto">
         {/* Header */}
         <div className="sticky top-0 z-10 border-b border-border bg-card px-3 py-3 space-y-2">
           <div className="flex items-center gap-2">
@@ -2791,6 +2909,7 @@ export function PlaylistsPage() {
                             <ContextMenu key={pl.id}>
                               <ContextMenuTrigger asChild>
                                 <div
+                                  data-playlist-id={pl.id}
                                   draggable={!isEditingThis}
                                   onDragStart={(e) => handleDragStart(pl.id, e)}
                                   onDragEnd={() => setDragOverFolder(null)}
@@ -2798,24 +2917,42 @@ export function PlaylistsPage() {
                                     if (!e.dataTransfer.types.includes("text/clip")) return;
                                     e.preventDefault();
                                     e.dataTransfer.dropEffect = "copy";
-                                    setClipDragOverPlaylistId(pl.id);
+                                    if (clipDragOverPlaylistIdRef.current !== pl.id) {
+                                      clipDragOverPlaylistIdRef.current = pl.id;
+                                      setClipDragOverPlaylistId(pl.id);
+                                      // Spring-load: open this playlist after a delay if not already open.
+                                      if (selected?.id !== pl.id && clipDragPlaylistOpenTimerRef.current === null) {
+                                        setClipOpenPlaylistId(pl.id);
+                                        clipDragPlaylistOpenTimerRef.current = setTimeout(() => {
+                                          clipDragPlaylistOpenTimerRef.current = null;
+                                          setClipOpenPlaylistId(null);
+                                          selectPlaylist(pl);
+                                        }, 600);
+                                      }
+                                    }
                                   }}
                                   onDragLeave={(e) => {
-                                    if (!e.currentTarget.contains(e.relatedTarget as Node))
+                                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                                      clipDragOverPlaylistIdRef.current = null;
                                       setClipDragOverPlaylistId(null);
+                                      setClipOpenPlaylistId(null);
+                                      if (clipDragPlaylistOpenTimerRef.current) {
+                                        clearTimeout(clipDragPlaylistOpenTimerRef.current);
+                                        clipDragPlaylistOpenTimerRef.current = null;
+                                      }
+                                    }
                                   }}
                                   onDrop={(e) => {
                                     const key = e.dataTransfer.getData("text/clip");
                                     if (!key) return;
                                     e.preventDefault();
-                                    setClipDragOverPlaylistId(null);
                                     handleClipDropOnPlaylist(pl.id, key);
                                   }}
                                   className={`group flex w-full cursor-pointer items-center justify-between border-l-2 pl-9 pr-3 py-1.5 text-left transition-colors hover:bg-muted/50 ${
                                     isActive
                                       ? "border-l-primary bg-primary/10"
                                       : "border-l-border hover:border-l-border/80"
-                                  } ${clipDragOverPlaylistId === pl.id ? "bg-primary/15 ring-1 ring-inset ring-primary" : ""}`}
+                                  } ${clipDragOverPlaylistId === pl.id ? "bg-primary/15 ring-1 ring-inset ring-primary" : ""} ${clipOpenPlaylistId === pl.id ? "animate-pulse" : ""}`}
                                   onClick={() => !isEditingThis && selectPlaylist(pl)}
                                 >
                                   <div className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -3000,6 +3137,7 @@ export function PlaylistsPage() {
                           <ContextMenu key={pl.id}>
                             <ContextMenuTrigger asChild>
                               <div
+                                data-playlist-id={pl.id}
                                 draggable={!isEditingThis}
                                 onDragStart={(e) => handleDragStart(pl.id, e)}
                                 onDragEnd={() => setDragOverFolder(null)}
@@ -3007,24 +3145,41 @@ export function PlaylistsPage() {
                                   if (!e.dataTransfer.types.includes("text/clip")) return;
                                   e.preventDefault();
                                   e.dataTransfer.dropEffect = "copy";
-                                  setClipDragOverPlaylistId(pl.id);
+                                  if (clipDragOverPlaylistIdRef.current !== pl.id) {
+                                    clipDragOverPlaylistIdRef.current = pl.id;
+                                    setClipDragOverPlaylistId(pl.id);
+                                    if (selected?.id !== pl.id && clipDragPlaylistOpenTimerRef.current === null) {
+                                      setClipOpenPlaylistId(pl.id);
+                                      clipDragPlaylistOpenTimerRef.current = setTimeout(() => {
+                                        clipDragPlaylistOpenTimerRef.current = null;
+                                        setClipOpenPlaylistId(null);
+                                        selectPlaylist(pl);
+                                      }, 600);
+                                    }
+                                  }
                                 }}
                                 onDragLeave={(e) => {
-                                  if (!e.currentTarget.contains(e.relatedTarget as Node))
+                                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                                    clipDragOverPlaylistIdRef.current = null;
                                     setClipDragOverPlaylistId(null);
+                                    setClipOpenPlaylistId(null);
+                                    if (clipDragPlaylistOpenTimerRef.current) {
+                                      clearTimeout(clipDragPlaylistOpenTimerRef.current);
+                                      clipDragPlaylistOpenTimerRef.current = null;
+                                    }
+                                  }
                                 }}
                                 onDrop={(e) => {
                                   const key = e.dataTransfer.getData("text/clip");
                                   if (!key) return;
                                   e.preventDefault();
-                                  setClipDragOverPlaylistId(null);
                                   handleClipDropOnPlaylist(pl.id, key);
                                 }}
                                 className={`group flex w-full cursor-pointer items-center justify-between border-l-2 pl-8 pr-3 py-1.5 text-left transition-colors hover:bg-muted/50 ${
                                   isActive
                                     ? "border-l-primary bg-primary/10"
                                     : "border-l-border hover:border-l-border/80"
-                                } ${clipDragOverPlaylistId === pl.id ? "bg-primary/15 ring-1 ring-inset ring-primary" : ""}`}
+                                } ${clipDragOverPlaylistId === pl.id ? "bg-primary/15 ring-1 ring-inset ring-primary" : ""} ${clipOpenPlaylistId === pl.id ? "animate-pulse" : ""}`}
                                 onClick={() => !isEditingThis && selectPlaylist(pl)}
                               >
                                 <div className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -3216,6 +3371,7 @@ export function PlaylistsPage() {
             </Button>
           </div>
         )}
+        </div>
       </ResizablePanel>
 
       <ResizableHandle />
@@ -3540,7 +3696,22 @@ export function PlaylistsPage() {
 
                 <div ref={playlistScrollRef} className="min-h-0 flex-1 overflow-y-auto">
                 {sortedEvents.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+                  <div
+                    onDragOver={(e) => {
+                      if (!e.dataTransfer.types.includes("text/clip")) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "copy";
+                      setClipDragOverIndex(0);
+                      setClipDragOverPosition("above");
+                    }}
+                    onDragLeave={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node)) setClipDragOverIndex(null);
+                    }}
+                    onDrop={(e) => handleClipDrop(e, 0)}
+                    className={`flex min-h-full flex-col items-center justify-center gap-3 py-12 text-center rounded-lg border-2 border-dashed transition-colors ${
+                      clipDragOverIndex === 0 ? "border-primary bg-primary/5" : "border-transparent"
+                    }`}
+                  >
                     <p className="text-sm text-muted-foreground">
                       This playlist has no clips yet.
                     </p>
@@ -3830,7 +4001,22 @@ export function PlaylistsPage() {
 
                 <div ref={playlistScrollRef} className="min-h-0 flex-1 overflow-y-auto">
                 {sortedEvents.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+                  <div
+                    onDragOver={(e) => {
+                      if (!e.dataTransfer.types.includes("text/clip")) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "copy";
+                      setClipDragOverIndex(0);
+                      setClipDragOverPosition("above");
+                    }}
+                    onDragLeave={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node)) setClipDragOverIndex(null);
+                    }}
+                    onDrop={(e) => handleClipDrop(e, 0)}
+                    className={`flex min-h-full flex-col items-center justify-center gap-3 py-12 text-center rounded-lg border-2 border-dashed transition-colors ${
+                      clipDragOverIndex === 0 ? "border-primary bg-primary/5" : "border-transparent"
+                    }`}
+                  >
                     <p className="text-sm text-muted-foreground">
                       This playlist has no clips yet.
                     </p>
