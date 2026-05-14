@@ -99,26 +99,38 @@ function eventLabel(e: PlayByPlayEvent): string {
   }
 }
 
-function eventBadgeColor(e: PlayByPlayEvent): string {
-  switch (e.type) {
-    case "2pt":
-    case "3pt":
-    case "freethrow":
-      return e.isSuccessful
-        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300"
-        : "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300";
-    case "rebound":
-      return "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300";
-    case "steal":
-    case "block":
-      return "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300";
-    case "turnover":
-    case "foul":
-    case "foulon":
-      return "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300";
-    default:
-      return "bg-muted text-muted-foreground";
+function eventColors(e: PlayByPlayEvent): { strip: string; badge: string } {
+  const made = !!e.isSuccessful;
+  if (e.type === "freethrow") {
+    return made
+      ? { strip: "bg-emerald-300", badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300" }
+      : { strip: "bg-red-300",     badge: "bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300" };
   }
+  if (e.type === "2pt") {
+    return made
+      ? { strip: "bg-emerald-400", badge: "bg-emerald-200 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200" }
+      : { strip: "bg-red-400",     badge: "bg-red-200 text-red-800 dark:bg-red-900/60 dark:text-red-200" };
+  }
+  if (e.type === "3pt") {
+    return made
+      ? { strip: "bg-emerald-600", badge: "bg-emerald-300 text-emerald-900 dark:bg-emerald-800 dark:text-emerald-100" }
+      : { strip: "bg-red-600",     badge: "bg-red-300 text-red-900 dark:bg-red-800 dark:text-red-100" };
+  }
+  switch (e.type) {
+    case "rebound": {
+      const sub = e.subType?.toLowerCase() ?? "";
+      if (sub.includes("off")) return { strip: "bg-sky-400",   badge: "bg-sky-100 text-sky-700 dark:bg-sky-900/60 dark:text-sky-300" };
+      if (sub.includes("def")) return { strip: "bg-blue-500",  badge: "bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200" };
+      return                          { strip: "bg-slate-400", badge: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" };
+    }
+    case "assist":   return { strip: "bg-cyan-400",   badge: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/60 dark:text-cyan-300" };
+    case "steal":    return { strip: "bg-violet-400", badge: "bg-violet-100 text-violet-700 dark:bg-violet-900/60 dark:text-violet-300" };
+    case "block":    return { strip: "bg-violet-600", badge: "bg-violet-200 text-violet-800 dark:bg-violet-800 dark:text-violet-200" };
+    case "turnover": return { strip: "bg-amber-400",  badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300" };
+    case "foul":
+    case "foulon":   return { strip: "bg-orange-400", badge: "bg-orange-100 text-orange-700 dark:bg-orange-900/60 dark:text-orange-300" };
+  }
+  return { strip: "bg-slate-300", badge: "bg-muted text-muted-foreground" };
 }
 
 function playerName(e: PlayByPlayEvent): string {
@@ -306,6 +318,7 @@ function DraggableRow({
           onDrop={(e) => onDrop(e, index)}
           onDragEnd={onDragEnd}
         >
+          <td className={`w-1.5 min-w-1.5 p-0 ${eventColors(event).strip}`} aria-hidden />
           <td className="w-8 px-2 py-2.5">
             <span className="flex items-center justify-center opacity-0 group-hover:opacity-60 transition-opacity">
               <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
@@ -331,7 +344,7 @@ function DraggableRow({
           )}
           <td className="px-4 py-2.5">
             <span
-              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${eventBadgeColor(event)}`}
+              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${eventColors(event).badge}`}
             >
               {eventLabel(event)}
             </span>
@@ -434,7 +447,7 @@ function TextCardRow({
     <tr
       draggable
       data-text-card-id={card.id}
-      className={`group cursor-grab transition-colors border-l-4 border-l-amber-400 bg-amber-50/30 dark:bg-amber-950/20 hover:bg-amber-100/40 dark:hover:bg-amber-900/30 ${
+      className={`group cursor-grab transition-colors bg-amber-50/30 dark:bg-amber-950/20 hover:bg-amber-100/40 dark:hover:bg-amber-900/30 ${
         isActive ? "ring-1 ring-inset ring-amber-400" : ""
       } ${isDragTarget && dragTargetPosition === "above" ? "border-t-2 border-t-primary" : ""} ${
         isDragTarget && dragTargetPosition === "below" ? "border-b-2 border-b-primary" : ""
@@ -446,6 +459,7 @@ function TextCardRow({
       onDrop={(e) => onDrop(e, index)}
       onDragEnd={onDragEnd}
     >
+      <td className="w-1.5 min-w-1.5 p-0 bg-amber-400" aria-hidden />
       <td className="w-8 px-2 py-2.5">
         <span className="flex items-center justify-center opacity-0 group-hover:opacity-60 transition-opacity">
           <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
@@ -1046,7 +1060,7 @@ function ClipBrowserPanel({
                           <td className="px-4 py-2.5 text-xs text-muted-foreground truncate max-w-[120px]">{matchTitle}</td>
                         )}
                         <td className="px-4 py-2.5">
-                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${eventBadgeColor(event)}`}>
+                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${eventColors(event).badge}`}>
                             {eventLabel(event)}
                           </span>
                         </td>
@@ -3730,6 +3744,7 @@ export function PlaylistsPage() {
                     <table className="w-full min-w-[580px] text-sm">
                       <thead className="border-b border-border bg-muted/80 text-xs font-medium text-muted-foreground">
                         <tr>
+                          <th className="w-1.5 min-w-1.5 p-0" aria-hidden />
                           <th className="w-8" />
                           <th className="w-8 px-3 py-2.5">
                             <input
@@ -4035,6 +4050,7 @@ export function PlaylistsPage() {
                     <table className="w-full min-w-[580px] text-sm">
                       <thead className="border-b border-border bg-muted/80 text-xs font-medium text-muted-foreground">
                         <tr>
+                          <th className="w-1.5 min-w-1.5 p-0" aria-hidden />
                           <th className="w-8" />
                           <th className="w-8 px-3 py-2.5">
                             <input
