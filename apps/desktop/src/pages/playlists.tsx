@@ -28,6 +28,7 @@ import {
   Search,
   SkipForward,
   Square,
+  Tag,
   Trash2,
   Type,
   X,
@@ -42,6 +43,10 @@ import { usePanelRef } from "react-resizable-panels";
 import { VideoClipControls } from "@/components/video-clip-controls";
 import { listMatchesLight, listEventsForMatches, listFolders, createFolder, updateFolder, deleteFolder } from "@/lib/matches-db";
 import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderItems, updateClip, insertTextCard, updateTextCard, setPlaylistTeams, setPlaylistUsers } from "@/lib/playlists-db";
+import { listLabels, createLabel as apiCreateLabel, updateLabel as apiUpdateLabel, deleteLabel as apiDeleteLabel, seedDefaultLabels, listAssignmentsForClips, setClipAssignments as apiSetClipAssignments, bulkAssign as apiBulkAssign } from "@/lib/labels-db";
+import { LabelChip } from "@/components/labels/LabelChip";
+import { LabelPickerPopover, type LabelTriState } from "@/components/labels/LabelPickerPopover";
+import type { Label, LabelColor, ClipKey } from "@scoutable/shared/types/labels";
 import { getOrgContext, getOrgContextForOrg, getOrgMembers, getTeamMemberIds } from "@/lib/profile-db";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
 import type { OrgTeam, UserProfile } from "@/types/org";
@@ -256,6 +261,19 @@ function matchesSituation(e: PlayByPlayEvent, f: string): boolean {
 // DraggableRow (used only in manual sort mode)
 // ---------------------------------------------------------------------------
 
+interface LabelRowControls {
+  labels: Label[];
+  assignedIds: Set<string>;
+  onToggle: (labelId: string, state: LabelTriState) => Promise<void> | void;
+  onCreate: (name: string, color: LabelColor) => Promise<Label>;
+  onRename: (id: string, name: string) => Promise<void>;
+  onRecolor: (id: string, color: LabelColor) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+  onSeedDefaults?: () => Promise<void>;
+  scopeTitle?: string;
+  scopeHint?: string;
+}
+
 function DraggableRow({
   item,
   index,
@@ -277,6 +295,7 @@ function DraggableRow({
   onDragEnd,
   onInsertTextCardAbove,
   onRemove,
+  labelControls,
 }: {
   item: QueueItem;
   index: number;
@@ -298,6 +317,7 @@ function DraggableRow({
   onDragEnd: () => void;
   onInsertTextCardAbove: () => void;
   onRemove: () => void;
+  labelControls?: LabelRowControls;
 }) {
   const { event } = item;
   return (
@@ -343,11 +363,32 @@ function DraggableRow({
             </td>
           )}
           <td className="px-4 py-2.5">
-            <span
-              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${eventColors(event).badge}`}
-            >
-              {eventLabel(event)}
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span
+                className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${eventColors(event).badge}`}
+              >
+                {eventLabel(event)}
+              </span>
+              {labelControls && (() => {
+                const assigned = labelControls.labels.filter((l) => labelControls.assignedIds.has(l.id));
+                if (assigned.length === 0) return null;
+                const visible = assigned.slice(0, 2);
+                const overflow = assigned.slice(2);
+                return (
+                  <>
+                    {visible.map((l) => <LabelChip key={l.id} label={l} />)}
+                    {overflow.length > 0 && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="text-xs text-muted-foreground">+{overflow.length}</span>
+                        </TooltipTrigger>
+                        <TooltipContent>{overflow.map((l) => l.name).join(", ")}</TooltipContent>
+                      </Tooltip>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
           </td>
           <td className="px-4 py-2.5 text-foreground/80">{playerName(event)}</td>
           <td className="px-4 py-2.5 text-muted-foreground">
@@ -379,14 +420,40 @@ function DraggableRow({
             </div>
           </td>
           <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
-            <button
-              type="button"
-              className="opacity-0 group-hover:opacity-100 transition-opacity rounded p-0.5 text-muted-foreground hover:text-red-500 hover:bg-red-500/10"
-              onClick={(e) => { e.stopPropagation(); onRemove(); }}
-              title="Remove from playlist"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
+            <div className="flex items-center gap-0.5">
+              {labelControls && (
+                <LabelPickerPopover
+                  trigger={
+                    <button
+                      type="button"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity rounded p-0.5 text-muted-foreground hover:text-primary hover:bg-primary/10 data-[state=open]:opacity-100"
+                      onClick={(e) => e.stopPropagation()}
+                      title={labelControls.scopeTitle ?? "Labels"}
+                    >
+                      <Tag className="h-3.5 w-3.5" />
+                    </button>
+                  }
+                  labels={labelControls.labels}
+                  assignedAllIds={labelControls.assignedIds}
+                  onToggle={labelControls.onToggle}
+                  onCreate={labelControls.onCreate}
+                  onRename={labelControls.onRename}
+                  onRecolor={labelControls.onRecolor}
+                  onDelete={labelControls.onDelete}
+                  onSeedDefaults={labelControls.onSeedDefaults}
+                  scopeTitle={labelControls.scopeTitle}
+                  scopeHint={labelControls.scopeHint}
+                />
+              )}
+              <button
+                type="button"
+                className="opacity-0 group-hover:opacity-100 transition-opacity rounded p-0.5 text-muted-foreground hover:text-red-500 hover:bg-red-500/10"
+                onClick={(e) => { e.stopPropagation(); onRemove(); }}
+                title="Remove from playlist"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </td>
         </tr>
       </ContextMenuTrigger>
@@ -567,12 +634,24 @@ function ClipBrowserPanel({
   playlist,
   onAddClips,
   onClose,
+  activeOrgId,
+  labels,
+  labelHandlers,
 }: {
   matches: StoredMatch[];
   matchLookup: Map<string, StoredMatch>;
   playlist: Playlist;
   onAddClips: (clips: PlaylistClipItem[]) => void;
   onClose: () => void;
+  activeOrgId: string | null;
+  labels: Label[];
+  labelHandlers: {
+    onCreate: (name: string, color: LabelColor) => Promise<Label>;
+    onRename: (id: string, name: string) => Promise<void>;
+    onRecolor: (id: string, color: LabelColor) => Promise<void>;
+    onDelete: (id: string) => Promise<void>;
+    onSeedDefaults: () => Promise<void>;
+  };
 }) {
   const [filterMatchId, setFilterMatchId] = useState<string | null>(matches[0]?.id ?? null);
   const [filterTypes, setFilterTypes] = useState<Set<string>>(new Set());
@@ -580,9 +659,12 @@ function ClipBrowserPanel({
   const [filterSituations, setFilterSituations] = useState<Set<string>>(new Set());
   const [filterTeams, setFilterTeams] = useState<Set<string>>(new Set());
   const [filterPlayers, setFilterPlayers] = useState<Set<string>>(new Set());
+  const [filterLabelIds, setFilterLabelIds] = useState<Set<string>>(new Set());
   const [preRoll, setPreRoll] = useState(10);
   const [postRoll, setPostRoll] = useState(3);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set()); // "matchId:eventId"
+  // Local assignment state for the visible match.
+  const [clipAssignments, setClipAssignments] = useState<Map<string, Set<string>>>(new Map());
   const [activeEventKey, setActiveEventKey] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [queueIdx, setQueueIdx] = useState(0);
@@ -624,14 +706,114 @@ function ClipBrowserPanel({
     ));
   }, [allEvents, filterTeams]);
 
-  const filtered = useMemo(() => allEvents.filter(({ event }) => {
+  const filtered = useMemo(() => allEvents.filter(({ event, matchId }) => {
     if (filterTypes.size > 0 && !Array.from(filterTypes).some((f) => matchesSingleType(event, f))) return false;
     if (filterSubTypes.size > 0 && !Array.from(filterSubTypes).some((f) => matchesShotType(event, f))) return false;
     if (filterSituations.size > 0 && !Array.from(filterSituations).some((f) => matchesSituation(event, f))) return false;
     if (filterTeams.size > 0 && !filterTeams.has(event.eventTeam?.teamName ?? "")) return false;
     if (filterPlayers.size > 0 && !filterPlayers.has(playerName(event))) return false;
+    if (filterLabelIds.size > 0) {
+      const assigned = clipAssignments.get(`${matchId}:${event.eventId}`);
+      if (!assigned || ![...filterLabelIds].some((id) => assigned.has(id))) return false;
+    }
     return true;
-  }), [allEvents, filterTypes, filterSubTypes, filterSituations, filterTeams, filterPlayers]);
+  }), [allEvents, filterTypes, filterSubTypes, filterSituations, filterTeams, filterPlayers, filterLabelIds, clipAssignments]);
+
+  // Load bank-scope assignments for the visible match(es) — refreshes on
+  // game change. The bank surfaces only playlist_id IS NULL rows.
+  useEffect(() => {
+    if (!activeOrgId || allEvents.length === 0) { setClipAssignments(new Map()); return; }
+    const clips: ClipKey[] = allEvents.map(({ event, matchId }) => ({ matchId, eventId: event.eventId }));
+    listAssignmentsForClips(activeOrgId, clips, null)
+      .then((rows) => {
+        const next = new Map<string, Set<string>>();
+        for (const r of rows) {
+          const key = `${r.matchId}:${r.eventId}`;
+          const set = next.get(key) ?? new Set<string>();
+          set.add(r.labelId);
+          next.set(key, set);
+        }
+        setClipAssignments(next);
+      })
+      .catch((e) => console.error("browser listAssignmentsForClips:", e));
+  }, [activeOrgId, allEvents]);
+
+  const selectedClipKeyPairs = useMemo<ClipKey[]>(() => {
+    const out: ClipKey[] = [];
+    for (const key of selectedIds) {
+      const [matchId, eventIdStr] = key.split(":");
+      const eventId = Number(eventIdStr);
+      if (matchId && Number.isFinite(eventId)) out.push({ matchId, eventId });
+    }
+    return out;
+  }, [selectedIds]);
+
+  const { bulkAssignedAll, bulkAssignedSome } = useMemo(() => {
+    const all = new Set<string>();
+    const some = new Set<string>();
+    if (selectedClipKeyPairs.length === 0) return { bulkAssignedAll: all, bulkAssignedSome: some };
+    const counts = new Map<string, number>();
+    for (const { matchId, eventId } of selectedClipKeyPairs) {
+      const s = clipAssignments.get(`${matchId}:${eventId}`);
+      if (!s) continue;
+      for (const id of s) counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    const total = selectedClipKeyPairs.length;
+    for (const [id, n] of counts.entries()) {
+      if (n === total) all.add(id);
+      else if (n > 0) some.add(id);
+    }
+    return { bulkAssignedAll: all, bulkAssignedSome: some };
+  }, [selectedClipKeyPairs, clipAssignments]);
+
+  const handleToggleClipLabel = useCallback(
+    async (matchId: string, eventId: number, labelId: string, state: LabelTriState) => {
+      if (!activeOrgId) return;
+      const nextAssigned = state !== "all";
+      const key = `${matchId}:${eventId}`;
+      setClipAssignments((prev) => {
+        const next = new Map(prev);
+        const set = new Set(next.get(key) ?? []);
+        if (nextAssigned) set.add(labelId); else set.delete(labelId);
+        next.set(key, set);
+        return next;
+      });
+      try {
+        const existing = clipAssignments.get(key) ?? new Set<string>();
+        const wanted = new Set(existing);
+        if (nextAssigned) wanted.add(labelId); else wanted.delete(labelId);
+        await apiSetClipAssignments(activeOrgId, matchId, eventId, Array.from(wanted), null);
+      } catch (e) {
+        console.error("toggle clip label:", e);
+        toast.error("Failed to update label");
+      }
+    },
+    [activeOrgId, clipAssignments],
+  );
+
+  const handleBulkToggleLabel = useCallback(
+    async (labelId: string, state: LabelTriState) => {
+      if (!activeOrgId || selectedClipKeyPairs.length === 0) return;
+      const mode: "add" | "remove" = state === "all" ? "remove" : "add";
+      setClipAssignments((prev) => {
+        const next = new Map(prev);
+        for (const { matchId, eventId } of selectedClipKeyPairs) {
+          const key = `${matchId}:${eventId}`;
+          const set = new Set(next.get(key) ?? []);
+          if (mode === "add") set.add(labelId); else set.delete(labelId);
+          next.set(key, set);
+        }
+        return next;
+      });
+      try {
+        await apiBulkAssign(activeOrgId, selectedClipKeyPairs, labelId, mode, null);
+      } catch (e) {
+        console.error("bulk toggle label:", e);
+        toast.error("Failed to apply label");
+      }
+    },
+    [activeOrgId, selectedClipKeyPairs],
+  );
 
   function handleGameChange(newMatchId: string | null) {
     setFilterMatchId(newMatchId);
@@ -877,6 +1059,28 @@ function ClipBrowserPanel({
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {activeOrgId && selectedClipKeyPairs.length > 0 && (
+            <LabelPickerPopover
+              trigger={
+                <Button size="sm" variant="outline" className="h-8 gap-1.5" title="Bank labels">
+                  <Tag className="h-3.5 w-3.5" />
+                  Apply bank label
+                  <ChevronDown className="h-3 w-3" />
+                </Button>
+              }
+              labels={labels}
+              assignedAllIds={bulkAssignedAll}
+              assignedSomeIds={bulkAssignedSome}
+              onToggle={handleBulkToggleLabel}
+              onCreate={labelHandlers.onCreate}
+              onRename={labelHandlers.onRename}
+              onRecolor={labelHandlers.onRecolor}
+              onDelete={labelHandlers.onDelete}
+              onSeedDefaults={labelHandlers.onSeedDefaults}
+              scopeTitle="Bank labels"
+              scopeHint="Use these to find clips later — not visible inside playlists"
+            />
+          )}
           <span title={newCount === 0 ? "Select clips to add them" : undefined}>
             <Button
               size="sm"
@@ -956,6 +1160,18 @@ function ClipBrowserPanel({
             placeholder="All players"
           />
         </div>
+
+        {labels.length > 0 && (
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Labels</label>
+            <MultiSelectDropdown
+              options={labels.map((l) => ({ value: l.id, label: l.name }))}
+              selected={filterLabelIds}
+              onChange={setFilterLabelIds}
+              placeholder="Any label"
+            />
+          </div>
+        )}
 
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">Pre-roll (s)</label>
@@ -1060,18 +1276,64 @@ function ClipBrowserPanel({
                           <td className="px-4 py-2.5 text-xs text-muted-foreground truncate max-w-[120px]">{matchTitle}</td>
                         )}
                         <td className="px-4 py-2.5">
-                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${eventColors(event).badge}`}>
-                            {eventLabel(event)}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${eventColors(event).badge}`}>
+                              {eventLabel(event)}
+                            </span>
+                            {activeOrgId && (() => {
+                              const assigned = labels.filter((l) => clipAssignments.get(key)?.has(l.id));
+                              if (assigned.length === 0) return null;
+                              const visible = assigned.slice(0, 2);
+                              const overflow = assigned.slice(2);
+                              return (
+                                <>
+                                  {visible.map((l) => <LabelChip key={l.id} label={l} />)}
+                                  {overflow.length > 0 && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <span className="text-xs text-muted-foreground">+{overflow.length}</span>
+                                      </TooltipTrigger>
+                                      <TooltipContent>{overflow.map((l) => l.name).join(", ")}</TooltipContent>
+                                    </Tooltip>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </div>
                         </td>
                         <td className="px-4 py-2.5 text-foreground/80">{playerName(event)}</td>
                         <td className="px-4 py-2.5 text-muted-foreground">{event.eventTeam?.teamName ?? "—"}</td>
                         <td className="px-4 py-2.5">
-                          <Play
-                            className={`h-3.5 w-3.5 ${
-                              isActive ? "text-primary" : "text-muted-foreground/40"
-                            }`}
-                          />
+                          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                            <Play
+                              className={`h-3.5 w-3.5 ${
+                                isActive ? "text-primary" : "text-muted-foreground/40"
+                              }`}
+                            />
+                            {activeOrgId && (
+                              <LabelPickerPopover
+                                trigger={
+                                  <button
+                                    type="button"
+                                    className="rounded p-0.5 text-muted-foreground hover:text-primary hover:bg-primary/10 data-[state=open]:text-primary"
+                                    title="Bank labels"
+                                  >
+                                    <Tag className="h-3.5 w-3.5" />
+                                  </button>
+                                }
+                                labels={labels}
+                                assignedAllIds={clipAssignments.get(key) ?? new Set<string>()}
+                                onToggle={(labelId, state) => handleToggleClipLabel(matchId, event.eventId, labelId, state)}
+                                onCreate={labelHandlers.onCreate}
+                                onRename={labelHandlers.onRename}
+                                onRecolor={labelHandlers.onRecolor}
+                                onDelete={labelHandlers.onDelete}
+                                onSeedDefaults={labelHandlers.onSeedDefaults}
+                                scopeTitle="Bank labels"
+                                scopeHint="Use these to find clips later — not visible inside playlists"
+                              />
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1228,6 +1490,11 @@ export function PlaylistsPage() {
   // Clip browser panel
   const [showClipBrowser, setShowClipBrowser] = useState(false);
 
+  // Labels — per (user, org) vocabulary + per-clip assignments
+  const [labels, setLabels] = useState<Label[]>([]);
+  // Map keyed `${matchId}:${eventId}` -> Set of labelIds assigned to that clip
+  const [clipAssignments, setClipAssignments] = useState<Map<string, Set<string>>>(new Map());
+
   // Clip drag state
   const [clipDragKey, setClipDragKey] = useState<string | null>(null);
   const [clipDragOverIndex, setClipDragOverIndex] = useState<number | null>(null);
@@ -1365,6 +1632,180 @@ export function PlaylistsPage() {
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeOrgId]);
+
+  // Load label vocabulary for the active org. Re-runs when org switches.
+  useEffect(() => {
+    if (!activeOrgId) { setLabels([]); return; }
+    listLabels(activeOrgId)
+      .then((rows) => setLabels(rows))
+      .catch((e) => console.error("listLabels:", e));
+  }, [activeOrgId]);
+
+  // Load label assignments for the selected playlist's clips.
+  // Scope is the active playlist's id — labels here are playlist-scoped.
+  useEffect(() => {
+    if (!activeOrgId || !selected) { setClipAssignments(new Map()); return; }
+    const clipKeys: ClipKey[] = selected.items
+      .filter(isClipItem)
+      .map((c) => ({ matchId: c.matchId, eventId: c.eventId }));
+    if (clipKeys.length === 0) { setClipAssignments(new Map()); return; }
+    const playlistScopeId = selected.id;
+    listAssignmentsForClips(activeOrgId, clipKeys, playlistScopeId)
+      .then((rows) => {
+        const next = new Map<string, Set<string>>();
+        for (const r of rows) {
+          const key = `${r.matchId}:${r.eventId}`;
+          const set = next.get(key) ?? new Set<string>();
+          set.add(r.labelId);
+          next.set(key, set);
+        }
+        setClipAssignments(next);
+      })
+      .catch((e) => console.error("listAssignmentsForClips:", e));
+  }, [activeOrgId, selected]);
+
+  // -------------------------------------------------------------------------
+  // Label handlers — vocabulary mgmt + per-clip and bulk assignment
+  // -------------------------------------------------------------------------
+  const setClipAssignmentLocal = useCallback(
+    (matchId: string, eventId: number, mutator: (s: Set<string>) => Set<string>) => {
+      const key = `${matchId}:${eventId}`;
+      setClipAssignments((prev) => {
+        const next = new Map(prev);
+        const current = next.get(key) ?? new Set<string>();
+        next.set(key, mutator(new Set(current)));
+        return next;
+      });
+    },
+    [],
+  );
+
+  const handleToggleClipLabel = useCallback(
+    async (matchId: string, eventId: number, labelId: string, state: LabelTriState) => {
+      if (!activeOrgId || !selected) return;
+      // 'all' -> remove, 'some'/'none' -> add (Trello union semantics)
+      const nextAssigned = state === "all" ? false : true;
+      // Optimistic update
+      setClipAssignmentLocal(matchId, eventId, (s) => {
+        if (nextAssigned) s.add(labelId); else s.delete(labelId);
+        return s;
+      });
+      try {
+        const existing = clipAssignments.get(`${matchId}:${eventId}`) ?? new Set<string>();
+        const wanted = new Set(existing);
+        if (nextAssigned) wanted.add(labelId); else wanted.delete(labelId);
+        await apiSetClipAssignments(activeOrgId, matchId, eventId, Array.from(wanted), selected.id);
+      } catch (e) {
+        console.error("toggle clip label:", e);
+        toast.error("Failed to update label");
+      }
+    },
+    [activeOrgId, clipAssignments, setClipAssignmentLocal, selected],
+  );
+
+  const handleCreateLabel = useCallback(
+    async (name: string, color: LabelColor): Promise<Label> => {
+      if (!activeOrgId) throw new Error("No active org");
+      const created = await apiCreateLabel(activeOrgId, name, color);
+      setLabels((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
+      return created;
+    },
+    [activeOrgId],
+  );
+
+  const handleRenameLabel = useCallback(async (id: string, name: string) => {
+    await apiUpdateLabel(id, { name });
+    setLabels((prev) => prev.map((l) => (l.id === id ? { ...l, name } : l))
+      .sort((a, b) => a.name.localeCompare(b.name)));
+  }, []);
+
+  const handleRecolorLabel = useCallback(async (id: string, color: LabelColor) => {
+    await apiUpdateLabel(id, { color });
+    setLabels((prev) => prev.map((l) => (l.id === id ? { ...l, color } : l)));
+  }, []);
+
+  const handleDeleteLabel = useCallback(async (id: string) => {
+    await apiDeleteLabel(id);
+    setLabels((prev) => prev.filter((l) => l.id !== id));
+    // Strip it from every clip's assignment set so chips disappear instantly.
+    setClipAssignments((prev) => {
+      const next = new Map<string, Set<string>>();
+      for (const [k, set] of prev.entries()) {
+        if (set.has(id)) {
+          const newSet = new Set(set);
+          newSet.delete(id);
+          next.set(k, newSet);
+        } else {
+          next.set(k, set);
+        }
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSeedDefaultLabels = useCallback(async () => {
+    if (!activeOrgId) return;
+    await seedDefaultLabels(activeOrgId);
+    const rows = await listLabels(activeOrgId);
+    setLabels(rows);
+  }, [activeOrgId]);
+
+  // Derived: clip keys (only clips, not text cards) currently multi-selected.
+  const selectedClipKeyPairs = useMemo<ClipKey[]>(() => {
+    const out: ClipKey[] = [];
+    for (const key of selectedClipIds) {
+      if (key.startsWith("text:")) continue;
+      const [matchId, eventIdStr] = key.split(":");
+      const eventId = Number(eventIdStr);
+      if (matchId && Number.isFinite(eventId)) out.push({ matchId, eventId });
+    }
+    return out;
+  }, [selectedClipIds]);
+
+  // Tri-state per label for the currently selected clips.
+  const { bulkAssignedAll, bulkAssignedSome } = useMemo(() => {
+    const all = new Set<string>();
+    const some = new Set<string>();
+    if (selectedClipKeyPairs.length === 0) return { bulkAssignedAll: all, bulkAssignedSome: some };
+    const counts = new Map<string, number>();
+    for (const { matchId, eventId } of selectedClipKeyPairs) {
+      const s = clipAssignments.get(`${matchId}:${eventId}`);
+      if (!s) continue;
+      for (const id of s) counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    const total = selectedClipKeyPairs.length;
+    for (const [id, n] of counts.entries()) {
+      if (n === total) all.add(id);
+      else if (n > 0) some.add(id);
+    }
+    return { bulkAssignedAll: all, bulkAssignedSome: some };
+  }, [selectedClipKeyPairs, clipAssignments]);
+
+  const handleBulkToggleLabel = useCallback(
+    async (labelId: string, state: LabelTriState) => {
+      if (!activeOrgId || !selected || selectedClipKeyPairs.length === 0) return;
+      const mode: "add" | "remove" = state === "all" ? "remove" : "add";
+      // Optimistic UI
+      setClipAssignments((prev) => {
+        const next = new Map(prev);
+        for (const { matchId, eventId } of selectedClipKeyPairs) {
+          const key = `${matchId}:${eventId}`;
+          const set = new Set(next.get(key) ?? []);
+          if (mode === "add") set.add(labelId); else set.delete(labelId);
+          next.set(key, set);
+        }
+        return next;
+      });
+      try {
+        await apiBulkAssign(activeOrgId, selectedClipKeyPairs, labelId, mode, selected.id);
+      } catch (e) {
+        console.error("bulk toggle label:", e);
+        toast.error("Failed to apply label");
+      }
+    },
+    [activeOrgId, selectedClipKeyPairs, selected],
+  );
+
 
   // Build match lookup for cross-match event resolution
   const matchLookup = useMemo(
@@ -1601,6 +2042,15 @@ export function PlaylistsPage() {
       (c) => c.matchId === matchId && c.eventId === activeEventId
     );
     return { pre: clip?.preRollOffset ?? 0, post: clip?.postRollOffset ?? 0 };
+  }, [activeEventId, activeMatchId, selected]);
+
+  // The currently-playing/active clip's identity, or null. Used by the
+  // active-clip label strip rendered above the note textarea.
+  const activeClipKey = useMemo<ClipKey | null>(() => {
+    if (activeEventId === null || !selected) return null;
+    const matchId = activeMatchId ?? primaryMatchId(selected);
+    if (!matchId) return null;
+    return { matchId, eventId: activeEventId };
   }, [activeEventId, activeMatchId, selected]);
 
   function getClipOffsets(matchId: string, eventId: number) {
@@ -3511,6 +3961,41 @@ export function PlaylistsPage() {
                       onPreOffsetChange={(delta) => adjustActiveClip(delta, 0)}
                       onPostOffsetChange={(delta) => adjustActiveClip(0, delta)}
                     />
+                    {activeClipKey && activeOrgId && (() => {
+                      const key = `${activeClipKey.matchId}:${activeClipKey.eventId}`;
+                      const assignedIds = clipAssignments.get(key) ?? new Set<string>();
+                      const assigned = labels.filter((l) => assignedIds.has(l.id));
+                      const playlistName = selected?.name ?? "this playlist";
+                      const scopeTitle = `Labels in ${playlistName}`;
+                      return (
+                        <div className="flex flex-wrap items-center gap-1.5 px-1">
+                          <LabelPickerPopover
+                            trigger={
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground hover:border-primary/60 hover:text-primary transition-colors"
+                                title={scopeTitle}
+                              >
+                                <Tag className="h-3 w-3" />
+                                {assigned.length === 0 ? "Add labels" : "Edit"}
+                              </button>
+                            }
+                            labels={labels}
+                            assignedAllIds={assignedIds}
+                            onToggle={(labelId, state) => handleToggleClipLabel(activeClipKey.matchId, activeClipKey.eventId, labelId, state)}
+                            onCreate={handleCreateLabel}
+                            onRename={handleRenameLabel}
+                            onRecolor={handleRecolorLabel}
+                            onDelete={handleDeleteLabel}
+                            onSeedDefaults={handleSeedDefaultLabels}
+                            align="start"
+                            scopeTitle={scopeTitle}
+                            scopeHint="Visible only in this playlist"
+                          />
+                          {assigned.map((l) => <LabelChip key={l.id} label={l} />)}
+                        </div>
+                      );
+                    })()}
                     {activeEventId !== null && (
                       <textarea
                         className="w-full resize-none rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary transition-colors"
@@ -3681,6 +4166,28 @@ export function PlaylistsPage() {
                         <Trash2 className="h-3.5 w-3.5" />
                         Remove from playlist
                       </Button>
+                      {selectedClipKeyPairs.length > 0 && (
+                        <LabelPickerPopover
+                          trigger={
+                            <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs">
+                              <Tag className="h-3.5 w-3.5" />
+                              Apply label
+                              <ChevronDown className="h-3 w-3" />
+                            </Button>
+                          }
+                          labels={labels}
+                          assignedAllIds={bulkAssignedAll}
+                          assignedSomeIds={bulkAssignedSome}
+                          onToggle={handleBulkToggleLabel}
+                          onCreate={handleCreateLabel}
+                          onRename={handleRenameLabel}
+                          onRecolor={handleRecolorLabel}
+                          onDelete={handleDeleteLabel}
+                          onSeedDefaults={handleSeedDefaultLabels}
+                          scopeTitle={`Labels in ${selected?.name ?? "this playlist"}`}
+                          scopeHint="Visible only in this playlist"
+                        />
+                      )}
                       {playlists.filter((p) => p.id !== selected?.id).length > 0 && (
                         <div ref={addToDropdownRef} className="relative">
                           <Button
@@ -3806,6 +4313,7 @@ export function PlaylistsPage() {
                           const clip = selected?.items.filter(isClipItem).find(
                             (c) => c.matchId === queueItem.matchId && c.eventId === queueItem.event.eventId
                           );
+                          const rowKey = `${queueItem.matchId}:${queueItem.event.eventId}`;
                           return (
                             <DraggableRow
                               key={key}
@@ -3829,6 +4337,18 @@ export function PlaylistsPage() {
                               onDragEnd={handleClipDragEnd}
                               onInsertTextCardAbove={() => handleInsertTextCard(index)}
                               onRemove={() => { if (clip) handleRemoveSingleClip(clip); }}
+                              labelControls={activeOrgId ? {
+                                labels,
+                                assignedIds: clipAssignments.get(rowKey) ?? new Set<string>(),
+                                onToggle: (labelId, state) => handleToggleClipLabel(queueItem.matchId, queueItem.event.eventId, labelId, state),
+                                onCreate: handleCreateLabel,
+                                onRename: handleRenameLabel,
+                                onRecolor: handleRecolorLabel,
+                                onDelete: handleDeleteLabel,
+                                onSeedDefaults: handleSeedDefaultLabels,
+                                scopeTitle: `Labels in ${selected?.name ?? "this playlist"}`,
+                                scopeHint: "Visible only in this playlist",
+                              } : undefined}
                             />
                           );
                         })}
@@ -3987,6 +4507,28 @@ export function PlaylistsPage() {
                         <Trash2 className="h-3.5 w-3.5" />
                         Remove from playlist
                       </Button>
+                      {selectedClipKeyPairs.length > 0 && (
+                        <LabelPickerPopover
+                          trigger={
+                            <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs">
+                              <Tag className="h-3.5 w-3.5" />
+                              Apply label
+                              <ChevronDown className="h-3 w-3" />
+                            </Button>
+                          }
+                          labels={labels}
+                          assignedAllIds={bulkAssignedAll}
+                          assignedSomeIds={bulkAssignedSome}
+                          onToggle={handleBulkToggleLabel}
+                          onCreate={handleCreateLabel}
+                          onRename={handleRenameLabel}
+                          onRecolor={handleRecolorLabel}
+                          onDelete={handleDeleteLabel}
+                          onSeedDefaults={handleSeedDefaultLabels}
+                          scopeTitle={`Labels in ${selected?.name ?? "this playlist"}`}
+                          scopeHint="Visible only in this playlist"
+                        />
+                      )}
                       {playlists.filter((p) => p.id !== selected?.id).length > 0 && (
                         <div ref={addToDropdownRef} className="relative">
                           <Button
@@ -4112,6 +4654,7 @@ export function PlaylistsPage() {
                           const clip = selected?.items.filter(isClipItem).find(
                             (c) => c.matchId === queueItem.matchId && c.eventId === queueItem.event.eventId
                           );
+                          const rowKey = `${queueItem.matchId}:${queueItem.event.eventId}`;
                           return (
                             <DraggableRow
                               key={key}
@@ -4135,6 +4678,18 @@ export function PlaylistsPage() {
                               onDragEnd={handleClipDragEnd}
                               onInsertTextCardAbove={() => handleInsertTextCard(index)}
                               onRemove={() => { if (clip) handleRemoveSingleClip(clip); }}
+                              labelControls={activeOrgId ? {
+                                labels,
+                                assignedIds: clipAssignments.get(rowKey) ?? new Set<string>(),
+                                onToggle: (labelId, state) => handleToggleClipLabel(queueItem.matchId, queueItem.event.eventId, labelId, state),
+                                onCreate: handleCreateLabel,
+                                onRename: handleRenameLabel,
+                                onRecolor: handleRecolorLabel,
+                                onDelete: handleDeleteLabel,
+                                onSeedDefaults: handleSeedDefaultLabels,
+                                scopeTitle: `Labels in ${selected?.name ?? "this playlist"}`,
+                                scopeHint: "Visible only in this playlist",
+                              } : undefined}
                             />
                           );
                         })}
@@ -4175,6 +4730,41 @@ export function PlaylistsPage() {
                       onPreOffsetChange={(delta) => adjustActiveClip(delta, 0)}
                       onPostOffsetChange={(delta) => adjustActiveClip(0, delta)}
                     />
+                    {activeClipKey && activeOrgId && (() => {
+                      const key = `${activeClipKey.matchId}:${activeClipKey.eventId}`;
+                      const assignedIds = clipAssignments.get(key) ?? new Set<string>();
+                      const assigned = labels.filter((l) => assignedIds.has(l.id));
+                      const playlistName = selected?.name ?? "this playlist";
+                      const scopeTitle = `Labels in ${playlistName}`;
+                      return (
+                        <div className="flex flex-wrap items-center gap-1.5 px-1">
+                          <LabelPickerPopover
+                            trigger={
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground hover:border-primary/60 hover:text-primary transition-colors"
+                                title={scopeTitle}
+                              >
+                                <Tag className="h-3 w-3" />
+                                {assigned.length === 0 ? "Add labels" : "Edit"}
+                              </button>
+                            }
+                            labels={labels}
+                            assignedAllIds={assignedIds}
+                            onToggle={(labelId, state) => handleToggleClipLabel(activeClipKey.matchId, activeClipKey.eventId, labelId, state)}
+                            onCreate={handleCreateLabel}
+                            onRename={handleRenameLabel}
+                            onRecolor={handleRecolorLabel}
+                            onDelete={handleDeleteLabel}
+                            onSeedDefaults={handleSeedDefaultLabels}
+                            align="start"
+                            scopeTitle={scopeTitle}
+                            scopeHint="Visible only in this playlist"
+                          />
+                          {assigned.map((l) => <LabelChip key={l.id} label={l} />)}
+                        </div>
+                      );
+                    })()}
                     {activeEventId !== null && (
                       <textarea
                         className="w-full resize-none rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary transition-colors"
@@ -4216,6 +4806,15 @@ export function PlaylistsPage() {
                 playlist={selected}
                 onAddClips={handleAddClips}
                 onClose={() => setShowClipBrowser(false)}
+                activeOrgId={activeOrgId}
+                labels={labels}
+                labelHandlers={{
+                  onCreate: handleCreateLabel,
+                  onRename: handleRenameLabel,
+                  onRecolor: handleRecolorLabel,
+                  onDelete: handleDeleteLabel,
+                  onSeedDefaults: handleSeedDefaultLabels,
+                }}
               />
             </DialogContent>
           </Dialog>
