@@ -77,14 +77,24 @@ export function SignupPage() {
           </CardHeader>
 
           {success ? (
-            <CardContent>
-              <div className="rounded-md bg-green-50 dark:bg-green-950/50 px-3 py-3 text-sm text-green-700 dark:text-green-400">
-                <p className="font-medium">Check your email</p>
-                <p className="mt-1 text-muted-foreground">
-                  We sent a confirmation link to <strong>{email}</strong>. Click it to activate your account.
+            <>
+              <CardContent>
+                <div className="rounded-md bg-green-50 dark:bg-green-950/50 px-3 py-3 text-sm text-green-700 dark:text-green-400">
+                  <p className="font-medium">Check your email</p>
+                  <p className="mt-1 text-muted-foreground">
+                    We sent a confirmation link to <strong>{email}</strong>. Click it to activate your account.
+                  </p>
+                </div>
+              </CardContent>
+              <CardFooter>
+                <p className="w-full text-center text-sm text-muted-foreground">
+                  Already confirmed?{" "}
+                  <Link to="/auth/login" className="text-primary hover:underline font-medium">
+                    Sign in
+                  </Link>
                 </p>
-              </div>
-            </CardContent>
+              </CardFooter>
+            </>
           ) : (
             <form onSubmit={handleSubmit}>
               <CardContent className="space-y-4">

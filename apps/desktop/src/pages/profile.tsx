@@ -149,12 +149,12 @@ export function ProfilePage() {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
-      if (!res.ok) { toast.error("Failed to open subscription portal"); return; }
+      if (!res.ok) { toast.error("Failed to open billing portal"); return; }
       const { url, error } = await res.json();
       if (error) { toast.error(error); return; }
       if (url) await openUrl(url);
     } catch {
-      toast.error("Failed to open subscription portal");
+      toast.error("Failed to open billing portal");
     } finally {
       setLoadingPortal(false);
     }
