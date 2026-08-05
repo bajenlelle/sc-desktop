@@ -59,10 +59,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No active subscription" }, { status: 400, headers: corsHeaders });
   }
 
-  const session = await stripe.billingPortal.sessions.create({
-    customer: data.stripe_customer_id,
-    return_url: `${process.env.NEXT_PUBLIC_APP_URL ?? request.nextUrl.origin}/profile`,
-  });
-
-  return NextResponse.json({ url: session.url }, { headers: corsHeaders });
+  try {
+    const session = await stripe.billingPortal.sessions.create({
+      customer: data.stripe_customer_id,
+      return_url: `${process.env.NEXT_PUBLIC_APP_URL ?? request.nextUrl.origin}/profile`,
+    });
+    return NextResponse.json({ url: session.url }, { headers: corsHeaders });
+  } catch (err) {
+    const stripeErr = err as { message?: string; type?: string; code?: string };
+    console.error("[billing-portal] Stripe portal error:", {
+      message: stripeErr.message,
+      type: stripeErr.type,
+      code: stripeErr.code,
+      customer: data.stripe_customer_id,
+      keyMode: process.env.STRIPE_SECRET_KEY?.startsWith("sk_live_") ? "live" : "test",
+    });
+    return NextResponse.json(
+      { error: "Failed to open billing portal" },
+      { status: 500, headers: corsHeaders },
+    );
+  }
 }
