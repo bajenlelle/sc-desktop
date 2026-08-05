@@ -84,7 +84,7 @@ export default function ProfilePage() {
       setFullName(context.profile.fullName ?? "");
       setAvatarPreview(context.profile.avatarUrl ?? null);
 
-      if (!activeOrgIsPersonal && activeOrgId) {
+      if (activeOrgIsPersonal && activeOrgId) {
         const ntLeagueIds = context.myOrgs.filter((o) => o.isNtOrg).map((o) => o.orgId);
         const supabase = createClient();
         const { data } = await supabase.rpc("count_club_matches_this_month", {
@@ -100,7 +100,11 @@ export default function ProfilePage() {
     }
   }
 
-  useEffect(() => { load(); }, [activeOrgId]);
+  // Depend on activeOrgIsPersonal too: useAuth() populates activeOrgId first
+  // and the isPersonal flag a tick later, and the load() ternary needs the
+  // flag to decide whether to fetch the Stripe sub. Without this dep the
+  // Manage-subscription button stays hidden for Rookie/Pro users.
+  useEffect(() => { load(); }, [activeOrgId, activeOrgIsPersonal]);
 
   function handleAvatarFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -187,6 +191,9 @@ export default function ProfilePage() {
   const dateLabel = isTrialing ? "Trial ends" : "Renews";
   const periodDate = formatDate(sub?.currentPeriodEnd ?? null);
   const importLimit = getOrgImportLimit(activeOrgPlan);
+  // Progress bar only for personal spaces on limited plans (free / rookie).
+  // Org spaces have no limit and don't display the count.
+  const showUsage = activeOrgIsPersonal && importLimit !== null && importCount !== null;
 
   return (
     <div className="p-6 max-w-2xl mx-auto space-y-4">
@@ -285,12 +292,20 @@ export default function ProfilePage() {
             </p>
           )}
 
-          {!activeOrgIsPersonal && importCount !== null && (
-            <div className="text-xs text-muted-foreground">
-              Imports this month:{" "}
-              <span className="font-medium text-foreground">
-                {importCount}{importLimit !== null ? ` / ${importLimit}` : ""}
-              </span>
+          {showUsage && (
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Games imported this month</span>
+                <span className={importCount! >= importLimit! ? "text-destructive font-medium" : ""}>
+                  {importCount} / {importLimit}
+                </span>
+              </div>
+              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${importCount! >= importLimit! ? "bg-destructive" : "bg-primary"}`}
+                  style={{ width: `${Math.min(100, (importCount! / importLimit!) * 100)}%` }}
+                />
+              </div>
             </div>
           )}
         </CardContent>
