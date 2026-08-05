@@ -23,6 +23,11 @@ jobs:
           node-version: 22
           cache: npm
 
+      # Pin npm to match the version used to generate package-lock.json.
+      # npm 10 (bundled with Node 22) resolves some optional Expo peer deps
+      # differently than npm 11 and rejects the current lockfile.
+      - run: npm install -g npm@11
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.platform == 'macos-14' && 'aarch64-apple-darwin,x86_64-apple-darwin' || 'x86_64-pc-windows-msvc' }}
