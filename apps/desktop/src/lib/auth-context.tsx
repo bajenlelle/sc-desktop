@@ -16,6 +16,7 @@ interface AuthContextValue {
   /** @deprecated Use myOrgs */
   secondaryOrgs: OrgMembership[];
   activeOrgId: string | null;
+  activeOrg: OrgMembership | null;
   activeOrgRole: OrgMembership['role'] | null;
   activeOrgPlan: OrgPlanTier;
   activeOrgIsPersonal: boolean;
@@ -31,6 +32,7 @@ const AuthContext = createContext<AuthContextValue>({
   myOrgs: [],
   secondaryOrgs: [],
   activeOrgId: null,
+  activeOrg: null,
   activeOrgRole: null,
   activeOrgPlan: 'free',
   activeOrgIsPersonal: false,
@@ -111,7 +113,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider value={{
       user, loading, profile, profileLoading,
       myOrgs, secondaryOrgs: myOrgs,
-      activeOrgId, activeOrgRole, activeOrgPlan, activeOrgIsPersonal, setActiveOrg,
+      activeOrgId, activeOrg, activeOrgRole, activeOrgPlan, activeOrgIsPersonal, setActiveOrg,
       reloadProfile: () => user ? loadProfile(user.id) : Promise.resolve(),
     }}>
       {children}

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Menu, Moon, Sun, LogOut, User as UserIcon, ChevronDown, Check } from "lucide-react";
+import { Menu, Moon, Sun, LogOut, User as UserIcon, Building2, ChevronDown, Check, ArrowUpRight } from "lucide-react";
 import { LogoMark, Wordmark } from "@/components/logo";
 import { useTheme } from "next-themes";
 import { useState } from "react";
@@ -19,6 +19,8 @@ import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import type { UserProfile } from "@scoutable/shared/types/org";
 import { useAuth } from "@/components/auth-context";
+import { PlanBadge } from "@/components/plan-badge";
+import { SpaceHeader } from "@/components/space-header";
 
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
@@ -40,7 +42,7 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
   const pathname = usePathname();
   const router = useRouter();
   const [sheetOpen, setSheetOpen] = useState(false);
-  const { myOrgs, activeOrgId, activeOrgRole, activeOrgIsPersonal, setActiveOrg } = useAuth();
+  const { myOrgs, activeOrg, activeOrgId, activeOrgRole, activeOrgIsPersonal, setActiveOrg } = useAuth();
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   const showOrganization = !activeOrgIsPersonal && activeOrgRole !== null;
   const hasOrg = !profile || !!profile.isPlatformAdmin || myOrgs.length > 0;
@@ -52,8 +54,16 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
     ...(profile?.isPlatformAdmin ? [{ href: "/admin", label: "Admin" }] : []),
   ];
 
-  const activeOrgName = myOrgs.find((o) => o.orgId === activeOrgId)?.orgName;
   const initials = (profile?.fullName || profile?.email || "?").slice(0, 2).toUpperCase();
+  // Personal orgs sort first, then teams alphabetically.
+  const sortedOrgs = [...myOrgs].sort((a, b) => {
+    if (a.isPersonal !== b.isPersonal) return a.isPersonal ? -1 : 1;
+    return a.orgName.localeCompare(b.orgName);
+  });
+  const activeSpaceLabel = activeOrg
+    ? (activeOrg.isPersonal ? "Personal" : activeOrg.orgName)
+    : null;
+  const ActiveSpaceIcon = activeOrg?.isPersonal ? UserIcon : Building2;
 
   async function handleSignOut() {
     const supabase = createClient();
@@ -70,39 +80,57 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
           <Wordmark className="h-4 hidden sm:block" />
         </Link>
 
-        {/* Workspace switcher — always visible for active-org context */}
-        {myOrgs.length > 1 ? (
+        {/* Space indicator — always visible when an org is active */}
+        {activeOrg && (
           <>
             <div className="h-5 w-px bg-border shrink-0" />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="flex gap-1.5 h-8 px-2 text-sm font-medium">
-                  <span className="max-w-[100px] sm:max-w-[128px] truncate">{activeOrgName ?? "Select org"}</span>
-                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-52">
-                {myOrgs.map((org) => (
-                  <DropdownMenuItem
-                    key={org.orgId}
-                    onClick={() => setActiveOrg(org.orgId)}
-                    className="flex items-center justify-between gap-2"
-                  >
-                    <span className="truncate">{org.orgName}</span>
-                    {org.orgId === activeOrgId && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {myOrgs.length > 1 ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="flex gap-1.5 h-8 px-2">
+                    <ActiveSpaceIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <span className="max-w-[100px] sm:max-w-[128px] truncate text-sm font-medium">
+                      {activeSpaceLabel}
+                    </span>
+                    <PlanBadge tier={activeOrg.planTier} size="xs" />
+                    <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-64">
+                  {sortedOrgs.map((org) => {
+                    const OrgIcon = org.isPersonal ? UserIcon : Building2;
+                    const label = org.isPersonal ? "Personal" : org.orgName;
+                    return (
+                      <DropdownMenuItem
+                        key={org.orgId}
+                        onClick={() => setActiveOrg(org.orgId)}
+                        className="flex items-center gap-2"
+                      >
+                        <OrgIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        <span className="flex-1 truncate">{label}</span>
+                        <PlanBadge tier={org.planTier} size="xs" />
+                        {org.orgId === activeOrgId && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                  {activeOrg?.isPersonal && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem asChild>
+                        <Link href="/profile" className="flex items-center gap-2">
+                          <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          <span className="flex-1">Manage plan</span>
+                        </Link>
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <SpaceHeader org={activeOrg} className="min-w-0" />
+            )}
           </>
-        ) : myOrgs.length === 1 && !activeOrgIsPersonal ? (
-          <>
-            <div className="h-5 w-px bg-border shrink-0" />
-            <span className="text-sm font-medium max-w-[100px] sm:max-w-[128px] truncate text-muted-foreground">
-              {activeOrgName}
-            </span>
-          </>
-        ) : null}
+        )}
 
         {/* Desktop nav */}
         {hasOrg && (

@@ -18,6 +18,7 @@ import { useAuth } from "@/lib/auth-context";
 import type { OrgMembership } from "@/types/org";
 import type { User } from "@supabase/supabase-js";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { orgPlanLabel } from "@scoutable/shared/lib/plan-tier";
 
 function getInitials(user: User): string {
   const email = user.email ?? "";
@@ -108,7 +109,9 @@ function WorkspaceIcon({
         </button>
       </TooltipTrigger>
       <TooltipContent side="right">
-        {org.orgName}{org.isNtOrg && " (NT)"}
+        {org.isPersonal ? "Personal" : org.orgName}
+        {org.isNtOrg && " (NT)"}
+        <span className="ml-1 text-muted-foreground">· {orgPlanLabel(org.planTier)}</span>
       </TooltipContent>
     </Tooltip>
   );

@@ -22,6 +22,7 @@ import type { OrgContext, OrgPlanTier } from "@/types/org";
 import { toast } from "sonner";
 import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
+import { orgPlanColors, orgPlanLabel } from "@scoutable/shared/lib/plan-tier";
 
 const PRICING_URL = "https://scoutable.se/#pricing";
 const BILLING_PORTAL_URL = "https://app.scoutable.se/api/billing-portal";
@@ -37,18 +38,6 @@ function getOrgImportLimit(tier: OrgPlanTier): number | null {
   if (tier === 'free') return 2;
   if (tier === 'rookie') return 10;
   return null;
-}
-
-function orgPlanLabel(tier: OrgPlanTier): string {
-  const map: Record<OrgPlanTier, string> = { free: "Free", rookie: "Rookie", pro: "Pro", franchise: "Franchise" };
-  return map[tier];
-}
-
-function orgPlanColors(tier: OrgPlanTier): { dot: string; badge: string } {
-  if (tier === 'free') return { dot: "bg-muted-foreground", badge: "bg-muted text-muted-foreground" };
-  if (tier === 'rookie') return { dot: "bg-violet-500", badge: "bg-violet-500/10 text-violet-500" };
-  if (tier === 'pro') return { dot: "bg-blue-500", badge: "bg-blue-500/10 text-blue-500" };
-  return { dot: "bg-amber-500", badge: "bg-amber-500/10 text-amber-500" };
 }
 
 function formatDate(iso: string | null): string | null {

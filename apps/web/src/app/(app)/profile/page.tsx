@@ -11,6 +11,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth-context";
 import { getOrgContext, updateMyProfile, uploadAvatar, getSubscriptionStatus } from "@/lib/profile-db";
 import type { OrgContext, OrgPlanTier } from "@scoutable/shared/types/org";
+import { orgPlanColors, orgPlanLabel } from "@scoutable/shared/lib/plan-tier";
 import { toast } from "sonner";
 import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Loader2 } from "lucide-react";
 import Link from "next/link";
@@ -23,18 +24,6 @@ type SubStatus = {
   plan: string | null;
   currentPeriodEnd: string | null;
 };
-
-function orgPlanLabel(tier: OrgPlanTier): string {
-  const map: Record<OrgPlanTier, string> = { free: "Free", rookie: "Rookie", pro: "Pro", franchise: "Franchise" };
-  return map[tier] ?? "Free";
-}
-
-function orgPlanColors(tier: OrgPlanTier): { dot: string; badge: string } {
-  if (tier === "franchise") return { dot: "bg-amber-500", badge: "bg-amber-500/10 text-amber-500" };
-  if (tier === "pro") return { dot: "bg-blue-500", badge: "bg-blue-500/10 text-blue-500" };
-  if (tier === "rookie") return { dot: "bg-violet-500", badge: "bg-violet-500/10 text-violet-500" };
-  return { dot: "bg-muted-foreground", badge: "bg-muted text-muted-foreground" };
-}
 
 function getOrgImportLimit(tier: OrgPlanTier): number | null {
   if (tier === "free") return 2;
