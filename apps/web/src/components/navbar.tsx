@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Menu, Moon, Sun, LogOut, User as UserIcon, Building2, ChevronDown, Check, ArrowUpRight } from "lucide-react";
+import { Menu, Moon, Sun, LogOut, User as UserIcon, Building2, ChevronDown, Check, ArrowUpRight, Laptop } from "lucide-react";
 import { LogoMark, Wordmark } from "@/components/logo";
 import { useTheme } from "next-themes";
 import { useState } from "react";
@@ -46,6 +46,12 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   const showOrganization = !activeOrgIsPersonal && activeOrgRole !== null;
   const hasOrg = !profile || !!profile.isPlatformAdmin || myOrgs.length > 0;
+  // Show the "Get the desktop app" CTA to any signed-in user. Even team-org
+  // players have a personal org — the desktop app lets them scout their
+  // own matches there, not just consume shared playlists.
+  const showDesktopCTA = hasOrg;
+  const DESKTOP_APP_URL = "https://www.scoutable.se/#download";
+  const DESKTOP_APP_TOOLTIP = "Full scouting workflow lives in the desktop app";
   const navLinks = [
     ...(activeOrgIsPersonal
       ? []
@@ -157,6 +163,18 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
 
         {/* Right side */}
         <div className="flex items-center gap-2">
+          {showDesktopCTA && (
+            <a
+              href={DESKTOP_APP_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={DESKTOP_APP_TOOLTIP}
+              className="hidden sm:inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            >
+              <Laptop className="h-3.5 w-3.5" />
+              Get the desktop app
+            </a>
+          )}
           <ThemeToggle />
 
           {/* Profile dropdown */}
@@ -238,6 +256,18 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
                 >
                   Profile
                 </Link>
+                {showDesktopCTA && (
+                  <a
+                    href={DESKTOP_APP_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setSheetOpen(false)}
+                    className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                  >
+                    <Laptop className="h-3.5 w-3.5" />
+                    Get the desktop app
+                  </a>
+                )}
               </nav>
             </SheetContent>
           </Sheet>
