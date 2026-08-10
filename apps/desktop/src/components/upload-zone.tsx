@@ -10,8 +10,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { saveMatch, countClubMatchesThisMonth } from "@/lib/matches-db";
 import { useAuth } from "@/lib/auth-context";
-import type { OrgMembership, OrgPlanTier } from "@/types/org";
+import type { OrgMembership } from "@/types/org";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
+import { NT_LEAGUE_IDS, getOrgImportLimit } from "@scoutable/shared/lib/plan-tier";
 import { fetchBoxscore, fetchPlayByPlay, fetchPlayByPlaySportradar, getLeagueSchedule, LEAGUES, NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
 import type { ScheduleGame, League, Season, Stage } from "@/lib/basketball-api";
 import { LeaguePicker } from "@/components/league-picker";
@@ -53,12 +54,6 @@ function StepLabel({
 
 function basename(path: string): string {
   return path.replace(/.*[\\/]/, "");
-}
-
-function getOrgImportLimit(tier: OrgPlanTier): number | null {
-  if (tier === 'free') return 2;
-  if (tier === 'rookie') return 10;
-  return null; // pro and franchise: unlimited
 }
 
 
@@ -349,13 +344,12 @@ export function UploadZone({
 
   async function handleSubmit() {
     if (!selectedLeague) return;
-    const isNtLeague = NATIONAL_TEAM_LEAGUES.some((l) => l.id === selectedLeague.id);
+    const isNtLeague = NT_LEAGUE_IDS.includes(selectedLeague.id);
 
     if (!isNtLeague) {
-      const ntLeagueIds = NATIONAL_TEAM_LEAGUES.map((l) => l.id);
       const limit = getOrgImportLimit(activeOrgPlan);
       if (limit !== null) {
-        const count = await countClubMatchesThisMonth(ntLeagueIds, activeOrgId ?? undefined);
+        const count = await countClubMatchesThisMonth(NT_LEAGUE_IDS, activeOrgId ?? undefined);
         if (count >= limit) {
           setImportLimitInfo({ count, limit });
           setImportLimitDialogOpen(true);

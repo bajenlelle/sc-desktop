@@ -21,6 +21,7 @@ import type { UserProfile } from "@scoutable/shared/types/org";
 import { useAuth } from "@/components/auth-context";
 import { PlanBadge } from "@/components/plan-badge";
 import { SpaceHeader } from "@/components/space-header";
+import { useImportQuota } from "@/lib/use-import-quota";
 
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
@@ -43,6 +44,7 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
   const router = useRouter();
   const [sheetOpen, setSheetOpen] = useState(false);
   const { myOrgs, activeOrg, activeOrgId, activeOrgRole, activeOrgIsPersonal, setActiveOrg } = useAuth();
+  const remainingImports = useImportQuota();
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   const showOrganization = !activeOrgIsPersonal && activeOrgRole !== null;
   const hasOrg = !profile || !!profile.isPlatformAdmin || myOrgs.length > 0;
@@ -98,7 +100,11 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
                     <span className="max-w-[100px] sm:max-w-[128px] truncate text-sm font-medium">
                       {activeSpaceLabel}
                     </span>
-                    <PlanBadge tier={activeOrg.planTier} size="xs" />
+                    <PlanBadge
+                      tier={activeOrg.planTier}
+                      size="xs"
+                      remaining={activeOrg.isPersonal ? remainingImports : null}
+                    />
                     <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -136,7 +142,12 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              <SpaceHeader org={activeOrg} className="min-w-0" />
+              <SpaceHeader
+                org={activeOrg}
+                soloPersonal={activeOrg.isPersonal}
+                remainingImports={remainingImports}
+                className="min-w-0"
+              />
             )}
           </>
         )}

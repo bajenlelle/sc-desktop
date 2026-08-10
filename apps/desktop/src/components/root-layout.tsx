@@ -3,10 +3,12 @@ import { motion } from "framer-motion";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SpaceHeader } from "@/components/space-header";
 import { useAuth } from "@/lib/auth-context";
+import { useImportQuota } from "@/lib/use-import-quota";
 
 export function RootLayout() {
   const { pathname } = useLocation();
   const { activeOrg, myOrgs, setActiveOrg } = useAuth();
+  const remainingImports = useImportQuota();
 
   return (
     <div className="flex h-screen overflow-hidden bg-background font-sans antialiased">
@@ -17,6 +19,7 @@ export function RootLayout() {
             org={activeOrg}
             myOrgs={myOrgs}
             setActiveOrg={setActiveOrg}
+            remainingImports={remainingImports}
           />
         )}
         <motion.div

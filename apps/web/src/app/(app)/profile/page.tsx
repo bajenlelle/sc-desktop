@@ -10,8 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth-context";
 import { getOrgContext, updateMyProfile, uploadAvatar, getSubscriptionStatus } from "@/lib/profile-db";
-import type { OrgContext, OrgPlanTier } from "@scoutable/shared/types/org";
-import { orgPlanColors, orgPlanLabel } from "@scoutable/shared/lib/plan-tier";
+import type { OrgContext } from "@scoutable/shared/types/org";
+import { NT_LEAGUE_IDS, getOrgImportLimit, orgPlanColors, orgPlanLabel } from "@scoutable/shared/lib/plan-tier";
 import { toast } from "sonner";
 import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Loader2 } from "lucide-react";
 import Link from "next/link";
@@ -24,12 +24,6 @@ type SubStatus = {
   plan: string | null;
   currentPeriodEnd: string | null;
 };
-
-function getOrgImportLimit(tier: OrgPlanTier): number | null {
-  if (tier === "free") return 2;
-  if (tier === "rookie") return 10;
-  return null;
-}
 
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
@@ -74,10 +68,11 @@ export default function ProfilePage() {
       setAvatarPreview(context.profile.avatarUrl ?? null);
 
       if (activeOrgIsPersonal && activeOrgId) {
-        const ntLeagueIds = context.myOrgs.filter((o) => o.isNtOrg).map((o) => o.orgId);
+        // The RPC matches these against matches.league_id, so they must be
+        // league ids — passing org ids here meant the exclusion never hit.
         const supabase = createClient();
         const { data } = await supabase.rpc("count_club_matches_this_month", {
-          p_nt_league_ids: ntLeagueIds,
+          p_nt_league_ids: NT_LEAGUE_IDS,
           p_org_id: activeOrgId,
         });
         setImportCount((data as number) ?? 0);

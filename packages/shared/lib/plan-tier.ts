@@ -4,6 +4,23 @@
  */
 import type { OrgPlanTier } from "../types/org";
 
+/**
+ * League ids exempt from the monthly club-import cap. Passed to the
+ * `count_club_matches_this_month` RPC, which matches them against
+ * `matches.league_id` — so these must be *league* ids, not org ids.
+ */
+export const NT_LEAGUE_IDS: string[] = [
+  "sweden-national-men",
+  "sweden-national-women",
+];
+
+/** Monthly club-match import cap for a tier. `null` = unlimited. */
+export function getOrgImportLimit(tier: OrgPlanTier): number | null {
+  if (tier === "free") return 2;
+  if (tier === "rookie") return 10;
+  return null;
+}
+
 export function orgPlanLabel(tier: OrgPlanTier): string {
   const map: Record<OrgPlanTier, string> = {
     free: "Free",

@@ -117,6 +117,9 @@ const NT_PLACEHOLDER_SEASONS: Season[] = [
   { id: "current", label: "Current", stages: [{ id: "regular", label: "All games" }] },
 ];
 
+// NOTE: keep these ids in sync with NT_LEAGUE_IDS in
+// packages/shared/lib/plan-tier.ts — that list is what exempts a match from
+// the monthly club-import cap.
 export const NATIONAL_TEAM_LEAGUES: League[] = [
   {
     id: "sweden-national-men",

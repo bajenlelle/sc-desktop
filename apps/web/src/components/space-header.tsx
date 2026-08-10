@@ -6,6 +6,10 @@ import { cn } from "@/lib/utils";
 interface SpaceHeaderProps {
   /** The org whose space the user is currently in. */
   org: OrgMembership | null;
+  /** True when this is the user's only space — hides the redundant label. */
+  soloPersonal?: boolean;
+  /** Imports left this month; drives the quota form of the plan chip. */
+  remainingImports?: number | null;
   className?: string;
 }
 
@@ -13,26 +17,37 @@ interface SpaceHeaderProps {
  * "You are here" indicator for the web navbar.
  *
  * Renders inline (single-line, horizontal) — icon + label + plan chip.
- * Personal orgs always show "Personal" regardless of stored orgName.
+ * With only a personal space there's nothing to distinguish it from, so the
+ * label is dropped and the plan chip stands alone.
  */
-export function SpaceHeader({ org, className }: SpaceHeaderProps) {
+export function SpaceHeader({
+  org,
+  soloPersonal,
+  remainingImports,
+  className,
+}: SpaceHeaderProps) {
   if (!org) return null;
   const Icon = org.isPersonal ? User : Building2;
   const label = org.isPersonal ? "Personal" : org.orgName;
 
   return (
     <div className={cn("flex items-center gap-2 min-w-0", className)}>
-      <Icon className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-      <span
-        className="truncate text-sm font-medium text-foreground max-w-[128px]"
-        title={label}
-      >
-        {label}
-      </span>
+      {!soloPersonal && (
+        <>
+          <Icon className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+          <span
+            className="truncate text-sm font-medium text-foreground max-w-[128px]"
+            title={label}
+          >
+            {label}
+          </span>
+        </>
+      )}
       <PlanBadge
         tier={org.planTier}
-        size="xs"
+        size={soloPersonal ? "md" : "xs"}
         href={org.isPersonal ? "/profile" : undefined}
+        remaining={org.isPersonal ? remainingImports : null}
       />
     </div>
   );

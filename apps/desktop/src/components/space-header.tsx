@@ -16,6 +16,8 @@ interface SpaceHeaderProps {
   myOrgs?: OrgMembership[];
   /** Called when the user picks a different org from the switcher menu. */
   setActiveOrg?: (orgId: string) => void;
+  /** Imports left this month; drives the quota form of the plan chip. */
+  remainingImports?: number | null;
   className?: string;
 }
 
@@ -36,12 +38,23 @@ function orgLabel(org: OrgMembership): string {
  *   DropdownMenu trigger. The plan badge stays a separate sibling so it
  *   can independently link to /profile (see PlanBadge `href`).
  */
-export function SpaceHeader({ org, myOrgs, setActiveOrg, className }: SpaceHeaderProps) {
+export function SpaceHeader({
+  org,
+  myOrgs,
+  setActiveOrg,
+  remainingImports,
+  className,
+}: SpaceHeaderProps) {
   if (!org) return null;
   const Icon = orgIcon(org.isPersonal);
   const label = orgLabel(org);
 
   const canSwitch = !!myOrgs && myOrgs.length > 1 && !!setActiveOrg;
+
+  // With only a personal space there's nothing to switch to and no other
+  // space to distinguish it from — naming it "Personal" is noise. Show the
+  // plan on its own instead.
+  const soloPersonal = org.isPersonal && !canSwitch;
 
   const sortedOrgs = canSwitch
     ? [...myOrgs!].sort((a, b) => {
@@ -95,7 +108,7 @@ export function SpaceHeader({ org, myOrgs, setActiveOrg, className }: SpaceHeade
             })}
           </DropdownMenuContent>
         </DropdownMenu>
-      ) : (
+      ) : !soloPersonal ? (
         <>
           <Icon className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
           <span
@@ -105,11 +118,13 @@ export function SpaceHeader({ org, myOrgs, setActiveOrg, className }: SpaceHeade
             {label}
           </span>
         </>
-      )}
+      ) : null}
       <PlanBadge
         tier={org.planTier}
-        size="xs"
+        // Standalone in an otherwise-empty bar, so it can afford to be legible.
+        size={soloPersonal ? "md" : "xs"}
         href={org.isPersonal ? "/profile" : undefined}
+        remaining={org.isPersonal ? remainingImports : null}
       />
     </div>
   );

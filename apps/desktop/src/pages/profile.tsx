@@ -18,11 +18,11 @@ import { countClubMatchesThisMonth } from "@/lib/matches-db";
 import { NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import type { OrgContext, OrgPlanTier } from "@/types/org";
+import type { OrgContext } from "@/types/org";
 import { toast } from "sonner";
 import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
-import { orgPlanColors, orgPlanLabel } from "@scoutable/shared/lib/plan-tier";
+import { getOrgImportLimit, orgPlanColors, orgPlanLabel } from "@scoutable/shared/lib/plan-tier";
 
 const PRICING_URL = "https://scoutable.se/#pricing";
 const BILLING_PORTAL_URL = "https://app.scoutable.se/api/billing-portal";
@@ -33,12 +33,6 @@ type SubStatus = {
   plan: string | null;
   currentPeriodEnd: string | null;
 };
-
-function getOrgImportLimit(tier: OrgPlanTier): number | null {
-  if (tier === 'free') return 2;
-  if (tier === 'rookie') return 10;
-  return null;
-}
 
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
