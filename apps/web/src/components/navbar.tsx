@@ -103,6 +103,9 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-64">
+                  <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Spaces
+                  </div>
                   {sortedOrgs.map((org) => {
                     const OrgIcon = org.isPersonal ? UserIcon : Building2;
                     const label = org.isPersonal ? "Personal" : org.orgName;

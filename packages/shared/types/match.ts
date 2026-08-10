@@ -197,6 +197,10 @@ export interface StoredMatch {
   syncPoint?: SyncPoint;
   events: PlayByPlayEvent[];
   leagueId?: string;
+  /** Season the game was imported from, e.g. "2025-26". */
+  seasonId?: string;
+  /** Stage within the season, e.g. "regular" | "playoff". */
+  stageId?: string;
   orgId?: string;
 }
 

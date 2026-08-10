@@ -75,6 +75,9 @@ export function SpaceHeader({ org, myOrgs, setActiveOrg, className }: SpaceHeade
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-64">
+            <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Spaces
+            </div>
             {sortedOrgs.map((o) => {
               const OrgIcon = orgIcon(o.isPersonal);
               return (

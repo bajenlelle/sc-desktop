@@ -25,6 +25,8 @@ interface MatchRow {
   video_url: string | null;
   sync_point: SyncPoint | null;
   league_id: string | null;
+  season_id: string | null;
+  stage_id: string | null;
   org_id: string | null;
   created_at: string;
   updated_at: string;
@@ -61,6 +63,8 @@ function rowToStoredMatch(row: MatchRow, events: EventRow[]): StoredMatch {
     videoUrl: row.video_url ?? undefined,
     syncPoint: row.sync_point ?? undefined,
     leagueId: row.league_id ?? undefined,
+    seasonId: row.season_id ?? undefined,
+    stageId: row.stage_id ?? undefined,
     orgId: row.org_id ?? undefined,
     events: events.map((e) => ({
       eventId: e.event_id ?? 0,
@@ -101,6 +105,12 @@ export async function saveMatch(supabase: SupabaseClient, match: StoredMatch): P
   }
   if (match.leagueId !== undefined) {
     matchData.league_id = match.leagueId;
+  }
+  if (match.seasonId !== undefined) {
+    matchData.season_id = match.seasonId;
+  }
+  if (match.stageId !== undefined) {
+    matchData.stage_id = match.stageId;
   }
   if (match.orgId !== undefined) {
     matchData.org_id = match.orgId;

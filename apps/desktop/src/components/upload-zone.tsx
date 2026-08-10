@@ -12,8 +12,10 @@ import { saveMatch, countClubMatchesThisMonth } from "@/lib/matches-db";
 import { useAuth } from "@/lib/auth-context";
 import type { OrgMembership, OrgPlanTier } from "@/types/org";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
-import { fetchBoxscore, fetchPlayByPlay, fetchPlayByPlaySportradar, fetchSchedule, fetchScheduleSportradar, LEAGUES, NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
-import type { ScheduleGame, League } from "@/lib/basketball-api";
+import { fetchBoxscore, fetchPlayByPlay, fetchPlayByPlaySportradar, getLeagueSchedule, LEAGUES, NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
+import type { ScheduleGame, League, Season, Stage } from "@/lib/basketball-api";
+import { LeaguePicker } from "@/components/league-picker";
+import { SingleSelectDropdown } from "@/components/ui/multi-select-dropdown";
 import type { StoredMatch, SyncPoint, PlayByPlayEvent } from "@/types/match";
 import { open } from "@tauri-apps/plugin-dialog";
 
@@ -135,13 +137,18 @@ export function UploadZone({
     ...(hasNtAccess ? NATIONAL_TEAM_LEAGUES : []),
   ];
 
-  // League + schedule picker state
+  // League + season + stage picker state
   const [selectedLeague, setSelectedLeague] = useState<League | null>(null);
+  const [selectedSeason, setSelectedSeason] = useState<Season | null>(null);
+  const [selectedStage, setSelectedStage] = useState<Stage | null>(null);
 
   // Auto-select first league once leagueList is populated (props load async)
   useEffect(() => {
     if (leagueList.length > 0 && selectedLeague === null) {
-      setSelectedLeague(leagueList[0]);
+      const first = leagueList[0];
+      setSelectedLeague(first);
+      setSelectedSeason(first.seasons[0] ?? null);
+      setSelectedStage(first.seasons[0]?.stages[0] ?? null);
     }
   }, [leagueList.length]);
   const [scheduleGames, setScheduleGames] = useState<ScheduleGame[]>([]);
@@ -189,16 +196,13 @@ export function UploadZone({
 
 
   useEffect(() => {
-    if (!selectedLeague) return;
+    if (!selectedLeague || !selectedSeason || !selectedStage) return;
     setScheduleStatus("loading");
     setScheduleGames([]);
-    const promise = selectedLeague.provider === "sportradar"
-      ? fetchScheduleSportradar(selectedLeague.fixturesUrl!)
-      : fetchSchedule(selectedLeague.baseUrl, selectedLeague.scheduleParams);
-    promise
+    getLeagueSchedule(selectedLeague, selectedSeason, selectedStage)
       .then((games) => { setScheduleGames(games); setScheduleStatus("idle"); })
       .catch(() => setScheduleStatus("error"));
-  }, [selectedLeague]);
+  }, [selectedLeague, selectedSeason, selectedStage]);
 
   const filteredGames = scheduleGames.filter((g) => {
     const q = searchQuery.toLowerCase();
@@ -215,6 +219,25 @@ export function UploadZone({
   function handleLeagueChange(league: League) {
     if (selectedLeague && league.id === selectedLeague.id) return;
     setSelectedLeague(league);
+    setSelectedSeason(league.seasons[0] ?? null);
+    setSelectedStage(league.seasons[0]?.stages[0] ?? null);
+    setSelectedGame(null);
+    setSearchQuery("");
+  }
+
+  function handleSeasonChange(seasonId: string | null) {
+    const season = selectedLeague?.seasons.find((s) => s.id === seasonId);
+    if (!season || season.id === selectedSeason?.id) return;
+    setSelectedSeason(season);
+    setSelectedStage(season.stages[0] ?? null);
+    setSelectedGame(null);
+    setSearchQuery("");
+  }
+
+  function handleStageChange(stageId: string | null) {
+    const stage = selectedSeason?.stages.find((s) => s.id === stageId);
+    if (!stage || stage.id === selectedStage?.id) return;
+    setSelectedStage(stage);
     setSelectedGame(null);
     setSearchQuery("");
   }
@@ -240,8 +263,8 @@ export function UploadZone({
     if (selectedLeague.provider !== "sportradar") {
       try {
         const [data, pbp] = await Promise.all([
-          fetchBoxscore(game.uuid, selectedLeague.baseUrl),
-          fetchPlayByPlay(game.uuid, selectedLeague.baseUrl).catch(() => null),
+          fetchBoxscore(game.uuid, selectedLeague.baseUrl ?? ""),
+          fetchPlayByPlay(game.uuid, selectedLeague.baseUrl ?? "").catch(() => null),
         ]);
 
         const boxData = data as {
@@ -373,6 +396,8 @@ export function UploadZone({
       syncPoint,
       events: playByPlayEvents,
       leagueId: selectedLeague.id,
+      seasonId: selectedSeason?.id,
+      stageId: selectedStage?.id,
       orgId: activeOrgId ?? undefined,
     };
 
@@ -433,23 +458,33 @@ export function UploadZone({
         <StepLabel step={1} title="Pick a Game" />
         <Card>
           <CardContent className="p-4 space-y-3">
-            {/* League selector */}
-            <div className="flex rounded-lg border border-border p-1 gap-1">
-              {leagueList.map((league) => (
-                <button
-                  key={league.id}
-                  type="button"
-                  onClick={() => handleLeagueChange(league)}
-                  className={cn(
-                    "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-all",
-                    selectedLeague.id === league.id
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  {league.name}
-                </button>
-              ))}
+            {/* League · Season · Stage.
+                Season and Stage stay hidden while there's only one option —
+                no dead controls for single-season leagues. */}
+            <div className="flex flex-wrap items-center gap-2">
+              <LeaguePicker
+                leagues={leagueList}
+                value={selectedLeague}
+                onChange={handleLeagueChange}
+              />
+              {selectedLeague.seasons.length > 1 && (
+                <SingleSelectDropdown
+                  options={selectedLeague.seasons.map((s) => ({ value: s.id, label: s.label }))}
+                  value={selectedSeason?.id ?? null}
+                  onChange={handleSeasonChange}
+                  placeholder="Season"
+                  required
+                />
+              )}
+              {(selectedSeason?.stages.length ?? 0) > 1 && (
+                <SingleSelectDropdown
+                  options={(selectedSeason?.stages ?? []).map((s) => ({ value: s.id, label: s.label }))}
+                  value={selectedStage?.id ?? null}
+                  onChange={handleStageChange}
+                  placeholder="Stage"
+                  required
+                />
+              )}
             </div>
 
             {selectedGame ? (

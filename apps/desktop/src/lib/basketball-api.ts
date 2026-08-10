@@ -21,81 +21,160 @@ export interface ScheduleGame {
   seasonId?: string;
 }
 
+/** A phase within a season — regular season, playoffs, cup, etc. */
+export interface Stage {
+  id: string;
+  label: string;
+  /** Swedish provider only — identifies the game type in the schedule query. */
+  gameTypeUuid?: string;
+}
+
+/**
+ * One season of a league. Seasons carry the provider-specific handle for
+ * fetching their schedule, so adding next season is a single array entry.
+ */
+export interface Season {
+  id: string;
+  label: string;
+  /** Swedish provider. */
+  seasonUuid?: string;
+  /** Sportradar provider. */
+  fixturesUrl?: string;
+  stages: Stage[];
+}
+
 export interface League {
   id: string;
   name: string;
-  baseUrl: string;
-  scheduleParams: string;
+  /** ISO 3166-1 alpha-2 — drives grouping and the flag in the picker. */
+  country: string;
+  gender?: "men" | "women";
   provider?: "sportradar";
-  fixturesUrl?: string;
+  /** Swedish provider. */
+  baseUrl?: string;
+  /** Swedish provider — identifies the competition itself. */
+  seriesUuid?: string;
+  /** Ordered newest-first; seasons[0] is treated as the current season. */
+  seasons: Season[];
 }
 
-const COMMON_PARAMS = "seasonUuid=ye02q4jwit&gameTypeUuid=qZn-4XtW2vrrT&gamePlace=all&played=all";
-const PLAYOFF_PARAMS = "seasonUuid=ye02q4jwit&gameTypeUuid=qZn-4XuTzFdn0&gamePlace=all&played=all";
+const SWE_REGULAR: Stage = { id: "regular", label: "Regular season", gameTypeUuid: "qZn-4XtW2vrrT" };
+const SWE_PLAYOFF: Stage = { id: "playoff", label: "Playoffs", gameTypeUuid: "qZn-4XuTzFdn0" };
+
+/** Seasons shared by the Swedish leagues — they run on a common season calendar. */
+const SWE_SEASONS: Season[] = [
+  { id: "2025-26", label: "2025/26", seasonUuid: "ye02q4jwit", stages: [SWE_REGULAR, SWE_PLAYOFF] },
+];
 
 export const LEAGUES: League[] = [
   {
     id: "sbl-herr",
     name: "SBL Herr",
+    country: "SE",
+    gender: "men",
     baseUrl: "https://www.sblherr.se",
-    scheduleParams: `seriesUuid=qZn-4Xda9zkK3&${COMMON_PARAMS}`,
+    seriesUuid: "qZn-4Xda9zkK3",
+    seasons: SWE_SEASONS,
   },
   {
     id: "sbl-dam",
     name: "SBL Dam",
+    country: "SE",
+    gender: "women",
     baseUrl: "https://www.sbldam.se",
-    scheduleParams: `seriesUuid=qZo-87H8Vw291&${COMMON_PARAMS}`,
-  },
-  {
-    id: "sbl-herr-playoff",
-    name: "SBL Herr Playoff",
-    baseUrl: "https://www.sblherr.se",
-    scheduleParams: `seriesUuid=qZn-4Xda9zkK3&${PLAYOFF_PARAMS}`,
-  },
-  {
-    id: "sbl-dam-playoff",
-    name: "SBL Dam Playoff",
-    baseUrl: "https://www.sbldam.se",
-    scheduleParams: `seriesUuid=qZo-87H8Vw291&${PLAYOFF_PARAMS}`,
+    seriesUuid: "qZo-87H8Vw291",
+    seasons: SWE_SEASONS,
   },
   {
     id: "superettan-herr",
     name: "Superettan Herr",
+    country: "SE",
+    gender: "men",
     baseUrl: "https://www.superettanherr.se",
-    scheduleParams: `seriesUuid=qZn-4XdsoSWdh&${COMMON_PARAMS}`,
-  },
-  {
-    id: "superettan-herr-playoff",
-    name: "Superettan Herr Playoff",
-    baseUrl: "https://www.superettanherr.se",
-    scheduleParams: `seriesUuid=qZn-4XdsoSWdh&${PLAYOFF_PARAMS}`,
+    seriesUuid: "qZn-4XdsoSWdh",
+    seasons: SWE_SEASONS,
   },
   {
     id: "austria-zweite-liga",
     name: "Zweite Liga",
-    baseUrl: "",
-    scheduleParams: "",
+    country: "AT",
+    gender: "men",
     provider: "sportradar",
-    fixturesUrl: "https://embed-api.eui.connect.sportradar.com/v1/embed/262/fixtures_ribbon?",
+    seasons: [
+      {
+        id: "current",
+        label: "Current",
+        fixturesUrl: "https://embed-api.eui.connect.sportradar.com/v1/embed/262/fixtures_ribbon?",
+        stages: [{ id: "regular", label: "Regular season" }],
+      },
+    ],
   },
 ];
 
-// Placeholder leagues for national team coaches — fill in baseUrl/scheduleParams
+// Placeholder leagues for national team coaches — fill in the season handles
 // once the data source (provider TBD) is decided.
+const NT_PLACEHOLDER_SEASONS: Season[] = [
+  { id: "current", label: "Current", stages: [{ id: "regular", label: "All games" }] },
+];
+
 export const NATIONAL_TEAM_LEAGUES: League[] = [
   {
     id: "sweden-national-men",
     name: "Sweden Men",
-    baseUrl: "",
-    scheduleParams: "",
+    country: "SE",
+    gender: "men",
+    seasons: NT_PLACEHOLDER_SEASONS,
   },
   {
     id: "sweden-national-women",
     name: "Sweden Women",
-    baseUrl: "",
-    scheduleParams: "",
+    country: "SE",
+    gender: "women",
+    seasons: NT_PLACEHOLDER_SEASONS,
   },
 ];
+
+/** Display names for the country codes used above. Drives picker grouping. */
+export const COUNTRY_NAMES: Record<string, string> = {
+  SE: "Sweden",
+  AT: "Austria",
+};
+
+/** Regional-indicator flag emoji for an ISO-2 code — no image assets needed. */
+export function countryFlag(code: string): string {
+  if (code.length !== 2) return "";
+  return String.fromCodePoint(
+    ...code.toUpperCase().split("").map((c) => 0x1f1e6 + c.charCodeAt(0) - 65),
+  );
+}
+
+/** Builds the schedule query string the Swedish provider expects. */
+export function buildScheduleParams(league: League, season: Season, stage: Stage): string {
+  return [
+    `seriesUuid=${league.seriesUuid ?? ""}`,
+    `seasonUuid=${season.seasonUuid ?? ""}`,
+    `gameTypeUuid=${stage.gameTypeUuid ?? ""}`,
+    "gamePlace=all",
+    "played=all",
+  ].join("&");
+}
+
+/**
+ * Single entry point for loading a schedule — picks the provider and builds
+ * whatever handle it needs, so callers stay free of provider knowledge.
+ */
+export function getLeagueSchedule(
+  league: League,
+  season: Season,
+  stage: Stage,
+): Promise<ScheduleGame[]> {
+  if (league.provider === "sportradar") {
+    if (!season.fixturesUrl) return Promise.resolve([]);
+    return fetchScheduleSportradar(season.fixturesUrl);
+  }
+  if (!league.baseUrl) return Promise.resolve([]);
+  return fetchSchedule(league.baseUrl, buildScheduleParams(league, season, stage));
+}
 
 export async function fetchScheduleSportradar(fixturesUrl: string): Promise<ScheduleGame[]> {
   const res = await fetch(fixturesUrl, { headers: { Accept: "application/json" } });
