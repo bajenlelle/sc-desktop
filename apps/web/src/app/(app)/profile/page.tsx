@@ -16,7 +16,8 @@ import { toast } from "sonner";
 import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Loader2 } from "lucide-react";
 import Link from "next/link";
 
-const PRICING_URL = "https://scoutable.se/#pricing";
+// Query params must precede the fragment or the browser drops them.
+const PRICING_URL_BASE = "https://scoutable.se/";
 
 type SubStatus = {
   isActive: boolean;
@@ -135,10 +136,30 @@ export default function ProfilePage() {
       if (error) { toast.error(error); return; }
       if (url) window.location.href = url;
     } catch {
-      toast.error("Failed to open subscription portal");
+      toast.error("Failed to open billing portal");
     } finally {
       setLoadingPortal(false);
     }
+  }
+
+  /**
+   * Anyone with a live subscription changes plans in the Stripe portal —
+   * Checkout would open a second subscription alongside the first and bill
+   * them twice. Only users without one go to the pricing page.
+   *
+   * The email rides along so Checkout can lock the address field to the
+   * account's own, which is what the webhook matches on.
+   */
+  function handleUpgrade() {
+    if (sub?.isActive) {
+      void handleManageSubscription();
+      return;
+    }
+    const email = user?.email;
+    const url = email
+      ? `${PRICING_URL_BASE}?email=${encodeURIComponent(email)}#pricing`
+      : `${PRICING_URL_BASE}#pricing`;
+    window.open(url, "_blank");
   }
 
   if (loading) {
@@ -263,7 +284,8 @@ export default function ProfilePage() {
               variant="outline"
               size="sm"
               className="w-full gap-1.5"
-              onClick={() => window.open(PRICING_URL, "_blank")}
+              onClick={handleUpgrade}
+              disabled={loadingPortal}
             >
               <ArrowUpRight className="h-3.5 w-3.5" />
               {activeOrgPlan === "free" ? "Upgrade to Rookie or Pro" : "Upgrade to Pro"}

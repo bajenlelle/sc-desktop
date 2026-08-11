@@ -1,9 +1,10 @@
+import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { Lock } from "lucide-react";
-
-const PRICING_URL = "https://scoutable.se/#pricing";
+import { Loader2, Lock } from "lucide-react";
+import { toast } from "sonner";
+import { useAuth } from "@/lib/auth-context";
+import { openUpgradeFlow } from "@/lib/billing";
 
 interface Props {
   open: boolean;
@@ -13,7 +14,23 @@ interface Props {
 }
 
 export function UpgradeDialog({ open, onClose, featureName = "This feature", description }: Props) {
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(false);
   const body = description ?? "Export your playlists as MP4 video files with a Rookie or Pro plan. Start with a 14-day free trial — no credit card required upfront.";
+
+  // Existing subscribers are routed to the billing portal instead of
+  // Checkout — this dialog also fires on the Rookie import cap, and sending
+  // those users to Checkout would open a second subscription.
+  async function handleUpgrade() {
+    setLoading(true);
+    try {
+      const error = await openUpgradeFlow(user?.email);
+      if (error) { toast.error(error); return; }
+      onClose();
+    } finally {
+      setLoading(false);
+    }
+  }
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="max-w-md">
@@ -27,13 +44,11 @@ export function UpgradeDialog({ open, onClose, featureName = "This feature", des
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="flex-col gap-2 sm:flex-col">
-          <Button
-            className="w-full"
-            onClick={async () => { await openUrl(PRICING_URL); onClose(); }}
-          >
-            View plans &amp; upgrade
+          <Button className="w-full gap-1.5" onClick={handleUpgrade} disabled={loading}>
+            {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {loading ? "Opening…" : "View plans & upgrade"}
           </Button>
-          <Button variant="ghost" className="w-full" onClick={onClose}>
+          <Button variant="ghost" className="w-full" onClick={onClose} disabled={loading}>
             Maybe later
           </Button>
         </DialogFooter>

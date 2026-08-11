@@ -16,16 +16,13 @@ import {
 } from "@/lib/profile-db";
 import { countClubMatchesThisMonth } from "@/lib/matches-db";
 import { NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { openBillingPortal, openUpgradeFlow } from "@/lib/billing";
 import type { OrgContext } from "@/types/org";
 import { toast } from "sonner";
 import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { getOrgImportLimit, orgPlanColors, orgPlanLabel } from "@scoutable/shared/lib/plan-tier";
 
-const PRICING_URL = "https://scoutable.se/#pricing";
-const BILLING_PORTAL_URL = "https://app.scoutable.se/api/billing-portal";
 
 type SubStatus = {
   isActive: boolean;
@@ -125,19 +122,22 @@ export function ProfilePage() {
   async function handleManageSubscription() {
     setLoadingPortal(true);
     try {
-      const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { toast.error("Not signed in"); return; }
-      const res = await tauriFetch(BILLING_PORTAL_URL, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
-      if (!res.ok) { toast.error("Failed to open billing portal"); return; }
-      const { url, error } = await res.json();
-      if (error) { toast.error(error); return; }
-      if (url) await openUrl(url);
-    } catch {
-      toast.error("Failed to open billing portal");
+      const error = await openBillingPortal();
+      if (error) toast.error(error);
+    } finally {
+      setLoadingPortal(false);
+    }
+  }
+
+  /**
+   * Upgrade routes through the portal for anyone with a live subscription —
+   * Checkout would open a *second* one alongside it and bill them twice.
+   */
+  async function handleUpgrade() {
+    setLoadingPortal(true);
+    try {
+      const error = await openUpgradeFlow(user?.email);
+      if (error) toast.error(error);
     } finally {
       setLoadingPortal(false);
     }
@@ -289,7 +289,8 @@ export function ProfilePage() {
                   variant="outline"
                   size="sm"
                   className="w-full gap-1.5"
-                  onClick={() => openUrl(PRICING_URL)}
+                  onClick={handleUpgrade}
+                  disabled={loadingPortal}
                 >
                   <ArrowUpRight className="h-3.5 w-3.5" />
                   {activeOrgPlan === 'free' ? "Upgrade to Rookie or Pro" : "Upgrade to Pro"}
