@@ -17,6 +17,10 @@ export interface UserProfile {
   isPlatformAdmin: boolean;
   /** Highest paid tier already thanked-for; gates the one-time upgrade celebration. */
   celebratedPlanTier?: 'rookie' | 'pro' | null;
+  /** When the desktop Getting Started checklist was dismissed; null = show it. */
+  onboardingChecklistDismissedAt?: string | null;
+  /** When the web welcome surfaces were dismissed; null = show them. */
+  welcomeDismissedAt?: string | null;
 }
 
 export interface Organization {

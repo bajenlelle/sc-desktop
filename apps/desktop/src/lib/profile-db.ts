@@ -20,6 +20,8 @@ interface ProfileRow {
   is_platform_admin: boolean;
   email?: string | null;
   celebrated_plan_tier?: string | null;
+  onboarding_checklist_dismissed_at?: string | null;
+  welcome_dismissed_at?: string | null;
 }
 
 interface OrgMemberRow {
@@ -102,6 +104,8 @@ function rowToProfile(r: ProfileRow): UserProfile {
     createdAt: r.created_at,
     isPlatformAdmin: r.is_platform_admin ?? false,
     celebratedPlanTier: (r.celebrated_plan_tier as 'rookie' | 'pro' | null | undefined) ?? null,
+    onboardingChecklistDismissedAt: r.onboarding_checklist_dismissed_at ?? null,
+    welcomeDismissedAt: r.welcome_dismissed_at ?? null,
   };
 }
 
@@ -169,11 +173,23 @@ export async function getMyProfile(userId: string): Promise<UserProfile> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin, celebrated_plan_tier")
+    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin, celebrated_plan_tier, onboarding_checklist_dismissed_at, welcome_dismissed_at")
     .eq("id", userId)
     .single();
   if (error || !data) throw new Error(`Failed to load profile: ${error?.message}`);
   return rowToProfile(data as ProfileRow);
+}
+
+/** Hide the Getting Started checklist permanently (across devices). */
+export async function dismissOnboardingChecklist(): Promise<void> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+  const { error } = await supabase
+    .from("profiles")
+    .update({ onboarding_checklist_dismissed_at: new Date().toISOString() })
+    .eq("id", user.id);
+  if (error) throw new Error(`Failed to dismiss checklist: ${error.message}`);
 }
 
 /**

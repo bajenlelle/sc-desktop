@@ -3,6 +3,7 @@ import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { identifyUser, resetUser, trackEvent } from "@/lib/analytics";
 import { getMyProfile, getMyOrgs } from "@/lib/profile-db";
+import { seedDemoMatch } from "@/lib/matches-db";
 import type { UserProfile, OrgMembership, OrgPlanTier } from "@/types/org";
 
 const ACTIVE_ORG_KEY = "scoutable_active_org_id";
@@ -94,6 +95,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfile(p);
       setMyOrgs(orgs);
       setActiveOrgIdState(resolveActiveOrg(orgs));
+      if (!opts?.silent) maybeSeedDemo(userId, orgs);
       return orgs;
     } catch (err) {
       console.error("[auth] loadProfile failed:", err);
@@ -106,6 +108,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       if (!opts?.silent) setProfileLoading(false);
     }
+  }
+
+  /**
+   * Seed the sample game into a brand-new user's personal org so they can
+   * try clips → playlists with zero footage. Fire-and-forget off the login
+   * path, once per app start. The RPC is idempotent server-side (once per
+   * user, ever) and cheaply no-ops until a demo template is configured — so
+   * a user who signed up before the template existed still gets seeded on a
+   * later launch. No client-side guard: it must not block that catch-up.
+   */
+  function maybeSeedDemo(_userId: string, orgs: OrgMembership[]) {
+    const personal = orgs.find((o) => o.isPersonal);
+    if (!personal) return;
+    seedDemoMatch(personal.orgId)
+      .then((matchId) => {
+        if (matchId) {
+          trackEvent("demo_game_seeded");
+          // Library/playlists may already be mounted before the copy lands.
+          window.dispatchEvent(new CustomEvent("demo-seeded"));
+        }
+      })
+      .catch((err) => console.error("[auth] demo seeding failed:", err));
   }
 
   const stopPlanPoll = useCallback(() => {

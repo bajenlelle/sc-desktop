@@ -4,6 +4,7 @@ import {
   BookOpen,
   Building2,
   Film,
+  Home,
   ListVideo,
   Plus,
   Share2,
@@ -164,6 +165,17 @@ export function AppSidebar() {
         {/* Nav items */}
         {user && !profileLoading && (
           <nav className="flex flex-col items-center gap-1 py-3">
+            {/* The Overview page was previously only reachable via the logo —
+                the Getting Started checklist lives there, so it needs a real
+                nav item. */}
+            {isCoachOrAdmin && (
+              <SidebarIconButton
+                href="/"
+                icon={Home}
+                label="Home"
+                isActive={pathname === "/"}
+              />
+            )}
             {isCoachOrAdmin && (
               <SidebarIconButton
                 href="/playlists"

@@ -11,6 +11,10 @@ export type AnalyticsEvent =
   | 'page_viewed'
   | 'clip_added_to_playlist'
   | 'playlist_shipped'
+  | 'demo_game_seeded'
+  | 'onboarding_step_clicked'
+  | 'onboarding_dismissed'
+  | 'onboarding_completed'
 
 export function initAnalytics() {
   posthog.init(import.meta.env.VITE_POSTHOG_KEY, {

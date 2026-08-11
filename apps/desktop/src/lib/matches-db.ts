@@ -8,7 +8,12 @@ import type { StoredMatch, SyncPoint } from "@/types/match";
 
 const c = () => createClient();
 
-export const saveMatch = (match: StoredMatch) => db.saveMatch(c(), match);
+// Import and delete both move the monthly quota — announce them so the
+// always-mounted plan badge (use-import-quota) can re-count.
+export const saveMatch = async (match: StoredMatch) => {
+  await db.saveMatch(c(), match);
+  window.dispatchEvent(new CustomEvent("matches-changed"));
+};
 export const getMatch = (id: string) => db.getMatch(c(), id);
 export const listMatches = (orgId?: string) => db.listMatches(c(), orgId);
 export const listEventsForMatches = (matchIds: string[]) => db.listEventsForMatches(c(), matchIds);
@@ -26,7 +31,10 @@ export const updateMatchMeta = (
     syncPoint?: SyncPoint | null;
   }
 ) => db.updateMatchMeta(c(), matchId, updates);
-export const deleteMatch = (matchId: string) => db.deleteMatch(c(), matchId);
+export const deleteMatch = async (matchId: string) => {
+  await db.deleteMatch(c(), matchId);
+  window.dispatchEvent(new CustomEvent("matches-changed"));
+};
 export const listFolders = () => db.listFolders(c());
 export const createFolder = (name: string) => db.createFolder(c(), name);
 export const updateFolder = (id: string, patch: { name?: string; sortOrder?: number }) => db.updateFolder(c(), id, patch);
@@ -34,3 +42,4 @@ export const deleteFolder = (id: string) => db.deleteFolder(c(), id);
 export const listMatchesLight = (orgId?: string) => db.listMatchesLight(c(), orgId);
 export const countMatchesThisMonth = () => db.countMatchesThisMonth(c());
 export const countClubMatchesThisMonth = (ntLeagueIds: string[], orgId?: string) => db.countClubMatchesThisMonth(c(), ntLeagueIds, orgId);
+export const seedDemoMatch = (orgId: string) => db.seedDemoMatch(c(), orgId);

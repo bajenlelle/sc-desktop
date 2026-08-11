@@ -1,0 +1,223 @@
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Check, ChevronRight, Lock, X } from "lucide-react";
+import { toast } from "sonner";
+import { useAuth } from "@/lib/auth-context";
+import { dismissOnboardingChecklist } from "@/lib/profile-db";
+import { getMySharedOutPlaylists } from "@/lib/playlists-db";
+import { trackEvent } from "@/lib/analytics";
+import { cn } from "@/lib/utils";
+import type { Playlist, StoredMatch } from "@/types/match";
+
+interface Step {
+  key: string;
+  title: string;
+  hint?: string;
+  done: boolean;
+  /** Route target; undefined for the pre-checked account step. */
+  to?: string;
+  toState?: object;
+  locked?: boolean;
+}
+
+/**
+ * First-session "Getting started" checklist on the Overview page.
+ *
+ * Every step is derived from real data (playlists, matches, shares) rather
+ * than stored per-step, so it stays honest across devices; only the export
+ * step — which leaves no server trace — uses a local flag. Shown until the
+ * user dismisses it or finishes everything; existing accounts were
+ * backfilled as dismissed, so only new signups ever see it.
+ */
+export function GettingStarted({
+  matches,
+  playlists,
+}: {
+  matches: StoredMatch[];
+  playlists: Playlist[];
+}) {
+  const navigate = useNavigate();
+  const { profile, activeOrg, activeOrgIsPersonal, activeOrgPlan } = useAuth();
+  const [hidden, setHidden] = useState(false);
+  const [hasSharedOut, setHasSharedOut] = useState(false);
+  const [hasExported, setHasExported] = useState(
+    () => !!localStorage.getItem("scoutable_has_exported"),
+  );
+  const celebratedRef = useRef(false);
+
+  const show = !hidden && profile != null && profile.onboardingChecklistDismissedAt == null;
+
+  // The club-space final step ("share with your team") is the one signal not
+  // already loaded on Home.
+  useEffect(() => {
+    if (!show || activeOrgIsPersonal) return;
+    getMySharedOutPlaylists()
+      .then((ps) => setHasSharedOut(ps.length > 0))
+      .catch(() => {});
+  }, [show, activeOrgIsPersonal]);
+
+  useEffect(() => {
+    const onExported = () => setHasExported(true);
+    window.addEventListener("playlist-exported", onExported);
+    return () => window.removeEventListener("playlist-exported", onExported);
+  }, []);
+
+  const hasDemo = matches.some((m) => m.isDemo);
+  const hasOwnGame = matches.some((m) => !m.isDemo);
+  const hasPlaylist = playlists.length > 0;
+  const hasClips = playlists.some((p) => p.items.length > 0);
+
+  const steps: Step[] = [
+    { key: "account", title: "Create your account", done: true },
+    {
+      key: "playlist",
+      title: "Build your first playlist",
+      done: hasPlaylist,
+      to: "/playlists",
+      toState: { createNew: true },
+    },
+    {
+      key: "clips",
+      title: hasDemo ? "Add clips from the sample game" : "Add clips from a game",
+      hint: hasDemo ? "Filter by player or event type, then watch them back-to-back" : undefined,
+      done: hasClips,
+      to: "/playlists",
+    },
+    {
+      key: "import",
+      title: "Import your own game",
+      hint: "You'll need the game's video file on your computer",
+      done: hasOwnGame,
+      to: "/upload",
+    },
+    activeOrgIsPersonal
+      ? {
+          key: "export",
+          title: "Export a playlist as MP4",
+          done: hasExported,
+          to: "/playlists",
+          locked: activeOrgPlan === "free",
+          hint: activeOrgPlan === "free" ? "Available on Rookie and Pro" : undefined,
+        }
+      : {
+          key: "share",
+          title: "Share a playlist with your team",
+          done: hasSharedOut,
+          to: "/playlists",
+        },
+  ];
+
+  const doneCount = steps.filter((s) => s.done).length;
+  const allDone = doneCount === steps.length;
+
+  // Everything checked → thank the user once and retire the card for good.
+  useEffect(() => {
+    if (!show || !allDone || celebratedRef.current) return;
+    celebratedRef.current = true;
+    trackEvent("onboarding_completed");
+    dismissOnboardingChecklist().catch(() => {});
+    toast.success("You're all set — happy scouting! 🎉");
+    setHidden(true);
+  }, [show, allDone]);
+
+  if (!show) return null;
+
+  function handleDismiss() {
+    setHidden(true);
+    trackEvent("onboarding_dismissed", { done_count: doneCount });
+    dismissOnboardingChecklist().catch(() => {});
+  }
+
+  function handleStep(step: Step) {
+    if (!step.to || step.done) return;
+    trackEvent("onboarding_step_clicked", { step: step.key });
+    navigate(step.to, step.toState ? { state: step.toState } : undefined);
+  }
+
+  const welcome = activeOrgIsPersonal
+    ? hasDemo
+      ? "We've added a sample game so you can try everything without your own footage."
+      : "Here's the fastest way to get to your first playlist."
+    : `You've joined ${activeOrg?.orgName ?? "your organization"}. Here's how to get going.`;
+
+  return (
+    <div className="rounded-xl border border-primary/30 bg-card p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">Welcome to Scoutable 👋</h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">{welcome}</p>
+        </div>
+        <button
+          type="button"
+          onClick={handleDismiss}
+          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          title="Dismiss — you can always find these actions in the sidebar"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Progress */}
+      <div className="mt-4 flex items-center gap-3">
+        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+          <div
+            className="h-full rounded-full bg-primary transition-all"
+            style={{ width: `${(doneCount / steps.length) * 100}%` }}
+          />
+        </div>
+        <span className="text-xs tabular-nums text-muted-foreground">
+          {doneCount} of {steps.length}
+        </span>
+      </div>
+
+      <ul className="mt-4 flex flex-col">
+        {steps.map((step) => {
+          const clickable = !step.done && !!step.to;
+          return (
+            <li key={step.key}>
+              <button
+                type="button"
+                onClick={() => handleStep(step)}
+                disabled={!clickable}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left",
+                  clickable && "transition-colors hover:bg-muted/60",
+                )}
+              >
+                <span
+                  className={cn(
+                    "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border",
+                    step.done
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border text-transparent",
+                  )}
+                >
+                  <Check className="h-3 w-3" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span
+                    className={cn(
+                      "block text-sm",
+                      step.done ? "text-muted-foreground line-through" : "text-foreground",
+                    )}
+                  >
+                    {step.title}
+                  </span>
+                  {step.hint && !step.done && (
+                    <span className="block text-xs text-muted-foreground">{step.hint}</span>
+                  )}
+                </span>
+                {step.locked && !step.done && (
+                  <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                )}
+                {clickable && (
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50" />
+                )}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}

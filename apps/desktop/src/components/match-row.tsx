@@ -16,10 +16,15 @@ export function MatchRow({ match, onDelete }: { match: StoredMatch; onDelete?: (
       </div>
 
       {/* Title */}
-      <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         <span className="truncate font-display text-sm font-bold tracking-wide">
           {match.title}
         </span>
+        {match.isDemo && (
+          <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
+            Sample game
+          </span>
+        )}
       </div>
 
       {/* Teams */}
@@ -59,6 +64,7 @@ export function MatchRow({ match, onDelete }: { match: StoredMatch; onDelete?: (
           <DeleteMatchDialog
             matchId={match.id}
             matchTitle={match.title}
+            isDemo={match.isDemo}
             trigger={
               <button
                 type="button"

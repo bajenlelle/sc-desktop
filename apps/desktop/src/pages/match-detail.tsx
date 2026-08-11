@@ -422,8 +422,16 @@ export function MatchDetailPage() {
         <section className="space-y-3">
           <h2 className="text-sm font-semibold text-foreground/70">Video &amp; Sync</h2>
 
-          {/* Video file */}
-          {videoFileName ? (
+          {/* Video file. The sample game streams from the cloud — swapping
+              in a local file would break it, so no Change button there. */}
+          {storedMatch.isDemo ? (
+            <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3">
+              <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0" />
+              <span className="flex-1 truncate text-sm text-foreground/80">
+                Sample game — video streams from Scoutable
+              </span>
+            </div>
+          ) : videoFileName ? (
             <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3">
               <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0" />
               <span className="flex-1 truncate text-sm text-foreground/80 font-mono">{videoFileName}</span>
@@ -635,6 +643,7 @@ export function MatchDetailPage() {
             <DeleteMatchDialog
               matchId={matchId}
               matchTitle={title}
+              isDemo={storedMatch.isDemo}
               trigger={
                 <Button variant="destructive" size="sm">
                   Delete game

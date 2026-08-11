@@ -16,6 +16,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { ClipRow } from "@/components/playlist/ClipRow";
 import { PlaylistFeed, type SourceOption } from "@/components/playlist/PlaylistFeed";
+import { WelcomeCard } from "@/components/welcome-card";
 import type { PlaylistCardData } from "@/components/playlist/PlaylistCard";
 import { listMyClipViews, markClipWatched, clipViewKey } from "@/lib/clip-views-db";
 import type {
@@ -68,7 +69,9 @@ export default function MyPlaylistsPage() {
 
   useEffect(() => {
     if (profileLoading) return;
-    if (activeOrgIsPersonal) router.replace("/profile");
+    // A personal-only user has nothing to watch here — send them to the
+    // get-started page (the desktop app is their product), not the profile.
+    if (activeOrgIsPersonal) router.replace("/get-started");
   }, [activeOrgIsPersonal, profileLoading, router]);
 
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -668,7 +671,9 @@ export default function MyPlaylistsPage() {
       return (
         <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
           <p className="text-sm font-medium text-foreground">No playlists yet</p>
-          <p className="mt-1 text-xs text-muted-foreground">Your coach will send playlists here.</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            When your coach shares clips with you, they show up here — we&apos;ll email you.
+          </p>
         </div>
       );
     }
@@ -895,6 +900,7 @@ export default function MyPlaylistsPage() {
           // The feed answers the player's actual question on arrival —
           // "what's new for me?" — instead of an empty pane.
           <div className="flex-1 overflow-y-auto">
+            <WelcomeCard />
             <PlaylistFeed
               playlists={feedItems}
               sourceOptions={sourceOptions}

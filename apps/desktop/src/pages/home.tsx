@@ -6,6 +6,7 @@ import { MatchRow } from "@/components/match-row";
 import { listMatches, listFolders } from "@/lib/matches-db";
 import { listPlaylists } from "@/lib/playlists-db";
 import { useAuth } from "@/lib/auth-context";
+import { GettingStarted } from "@/components/getting-started";
 import type { StoredMatch, Playlist, PlaylistFolder } from "@/types/match";
 
 function PlaylistCard({ playlist, folder }: { playlist: Playlist; folder?: PlaylistFolder }) {
@@ -31,26 +32,35 @@ function PlaylistCard({ playlist, folder }: { playlist: Playlist; folder?: Playl
 
 function CoachHomePage() {
   const navigate = useNavigate();
+  const { profile } = useAuth();
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [folders, setFolders] = useState<PlaylistFolder[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const showChecklist = profile?.onboardingChecklistDismissedAt == null;
 
   function goNewPlaylist() {
     navigate("/playlists", { state: { createNew: true } });
   }
 
   useEffect(() => {
-    Promise.all([
-      listMatches().catch(() => [] as StoredMatch[]),
-      listPlaylists().catch(() => [] as Playlist[]),
-      listFolders().catch(() => [] as PlaylistFolder[]),
-    ]).then(([ms, ps, fs]) => {
-      setMatches(ms);
-      setPlaylists(ps);
-      setFolders(fs);
-      setLoading(false);
-    });
+    const load = () =>
+      Promise.all([
+        listMatches().catch(() => [] as StoredMatch[]),
+        listPlaylists().catch(() => [] as Playlist[]),
+        listFolders().catch(() => [] as PlaylistFolder[]),
+      ]).then(([ms, ps, fs]) => {
+        setMatches(ms);
+        setPlaylists(ps);
+        setFolders(fs);
+        setLoading(false);
+      });
+    load();
+    // The sample game may be seeded moments after first render.
+    const onSeeded = () => { load(); };
+    window.addEventListener("demo-seeded", onSeeded);
+    return () => window.removeEventListener("demo-seeded", onSeeded);
   }, []);
 
   const recentMatches = matches.slice(0, 3);
@@ -59,7 +69,9 @@ function CoachHomePage() {
   const noGames = !loading && matches.length === 0;
   const noPlaylists = !loading && playlists.length === 0;
 
-  if (!loading && noGames && noPlaylists) {
+  // The dashed "how it works" box only earns its place once the checklist is
+  // gone — showing both would say the same thing twice.
+  if (!loading && noGames && noPlaylists && !showChecklist) {
     return (
       <div className="p-6">
         <div className="space-y-8">
@@ -86,6 +98,8 @@ function CoachHomePage() {
     <div className="p-6">
       <div className="space-y-8">
         <h1 className="text-2xl font-bold tracking-tight text-foreground">Overview</h1>
+
+        {!loading && <GettingStarted matches={matches} playlists={playlists} />}
 
         {/* Playlists */}
         <div>

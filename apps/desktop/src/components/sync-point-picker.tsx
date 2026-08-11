@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Play, Pause, Check } from "lucide-react";
 import { VideoPlayer } from "@/components/video-player";
 import { Button } from "@/components/ui/button";
-import { streamFileSrc } from "@/lib/stream";
+import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { cn } from "@/lib/utils";
 
 export interface SyncPointPickerProps {
@@ -39,7 +39,8 @@ export function SyncPointPicker({
   const [playing, setPlaying] = useState(false);
   const [confirmedTime, setConfirmedTime] = useState<number | null>(initialSeconds ?? null);
 
-  const src = streamFileSrc(videoPath);
+  // The sample game's video is a remote R2 URL, not a local file.
+  const src = isLocalPath(videoPath) ? streamFileSrc(videoPath) : videoPath;
 
   // Wire up video events
   useEffect(() => {

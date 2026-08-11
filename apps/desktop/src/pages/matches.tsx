@@ -35,10 +35,16 @@ export function MatchesPage() {
   useEffect(() => {
     if (!canAccess) return;
     setLoading(true);
-    listMatches(activeOrgId ?? undefined)
-      .then(setMatches)
-      .catch(() => setMatches([]))
-      .finally(() => setLoading(false));
+    const load = () =>
+      listMatches(activeOrgId ?? undefined)
+        .then(setMatches)
+        .catch(() => setMatches([]))
+        .finally(() => setLoading(false));
+    load();
+    // The sample game is seeded fire-and-forget on first launch and may land
+    // after this page already rendered.
+    window.addEventListener("demo-seeded", load);
+    return () => window.removeEventListener("demo-seeded", load);
   }, [activeOrgId, canAccess]);
 
   if (!profileLoading && !canAccess) return null;

@@ -2540,6 +2540,10 @@ export function PlaylistsPage() {
       segmentCount = segments.filter(s => s.kind === 'clip').length;
       await exportPlaylist(segments, preRoll, postRoll, selected!.name);
       trackEvent('video_exported', { playlist_id: selected!.id, clip_count: segmentCount, status: 'success', selection_only: selectedClipIds.size > 0 });
+      // Completes the Getting Started "export a playlist" step (per-device
+      // is fine — the checklist is a first-session aid, not a record).
+      localStorage.setItem("scoutable_has_exported", "1");
+      window.dispatchEvent(new CustomEvent("playlist-exported"));
     } catch (e) {
       setExportError(e instanceof Error ? e.message : String(e));
       trackEvent('video_exported', { playlist_id: selected!.id, clip_count: segmentCount, status: 'error' });
@@ -3028,6 +3032,8 @@ export function PlaylistsPage() {
     );
     for (const mId of involvedMatchIds) {
       const m = matchLookup.get(mId);
+      if (m?.isDemo)
+        return "The sample game can't be exported — import your own game to export";
       if (!m?.videoUrl || !isLocalPath(m.videoUrl))
         return "All games need a local video file for export";
       if (!m.syncPoint)
