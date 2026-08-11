@@ -44,7 +44,7 @@ function roleBadgeVariant(role: string | null, isPlatformAdmin: boolean): "defau
 }
 
 export function ProfilePage() {
-  const { user, activeOrgId, activeOrgPlan, activeOrgRole, activeOrgIsPersonal } = useAuth();
+  const { user, activeOrgId, activeOrgPlan, activeOrgRole, activeOrgIsPersonal, expectPlanChange } = useAuth();
   const navigate = useNavigate();
 
   const [ctx, setCtx] = useState<OrgContext | null>(null);
@@ -124,6 +124,7 @@ export function ProfilePage() {
     try {
       const error = await openBillingPortal();
       if (error) toast.error(error);
+      else expectPlanChange();
     } finally {
       setLoadingPortal(false);
     }
@@ -138,6 +139,7 @@ export function ProfilePage() {
     try {
       const error = await openUpgradeFlow(user?.email);
       if (error) toast.error(error);
+      else expectPlanChange();
     } finally {
       setLoadingPortal(false);
     }

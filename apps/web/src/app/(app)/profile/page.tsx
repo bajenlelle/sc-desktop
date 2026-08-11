@@ -39,7 +39,7 @@ function roleBadgeVariant(role: string, isPlatformAdmin: boolean): "default" | "
 }
 
 export default function ProfilePage() {
-  const { user, activeOrgId, activeOrgRole, activeOrgPlan, activeOrgIsPersonal } = useAuth();
+  const { user, activeOrgId, activeOrgRole, activeOrgPlan, activeOrgIsPersonal, expectPlanChange } = useAuth();
   const router = useRouter();
 
   const [ctx, setCtx] = useState<OrgContext | null>(null);
@@ -160,6 +160,10 @@ export default function ProfilePage() {
       ? `${PRICING_URL_BASE}?email=${encodeURIComponent(email)}#pricing`
       : `${PRICING_URL_BASE}#pricing`;
     window.open(url, "_blank");
+    // Checkout runs in the new tab while this one stays mounted (unlike the
+    // portal path, which navigates away and remounts fresh on return) — so
+    // poll for the webhook's tier write.
+    expectPlanChange();
   }
 
   if (loading) {

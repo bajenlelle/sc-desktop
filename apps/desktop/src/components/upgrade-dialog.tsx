@@ -14,7 +14,7 @@ interface Props {
 }
 
 export function UpgradeDialog({ open, onClose, featureName = "This feature", description }: Props) {
-  const { user } = useAuth();
+  const { user, expectPlanChange } = useAuth();
   const [loading, setLoading] = useState(false);
   const body = description ?? "Export your playlists as MP4 video files with a Rookie or Pro plan. Start with a 14-day free trial — no credit card required upfront.";
 
@@ -26,6 +26,7 @@ export function UpgradeDialog({ open, onClose, featureName = "This feature", des
     try {
       const error = await openUpgradeFlow(user?.email);
       if (error) { toast.error(error); return; }
+      expectPlanChange();
       onClose();
     } finally {
       setLoading(false);
