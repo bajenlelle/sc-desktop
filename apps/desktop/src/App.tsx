@@ -22,6 +22,7 @@ import { OnboardingPage } from "@/pages/onboarding";
 import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { createClient } from "@/lib/supabase/client";
 import { UpdateChecker } from "@/components/UpdateChecker";
+import { UpgradeCelebration } from "@/components/upgrade-celebration";
 import { Toaster } from "sonner";
 import { useTheme } from "next-themes";
 
@@ -109,6 +110,7 @@ export default function App() {
     <AuthProvider>
       <ThemeProvider>
         <UpdateChecker />
+        <UpgradeCelebration />
         <ThemedToaster />
         <BrowserRouter>
           <DeepLinkHandler />

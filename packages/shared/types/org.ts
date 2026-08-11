@@ -15,6 +15,8 @@ export interface UserProfile {
   orgId: string | null;
   createdAt: string;
   isPlatformAdmin: boolean;
+  /** Highest paid tier already thanked-for; gates the one-time upgrade celebration. */
+  celebratedPlanTier?: 'rookie' | 'pro' | null;
 }
 
 export interface Organization {

@@ -28,6 +28,7 @@ interface ProfileRow {
   created_at: string;
   is_platform_admin: boolean;
   email?: string | null;
+  celebrated_plan_tier?: string | null;
 }
 
 interface OrgMemberRow {
@@ -118,6 +119,7 @@ function rowToProfile(r: ProfileRow): UserProfile {
     orgId: r.org_id,
     createdAt: r.created_at,
     isPlatformAdmin: r.is_platform_admin ?? false,
+    celebratedPlanTier: (r.celebrated_plan_tier as 'rookie' | 'pro' | null | undefined) ?? null,
   };
 }
 
@@ -204,11 +206,28 @@ export async function getMyProfile(userId: string): Promise<UserProfile> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin")
+    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin, celebrated_plan_tier")
     .eq("id", userId)
     .single();
   if (error || !data) throw new Error(`Failed to load profile: ${error?.message}`);
   return rowToProfile(data as ProfileRow);
+}
+
+/**
+ * Record that the one-time upgrade celebration was shown for this tier, so
+ * no other device or app (web/desktop) shows it again.
+ */
+export async function markPlanCelebrated(tier: 'rookie' | 'pro'): Promise<void> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+  const { error } = await supabase
+    .from("profiles")
+    .update({ celebrated_plan_tier: tier })
+    .eq("id", user.id);
+  if (error) throw new Error(`Failed to mark plan celebrated: ${error.message}`);
 }
 
 export async function updateMyProfile(patch: { fullName?: string; avatarUrl?: string }): Promise<void> {
