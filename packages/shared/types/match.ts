@@ -206,6 +206,10 @@ export interface StoredMatch {
   /** Stage within the season, e.g. "regular" | "playoff". */
   stageId?: string;
   orgId?: string;
+  /** Seeded sample game — excluded from quota, export/replace-video gated. */
+  isDemo?: boolean;
+  /** The league API's stable game uuid — dedupes re-imports in the quota log. */
+  sourceGameId?: string;
 }
 
 // --- Match -------------------------------------------------------------------

@@ -28,6 +28,8 @@ interface MatchRow {
   season_id: string | null;
   stage_id: string | null;
   org_id: string | null;
+  is_demo?: boolean;
+  source_game_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -66,6 +68,8 @@ function rowToStoredMatch(row: MatchRow, events: EventRow[]): StoredMatch {
     seasonId: row.season_id ?? undefined,
     stageId: row.stage_id ?? undefined,
     orgId: row.org_id ?? undefined,
+    isDemo: row.is_demo ?? false,
+    sourceGameId: row.source_game_id ?? undefined,
     events: events.map((e) => ({
       eventId: e.event_id ?? 0,
       type: e.type,
@@ -114,6 +118,9 @@ export async function saveMatch(supabase: SupabaseClient, match: StoredMatch): P
   }
   if (match.orgId !== undefined) {
     matchData.org_id = match.orgId;
+  }
+  if (match.sourceGameId !== undefined) {
+    matchData.source_game_id = match.sourceGameId;
   }
   const { error: matchError } = await supabase.from("matches").upsert(matchData, { onConflict: "id" });
   if (matchError) throw new Error(`Failed to save match: ${matchError.message}`);
@@ -363,8 +370,21 @@ export async function countMatchesThisMonth(supabase: SupabaseClient): Promise<n
   const { count } = await supabase
     .from("matches")
     .select("*", { count: "exact", head: true })
-    .gte("created_at", startOfMonth);
+    .gte("created_at", startOfMonth)
+    .eq("is_demo", false);
   return count ?? 0;
+}
+
+/**
+ * Copy the sample game into the caller's personal org so a brand-new user
+ * can try clips → playlists with zero footage. Server-side idempotent (once
+ * per user, ever); returns the new match id, or null when it no-ops
+ * (already seeded, org not personal, or no template configured yet).
+ */
+export async function seedDemoMatch(supabase: SupabaseClient, orgId: string): Promise<string | null> {
+  const { data, error } = await supabase.rpc("seed_demo_match", { p_org_id: orgId });
+  if (error) throw new Error(`Failed to seed demo match: ${error.message}`);
+  return (data as string | null) ?? null;
 }
 
 export async function countClubMatchesThisMonth(

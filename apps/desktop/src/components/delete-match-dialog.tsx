@@ -8,18 +8,24 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { deleteMatch } from "@/lib/matches-db";
+import { useImportQuota } from "@/lib/use-import-quota";
 
 export function DeleteMatchDialog({
   matchId,
   matchTitle,
   trigger,
   onDeleted,
+  isDemo,
 }: {
   matchId: string;
   matchTitle: string;
   trigger: React.ReactNode;
   onDeleted: () => void;
+  /** The sample game never counted against the quota, so no note for it. */
+  isDemo?: boolean;
 }) {
+  // null = unlimited tier or team space, where the quota note is noise.
+  const remainingImports = useImportQuota();
   const [open, setOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -52,6 +58,12 @@ export function DeleteMatchDialog({
           </span>{" "}
           and all its clips. This can&apos;t be undone.
         </p>
+        {!isDemo && remainingImports !== null && (
+          <p className="text-xs text-muted-foreground">
+            Deleting doesn&apos;t restore your monthly import — the import has
+            already been used. Re-importing this same game later is free.
+          </p>
+        )}
         {deleteError && (
           <p className="text-sm text-red-600 dark:text-red-400">{deleteError}</p>
         )}

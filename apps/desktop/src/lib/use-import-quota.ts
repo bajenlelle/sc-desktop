@@ -22,14 +22,23 @@ export function useImportQuota(): number | null {
       return;
     }
     let cancelled = false;
-    countClubMatchesThisMonth(NT_LEAGUE_IDS, activeOrgId)
-      .then((count) => {
-        if (!cancelled) setRemaining(Math.max(0, limit - count));
-      })
-      .catch(() => {
-        if (!cancelled) setRemaining(null);
-      });
-    return () => { cancelled = true; };
+    const refetch = () => {
+      countClubMatchesThisMonth(NT_LEAGUE_IDS, activeOrgId)
+        .then((count) => {
+          if (!cancelled) setRemaining(Math.max(0, limit - count));
+        })
+        .catch(() => {
+          if (!cancelled) setRemaining(null);
+        });
+    };
+    refetch();
+    // The badge outlives every page (it sits in the persistent header), so it
+    // re-counts whenever an import or delete changes the month's total.
+    window.addEventListener("matches-changed", refetch);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("matches-changed", refetch);
+    };
   }, [activeOrgId, activeOrgPlan, activeOrgIsPersonal]);
 
   return remaining;

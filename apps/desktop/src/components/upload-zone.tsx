@@ -380,6 +380,8 @@ export function UploadZone({
     const matchId = crypto.randomUUID();
     const storedMatch: StoredMatch = {
       id: matchId,
+      // Stable across re-imports of the same fixture — dedupes the quota log.
+      sourceGameId: selectedGame?.uuid,
       title: matchTitle || `${homeTeam} vs ${awayTeam}`,
       date: matchDate || new Date().toISOString().slice(0, 10),
       homeTeam: { name: homeTeam, color: homeColor },
