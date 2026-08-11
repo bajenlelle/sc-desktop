@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Pause, Play, RotateCcw, SkipBack, SkipForward, Square } from "lucide-react";
+import { MoreHorizontal, Pause, Play, RotateCcw, SkipBack, SkipForward, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface VideoClipControlsProps {
@@ -33,6 +33,9 @@ export function VideoClipControls({
   const [speed, setSpeed] = useState(1);
   const [speedOpen, setSpeedOpen] = useState(false);
   const speedRef = useRef<HTMLDivElement>(null);
+  // Phones only get prev / play / next inline; the rest lives behind this.
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -65,6 +68,19 @@ export function VideoClipControls({
     document.addEventListener("mousedown", onMouseDown);
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, [speedOpen]);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    function onPointerDown(e: MouseEvent | TouchEvent) {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("touchstart", onPointerDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+    };
+  }, [moreOpen]);
 
   function togglePlayPause() {
     const video = videoRef.current;
@@ -101,7 +117,7 @@ export function VideoClipControls({
           <SkipBack className="h-5 w-5" />
         </CtrlBtn>
 
-        <CtrlBtn onClick={onReplay} disabled={!isQueueActive} title="Replay clip">
+        <CtrlBtn onClick={onReplay} disabled={!isQueueActive} title="Replay clip" className="hidden lg:flex">
           <RotateCcw className="h-[18px] w-[18px]" />
         </CtrlBtn>
 
@@ -122,14 +138,54 @@ export function VideoClipControls({
           <SkipForward className="h-5 w-5" />
         </CtrlBtn>
 
-        <CtrlBtn onClick={onStop} disabled={!isQueueActive} title="Stop">
+        <CtrlBtn onClick={onStop} disabled={!isQueueActive} title="Stop" className="hidden lg:flex">
           <Square className="h-4 w-4 fill-current" />
         </CtrlBtn>
 
-        <div className="mx-1 h-5 w-px bg-border" />
+        {/* Overflow — replay / stop / speed, phone only */}
+        <div ref={moreRef} className="relative lg:hidden">
+          <CtrlBtn onClick={() => setMoreOpen((v) => !v)} title="More">
+            <MoreHorizontal className="h-5 w-5" />
+          </CtrlBtn>
+          {moreOpen && (
+            <div className="absolute bottom-full right-0 mb-1.5 min-w-[9rem] overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
+              <button
+                onClick={() => { onReplay(); setMoreOpen(false); }}
+                disabled={!isQueueActive}
+                className="flex min-h-[44px] w-full items-center gap-2 px-3 text-sm text-foreground/90 disabled:opacity-40"
+              >
+                <RotateCcw className="h-4 w-4" /> Replay
+              </button>
+              <button
+                onClick={() => { onStop(); setMoreOpen(false); }}
+                disabled={!isQueueActive}
+                className="flex min-h-[44px] w-full items-center gap-2 px-3 text-sm text-foreground/90 disabled:opacity-40"
+              >
+                <Square className="h-3.5 w-3.5 fill-current" /> Stop
+              </button>
+              <div className="h-px bg-border" />
+              <div className="flex flex-wrap gap-1 p-2">
+                {SPEEDS.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => { setSpeed(s); setMoreOpen(false); }}
+                    className={cn(
+                      "min-h-[36px] min-w-[44px] rounded-md px-2 text-xs font-medium tabular-nums",
+                      s === speed ? "bg-primary text-primary-foreground" : "bg-muted text-foreground/80"
+                    )}
+                  >
+                    {s === 1 ? "1×" : `${s}×`}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
-        {/* Speed dropdown */}
-        <div ref={speedRef} className="relative">
+        <div className="mx-1 hidden h-5 w-px bg-border lg:block" />
+
+        {/* Speed dropdown — desktop */}
+        <div ref={speedRef} className="relative hidden lg:block">
           <button
             onClick={() => setSpeedOpen((v) => !v)}
             title="Playback speed"
@@ -169,11 +225,13 @@ function CtrlBtn({
   onClick,
   disabled,
   title,
+  className,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   disabled?: boolean;
   title?: string;
+  className?: string;
 }) {
   return (
     <button
@@ -182,10 +240,12 @@ function CtrlBtn({
       title={title}
       className={cn(
         "flex items-center justify-center rounded-lg text-foreground/70 transition-all",
-        "h-10 w-10",
+        // 44px on touch, tighter once there's a pointer.
+        "h-11 w-11 lg:h-10 lg:w-10",
         "hover:bg-muted hover:text-foreground",
         "active:scale-95",
-        "disabled:opacity-25 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-foreground/70 disabled:active:scale-100"
+        "disabled:opacity-25 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-foreground/70 disabled:active:scale-100",
+        className
       )}
     >
       {children}

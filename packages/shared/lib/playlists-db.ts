@@ -30,10 +30,13 @@ interface PlaylistClipRow {
 
 interface PlaylistShareRow {
   team_id: string;
+  shared_at?: string;
 }
 
 interface PlaylistUserShareRow {
   user_id: string;
+  shared_at?: string;
+  shared_by?: string;
 }
 
 interface PlaylistRow {
@@ -77,6 +80,18 @@ function rowToPlaylist(row: PlaylistRow): Playlist {
     .filter((x): x is PlaylistItem => x !== null);
   const teamIds = (row.playlist_shares ?? []).map((s) => s.team_id);
   const userIds = (row.playlist_user_shares ?? []).map((s) => s.user_id);
+
+  // "Shared with me" time: prefer the direct share, since it names the sharer
+  // too. Team shares only carry a timestamp, so the sharer falls back to the
+  // playlist owner. Multiple rows can match (several teams) — take the newest.
+  const directShareRow = (row.playlist_user_shares ?? [])[0];
+  const newestTeamShare = (row.playlist_shares ?? [])
+    .map((s) => s.shared_at)
+    .filter((d): d is string => !!d)
+    .sort()
+    .pop();
+  const sharedAt = directShareRow?.shared_at ?? newestTeamShare;
+
   return {
     id: row.id,
     name: row.name,
@@ -86,6 +101,8 @@ function rowToPlaylist(row: PlaylistRow): Playlist {
     teamIds,
     userIds,
     createdBy: row.user_id,
+    ...(sharedAt ? { sharedAt } : {}),
+    sharedBy: directShareRow?.shared_by ?? row.user_id,
   };
 }
 
@@ -112,8 +129,8 @@ const PLAYLIST_SELECT = `
   created_at,
   updated_at,
   playlist_clips (${CLIPS_SELECT}),
-  playlist_shares (team_id),
-  playlist_user_shares (user_id)
+  playlist_shares (team_id, shared_at),
+  playlist_user_shares (user_id, shared_at, shared_by)
 `;
 
 // ---------------------------------------------------------------------------

@@ -8,49 +8,12 @@ import { Input } from "@/components/ui/input";
 import { MultiSelectDropdown } from "@/components/ui/multi-select-dropdown";
 import { isClipItem, type Playlist, type PlaylistFolder, type PlaylistClipItem, type PlayByPlayEvent, type SyncPoint } from "@/types/match";
 import { exportPlaylist, type ExportSegment } from "@/lib/export";
+import { eventLabel, formatGameClock, periodLabel, playerName } from "@scoutable/shared/lib/events";
 import { isLocalPath } from "@/lib/stream";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function eventLabel(e: PlayByPlayEvent): string {
-  const sub = e.subType?.toLowerCase() ?? "";
-  switch (e.type) {
-    case "2pt":
-      return e.isSuccessful ? "2PT Made" : "2PT Miss";
-    case "3pt":
-      return e.isSuccessful ? "3PT Made" : "3PT Miss";
-    case "freethrow":
-      return e.isSuccessful ? "FT Made" : "FT Miss";
-    case "rebound":
-      if (sub === "offensivedeadball") return "Inbound Play";
-      if (sub.includes("off")) return "Off Rebound";
-      if (sub.includes("def")) return "Def Rebound";
-      return "Rebound";
-    case "turnover":
-      if (sub === "badpass") return "Bad Pass";
-      if (sub === "ballhandling") return "Ball Handling";
-      if (sub === "travel") return "Travel";
-      if (sub === "24sec") return "Shot Clock";
-      if (sub === "outofbounds") return "Out of Bounds";
-      return "Turnover";
-    case "steal":
-      return "Steal";
-    case "foul":
-      if (sub === "offensive") return "Charge";
-      if (["technical", "benchtechnical", "coachtechnical"].includes(sub)) return "Technical";
-      return "Foul";
-    case "foulon":
-      return "Foul Drawn";
-    case "block":
-      return "Block";
-    case "assist":
-      return "Assist";
-    default:
-      return e.type;
-  }
-}
 
 function eventBadgeColor(e: PlayByPlayEvent): string {
   switch (e.type) {
@@ -72,21 +35,6 @@ function eventBadgeColor(e: PlayByPlayEvent): string {
     default:
       return "bg-muted text-muted-foreground";
   }
-}
-
-function playerName(e: PlayByPlayEvent): string {
-  if (!e.player) return "—";
-  return `${e.player.firstName} ${e.player.familyName}`.trim();
-}
-
-function periodLabel(period: number): string {
-  return period > 4 ? `OT${period - 4}` : `Q${period}`;
-}
-
-function formatGameClock(raw: string): string {
-  if (!raw) return "—";
-  const parts = raw.split(":");
-  return parts.slice(0, 2).join(":");
 }
 
 function parseGameClock(raw: string): number {

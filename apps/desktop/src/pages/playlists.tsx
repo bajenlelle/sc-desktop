@@ -47,6 +47,7 @@ import { listLabels, createLabel as apiCreateLabel, updateLabel as apiUpdateLabe
 import { LabelChip } from "@/components/labels/LabelChip";
 import { LabelPickerPopover, type LabelTriState } from "@/components/labels/LabelPickerPopover";
 import type { Label, LabelColor, ClipKey } from "@scoutable/shared/types/labels";
+import { eventColors, eventLabel, formatGameClock, playerName } from "@scoutable/shared/lib/events";
 import { getOrgContext, getOrgContextForOrg, getOrgMembers, getTeamMemberIds } from "@/lib/profile-db";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
 import type { OrgTeam, UserProfile } from "@/types/org";
@@ -72,81 +73,6 @@ function computeVideoTime(event: PlayByPlayEvent, sync: SyncPoint): number | nul
   const syncMs = new Date(sync.syncRealWorldTime).getTime();
   if (isNaN(eventMs) || isNaN(syncMs)) return null;
   return sync.syncVideoTime + (eventMs - syncMs) / 1000;
-}
-
-function eventLabel(e: PlayByPlayEvent): string {
-  const sub = e.subType?.toLowerCase() ?? "";
-  switch (e.type) {
-    case "2pt":
-      return e.isSuccessful ? "2PT Made" : "2PT Miss";
-    case "3pt":
-      return e.isSuccessful ? "3PT Made" : "3PT Miss";
-    case "freethrow":
-      return e.isSuccessful ? "FT Made" : "FT Miss";
-    case "rebound":
-      if (sub.includes("off")) return "Off Rebound";
-      if (sub.includes("def")) return "Def Rebound";
-      return "Rebound";
-    case "turnover":
-      return "Turnover";
-    case "steal":
-      return "Steal";
-    case "foul":
-      return "Foul";
-    case "foulon":
-      return "Foul Drawn";
-    case "block":
-      return "Block";
-    case "assist":
-      return "Assist";
-    default:
-      return e.type;
-  }
-}
-
-function eventColors(e: PlayByPlayEvent): { strip: string; badge: string } {
-  const made = !!e.isSuccessful;
-  if (e.type === "freethrow") {
-    return made
-      ? { strip: "bg-emerald-300", badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300" }
-      : { strip: "bg-red-300",     badge: "bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300" };
-  }
-  if (e.type === "2pt") {
-    return made
-      ? { strip: "bg-emerald-400", badge: "bg-emerald-200 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200" }
-      : { strip: "bg-red-400",     badge: "bg-red-200 text-red-800 dark:bg-red-900/60 dark:text-red-200" };
-  }
-  if (e.type === "3pt") {
-    return made
-      ? { strip: "bg-emerald-600", badge: "bg-emerald-300 text-emerald-900 dark:bg-emerald-800 dark:text-emerald-100" }
-      : { strip: "bg-red-600",     badge: "bg-red-300 text-red-900 dark:bg-red-800 dark:text-red-100" };
-  }
-  switch (e.type) {
-    case "rebound": {
-      const sub = e.subType?.toLowerCase() ?? "";
-      if (sub.includes("off")) return { strip: "bg-sky-400",   badge: "bg-sky-100 text-sky-700 dark:bg-sky-900/60 dark:text-sky-300" };
-      if (sub.includes("def")) return { strip: "bg-blue-500",  badge: "bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200" };
-      return                          { strip: "bg-slate-400", badge: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" };
-    }
-    case "assist":   return { strip: "bg-cyan-400",   badge: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/60 dark:text-cyan-300" };
-    case "steal":    return { strip: "bg-violet-400", badge: "bg-violet-100 text-violet-700 dark:bg-violet-900/60 dark:text-violet-300" };
-    case "block":    return { strip: "bg-violet-600", badge: "bg-violet-200 text-violet-800 dark:bg-violet-800 dark:text-violet-200" };
-    case "turnover": return { strip: "bg-amber-400",  badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300" };
-    case "foul":
-    case "foulon":   return { strip: "bg-orange-400", badge: "bg-orange-100 text-orange-700 dark:bg-orange-900/60 dark:text-orange-300" };
-  }
-  return { strip: "bg-slate-300", badge: "bg-muted text-muted-foreground" };
-}
-
-function playerName(e: PlayByPlayEvent): string {
-  if (!e.player) return "—";
-  return `${e.player.firstName} ${e.player.familyName}`.trim();
-}
-
-function formatGameClock(raw: string): string {
-  if (!raw) return "—";
-  const parts = raw.split(":");
-  return parts.slice(0, 2).join(":");
 }
 
 function parseGameClock(raw: string): number {

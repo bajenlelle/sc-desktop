@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { BookOpen, ChevronDown, ChevronRight, Loader2, Send, Share2, User2 } from "lucide-react";
+import { BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Loader2, Send, Share2, User2 } from "lucide-react";
+import { ClipRow } from "@/components/playlist/ClipRow";
+import { PlaylistFeed, type SourceOption } from "@/components/playlist/PlaylistFeed";
+import type { PlaylistCardData } from "@/components/playlist/PlaylistCard";
+import { listMyClipViews, markClipWatched, clipViewKey } from "@/lib/clip-views-db";
 import { VideoPlayer } from "@/components/video-player";
 import { VideoClipControls } from "@/components/video-clip-controls";
 import { VideoPlaceholder } from "@/components/video-placeholder";
@@ -9,9 +13,8 @@ import { getMyTeamPlaylists, getMyDirectPlaylists, getMySharedOutPlaylists, setP
 import { getOrgContext, getOrgContextForOrg } from "@/lib/profile-db";
 import { useAuth } from "@/lib/auth-context";
 import { listMatches } from "@/lib/matches-db";
-import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { isClipItem } from "@/types/match";
-import type { Playlist, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
+import type { Playlist, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch } from "@/types/match";
 import type { OrgTeam, UserProfile } from "@/types/org";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -22,7 +25,14 @@ import { Button } from "@/components/ui/button";
 // Types
 // ---------------------------------------------------------------------------
 
-type QueueItem = { event: PlayByPlayEvent; matchId: string };
+/**
+ * `r2Url` is the pre-cut clip in cloud storage, produced by Clip & Ship when
+ * a coach shares a playlist. Recipients open this page on their own machine
+ * and have none of the coach's local match footage, so it is the *only*
+ * usable source here — unlike the coach's own /playlists page, which seeks
+ * inside the original local video.
+ */
+type QueueItem = { event: PlayByPlayEvent; matchId: string; r2Url?: string; note?: string };
 type PlaybackItem = QueueItem | PlaylistTextCard;
 
 function isTextCard(i: PlaybackItem): i is PlaylistTextCard {
@@ -34,21 +44,9 @@ function itemKey(i: PlaybackItem): string {
   return `${(i as QueueItem).matchId}:${(i as QueueItem).event.eventId}`;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function computeVideoTime(event: PlayByPlayEvent, sync: SyncPoint): number | null {
-  if (!event.realWorldTime || !sync.syncRealWorldTime) return null;
-  const eventMs = new Date(event.realWorldTime).getTime();
-  const syncMs = new Date(sync.syncRealWorldTime).getTime();
-  if (isNaN(eventMs) || isNaN(syncMs)) return null;
-  return sync.syncVideoTime + (eventMs - syncMs) / 1000;
-}
-
-function playerName(event: PlayByPlayEvent): string {
-  if (!event.player) return "Unknown player";
-  return `${event.player.firstName} ${event.player.familyName}`.trim();
+/** Text cards are always playable; clips need their exported cloud file. */
+function isPlayable(i: PlaybackItem): boolean {
+  return isTextCard(i) || !!(i as QueueItem).r2Url;
 }
 
 // ---------------------------------------------------------------------------
@@ -70,6 +68,7 @@ export function MyPlaylistsPage() {
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Playlist | null>(null);
+  const [clipViews, setClipViews] = useState<Set<string>>(new Set());
   const [teamMap, setTeamMap] = useState<Map<string, OrgTeam>>(new Map());
   const [memberMap, setMemberMap] = useState<Map<string, UserProfile>>(new Map());
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
@@ -84,7 +83,8 @@ export function MyPlaylistsPage() {
   const [playerSearchQuery, setPlayerSearchQuery] = useState("");
 
   // Playback state
-  const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
+  /** Cloud URL of the clip currently loaded into the player. */
+  const [activeClipSrc, setActiveClipSrc] = useState<string | null>(null);
   const [activeEventId, setActiveEventId] = useState<number | null>(null);
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -93,7 +93,14 @@ export function MyPlaylistsPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const queueRef = useRef<PlaybackItem[]>([]);
   const queueIdxRef = useRef<number>(0);
-  const clipEndRef = useRef<number | undefined>(undefined);
+  /** Identity of the clip currently loaded, for attributing a watch to it. */
+  const clipWatchKeyRef = useRef<{ matchId: string; eventId: number } | null>(null);
+  /** Guards against re-recording the same clip on every timeupdate tick. */
+  const clipWatchedRef = useRef(false);
+  const pendingPlayRef = useRef(false);
+  const recordWatchedRef = useRef<(p: string, m: string, e: number) => void>(() => {});
+  /** Set by Resume; consumed once the playlist's items have loaded. */
+  const resumeTargetRef = useRef<string | null>(null);
   const pendingSeekRef = useRef<{ seekTo: number; clipEnd: number } | null>(null);
   const activeMatchIdRef = useRef<string | null>(null);
   const matchLookupRef = useRef<Map<string, StoredMatch>>(new Map());
@@ -134,6 +141,9 @@ export function MyPlaylistsPage() {
       if (orgCtx) {
         setExpandedTeams(new Set(pls.flatMap((p) => (p.teamIds && p.teamIds.length > 0) ? p.teamIds : [p.teamId ?? '__none__'])));
       }
+      // Watch history drives the feed's NEW badges and progress bars.
+      const views = await listMyClipViews().catch(() => []);
+      setClipViews(new Set(views.map((v) => clipViewKey(v.playlistId, v.matchId, v.eventId))));
     }).finally(() => setLoading(false));
   }, [activeOrgId]);
 
@@ -164,6 +174,106 @@ export function MyPlaylistsPage() {
       ),
     };
   }, [playlists, directPlaylists]);
+
+  // Every playlist the user can open, deduped — one can arrive via both a
+  // team share and a direct share.
+  const allPlaylists = useMemo(() => {
+    const byId = new Map<string, Playlist>();
+    for (const p of [...directPlaylists, ...playlists, ...sharedOutPlaylists]) {
+      if (!byId.has(p.id)) byId.set(p.id, p);
+    }
+    return [...byId.values()];
+  }, [playlists, directPlaylists, sharedOutPlaylists]);
+
+  const isClipWatched = useCallback(
+    (playlistId: string, matchId: string, eventId: number) =>
+      clipViews.has(clipViewKey(playlistId, matchId, eventId)),
+    [clipViews],
+  );
+
+  /**
+   * Records a clip as watched once. Deduped against what we already know, so
+   * repeated timeupdate ticks and rewatches cost nothing.
+   */
+  const recordWatched = useCallback((playlistId: string, matchId: string, eventId: number) => {
+    const key = clipViewKey(playlistId, matchId, eventId);
+    let alreadyKnown = false;
+    setClipViews((prev) => {
+      if (prev.has(key)) { alreadyKnown = true; return prev; }
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+    if (alreadyKnown) return;
+    void markClipWatched(playlistId, matchId, eventId);
+  }, []);
+
+  useEffect(() => { recordWatchedRef.current = recordWatched; }, [recordWatched]);
+
+  const openPlaylist = useCallback((id: string) => {
+    const pl = allPlaylists.find((p) => p.id === id);
+    if (pl) setSelected(pl);
+  }, [allPlaylists]);
+
+  /** Opens a playlist and starts from the first clip the player hasn't watched. */
+  const resumePlaylist = useCallback((id: string) => {
+    const pl = allPlaylists.find((p) => p.id === id);
+    if (!pl) return;
+    setSelected(pl);
+    const firstUnwatched = pl.items
+      .filter(isClipItem)
+      .find((c) => !clipViews.has(clipViewKey(pl.id, c.matchId, c.eventId)));
+    resumeTargetRef.current = firstUnwatched
+      ? `${firstUnwatched.matchId}:${firstUnwatched.eventId}`
+      : null;
+  }, [allPlaylists, clipViews]);
+
+  // Cards for the landing feed, with per-playlist progress folded in.
+  const feedItems = useMemo<PlaylistCardData[]>(() => {
+    const directIds = new Set(directPlaylists.map((p) => p.id));
+    return allPlaylists.map((pl) => {
+      const clips = pl.items.filter(isClipItem);
+      const watchedCount = clips.filter((c) =>
+        clipViews.has(clipViewKey(pl.id, c.matchId, c.eventId)),
+      ).length;
+      const sharer = pl.sharedBy ? memberMap.get(pl.sharedBy) : undefined;
+      return {
+        id: pl.id,
+        name: pl.name,
+        clipCount: clips.length,
+        watchedCount,
+        sharedAt: pl.sharedAt,
+        sharerName: sharer?.fullName ?? undefined,
+        sharerAvatarUrl: sharer?.avatarUrl ?? undefined,
+        isDirect: directIds.has(pl.id),
+        teamIds: pl.teamIds ?? [],
+      };
+    });
+  }, [allPlaylists, directPlaylists, clipViews, memberMap]);
+
+  /** Source filter options — mirrors how the sidebar groups playlists. */
+  const sourceOptions = useMemo<SourceOption[]>(() => {
+    const opts: SourceOption[] = [{ value: "all", label: "All playlists" }];
+    if (directPlaylists.length > 0) {
+      opts.push({ value: "direct", label: "Shared with me" });
+    }
+    for (const [teamId, team] of teamMap) {
+      if (playlists.some((p) => (p.teamIds ?? []).includes(teamId))) {
+        opts.push({ value: `team:${teamId}`, label: team.name });
+      }
+    }
+    return opts;
+  }, [directPlaylists, playlists, teamMap]);
+
+  /** Watched/total for the open playlist, shown under the controls. */
+  const selectedProgress = useMemo(() => {
+    if (!selected) return { watched: 0, total: 0 };
+    const clips = selected.items.filter(isClipItem);
+    return {
+      watched: clips.filter((c) => clipViews.has(clipViewKey(selected.id, c.matchId, c.eventId))).length,
+      total: clips.length,
+    };
+  }, [selected, clipViews]);
 
   const { sharedOutOnlyPlaylists, overlappingSharedOutIds } = useMemo(() => {
     const teamPlaylistIds = new Set(playlists.map((p) => p.id));
@@ -214,8 +324,8 @@ export function MyPlaylistsPage() {
     setIsPlaying(false);
     setActiveEventId(null);
     setActiveTextCard(null);
-    clipEndRef.current = undefined;
-    pendingSeekRef.current = null;
+    clipWatchKeyRef.current = null;
+    pendingPlayRef.current = false;
     if (textCardTimerRef.current) {
       clearTimeout(textCardTimerRef.current);
       textCardTimerRef.current = null;
@@ -230,32 +340,18 @@ export function MyPlaylistsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id]);
 
-  // Swap video source when activeMatchId changes
-  useEffect(() => {
-    if (!activeMatchId) { setLocalVideoUrl(null); return; }
-    const m = matchLookupRef.current.get(activeMatchId);
-    if (!m?.videoUrl) { setLocalVideoUrl(null); return; }
-    const url = m.videoUrl;
-    setLocalVideoUrl(isLocalPath(url) ? streamFileSrc(url) : url);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeMatchId]);
-
-  // Apply pending seek after video source changes
+  // Autoplay whenever the clip source changes as part of queue playback.
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !localVideoUrl || !pendingSeekRef.current) return;
+    if (!video || !activeClipSrc) return;
     function handleCanPlay() {
-      if (!pendingSeekRef.current) return;
-      const { seekTo, clipEnd } = pendingSeekRef.current;
-      pendingSeekRef.current = null;
-      clipEndRef.current = clipEnd;
-      video!.currentTime = seekTo;
-      video!.addEventListener("seeked", () => video!.play().catch(() => {}), { once: true });
+      if (!pendingPlayRef.current) return;
+      pendingPlayRef.current = false;
+      video!.play().catch(() => {});
     }
     video.addEventListener("canplay", handleCanPlay, { once: true });
     return () => video.removeEventListener("canplay", handleCanPlay);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localVideoUrl]);
+  }, [activeClipSrc]);
 
   // Build ordered playback items for the selected playlist
   const displayItems = useMemo((): PlaybackItem[] => {
@@ -265,7 +361,9 @@ export function MyPlaylistsPage() {
       if (isClipItem(item)) {
         const match = matchLookup.get(item.matchId);
         const event = match?.events.find((e) => e.eventId === item.eventId);
-        if (event) items.push({ event, matchId: item.matchId });
+        if (event) {
+          items.push({ event, matchId: item.matchId, r2Url: item.r2Url, note: item.note });
+        }
       } else {
         items.push(item as PlaylistTextCard);
       }
@@ -273,28 +371,30 @@ export function MyPlaylistsPage() {
     return items;
   }, [selected, matchLookup]);
 
+  // Clips still awaiting their cloud export can't play, so they're skipped by
+  // the queue while remaining visible (disabled) in the list.
+  const playableQueue = useMemo(() => displayItems.filter(isPlayable), [displayItems]);
+
   useEffect(() => { displayItemsRef.current = displayItems; }, [displayItems]);
 
-  // Helper: get clip offsets (always 0 for read-only view)
-  function getClipOffsets() {
-    return { pre: 0, post: 0 };
+  /**
+   * Starts a clip. Each cloud clip is its own pre-trimmed file, so this is
+   * just a source swap — no seeking, no sync point, nothing that depends on
+   * the recipient holding the original match video.
+   */
+  function playClip(item: QueueItem) {
+    if (!item.r2Url) return;
+    setActiveEventId(item.event.eventId);
+    setActiveMatchId(item.matchId);
+    setActiveClipSrc(item.r2Url);
+    pendingPlayRef.current = true;
+    clipWatchKeyRef.current = { matchId: item.matchId, eventId: item.event.eventId };
+    clipWatchedRef.current = false;
   }
-
-  const preRoll = 10;
-  const postRoll = 3;
-
-  function seekToItem(item: QueueItem) {
-    const sp = matchLookupRef.current.get(item.matchId)?.syncPoint;
-    const video = videoRef.current;
-    if (!sp || !video) return;
-    const videoTime = computeVideoTime(item.event, sp);
-    if (videoTime === null) return;
-    const seekTo = Math.max(0, videoTime - preRoll);
-    clipEndRef.current = Math.max(videoTime, videoTime + postRoll);
-    video.pause();
-    video.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
-    video.currentTime = seekTo;
-  }
+  // The advance handlers live in effects that only re-subscribe on src change,
+  // so they reach playClip through a ref to avoid a stale closure.
+  const playClipRef = useRef(playClip);
+  playClipRef.current = playClip;
 
   // Text card advance logic
   function advanceFromTextCard() {
@@ -312,26 +412,7 @@ export function MyPlaylistsPage() {
       if (isTextCard(nextItem)) {
         startTextCardRef.current(nextItem as PlaylistTextCard);
       } else {
-        const clipItem = nextItem as QueueItem;
-        setActiveEventId(clipItem.event.eventId);
-        const sp = matchLookupRef.current.get(clipItem.matchId)?.syncPoint;
-        if (sp) {
-          const videoTime = computeVideoTime(clipItem.event, sp);
-          if (videoTime !== null) {
-            const seekTo = Math.max(0, videoTime - preRoll);
-            const clipEnd = Math.max(videoTime, videoTime + postRoll);
-            if (clipItem.matchId !== activeMatchIdRef.current) {
-              pendingSeekRef.current = { seekTo, clipEnd };
-              setActiveMatchId(clipItem.matchId);
-            } else {
-              clipEndRef.current = clipEnd;
-              const video = videoRef.current;
-              video?.pause();
-              video?.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
-              if (video) video.currentTime = seekTo;
-            }
-          }
-        }
+        playClipRef.current(nextItem as QueueItem);
       }
     } else {
       setIsPlaying(false);
@@ -355,58 +436,51 @@ export function MyPlaylistsPage() {
   const startTextCardRef = useRef(startTextCard);
   startTextCardRef.current = startTextCard;
 
-  // Auto-advance via timeupdate
+  // Watch tracking + auto-advance. Each clip is now its own file, so
+  // `video.duration` is the clip's length and the 90% rule applies directly —
+  // the same rule the web player uses.
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    function handleTimeUpdate() {
-      const end = clipEndRef.current;
-      if (end === undefined || !video) return;
-      if (video.currentTime < end) return;
+    function markIfWatched() {
+      if (clipWatchedRef.current || !video) return;
+      const key = clipWatchKeyRef.current;
+      const playlistId = selectedRef.current?.id;
+      if (!key || !playlistId) return;
+      const d = video.duration;
+      if (!d || !Number.isFinite(d)) return;
+      if (video.currentTime / d < 0.9) return;
+      clipWatchedRef.current = true;
+      recordWatchedRef.current(playlistId, key.matchId, key.eventId);
+    }
 
-      clipEndRef.current = undefined;
-      video.pause();
+    function handleEnded() {
+      markIfWatched();
       const nextIdx = queueIdxRef.current + 1;
       const queue = queueRef.current;
-
       if (nextIdx < queue.length) {
         queueIdxRef.current = nextIdx;
         const nextItem = queue[nextIdx];
         if (isTextCard(nextItem)) {
           startTextCardRef.current(nextItem as PlaylistTextCard);
         } else {
-          const clipItem = nextItem as QueueItem;
-          setActiveEventId(clipItem.event.eventId);
-          const sp = matchLookupRef.current.get(clipItem.matchId)?.syncPoint;
-          if (sp) {
-            const videoTime = computeVideoTime(clipItem.event, sp);
-            if (videoTime !== null) {
-              const seekTo = Math.max(0, videoTime - preRoll);
-              const clipEnd = Math.max(videoTime, videoTime + postRoll);
-              if (clipItem.matchId !== activeMatchIdRef.current) {
-                pendingSeekRef.current = { seekTo, clipEnd };
-                setActiveMatchId(clipItem.matchId);
-              } else {
-                clipEndRef.current = clipEnd;
-                video.pause();
-                video.addEventListener("seeked", () => video.play().catch(() => {}), { once: true });
-                video.currentTime = seekTo;
-              }
-            }
-          }
+          playClipRef.current(nextItem as QueueItem);
         }
       } else {
-        video.pause();
         setIsPlaying(false);
         setActiveEventId(null);
         queueRef.current = [];
       }
     }
 
-    video.addEventListener("timeupdate", handleTimeUpdate);
-    return () => video.removeEventListener("timeupdate", handleTimeUpdate);
-  }, [localVideoUrl]);
+    video.addEventListener("timeupdate", markIfWatched);
+    video.addEventListener("ended", handleEnded);
+    return () => {
+      video.removeEventListener("timeupdate", markIfWatched);
+      video.removeEventListener("ended", handleEnded);
+    };
+  }, [activeClipSrc]);
 
   function startQueue(queue: PlaybackItem[], startIdx = 0) {
     if (queue.length === 0) return;
@@ -420,9 +494,6 @@ export function MyPlaylistsPage() {
       startTextCardRef.current(firstItem as PlaylistTextCard);
       return;
     }
-    const clipItem = firstItem as QueueItem;
-    const sp = matchLookupRef.current.get(clipItem.matchId)?.syncPoint;
-    if (!sp) return;
     // Clear any active text card overlay and its timer
     if (textCardTimerRef.current) {
       clearTimeout(textCardTimerRef.current);
@@ -430,26 +501,28 @@ export function MyPlaylistsPage() {
     }
     setActiveTextCard(null);
     activeTextCardRef.current = null;
-    setActiveEventId(clipItem.event.eventId);
-    if (clipItem.matchId !== activeMatchIdRef.current) {
-      const videoTime = computeVideoTime(clipItem.event, sp);
-      if (videoTime !== null) {
-        pendingSeekRef.current = { seekTo: Math.max(0, videoTime - preRoll), clipEnd: videoTime + postRoll };
-      }
-      setActiveMatchId(clipItem.matchId);
-    } else {
-      seekToItem(clipItem);
-    }
+    playClip(firstItem as QueueItem);
   }
 
   function handleRowClick(item: PlaybackItem) {
-    const idx = displayItems.findIndex((i) => itemKey(i) === itemKey(item));
-    startQueue(displayItems, idx >= 0 ? idx : 0);
+    const idx = playableQueue.findIndex((i) => itemKey(i) === itemKey(item));
+    startQueue(playableQueue, idx >= 0 ? idx : 0);
   }
 
   function handlePlayPlaylist() {
-    startQueue(displayItems, 0);
+    startQueue(playableQueue, 0);
   }
+
+  // Resume set a target before the playlist's items were available; start it
+  // once they are, then clear so a later manual open doesn't autoplay.
+  useEffect(() => {
+    const target = resumeTargetRef.current;
+    if (!target || !selected || playableQueue.length === 0) return;
+    resumeTargetRef.current = null;
+    const idx = playableQueue.findIndex((i) => itemKey(i) === target);
+    startQueue(playableQueue, idx >= 0 ? idx : 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, playableQueue]);
 
   const listPosition = useMemo(() => {
     if (activeTextCard)
@@ -474,8 +547,10 @@ export function MyPlaylistsPage() {
   function handleReplay() {
     const item = queueRef.current[queueIdxRef.current];
     if (!item) return;
-    if (isTextCard(item)) startTextCardRef.current(item as PlaylistTextCard);
-    else seekToItem(item as QueueItem);
+    if (isTextCard(item)) { startTextCardRef.current(item as PlaylistTextCard); return; }
+    // Same file is already loaded — just rewind rather than re-fetching it.
+    const video = videoRef.current;
+    if (video) { video.currentTime = 0; video.play().catch(() => {}); }
   }
 
   const activeKey = activeTextCard
@@ -489,6 +564,60 @@ export function MyPlaylistsPage() {
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
+
+  /**
+   * Sidebar rows carry the same watch signals as the feed cards.
+   *
+   * The feed only renders when nothing is open, so without this a player
+   * watching one playlist couldn't see that another was unwatched — the exact
+   * signal this is all for.
+   */
+  function PlaylistRowBody({ pl, meta }: { pl: Playlist; meta?: string }) {
+    const clips = pl.items.filter(isClipItem);
+    const total = clips.length;
+    const watched = clips.filter((c) =>
+      clipViews.has(clipViewKey(pl.id, c.matchId, c.eventId)),
+    ).length;
+    const isNew = total > 0 && watched === 0;
+    const isComplete = total > 0 && watched >= total;
+    const partial = total > 0 && !isNew && !isComplete;
+
+    return (
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0">
+          {isNew && (
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary"
+              title="Not watched yet"
+            />
+          )}
+          {isComplete && <Check className="h-3 w-3 shrink-0 text-muted-foreground" />}
+          <p className={cn(
+            "truncate text-sm text-foreground",
+            isNew ? "font-semibold" : "font-medium",
+          )}>
+            {pl.name}
+          </p>
+        </div>
+
+        {partial && (
+          <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-primary transition-all"
+              style={{ width: `${(watched / total) * 100}%` }}
+            />
+          </div>
+        )}
+
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+          {partial
+            ? `${watched}/${total} watched`
+            : `${pl.items.length} item${pl.items.length !== 1 ? "s" : ""}`}
+          {meta}
+        </p>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -561,13 +690,10 @@ export function MyPlaylistsPage() {
                         )}
                         onClick={() => setSelected(pl.id === selected?.id ? null : pl)}
                       >
-                        <div className="flex-1 min-w-0">
-                          <p className="truncate text-sm font-medium text-foreground">{pl.name}</p>
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            {pl.items.length} item{pl.items.length !== 1 ? "s" : ""}
-                            {creatorName ? ` · Shared by ${creatorName}` : ""}
-                          </p>
-                        </div>
+                        <PlaylistRowBody
+                          pl={pl}
+                          meta={creatorName ? ` · Shared by ${creatorName}` : ""}
+                        />
                       </div>
                     );
                   })}
@@ -611,11 +737,7 @@ export function MyPlaylistsPage() {
                           )}
                         >
                           <div className="flex-1 min-w-0" onClick={() => setSelected(pl.id === selected?.id ? null : pl)}>
-                            <p className="truncate text-sm font-medium text-foreground">{pl.name}</p>
-                            <p className="mt-0.5 text-xs text-muted-foreground">
-                              {pl.items.length} item{pl.items.length !== 1 ? "s" : ""}
-                              {creatorName ? ` · ${creatorName}` : ""}
-                            </p>
+                            <PlaylistRowBody pl={pl} meta={creatorName ? ` · ${creatorName}` : ""} />
                           </div>
                           {overlappingDirectIds.has(pl.id) && (
                             <Tooltip>
@@ -691,11 +813,10 @@ export function MyPlaylistsPage() {
                         )}
                       >
                         <div className="flex-1 min-w-0" onClick={() => setSelected(pl.id === selected?.id ? null : pl)}>
-                          <p className="truncate text-sm font-medium text-foreground">{pl.name}</p>
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            {pl.items.length} item{pl.items.length !== 1 ? "s" : ""}
-                            {recipientLabel ? ` · Shared with: ${recipientLabel}` : ""}
-                          </p>
+                          <PlaylistRowBody
+                            pl={pl}
+                            meta={recipientLabel ? ` · Shared with: ${recipientLabel}` : ""}
+                          />
                         </div>
                         <button
                           type="button"
@@ -727,18 +848,40 @@ export function MyPlaylistsPage() {
       <ResizablePanel defaultSize={72}>
         <div className="flex h-full flex-col">
           {!selected ? (
-            <div className="flex h-full items-center justify-center">
-              <div className="text-center">
-                <BookOpen className="mx-auto h-10 w-10 text-muted-foreground/40" />
-                <p className="mt-3 text-sm text-muted-foreground">Select a playlist to watch</p>
-              </div>
+            // The feed answers the player's actual question on arrival —
+            // "what's new for me?" — instead of an empty pane.
+            <div className="flex-1 overflow-y-auto">
+              <PlaylistFeed
+                playlists={feedItems}
+                sourceOptions={sourceOptions}
+                onOpen={openPlaylist}
+                onResume={resumePlaylist}
+              />
             </div>
           ) : (
             <>
+              {/* Page header — back-navigation and "what am I watching" belong
+                  above the video, not below it. */}
+              <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-1.5">
+                <button
+                  type="button"
+                  onClick={() => setSelected(null)}
+                  title="Back to all playlists"
+                  className="flex shrink-0 items-center gap-1 rounded-md py-1.5 pr-1 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  All playlists
+                </button>
+                <span className="h-4 w-px shrink-0 bg-border" aria-hidden />
+                <p className="flex-1 truncate text-sm font-semibold text-foreground">
+                  {selected.name}
+                </p>
+              </div>
+
               {/* Video area */}
               <div className="relative bg-black">
-                {localVideoUrl ? (
-                  <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
+                {activeClipSrc ? (
+                  <VideoPlayer src={activeClipSrc} videoRef={videoRef} />
                 ) : (
                   <VideoPlaceholder />
                 )}
@@ -754,10 +897,7 @@ export function MyPlaylistsPage() {
 
               {/* Controls bar */}
               <div className="border-b border-border shrink-0">
-                <div className="flex items-center gap-2 px-4 py-2">
-                  <p className="flex-1 truncate text-sm font-semibold text-foreground">{selected.name}</p>
-                </div>
-                <div className="flex justify-center pb-3">
+                <div className="flex justify-center py-3">
                   <VideoClipControls
                     videoRef={videoRef}
                     canPrev={canPrev}
@@ -770,6 +910,19 @@ export function MyPlaylistsPage() {
                     onPlayAll={handlePlayPlaylist}
                   />
                 </div>
+                {selectedProgress.total > 0 && (
+                  <div className="flex items-center gap-2 px-4 pb-2">
+                    <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-primary transition-all"
+                        style={{ width: `${(selectedProgress.watched / selectedProgress.total) * 100}%` }}
+                      />
+                    </div>
+                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                      {selectedProgress.watched}/{selectedProgress.total}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Clip list */}
@@ -805,29 +958,21 @@ export function MyPlaylistsPage() {
                     }
                     const qi = item as QueueItem;
                     const match = matchLookup.get(qi.matchId);
+                    const clip = selected.items
+                      .filter(isClipItem)
+                      .find((c) => c.matchId === qi.matchId && c.eventId === qi.event.eventId);
                     return (
-                      <button
+                      <ClipRow
                         key={key}
-                        type="button"
-                        onClick={() => handleRowClick(item)}
-                        className={cn(
-                          "w-full px-4 py-2 text-left transition-colors hover:bg-muted/50 flex items-center gap-3",
-                          isActive && "bg-primary/10"
-                        )}
-                      >
-                        <span className="text-xs text-muted-foreground w-5 shrink-0 text-right">
-                          {idx + 1}
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-foreground truncate">
-                            {playerName(qi.event)}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {qi.event.type} · {qi.event.gameClockTime}
-                            {match && ` · ${match.homeTeam.name} vs ${match.awayTeam.name}`}
-                          </p>
-                        </div>
-                      </button>
+                        event={qi.event}
+                        matchTitle={match?.title}
+                        matchDate={match?.date}
+                        note={clip?.note}
+                        playable={!!qi.r2Url}
+                        watched={isClipWatched(selected.id, qi.matchId, qi.event.eventId)}
+                        active={isActive}
+                        onSelect={() => handleRowClick(item)}
+                      />
                     );
                   })
                 )}

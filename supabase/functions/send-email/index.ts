@@ -112,16 +112,27 @@ function renderTemplate(
       const sharerName = d("sharer_name", "Your coach");
       const teamName = d("team_name", "your team");
       const playlistUrl = d("playlist_url", appUrl + "/my-playlists");
+      // Direct shares go to one player, so the team-oriented copy would read
+      // wrong ("shared with your team" when nobody else got it).
+      const isDirect = data?.is_direct === true;
       return {
-        subject: `${sharerName} shared a playlist with ${teamName}: ${playlistName}`,
+        subject: isDirect
+          ? `${sharerName} shared a playlist with you: ${playlistName}`
+          : `${sharerName} shared a playlist with ${teamName}: ${playlistName}`,
         html: wrapEmail(
           `New playlist: ${playlistName}`,
-          `<h1 style="margin:0 0 12px 0;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">New playlist for ${esc(teamName)}</h1>
+          `<h1 style="margin:0 0 12px 0;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">${
+            isDirect ? "New playlist for you" : `New playlist for ${esc(teamName)}`
+          }</h1>
 <p style="margin:0 0 32px 0;font-size:14px;line-height:1.65;color:#6b7280;">
-  <strong>${esc(sharerName)}</strong> shared <strong>${esc(playlistName)}</strong> with your team.
+  <strong>${esc(sharerName)}</strong> shared <strong>${esc(playlistName)}</strong> ${
+    isDirect ? "directly with you" : "with your team"
+  }.
 </p>
-${ctaButton(playlistUrl, "View Playlist")}`,
-          "You received this because you are a member of this team.",
+${ctaButton(playlistUrl, "Watch Clips")}`,
+          isDirect
+            ? "You received this because your coach shared a playlist with you."
+            : "You received this because you are a member of this team.",
         ),
       };
     }

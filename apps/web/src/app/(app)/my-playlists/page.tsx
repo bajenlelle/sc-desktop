@@ -1,12 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, ChevronDown, ChevronRight, Send, Share2, User2, Link2 } from "lucide-react";
+import { BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Send, Share2, User2, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { VideoClipControls } from "@/components/video-clip-controls";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { VideoPlayer } from "@/components/video-player";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
@@ -14,8 +12,12 @@ import { getMyTeamPlaylists, getMyDirectPlaylists, getMySharedOutPlaylists, setP
 import { listMatches } from "@scoutable/shared/lib/matches-db";
 import { getOrgContext, getOrgContextForOrg } from "@/lib/profile-db";
 import { useAuth } from "@/components/auth-context";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { ClipRow } from "@/components/playlist/ClipRow";
+import { PlaylistFeed, type SourceOption } from "@/components/playlist/PlaylistFeed";
+import type { PlaylistCardData } from "@/components/playlist/PlaylistCard";
+import { listMyClipViews, markClipWatched, clipViewKey } from "@/lib/clip-views-db";
 import type {
   Playlist,
   PlaylistItem,
@@ -30,7 +32,7 @@ import type { OrgTeam, UserProfile } from "@scoutable/shared/types/org";
 // Types
 // ---------------------------------------------------------------------------
 
-type QueueItem = { event: PlayByPlayEvent; matchId: string; r2Url?: string };
+type QueueItem = { event: PlayByPlayEvent; matchId: string; r2Url?: string; note?: string };
 type PlaybackItem = QueueItem | PlaylistTextCard;
 
 function isTextCard(i: PlaybackItem): i is PlaylistTextCard {
@@ -50,11 +52,6 @@ function itemKey(i: PlaybackItem): string {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function playerName(event: PlayByPlayEvent): string {
-  if (!event.player) return "Unknown player";
-  return `${event.player.firstName} ${event.player.familyName}`.trim();
-}
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -62,6 +59,12 @@ function playerName(event: PlayByPlayEvent): string {
 export default function MyPlaylistsPage() {
   const { activeOrgId, activeOrgIsPersonal, profileLoading } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Which playlist is open lives in the URL rather than component state, so
+  // a phone's back gesture returns to the feed instead of leaving the page,
+  // and a refresh or shared link reopens the same playlist.
+  const selectedId = searchParams.get("p");
 
   useEffect(() => {
     if (profileLoading) return;
@@ -73,13 +76,12 @@ export default function MyPlaylistsPage() {
   const [sharedOutPlaylists, setSharedOutPlaylists] = useState<Playlist[]>([]);
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<Playlist | null>(null);
+  const [clipViews, setClipViews] = useState<Set<string>>(new Set());
   const [teamMap, setTeamMap] = useState<Map<string, OrgTeam>>(new Map());
   const [memberMap, setMemberMap] = useState<Map<string, UserProfile>>(new Map());
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
   const [directSectionExpanded, setDirectSectionExpanded] = useState(true);
   const [sharedOutSectionExpanded, setSharedOutSectionExpanded] = useState(true);
-  const [sheetOpen, setSheetOpen] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [allOrgTeams, setAllOrgTeams] = useState<OrgTeam[]>([]);
@@ -95,6 +97,36 @@ export default function MyPlaylistsPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [activeTextCard, setActiveTextCard] = useState<PlaylistTextCard | null>(null);
 
+  // Every playlist the user can open, deduped — a playlist can arrive via both
+  // a team share and a direct share.
+  const allPlaylists = useMemo(() => {
+    const byId = new Map<string, Playlist>();
+    for (const p of [...directPlaylists, ...playlists, ...sharedOutPlaylists]) {
+      if (!byId.has(p.id)) byId.set(p.id, p);
+    }
+    return [...byId.values()];
+  }, [playlists, directPlaylists, sharedOutPlaylists]);
+
+  const selected = useMemo(
+    () => allPlaylists.find((p) => p.id === selectedId) ?? null,
+    [allPlaylists, selectedId],
+  );
+
+  const openPlaylist = useCallback((id: string) => {
+    router.push(`/my-playlists?p=${id}`);
+  }, [router]);
+
+  const closePlaylist = useCallback(() => {
+    router.push("/my-playlists");
+  }, [router]);
+
+  /** Set by Resume; consumed once the playlist's items have loaded. */
+  const resumeTargetRef = useRef<string | null>(null);
+  // The playback effect only re-subscribes on src change, so these keep its
+  // handlers reading current values instead of a stale closure.
+  const activeEventIdRef = useRef<number | null>(null);
+  const recordWatchedRef = useRef<(p: string, m: string, e: number) => void>(() => {});
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const queueRef = useRef<PlaybackItem[]>([]);
   const queueIdxRef = useRef<number>(0);
@@ -108,6 +140,7 @@ export default function MyPlaylistsPage() {
   const playableQueueRef = useRef<PlaybackItem[]>([]);
 
   useEffect(() => { activeMatchIdRef.current = activeMatchId; }, [activeMatchId]);
+  useEffect(() => { activeEventIdRef.current = activeEventId; }, [activeEventId]);
   useEffect(() => { activeTextCardRef.current = activeTextCard; }, [activeTextCard]);
   useEffect(() => { selectedRef.current = selected; }, [selected]);
 
@@ -140,9 +173,11 @@ export default function MyPlaylistsPage() {
       if (orgCtx) {
         setExpandedTeams(new Set(pls.flatMap((p) => (p.teamIds && p.teamIds.length > 0) ? p.teamIds : [p.teamId ?? "__none__"])));
       }
+      // Watch history drives the feed's NEW badges and progress bars.
+      const views = await listMyClipViews().catch(() => []);
+      setClipViews(new Set(views.map((v) => clipViewKey(v.playlistId, v.matchId, v.eventId))));
     }).finally(() => {
       setLoading(false);
-      if (window.innerWidth < 1024) setSheetOpen(true);
     });
   }, [activeOrgId]);
 
@@ -248,7 +283,13 @@ export default function MyPlaylistsPage() {
         const match = matchLookup.get(item.matchId);
         const event = match?.events.find((e) => e.eventId === item.eventId);
         if (event) {
-          items.push({ event, matchId: item.matchId, r2Url: item.r2Url, hasR2: !!item.r2Url });
+          items.push({
+            event,
+            matchId: item.matchId,
+            r2Url: item.r2Url,
+            hasR2: !!item.r2Url,
+            note: item.note,
+          });
         }
       } else {
         items.push(item as PlaylistTextCard);
@@ -262,6 +303,109 @@ export default function MyPlaylistsPage() {
     () => displayItems.filter((i) => isTextCard(i) || (i as QueueItem).r2Url),
     [displayItems]
   );
+
+  // ---------------------------------------------------------------------------
+  // Watch state
+  // ---------------------------------------------------------------------------
+
+  const isClipWatched = useCallback(
+    (playlistId: string, matchId: string, eventId: number) =>
+      clipViews.has(clipViewKey(playlistId, matchId, eventId)),
+    [clipViews],
+  );
+
+  /**
+   * Records a clip as watched once. Deduped against what we already know, so
+   * repeated timeupdate ticks and rewatches cost nothing.
+   */
+  const recordWatched = useCallback((playlistId: string, matchId: string, eventId: number) => {
+    const key = clipViewKey(playlistId, matchId, eventId);
+    let alreadyKnown = false;
+    setClipViews((prev) => {
+      if (prev.has(key)) { alreadyKnown = true; return prev; }
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+    if (alreadyKnown) return;
+    void markClipWatched(playlistId, matchId, eventId);
+  }, []);
+
+  useEffect(() => { recordWatchedRef.current = recordWatched; }, [recordWatched]);
+
+  // Resume set a target before the playlist's items were available; start it
+  // once they are, then clear so a later manual open doesn't autoplay.
+  useEffect(() => {
+    const target = resumeTargetRef.current;
+    if (!target || !selected || playableQueue.length === 0) return;
+    resumeTargetRef.current = null;
+    const idx = playableQueue.findIndex((i) => itemKey(i) === target);
+    startQueue(playableQueue, idx >= 0 ? idx : 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, playableQueue]);
+
+  // Cards for the landing feed, with per-playlist progress folded in.
+  const feedItems = useMemo<PlaylistCardData[]>(() => {
+    const directIds = new Set(directPlaylists.map((p) => p.id));
+    return allPlaylists.map((pl) => {
+      const clips = pl.items.filter(isClipItem);
+      const watchedCount = clips.filter((c) =>
+        clipViews.has(clipViewKey(pl.id, c.matchId, c.eventId)),
+      ).length;
+      const sharer = pl.sharedBy ? memberMap.get(pl.sharedBy) : undefined;
+      return {
+        id: pl.id,
+        name: pl.name,
+        clipCount: clips.length,
+        watchedCount,
+        sharedAt: pl.sharedAt,
+        sharerName: sharer?.fullName ?? undefined,
+        sharerAvatarUrl: sharer?.avatarUrl ?? undefined,
+        isDirect: directIds.has(pl.id),
+        teamIds: pl.teamIds ?? [],
+      };
+    });
+  }, [allPlaylists, directPlaylists, clipViews, memberMap]);
+
+  /**
+   * Source filter options — the feed's stand-in for the sidebar's grouping,
+   * which phones never see. Only teams that actually have playlists appear.
+   */
+  const sourceOptions = useMemo<SourceOption[]>(() => {
+    const opts: SourceOption[] = [{ value: "all", label: "All playlists" }];
+    if (directPlaylists.length > 0) {
+      opts.push({ value: "direct", label: "Shared with me" });
+    }
+    for (const [teamId, team] of teamMap) {
+      if (playlists.some((p) => (p.teamIds ?? []).includes(teamId))) {
+        opts.push({ value: `team:${teamId}`, label: team.name });
+      }
+    }
+    return opts;
+  }, [directPlaylists, playlists, teamMap]);
+
+  /** Watched/total for the open playlist, shown under the controls. */
+  const selectedProgress = useMemo(() => {
+    if (!selected) return { watched: 0, total: 0 };
+    const clips = selected.items.filter(isClipItem);
+    return {
+      watched: clips.filter((c) => clipViews.has(clipViewKey(selected.id, c.matchId, c.eventId))).length,
+      total: clips.length,
+    };
+  }, [selected, clipViews]);
+
+  /** Opens a playlist and starts from the first clip the player hasn't watched. */
+  const resumePlaylist = useCallback((id: string) => {
+    openPlaylist(id);
+    const pl = allPlaylists.find((p) => p.id === id);
+    if (!pl) return;
+    const firstUnwatched = pl.items
+      .filter(isClipItem)
+      .find((c) => !clipViews.has(clipViewKey(pl.id, c.matchId, c.eventId)));
+    resumeTargetRef.current = firstUnwatched
+      ? `${firstUnwatched.matchId}:${firstUnwatched.eventId}`
+      : null;
+  }, [allPlaylists, clipViews, openPlaylist]);
 
   useEffect(() => { playableQueueRef.current = playableQueue; }, [playableQueue]);
 
@@ -411,7 +555,7 @@ export default function MyPlaylistsPage() {
   // For match video: video src is the match videoUrl
   const effectiveVideoSrc = currentClipR2 ?? videoUrl;
 
-  // Autoplay when src changes; auto-advance on clip end
+  // Autoplay when src changes; auto-advance on clip end; record watch state.
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !effectiveVideoSrc) return;
@@ -421,14 +565,33 @@ export default function MyPlaylistsPage() {
       pendingPlayRef.current = false;
       video!.play().catch(() => {});
     }
+
+    /**
+     * A clip counts as watched at 90% of its duration. Marking on play would
+     * let someone skim the list and register everything; 90% still catches
+     * players who skip the last moment or navigate away before `ended`.
+     */
+    function markIfWatched() {
+      const playlistId = selectedRef.current?.id;
+      const matchId = activeMatchIdRef.current;
+      const eventId = activeEventIdRef.current;
+      if (!playlistId || !matchId || eventId === null) return;
+      const d = video!.duration;
+      if (!d || !Number.isFinite(d)) return;
+      if (video!.currentTime / d >= 0.9) recordWatchedRef.current(playlistId, matchId, eventId);
+    }
+
     function handleEnded() {
+      markIfWatched();
       advanceQueueRef.current(queueIdxRef.current);
     }
 
     video.addEventListener("canplay", handleCanPlay, { once: true });
+    video.addEventListener("timeupdate", markIfWatched);
     video.addEventListener("ended", handleEnded);
     return () => {
       video.removeEventListener("canplay", handleCanPlay);
+      video.removeEventListener("timeupdate", markIfWatched);
       video.removeEventListener("ended", handleEnded);
     };
   }, [effectiveVideoSrc]);
@@ -441,6 +604,61 @@ export default function MyPlaylistsPage() {
     return (
       <div className="flex h-96 items-center justify-center">
         <p className="text-sm text-muted-foreground">Loading…</p>
+      </div>
+    );
+  }
+
+  /**
+   * Sidebar rows carry the same watch signals as the feed cards.
+   *
+   * The feed is only rendered when nothing is open, so without this a desktop
+   * player watching one playlist had no way to see that another was unwatched
+   * — the exact signal this feature exists to deliver.
+   */
+  function PlaylistRowBody({ pl, meta }: { pl: Playlist; meta?: string }) {
+    const clips = pl.items.filter(isClipItem);
+    const total = clips.length;
+    const watched = clips.filter((c) =>
+      clipViews.has(clipViewKey(pl.id, c.matchId, c.eventId)),
+    ).length;
+    const isNew = total > 0 && watched === 0;
+    const isComplete = total > 0 && watched >= total;
+    const partial = total > 0 && !isNew && !isComplete;
+
+    return (
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0">
+          {isNew && (
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary"
+              title="Not watched yet"
+              aria-label="Not watched yet"
+            />
+          )}
+          {isComplete && <Check className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="Watched" />}
+          <p className={cn(
+            "truncate text-sm text-foreground",
+            isNew ? "font-semibold" : "font-medium",
+          )}>
+            {pl.name}
+          </p>
+        </div>
+
+        {partial && (
+          <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-primary transition-all"
+              style={{ width: `${(watched / total) * 100}%` }}
+            />
+          </div>
+        )}
+
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+          {partial
+            ? `${watched}/${total} watched`
+            : `${pl.items.length} item${pl.items.length !== 1 ? "s" : ""}`}
+          {meta}
+        </p>
       </div>
     );
   }
@@ -488,13 +706,10 @@ export default function MyPlaylistsPage() {
                   )}
                   onClick={() => onSelect(pl)}
                 >
-                  <div className="flex-1 min-w-0">
-                    <p className="truncate text-sm font-medium text-foreground">{pl.name}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {pl.items.length} item{pl.items.length !== 1 ? "s" : ""}
-                      {creatorName ? ` · Shared by ${creatorName}` : ""}
-                    </p>
-                  </div>
+                  <PlaylistRowBody
+                    pl={pl}
+                    meta={creatorName ? ` · Shared by ${creatorName}` : ""}
+                  />
                 </div>
               );
             })}
@@ -537,11 +752,7 @@ export default function MyPlaylistsPage() {
                       )}
                     >
                       <div className="flex-1 min-w-0" onClick={() => onSelect(pl)}>
-                        <p className="truncate text-sm font-medium text-foreground">{pl.name}</p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          {pl.items.length} item{pl.items.length !== 1 ? "s" : ""}
-                          {creatorName ? ` · ${creatorName}` : ""}
-                        </p>
+                        <PlaylistRowBody pl={pl} meta={creatorName ? ` · ${creatorName}` : ""} />
                       </div>
                       {overlappingDirectIds.has(pl.id) && (
                         <User2
@@ -627,11 +838,10 @@ export default function MyPlaylistsPage() {
                   )}
                 >
                   <div className="flex-1 min-w-0" onClick={() => onSelect(pl)}>
-                    <p className="truncate text-sm font-medium text-foreground">{pl.name}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {pl.items.length} item{pl.items.length !== 1 ? "s" : ""}
-                      {recipientLabel ? ` · Shared with: ${recipientLabel}` : ""}
-                    </p>
+                    <PlaylistRowBody
+                      pl={pl}
+                      meta={recipientLabel ? ` · Shared with: ${recipientLabel}` : ""}
+                    />
                   </div>
                   <button
                     type="button"
@@ -656,7 +866,9 @@ export default function MyPlaylistsPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
+    // dvh, not vh — mobile browsers shrink the viewport as the address bar
+    // collapses, and vh would leave the controls clipped below the fold.
+    <div className="flex h-[calc(100dvh-4rem)] overflow-hidden">
       {/* Left: playlist list (desktop only) */}
       <aside className="w-72 shrink-0 flex flex-col border-r border-border overflow-hidden hidden lg:flex">
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
@@ -673,29 +885,46 @@ export default function MyPlaylistsPage() {
           )}
         </div>
         <div className="flex-1 overflow-y-auto py-2">
-          <PlaylistTree onSelect={(pl) => setSelected(pl.id === selected?.id ? null : pl)} />
+          <PlaylistTree onSelect={(pl) => (pl.id === selected?.id ? closePlaylist() : openPlaylist(pl.id))} />
         </div>
       </aside>
 
-      {/* Right: video + clip list */}
+      {/* Right: feed (nothing open) or watch view */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {!selected ? (
-          <div className="flex h-full items-center justify-center">
-            <div className="text-center">
-              <BookOpen className="mx-auto h-10 w-10 text-muted-foreground/40" />
-              <p className="mt-3 text-sm text-muted-foreground">Select a playlist to watch</p>
-              <Button
-                className="mt-4 gap-2 lg:hidden"
-                onClick={() => setSheetOpen(true)}
-              >
-                Select a Playlist
-                <ChevronDown className="h-4 w-4" />
-              </Button>
-            </div>
+          // The feed answers the player's actual question on arrival —
+          // "what's new for me?" — instead of an empty pane.
+          <div className="flex-1 overflow-y-auto">
+            <PlaylistFeed
+              playlists={feedItems}
+              sourceOptions={sourceOptions}
+              onOpen={openPlaylist}
+              onResume={resumePlaylist}
+            />
           </div>
         ) : (
           <>
-            {/* Video area */}
+            {/* Page header — back-navigation and "what am I watching" belong
+                above the video, not below it: this is page chrome, and putting
+                it under a big black rectangle makes it read as video controls
+                while labelling the video only after you've seen it. */}
+            <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-1.5">
+              <button
+                type="button"
+                onClick={closePlaylist}
+                title="Back to all playlists"
+                className="flex min-h-[44px] shrink-0 items-center gap-1 rounded-md pr-1 text-sm font-medium text-muted-foreground transition-colors active:text-foreground lg:min-h-0 lg:py-1.5 lg:hover:text-foreground"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                <span className="hidden sm:inline">All playlists</span>
+              </button>
+              <span className="h-4 w-px shrink-0 bg-border" aria-hidden />
+              <p className="flex-1 truncate text-sm font-semibold text-foreground">
+                {selected.name}
+              </p>
+            </div>
+
+            {/* Video area — pinned while the clip list scrolls beneath it. */}
             <div className="relative bg-black shrink-0 max-h-[55vh]">
               {effectiveVideoSrc ? (
                 <VideoPlayer src={effectiveVideoSrc} videoRef={videoRef} />
@@ -715,17 +944,7 @@ export default function MyPlaylistsPage() {
 
             {/* Controls bar */}
             <div className="border-b border-border shrink-0">
-              <div className="flex items-center gap-2 px-4 py-2">
-                <button
-                  type="button"
-                  onClick={() => setSheetOpen(true)}
-                  className="flex flex-1 items-center gap-1 min-w-0 lg:pointer-events-none"
-                >
-                  <p className="truncate text-sm font-semibold text-foreground">{selected.name}</p>
-                  <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground lg:hidden" />
-                </button>
-              </div>
-              <div className="flex justify-center pb-3">
+              <div className="flex justify-center py-3">
                 <VideoClipControls
                   videoRef={videoRef}
                   canPrev={canPrev}
@@ -738,6 +957,19 @@ export default function MyPlaylistsPage() {
                   onPlayAll={() => startQueue(playableQueue, 0)}
                 />
               </div>
+              {selectedProgress.total > 0 && (
+                <div className="flex items-center gap-2 px-4 pb-2">
+                  <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-primary transition-all"
+                      style={{ width: `${(selectedProgress.watched / selectedProgress.total) * 100}%` }}
+                    />
+                  </div>
+                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                    {selectedProgress.watched}/{selectedProgress.total}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Clip list */}
@@ -771,35 +1003,20 @@ export default function MyPlaylistsPage() {
                       </button>
                     );
                   }
-                  const qi = item as QueueItem & { hasR2?: boolean };
-                  const hasR2 = !!qi.r2Url;
+                  const qi = item as QueueItem & { hasR2?: boolean; note?: string };
+                  const match = matchLookup.get(qi.matchId);
                   return (
-                    <button
+                    <ClipRow
                       key={key}
-                      type="button"
-                      onClick={() => hasR2 ? handleRowClick(item) : undefined}
-                      disabled={!hasR2}
-                      className={cn(
-                        "w-full px-4 py-2 text-left transition-colors flex items-center gap-3",
-                        hasR2 ? "hover:bg-muted/50" : "opacity-50 cursor-not-allowed",
-                        isActive && "bg-primary/10"
-                      )}
-                    >
-                      <span className="text-xs text-muted-foreground w-5 shrink-0 text-right">
-                        {idx + 1}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-foreground truncate">{playerName(qi.event)}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {qi.event.type} · {qi.event.gameClockTime}
-                        </p>
-                      </div>
-                      {!hasR2 && (
-                        <Badge variant="outline" className="text-xs shrink-0">
-                          Not on web
-                        </Badge>
-                      )}
-                    </button>
+                      event={qi.event}
+                      matchTitle={match?.title}
+                      matchDate={match?.date}
+                      note={qi.note}
+                      playable={!!qi.r2Url}
+                      watched={isClipWatched(selected.id, qi.matchId, qi.event.eventId)}
+                      active={isActive}
+                      onSelect={() => handleRowClick(item)}
+                    />
                   );
                 })
               )}
@@ -807,30 +1024,6 @@ export default function MyPlaylistsPage() {
           </>
         )}
       </div>
-
-      {/* Bottom sheet (mobile only) */}
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent side="bottom" className="h-[70vh] flex flex-col px-0 lg:hidden">
-          <SheetHeader className="px-4 pb-3 border-b border-border shrink-0">
-            <SheetTitle className="text-sm font-semibold flex items-center gap-2">
-              {(userRole === "coach" || userRole === "admin") ? (
-                <Share2 className="h-4 w-4 text-muted-foreground" />
-              ) : (
-                <BookOpen className="h-4 w-4 text-muted-foreground" />
-              )}
-              {(userRole === "coach" || userRole === "admin") ? "Shared Playlists" : "My Playlists"}
-            </SheetTitle>
-          </SheetHeader>
-          <div className="flex-1 overflow-y-auto py-2">
-            <PlaylistTree
-              onSelect={(pl) => {
-                setSelected(pl.id === selected?.id ? null : pl);
-                setSheetOpen(false);
-              }}
-            />
-          </div>
-        </SheetContent>
-      </Sheet>
 
       <Dialog open={shareTarget !== null} onOpenChange={(open) => { if (!open) { setShareTarget(null); setPlayerSearchQuery(""); } }}>
         <DialogContent>

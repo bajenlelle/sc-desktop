@@ -183,6 +183,10 @@ export interface Playlist {
   userIds?: string[]; // user IDs this playlist is directly shared with (coach view)
   directShare?: boolean; // true when current user has a direct share record (receiver view)
   createdBy?: string; // user_id of the coach who created it
+  /** When this playlist was shared with the current user — drives "what's new". */
+  sharedAt?: string;
+  /** Who shared it. Only direct shares record this; team shares fall back to createdBy. */
+  sharedBy?: string;
 }
 
 export interface StoredMatch {

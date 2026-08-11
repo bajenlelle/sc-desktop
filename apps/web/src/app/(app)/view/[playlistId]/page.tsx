@@ -12,6 +12,8 @@ import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import type { Playlist, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch } from "@scoutable/shared/types/match";
 import { listMatches } from "@scoutable/shared/lib/matches-db";
+import { ClipRow } from "@/components/playlist/ClipRow";
+import { listMyClipViews, markClipWatched, clipViewKey } from "@/lib/clip-views-db";
 
 // ---------------------------------------------------------------------------
 // Row types
@@ -88,12 +90,7 @@ function rowToPlaylist(row: PlaylistRow): Playlist {
   };
 }
 
-function playerName(event: PlayByPlayEvent): string {
-  if (!event.player) return "Unknown player";
-  return `${event.player.firstName} ${event.player.familyName}`.trim();
-}
-
-type QueueItem = { event: PlayByPlayEvent; matchId: string; r2Url?: string };
+type QueueItem = { event: PlayByPlayEvent; matchId: string; r2Url?: string; note?: string };
 type PlaybackItem = QueueItem | PlaylistTextCard;
 
 function itemKey(i: PlaybackItem): string {
@@ -121,6 +118,8 @@ export default function ViewPlaylistPage() {
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [noAccess, setNoAccess] = useState(false);
+  /** Keys ("matchId:eventId") of clips this player has already watched. */
+  const [watchedKeys, setWatchedKeys] = useState<Set<string>>(new Set());
 
   // Playback
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -133,6 +132,36 @@ export default function ViewPlaylistPage() {
   const queueIdxRef = useRef(0);
   const pendingPlayRef = useRef(false);
   const textCardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeKeyRef = useRef<string | null>(null);
+  useEffect(() => { activeKeyRef.current = activeKey; }, [activeKey]);
+
+  // Load this player's watch history so rows show their ✓ on arrival.
+  useEffect(() => {
+    if (!playlistId) return;
+    listMyClipViews()
+      .then((views) => {
+        setWatchedKeys(new Set(
+          views
+            .filter((v) => v.playlistId === playlistId)
+            .map((v) => `${v.matchId}:${v.eventId}`),
+        ));
+      })
+      .catch(() => {});
+  }, [playlistId]);
+
+  /** Same 90%-of-duration rule the main player page uses. */
+  const recordWatched = useRef((key: string) => {
+    const [matchId, eventIdStr] = key.split(":");
+    const eventId = Number(eventIdStr);
+    if (!matchId || !Number.isFinite(eventId)) return;
+    setWatchedKeys((prev) => {
+      if (prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+    void markClipWatched(playlistId, matchId, eventId);
+  });
 
   useEffect(() => {
     const supabase = createClient();
@@ -172,7 +201,7 @@ export default function ViewPlaylistPage() {
         if (isClipItem(item)) {
           const match = matchLookup.get(item.matchId);
           const event = match?.events.find((e) => e.eventId === item.eventId);
-          if (event) return [{ event, matchId: item.matchId, r2Url: item.r2Url, hasR2: !!item.r2Url }];
+          if (event) return [{ event, matchId: item.matchId, r2Url: item.r2Url, hasR2: !!item.r2Url, note: item.note }];
         }
         return [];
       })
@@ -236,6 +265,7 @@ export default function ViewPlaylistPage() {
 
     setVideoUrl(src);
     pendingPlayRef.current = true;
+    const clipKey = itemKey(item);
     if (videoRef.current) {
       videoRef.current.src = src;
       videoRef.current.load();
@@ -245,6 +275,12 @@ export default function ViewPlaylistPage() {
           videoRef.current?.play().catch(() => {});
         }
         videoRef.current!.oncanplay = null;
+      };
+      // Watched at 90% of duration — same rule as the main player page.
+      videoRef.current.ontimeupdate = () => {
+        const v = videoRef.current;
+        if (!v?.duration || !Number.isFinite(v.duration)) return;
+        if (v.currentTime / v.duration >= 0.9) recordWatched.current(clipKey);
       };
     }
   }
@@ -370,26 +406,19 @@ export default function ViewPlaylistPage() {
               );
             }
             const qi = item as QueueItem & { hasR2?: boolean };
-            const hasR2 = !!qi.r2Url;
+            const match = matchLookup.get(qi.matchId);
             return (
-              <button
+              <ClipRow
                 key={key}
-                type="button"
-                onClick={() => hasR2 ? handleRowClick(item) : undefined}
-                disabled={!hasR2}
-                className={cn(
-                  "w-full px-4 py-2 text-left transition-colors flex items-center gap-3",
-                  hasR2 ? "hover:bg-muted/50" : "opacity-50 cursor-not-allowed",
-                  isActive && "bg-primary/10"
-                )}
-              >
-                <span className="text-xs text-muted-foreground w-5 shrink-0 text-right">{idx + 1}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-foreground truncate">{playerName(qi.event)}</p>
-                  <p className="text-xs text-muted-foreground">{qi.event.type} · {qi.event.gameClockTime}</p>
-                </div>
-                {!hasR2 && <Badge variant="outline" className="text-xs shrink-0">Not on web</Badge>}
-              </button>
+                event={qi.event}
+                matchTitle={match?.title}
+                matchDate={match?.date}
+                note={qi.note}
+                playable={!!qi.r2Url}
+                watched={watchedKeys.has(key)}
+                active={isActive}
+                onSelect={() => handleRowClick(item)}
+              />
             );
           })
         )}
