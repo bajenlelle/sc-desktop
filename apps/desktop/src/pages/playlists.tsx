@@ -1503,7 +1503,7 @@ export function PlaylistsPage() {
     const state = location.state as { restore?: { playlistId: string }; createNew?: boolean } | null;
     const restore = state?.restore;
     const createNew = state?.createNew;
-    Promise.all([listPlaylists(), listMatchesLight(activeOrgId ?? undefined), listFolders(), (activeOrgId ? getOrgContextForOrg(activeOrgId) : getOrgContext()).catch(() => null)])
+    Promise.all([listPlaylists(), listMatchesLight(activeOrgId ?? undefined, { ownOnly: true }), listFolders(), (activeOrgId ? getOrgContextForOrg(activeOrgId) : getOrgContext()).catch(() => null)])
       .then(async ([loadedPlaylists, matchShells, loadedFolders, orgCtx]) => {
         const matchIds = matchShells.map((m) => m.id);
         const eventsByMatch = await listEventsForMatches(matchIds).catch(() => ({} as Record<string, PlayByPlayEvent[]>));
@@ -3025,6 +3025,12 @@ export function PlaylistsPage() {
   const noSync = selected !== null && hasAnyClips && !matchLookup.get(primaryMatchId(selected) ?? "")?.syncPoint;
   const noVideo = selected !== null && !matchLookup.get(primaryMatchId(selected) ?? "")?.videoUrl;
 
+  // Free users must stay able to CLICK export — the click is what opens the
+  // UpgradeDialog. Mechanical blockers (demo game, missing video/sync) only
+  // disable the button for paid users, who could otherwise actually export.
+  const exportLocked = activeOrgPlan === 'free';
+  const playlistEmpty = !selected || sortedEvents.length === 0;
+
   const exportDisabledReason = (() => {
     if (!selected || sortedEvents.length === 0) return "Playlist is empty";
     const involvedMatchIds = new Set(
@@ -4031,8 +4037,10 @@ export function PlaylistsPage() {
                         variant="outline"
                         className="h-8 gap-1.5"
                         onClick={handleExport}
-                        disabled={!!exportDisabledReason}
-                        title={exportDisabledReason ?? "Export playlist as MP4"}
+                        disabled={exportLocked ? playlistEmpty : !!exportDisabledReason}
+                        title={exportLocked
+                          ? "Export playlists as MP4 with Rookie or Pro"
+                          : (exportDisabledReason ?? "Export playlist as MP4")}
                       >
                         {activeOrgPlan === 'free'
                           ? <Lock className="h-3.5 w-3.5" />
@@ -4372,8 +4380,10 @@ export function PlaylistsPage() {
                         variant="outline"
                         className="h-8 gap-1.5"
                         onClick={handleExport}
-                        disabled={!!exportDisabledReason}
-                        title={exportDisabledReason ?? "Export playlist as MP4"}
+                        disabled={exportLocked ? playlistEmpty : !!exportDisabledReason}
+                        title={exportLocked
+                          ? "Export playlists as MP4 with Rookie or Pro"
+                          : (exportDisabledReason ?? "Export playlist as MP4")}
                       >
                         {activeOrgPlan === 'free'
                           ? <Lock className="h-3.5 w-3.5" />

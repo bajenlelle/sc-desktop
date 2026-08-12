@@ -15,7 +15,7 @@ export const saveMatch = async (match: StoredMatch) => {
   window.dispatchEvent(new CustomEvent("matches-changed"));
 };
 export const getMatch = (id: string) => db.getMatch(c(), id);
-export const listMatches = (orgId?: string) => db.listMatches(c(), orgId);
+export const listMatches = (orgId?: string, opts?: { ownOnly?: boolean }) => db.listMatches(c(), orgId, opts);
 export const listEventsForMatches = (matchIds: string[]) => db.listEventsForMatches(c(), matchIds);
 export const updateSyncPoint = (matchId: string, syncPoint: SyncPoint | null) => db.updateSyncPoint(c(), matchId, syncPoint);
 export const updateVideoUrl = (matchId: string, videoUrl: string) => db.updateVideoUrl(c(), matchId, videoUrl);
@@ -39,7 +39,7 @@ export const listFolders = () => db.listFolders(c());
 export const createFolder = (name: string) => db.createFolder(c(), name);
 export const updateFolder = (id: string, patch: { name?: string; sortOrder?: number }) => db.updateFolder(c(), id, patch);
 export const deleteFolder = (id: string) => db.deleteFolder(c(), id);
-export const listMatchesLight = (orgId?: string) => db.listMatchesLight(c(), orgId);
+export const listMatchesLight = (orgId?: string, opts?: { ownOnly?: boolean }) => db.listMatchesLight(c(), orgId, opts);
 export const countMatchesThisMonth = () => db.countMatchesThisMonth(c());
 export const countClubMatchesThisMonth = (ntLeagueIds: string[], orgId?: string) => db.countClubMatchesThisMonth(c(), ntLeagueIds, orgId);
 export const seedDemoMatch = (orgId: string) => db.seedDemoMatch(c(), orgId);

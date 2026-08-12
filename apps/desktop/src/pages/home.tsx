@@ -47,7 +47,7 @@ function CoachHomePage() {
   useEffect(() => {
     const load = () =>
       Promise.all([
-        listMatches().catch(() => [] as StoredMatch[]),
+        listMatches(undefined, { ownOnly: true }).catch(() => [] as StoredMatch[]),
         listPlaylists().catch(() => [] as Playlist[]),
         listFolders().catch(() => [] as PlaylistFolder[]),
       ]).then(([ms, ps, fs]) => {

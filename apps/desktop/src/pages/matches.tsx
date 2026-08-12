@@ -36,7 +36,7 @@ export function MatchesPage() {
     if (!canAccess) return;
     setLoading(true);
     const load = () =>
-      listMatches(activeOrgId ?? undefined)
+      listMatches(activeOrgId ?? undefined, { ownOnly: true })
         .then(setMatches)
         .catch(() => setMatches([]))
         .finally(() => setLoading(false));

@@ -177,12 +177,28 @@ export async function getMatch(supabase: SupabaseClient, id: string): Promise<St
 // List all matches for the current user
 // ---------------------------------------------------------------------------
 
-export async function listMatches(supabase: SupabaseClient, orgId?: string): Promise<StoredMatch[]> {
+/**
+ * ownOnly matters wherever matches are BROWSED (Library, Home, Clip
+ * Browser): RLS also grants read on teammates' matches referenced by shared
+ * playlists, and without the filter those render as if they were the
+ * user's own. Consumption surfaces (my-playlists) omit it — they need the
+ * shared matches for titles and clip metadata.
+ */
+export async function listMatches(
+  supabase: SupabaseClient,
+  orgId?: string,
+  opts?: { ownOnly?: boolean }
+): Promise<StoredMatch[]> {
   let query = supabase
     .from("matches")
     .select("*, play_by_play_events(*)")
     .order("created_at", { ascending: false });
   if (orgId) query = query.eq("org_id", orgId);
+  if (opts?.ownOnly) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+    query = query.eq("user_id", user.id);
+  }
 
   const { data, error } = await query;
   if (error || !data) return [];
@@ -353,12 +369,21 @@ export async function deleteFolder(supabase: SupabaseClient, id: string): Promis
 // List all matches WITHOUT loading events (fast — for match title resolution)
 // ---------------------------------------------------------------------------
 
-export async function listMatchesLight(supabase: SupabaseClient, orgId?: string): Promise<StoredMatch[]> {
+export async function listMatchesLight(
+  supabase: SupabaseClient,
+  orgId?: string,
+  opts?: { ownOnly?: boolean }
+): Promise<StoredMatch[]> {
   let query = supabase
     .from("matches")
     .select("*")
     .order("created_at", { ascending: false });
   if (orgId) query = query.eq("org_id", orgId);
+  if (opts?.ownOnly) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+    query = query.eq("user_id", user.id);
+  }
   const { data, error } = await query;
   if (error || !data) return [];
   return (data as MatchRow[]).map((row) => rowToStoredMatch(row, []));
