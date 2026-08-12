@@ -280,6 +280,16 @@ async fn delete_file(path: String) -> Result<(), String> {
     std::fs::remove_file(p).map_err(|e| e.to_string())
 }
 
+/// Read a whole file and return raw bytes over IPC. Used for R2 uploads —
+/// fetch() against stream:// caps at CHUNK_SIZE per response and its
+/// headers aren't reliably readable cross-origin, which once caused
+/// silently truncated uploads. std::fs::read returns everything or errors.
+#[tauri::command]
+async fn read_file(path: String) -> Result<tauri::ipc::Response, String> {
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 /// Maximum bytes returned per request via the stream:// protocol.
 /// Keeps memory usage bounded regardless of file size.
 const CHUNK_SIZE: u64 = 4 * 1024 * 1024; // 4 MiB
@@ -432,7 +442,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![export_playlist, get_temp_dir, delete_file, export_clip_for_ship])
+        .invoke_handler(tauri::generate_handler![export_playlist, get_temp_dir, delete_file, read_file, export_clip_for_ship])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

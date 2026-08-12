@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import QRCode from "react-qr-code";
-import { Check, Copy, Loader2, Smartphone } from "lucide-react";
+import { Check, Copy, Loader2, RefreshCw, Smartphone } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -10,8 +10,11 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { sendHighlightToPhone, type SendToPhoneStage } from "@/lib/highlight-share";
+import { getMyShareForPlaylist } from "@/lib/highlight-shares-db";
 import { trackEvent } from "@/lib/analytics";
 import type { ExportSegment } from "@/lib/export";
+
+const APP_URL = "https://app.scoutable.se";
 
 const STAGE_LABEL: Record<SendToPhoneStage, string> = {
   rendering: "Rendering your highlight…",
@@ -19,10 +22,20 @@ const STAGE_LABEL: Record<SendToPhoneStage, string> = {
   saving: "Creating your link…",
 };
 
+function relativeDays(iso: string): string {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  return `${days} days ago`;
+}
+
 /**
  * Renders the playlist, uploads it, and shows a QR code the user scans with
- * their phone. The phone lands on the public /h/{id} page, where the native
- * share sheet takes over (camera roll, Instagram, TikTok, …).
+ * their phone. Reuses the playlist's existing non-expired link when there is
+ * one (re-rendering is minutes of work for an unchanged video) — "Create new
+ * link" forces a fresh render when the playlist has changed. Selection
+ * exports always render fresh: a subset must not impersonate the full
+ * playlist's link.
  */
 export function SendToPhoneDialog({
   open,
@@ -31,6 +44,7 @@ export function SendToPhoneDialog({
   segments,
   preRoll,
   postRoll,
+  isSelection,
 }: {
   open: boolean;
   onClose: () => void;
@@ -38,22 +52,26 @@ export function SendToPhoneDialog({
   segments: ExportSegment[];
   preRoll: number;
   postRoll: number;
+  isSelection: boolean;
 }) {
   const [stage, setStage] = useState<SendToPhoneStage | null>(null);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [reusedFrom, setReusedFrom] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const runningRef = useRef(false);
 
-  useEffect(() => {
-    if (!open || !playlist || runningRef.current || shareUrl) return;
+  function runPipeline(pl: { id: string; name: string }) {
+    if (runningRef.current) return;
     runningRef.current = true;
     setError(null);
-    sendHighlightToPhone(playlist, segments, preRoll, postRoll, setStage)
+    setShareUrl(null);
+    setReusedFrom(null);
+    sendHighlightToPhone(pl, segments, preRoll, postRoll, setStage)
       .then((url) => {
         setShareUrl(url);
         trackEvent("highlight_sent_to_phone", {
-          playlist_id: playlist.id,
+          playlist_id: pl.id,
           clip_count: segments.filter((s) => s.kind === "clip").length,
         });
       })
@@ -62,12 +80,31 @@ export function SendToPhoneDialog({
         setStage(null);
         runningRef.current = false;
       });
+  }
+
+  useEffect(() => {
+    if (!open || !playlist || runningRef.current || shareUrl) return;
+    if (isSelection) {
+      runPipeline(playlist);
+      return;
+    }
+    getMyShareForPlaylist(playlist.id)
+      .then((existing) => {
+        if (existing) {
+          setShareUrl(`${APP_URL}/h/${existing.id}`);
+          setReusedFrom(existing.createdAt);
+        } else {
+          runPipeline(playlist);
+        }
+      })
+      .catch(() => runPipeline(playlist));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   function handleClose() {
     // A render/upload in flight can't be cancelled — just don't reopen state.
     setShareUrl(null);
+    setReusedFrom(null);
     setError(null);
     setCopied(false);
     onClose();
@@ -105,12 +142,28 @@ export function SendToPhoneDialog({
             <div className="rounded-lg bg-white p-3">
               <QRCode value={shareUrl} size={176} />
             </div>
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={handleCopy}>
-              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-              {copied ? "Copied" : "Copy link"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={handleCopy}>
+                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                {copied ? "Copied" : "Copy link"}
+              </Button>
+              {reusedFrom && playlist && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 text-muted-foreground"
+                  onClick={() => runPipeline(playlist)}
+                  title="Re-render if the playlist has changed since this link was made"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Create new link
+                </Button>
+              )}
+            </div>
             <p className="text-center text-xs text-muted-foreground">
-              The link works for 30 days — save the video to your phone right away.
+              {reusedFrom
+                ? `Link created ${relativeDays(reusedFrom)} — playlist changed since? Create a new link.`
+                : "The link works for 30 days — save the video to your phone right away."}
             </p>
           </div>
         ) : (

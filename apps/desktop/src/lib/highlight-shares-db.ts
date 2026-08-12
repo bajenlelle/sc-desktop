@@ -9,3 +9,5 @@ const c = () => createClient();
 
 export const createHighlightShare = (share: Parameters<typeof db.createHighlightShare>[1]) =>
   db.createHighlightShare(c(), share);
+export const getMyShareForPlaylist = (playlistId: string) =>
+  db.getMyShareForPlaylist(c(), playlistId);

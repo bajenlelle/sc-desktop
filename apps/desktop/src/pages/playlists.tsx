@@ -4842,6 +4842,7 @@ export function PlaylistsPage() {
             segments={sendToPhoneSegments}
             preRoll={preRoll}
             postRoll={postRoll}
+            isSelection={selectedClipIds.size > 0}
           />
           {/* Share dialog — multi-team */}
           <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>

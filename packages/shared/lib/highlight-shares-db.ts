@@ -42,6 +42,26 @@ export async function createHighlightShare(
   if (error) throw new Error(`Failed to create highlight share: ${error.message}`);
 }
 
+/**
+ * Newest non-expired share the caller created for a playlist — lets the
+ * send-to-phone dialog reuse the existing link instead of re-rendering.
+ */
+export async function getMyShareForPlaylist(
+  supabase: SupabaseClient,
+  playlistId: string
+): Promise<{ id: string; createdAt: string } | null> {
+  const { data, error } = await supabase
+    .from("highlight_shares")
+    .select("id, created_at")
+    .eq("playlist_id", playlistId)
+    .gt("expires_at", new Date().toISOString())
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  return { id: data.id as string, createdAt: data.created_at as string };
+}
+
 /** Anonymous-safe lookup used by the public /h/{id} page. */
 export async function getHighlightShare(
   supabase: SupabaseClient,
