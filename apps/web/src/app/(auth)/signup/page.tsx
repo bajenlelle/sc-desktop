@@ -16,7 +16,48 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
+/**
+ * Self-declared role — a copy/analytics signal only, never a permission
+ * (membership roles govern access). Required so 100% of email signups
+ * carry it; OAuth signups get a one-click fallback on first run instead.
+ */
+type DeclaredRole = "coach" | "player";
+
+function RoleChoice({
+  value,
+  onChange,
+}: {
+  value: DeclaredRole | null;
+  onChange: (r: DeclaredRole) => void;
+}) {
+  const options: { key: DeclaredRole; title: string; desc: string }[] = [
+    { key: "coach", title: "Coach", desc: "Scout opponents and analyze games" },
+    { key: "player", title: "Player", desc: "Study my games and build highlight tapes" },
+  ];
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      {options.map((o) => (
+        <button
+          key={o.key}
+          type="button"
+          onClick={() => onChange(o.key)}
+          className={
+            "rounded-lg border p-3 text-left transition-colors " +
+            (value === o.key
+              ? "border-primary bg-primary/5 ring-1 ring-primary"
+              : "border-border hover:border-primary/40")
+          }
+        >
+          <span className="block text-sm font-semibold text-foreground">{o.title}</span>
+          <span className="mt-0.5 block text-xs text-muted-foreground">{o.desc}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function SignupPage() {
+  const [declaredRole, setDeclaredRole] = useState<DeclaredRole | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -30,6 +71,11 @@ export default function SignupPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    if (!declaredRole) {
+      setError("Choose the option that describes you best.");
+      return;
+    }
 
     if (!firstName.trim() || !lastName.trim()) {
       setError("Please enter your first and last name.");
@@ -48,7 +94,10 @@ export default function SignupPage() {
       email,
       password,
       options: {
-        data: { full_name: `${firstName.trim()} ${lastName.trim()}` },
+        data: {
+          full_name: `${firstName.trim()} ${lastName.trim()}`,
+          declared_role: declaredRole,
+        },
         emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
       },
     });
@@ -117,6 +166,10 @@ export default function SignupPage() {
                     {error}
                   </p>
                 )}
+                <div className="space-y-2">
+                  <Label>I&apos;m a…</Label>
+                  <RoleChoice value={declaredRole} onChange={setDeclaredRole} />
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
                     <Label htmlFor="firstName">First name</Label>

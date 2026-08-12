@@ -95,7 +95,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfile(p);
       setMyOrgs(orgs);
       setActiveOrgIdState(resolveActiveOrg(orgs));
-      if (!opts?.silent) maybeSeedDemo(userId, orgs);
+      if (!opts?.silent) {
+        maybeSeedDemo(userId, orgs);
+        // Role isn't known at the SIGNED_IN identify (profile not loaded
+        // yet) — merge it in once it is, so PostHog can segment by persona.
+        if (p.declaredRole) {
+          identifyUser(userId, { declared_role: p.declaredRole });
+        }
+      }
       return orgs;
     } catch (err) {
       console.error("[auth] loadProfile failed:", err);

@@ -5,7 +5,7 @@ import { Loader2 } from "lucide-react";
 const PLAYER_BLOCKED_PATHS = ["/matches", "/upload", "/playlists"];
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading, profile, profileLoading, myOrgs } = useAuth();
+  const { user, loading, profile, profileLoading, myOrgs, activeOrgIsPersonal, activeOrgRole } = useAuth();
   const { pathname } = useLocation();
 
   if (loading || (user && profileLoading)) {
@@ -31,8 +31,13 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/" replace />;
   }
 
-  // Players cannot access Library, Upload, or the playlist editor
-  if (profile?.role === "player" && PLAYER_BLOCKED_PATHS.some((p) => pathname.startsWith(p))) {
+  // Builder pages are gated by the ACTIVE space's membership role — not the
+  // vestigial profiles.role, which is 'coach' by default for everyone and
+  // 'player' only on some legacy accounts. In their personal space everyone
+  // builds (players make their own tapes); in a club space players belong on
+  // their playlist feed. Matches the per-page canAccess checks.
+  const canBuild = activeOrgIsPersonal || activeOrgRole === "coach" || activeOrgRole === "admin";
+  if (!canBuild && PLAYER_BLOCKED_PATHS.some((p) => pathname.startsWith(p))) {
     return <Navigate to="/my-playlists" replace />;
   }
 

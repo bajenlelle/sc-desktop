@@ -185,8 +185,13 @@ function CoachHomePage() {
 }
 
 export function HomePage() {
-  const { profile, profileLoading } = useAuth();
+  const { profileLoading, activeOrgIsPersonal, activeOrgRole } = useAuth();
   if (profileLoading) return null;
-  if (profile?.role === "player") return <Navigate to="/my-playlists" replace />;
+  // The membership role in the ACTIVE space decides, not the vestigial
+  // profiles.role: club players belong on their playlist feed, but in their
+  // personal space everyone is a builder (players make their own tapes).
+  if (!activeOrgIsPersonal && activeOrgRole === "player") {
+    return <Navigate to="/my-playlists" replace />;
+  }
   return <CoachHomePage />;
 }

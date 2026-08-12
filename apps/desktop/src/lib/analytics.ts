@@ -24,7 +24,7 @@ export function initAnalytics() {
   })
 }
 
-export function identifyUser(userId: string, props: { email?: string }) {
+export function identifyUser(userId: string, props: { email?: string; declared_role?: string }) {
   posthog.identify(userId, props)
 }
 

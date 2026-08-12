@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Download, Film, ListVideo, Share2, Ticket } from "lucide-react";
+import { RolePrompt } from "@/components/role-prompt";
 
 /**
  * Landing page for signed-in users whose only space is their personal org —
@@ -29,6 +30,7 @@ export default function GetStartedPage() {
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col items-center gap-10 px-6 py-16 text-center">
+      <RolePrompt />
       <div className="flex flex-col items-center gap-3">
         <h1 className="text-2xl font-bold tracking-tight text-foreground">
           Welcome to Scoutable 👋

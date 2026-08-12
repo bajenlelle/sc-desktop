@@ -21,6 +21,11 @@ export interface UserProfile {
   onboardingChecklistDismissedAt?: string | null;
   /** When the web welcome surfaces were dismissed; null = show them. */
   welcomeDismissedAt?: string | null;
+  /**
+   * Self-declared at signup (or inferred from an invite): tailors copy and
+   * analytics only — never permissions. null = not captured yet.
+   */
+  declaredRole?: 'coach' | 'player' | null;
 }
 
 export interface Organization {

@@ -31,6 +31,7 @@ interface ProfileRow {
   celebrated_plan_tier?: string | null;
   onboarding_checklist_dismissed_at?: string | null;
   welcome_dismissed_at?: string | null;
+  declared_role?: string | null;
 }
 
 interface OrgMemberRow {
@@ -124,6 +125,7 @@ function rowToProfile(r: ProfileRow): UserProfile {
     celebratedPlanTier: (r.celebrated_plan_tier as 'rookie' | 'pro' | null | undefined) ?? null,
     onboardingChecklistDismissedAt: r.onboarding_checklist_dismissed_at ?? null,
     welcomeDismissedAt: r.welcome_dismissed_at ?? null,
+    declaredRole: (r.declared_role as 'coach' | 'player' | null | undefined) ?? null,
   };
 }
 
@@ -210,11 +212,25 @@ export async function getMyProfile(userId: string): Promise<UserProfile> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin, celebrated_plan_tier, onboarding_checklist_dismissed_at, welcome_dismissed_at")
+    .select("id, full_name, avatar_url, role, org_id, created_at, is_platform_admin, celebrated_plan_tier, onboarding_checklist_dismissed_at, welcome_dismissed_at, declared_role")
     .eq("id", userId)
     .single();
   if (error || !data) throw new Error(`Failed to load profile: ${error?.message}`);
   return rowToProfile(data as ProfileRow);
+}
+
+/** Record the user's self-declared role (copy/analytics only, not permissions). */
+export async function setDeclaredRole(role: 'coach' | 'player'): Promise<void> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+  const { error } = await supabase
+    .from("profiles")
+    .update({ declared_role: role })
+    .eq("id", user.id);
+  if (error) throw new Error(`Failed to set role: ${error.message}`);
 }
 
 /** Hide the first-visit welcome surfaces permanently (across devices). */
