@@ -16,7 +16,7 @@ interface Props {
 export function UpgradeDialog({ open, onClose, featureName = "This feature", description }: Props) {
   const { user, expectPlanChange } = useAuth();
   const [loading, setLoading] = useState(false);
-  const body = description ?? "Export your playlists as MP4 video files with a Rookie or Pro plan. Start with a 14-day free trial — no credit card required upfront.";
+  const body = description ?? "Turn your playlists into MP4s you can share anywhere — and import up to unlimited games every month. Try Rookie or Pro free for 14 days, cancel anytime.";
 
   // Existing subscribers are routed to the billing portal instead of
   // Checkout — this dialog also fires on the Rookie import cap, and sending

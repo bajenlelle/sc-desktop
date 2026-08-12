@@ -437,7 +437,9 @@ export function UploadZone({
       onClose={() => setImportLimitDialogOpen(false)}
       featureName="Monthly import limit reached"
       description={importLimitInfo
-        ? `You've used all ${importLimitInfo.limit} game imports for this month on the free plan. Upgrade to Pro for 10 imports/month, or Max for unlimited.`
+        ? activeOrgPlan === "rookie"
+          ? `You've used all ${importLimitInfo.limit} Rookie imports for this month. Upgrade to Pro and never count imports again.`
+          : `You've used all ${importLimitInfo.limit} free imports for this month. Get up to unlimited imports and MP4 export — try Rookie or Pro free for 14 days, cancel anytime.`
         : undefined}
     />
     <div className="mx-auto max-w-2xl space-y-8">

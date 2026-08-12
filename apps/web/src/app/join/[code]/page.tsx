@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/client";
 import { joinByCode } from "@/lib/profile-db";
+import { setStoredActiveOrg } from "@/components/auth-context";
 import type { InviteInvalidReason } from "@scoutable/shared/types/org";
 import { toast } from "sonner";
 
@@ -106,6 +107,11 @@ export default function JoinPage() {
       joinByCode(code)
         .then((result) => {
           setJoining(false);
+          // Make the joined org the active space — otherwise the user lands
+          // back in their personal space and never sees what they joined.
+          // (This page is outside AuthProvider, so write the stored choice
+          // directly; the reload / next mount picks it up.)
+          setStoredActiveOrg(result.orgId);
           if (result.type === "org" || result.type === "secondary_org") {
             toast.success(`You joined ${preview.orgName ?? "the organization"}!`);
             window.location.href = "/my-playlists";

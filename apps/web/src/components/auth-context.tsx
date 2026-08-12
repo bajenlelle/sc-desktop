@@ -8,6 +8,15 @@ import type { UserProfile, OrgMembership, OrgPlanTier } from "@scoutable/shared/
 
 const ACTIVE_ORG_KEY = "scoutable_active_org_id";
 
+/**
+ * Persist the space choice from outside the provider — used by the /join
+ * page (public route group, no AuthProvider) so a freshly joined org is the
+ * active space after the post-join reload.
+ */
+export function setStoredActiveOrg(orgId: string) {
+  localStorage.setItem(ACTIVE_ORG_KEY, orgId);
+}
+
 /** Skip the focus-triggered refetch if the org snapshot is younger than this. */
 const FOCUS_REFRESH_MIN_MS = 30_000;
 /** How the post-upgrade poll paces itself: every 3s, give up after 60s. */
@@ -78,7 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const setActiveOrg = useCallback((orgId: string) => {
-    localStorage.setItem(ACTIVE_ORG_KEY, orgId);
+    setStoredActiveOrg(orgId);
     setActiveOrgIdState(orgId);
   }, []);
 

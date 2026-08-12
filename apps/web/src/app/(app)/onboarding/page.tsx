@@ -20,7 +20,7 @@ function extractCode(input: string): string {
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { reloadProfile } = useAuth();
+  const { reloadProfile, setActiveOrg } = useAuth();
   const [input, setInput] = useState("");
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,8 +31,12 @@ export default function OnboardingPage() {
     setJoining(true);
     setError(null);
     try {
-      await joinByCode(code);
+      const res = await joinByCode(code);
       toast.success("You've joined successfully!");
+      // Activate the joined space BEFORE reloading — resolveActiveOrg
+      // validates the stored id against the fresh org list, so the new org
+      // sticks and /my-playlists doesn't bounce back to /get-started.
+      setActiveOrg(res.orgId);
       await reloadProfile();
       router.push("/my-playlists");
     } catch (e) {
