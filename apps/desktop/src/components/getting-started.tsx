@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Check, ChevronRight, Lock, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
-import { dismissOnboardingChecklist } from "@/lib/profile-db";
+import { dismissOnboardingChecklist, setDeclaredRole } from "@/lib/profile-db";
 import { getMySharedOutPlaylists } from "@/lib/playlists-db";
 import { trackEvent } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
@@ -37,7 +37,7 @@ export function GettingStarted({
   playlists: Playlist[];
 }) {
   const navigate = useNavigate();
-  const { profile, activeOrg, activeOrgIsPersonal, activeOrgPlan } = useAuth();
+  const { profile, activeOrg, activeOrgIsPersonal, activeOrgPlan, activeOrgRole, reloadProfile } = useAuth();
   const [hidden, setHidden] = useState(false);
   const [hasSharedOut, setHasSharedOut] = useState(false);
   const [hasExported, setHasExported] = useState(
@@ -45,7 +45,13 @@ export function GettingStarted({
   );
   const celebratedRef = useRef(false);
 
-  const show = !hidden && profile != null && profile.onboardingChecklistDismissedAt == null;
+  // In club spaces the membership role is authoritative: player members
+  // never see the coach checklist there (its CTAs are blocked for them) —
+  // they still get it in their personal space, where everyone is a builder.
+  const canActHere =
+    activeOrgIsPersonal || activeOrgRole === "coach" || activeOrgRole === "admin";
+  const show =
+    !hidden && canActHere && profile != null && profile.onboardingChecklistDismissedAt == null;
 
   // The club-space final step ("share with your team") is the one signal not
   // already loaded on Home.
@@ -62,26 +68,51 @@ export function GettingStarted({
     return () => window.removeEventListener("playlist-exported", onExported);
   }, []);
 
-  const hasDemo = matches.some((m) => m.isDemo);
+  // The sample game lives in the personal space only — in a club space the
+  // checklist must not point at something the Clip Browser there won't have.
+  const hasDemo = activeOrgIsPersonal && matches.some((m) => m.isDemo);
+  // Declared at signup (or inferred from an invite); null = OAuth signup
+  // that skipped the form — ask inline below. The player voice only applies
+  // in the personal space: in a club space the membership role decides, and
+  // a declared-player invited as club coach should read coach copy there.
+  const isPlayer = activeOrgIsPersonal && profile?.declaredRole === "player";
+
+  function handleDeclareRole(role: "coach" | "player") {
+    setDeclaredRole(role)
+      .then(() => reloadProfile())
+      .catch((err) => console.error("[onboarding] failed to save role:", err));
+  }
   const hasOwnGame = matches.some((m) => !m.isDemo);
   const hasPlaylist = playlists.length > 0;
   const hasClips = playlists.some((p) => p.items.length > 0);
+
+  // Land the user INSIDE a playlist (any one is fine) so the highlighted
+  // button is actually on screen; before their first playlist exists the
+  // steps fall back to a bare navigate.
+  const firstPlaylistState = hasPlaylist
+    ? { restore: { playlistId: playlists[0].id } }
+    : undefined;
 
   const steps: Step[] = [
     { key: "account", title: "Create your account", done: true },
     {
       key: "playlist",
-      title: "Build your first playlist",
+      title: isPlayer ? "Build your first highlight tape" : "Build your first playlist",
       done: hasPlaylist,
       to: "/playlists",
       toState: { createNew: true },
     },
     {
       key: "clips",
-      title: hasDemo ? "Add clips from the sample game" : "Add clips from a game",
+      title: hasDemo
+        ? isPlayer
+          ? "Add your best plays from the sample game"
+          : "Add clips from the sample game"
+        : "Add clips from a game",
       hint: hasDemo ? "Filter by player or event type, then watch them back-to-back" : undefined,
       done: hasClips,
       to: "/playlists",
+      toState: firstPlaylistState && { ...firstPlaylistState, highlight: "add-clips" },
     },
     {
       key: "import",
@@ -96,6 +127,7 @@ export function GettingStarted({
           title: "Export a playlist as MP4",
           done: hasExported,
           to: "/playlists",
+          toState: firstPlaylistState && { ...firstPlaylistState, highlight: "export" },
           locked: activeOrgPlan === "free",
           hint: activeOrgPlan === "free" ? "Available on Rookie and Pro" : undefined,
         }
@@ -104,6 +136,7 @@ export function GettingStarted({
           title: "Share a playlist with your team",
           done: hasSharedOut,
           to: "/playlists",
+          toState: firstPlaylistState && { ...firstPlaylistState, highlight: "share" },
         },
   ];
 
@@ -136,7 +169,9 @@ export function GettingStarted({
 
   const welcome = activeOrgIsPersonal
     ? hasDemo
-      ? "We've added a sample game so you can try everything without your own footage."
+      ? isPlayer
+        ? "We've added a sample game so you can try building a tape without your own footage."
+        : "We've added a sample game so you can try everything without your own footage."
       : "Here's the fastest way to get to your first playlist."
     : `You've joined ${activeOrg?.orgName ?? "your organization"}. Here's how to get going.`;
 
@@ -156,6 +191,31 @@ export function GettingStarted({
           <X className="h-4 w-4" />
         </button>
       </div>
+
+      {/* OAuth signups skip the signup form's role question — ask once here. */}
+      {profile?.declaredRole == null && (
+        <div className="mt-4 flex flex-col gap-2 rounded-lg bg-muted/50 p-3">
+          <span className="text-xs font-medium text-foreground">What describes you best?</span>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => handleDeclareRole("coach")}
+              className="rounded-md border border-border px-3 py-2 text-left text-sm transition-colors hover:border-primary/50 hover:bg-primary/5"
+            >
+              <span className="font-medium text-foreground">Coach</span>
+              <span className="block text-xs text-muted-foreground">I scout and analyze games</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDeclareRole("player")}
+              className="rounded-md border border-border px-3 py-2 text-left text-sm transition-colors hover:border-primary/50 hover:bg-primary/5"
+            >
+              <span className="font-medium text-foreground">Player</span>
+              <span className="block text-xs text-muted-foreground">I study my games and build highlights</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Progress */}
       <div className="mt-4 flex items-center gap-3">

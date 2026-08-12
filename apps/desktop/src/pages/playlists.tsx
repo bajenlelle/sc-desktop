@@ -1415,6 +1415,13 @@ export function PlaylistsPage() {
   const [sharedSectionExpanded, setSharedSectionExpanded] = useState(true);
   // Clip browser panel
   const [showClipBrowser, setShowClipBrowser] = useState(false);
+  // Getting Started checklist arrival: which button to pulse until clicked
+  // or a few seconds pass.
+  const [onboardingHighlight, setOnboardingHighlight] = useState<"add-clips" | "export" | "share" | null>(null);
+  const hl = (key: "add-clips" | "export" | "share") =>
+    onboardingHighlight === key
+      ? " ring-2 ring-primary ring-offset-2 ring-offset-background animate-pulse"
+      : "";
 
   // Labels — per (user, org) vocabulary + per-clip assignments
   const [labels, setLabels] = useState<Label[]>([]);
@@ -1500,9 +1507,19 @@ export function PlaylistsPage() {
 
   // Load playlists + matches on mount; restore selection if returning from match detail
   useEffect(() => {
-    const state = location.state as { restore?: { playlistId: string }; createNew?: boolean } | null;
+    const state = location.state as {
+      restore?: { playlistId: string };
+      createNew?: boolean;
+      /** Set by the Getting Started checklist — pulse the step's button. */
+      highlight?: "add-clips" | "export" | "share";
+    } | null;
     const restore = state?.restore;
     const createNew = state?.createNew;
+    let highlightTimer: number | undefined;
+    if (state?.highlight) {
+      setOnboardingHighlight(state.highlight);
+      highlightTimer = window.setTimeout(() => setOnboardingHighlight(null), 6000);
+    }
     Promise.all([listPlaylists(), listMatchesLight(activeOrgId ?? undefined, { ownOnly: true }), listFolders(), (activeOrgId ? getOrgContextForOrg(activeOrgId) : getOrgContext()).catch(() => null)])
       .then(async ([loadedPlaylists, matchShells, loadedFolders, orgCtx]) => {
         const matchIds = matchShells.map((m) => m.id);
@@ -1556,6 +1573,7 @@ export function PlaylistsPage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+    return () => { if (highlightTimer !== undefined) window.clearTimeout(highlightTimer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeOrgId]);
 
@@ -3992,8 +4010,8 @@ export function PlaylistsPage() {
                   <div className="flex items-center gap-2">
                     <Button
                       size="sm"
-                      className="h-8 gap-1.5"
-                      onClick={() => setShowClipBrowser(true)}
+                      className={"h-8 gap-1.5" + hl("add-clips")}
+                      onClick={() => { setOnboardingHighlight(null); setShowClipBrowser(true); }}
                     >
                       <Plus className="h-3.5 w-3.5" />
                       Add Clips
@@ -4035,8 +4053,8 @@ export function PlaylistsPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        className="h-8 gap-1.5"
-                        onClick={handleExport}
+                        className={"h-8 gap-1.5" + hl("export")}
+                        onClick={() => { setOnboardingHighlight(null); handleExport(); }}
                         disabled={exportLocked ? playlistEmpty : !!exportDisabledReason}
                         title={exportLocked
                           ? "Export playlists as MP4 with Rookie or Pro"
@@ -4073,8 +4091,9 @@ export function PlaylistsPage() {
                         <Button
                           size="sm"
                           variant={isShared ? "default" : "outline"}
-                          className="h-8 w-8 p-0"
+                          className={"h-8 w-8 p-0" + hl("share")}
                           onClick={() => {
+                            setOnboardingHighlight(null);
                             setPendingShareTeamIds(new Set(selected?.teamIds ?? []));
                             setPendingShareUserIds(new Set(selected?.userIds ?? []));
                             setMemberSearchQuery("");
@@ -4179,8 +4198,8 @@ export function PlaylistsPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="gap-1.5"
-                      onClick={() => setShowClipBrowser(true)}
+                      className={"gap-1.5" + hl("add-clips")}
+                      onClick={() => { setOnboardingHighlight(null); setShowClipBrowser(true); }}
                     >
                       <Plus className="h-3.5 w-3.5" />
                       Add Clips
@@ -4335,8 +4354,8 @@ export function PlaylistsPage() {
                   <div className="flex items-center gap-2">
                     <Button
                       size="sm"
-                      className="h-8 gap-1.5"
-                      onClick={() => setShowClipBrowser(true)}
+                      className={"h-8 gap-1.5" + hl("add-clips")}
+                      onClick={() => { setOnboardingHighlight(null); setShowClipBrowser(true); }}
                     >
                       <Plus className="h-3.5 w-3.5" />
                       Add Clips
@@ -4378,8 +4397,8 @@ export function PlaylistsPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        className="h-8 gap-1.5"
-                        onClick={handleExport}
+                        className={"h-8 gap-1.5" + hl("export")}
+                        onClick={() => { setOnboardingHighlight(null); handleExport(); }}
                         disabled={exportLocked ? playlistEmpty : !!exportDisabledReason}
                         title={exportLocked
                           ? "Export playlists as MP4 with Rookie or Pro"
@@ -4416,8 +4435,9 @@ export function PlaylistsPage() {
                         <Button
                           size="sm"
                           variant={isShared ? "default" : "outline"}
-                          className="h-8 w-8 p-0"
+                          className={"h-8 w-8 p-0" + hl("share")}
                           onClick={() => {
+                            setOnboardingHighlight(null);
                             setPendingShareTeamIds(new Set(selected?.teamIds ?? []));
                             setPendingShareUserIds(new Set(selected?.userIds ?? []));
                             setMemberSearchQuery("");
@@ -4522,8 +4542,8 @@ export function PlaylistsPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="gap-1.5"
-                      onClick={() => setShowClipBrowser(true)}
+                      className={"gap-1.5" + hl("add-clips")}
+                      onClick={() => { setOnboardingHighlight(null); setShowClipBrowser(true); }}
                     >
                       <Plus className="h-3.5 w-3.5" />
                       Add Clips
