@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Columns2,
   FileDown,
+  Smartphone,
   FolderPlus,
   Lock,
   Share2,
@@ -50,6 +51,7 @@ import type { Label, LabelColor, ClipKey } from "@scoutable/shared/types/labels"
 import { eventColors, eventLabel, formatGameClock, playerName } from "@scoutable/shared/lib/events";
 import { getOrgContext, getOrgContextForOrg, getOrgMembers, getTeamMemberIds } from "@/lib/profile-db";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
+import { SendToPhoneDialog } from "@/components/send-to-phone-dialog";
 import type { OrgTeam, UserProfile } from "@/types/org";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
@@ -1418,6 +1420,8 @@ export function PlaylistsPage() {
   // Getting Started checklist arrival: which button to pulse until clicked
   // or a few seconds pass.
   const [onboardingHighlight, setOnboardingHighlight] = useState<"add-clips" | "export" | "share" | null>(null);
+  const [sendToPhoneOpen, setSendToPhoneOpen] = useState(false);
+  const [sendToPhoneSegments, setSendToPhoneSegments] = useState<ExportSegment[]>([]);
   const hl = (key: "add-clips" | "export" | "share") =>
     onboardingHighlight === key
       ? " ring-2 ring-primary ring-offset-2 ring-offset-background animate-pulse"
@@ -2519,6 +2523,46 @@ export function PlaylistsPage() {
   // Export
   // ---------------------------------------------------------------------------
 
+  /** Segments for export / send-to-phone — honors the current selection. */
+  function buildExportSegments(): ExportSegment[] {
+    const itemsToExport = selectedClipIds.size > 0
+      ? sortedEvents.filter(item => selectedClipIds.has(itemKey(item)))
+      : sortedEvents;
+
+    return itemsToExport
+      .map((item): ExportSegment | null => {
+        if (isTextCard(item)) {
+          return { kind: 'text', text: (item as PlaylistTextCard).text, durationSeconds: (item as PlaylistTextCard).durationSeconds };
+        }
+        const qi = item as QueueItem;
+        const m = matchLookup.get(qi.matchId);
+        if (!m?.videoUrl || !m.syncPoint) return null;
+        const clip = selected?.items.filter(isClipItem).find(
+          (c) => c.matchId === qi.matchId && c.eventId === qi.event.eventId
+        );
+        const seg: ExportSegment = {
+          kind: 'clip',
+          videoPath: m.videoUrl,
+          matchId: qi.matchId,
+          event: qi.event,
+          syncPoint: m.syncPoint,
+        };
+        if (clip?.preRollOffset !== undefined) (seg as Extract<ExportSegment, { kind: 'clip' }>).preRollOffset = clip.preRollOffset;
+        if (clip?.postRollOffset !== undefined) (seg as Extract<ExportSegment, { kind: 'clip' }>).postRollOffset = clip.postRollOffset;
+        return seg;
+      })
+      .filter((x): x is ExportSegment => x !== null);
+  }
+
+  function handleSendToPhone() {
+    if (activeOrgPlan === 'free') {
+      setUpgradeDialogOpen(true);
+      return;
+    }
+    setSendToPhoneSegments(buildExportSegments());
+    setSendToPhoneOpen(true);
+  }
+
   async function handleExport() {
     if (activeOrgPlan === 'free') {
       setUpgradeDialogOpen(true);
@@ -2528,33 +2572,7 @@ export function PlaylistsPage() {
     setExportError(null);
     let segmentCount = 0;
     try {
-      const itemsToExport = selectedClipIds.size > 0
-        ? sortedEvents.filter(item => selectedClipIds.has(itemKey(item)))
-        : sortedEvents;
-
-      const segments = itemsToExport
-        .map((item): ExportSegment | null => {
-          if (isTextCard(item)) {
-            return { kind: 'text', text: (item as PlaylistTextCard).text, durationSeconds: (item as PlaylistTextCard).durationSeconds };
-          }
-          const qi = item as QueueItem;
-          const m = matchLookup.get(qi.matchId);
-          if (!m?.videoUrl || !m.syncPoint) return null;
-          const clip = selected?.items.filter(isClipItem).find(
-            (c) => c.matchId === qi.matchId && c.eventId === qi.event.eventId
-          );
-          const seg: ExportSegment = {
-            kind: 'clip',
-            videoPath: m.videoUrl,
-            matchId: qi.matchId,
-            event: qi.event,
-            syncPoint: m.syncPoint,
-          };
-          if (clip?.preRollOffset !== undefined) (seg as Extract<ExportSegment, { kind: 'clip' }>).preRollOffset = clip.preRollOffset;
-          if (clip?.postRollOffset !== undefined) (seg as Extract<ExportSegment, { kind: 'clip' }>).postRollOffset = clip.postRollOffset;
-          return seg;
-        })
-        .filter((x): x is ExportSegment => x !== null);
+      const segments = buildExportSegments();
       segmentCount = segments.filter(s => s.kind === 'clip').length;
       await exportPlaylist(segments, preRoll, postRoll, selected!.name);
       trackEvent('video_exported', { playlist_id: selected!.id, clip_count: segmentCount, status: 'success', selection_only: selectedClipIds.size > 0 });
@@ -4050,24 +4068,39 @@ export function PlaylistsPage() {
                         Exporting…
                       </Button>
                     ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className={"h-8 gap-1.5" + hl("export")}
-                        onClick={() => { setOnboardingHighlight(null); handleExport(); }}
-                        disabled={exportLocked ? playlistEmpty : !!exportDisabledReason}
-                        title={exportLocked
-                          ? "Export playlists as MP4 with Rookie or Pro"
-                          : (exportDisabledReason ?? "Export playlist as MP4")}
-                      >
-                        {activeOrgPlan === 'free'
-                          ? <Lock className="h-3.5 w-3.5" />
-                          : <FileDown className="h-3.5 w-3.5" />
-                        }
-                        {selectedClipIds.size > 0
-                          ? `Export ${selectedClipIds.size} selected`
-                          : 'Export Playlist'}
-                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className={"h-8 gap-1.5" + hl("export")}
+                            onClick={() => setOnboardingHighlight(null)}
+                            disabled={exportLocked ? playlistEmpty : !!exportDisabledReason}
+                            title={exportLocked
+                              ? "Export playlists as MP4 with Rookie or Pro"
+                              : (exportDisabledReason ?? "Export playlist as MP4")}
+                          >
+                            {activeOrgPlan === 'free'
+                              ? <Lock className="h-3.5 w-3.5" />
+                              : <FileDown className="h-3.5 w-3.5" />
+                            }
+                            {selectedClipIds.size > 0
+                              ? `Export ${selectedClipIds.size} selected`
+                              : 'Export Playlist'}
+                            <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-52">
+                          <DropdownMenuItem onClick={handleExport} className="gap-2">
+                            <FileDown className="h-3.5 w-3.5" />
+                            Save to computer…
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={handleSendToPhone} className="gap-2">
+                            <Smartphone className="h-3.5 w-3.5" />
+                            Send to my phone…
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     )}
                   </div>
                   {/* Share button — icon-only, colored when shared */}
@@ -4394,24 +4427,39 @@ export function PlaylistsPage() {
                         Exporting…
                       </Button>
                     ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className={"h-8 gap-1.5" + hl("export")}
-                        onClick={() => { setOnboardingHighlight(null); handleExport(); }}
-                        disabled={exportLocked ? playlistEmpty : !!exportDisabledReason}
-                        title={exportLocked
-                          ? "Export playlists as MP4 with Rookie or Pro"
-                          : (exportDisabledReason ?? "Export playlist as MP4")}
-                      >
-                        {activeOrgPlan === 'free'
-                          ? <Lock className="h-3.5 w-3.5" />
-                          : <FileDown className="h-3.5 w-3.5" />
-                        }
-                        {selectedClipIds.size > 0
-                          ? `Export ${selectedClipIds.size} selected`
-                          : 'Export Playlist'}
-                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className={"h-8 gap-1.5" + hl("export")}
+                            onClick={() => setOnboardingHighlight(null)}
+                            disabled={exportLocked ? playlistEmpty : !!exportDisabledReason}
+                            title={exportLocked
+                              ? "Export playlists as MP4 with Rookie or Pro"
+                              : (exportDisabledReason ?? "Export playlist as MP4")}
+                          >
+                            {activeOrgPlan === 'free'
+                              ? <Lock className="h-3.5 w-3.5" />
+                              : <FileDown className="h-3.5 w-3.5" />
+                            }
+                            {selectedClipIds.size > 0
+                              ? `Export ${selectedClipIds.size} selected`
+                              : 'Export Playlist'}
+                            <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-52">
+                          <DropdownMenuItem onClick={handleExport} className="gap-2">
+                            <FileDown className="h-3.5 w-3.5" />
+                            Save to computer…
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={handleSendToPhone} className="gap-2">
+                            <Smartphone className="h-3.5 w-3.5" />
+                            Send to my phone…
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     )}
                   </div>
                   {/* Share button — icon-only, colored when shared */}
@@ -4785,6 +4833,15 @@ export function PlaylistsPage() {
             open={upgradeDialogOpen}
             onClose={() => setUpgradeDialogOpen(false)}
             featureName="Export Playlist is a paid feature"
+          />
+          {/* Send to phone — render + upload + QR */}
+          <SendToPhoneDialog
+            open={sendToPhoneOpen}
+            onClose={() => setSendToPhoneOpen(false)}
+            playlist={selected ? { id: selected.id, name: selected.name } : null}
+            segments={sendToPhoneSegments}
+            preRoll={preRoll}
+            postRoll={postRoll}
           />
           {/* Share dialog — multi-team */}
           <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>

@@ -61,7 +61,7 @@ export async function proxy(request: NextRequest) {
   // Onboarding guard: authenticated users without an org must go to /onboarding.
   // Done here (not in layout) so Next.js issues a real HTTP redirect, not a soft
   // client-router redirect that skips re-running the shared layout.
-  if (user && !pathname.startsWith("/onboarding") && !pathname.startsWith("/view/") && !pathname.startsWith("/join/")) {
+  if (user && !pathname.startsWith("/onboarding") && !pathname.startsWith("/view/") && !pathname.startsWith("/join/") && !pathname.startsWith("/h/")) {
     const { data: needsOnboarding } = await supabase.rpc("check_onboarding_needed");
     if (needsOnboarding) {
       const url = request.nextUrl.clone();
