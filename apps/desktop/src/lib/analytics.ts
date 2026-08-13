@@ -11,6 +11,8 @@ export type AnalyticsEvent =
   | 'page_viewed'
   | 'clip_added_to_playlist'
   | 'playlist_shipped'
+  | 'playlist_filtered'
+  | 'clips_grouped'
   | 'highlight_sent_to_phone'
   | 'demo_game_seeded'
   | 'onboarding_step_clicked'

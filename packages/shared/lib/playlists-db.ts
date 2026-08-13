@@ -26,6 +26,7 @@ interface PlaylistClipRow {
   text_content: string | null;
   duration_seconds: number | null;
   r2_url: string | null;
+  group_id: string | null;
 }
 
 interface PlaylistShareRow {
@@ -63,6 +64,7 @@ function rowToPlaylist(row: PlaylistRow): Playlist {
           id: c.item_id,
           text: c.text_content ?? '',
           durationSeconds: c.duration_seconds ?? 5,
+          ...(c.group_id ? { groupId: c.group_id } : {}),
         } satisfies PlaylistTextCard;
       }
       // Default: clip
@@ -75,6 +77,7 @@ function rowToPlaylist(row: PlaylistRow): Playlist {
         ...(c.post_roll_offset !== 0 ? { postRollOffset: c.post_roll_offset } : {}),
         ...(c.note ? { note: c.note } : {}),
         ...(c.r2_url ? { r2Url: c.r2_url } : {}),
+        ...(c.group_id ? { groupId: c.group_id } : {}),
       } satisfies PlaylistClipItem;
     })
     .filter((x): x is PlaylistItem => x !== null);
@@ -117,7 +120,8 @@ const CLIPS_SELECT = `
   note,
   text_content,
   duration_seconds,
-  r2_url
+  r2_url,
+  group_id
 `;
 
 const PLAYLIST_SELECT = `
@@ -336,10 +340,12 @@ export async function reorderItems(
   items: PlaylistItem[]
 ): Promise<void> {
   if (items.length === 0) return;
+  // group_id is intentionally sent as null (not omitted) for ungrouped items —
+  // the RPC writes it unconditionally, so each reorder rewrites membership.
   const p_items = items.map((item, i) =>
     item.type === 'text'
-      ? { item_type: 'text', item_id: item.id, position: i }
-      : { item_type: 'clip', match_id: item.matchId, event_id: item.eventId, position: i }
+      ? { item_type: 'text', item_id: item.id, position: i, group_id: item.groupId ?? null }
+      : { item_type: 'clip', match_id: item.matchId, event_id: item.eventId, position: i, group_id: item.groupId ?? null }
   );
   const { error } = await supabase.rpc('reorder_playlist_items', {
     p_playlist_id: playlistId,

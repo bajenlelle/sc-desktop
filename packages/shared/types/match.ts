@@ -151,6 +151,7 @@ export interface PlaylistClipItem {
   postRollOffset?: number; // signed delta in seconds added on top of global post-roll
   note?: string;           // per-clip note scoped to this playlist
   r2Url?: string;          // set after Clip & Ship upload
+  groupId?: string;        // ordering-lock group (editor-only); members stay contiguous
 }
 
 export interface PlaylistTextCard {
@@ -158,6 +159,7 @@ export interface PlaylistTextCard {
   id: string;          // UUID, stable key
   text: string;
   durationSeconds: number;
+  groupId?: string;    // ordering-lock group (editor-only); members stay contiguous
 }
 
 export type PlaylistItem = PlaylistClipItem | PlaylistTextCard;
