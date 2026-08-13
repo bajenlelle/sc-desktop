@@ -85,15 +85,36 @@ export function PlaylistFeed({
 }) {
   const [watch, setWatch] = useState<WatchFilter>("all");
   const [source, setSource] = useState("all");
+  const [sharer, setSharer] = useState("all");
 
   const byNewest = (a: PlaylistCardData, b: PlaylistCardData) =>
     (b.sharedAt ?? "").localeCompare(a.sharedAt ?? "");
+  // Continue-watching order: the playlist touched most recently first, so
+  // resuming is always the top card. Falls back to share date.
+  const byLastWatched = (a: PlaylistCardData, b: PlaylistCardData) =>
+    (b.lastWatchedAt ?? b.sharedAt ?? "").localeCompare(a.lastWatchedAt ?? a.sharedAt ?? "");
 
-  // Source narrows first, so the chip counts describe what's actually
-  // reachable under the current source rather than the whole library.
+  // A "Shared by" filter only earns its place with 2+ distinct sharers.
+  const sharerOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const p of playlists) {
+      if (p.sharerId && !byId.has(p.sharerId)) byId.set(p.sharerId, p.sharerName ?? "Unknown");
+    }
+    if (byId.size < 2) return [];
+    return [
+      { value: "all", label: "Everyone" },
+      ...[...byId].map(([value, label]) => ({ value, label })),
+    ];
+  }, [playlists]);
+
+  // Sharer + source narrow first, so the chip counts describe what's
+  // actually reachable under the current scope rather than the whole library.
   const inSource = useMemo(
-    () => playlists.filter((p) => matchesSource(p, source)),
-    [playlists, source],
+    () =>
+      playlists
+        .filter((p) => sharer === "all" || p.sharerId === sharer)
+        .filter((p) => matchesSource(p, source)),
+    [playlists, source, sharer],
   );
 
   const counts = useMemo(() => {
@@ -126,7 +147,43 @@ export function PlaylistFeed({
         <div className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur">
           <div className="flex items-center justify-between gap-2 px-4 pb-2 pt-4 sm:px-6">
             <h1 className="text-lg font-semibold text-foreground">My Playlists</h1>
+            {/* From = who shared it; To = which team it reached. Grouped so
+                justify-between can't strand one dropdown mid-header. */}
+            <div className="flex shrink-0 items-center gap-2">
+            {sharerOptions.length > 0 && (
+              <label className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">From</span>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex min-h-[36px] shrink-0 items-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium text-foreground"
+                  >
+                    <span className="max-w-[8rem] truncate">
+                      {sharer === "all"
+                        ? "Everyone"
+                        : sharerOptions.find((o) => o.value === sharer)?.label ?? "Everyone"}
+                    </span>
+                    <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  {sharerOptions.map((o) => (
+                    <DropdownMenuItem
+                      key={o.value}
+                      onClick={() => setSharer(o.value)}
+                      className={cn("text-sm", o.value === sharer && "font-semibold text-primary")}
+                    >
+                      {o.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              </label>
+            )}
             {sourceOptions.length > 1 && (
+              <label className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">To</span>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
@@ -149,7 +206,9 @@ export function PlaylistFeed({
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
+              </label>
             )}
+            </div>
           </div>
 
           {/* Scrolls sideways rather than wrapping — keeps the bar one row on
@@ -192,7 +251,7 @@ export function PlaylistFeed({
           <p className="text-sm text-muted-foreground">Nothing here right now.</p>
           <button
             type="button"
-            onClick={() => { setWatch("all"); setSource("all"); }}
+            onClick={() => { setWatch("all"); setSource("all"); setSharer("all"); }}
             className="min-h-[36px] text-sm font-medium text-primary"
           >
             Clear filters
@@ -209,7 +268,7 @@ export function PlaylistFeed({
           />
           <Section
             title="In progress"
-            playlists={visible.filter((p) => watchStateOf(p) === "progress").sort(byNewest)}
+            playlists={visible.filter((p) => watchStateOf(p) === "progress").sort(byLastWatched)}
             onOpen={onOpen}
             onResume={onResume}
           />
@@ -224,7 +283,7 @@ export function PlaylistFeed({
         // list goes flat.
         <div className="px-4 py-5 sm:px-6">
           <Section
-            playlists={[...visible].sort(byNewest)}
+            playlists={[...visible].sort(watch === "progress" ? byLastWatched : byNewest)}
             onOpen={onOpen}
             onResume={watch === "progress" ? onResume : undefined}
           />

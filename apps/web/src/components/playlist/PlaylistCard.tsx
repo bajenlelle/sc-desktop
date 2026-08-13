@@ -8,6 +8,10 @@ export interface PlaylistCardData {
   clipCount: number;
   watchedCount: number;
   sharedAt?: string;
+  /** Newest clip watch — orders "In progress" as continue-watching. */
+  lastWatchedAt?: string;
+  /** User id of the sharer — drives the "Shared by" filter. */
+  sharerId?: string;
   sharerName?: string;
   sharerAvatarUrl?: string;
   /** Shared straight to this player rather than to one of their teams. */
