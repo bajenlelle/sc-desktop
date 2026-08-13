@@ -8,8 +8,10 @@ import * as db from "@scoutable/shared/lib/clip-views-db";
 const c = () => createClient();
 
 export const listMyClipViews = () => db.listMyClipViews(c());
+export const listPlaylistClipViews = (playlistIds: string[]) =>
+  db.listPlaylistClipViews(c(), playlistIds);
 export const markClipWatched = (playlistId: string, matchId: string, eventId: number) =>
   db.markClipWatched(c(), playlistId, matchId, eventId);
 
 export { clipViewKey } from "@scoutable/shared/lib/clip-views-db";
-export type { ClipView } from "@scoutable/shared/lib/clip-views-db";
+export type { ClipView, PlaylistClipView } from "@scoutable/shared/lib/clip-views-db";

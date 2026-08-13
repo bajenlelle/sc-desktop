@@ -1422,6 +1422,10 @@ export function PlaylistsPage() {
   const [onboardingHighlight, setOnboardingHighlight] = useState<"add-clips" | "export" | "share" | null>(null);
   const [sendToPhoneOpen, setSendToPhoneOpen] = useState(false);
   const [sendToPhoneSegments, setSendToPhoneSegments] = useState<ExportSegment[]>([]);
+  // Set when clips need shipping as soon as state settles: arriving from the
+  // dashboard's "Upload missing clips", or after adding clips to an
+  // already-shared playlist (which previously left them stranded un-shipped).
+  const pendingShipRef = useRef(false);
   const hl = (key: "add-clips" | "export" | "share") =>
     onboardingHighlight === key
       ? " ring-2 ring-primary ring-offset-2 ring-offset-background animate-pulse"
@@ -1516,9 +1520,12 @@ export function PlaylistsPage() {
       createNew?: boolean;
       /** Set by the Getting Started checklist — pulse the step's button. */
       highlight?: "add-clips" | "export" | "share";
+      /** Set by the coach dashboard — upload this playlist's missing clips. */
+      reship?: boolean;
     } | null;
     const restore = state?.restore;
     const createNew = state?.createNew;
+    if (state?.reship) pendingShipRef.current = true;
     let highlightTimer: number | undefined;
     if (state?.highlight) {
       setOnboardingHighlight(state.highlight);
@@ -2708,6 +2715,20 @@ export function PlaylistsPage() {
 
   // handleShare is defined above (replaces handleShareToTeam / handleShareWithTeams)
 
+  // Runs a pending ship once the playlist and matches are actually in state —
+  // both the dashboard arrival and the post-add hook set the flag before the
+  // data they need has settled, so calling handleShip directly would ship a
+  // stale item list. clipAndShip is idempotent: only missing clips upload.
+  const handleShipRef = useRef(handleShip);
+  handleShipRef.current = handleShip;
+  useEffect(() => {
+    if (!pendingShipRef.current || loading || isShipping) return;
+    if (!selected || matches.length === 0) return;
+    pendingShipRef.current = false;
+    void handleShipRef.current();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, matches, loading, isShipping]);
+
   // ---------------------------------------------------------------------------
   // Sidebar helpers
   // ---------------------------------------------------------------------------
@@ -2874,6 +2895,12 @@ export function PlaylistsPage() {
     newClips.forEach((clip) => {
       trackEvent('clip_added_to_playlist', { playlist_id: selected.id, match_id: clip.matchId })
     })
+    // Clips added to an already-shared playlist must ship immediately —
+    // recipients can't see unshipped clips at all, and nothing else would
+    // ever upload them (sharing only ships toward NEW recipients).
+    if ((selected.teamIds?.length ?? 0) > 0 || (selected.userIds?.length ?? 0) > 0) {
+      pendingShipRef.current = true;
+    }
   }
 
   // ---------------------------------------------------------------------------

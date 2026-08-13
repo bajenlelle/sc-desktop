@@ -33,15 +33,47 @@ export function clipViewKey(playlistId: string, matchId: string, eventId: number
 /**
  * Every clip the current user has watched, across all playlists.
  *
- * A player's history is small enough to fetch whole and group client-side,
- * which keeps the feed's progress maths off the database.
+ * The explicit user filter matters: RLS also grants playlist OWNERS read on
+ * recipients' rows, so an unfiltered select would silently mix other
+ * people's views into a coach's own progress.
  */
 export async function listMyClipViews(supabase: SupabaseClient): Promise<ClipView[]> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
   const { data, error } = await supabase
     .from("clip_views")
-    .select("playlist_id, match_id, event_id, watched_at");
+    .select("playlist_id, match_id, event_id, watched_at")
+    .eq("user_id", user.id);
   if (error) { console.error("listMyClipViews:", error.message); return []; }
   return ((data ?? []) as ClipViewRow[]).map((r) => ({
+    playlistId: r.playlist_id,
+    matchId: r.match_id,
+    eventId: r.event_id,
+    watchedAt: r.watched_at,
+  }));
+}
+
+export interface PlaylistClipView extends ClipView {
+  userId: string;
+}
+
+/**
+ * All recipients' views for the given playlists — the coach dashboard's
+ * source. RLS (clip_views_owner_read) restricts this to playlists the
+ * caller OWNS; for anything else it simply returns their own rows.
+ */
+export async function listPlaylistClipViews(
+  supabase: SupabaseClient,
+  playlistIds: string[],
+): Promise<PlaylistClipView[]> {
+  if (playlistIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from("clip_views")
+    .select("user_id, playlist_id, match_id, event_id, watched_at")
+    .in("playlist_id", playlistIds);
+  if (error) { console.error("listPlaylistClipViews:", error.message); return []; }
+  return ((data ?? []) as (ClipViewRow & { user_id: string })[]).map((r) => ({
+    userId: r.user_id,
     playlistId: r.playlist_id,
     matchId: r.match_id,
     eventId: r.event_id,

@@ -8,7 +8,7 @@ import { VideoClipControls } from "@/components/video-clip-controls";
 import { VideoPlayer } from "@/components/video-player";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
-import { getMyTeamPlaylists, getMyDirectPlaylists, getMySharedOutPlaylists, setPlaylistTeams, setPlaylistUsers } from "@scoutable/shared/lib/playlists-db";
+import { getMyTeamPlaylists, getMyDirectPlaylists, getMySharedPlaylists, setPlaylistTeams, setPlaylistUsers } from "@scoutable/shared/lib/playlists-db";
 import { listMatches } from "@scoutable/shared/lib/matches-db";
 import { getOrgContext, getOrgContextForOrg } from "@/lib/profile-db";
 import { useAuth } from "@/components/auth-context";
@@ -16,6 +16,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { ClipRow } from "@/components/playlist/ClipRow";
 import { PlaylistFeed, type SourceOption } from "@/components/playlist/PlaylistFeed";
+import { SharedByMe } from "@/components/playlist/SharedByMe";
 import { WelcomeCard } from "@/components/welcome-card";
 import type { PlaylistCardData } from "@/components/playlist/PlaylistCard";
 import { listMyClipViews, markClipWatched, clipViewKey } from "@/lib/clip-views-db";
@@ -42,6 +43,15 @@ function isTextCard(i: PlaybackItem): i is PlaylistTextCard {
 
 function isClipItem(i: PlaylistItem): i is PlaylistClipItem {
   return i.type === "clip";
+}
+
+/**
+ * The clips a recipient can actually watch — only those shipped to R2.
+ * Unshipped clips are invisible on the player surface (not greyed out), and
+ * every progress denominator counts these, so 100% is always reachable.
+ */
+function playableClips(pl: Playlist): PlaylistClipItem[] {
+  return pl.items.filter(isClipItem).filter((c) => !!c.r2Url);
 }
 
 function itemKey(i: PlaybackItem): string {
@@ -80,6 +90,8 @@ export default function MyPlaylistsPage() {
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [clipViews, setClipViews] = useState<Set<string>>(new Set());
+  // Newest watch per playlist — orders "In progress" as continue-watching.
+  const [lastWatched, setLastWatched] = useState<Map<string, string>>(new Map());
   const [teamMap, setTeamMap] = useState<Map<string, OrgTeam>>(new Map());
   const [memberMap, setMemberMap] = useState<Map<string, UserProfile>>(new Map());
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
@@ -89,6 +101,9 @@ export default function MyPlaylistsPage() {
   const [userRole, setUserRole] = useState<string | null>(null);
   const [allOrgTeams, setAllOrgTeams] = useState<OrgTeam[]>([]);
   const [shareTarget, setShareTarget] = useState<Playlist | null>(null);
+  // Which perspective a coach is on: their sharing dashboard or the
+  // received-playlists view. Players never see the tabs.
+  const [coachTab, setCoachTab] = useState<"by-me" | "with-me">("by-me");
   const [pendingShareTeamIds, setPendingShareTeamIds] = useState<Set<string>>(new Set());
   const [pendingShareUserIds, setPendingShareUserIds] = useState<Set<string>>(new Set());
   const [playerSearchQuery, setPlayerSearchQuery] = useState("");
@@ -168,7 +183,9 @@ export default function MyPlaylistsPage() {
       const [pls, directPls, sharedOutPls] = await Promise.all([
         getMyTeamPlaylists(supabase, activeTeamIds).catch(() => [] as Playlist[]),
         getMyDirectPlaylists(supabase, activeTeamIds).catch(() => [] as Playlist[]),
-        getMySharedOutPlaylists(supabase, activeTeamIds).catch(() => [] as Playlist[]),
+        // Owner-based (not direct-shares-only): a coach's team-only-shared
+        // playlists must resolve here too, or ?p= deep links go blank.
+        getMySharedPlaylists(supabase).catch(() => [] as Playlist[]),
       ]);
       setPlaylists(pls);
       setDirectPlaylists(directPls);
@@ -179,6 +196,12 @@ export default function MyPlaylistsPage() {
       // Watch history drives the feed's NEW badges and progress bars.
       const views = await listMyClipViews().catch(() => []);
       setClipViews(new Set(views.map((v) => clipViewKey(v.playlistId, v.matchId, v.eventId))));
+      const last = new Map<string, string>();
+      for (const v of views) {
+        const prev = last.get(v.playlistId);
+        if (!prev || v.watchedAt > prev) last.set(v.playlistId, v.watchedAt);
+      }
+      setLastWatched(last);
     }).finally(() => {
       setLoading(false);
     });
@@ -283,6 +306,9 @@ export default function MyPlaylistsPage() {
     const items: (PlaybackItem & { hasR2?: boolean })[] = [];
     for (const item of selected.items) {
       if (isClipItem(item)) {
+        // Unshipped clips are invisible to recipients — a greyed row they
+        // can never play only reads as broken.
+        if (!item.r2Url) continue;
         const match = matchLookup.get(item.matchId);
         const event = match?.events.find((e) => e.eventId === item.eventId);
         if (event) {
@@ -290,7 +316,7 @@ export default function MyPlaylistsPage() {
             event,
             matchId: item.matchId,
             r2Url: item.r2Url,
-            hasR2: !!item.r2Url,
+            hasR2: true,
             note: item.note,
           });
         }
@@ -331,6 +357,7 @@ export default function MyPlaylistsPage() {
       return next;
     });
     if (alreadyKnown) return;
+    setLastWatched((prev) => new Map(prev).set(playlistId, new Date().toISOString()));
     void markClipWatched(playlistId, matchId, eventId);
   }, []);
 
@@ -351,7 +378,7 @@ export default function MyPlaylistsPage() {
   const feedItems = useMemo<PlaylistCardData[]>(() => {
     const directIds = new Set(directPlaylists.map((p) => p.id));
     return allPlaylists.map((pl) => {
-      const clips = pl.items.filter(isClipItem);
+      const clips = playableClips(pl);
       const watchedCount = clips.filter((c) =>
         clipViews.has(clipViewKey(pl.id, c.matchId, c.eventId)),
       ).length;
@@ -362,13 +389,17 @@ export default function MyPlaylistsPage() {
         clipCount: clips.length,
         watchedCount,
         sharedAt: pl.sharedAt,
-        sharerName: sharer?.fullName ?? undefined,
+        lastWatchedAt: lastWatched.get(pl.id),
+        sharerId: pl.sharedBy,
+        // Email fallback: a sharer without full_name otherwise collapses to
+        // the anonymous "Your coach".
+        sharerName: sharer?.fullName ?? sharer?.email ?? undefined,
         sharerAvatarUrl: sharer?.avatarUrl ?? undefined,
         isDirect: directIds.has(pl.id),
         teamIds: pl.teamIds ?? [],
       };
     });
-  }, [allPlaylists, directPlaylists, clipViews, memberMap]);
+  }, [allPlaylists, directPlaylists, clipViews, lastWatched, memberMap]);
 
   /**
    * Source filter options — the feed's stand-in for the sidebar's grouping,
@@ -390,7 +421,7 @@ export default function MyPlaylistsPage() {
   /** Watched/total for the open playlist, shown under the controls. */
   const selectedProgress = useMemo(() => {
     if (!selected) return { watched: 0, total: 0 };
-    const clips = selected.items.filter(isClipItem);
+    const clips = playableClips(selected);
     return {
       watched: clips.filter((c) => clipViews.has(clipViewKey(selected.id, c.matchId, c.eventId))).length,
       total: clips.length,
@@ -402,8 +433,10 @@ export default function MyPlaylistsPage() {
     openPlaylist(id);
     const pl = allPlaylists.find((p) => p.id === id);
     if (!pl) return;
-    const firstUnwatched = pl.items
-      .filter(isClipItem)
+    // Playable clips only — an unshipped clip can't be the resume target
+    // (it isn't in the queue, and falling back to index 0 replays watched
+    // clips: the exact bug this fixed).
+    const firstUnwatched = playableClips(pl)
       .find((c) => !clipViews.has(clipViewKey(pl.id, c.matchId, c.eventId)));
     resumeTargetRef.current = firstUnwatched
       ? `${firstUnwatched.matchId}:${firstUnwatched.eventId}`
@@ -619,7 +652,7 @@ export default function MyPlaylistsPage() {
    * — the exact signal this feature exists to deliver.
    */
   function PlaylistRowBody({ pl, meta }: { pl: Playlist; meta?: string }) {
-    const clips = pl.items.filter(isClipItem);
+    const clips = playableClips(pl);
     const total = clips.length;
     const watched = clips.filter((c) =>
       clipViews.has(clipViewKey(pl.id, c.matchId, c.eventId)),
@@ -812,68 +845,59 @@ export default function MyPlaylistsPage() {
           );
         })}
 
-        {/* "Shared by me" section — playlists sent to individual players (coach/admin only) */}
-        {(userRole === "coach" || userRole === "admin") && sharedOutOnlyPlaylists.length > 0 && (
-          <div>
-            <button
-              type="button"
-              onClick={() => setSharedOutSectionExpanded((v) => !v)}
-              className="flex w-full items-center gap-1.5 px-3 py-2 hover:bg-muted/50 transition-colors select-none"
-            >
-              {sharedOutSectionExpanded ? (
-                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              ) : (
-                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              )}
-              <Send className="h-3 w-3 shrink-0 text-primary/70" />
-              <span className="flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Shared by me
-              </span>
-              <span className="text-xs text-muted-foreground">{sharedOutOnlyPlaylists.length}</span>
-            </button>
-            {sharedOutSectionExpanded && sharedOutOnlyPlaylists.map((pl) => {
-              const recipients = (pl.userIds ?? []).map((uid) => { const m = memberMap.get(uid); return m?.fullName ?? m?.email ?? uid.slice(0, 6); });
-              const recipientLabel = recipients.length === 0 ? "" : recipients.length === 1 ? recipients[0] : `${recipients[0]} +${recipients.length - 1}`;
-              return (
-                <div
-                  key={pl.id}
-                  className={cn(
-                    "group w-full flex items-center gap-1 px-4 py-2.5 transition-colors hover:bg-muted/50 cursor-pointer",
-                    pl.id === selected?.id && "bg-muted"
-                  )}
-                >
-                  <div className="flex-1 min-w-0" onClick={() => onSelect(pl)}>
-                    <PlaylistRowBody
-                      pl={pl}
-                      meta={recipientLabel ? ` · Shared with: ${recipientLabel}` : ""}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    className="shrink-0 rounded p-1 text-primary focus:outline-none"
-                    title="Manage sharing"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setPendingShareTeamIds(new Set(pl.teamIds ?? []));
-                      setPendingShareUserIds(new Set(pl.userIds ?? []));
-                      setShareTarget(pl);
-                    }}
-                  >
-                    <Share2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        {/* "Shared by me" moved to the coach dashboard tab. */}
       </>
     );
   }
 
+  const isCoachOrAdmin = userRole === "coach" || userRole === "admin";
+  const showDashboard = isCoachOrAdmin && coachTab === "by-me" && !selected;
+
   return (
     // dvh, not vh — mobile browsers shrink the viewport as the address bar
     // collapses, and vh would leave the controls clipped below the fold.
-    <div className="flex h-[calc(100dvh-4rem)] overflow-hidden">
+    <div className="flex h-[calc(100dvh-4rem)] flex-col overflow-hidden">
+    {/* Coaches get two perspectives: what they sent (dashboard) and what
+        they received (the player-style view below). Hidden while watching. */}
+    {isCoachOrAdmin && !selected && (
+      <div className="flex shrink-0 items-center gap-1 border-b border-border px-4 py-2">
+        {([
+          ["by-me", "Shared by me"],
+          ["with-me", "Shared with me"],
+        ] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setCoachTab(key)}
+            className={cn(
+              "min-h-[36px] rounded-md px-3 text-sm font-medium transition-colors",
+              coachTab === key
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground active:text-foreground lg:hover:text-foreground",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    )}
+
+    {showDashboard ? (
+      <div className="flex-1 overflow-y-auto">
+        <SharedByMe
+          memberMap={memberMap}
+          teamMap={teamMap}
+          currentUserId={currentUserId}
+          onOpenPlaylist={openPlaylist}
+          onManageShare={(pl) => {
+            setPendingShareTeamIds(new Set(pl.teamIds ?? []));
+            setPendingShareUserIds(new Set(pl.userIds ?? []));
+            setShareTarget(pl);
+          }}
+        />
+      </div>
+    ) : (
+    <div className="flex flex-1 overflow-hidden">
       {/* Left: playlist list (desktop only) */}
       <aside className="w-72 shrink-0 flex flex-col border-r border-border overflow-hidden hidden lg:flex">
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
@@ -918,11 +942,16 @@ export default function MyPlaylistsPage() {
               <button
                 type="button"
                 onClick={closePlaylist}
-                title="Back to all playlists"
+                title={isCoachOrAdmin && coachTab === "by-me" ? "Back to Shared by me" : "Back to all playlists"}
                 className="flex min-h-[44px] shrink-0 items-center gap-1 rounded-md pr-1 text-sm font-medium text-muted-foreground transition-colors active:text-foreground lg:min-h-0 lg:py-1.5 lg:hover:text-foreground"
               >
                 <ChevronLeft className="h-4 w-4" />
-                <span className="hidden sm:inline">All playlists</span>
+                {/* Name the destination, not "back": the coach may have
+                    arrived from the dashboard tab, which is where closing
+                    returns them (coachTab survives the ?p= round-trip). */}
+                <span className="hidden sm:inline">
+                  {isCoachOrAdmin && coachTab === "by-me" ? "Shared by me" : "All playlists"}
+                </span>
               </button>
               <span className="h-4 w-px shrink-0 bg-border" aria-hidden />
               <p className="flex-1 truncate text-sm font-semibold text-foreground">
@@ -1030,6 +1059,8 @@ export default function MyPlaylistsPage() {
           </>
         )}
       </div>
+    </div>
+    )}
 
       <Dialog open={shareTarget !== null} onOpenChange={(open) => { if (!open) { setShareTarget(null); setPlayerSearchQuery(""); } }}>
         <DialogContent>

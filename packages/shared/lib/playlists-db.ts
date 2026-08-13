@@ -552,3 +552,48 @@ export async function getMySharedOutPlaylists(
   if (!data) return [];
   return (data as PlaylistRow[]).map(rowToPlaylist);
 }
+
+// ---------------------------------------------------------------------------
+// Coach dashboard: playlists I OWN that are shared, with non-lossy share info
+// ---------------------------------------------------------------------------
+
+export interface SharedPlaylist extends Playlist {
+  /** Every team share with its timestamp (rowToPlaylist collapses these). */
+  teamShares: { teamId: string; sharedAt: string | null }[];
+  /** Every direct recipient with their timestamp. */
+  userShares: { userId: string; sharedAt: string | null }[];
+}
+
+/**
+ * Playlists the current user owns that reach at least one team or person.
+ *
+ * This — not getMySharedOutPlaylists — is the dashboard's base: that
+ * function only finds playlists with direct-user shares, so a playlist
+ * shared solely to a team never appears in it. Owner scoping also matches
+ * what clip_views_owner_read lets the caller read about recipients.
+ */
+export async function getMySharedPlaylists(supabase: SupabaseClient): Promise<SharedPlaylist[]> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+  const { data, error } = await supabase
+    .from("playlists")
+    .select(PLAYLIST_SELECT)
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false });
+  if (error) { console.error("getMySharedPlaylists:", error.message); return []; }
+  if (!data) return [];
+
+  return (data as PlaylistRow[])
+    .filter((row) => (row.playlist_shares ?? []).length > 0 || (row.playlist_user_shares ?? []).length > 0)
+    .map((row) => ({
+      ...rowToPlaylist(row),
+      teamShares: (row.playlist_shares ?? []).map((s) => ({
+        teamId: s.team_id,
+        sharedAt: s.shared_at ?? null,
+      })),
+      userShares: (row.playlist_user_shares ?? []).map((s) => ({
+        userId: s.user_id,
+        sharedAt: s.shared_at ?? null,
+      })),
+    }));
+}
