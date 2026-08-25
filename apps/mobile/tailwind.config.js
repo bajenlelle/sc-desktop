@@ -1,13 +1,41 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: ["./app/**/*.{js,jsx,ts,tsx}", "./components/**/*.{js,jsx,ts,tsx}"],
+  content: [
+    "./src/**/*.{ts,tsx}",
+    // eventColors() in shared returns Tailwind class strings — keep them from being purged
+    "../../packages/shared/lib/events.ts",
+  ],
   presets: [require("nativewind/preset")],
+  darkMode: "media",
   theme: {
     extend: {
+      // Hex conversions of apps/web/src/app/globals.css oklch tokens.
+      // Use `bg-background dark:bg-background-dark` etc. — NativeWind has no
+      // CSS-variable theming, so light/dark are explicit pairs.
       colors: {
-        primary: "#2563eb",
+        background: { DEFAULT: "#fcfcfc", dark: "#030a11" },
+        foreground: { DEFAULT: "#020405", dark: "#d8dfe4" },
+        card: { DEFAULT: "#fcfcfc", dark: "#09131a" },
+        primary: { DEFAULT: "#0096b1", dark: "#00bcd8" },
+        "primary-foreground": { DEFAULT: "#ffffff", dark: "#030a11" },
+        secondary: { DEFAULT: "#f5f5f5", dark: "#172128" },
+        muted: { DEFAULT: "#f5f5f5", dark: "#172128" },
+        "muted-foreground": { DEFAULT: "#737373", dark: "#8a9095" },
+        accent: { DEFAULT: "#f19700", dark: "#f49a00" },
+        destructive: { DEFAULT: "#e7000b", dark: "#ff6467" },
+        border: { DEFAULT: "#e5e5e5", dark: "#1e282f" },
+        input: { DEFAULT: "#e5e5e5", dark: "#1e282f" },
+      },
+      borderRadius: {
+        DEFAULT: "0.375rem",
+      },
+      fontFamily: {
+        sans: ["DMSans_400Regular"],
+        "sans-medium": ["DMSans_500Medium"],
+        "sans-bold": ["DMSans_700Bold"],
+        heading: ["BarlowCondensed_700Bold"],
+        "heading-semi": ["BarlowCondensed_600SemiBold"],
       },
     },
   },
-  plugins: [],
 };

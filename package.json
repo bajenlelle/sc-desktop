@@ -4,9 +4,5 @@
   "workspaces": [
     "apps/*",
     "packages/*"
-  ],
-  "devDependencies": {
-    "metro": "^0.81.5",
-    "expo-router": "~6.0.23"
-  }
+  ]
 }

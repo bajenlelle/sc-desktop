@@ -18,7 +18,13 @@ config.resolver.nodeModulesPaths = [
 // resolveRequest overrides all Metro resolution; extraNodeModules only adds fallbacks.
 // Use require.resolve with { paths } so Node.js walks the tree correctly regardless
 // of whether the package is in app-local or root node_modules.
-const SINGLETONS = ["react", "react-native", "react-native-safe-area-context"];
+const SINGLETONS = [
+  "react",
+  "react-native",
+  "react-native-safe-area-context",
+  "react-native-reanimated",
+  "react-native-worklets",
+];
 
 const forcedResolutions = {};
 for (const name of SINGLETONS) {
@@ -36,4 +42,4 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   return context.resolveRequest(context, moduleName, platform);
 };
 
-module.exports = withNativeWind(config, { input: "./global.css" });
+module.exports = withNativeWind(config, { input: "./src/global.css" });
