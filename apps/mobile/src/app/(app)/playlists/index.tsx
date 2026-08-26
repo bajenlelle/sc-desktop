@@ -49,9 +49,12 @@ export default function PlaylistsScreen() {
         sharerAvatarUrl: sharer?.avatarUrl ?? undefined,
         isDirect: directPlaylistIds.has(pl.id),
         teamIds: pl.teamIds ?? [],
+        teamNames: (pl.teamIds ?? [])
+          .map((id) => teamMap.get(id)?.name)
+          .filter((n): n is string => !!n),
       };
     });
-  }, [allPlaylists, directPlaylistIds, clipViews, lastWatched, memberMap]);
+  }, [allPlaylists, directPlaylistIds, clipViews, lastWatched, memberMap, teamMap]);
 
   // Only teams that actually have playlists appear as filter options.
   const sourceOptions = useMemo<SelectOption[]>(() => {

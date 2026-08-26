@@ -20,6 +20,8 @@ export interface PlaylistCardData {
   isDirect?: boolean;
   /** Teams this playlist reached the player through — drives the source filter. */
   teamIds?: string[];
+  /** Resolved team names, shown muted next to the title. */
+  teamNames?: string[];
 }
 
 export function PlaylistCard({
@@ -32,7 +34,7 @@ export function PlaylistCard({
   /** Only passed for partially-watched playlists — jumps to the first unwatched clip. */
   onResume?: () => void;
 }) {
-  const { name, clipCount, watchedCount, sharedAt, sharerName, sharerAvatarUrl } = playlist;
+  const { name, clipCount, watchedCount, sharedAt, sharerName, sharerAvatarUrl, teamNames } = playlist;
   const isNew = watchedCount === 0;
   const isComplete = clipCount > 0 && watchedCount >= clipCount;
   const pct = clipCount > 0 ? Math.round((watchedCount / clipCount) * 100) : 0;
@@ -64,6 +66,12 @@ export function PlaylistCard({
           className="text-base font-semibold text-foreground dark:text-foreground-dark"
         >
           {name}
+          {teamNames && teamNames.length > 0 && (
+            // Which team this came through — muted so the title stays the headline.
+            <Text className="text-xs font-normal text-muted-foreground dark:text-muted-foreground-dark">
+              {" "}· {teamNames.join(", ")}
+            </Text>
+          )}
         </Text>
         <View className="flex-row items-center gap-2">
           <Avatar name={sharerName} url={sharerAvatarUrl} size={20} />

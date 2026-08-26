@@ -60,6 +60,21 @@ export default function WatchScreen() {
     recordWatched,
   });
 
+  // Keep the active row visible as the queue auto-advances — without this a
+  // long playlist plays on while the highlight drifts below the fold.
+  const listRef = useRef<FlatList<PlaybackItem>>(null);
+  useEffect(() => {
+    if (!queue.activeKey) return;
+    const index = displayItems.findIndex((i) => itemKey(i) === queue.activeKey);
+    if (index < 0) return;
+    try {
+      listRef.current?.scrollToIndex({ index, viewPosition: 0.3, animated: true });
+    } catch {
+      // Unmeasured rows can throw; onScrollToIndexFailed covers the retry.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queue.activeKey]);
+
   // Resume (from the feed's Resume button, or a deep link) starts at the
   // target clip once the queue is populated. Each distinct target is consumed
   // once, so re-renders don't restart playback — but a new resume param on an
@@ -172,8 +187,24 @@ export default function WatchScreen() {
 
       {/* Clip list */}
       <FlatList
+        ref={listRef}
         data={displayItems}
         keyExtractor={itemKey}
+        onScrollToIndexFailed={(info) => {
+          // Rows beyond the render window aren't measured yet — approximate,
+          // let it render, then retry the precise scroll.
+          listRef.current?.scrollToOffset({
+            offset: info.averageItemLength * info.index,
+            animated: true,
+          });
+          setTimeout(() => {
+            listRef.current?.scrollToIndex({
+              index: info.index,
+              viewPosition: 0.3,
+              animated: true,
+            });
+          }, 250);
+        }}
         className="flex-1 border-t border-border dark:border-border-dark"
         ItemSeparatorComponent={() => (
           <View className="h-px bg-border/60 dark:bg-border-dark/60" />

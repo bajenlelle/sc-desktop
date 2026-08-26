@@ -11,6 +11,7 @@ const FROM = "Scoutable <noreply@scoutable.se>";
 
 type TemplateId =
   | "playlist_shared"
+  | "playlist_reminder"
   | "license_expiry"
   | "added_to_team"
   | "user_joined_org"
@@ -133,6 +134,24 @@ ${ctaButton(playlistUrl, "Watch Clips")}`,
           isDirect
             ? "You received this because your coach shared a playlist with you."
             : "You received this because you are a member of this team.",
+        ),
+      };
+    }
+
+    case "playlist_reminder": {
+      const playlistName = d("playlist_name", "a playlist");
+      const coachName = d("coach_name", "Your coach");
+      const playlistUrl = d("playlist_url", appUrl + "/my-playlists");
+      return {
+        subject: `Reminder from ${coachName}: ${playlistName}`,
+        html: wrapEmail(
+          `Reminder: ${playlistName}`,
+          `<h1 style="margin:0 0 12px 0;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">A nudge from ${esc(coachName)}</h1>
+<p style="margin:0 0 32px 0;font-size:14px;line-height:1.65;color:#6b7280;">
+  <strong>${esc(coachName)}</strong> asked you to watch <strong>${esc(playlistName)}</strong> — you have clips waiting.
+</p>
+${ctaButton(playlistUrl, "Watch Clips")}`,
+          "You received this because your coach sent a reminder.",
         ),
       };
     }
