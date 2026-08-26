@@ -147,6 +147,7 @@ export function SharedByMe({
   /** key = `${playlistId}:${userId}` — per-recipient nudge lifecycle. */
   const [remindState, setRemindState] = useState<Map<string, "sending" | "sent">>(new Map());
   const [remindingAll, setRemindingAll] = useState(false);
+  const [remindingPlaylistId, setRemindingPlaylistId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -363,33 +364,52 @@ export function SharedByMe({
     }
   }
 
+  /** Shared by the strip's global Remind all and the per-playlist button. */
+  async function bulkRemind(targets: { playlistId: string; userId: string }[]) {
+    let sent = 0;
+    let failed = 0;
+    for (const t of targets) {
+      try {
+        await sendPlaylistReminder(t.playlistId, t.userId);
+        sent++;
+        setRemindState((prev) => new Map(prev).set(`${t.playlistId}:${t.userId}`, "sent"));
+      } catch (e) {
+        // Cooldown hits are expected on repeat clicks — not failures.
+        if (!(e as Error).message.includes("24 hours")) failed++;
+      }
+    }
+    if (sent > 0 && failed === 0) {
+      toast.success(`Reminded ${sent} player${sent === 1 ? "" : "s"}`);
+    } else if (sent > 0) {
+      toast.warning(`Reminded ${sent}, ${failed} failed`);
+    } else if (failed === 0) {
+      toast.info("Everyone was already reminded recently");
+    } else {
+      toast.error("Couldn't send reminders — try again");
+    }
+  }
+
   async function handleRemindAll() {
     if (remindingAll || summary.behindTargets.length === 0) return;
     setRemindingAll(true);
-    let sent = 0;
-    let failed = 0;
     try {
-      for (const t of summary.behindTargets) {
-        try {
-          await sendPlaylistReminder(t.playlistId, t.userId);
-          sent++;
-          setRemindState((prev) => new Map(prev).set(`${t.playlistId}:${t.userId}`, "sent"));
-        } catch (e) {
-          // Cooldown hits are expected on repeat clicks — not failures.
-          if (!(e as Error).message.includes("24 hours")) failed++;
-        }
-      }
-      if (sent > 0 && failed === 0) {
-        toast.success(`Reminded ${sent} player${sent === 1 ? "" : "s"}`);
-      } else if (sent > 0) {
-        toast.warning(`Reminded ${sent}, ${failed} failed`);
-      } else if (failed === 0) {
-        toast.info("Everyone was already reminded recently");
-      } else {
-        toast.error("Couldn't send reminders — try again");
-      }
+      await bulkRemind(summary.behindTargets);
     } finally {
       setRemindingAll(false);
+    }
+  }
+
+  async function handleRemindPlaylist(row: DashboardRow) {
+    if (remindingPlaylistId) return;
+    const targets = row.recipients
+      .filter((r) => row.playableCount > 0 && r.watched < row.playableCount)
+      .map((r) => ({ playlistId: row.playlist.id, userId: r.userId }));
+    if (targets.length === 0) return;
+    setRemindingPlaylistId(row.playlist.id);
+    try {
+      await bulkRemind(targets);
+    } finally {
+      setRemindingPlaylistId(null);
     }
   }
 
@@ -608,6 +628,11 @@ export function SharedByMe({
         const expanded = expandedId === row.playlist.id;
         const total = row.recipients.length;
         const inProgress = Math.max(0, row.startedCount - row.completedCount);
+        // Who on THIS playlist still has clips left — powers the per-playlist nudge.
+        const behindCount =
+          row.playableCount > 0
+            ? row.recipients.filter((r) => r.watched < row.playableCount).length
+            : 0;
         const reach = [
           ...row.teamNames,
           row.directCount > 0 ? `${row.directCount} member${row.directCount === 1 ? "" : "s"}` : null,
@@ -676,6 +701,27 @@ export function SharedByMe({
                   className="w-28"
                 />
               </div>
+              {behindCount > 0 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRemindPlaylist(row);
+                  }}
+                  disabled={remindingPlaylistId !== null}
+                  title={`Remind the ${behindCount} player${behindCount === 1 ? "" : "s"} who haven't finished this playlist`}
+                  className="flex min-h-[32px] shrink-0 items-center gap-1.5 rounded-md bg-amber-500/15 px-2.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/25 disabled:opacity-60 dark:text-amber-400"
+                >
+                  {remindingPlaylistId === row.playlist.id ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Send className="h-3 w-3" />
+                  )}
+                  <span>
+                    Remind <span className="tabular-nums">{behindCount}</span>
+                  </span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={(e) => {
