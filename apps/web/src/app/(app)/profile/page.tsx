@@ -13,6 +13,7 @@ import { getOrgContext, updateMyProfile, uploadAvatar, getSubscriptionStatus } f
 import type { OrgContext } from "@scoutable/shared/types/org";
 import { NT_LEAGUE_IDS, getOrgImportLimit, orgPlanColors, orgPlanLabel } from "@scoutable/shared/lib/plan-tier";
 import { toast } from "sonner";
+import { DeleteAccountDialog } from "@/components/delete-account-dialog";
 import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Loader2 } from "lucide-react";
 import Link from "next/link";
 
@@ -399,6 +400,30 @@ export default function ProfilePage() {
             <span>Sign out of {user?.email}</span>
             <LogOut className="h-4 w-4 opacity-50 group-hover:opacity-100 transition-opacity" />
           </button>
+        </CardContent>
+      </Card>
+
+      {/* ── Danger zone ── */}
+      <Card className="border-destructive/40">
+        <CardContent className="p-4 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-foreground">Delete account</p>
+            <p className="text-xs text-muted-foreground">
+              Permanently erase your account and everything in it.
+            </p>
+          </div>
+          <DeleteAccountDialog
+            email={user?.email ?? ""}
+            trigger={
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 text-red-600 border-red-600/40 hover:bg-red-600/10 hover:text-red-600"
+              >
+                Delete…
+              </Button>
+            }
+          />
         </CardContent>
       </Card>
     </div>

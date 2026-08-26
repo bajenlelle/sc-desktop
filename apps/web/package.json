@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1118.0",
     "@fontsource-variable/dm-sans": "^5.2.8",
     "@fontsource/barlow-condensed": "^5.2.8",
     "@scoutable/shared": "*",

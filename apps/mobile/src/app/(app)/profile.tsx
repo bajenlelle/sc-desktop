@@ -8,12 +8,14 @@ import { useAuth } from "@/lib/auth-context";
 import { usePlaylists } from "@/lib/playlists-store";
 import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/Button";
+import { DeleteAccountSheet } from "@/components/DeleteAccountSheet";
 import { Select } from "@/components/Select";
 
 export default function ProfileScreen() {
   const { user, profile, myOrgs, activeOrg, activeOrgId, setActiveOrg, reloadProfile } = useAuth();
   const { teamMap } = usePlaylists();
   const [resetting, setResetting] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const orgOptions = useMemo(
     () => myOrgs.map((o) => ({ value: o.orgId, label: o.orgName })),
@@ -108,12 +110,23 @@ export default function ProfileScreen() {
             variant="ghost"
             onPress={() => supabase.auth.signOut()}
           />
+          <Button
+            title="Delete account"
+            variant="destructive"
+            onPress={() => setDeleteOpen(true)}
+          />
         </View>
 
         <Text className="text-center text-xs text-muted-foreground dark:text-muted-foreground-dark">
           Scoutable {Constants.expoConfig?.version ?? ""}
         </Text>
       </ScrollView>
+
+      <DeleteAccountSheet
+        visible={deleteOpen}
+        email={user?.email ?? ""}
+        onClose={() => setDeleteOpen(false)}
+      />
     </SafeAreaView>
   );
 }

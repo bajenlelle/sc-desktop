@@ -17,6 +17,7 @@ import {
 import { countClubMatchesThisMonth } from "@/lib/matches-db";
 import { NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
 import { openBillingPortal, openUpgradeFlow } from "@/lib/billing";
+import { DeleteAccountDialog } from "@/components/delete-account-dialog";
 import type { OrgContext } from "@/types/org";
 import { toast } from "sonner";
 import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Loader2 } from "lucide-react";
@@ -385,6 +386,30 @@ export function ProfilePage() {
             <span>Sign out of {user?.email}</span>
             <LogOut className="h-4 w-4 opacity-50 group-hover:opacity-100 transition-opacity" />
           </button>
+        </CardContent>
+      </Card>
+
+      {/* ── Danger zone ── */}
+      <Card className="border-destructive/40">
+        <CardContent className="p-4 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-foreground">Delete account</p>
+            <p className="text-xs text-muted-foreground">
+              Permanently erase your account and everything in it.
+            </p>
+          </div>
+          <DeleteAccountDialog
+            email={user?.email ?? ""}
+            trigger={
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 text-red-600 border-red-600/40 hover:bg-red-600/10 hover:text-red-600"
+              >
+                Delete…
+              </Button>
+            }
+          />
         </CardContent>
       </Card>
     </div>
