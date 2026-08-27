@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { saveMatch } from "@/lib/matches-db";
+import { saveMatch, findMatchBySourceGame } from "@/lib/matches-db";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import type { OrgMembership } from "@/types/org";
@@ -153,6 +153,9 @@ export function UploadZone({
   const [selectedGame, setSelectedGame] = useState<ScheduleGame | null>(null);
   const [fetchStatus, setFetchStatus] = useState<"idle" | "loading" | "error">("idle");
   const [fetchError, setFetchError] = useState<string | null>(null);
+  // The same fixture already imported into this space — re-importing updates
+  // that row in place instead of creating an identically-named duplicate.
+  const [existingMatch, setExistingMatch] = useState<{ id: string; title: string } | null>(null);
 
   // Match data state
   const [matchTitle, setMatchTitle] = useState("");
@@ -199,6 +202,26 @@ export function UploadZone({
       .then((games) => { setScheduleGames(games); setScheduleStatus("idle"); })
       .catch(() => setScheduleStatus("error"));
   }, [selectedLeague, selectedSeason, selectedStage]);
+
+  // Duplicate detection: same fixture (stable league uuid) in this space.
+  useEffect(() => {
+    const uuid = selectedGame?.uuid;
+    if (!uuid) {
+      setExistingMatch(null);
+      return;
+    }
+    let cancelled = false;
+    findMatchBySourceGame(uuid, activeOrgId ?? undefined)
+      .then((m) => {
+        if (!cancelled) setExistingMatch(m ? { id: m.id, title: m.title } : null);
+      })
+      .catch(() => {
+        if (!cancelled) setExistingMatch(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedGame?.uuid, activeOrgId]);
 
   const filteredGames = scheduleGames.filter((g) => {
     const q = searchQuery.toLowerCase();
@@ -348,8 +371,9 @@ export function UploadZone({
     const isNtLeague = NT_LEAGUE_IDS.includes(selectedLeague.id);
 
     // UX precheck only — the real gate is the import trigger's
-    // import_limit_reached, handled in the saveMatch catch below.
-    if (!isNtLeague && activeOrgId) {
+    // import_limit_reached, handled in the saveMatch catch below. Updates of
+    // an existing game never touch the quota (upsert, not insert).
+    if (!isNtLeague && activeOrgId && !existingMatch) {
       const { data } = await createClient().rpc("get_import_quota", { p_org_id: activeOrgId });
       const quota = data as { limit: number | null; used: number; remaining: number | null } | null;
       if (quota?.limit != null && (quota.remaining ?? 0) <= 0) {
@@ -378,7 +402,10 @@ export function UploadZone({
       };
     }
 
-    const matchId = crypto.randomUUID();
+    // Re-imports keep the existing row id — saveMatch upserts, so the game
+    // updates in place and playlist clips (keyed on match_id + event_id)
+    // keep working. A fresh id would create an identically-named duplicate.
+    const matchId = existingMatch?.id ?? crypto.randomUUID();
     const storedMatch: StoredMatch = {
       id: matchId,
       // Stable across re-imports of the same fixture — dedupes the quota log.
@@ -399,13 +426,14 @@ export function UploadZone({
     };
 
     try {
-      await saveMatch(storedMatch);
+      await saveMatch(storedMatch, { refreshEvents: !!existingMatch });
       trackEvent('game_synced', {
         game_id: matchId,
         has_video: !!videoPath,
         has_sync_point: !!syncPoint,
         has_play_by_play: playByPlayEvents.length > 0,
         event_count: playByPlayEvents.length,
+        reimport: !!existingMatch,
       })
     } catch (err) {
       setSubmitStatus("error");
@@ -694,6 +722,14 @@ export function UploadZone({
         </p>
       )}
 
+      {existingMatch && (
+        <p className="rounded-md bg-primary/5 border border-primary/20 px-4 py-3 text-sm text-foreground">
+          Already in your library as{" "}
+          <span className="font-semibold">{existingMatch.title}</span>. Importing again
+          updates that game — events and rosters refresh, and your playlists keep working.
+        </p>
+      )}
+
       {/* Submit */}
       <Button
         className="w-full py-6 text-base font-semibold"
@@ -703,8 +739,10 @@ export function UploadZone({
         {submitStatus === "saving" ? (
           <>
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Importing…
+            {existingMatch ? "Updating…" : "Importing…"}
           </>
+        ) : existingMatch ? (
+          "Update Existing Game"
         ) : (
           "Import Game"
         )}

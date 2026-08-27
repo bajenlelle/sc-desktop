@@ -50,7 +50,7 @@ import { listLabels, createLabel as apiCreateLabel, updateLabel as apiUpdateLabe
 import { LabelChip } from "@/components/labels/LabelChip";
 import { LabelPickerPopover, type LabelTriState } from "@/components/labels/LabelPickerPopover";
 import type { Label, LabelColor, ClipKey } from "@scoutable/shared/types/labels";
-import { eventColors, eventLabel, formatGameClock, playerName } from "@scoutable/shared/lib/events";
+import { eventColors, eventLabel, formatGameClock, isBookkeepingEvent, playerName } from "@scoutable/shared/lib/events";
 import { getOrgContext, getOrgContextForOrg, getOrgMembers, getTeamMemberIds } from "@/lib/profile-db";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
 import { SendToPhoneDialog } from "@/components/send-to-phone-dialog";
@@ -177,7 +177,6 @@ const EVENT_TYPE_OPTIONS = [
   { value: "freethrow-miss", label: "FT Miss" },
   { value: "rebound-off", label: "Off Rebound" },
   { value: "rebound-def", label: "Def Rebound" },
-  { value: "rebound-inbound", label: "Inbound Play" },
   { value: "turnover", label: "Turnover" },
   { value: "steal", label: "Steal" },
   { value: "assist", label: "Assist" },
@@ -773,7 +772,13 @@ function ClipBrowserPanel({
 
   const allEvents = useMemo(() => {
     const source = filterMatchId ? matches.filter((m) => m.id === filterMatchId) : matches;
-    return source.flatMap((m) => m.events.map((e) => ({ event: e, matchId: m.id, matchTitle: m.title })));
+    return source.flatMap((m) =>
+      m.events
+        // Dead-ball possession markers aren't watchable — keep them out of
+        // the browser and everything derived from it (teams, players, counts).
+        .filter((e) => !isBookkeepingEvent(e))
+        .map((e) => ({ event: e, matchId: m.id, matchTitle: m.title }))
+    );
   }, [matches, filterMatchId]);
 
   const teams = useMemo(() =>

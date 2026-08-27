@@ -10,7 +10,7 @@ import { isClipItem, type Playlist, type PlaylistFolder, type PlaylistClipItem, 
 import { exportPlaylist, type ExportSegment } from "@/lib/export";
 import { useAuth } from "@/lib/auth-context";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
-import { eventLabel, formatGameClock, periodLabel, playerName } from "@scoutable/shared/lib/events";
+import { eventLabel, formatGameClock, isBookkeepingEvent, periodLabel, playerName } from "@scoutable/shared/lib/events";
 import { isLocalPath } from "@/lib/stream";
 
 // ---------------------------------------------------------------------------
@@ -63,7 +63,6 @@ const EVENT_TYPE_OPTIONS = [
   { value: "freethrow-miss", label: "FT Miss" },
   { value: "rebound-off", label: "Off Rebound" },
   { value: "rebound-def", label: "Def Rebound" },
-  { value: "rebound-inbound", label: "Inbound Play" },
   { value: "turnover", label: "Turnover" },
   { value: "steal", label: "Steal" },
   { value: "assist", label: "Assist" },
@@ -491,6 +490,8 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
   ) as string[];
 
   const filtered = events.filter((e) => {
+    // Dead-ball possession markers aren't watchable — never browsable.
+    if (isBookkeepingEvent(e)) return false;
     if (filterTypes.size > 0 && !Array.from(filterTypes).some((f) => matchesSingleType(e, f))) return false;
     if (filterSubTypes.size > 0 && !Array.from(filterSubTypes).some((f) => matchesShotType(e, f))) return false;
     if (filterSituations.size > 0 && !Array.from(filterSituations).some((f) => matchesSituation(e, f))) return false;

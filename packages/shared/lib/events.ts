@@ -51,6 +51,17 @@ export function eventLabel(e: PlayByPlayEvent): string {
   }
 }
 
+/**
+ * Feed bookkeeping, not basketball: the league records a team-level
+ * "dead-ball rebound" (no player attached) whenever possession changes hands
+ * after a foul or score. There's nothing to watch — the clip window lands on
+ * a baseline inbound — so browsers hide these. Playback surfaces still label
+ * them ("Inbound Play") in case a legacy playlist references one.
+ */
+export function isBookkeepingEvent(e: PlayByPlayEvent): boolean {
+  return e.type === "rebound" && (e.subType?.toLowerCase() ?? "") === "offensivedeadball";
+}
+
 /** "Q1".."Q4", then "OT1", "OT2", … for overtime periods. */
 export function periodLabel(period: number): string {
   return period > 4 ? `OT${period - 4}` : `Q${period}`;

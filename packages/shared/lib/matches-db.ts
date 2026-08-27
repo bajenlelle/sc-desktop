@@ -89,7 +89,18 @@ function rowToStoredMatch(row: MatchRow, events: EventRow[]): StoredMatch {
 // Save (upsert match + bulk-insert events)
 // ---------------------------------------------------------------------------
 
-export async function saveMatch(supabase: SupabaseClient, match: StoredMatch): Promise<void> {
+export async function saveMatch(
+  supabase: SupabaseClient,
+  match: StoredMatch,
+  opts?: {
+    /**
+     * Overwrite existing event rows instead of keeping them — for re-imports,
+     * where the league may have corrected play-by-play data. Same
+     * (match_id, event_id) keys, so playlist clips are unaffected.
+     */
+    refreshEvents?: boolean;
+  }
+): Promise<void> {
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) throw new Error("Not authenticated");
 
@@ -145,10 +156,51 @@ export async function saveMatch(supabase: SupabaseClient, match: StoredMatch): P
     if (eventRows.length > 0) {
       const { error: eventsError } = await supabase
         .from("play_by_play_events")
-        .upsert(eventRows, { onConflict: "match_id,event_id", ignoreDuplicates: true });
+        .upsert(eventRows, {
+          onConflict: "match_id,event_id",
+          ignoreDuplicates: !opts?.refreshEvents,
+        });
       if (eventsError) throw new Error(`Failed to save events: ${eventsError.message}`);
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Duplicate detection for re-imports
+// ---------------------------------------------------------------------------
+
+/**
+ * Finds the caller's existing import of a fixture in a given space, by the
+ * league API's stable game uuid. Lets the import flow update in place
+ * instead of creating an identically-named duplicate. Newest first, so
+ * pre-existing legacy duplicates resolve to the most recent copy.
+ */
+export async function findMatchBySourceGame(
+  supabase: SupabaseClient,
+  sourceGameId: string,
+  orgId?: string
+): Promise<{ id: string; title: string; videoUrl?: string; syncPoint?: SyncPoint } | null> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  let query = supabase
+    .from("matches")
+    .select("id, title, video_url, sync_point")
+    .eq("user_id", user.id)
+    .eq("source_game_id", sourceGameId);
+  if (orgId) query = query.eq("org_id", orgId);
+
+  const { data, error } = await query
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error || !data || data.length === 0) return null;
+  const row = data[0] as { id: string; title: string; video_url: string | null; sync_point: SyncPoint | null };
+  return {
+    id: row.id,
+    title: row.title,
+    videoUrl: row.video_url ?? undefined,
+    syncPoint: row.sync_point ?? undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------
