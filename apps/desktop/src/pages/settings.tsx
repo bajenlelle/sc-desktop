@@ -1,75 +1,76 @@
+import { useEffect, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
+import { check } from "@tauri-apps/plugin-updater";
+import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { ReportProblemDialog } from "@/components/report-problem-dialog";
 
 export function SettingsPage() {
+  const [version, setVersion] = useState("");
+  const [reportOpen, setReportOpen] = useState(false);
+  const [checking, setChecking] = useState(false);
+
+  useEffect(() => {
+    getVersion().then(setVersion).catch(() => {});
+  }, []);
+
+  async function checkForUpdates() {
+    setChecking(true);
+    try {
+      const update = await check();
+      if (update?.available) {
+        toast.info(`Version ${update.version} is available — use the banner at the top to install.`);
+      } else {
+        toast.success("You're on the latest version.");
+      }
+    } catch {
+      toast.error("Couldn't reach the update server. Are you online?");
+    } finally {
+      setChecking(false);
+    }
+  }
+
   return (
     <div className="p-6 max-w-2xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">
-          Settings
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Configure your AI analytics preferences.
-        </p>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Settings</h1>
       </div>
 
       <Card>
         <CardContent className="space-y-4 p-6">
-          <h2 className="text-base font-semibold text-foreground">
-            API Configuration
-          </h2>
-          <div className="space-y-2">
-            <Label htmlFor="rf-key">Roboflow API Key</Label>
-            <Input
-              id="rf-key"
-              type="password"
-              placeholder="Enter your API key"
-            />
+          <h2 className="text-base font-semibold text-foreground">About</h2>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-foreground">Scoutable {version && `v${version}`}</p>
+              <p className="text-sm text-muted-foreground">
+                Updates install automatically from the banner when available.
+              </p>
+            </div>
+            <Button variant="outline" onClick={checkForUpdates} disabled={checking}>
+              {checking ? "Checking…" : "Check for Updates"}
+            </Button>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="hf-token">HuggingFace Token</Label>
-            <Input
-              id="hf-token"
-              type="password"
-              placeholder="Enter your token"
-            />
-          </div>
-          <Button>
-            Save Settings
-          </Button>
         </CardContent>
       </Card>
 
       <Card>
         <CardContent className="space-y-4 p-6">
-          <h2 className="text-base font-semibold text-foreground">
-            Detection Model
-          </h2>
-          <div className="space-y-2">
-            <Label htmlFor="det-model">Player Detection Model ID</Label>
-            <Input
-              id="det-model"
-              defaultValue="basketball-player-detection-3-ycjdo-cia11/5"
-              className="font-mono text-sm"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="conf">Confidence Threshold</Label>
-              <Input id="conf" type="number" defaultValue="0.4" step="0.05" />
+          <h2 className="text-base font-semibold text-foreground">Support</h2>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-foreground">Something not working right?</p>
+              <p className="text-sm text-muted-foreground">
+                Send us a description and an optional screenshot — version info is attached
+                automatically.
+              </p>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="iou">IoU Threshold</Label>
-              <Input id="iou" type="number" defaultValue="0.9" step="0.05" />
-            </div>
+            <Button onClick={() => setReportOpen(true)}>Report a Problem</Button>
           </div>
-          <Button>
-            Update Models
-          </Button>
         </CardContent>
       </Card>
+
+      <ReportProblemDialog open={reportOpen} onOpenChange={setReportOpen} />
     </div>
   );
 }

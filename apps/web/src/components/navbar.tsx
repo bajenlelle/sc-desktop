@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Menu, Moon, Sun, LogOut, User as UserIcon, Building2, ChevronDown, Check, Laptop } from "lucide-react";
+import { Menu, Moon, Sun, LogOut, User as UserIcon, Building2, ChevronDown, Check, Laptop, LifeBuoy } from "lucide-react";
+import { ReportProblemDialog } from "@/components/report-problem-dialog";
 import { LogoMark, Wordmark } from "@/components/logo";
 import { useTheme } from "next-themes";
 import { useState } from "react";
@@ -45,6 +46,7 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
   const pathname = usePathname();
   const router = useRouter();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const { myOrgs, activeOrg, activeOrgId, activeOrgRole, activeOrgIsPersonal, setActiveOrg } = useAuth();
   const importQuota = useImportQuota();
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
@@ -231,6 +233,13 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
                   Profile
                 </Link>
               </DropdownMenuItem>
+              <DropdownMenuItem
+                className="flex items-center gap-2"
+                onClick={() => setReportOpen(true)}
+              >
+                <LifeBuoy className="h-3.5 w-3.5" />
+                Report a problem
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="flex items-center gap-2 text-destructive focus:text-destructive"
@@ -241,6 +250,8 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          <ReportProblemDialog open={reportOpen} onOpenChange={setReportOpen} />
 
           {/* Mobile hamburger */}
           <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>

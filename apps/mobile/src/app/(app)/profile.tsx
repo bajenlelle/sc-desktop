@@ -9,6 +9,7 @@ import { usePlaylists } from "@/lib/playlists-store";
 import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/Button";
 import { DeleteAccountSheet } from "@/components/DeleteAccountSheet";
+import { ReportProblemSheet } from "@/components/ReportProblemSheet";
 import { Select } from "@/components/Select";
 
 export default function ProfileScreen() {
@@ -16,6 +17,7 @@ export default function ProfileScreen() {
   const { teamMap } = usePlaylists();
   const [resetting, setResetting] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
 
   const orgOptions = useMemo(
     () => myOrgs.map((o) => ({ value: o.orgId, label: o.orgName })),
@@ -106,6 +108,11 @@ export default function ProfileScreen() {
             loading={resetting}
           />
           <Button
+            title="Report a problem"
+            variant="outline"
+            onPress={() => setReportOpen(true)}
+          />
+          <Button
             title="Sign out"
             variant="ghost"
             onPress={() => supabase.auth.signOut()}
@@ -127,6 +134,8 @@ export default function ProfileScreen() {
         email={user?.email ?? ""}
         onClose={() => setDeleteOpen(false)}
       />
+
+      <ReportProblemSheet visible={reportOpen} onClose={() => setReportOpen(false)} />
     </SafeAreaView>
   );
 }
