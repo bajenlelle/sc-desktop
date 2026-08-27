@@ -53,6 +53,12 @@
         "projectId": "486ad3c9-8432-4787-8018-395eaba62b1e"
       }
     },
-    "owner": "bajenlelle"
+    "owner": "bajenlelle",
+    "updates": {
+      "url": "https://u.expo.dev/486ad3c9-8432-4787-8018-395eaba62b1e"
+    },
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    }
   }
 }

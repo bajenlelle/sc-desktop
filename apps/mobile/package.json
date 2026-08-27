@@ -20,6 +20,7 @@
     "expo-splash-screen": "~57.0.8",
     "expo-status-bar": "~57.0.1",
     "expo-system-ui": "~57.0.2",
+    "expo-updates": "~57.0.18",
     "expo-video": "~57.0.2",
     "expo-web-browser": "~57.0.2",
     "nativewind": "^4.2.3",
@@ -40,7 +41,8 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "ota": "eas-cli update --channel production --auto && sentry-expo-upload-sourcemaps dist"
   },
   "private": true
 }
