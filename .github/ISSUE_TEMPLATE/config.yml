@@ -1,0 +1,2 @@
+# Auto-filed issues (Sentry alerts, in-app reports) aren't template-bound.
+blank_issues_enabled: true
