@@ -189,7 +189,9 @@ export function ProfilePage() {
   const showUsage = importQuota !== null;
   const usageRatio = importQuota?.limit ? importQuota.used / importQuota.limit : 0;
   const usageAtCap = showUsage && (importQuota!.remaining ?? 0) <= 0;
-  const usageWarn = showUsage && !usageAtCap && usageRatio >= 0.8;
+  // Lifetime pools are small (Free = 3) — warn from 65% so 2-of-3 shows amber.
+  const usageWarn =
+    showUsage && !usageAtCap && usageRatio >= (importQuota!.window === "lifetime" ? 0.65 : 0.8);
   const isTrialing = sub?.status === "trialing";
   const periodDate = formatDate(sub?.currentPeriodEnd ?? null);
   const isFreeOrRookie = activeOrgPlan === 'free' || activeOrgPlan === 'rookie';

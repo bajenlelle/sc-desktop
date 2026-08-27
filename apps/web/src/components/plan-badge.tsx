@@ -38,8 +38,10 @@ export function PlanBadge({ tier, size = "md", href, quota, onUpgrade, showArrow
 
   const showQuota = quota != null && quota.limit != null && quota.remaining != null;
   const atCap = showQuota && quota.remaining! <= 0;
-  const warn = showQuota && !atCap && quota.used / quota.limit! >= 0.8;
   const lifetime = showQuota && quota.window === "lifetime";
+  // Small lifetime pools warn earlier: at limit 3 an 80% rule never fires
+  // before the cap, so Free warns from 2-of-3 used.
+  const warn = showQuota && !atCap && quota.used / quota.limit! >= (lifetime ? 0.65 : 0.8);
 
   const base = size === "xs"
     ? "inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[10px] font-medium leading-tight"
