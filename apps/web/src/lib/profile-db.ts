@@ -116,7 +116,7 @@ function rowToProfile(r: ProfileRow): UserProfile {
   return {
     id: r.id,
     fullName: r.full_name,
-    email: (r as any).email ?? null,
+    email: (r as ProfileRow & { email?: string | null }).email ?? null,
     avatarUrl: r.avatar_url,
     role: r.role as UserProfile["role"],
     orgId: r.org_id,

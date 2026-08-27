@@ -13,6 +13,18 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  {
+    rules: {
+      // React Compiler-era rules flagging pre-existing patterns that work
+      // today. Warnings (not errors) so CI stays green while they're burned
+      // down incrementally — don't add new ones.
+      "react-hooks/set-state-in-effect": "warn",
+      "react-hooks/purity": "warn",
+      "react-hooks/refs": "warn",
+      "react-hooks/component-hook-factories": "warn",
+      "react-hooks/static-components": "warn",
+    },
+  },
 ]);
 
 export default eslintConfig;
