@@ -1,5 +1,6 @@
 import { Building2, User } from "lucide-react";
 import type { OrgMembership } from "@scoutable/shared/types/org";
+import type { ImportQuota } from "@scoutable/shared/lib/plan-tier";
 import { PlanBadge } from "@/components/plan-badge";
 import { cn } from "@/lib/utils";
 
@@ -8,8 +9,8 @@ interface SpaceHeaderProps {
   org: OrgMembership | null;
   /** True when this is the user's only space — hides the redundant label. */
   soloPersonal?: boolean;
-  /** Imports left this month; drives the quota form of the plan chip. */
-  remainingImports?: number | null;
+  /** Import allowance; drives the quota form of the plan chip. */
+  importQuota?: ImportQuota | null;
   className?: string;
 }
 
@@ -23,7 +24,7 @@ interface SpaceHeaderProps {
 export function SpaceHeader({
   org,
   soloPersonal,
-  remainingImports,
+  importQuota,
   className,
 }: SpaceHeaderProps) {
   if (!org) return null;
@@ -47,7 +48,7 @@ export function SpaceHeader({
         tier={org.planTier}
         size={soloPersonal ? "md" : "xs"}
         href={org.isPersonal ? "/profile" : undefined}
-        remaining={org.isPersonal ? remainingImports : null}
+        quota={org.isPersonal ? importQuota : null}
       />
     </div>
   );

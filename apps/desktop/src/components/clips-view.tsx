@@ -1,13 +1,15 @@
 "use client";
 
 import { RefObject, forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowUp, ChevronDown, FileDown, GripVertical, ListPlus, Loader2, Play, SkipForward, Square, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, ChevronDown, FileDown, GripVertical, ListPlus, Loader2, Lock, Play, SkipForward, Square, Trash2 } from "lucide-react";
 import { Reorder, useDragControls } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MultiSelectDropdown } from "@/components/ui/multi-select-dropdown";
 import { isClipItem, type Playlist, type PlaylistFolder, type PlaylistClipItem, type PlayByPlayEvent, type SyncPoint } from "@/types/match";
 import { exportPlaylist, type ExportSegment } from "@/lib/export";
+import { useAuth } from "@/lib/auth-context";
+import { UpgradeDialog } from "@/components/upgrade-dialog";
 import { eventLabel, formatGameClock, periodLabel, playerName } from "@scoutable/shared/lib/events";
 import { isLocalPath } from "@/lib/stream";
 
@@ -423,10 +425,19 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
   const [clockSort, setClockSort] = useState<ClockSort>("none");
 
   // Export
+  const { activeOrgPlan } = useAuth();
+  // Free users must stay able to CLICK export — the click opens the
+  // UpgradeDialog (same carve-out as the playlists page).
+  const exportLocked = activeOrgPlan === "free";
+  const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
   async function handleExport(eventsToExport: PlayByPlayEvent[], name: string) {
+    if (exportLocked) {
+      setUpgradeDialogOpen(true);
+      return;
+    }
     if (!videoUrl || !syncPoint) return;
     setIsExporting(true);
     setExportError(null);
@@ -906,6 +917,11 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
 
   return (
     <div className="space-y-4">
+      <UpgradeDialog
+        open={upgradeDialogOpen}
+        onClose={() => setUpgradeDialogOpen(false)}
+        featureName="Export is a paid feature"
+      />
       {/* Saved Playlists — only shown in all-clips mode */}
       {!activePlaylist && (matchPlaylists.length > 0 || onPlaylistCreated) && (
         <div className="rounded-lg border border-border">
@@ -1038,10 +1054,10 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                   variant="outline"
                   className="h-8 gap-1.5"
                   onClick={() => handleExport(sortedDisplayEvents, activePlaylist?.name ?? "playlist")}
-                  disabled={!!exportDisabledReason || sortedDisplayEvents.length === 0}
-                  title={exportDisabledReason ?? "Export playlist as MP4"}
+                  disabled={exportLocked ? sortedDisplayEvents.length === 0 : (!!exportDisabledReason || sortedDisplayEvents.length === 0)}
+                  title={exportLocked ? "Export clips as MP4 with Rookie or Pro" : (exportDisabledReason ?? "Export playlist as MP4")}
                 >
-                  <FileDown className="h-3.5 w-3.5" />
+                  {exportLocked ? <Lock className="h-3.5 w-3.5" /> : <FileDown className="h-3.5 w-3.5" />}
                   Export
                 </Button>
               )}
@@ -1170,10 +1186,10 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                 variant="outline"
                 className="gap-1.5"
                 onClick={() => handleExport(filtered, `${homeTeamName} vs ${awayTeamName}`)}
-                disabled={!!exportDisabledReason || filtered.length === 0}
-                title={exportDisabledReason ?? "Export visible clips as MP4"}
+                disabled={exportLocked ? filtered.length === 0 : (!!exportDisabledReason || filtered.length === 0)}
+                title={exportLocked ? "Export clips as MP4 with Rookie or Pro" : (exportDisabledReason ?? "Export visible clips as MP4")}
               >
-                <FileDown className="h-3.5 w-3.5" />
+                {exportLocked ? <Lock className="h-3.5 w-3.5" /> : <FileDown className="h-3.5 w-3.5" />}
                 Export ({filtered.length})
               </Button>
             )}

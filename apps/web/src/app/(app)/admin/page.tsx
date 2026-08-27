@@ -13,6 +13,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { getAllOrgsWithCounts, createOrgForPlatform, updateOrgPlanTier, unlockOrgPlanTier } from "@/lib/profile-db";
+import { createClient } from "@/lib/supabase/client";
 import type { OrgWithCount, OrgPlanTier } from "@scoutable/shared/types/org";
 import { useAuth } from "@/components/auth-context";
 import { toast } from "sonner";
@@ -208,6 +209,8 @@ export default function AdminPage() {
         </CardContent>
       </Card>
 
+      <ImportGrantsCard />
+
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -243,5 +246,156 @@ export default function AdminPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+interface GrantRow {
+  id: string;
+  user_email: string | null;
+  amount: number;
+  reason: string | null;
+  starts_at: string;
+  expires_at: string | null;
+  created_at: string;
+}
+
+/**
+ * Campaign import grants: bonus imports for one user (re-activation) or every
+ * user (season-start), active within a date window. Server-side quota math
+ * picks these up automatically — see the import_grants migration.
+ */
+function ImportGrantsCard() {
+  const [grants, setGrants] = useState<GrantRow[]>([]);
+  const [scope, setScope] = useState<"all" | "user">("user");
+  const [email, setEmail] = useState("");
+  const [amount, setAmount] = useState("2");
+  const [expiresAt, setExpiresAt] = useState("");
+  const [reason, setReason] = useState("");
+  const [granting, setGranting] = useState(false);
+
+  async function loadGrants() {
+    const { data, error } = await createClient().rpc("list_import_grants");
+    if (!error && data) setGrants(data as GrantRow[]);
+  }
+
+  useEffect(() => { loadGrants(); }, []);
+
+  async function handleGrant() {
+    const n = parseInt(amount, 10);
+    if (!n || n <= 0) { toast.error("Amount must be a positive number"); return; }
+    if (scope === "user" && !email.trim()) { toast.error("Enter a user email"); return; }
+    setGranting(true);
+    try {
+      const { error } = await createClient().rpc("grant_import_credits", {
+        p_email: scope === "user" ? email.trim() : null,
+        p_amount: n,
+        p_expires_at: expiresAt ? new Date(`${expiresAt}T23:59:59`).toISOString() : null,
+        p_reason: reason.trim() || null,
+      });
+      if (error) {
+        toast.error(error.message.includes("user_not_found") ? "No user with that email" : `Failed: ${error.message}`);
+        return;
+      }
+      toast.success(scope === "all" ? `Granted +${n} imports to all users` : `Granted +${n} imports to ${email.trim()}`);
+      setEmail(""); setReason("");
+      await loadGrants();
+    } finally {
+      setGranting(false);
+    }
+  }
+
+  async function handleRevoke(id: string) {
+    const { error } = await createClient().rpc("revoke_import_grant", { p_grant_id: id });
+    if (error) { toast.error(`Failed to revoke: ${error.message}`); return; }
+    toast.success("Grant revoked");
+    await loadGrants();
+  }
+
+  return (
+    <Card>
+      <CardContent className="p-6 space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">Import grants</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Bonus imports on top of tier limits — target one user or run a campaign for everyone.
+            Active while within the date window; quota math applies them automatically.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Target</label>
+            <select
+              value={scope}
+              onChange={(e) => setScope(e.target.value as "all" | "user")}
+              className="block h-9 text-sm rounded-md border border-border bg-background px-2 cursor-pointer"
+            >
+              <option value="user">Specific user</option>
+              <option value="all">All users</option>
+            </select>
+          </div>
+          {scope === "user" && (
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">User email</label>
+              <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="coach@club.se" className="h-9 w-52" />
+            </div>
+          )}
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Extra imports</label>
+            <Input type="number" min="1" value={amount} onChange={(e) => setAmount(e.target.value)} className="h-9 w-24" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Expires (optional)</label>
+            <Input type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} className="h-9 w-40" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Reason</label>
+            <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Season start 2026" className="h-9 w-44" />
+          </div>
+          <Button onClick={handleGrant} disabled={granting} className="h-9">
+            {granting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Grant"}
+          </Button>
+        </div>
+
+        {grants.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left">
+                  <th className="px-2 py-2 font-medium text-muted-foreground">Target</th>
+                  <th className="px-2 py-2 font-medium text-muted-foreground">Amount</th>
+                  <th className="px-2 py-2 font-medium text-muted-foreground">Window</th>
+                  <th className="px-2 py-2 font-medium text-muted-foreground">Reason</th>
+                  <th className="px-2 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {grants.map((g) => (
+                  <tr key={g.id} className="border-b border-border last:border-0">
+                    <td className="px-2 py-2">{g.user_email ?? <span className="font-medium">All users</span>}</td>
+                    <td className="px-2 py-2 tabular-nums">+{g.amount}</td>
+                    <td className="px-2 py-2 text-muted-foreground">
+                      {new Date(g.starts_at).toLocaleDateString("sv-SE")}
+                      {" → "}
+                      {g.expires_at ? new Date(g.expires_at).toLocaleDateString("sv-SE") : "no expiry"}
+                    </td>
+                    <td className="px-2 py-2 text-muted-foreground">{g.reason ?? "—"}</td>
+                    <td className="px-2 py-2 text-right">
+                      <button
+                        type="button"
+                        onClick={() => handleRevoke(g.id)}
+                        className="text-xs text-muted-foreground hover:text-destructive underline underline-offset-2"
+                      >
+                        Revoke
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

@@ -11,7 +11,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth-context";
 import { getOrgContext, updateMyProfile, uploadAvatar, getSubscriptionStatus } from "@/lib/profile-db";
 import type { OrgContext } from "@scoutable/shared/types/org";
-import { NT_LEAGUE_IDS, getOrgImportLimit, orgPlanColors, orgPlanLabel } from "@scoutable/shared/lib/plan-tier";
+import { orgPlanColors, orgPlanLabel, type ImportQuota } from "@scoutable/shared/lib/plan-tier";
 import { toast } from "sonner";
 import { DeleteAccountDialog } from "@/components/delete-account-dialog";
 import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Loader2 } from "lucide-react";
@@ -47,7 +47,7 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [sub, setSub] = useState<SubStatus | null>(null);
-  const [importCount, setImportCount] = useState<number | null>(null);
+  const [importQuota, setImportQuota] = useState<ImportQuota | null>(null);
   const [loadingPortal, setLoadingPortal] = useState(false);
 
   const [fullName, setFullName] = useState("");
@@ -58,7 +58,7 @@ export default function ProfilePage() {
   async function load() {
     setLoading(true);
     setSub(null);
-    setImportCount(null);
+    setImportQuota(null);
     try {
       const [context, subStatus] = await Promise.all([
         getOrgContext(),
@@ -70,14 +70,23 @@ export default function ProfilePage() {
       setAvatarPreview(context.profile.avatarUrl ?? null);
 
       if (activeOrgIsPersonal && activeOrgId) {
-        // The RPC matches these against matches.league_id, so they must be
-        // league ids — passing org ids here meant the exclusion never hit.
+        // Server owns the numbers (tier base + campaign grants).
         const supabase = createClient();
-        const { data } = await supabase.rpc("count_club_matches_this_month", {
-          p_nt_league_ids: NT_LEAGUE_IDS,
-          p_org_id: activeOrgId,
-        });
-        setImportCount((data as number) ?? 0);
+        const { data } = await supabase.rpc("get_import_quota", { p_org_id: activeOrgId });
+        const q = data as Record<string, unknown> | null;
+        setImportQuota(
+          q && q.limit != null
+            ? {
+                tier: q.tier as ImportQuota["tier"],
+                window: q.window as ImportQuota["window"],
+                baseLimit: q.base_limit as number,
+                bonus: (q.bonus as number) ?? 0,
+                limit: q.limit as number,
+                used: q.used as number,
+                remaining: q.remaining as number,
+              }
+            : null,
+        );
       }
     } catch {
       toast.error("Failed to load profile");
@@ -200,10 +209,12 @@ export default function ProfilePage() {
   const isFreeOrRookie = activeOrgPlan === "free" || activeOrgPlan === "rookie";
   const dateLabel = isTrialing ? "Trial ends" : "Renews";
   const periodDate = formatDate(sub?.currentPeriodEnd ?? null);
-  const importLimit = getOrgImportLimit(activeOrgPlan);
   // Progress bar only for personal spaces on limited plans (free / rookie).
   // Org spaces have no limit and don't display the count.
-  const showUsage = activeOrgIsPersonal && importLimit !== null && importCount !== null;
+  const showUsage = activeOrgIsPersonal && importQuota !== null;
+  const usageRatio = importQuota?.limit ? importQuota.used / importQuota.limit : 0;
+  const usageAtCap = showUsage && (importQuota!.remaining ?? 0) <= 0;
+  const usageWarn = showUsage && !usageAtCap && usageRatio >= 0.8;
 
   return (
     <div className="p-6 max-w-2xl mx-auto space-y-4">
@@ -306,17 +317,37 @@ export default function ProfilePage() {
           {showUsage && (
             <div className="space-y-1.5">
               <div className="flex justify-between text-xs text-muted-foreground">
-                <span>Games imported this month</span>
-                <span className={importCount! >= importLimit! ? "text-destructive font-medium" : ""}>
-                  {importCount} / {importLimit}
+                <span>
+                  {importQuota!.window === "lifetime"
+                    ? "Free game imports"
+                    : "Game imports this month"}
+                </span>
+                <span className="flex items-center gap-2">
+                  {(usageWarn || usageAtCap) && (
+                    <button
+                      type="button"
+                      onClick={handleUpgrade}
+                      className="font-medium text-primary hover:underline"
+                    >
+                      Upgrade — unlimited imports
+                    </button>
+                  )}
+                  <span className={usageAtCap ? "text-destructive font-medium" : usageWarn ? "text-amber-600 dark:text-amber-500 font-medium" : ""}>
+                    {importQuota!.remaining} of {importQuota!.limit} left
+                  </span>
                 </span>
               </div>
               <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                 <div
-                  className={`h-full rounded-full transition-all ${importCount! >= importLimit! ? "bg-destructive" : "bg-primary"}`}
-                  style={{ width: `${Math.min(100, (importCount! / importLimit!) * 100)}%` }}
+                  className={`h-full rounded-full transition-all ${usageAtCap ? "bg-destructive" : usageWarn ? "bg-amber-500" : "bg-primary"}`}
+                  style={{ width: `${Math.min(100, usageRatio * 100)}%` }}
                 />
               </div>
+              <p className="text-[11px] text-muted-foreground">
+                {importQuota!.window === "lifetime"
+                  ? "Deleting games doesn't restore free imports — re-importing the same game is always free."
+                  : "Resets on the 1st of every month."}
+              </p>
             </div>
           )}
         </CardContent>

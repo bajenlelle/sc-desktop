@@ -72,19 +72,24 @@ export async function exportPlaylistToPath(
   await invoke<void>("export_playlist", { segments: rustSegments, outputPath });
 }
 
+/**
+ * Returns true when a file was actually written — a cancelled save dialog
+ * resolves false so callers don't record the export as having happened.
+ */
 export async function exportPlaylist(
   segments: ExportSegment[],
   preRoll: number,
   postRoll: number,
   playlistName: string,
-): Promise<void> {
+): Promise<boolean> {
   const rustSegments = buildRustSegments(segments, preRoll, postRoll);
 
   const outputPath = await save({
     defaultPath: `${playlistName.replace(/[^a-z0-9]/gi, "_")}.mp4`,
     filters: [{ name: "MP4 Video", extensions: ["mp4"] }],
   });
-  if (!outputPath) return; // user cancelled
+  if (!outputPath) return false; // user cancelled
 
   await invoke<void>("export_playlist", { segments: rustSegments, outputPath });
+  return true;
 }

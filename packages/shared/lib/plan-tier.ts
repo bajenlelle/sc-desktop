@@ -14,11 +14,40 @@ export const NT_LEAGUE_IDS: string[] = [
   "sweden-national-women",
 ];
 
-/** Monthly club-match import cap for a tier. `null` = unlimited. */
+/**
+ * Club-match import cap for a tier. `null` = unlimited.
+ *
+ * Display fallback only — the live numbers (including campaign grants) come
+ * from the `get_import_quota` RPC, whose `_import_allowance` SQL twin is the
+ * single source of truth. Keep the two in sync when tiers change.
+ */
 export function getOrgImportLimit(tier: OrgPlanTier): number | null {
-  if (tier === "free") return 2;
+  if (tier === "free") return 3;
   if (tier === "rookie") return 10;
   return null;
+}
+
+export type ImportWindow = "month" | "lifetime" | "unlimited";
+
+/**
+ * How a tier's import cap counts: Free is a lifetime trial pool (deleting a
+ * game never refunds it), Rookie resets each calendar month.
+ */
+export function getImportWindow(tier: OrgPlanTier): ImportWindow {
+  if (tier === "free") return "lifetime";
+  if (tier === "rookie") return "month";
+  return "unlimited";
+}
+
+/** Shape returned by the `get_import_quota` RPC. */
+export interface ImportQuota {
+  tier: OrgPlanTier;
+  window: ImportWindow;
+  baseLimit: number | null;
+  bonus: number;
+  limit: number | null;
+  used: number;
+  remaining: number | null;
 }
 
 export function orgPlanLabel(tier: OrgPlanTier): string {

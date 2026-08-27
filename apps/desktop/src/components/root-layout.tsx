@@ -8,7 +8,7 @@ import { useImportQuota } from "@/lib/use-import-quota";
 export function RootLayout() {
   const { pathname } = useLocation();
   const { activeOrg, myOrgs, setActiveOrg } = useAuth();
-  const remainingImports = useImportQuota();
+  const importQuota = useImportQuota();
 
   return (
     <div className="flex h-screen overflow-hidden bg-background font-sans antialiased">
@@ -19,7 +19,7 @@ export function RootLayout() {
             org={activeOrg}
             myOrgs={myOrgs}
             setActiveOrg={setActiveOrg}
-            remainingImports={remainingImports}
+            importQuota={importQuota}
           />
         )}
         <motion.div

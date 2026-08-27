@@ -8,11 +8,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { saveMatch, countClubMatchesThisMonth } from "@/lib/matches-db";
+import { saveMatch } from "@/lib/matches-db";
+import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import type { OrgMembership } from "@/types/org";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
-import { NT_LEAGUE_IDS, getOrgImportLimit } from "@scoutable/shared/lib/plan-tier";
+import { NT_LEAGUE_IDS } from "@scoutable/shared/lib/plan-tier";
 import { fetchBoxscore, fetchPlayByPlay, fetchPlayByPlaySportradar, getLeagueSchedule, LEAGUES, NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
 import type { ScheduleGame, League, Season, Stage } from "@/lib/basketball-api";
 import { LeaguePicker } from "@/components/league-picker";
@@ -346,15 +347,15 @@ export function UploadZone({
     if (!selectedLeague) return;
     const isNtLeague = NT_LEAGUE_IDS.includes(selectedLeague.id);
 
-    if (!isNtLeague) {
-      const limit = getOrgImportLimit(activeOrgPlan);
-      if (limit !== null) {
-        const count = await countClubMatchesThisMonth(NT_LEAGUE_IDS, activeOrgId ?? undefined);
-        if (count >= limit) {
-          setImportLimitInfo({ count, limit });
-          setImportLimitDialogOpen(true);
-          return;
-        }
+    // UX precheck only — the real gate is the import trigger's
+    // import_limit_reached, handled in the saveMatch catch below.
+    if (!isNtLeague && activeOrgId) {
+      const { data } = await createClient().rpc("get_import_quota", { p_org_id: activeOrgId });
+      const quota = data as { limit: number | null; used: number; remaining: number | null } | null;
+      if (quota?.limit != null && (quota.remaining ?? 0) <= 0) {
+        setImportLimitInfo({ count: quota.used, limit: quota.limit });
+        setImportLimitDialogOpen(true);
+        return;
       }
     }
 
@@ -409,6 +410,13 @@ export function UploadZone({
     } catch (err) {
       setSubmitStatus("error");
       setGeneratingVisible(false);
+      // Server-side quota gate (the precheck can race a concurrent import).
+      if (err instanceof Error && err.message.includes("import_limit_reached")) {
+        setImportLimitInfo(null);
+        setImportLimitDialogOpen(true);
+        setSubmitError(null);
+        return;
+      }
       setSubmitError(err instanceof Error ? err.message : "Failed to save match.");
       return;
     }
@@ -435,12 +443,10 @@ export function UploadZone({
     <UpgradeDialog
       open={importLimitDialogOpen}
       onClose={() => setImportLimitDialogOpen(false)}
-      featureName="Monthly import limit reached"
-      description={importLimitInfo
-        ? activeOrgPlan === "rookie"
-          ? `You've used all ${importLimitInfo.limit} Rookie imports for this month. Upgrade to Pro and never count imports again.`
-          : `You've used all ${importLimitInfo.limit} free imports for this month. Get up to unlimited imports and MP4 export — try Rookie or Pro free for 14 days, cancel anytime.`
-        : undefined}
+      featureName={activeOrgPlan === "rookie" ? "Monthly import limit reached" : "Free import limit reached"}
+      description={activeOrgPlan === "rookie"
+        ? `You've used all ${importLimitInfo?.limit ?? 10} Rookie imports for this month — they reset on the 1st. Upgrade to Pro and never count imports again.`
+        : `You've imported your ${importLimitInfo?.limit ?? 3} free games. Upgrade to Rookie for 10 imports every month plus MP4 export — try free for 14 days, cancel anytime.`}
     />
     <div className="mx-auto max-w-2xl space-y-8">
       {/* Page header */}

@@ -25,7 +25,7 @@ export function DeleteMatchDialog({
   isDemo?: boolean;
 }) {
   // null = unlimited tier or team space, where the quota note is noise.
-  const remainingImports = useImportQuota();
+  const importQuota = useImportQuota();
   const [open, setOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -58,10 +58,11 @@ export function DeleteMatchDialog({
           </span>{" "}
           and all its clips. This can&apos;t be undone.
         </p>
-        {!isDemo && remainingImports !== null && (
+        {!isDemo && importQuota !== null && (
           <p className="text-xs text-muted-foreground">
-            Deleting doesn&apos;t restore your monthly import — the import has
-            already been used. Re-importing this same game later is free.
+            {importQuota.window === "lifetime"
+              ? "Deleting doesn't restore your free imports — you get 3 games total. Re-importing this same game later is free."
+              : "Deleting doesn't restore your monthly import — the import has already been used. Re-importing this same game later is free."}
           </p>
         )}
         {deleteError && (

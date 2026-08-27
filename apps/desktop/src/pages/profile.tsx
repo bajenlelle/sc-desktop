@@ -14,15 +14,13 @@ import {
   uploadAvatar,
   getSubscriptionStatus,
 } from "@/lib/profile-db";
-import { countClubMatchesThisMonth } from "@/lib/matches-db";
-import { NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
 import { openBillingPortal, openUpgradeFlow } from "@/lib/billing";
 import { DeleteAccountDialog } from "@/components/delete-account-dialog";
 import type { OrgContext } from "@/types/org";
 import { toast } from "sonner";
 import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
-import { getOrgImportLimit, orgPlanColors, orgPlanLabel } from "@scoutable/shared/lib/plan-tier";
+import { orgPlanColors, orgPlanLabel, type ImportQuota } from "@scoutable/shared/lib/plan-tier";
 
 
 type SubStatus = {
@@ -53,7 +51,7 @@ export function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [sub, setSub] = useState<SubStatus | null>(null);
   const [loadingPortal, setLoadingPortal] = useState(false);
-  const [monthCount, setMonthCount] = useState<number | null>(null);
+  const [importQuota, setImportQuota] = useState<ImportQuota | null>(null);
 
   const [fullName, setFullName] = useState("");
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -62,15 +60,26 @@ export function ProfilePage() {
 
   async function load() {
     try {
-      const ntLeagueIds = NATIONAL_TEAM_LEAGUES.map((l) => l.id);
-      const promises: [Promise<OrgContext>, Promise<number>, Promise<SubStatus | null>] = [
+      const [context, quotaRes, subStatus] = await Promise.all([
         getOrgContext(),
-        countClubMatchesThisMonth(ntLeagueIds, activeOrgId ?? undefined),
-        activeOrgIsPersonal ? getSubscriptionStatus() : Promise.resolve(null),
-      ];
-      const [context, count, subStatus] = await Promise.all(promises);
+        createClient().rpc("get_import_quota", { p_org_id: activeOrgId ?? null }),
+        activeOrgIsPersonal ? getSubscriptionStatus() : Promise.resolve(null as SubStatus | null),
+      ]);
       setCtx(context);
-      setMonthCount(count);
+      const q = quotaRes.data as Record<string, unknown> | null;
+      setImportQuota(
+        q && q.limit != null
+          ? {
+              tier: q.tier as ImportQuota["tier"],
+              window: q.window as ImportQuota["window"],
+              baseLimit: q.base_limit as number,
+              bonus: (q.bonus as number) ?? 0,
+              limit: q.limit as number,
+              used: q.used as number,
+              remaining: q.remaining as number,
+            }
+          : null,
+      );
       setSub(subStatus);
       setFullName(context.profile.fullName ?? "");
       setAvatarPreview(context.profile.avatarUrl ?? null);
@@ -177,8 +186,10 @@ export function ProfilePage() {
   // Stripe sub state only drives ancillaries (period-end date, Manage button visibility).
   const planColors = orgPlanColors(activeOrgPlan);
   const planName = orgPlanLabel(activeOrgPlan);
-  const monthlyLimit = getOrgImportLimit(activeOrgPlan);
-  const showUsage = monthlyLimit !== null && monthCount !== null;
+  const showUsage = importQuota !== null;
+  const usageRatio = importQuota?.limit ? importQuota.used / importQuota.limit : 0;
+  const usageAtCap = showUsage && (importQuota!.remaining ?? 0) <= 0;
+  const usageWarn = showUsage && !usageAtCap && usageRatio >= 0.8;
   const isTrialing = sub?.status === "trialing";
   const periodDate = formatDate(sub?.currentPeriodEnd ?? null);
   const isFreeOrRookie = activeOrgPlan === 'free' || activeOrgPlan === 'rookie';
@@ -259,17 +270,37 @@ export function ProfilePage() {
           {showUsage && (
             <div className="space-y-1.5">
               <div className="flex justify-between text-xs text-muted-foreground">
-                <span>Games imported this month</span>
-                <span className={monthCount! >= monthlyLimit! ? "text-destructive font-medium" : ""}>
-                  {monthCount} / {monthlyLimit}
+                <span>
+                  {importQuota!.window === "lifetime"
+                    ? "Free game imports"
+                    : "Game imports this month"}
+                </span>
+                <span className="flex items-center gap-2">
+                  {(usageWarn || usageAtCap) && (
+                    <button
+                      type="button"
+                      onClick={handleUpgrade}
+                      className="font-medium text-primary hover:underline"
+                    >
+                      Upgrade — unlimited imports
+                    </button>
+                  )}
+                  <span className={usageAtCap ? "text-destructive font-medium" : usageWarn ? "text-amber-600 dark:text-amber-500 font-medium" : ""}>
+                    {importQuota!.remaining} of {importQuota!.limit} left
+                  </span>
                 </span>
               </div>
               <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                 <div
-                  className={`h-full rounded-full transition-all ${monthCount! >= monthlyLimit! ? "bg-destructive" : "bg-primary"}`}
-                  style={{ width: `${Math.min(100, (monthCount! / monthlyLimit!) * 100)}%` }}
+                  className={`h-full rounded-full transition-all ${usageAtCap ? "bg-destructive" : usageWarn ? "bg-amber-500" : "bg-primary"}`}
+                  style={{ width: `${Math.min(100, usageRatio * 100)}%` }}
                 />
               </div>
+              <p className="text-[11px] text-muted-foreground">
+                {importQuota!.window === "lifetime"
+                  ? "Deleting games doesn't restore free imports — re-importing the same game is always free."
+                  : "Resets on the 1st of every month."}
+              </p>
             </div>
           )}
 

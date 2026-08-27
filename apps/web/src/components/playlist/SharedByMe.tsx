@@ -646,94 +646,146 @@ export function SharedByMe({
                 and title/Share are sibling buttons that stop propagation —
                 no interactive nesting, and a full keyboard path. */}
             <div
-              className="flex w-full cursor-pointer items-center gap-3 p-4"
+              className="w-full cursor-pointer p-4"
               onClick={() => setExpandedId(expanded ? null : row.playlist.id)}
             >
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setExpandedId(expanded ? null : row.playlist.id);
-                }}
-                aria-expanded={expanded}
-                aria-label={expanded ? "Hide recipients" : "Show recipients"}
-                className="-m-2 shrink-0 rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              >
-                {expanded
-                  ? <ChevronDown className="h-4 w-4" />
-                  : <ChevronRight className="h-4 w-4" />}
-              </button>
-              <div className="min-w-0 flex-1">
+              {/* Row 1: chevron + title/meta. The progress/actions cluster
+                  joins this row at sm+; on phones it drops to row 2 so the
+                  title keeps the full card width instead of a sliver. */}
+              <div className="flex items-start gap-3 sm:items-center">
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onOpenPlaylist(row.playlist.id);
+                    setExpandedId(expanded ? null : row.playlist.id);
                   }}
-                  title="Open playlist"
-                  className="block max-w-full truncate text-left text-sm font-semibold text-foreground underline-offset-2 hover:text-primary hover:underline"
+                  aria-expanded={expanded}
+                  aria-label={expanded ? "Hide recipients" : "Show recipients"}
+                  className="-m-2 mt-[-2px] shrink-0 rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:mt-[-8px]"
                 >
-                  {row.playlist.name}
+                  {expanded
+                    ? <ChevronDown className="h-4 w-4" />
+                    : <ChevronRight className="h-4 w-4" />}
                 </button>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                  <Users className="mr-1 inline h-3 w-3" aria-hidden />
-                  {reach || "No recipients"}
-                  {when && ` · shared ${when}`}
-                  {` · ${row.playableCount} clip${row.playableCount === 1 ? "" : "s"}`}
-                </p>
-                {row.uploadingCount > 0 && (
-                  <p className="mt-0.5 text-xs text-amber-600 dark:text-amber-400">
-                    {row.uploadingCount} clip{row.uploadingCount === 1 ? "" : "s"} not uploaded — invisible to
-                    recipients. Open the playlist in the desktop app to upload them.
+                <div className="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenPlaylist(row.playlist.id);
+                    }}
+                    title="Open playlist"
+                    className="block max-w-full text-left text-sm font-semibold text-foreground underline-offset-2 line-clamp-2 hover:text-primary hover:underline sm:line-clamp-1"
+                  >
+                    {row.playlist.name}
+                  </button>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                    <Users className="mr-1 inline h-3 w-3" aria-hidden />
+                    {reach || "No recipients"}
+                    {when && ` · shared ${when}`}
+                    {` · ${row.playableCount} clip${row.playableCount === 1 ? "" : "s"}`}
                   </p>
-                )}
+                  {row.uploadingCount > 0 && (
+                    <p className="mt-0.5 text-xs text-amber-600 dark:text-amber-400">
+                      {row.uploadingCount} clip{row.uploadingCount === 1 ? "" : "s"} not uploaded — invisible to
+                      recipients. Open the playlist in the desktop app to upload them.
+                    </p>
+                  )}
+                </div>
+                <div className="hidden shrink-0 items-center gap-3 sm:flex">
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {row.completedCount} done
+                      {inProgress > 0 && ` · ${inProgress} in progress`}
+                      {total > 0 && ` of ${total}`}
+                    </span>
+                    <SegmentedProgress
+                      done={row.completedCount}
+                      started={row.startedCount}
+                      total={total}
+                      className="w-28"
+                    />
+                  </div>
+                  {behindCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemindPlaylist(row);
+                      }}
+                      disabled={remindingPlaylistId !== null}
+                      title={`Remind the ${behindCount} player${behindCount === 1 ? "" : "s"} who haven't finished this playlist`}
+                      className="flex min-h-[32px] shrink-0 items-center gap-1.5 rounded-md bg-amber-500/15 px-2.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/25 disabled:opacity-60 dark:text-amber-400"
+                    >
+                      {remindingPlaylistId === row.playlist.id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Send className="h-3 w-3" />
+                      )}
+                      <span>
+                        Remind <span className="tabular-nums">{behindCount}</span>
+                      </span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onManageShare(row.playlist);
+                    }}
+                    aria-label="Manage sharing"
+                    className="flex min-h-[32px] shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <Share2 className="h-3.5 w-3.5" />
+                    <span>Share</span>
+                  </button>
+                </div>
               </div>
-              <div className="flex shrink-0 flex-col items-end gap-1">
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  {row.completedCount} done
-                  {inProgress > 0 && ` · ${inProgress} in progress`}
-                  {total > 0 && ` of ${total}`}
-                </span>
+
+              {/* Row 2 (phones only): progress + actions get their own line. */}
+              <div className="mt-3 flex items-center gap-2 pl-7 sm:hidden">
                 <SegmentedProgress
                   done={row.completedCount}
                   started={row.startedCount}
                   total={total}
-                  className="w-28"
+                  className="flex-1"
                 />
-              </div>
-              {behindCount > 0 && (
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                  {total > 0 ? `${row.completedCount} done of ${total}` : "No recipients"}
+                </span>
+                {behindCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemindPlaylist(row);
+                    }}
+                    disabled={remindingPlaylistId !== null}
+                    title={`Remind the ${behindCount} player${behindCount === 1 ? "" : "s"} who haven't finished this playlist`}
+                    className="flex min-h-[32px] shrink-0 items-center gap-1.5 rounded-md bg-amber-500/15 px-2.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/25 disabled:opacity-60 dark:text-amber-400"
+                  >
+                    {remindingPlaylistId === row.playlist.id ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Send className="h-3 w-3" />
+                    )}
+                    <span>
+                      Remind <span className="tabular-nums">{behindCount}</span>
+                    </span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleRemindPlaylist(row);
+                    onManageShare(row.playlist);
                   }}
-                  disabled={remindingPlaylistId !== null}
-                  title={`Remind the ${behindCount} player${behindCount === 1 ? "" : "s"} who haven't finished this playlist`}
-                  className="flex min-h-[32px] shrink-0 items-center gap-1.5 rounded-md bg-amber-500/15 px-2.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/25 disabled:opacity-60 dark:text-amber-400"
+                  aria-label="Manage sharing"
+                  className="flex min-h-[32px] shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 >
-                  {remindingPlaylistId === row.playlist.id ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Send className="h-3 w-3" />
-                  )}
-                  <span>
-                    Remind <span className="tabular-nums">{behindCount}</span>
-                  </span>
+                  <Share2 className="h-3.5 w-3.5" />
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onManageShare(row.playlist);
-                }}
-                aria-label="Manage sharing"
-                className="flex min-h-[32px] shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              >
-                <Share2 className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Share</span>
-              </button>
+              </div>
             </div>
 
             {expanded && (

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Menu, Moon, Sun, LogOut, User as UserIcon, Building2, ChevronDown, Check, ArrowUpRight, Laptop } from "lucide-react";
+import { Menu, Moon, Sun, LogOut, User as UserIcon, Building2, ChevronDown, Check, Laptop } from "lucide-react";
 import { LogoMark, Wordmark } from "@/components/logo";
 import { useTheme } from "next-themes";
 import { useState } from "react";
@@ -22,6 +22,8 @@ import { useAuth } from "@/components/auth-context";
 import { PlanBadge } from "@/components/plan-badge";
 import { SpaceHeader } from "@/components/space-header";
 import { useImportQuota } from "@/lib/use-import-quota";
+import { openUpgradeFlow } from "@/lib/billing";
+import { toast } from "sonner";
 
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
@@ -44,7 +46,7 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
   const router = useRouter();
   const [sheetOpen, setSheetOpen] = useState(false);
   const { myOrgs, activeOrg, activeOrgId, activeOrgRole, activeOrgIsPersonal, setActiveOrg } = useAuth();
-  const remainingImports = useImportQuota();
+  const importQuota = useImportQuota();
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   const showOrganization = !activeOrgIsPersonal && activeOrgRole !== null;
   const hasOrg = !profile || !!profile.isPlatformAdmin || myOrgs.length > 0;
@@ -103,7 +105,7 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
                     <PlanBadge
                       tier={activeOrg.planTier}
                       size="xs"
-                      remaining={activeOrg.isPersonal ? remainingImports : null}
+                      quota={activeOrg.isPersonal ? importQuota : null}
                     />
                     <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   </Button>
@@ -123,29 +125,42 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
                       >
                         <OrgIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                         <span className="flex-1 truncate">{label}</span>
-                        <PlanBadge tier={org.planTier} size="xs" />
+                        {org.isPersonal ? (
+                          // The badge IS the plan entry point — one click to
+                          // pricing/portal, replacing the old "Manage plan"
+                          // menu item. stopPropagation so it doesn't also
+                          // switch the active space.
+                          <button
+                            type="button"
+                            title={
+                              org.planTier === "free" || org.planTier === "rookie"
+                                ? "Upgrade plan"
+                                : "Manage subscription"
+                            }
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              const err = await openUpgradeFlow(profile?.email);
+                              if (err) toast.error(err);
+                            }}
+                            className="rounded-full transition hover:brightness-110 hover:scale-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
+                          >
+                            <PlanBadge tier={org.planTier} size="xs" showArrow />
+                          </button>
+                        ) : (
+                          <PlanBadge tier={org.planTier} size="xs" />
+                        )}
                         {org.orgId === activeOrgId && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
                       </DropdownMenuItem>
                     );
                   })}
-                  {activeOrg?.isPersonal && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem asChild>
-                        <Link href="/profile" className="flex items-center gap-2">
-                          <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                          <span className="flex-1">Manage plan</span>
-                        </Link>
-                      </DropdownMenuItem>
-                    </>
-                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
               <SpaceHeader
                 org={activeOrg}
                 soloPersonal={activeOrg.isPersonal}
-                remainingImports={remainingImports}
+                importQuota={importQuota}
                 className="min-w-0"
               />
             )}

@@ -2987,12 +2987,14 @@ export function PlaylistsPage() {
     try {
       const segments = buildExportSegments();
       segmentCount = segments.filter(s => s.kind === 'clip').length;
-      await exportPlaylist(segments, preRoll, postRoll, selected!.name);
-      trackEvent('video_exported', { playlist_id: selected!.id, clip_count: segmentCount, status: 'success', selection_only: selectedClipIds.size > 0 });
-      // Completes the Getting Started "export a playlist" step (per-device
-      // is fine — the checklist is a first-session aid, not a record).
-      localStorage.setItem("scoutable_has_exported", "1");
-      window.dispatchEvent(new CustomEvent("playlist-exported"));
+      const exported = await exportPlaylist(segments, preRoll, postRoll, selected!.name);
+      if (exported) {
+        trackEvent('video_exported', { playlist_id: selected!.id, clip_count: segmentCount, status: 'success', selection_only: selectedClipIds.size > 0 });
+        // Completes the Getting Started "export a playlist" step (per-device
+        // is fine — the checklist is a first-session aid, not a record).
+        localStorage.setItem("scoutable_has_exported", "1");
+        window.dispatchEvent(new CustomEvent("playlist-exported"));
+      }
     } catch (e) {
       setExportError(e instanceof Error ? e.message : String(e));
       trackEvent('video_exported', { playlist_id: selected!.id, clip_count: segmentCount, status: 'error' });

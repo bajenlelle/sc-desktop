@@ -1,6 +1,10 @@
 import { Building2, Check, ChevronDown, User } from "lucide-react";
+import { toast } from "sonner";
 import type { OrgMembership } from "@scoutable/shared/types/org";
+import type { ImportQuota } from "@scoutable/shared/lib/plan-tier";
 import { PlanBadge } from "@/components/plan-badge";
+import { useAuth } from "@/lib/auth-context";
+import { openUpgradeFlow } from "@/lib/billing";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,8 +20,8 @@ interface SpaceHeaderProps {
   myOrgs?: OrgMembership[];
   /** Called when the user picks a different org from the switcher menu. */
   setActiveOrg?: (orgId: string) => void;
-  /** Imports left this month; drives the quota form of the plan chip. */
-  remainingImports?: number | null;
+  /** Import allowance; drives the quota form of the plan chip. */
+  importQuota?: ImportQuota | null;
   className?: string;
 }
 
@@ -42,9 +46,10 @@ export function SpaceHeader({
   org,
   myOrgs,
   setActiveOrg,
-  remainingImports,
+  importQuota,
   className,
 }: SpaceHeaderProps) {
+  const { user, expectPlanChange } = useAuth();
   if (!org) return null;
   const Icon = orgIcon(org.isPersonal);
   const label = orgLabel(org);
@@ -124,7 +129,18 @@ export function SpaceHeader({
         // Standalone in an otherwise-empty bar, so it can afford to be legible.
         size={soloPersonal ? "md" : "xs"}
         href={org.isPersonal ? "/profile" : undefined}
-        remaining={org.isPersonal ? remainingImports : null}
+        quota={org.isPersonal ? importQuota : null}
+        // Warn/cap states skip /profile and go straight to pricing/portal —
+        // the chip is the shortest path from "blocked" to "upgraded".
+        onUpgrade={
+          org.isPersonal
+            ? async () => {
+                const err = await openUpgradeFlow(user?.email);
+                if (err) toast.error(err);
+                else expectPlanChange();
+              }
+            : undefined
+        }
       />
     </div>
   );
