@@ -4,6 +4,7 @@
  * caller belongs to.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { reportDbError } from "./report";
 
 export interface TeamMemberRef {
   teamId: string;
@@ -25,7 +26,7 @@ export async function getTeamMembers(
     .from("team_members")
     .select("team_id, user_id, role")
     .in("team_id", teamIds);
-  if (error) { console.error("getTeamMembers:", error.message); return []; }
+  if (error) { reportDbError("getTeamMembers", error); return []; }
   return ((data ?? []) as { team_id: string; user_id: string; role: string }[]).map((r) => ({
     teamId: r.team_id,
     userId: r.user_id,

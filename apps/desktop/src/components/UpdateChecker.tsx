@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { X } from "lucide-react";
+import { Sentry } from "@/lib/sentry";
 
 export function UpdateChecker() {
   const [update, setUpdate] = useState<Update | null>(null);
@@ -11,8 +12,14 @@ export function UpdateChecker() {
   useEffect(() => {
     check().then((u) => {
       if (u?.available) setUpdate(u);
-    }).catch(() => {
-      // silently ignore — no network, server not configured, etc.
+    }).catch((e) => {
+      // No event — offline update checks are routine. Breadcrumb only, so a
+      // later crash report shows the updater was unreachable.
+      Sentry.addBreadcrumb({
+        category: "updater",
+        message: `update check failed: ${e instanceof Error ? e.message : String(e)}`,
+        level: "warning",
+      });
     });
   }, []);
 
@@ -28,6 +35,7 @@ export function UpdateChecker() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("Update failed:", msg);
+      Sentry.captureException(e);
       setError(msg);
       setStatus("error");
     }

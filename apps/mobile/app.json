@@ -35,6 +35,13 @@
           "image": "./assets/splash-icon.png",
           "resizeMode": "contain"
         }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "organization": "scoutable",
+          "project": "scoutable-mobile"
+        }
       ]
     ],
     "experiments": {

@@ -294,9 +294,31 @@ async fn read_file(path: String) -> Result<tauri::ipc::Response, String> {
 /// Keeps memory usage bounded regardless of file size.
 const CHUNK_SIZE: u64 = 4 * 1024 * 1024; // 4 MiB
 
+/// Sentry DSN for the scoutable-desktop project. DSNs are public identifiers,
+/// not secrets. Debug builds stay offline unless SENTRY_DSN_DESKTOP is
+/// exported at compile time (for testing the reporting pipeline locally).
+const SENTRY_DSN: &str =
+    "https://537f3ffb87f438f92d805c43e47acab1@o4511984392994816.ingest.de.sentry.io/4511984462397520";
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let dsn = option_env!("SENTRY_DSN_DESKTOP")
+        .unwrap_or(if cfg!(debug_assertions) { "" } else { SENTRY_DSN });
+    // ClientOptions is #[non_exhaustive]; fields must be set on a default().
+    let mut sentry_options = sentry::ClientOptions::default();
+    sentry_options.release = sentry::release_name!();
+    sentry_options.environment = Some(
+        option_env!("SCOUTABLE_ENV")
+            .unwrap_or(if cfg!(debug_assertions) { "development" } else { "production" })
+            .into(),
+    );
+    let sentry_client = sentry::init((dsn, sentry_options));
+
     tauri::Builder::default()
+        // Rust panics + webview JS errors both flow through this client; the
+        // webview runs its own @sentry/react init (src/lib/sentry.ts), so use
+        // the no-injection variant to avoid a second injected SDK.
+        .plugin(tauri_plugin_sentry::init_with_no_injection(&sentry_client))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_dialog::init())

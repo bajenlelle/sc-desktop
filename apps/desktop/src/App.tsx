@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Outlet, useNavigate, useLocation } from "react-router-dom";
+import { getVersion } from "@tauri-apps/api/app";
+import { Sentry } from "@/lib/sentry";
 import { initAnalytics, trackEvent } from "@/lib/analytics";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/lib/auth-context";
@@ -103,8 +105,29 @@ function AuthLayout() {
   );
 }
 
+function CrashFallback() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background p-6">
+      <div className="max-w-md space-y-4 rounded-lg border bg-card p-6 text-center shadow-sm">
+        <h1 className="text-lg font-semibold text-foreground">Something went wrong</h1>
+        <p className="text-sm text-muted-foreground">
+          The error has been reported automatically. Reloading usually gets you back on track.
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+        >
+          Reload Scoutable
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
-  useEffect(() => { trackEvent('app_started', { app_version: '0.1.2' }) }, [])
+  useEffect(() => {
+    getVersion().then((v) => trackEvent('app_started', { app_version: v }))
+  }, [])
 
   return (
     <AuthProvider>
@@ -112,6 +135,7 @@ export default function App() {
         <UpdateChecker />
         <UpgradeCelebration />
         <ThemedToaster />
+        <Sentry.ErrorBoundary fallback={<CrashFallback />}>
         <BrowserRouter>
           <DeepLinkHandler />
           <PageTracker />
@@ -178,6 +202,7 @@ export default function App() {
             </Route>
           </Routes>
         </BrowserRouter>
+        </Sentry.ErrorBoundary>
       </ThemeProvider>
     </AuthProvider>
   );

@@ -10,6 +10,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { reportDbError } from "./report";
 import type {
   ClipKey,
   ClipLabelAssignment,
@@ -87,7 +88,7 @@ export async function listLabels(
     .select("id, user_id, org_id, name, color, created_at")
     .eq("org_id", orgId)
     .order("name", { ascending: true });
-  if (error) { console.error("listLabels:", error.message); return []; }
+  if (error) { reportDbError("listLabels", error); return []; }
   return ((data ?? []) as LabelRow[]).map(rowToLabel);
 }
 
@@ -187,7 +188,7 @@ export async function listAssignmentsForClips(
   );
   const rows: ClipLabelAssignmentRow[] = [];
   for (const { data, error } of results) {
-    if (error) { console.error("listAssignmentsForClips:", error.message); continue; }
+    if (error) { reportDbError("listAssignmentsForClips", error); continue; }
     if (data) rows.push(...(data as ClipLabelAssignmentRow[]));
   }
   return rows.map(rowToAssignment);
@@ -291,7 +292,7 @@ export async function bulkAssign(
           .in("event_id", eventIds);
         q = applyScope(q, scope);
         const { data, error } = await q;
-        if (error) { console.error("bulkAssign existence:", error.message); return; }
+        if (error) { reportDbError("bulkAssign existence", error); return; }
         for (const r of (data ?? []) as { event_id: number }[]) {
           existing.add(`${matchId}:${r.event_id}`);
         }

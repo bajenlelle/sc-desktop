@@ -10,6 +10,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { reportDbError } from "./report";
 
 export interface ClipView {
   playlistId: string;
@@ -44,7 +45,7 @@ export async function listMyClipViews(supabase: SupabaseClient): Promise<ClipVie
     .from("clip_views")
     .select("playlist_id, match_id, event_id, watched_at")
     .eq("user_id", user.id);
-  if (error) { console.error("listMyClipViews:", error.message); return []; }
+  if (error) { reportDbError("listMyClipViews", error); return []; }
   return ((data ?? []) as ClipViewRow[]).map((r) => ({
     playlistId: r.playlist_id,
     matchId: r.match_id,
@@ -71,7 +72,7 @@ export async function listPlaylistClipViews(
     .from("clip_views")
     .select("user_id, playlist_id, match_id, event_id, watched_at")
     .in("playlist_id", playlistIds);
-  if (error) { console.error("listPlaylistClipViews:", error.message); return []; }
+  if (error) { reportDbError("listPlaylistClipViews", error); return []; }
   return ((data ?? []) as (ClipViewRow & { user_id: string })[]).map((r) => ({
     userId: r.user_id,
     playlistId: r.playlist_id,
@@ -108,5 +109,5 @@ export async function markClipWatched(
       },
       { onConflict: "user_id,playlist_id,match_id,event_id", ignoreDuplicates: true },
     );
-  if (error) console.error("markClipWatched:", error.message);
+  if (error) reportDbError("markClipWatched", error);
 }

@@ -3,8 +3,15 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
   "exports": {
     "./types/*": "./types/*.ts",
     "./lib/*": "./lib/*.ts"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11"
   }
 }

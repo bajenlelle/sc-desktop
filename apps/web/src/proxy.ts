@@ -4,6 +4,12 @@ import { NextResponse, type NextRequest } from "next/server";
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // Sentry browser events tunnel through this route (next.config.ts
+  // `tunnelRoute`) — pass them straight through, no session work or redirects.
+  if (pathname.startsWith("/monitoring")) {
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(

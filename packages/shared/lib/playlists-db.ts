@@ -8,6 +8,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { reportDbError } from "./report";
 import type { Playlist, PlaylistItem, PlaylistClipItem, PlaylistTextCard } from "../types/match";
 
 // ---------------------------------------------------------------------------
@@ -153,7 +154,7 @@ export async function getMyTeamPlaylists(
     .order("created_at", { ascending: false });
   if (teamIds) query = query.in("team_id", teamIds);
   const { data, error } = await query;
-  if (error) { console.error("getMyTeamPlaylists:", error.message); return []; }
+  if (error) { reportDbError("getMyTeamPlaylists", error); return []; }
   if (!data) return [];
   return (data as PlaylistRow[]).map(rowToPlaylist);
 }
@@ -170,7 +171,7 @@ export async function listPlaylists(supabase: SupabaseClient): Promise<Playlist[
     .select(PLAYLIST_SELECT)
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
-  if (error) { console.error("listPlaylists:", error.message); return []; }
+  if (error) { reportDbError("listPlaylists", error); return []; }
   if (!data) return [];
   return (data as PlaylistRow[]).map(rowToPlaylist);
 }
@@ -502,7 +503,7 @@ export async function getMyDirectPlaylists(
     .from("playlist_user_shares")
     .select("playlist_id")
     .eq("user_id", user.id);
-  if (shareError) { console.error("getMyDirectPlaylists shares:", shareError.message); return []; }
+  if (shareError) { reportDbError("getMyDirectPlaylists shares", shareError); return []; }
   if (!shareRows || shareRows.length === 0) return [];
 
   const playlistIds = shareRows.map((r: { playlist_id: string }) => r.playlist_id);
@@ -517,7 +518,7 @@ export async function getMyDirectPlaylists(
     .order("created_at", { ascending: false });
   if (teamIds) query = query.in("team_id", teamIds);
   const { data, error } = await query;
-  if (error) { console.error("getMyDirectPlaylists playlists:", error.message); return []; }
+  if (error) { reportDbError("getMyDirectPlaylists playlists", error); return []; }
   if (!data) return [];
 
   return (data as PlaylistRow[]).map((row) => ({
@@ -542,7 +543,7 @@ export async function getMySharedOutPlaylists(
     .from("playlist_user_shares")
     .select("playlist_id")
     .eq("shared_by", user.id);
-  if (shareError) { console.error("getMySharedOutPlaylists:", shareError.message); return []; }
+  if (shareError) { reportDbError("getMySharedOutPlaylists", shareError); return []; }
   if (!shareRows || shareRows.length === 0) return [];
 
   const playlistIds = [...new Set(shareRows.map((r: { playlist_id: string }) => r.playlist_id))];
@@ -554,7 +555,7 @@ export async function getMySharedOutPlaylists(
     .order("created_at", { ascending: false });
   if (teamIds) query = query.in("team_id", teamIds);
   const { data, error } = await query;
-  if (error) { console.error("getMySharedOutPlaylists playlists:", error.message); return []; }
+  if (error) { reportDbError("getMySharedOutPlaylists playlists", error); return []; }
   if (!data) return [];
   return (data as PlaylistRow[]).map(rowToPlaylist);
 }
@@ -586,7 +587,7 @@ export async function getMySharedPlaylists(supabase: SupabaseClient): Promise<Sh
     .select(PLAYLIST_SELECT)
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
-  if (error) { console.error("getMySharedPlaylists:", error.message); return []; }
+  if (error) { reportDbError("getMySharedPlaylists", error); return []; }
   if (!data) return [];
 
   return (data as PlaylistRow[])

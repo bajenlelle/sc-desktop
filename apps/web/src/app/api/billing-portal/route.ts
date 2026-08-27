@@ -44,8 +44,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
   }
 
-  console.log("[billing-portal] Authenticated user email:", email);
-
   // Reuse the same authenticated client so RLS passes
   const { data, error: dbError } = await supabase
     .from("stripe_customers")
@@ -53,7 +51,9 @@ export async function POST(request: NextRequest) {
     .eq("email", email)
     .maybeSingle();
 
-  console.log("[billing-portal] DB query result:", { data, dbError: dbError?.message ?? null });
+  if (dbError) {
+    console.error("[billing-portal] stripe_customers lookup failed:", dbError.message);
+  }
 
   if (!data?.stripe_customer_id) {
     return NextResponse.json({ error: "No active subscription" }, { status: 400, headers: corsHeaders });

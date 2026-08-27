@@ -25,6 +25,9 @@ export function initAnalytics() {
     capture_pageview: false,
     capture_pageleave: false,
   })
+  // Staging and prod share a PostHog project key; this super property is the
+  // only way to tell their events apart.
+  posthog.register({ environment: import.meta.env.VITE_ENV ?? 'development' })
 }
 
 export function identifyUser(userId: string, props: { email?: string; declared_role?: string }) {
