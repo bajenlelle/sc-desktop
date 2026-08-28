@@ -270,13 +270,28 @@ async fn get_temp_dir() -> String {
     std::env::temp_dir().to_string_lossy().to_string()
 }
 
+/// Canonicalize `path` and require it to live inside `dir` (also
+/// canonicalized — on macOS temp_dir() sits behind the /var -> /private/var
+/// symlink). Rejects `..` traversal and symlink escapes, which a plain
+/// Path::starts_with on the raw string does not.
+fn resolve_within(path: &str, dir: &std::path::Path) -> Result<std::path::PathBuf, String> {
+    let dir = dir
+        .canonicalize()
+        .map_err(|e| format!("cannot resolve base dir: {e}"))?;
+    let p = std::path::Path::new(path)
+        .canonicalize()
+        .map_err(|e| format!("cannot resolve path: {e}"))?;
+    if p.starts_with(&dir) {
+        Ok(p)
+    } else {
+        Err("path is outside temp directory".into())
+    }
+}
+
 #[tauri::command]
 async fn delete_file(path: String) -> Result<(), String> {
-    let temp = std::env::temp_dir();
-    let p = std::path::Path::new(&path);
-    if !p.starts_with(&temp) {
-        return Err("delete_file: path is outside temp directory".into());
-    }
+    let p = resolve_within(&path, &std::env::temp_dir())
+        .map_err(|e| format!("delete_file: {e}"))?;
     std::fs::remove_file(p).map_err(|e| e.to_string())
 }
 
@@ -284,9 +299,14 @@ async fn delete_file(path: String) -> Result<(), String> {
 /// fetch() against stream:// caps at CHUNK_SIZE per response and its
 /// headers aren't reliably readable cross-origin, which once caused
 /// silently truncated uploads. std::fs::read returns everything or errors.
+/// Confined to the temp dir: every caller uploads files this app just
+/// wrote there (clip-and-ship, highlight shares); library video files go
+/// through stream:// instead.
 #[tauri::command]
 async fn read_file(path: String) -> Result<tauri::ipc::Response, String> {
-    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let p = resolve_within(&path, &std::env::temp_dir())
+        .map_err(|e| format!("read_file: {e}"))?;
+    let bytes = std::fs::read(p).map_err(|e| e.to_string())?;
     Ok(tauri::ipc::Response::new(bytes))
 }
 
@@ -483,5 +503,77 @@ fn mime_for_path(path: &str) -> &'static str {
         "video/webm"
     } else {
         "application/octet-stream"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// Fresh scratch dir per test — resolve_within takes the base dir as a
+    /// parameter precisely so tests never touch the real system temp policy.
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("sc_test_{}_{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sandbox")).unwrap();
+        dir
+    }
+
+    #[test]
+    fn resolve_within_accepts_contained_path() {
+        let base = scratch("contained");
+        let sandbox = base.join("sandbox");
+        let file = sandbox.join("file.txt");
+        std::fs::write(&file, b"x").unwrap();
+        assert!(resolve_within(file.to_str().unwrap(), &sandbox).is_ok());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn resolve_within_rejects_dotdot_traversal() {
+        let base = scratch("dotdot");
+        let sandbox = base.join("sandbox");
+        let outside = base.join("outside.txt");
+        std::fs::write(&outside, b"x").unwrap();
+        // The raw string is prefixed by the sandbox path, so a plain
+        // starts_with check accepted it — this is the exact bug being pinned.
+        let sneaky = format!("{}/../outside.txt", sandbox.to_str().unwrap());
+        assert!(resolve_within(&sneaky, &sandbox).is_err());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_within_rejects_symlink_escape() {
+        let base = scratch("symlink");
+        let sandbox = base.join("sandbox");
+        let outside = base.join("outside.txt");
+        std::fs::write(&outside, b"x").unwrap();
+        let link = sandbox.join("link.txt");
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        assert!(resolve_within(link.to_str().unwrap(), &sandbox).is_err());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn resolve_within_rejects_nonexistent_path() {
+        let base = scratch("missing");
+        let sandbox = base.join("sandbox");
+        let missing = sandbox.join("nope.txt");
+        assert!(resolve_within(missing.to_str().unwrap(), &sandbox).is_err());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn mime_for_path_maps_video_extensions() {
+        assert_eq!(mime_for_path("/tmp/a.mp4"), "video/mp4");
+        assert_eq!(mime_for_path("/tmp/A.M4V"), "video/mp4");
+        assert_eq!(mime_for_path("/tmp/a.mov"), "video/quicktime");
+        assert_eq!(mime_for_path("/tmp/a.avi"), "video/x-msvideo");
+        assert_eq!(mime_for_path("/tmp/a.mkv"), "video/x-matroska");
+        assert_eq!(mime_for_path("/tmp/a.webm"), "video/webm");
+        assert_eq!(mime_for_path("/tmp/a.txt"), "application/octet-stream");
+        assert_eq!(mime_for_path("/tmp/noext"), "application/octet-stream");
     }
 }
