@@ -23,53 +23,25 @@ import { getMySharedPlaylists, type SharedPlaylist } from "@scoutable/shared/lib
 import { getTeamMembers, type TeamMemberRef } from "@scoutable/shared/lib/teams-db";
 import { listPlaylistClipViews, type PlaylistClipView } from "@/lib/clip-views-db";
 import { sendPlaylistReminder } from "@/lib/reminders-db";
-import type { Playlist, PlaylistClipItem } from "@scoutable/shared/types/match";
+import {
+  buildDashboardRows,
+  summarizeDashboard,
+  teamFilterOptions,
+  filterByTeamAndQuery,
+  dashboardCounts,
+  visibleDashboardRows,
+  behindRecipients,
+  type DashboardRow,
+  type RecipientRow,
+  type DashboardStatusFilter,
+  type DashboardSort,
+} from "@scoutable/shared/lib/shared-by-me";
+import { relativeTimeShort as relativeTime, initials } from "@scoutable/shared/lib/playlist-feed";
+import type { Playlist } from "@scoutable/shared/types/match";
 import type { UserProfile, OrgTeam } from "@scoutable/shared/types/org";
 
 /** Search earns its place once the list stops fitting on one screen. */
 const SEARCH_THRESHOLD = 10;
-
-function initials(name?: string | null): string {
-  if (!name) return "?";
-  const parts = name.trim().split(/\s+/);
-  return (parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : parts[0].slice(0, 2)).toUpperCase();
-}
-
-function relativeTime(iso?: string | null): string | null {
-  if (!iso) return null;
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return null;
-  const mins = Math.floor((Date.now() - then) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString("sv-SE", { day: "numeric", month: "short" });
-}
-
-interface RecipientRow {
-  userId: string;
-  name: string;
-  avatarUrl: string | null;
-  watched: number;
-  lastActivity: string | null;
-}
-
-interface DashboardRow {
-  playlist: SharedPlaylist;
-  teamNames: string[];
-  directCount: number;
-  /** Clips a recipient can actually watch (shipped to R2). */
-  playableCount: number;
-  /** Clips not yet uploaded — shown as a hint, excluded from the denominator. */
-  uploadingCount: number;
-  newestSharedAt: string | null;
-  recipients: RecipientRow[];
-  completedCount: number;
-  startedCount: number;
-}
 
 /**
  * Done / in progress / not started at a glance. Completion alone hid partial
@@ -140,9 +112,9 @@ export function SharedByMe({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   // Filter/sort answer the coach's standing questions: "who hasn't watched?"
   // (status), "just this team" (team), "what needs chasing first" (sort).
-  const [statusFilter, setStatusFilter] = useState<"all" | "attention" | "done" | "issues">("all");
+  const [statusFilter, setStatusFilter] = useState<DashboardStatusFilter>("all");
   const [teamFilter, setTeamFilter] = useState("all");
-  const [sort, setSort] = useState<"recent" | "least" | "name">("recent");
+  const [sort, setSort] = useState<DashboardSort>("recent");
   const [query, setQuery] = useState("");
   /** key = `${playlistId}:${userId}` — per-recipient nudge lifecycle. */
   const [remindState, setRemindState] = useState<Map<string, "sending" | "sent">>(new Map());
@@ -166,180 +138,31 @@ export function SharedByMe({
     return () => { cancelled = true; };
   }, []);
 
-  const rows = useMemo<DashboardRow[]>(() => {
-    if (!shared) return [];
-
-    const membersByTeam = new Map<string, string[]>();
-    for (const m of teamMembers) {
-      if (!membersByTeam.has(m.teamId)) membersByTeam.set(m.teamId, []);
-      membersByTeam.get(m.teamId)!.push(m.userId);
-    }
-    const viewsByPlaylist = new Map<string, PlaylistClipView[]>();
-    for (const v of views) {
-      if (!viewsByPlaylist.has(v.playlistId)) viewsByPlaylist.set(v.playlistId, []);
-      viewsByPlaylist.get(v.playlistId)!.push(v);
-    }
-
-    return shared
-      .map((pl): DashboardRow => {
-        const clips = pl.items.filter((i): i is PlaylistClipItem => i.type === "clip");
-        const playable = clips.filter((c) => !!c.r2Url);
-        const playableKeys = new Set(playable.map((c) => `${c.matchId}:${c.eventId}`));
-
-        // Everyone the playlist reaches, minus the coach themself.
-        const recipientIds = new Set<string>(pl.userShares.map((u) => u.userId));
-        for (const t of pl.teamShares) {
-          for (const uid of membersByTeam.get(t.teamId) ?? []) recipientIds.add(uid);
-        }
-        if (currentUserId) recipientIds.delete(currentUserId);
-
-        // Watched-per-recipient, counting only clips they can actually play.
-        const watchedByUser = new Map<string, Set<string>>();
-        const lastByUser = new Map<string, string>();
-        for (const v of viewsByPlaylist.get(pl.id) ?? []) {
-          const key = `${v.matchId}:${v.eventId}`;
-          if (!playableKeys.has(key)) continue;
-          if (!watchedByUser.has(v.userId)) watchedByUser.set(v.userId, new Set());
-          watchedByUser.get(v.userId)!.add(key);
-          const prev = lastByUser.get(v.userId);
-          if (!prev || v.watchedAt > prev) lastByUser.set(v.userId, v.watchedAt);
-        }
-
-        const recipients: RecipientRow[] = [...recipientIds]
-          .map((uid) => {
-            const profile = memberMap.get(uid);
-            return {
-              userId: uid,
-              name: profile?.fullName ?? profile?.email ?? "Unknown member",
-              avatarUrl: profile?.avatarUrl ?? null,
-              watched: watchedByUser.get(uid)?.size ?? 0,
-              lastActivity: lastByUser.get(uid) ?? null,
-            };
-          })
-          // Accountability order: least progress first, then by name.
-          .sort((a, b) => a.watched - b.watched || a.name.localeCompare(b.name, "sv"));
-
-        const total = playable.length;
-        const completedCount = total > 0 ? recipients.filter((r) => r.watched >= total).length : 0;
-        const startedCount = recipients.filter((r) => r.watched > 0).length;
-
-        const newestSharedAt =
-          [...pl.teamShares.map((t) => t.sharedAt), ...pl.userShares.map((u) => u.sharedAt)]
-            .filter((d): d is string => !!d)
-            .sort()
-            .pop() ?? null;
-
-        return {
-          playlist: pl,
-          teamNames: pl.teamShares.map((t) => teamMap.get(t.teamId)?.name ?? "Team"),
-          directCount: pl.userShares.filter((u) => u.userId !== currentUserId).length,
-          playableCount: total,
-          uploadingCount: clips.length - playable.length,
-          newestSharedAt,
-          recipients,
-          completedCount,
-          startedCount,
-        };
-      })
-      .sort((a, b) => (b.newestSharedAt ?? "").localeCompare(a.newestSharedAt ?? ""));
-  }, [shared, teamMembers, views, memberMap, teamMap, currentUserId]);
-
-  /** "attention" = someone hasn't finished; "done" = everyone has. */
-  function statusOf(r: DashboardRow): "attention" | "done" | null {
-    if (r.recipients.length === 0) return null;
-    return r.completedCount >= r.recipients.length ? "done" : "attention";
-  }
-
-  // Cross-playlist roll-up: the numbers the coach used to assemble by
-  // expanding every row one at a time. behindTargets dedupes per player —
-  // "Remind all" sends one email each (their most recently shared unfinished
-  // playlist), never one per playlist.
-  const summary = useMemo(() => {
-    const allRecipients = new Set<string>();
-    const behindByPlayer = new Map<string, { userId: string; name: string; playlistId: string; sharedAt: string }>();
-    for (const r of rows) {
-      for (const rec of r.recipients) {
-        allRecipients.add(rec.userId);
-        if (r.playableCount > 0 && rec.watched < r.playableCount) {
-          const sharedAt = r.newestSharedAt ?? "";
-          const prev = behindByPlayer.get(rec.userId);
-          if (!prev || sharedAt > prev.sharedAt) {
-            behindByPlayer.set(rec.userId, {
-              userId: rec.userId,
-              name: rec.name,
-              playlistId: r.playlist.id,
-              sharedAt,
-            });
-          }
-        }
-      }
-    }
-    return {
-      playlists: rows.length,
-      recipients: allRecipients.size,
-      behind: behindByPlayer.size,
-      behindTargets: [...behindByPlayer.values()],
-    };
-  }, [rows]);
-
-  const teamOptions = useMemo(() => {
-    const opts: { value: string; label: string }[] = [{ value: "all", label: "All teams" }];
-    const seen = new Set<string>();
-    for (const r of rows) {
-      for (const t of r.playlist.teamShares) {
-        if (!seen.has(t.teamId)) {
-          seen.add(t.teamId);
-          opts.push({ value: t.teamId, label: teamMap.get(t.teamId)?.name ?? "Team" });
-        }
-      }
-    }
-    if (rows.some((r) => r.playlist.userShares.length > 0)) {
-      opts.push({ value: "direct", label: "Direct to members" });
-    }
-    return opts;
-  }, [rows, teamMap]);
-
-  // Team + search narrow first so the chip counts describe what's reachable
-  // under the current scope — the same convention as the player feed.
-  const inTeam = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (q && !r.playlist.name.toLowerCase().includes(q)) return false;
-      if (teamFilter === "all") return true;
-      if (teamFilter === "direct") return r.playlist.userShares.length > 0;
-      return r.playlist.teamShares.some((t) => t.teamId === teamFilter);
-    });
-  }, [rows, teamFilter, query]);
-
-  const counts = useMemo(
-    () => ({
-      all: inTeam.length,
-      attention: inTeam.filter((r) => statusOf(r) === "attention").length,
-      done: inTeam.filter((r) => statusOf(r) === "done").length,
-      issues: inTeam.filter((r) => r.uploadingCount > 0).length,
-    }),
-    [inTeam],
+  // All derivation lives in @scoutable/shared/lib/shared-by-me (tested there);
+  // this component only wires state to it and renders.
+  const rows = useMemo<DashboardRow[]>(
+    () =>
+      shared
+        ? buildDashboardRows({ shared, teamMembers, views, memberMap, teamMap, currentUserId })
+        : [],
+    [shared, teamMembers, views, memberMap, teamMap, currentUserId],
   );
 
-  const visibleRows = useMemo(() => {
-    const filtered = inTeam.filter((r) => {
-      if (statusFilter === "all") return true;
-      if (statusFilter === "issues") return r.uploadingCount > 0;
-      return statusOf(r) === statusFilter;
-    });
-    if (sort === "name") {
-      return [...filtered].sort((a, b) => a.playlist.name.localeCompare(b.playlist.name, "sv"));
-    }
-    if (sort === "least") {
-      // The pre-practice view: playlists nobody finished float to the top.
-      return [...filtered].sort((a, b) => {
-        const ra = a.recipients.length ? a.completedCount / a.recipients.length : 1;
-        const rb = b.recipients.length ? b.completedCount / b.recipients.length : 1;
-        return ra - rb || (b.newestSharedAt ?? "").localeCompare(a.newestSharedAt ?? "");
-      });
-    }
-    return filtered; // base rows are already newest-first
-  }, [inTeam, statusFilter, sort]);
+  const summary = useMemo(() => summarizeDashboard(rows), [rows]);
+
+  const teamOptions = useMemo(() => teamFilterOptions(rows, teamMap), [rows, teamMap]);
+
+  const inTeam = useMemo(
+    () => filterByTeamAndQuery(rows, teamFilter, query),
+    [rows, teamFilter, query],
+  );
+
+  const counts = useMemo(() => dashboardCounts(inTeam), [inTeam]);
+
+  const visibleRows = useMemo(
+    () => visibleDashboardRows(inTeam, statusFilter, sort),
+    [inTeam, statusFilter, sort],
+  );
 
   const SORT_LABEL: Record<typeof sort, string> = {
     recent: "Recently shared",
@@ -401,9 +224,10 @@ export function SharedByMe({
 
   async function handleRemindPlaylist(row: DashboardRow) {
     if (remindingPlaylistId) return;
-    const targets = row.recipients
-      .filter((r) => row.playableCount > 0 && r.watched < row.playableCount)
-      .map((r) => ({ playlistId: row.playlist.id, userId: r.userId }));
+    const targets = behindRecipients(row).map((r) => ({
+      playlistId: row.playlist.id,
+      userId: r.userId,
+    }));
     if (targets.length === 0) return;
     setRemindingPlaylistId(row.playlist.id);
     try {
@@ -629,10 +453,7 @@ export function SharedByMe({
         const total = row.recipients.length;
         const inProgress = Math.max(0, row.startedCount - row.completedCount);
         // Who on THIS playlist still has clips left — powers the per-playlist nudge.
-        const behindCount =
-          row.playableCount > 0
-            ? row.recipients.filter((r) => r.watched < row.playableCount).length
-            : 0;
+        const behindCount = behindRecipients(row).length;
         const reach = [
           ...row.teamNames,
           row.directCount > 0 ? `${row.directCount} member${row.directCount === 1 ? "" : "s"}` : null,
