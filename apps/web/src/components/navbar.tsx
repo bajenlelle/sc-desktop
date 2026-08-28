@@ -56,7 +56,7 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
   // players have a personal org — the desktop app lets them scout their
   // own matches there, not just consume shared playlists.
   const showDesktopCTA = hasOrg;
-  const DESKTOP_APP_URL = "https://www.scoutable.se/#download";
+  const DESKTOP_APP_URL = "https://scoutable.se/#download";
   const DESKTOP_APP_TOOLTIP = "Full scouting workflow lives in the desktop app";
   const navLinks = [
     ...(activeOrgIsPersonal

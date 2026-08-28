@@ -38,7 +38,7 @@ export function WelcomeCard() {
               You also have a personal space: import your own games and build your own
               highlight tapes in the{" "}
               <a
-                href="https://www.scoutable.se/#download"
+                href="https://scoutable.se/#download"
                 target="_blank"
                 rel="noreferrer"
                 className="font-medium text-primary underline-offset-2 hover:underline"

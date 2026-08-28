@@ -113,7 +113,7 @@ export default function HighlightSharePage() {
       )}
 
       <a
-        href="https://www.scoutable.se"
+        href="https://scoutable.se"
         target="_blank"
         rel="noreferrer"
         className="mt-auto pt-6 text-xs text-muted-foreground underline-offset-2 hover:underline"

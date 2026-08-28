@@ -40,7 +40,7 @@ export default function GetStartedPage() {
           you&apos;ll find a sample game ready to explore.
         </p>
         <a
-          href="https://www.scoutable.se/#download"
+          href="https://scoutable.se/#download"
           target="_blank"
           rel="noreferrer"
           className="mt-2 inline-flex items-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
