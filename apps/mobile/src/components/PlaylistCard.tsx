@@ -3,26 +3,10 @@ import { Avatar } from "./Avatar";
 import { ProgressBar } from "./ProgressBar";
 import { relativeTime } from "@/lib/format";
 
-/** Port of web PlaylistCardData (apps/web .../PlaylistCard.tsx). */
-export interface PlaylistCardData {
-  id: string;
-  name: string;
-  clipCount: number;
-  watchedCount: number;
-  sharedAt?: string;
-  /** Newest clip watch — orders "In progress" as continue-watching. */
-  lastWatchedAt?: string;
-  /** User id of the sharer — drives the "Shared by" filter. */
-  sharerId?: string;
-  sharerName?: string;
-  sharerAvatarUrl?: string;
-  /** Shared straight to this player rather than to one of their teams. */
-  isDirect?: boolean;
-  /** Teams this playlist reached the player through — drives the source filter. */
-  teamIds?: string[];
-  /** Resolved team names, shown muted next to the title. */
-  teamNames?: string[];
-}
+import type { FeedPlaylist } from "@scoutable/shared/lib/playlist-feed";
+
+/** The card's view-model — the shared feed type under its established local name. */
+export type PlaylistCardData = FeedPlaylist;
 
 export function PlaylistCard({
   playlist,

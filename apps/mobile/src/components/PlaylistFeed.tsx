@@ -17,24 +17,20 @@ import { relativeTime } from "@/lib/format";
 import { Button } from "./Button";
 import { PlaylistCard, type PlaylistCardData } from "./PlaylistCard";
 import { Select, type SelectOption } from "./Select";
-
-type WatchFilter = "all" | "new" | "progress" | "watched";
+import {
+  byLastWatched,
+  byNewest,
+  computeHero,
+  feedCounts,
+  filterFeed,
+  sharerFilterOptions,
+  visibleFeed,
+  watchStateOf,
+  type WatchFilter,
+} from "@scoutable/shared/lib/playlist-feed";
 
 /** Search earns its place once the list stops fitting on one screen. */
 const SEARCH_THRESHOLD = 10;
-
-function watchStateOf(p: PlaylistCardData): Exclude<WatchFilter, "all"> {
-  if (p.watchedCount === 0) return "new";
-  if (p.clipCount > 0 && p.watchedCount >= p.clipCount) return "watched";
-  return "progress";
-}
-
-function matchesSource(p: PlaylistCardData, source: string): boolean {
-  if (source === "all") return true;
-  if (source === "direct") return !!p.isDirect;
-  if (source.startsWith("team:")) return (p.teamIds ?? []).includes(source.slice(5));
-  return true;
-}
 
 function Section({
   title,
@@ -93,58 +89,22 @@ export function PlaylistFeed({
   const [query, setQuery] = useState("");
   const scheme = useColorScheme();
 
-  const byNewest = (a: PlaylistCardData, b: PlaylistCardData) =>
-    (b.sharedAt ?? "").localeCompare(a.sharedAt ?? "");
-  // Continue-watching order: the playlist touched most recently first.
-  const byLastWatched = (a: PlaylistCardData, b: PlaylistCardData) =>
-    (b.lastWatchedAt ?? b.sharedAt ?? "").localeCompare(a.lastWatchedAt ?? a.sharedAt ?? "");
+  // Filtering, counts, and the hero CTA all live in
+  // @scoutable/shared/lib/playlist-feed (tested there).
+  const sharerOptions = useMemo<SelectOption[]>(() => sharerFilterOptions(playlists), [playlists]);
 
-  // A "Shared by" filter only earns its place with 2+ distinct sharers.
-  const sharerOptions = useMemo<SelectOption[]>(() => {
-    const byId = new Map<string, string>();
-    for (const p of playlists) {
-      if (p.sharerId && !byId.has(p.sharerId)) byId.set(p.sharerId, p.sharerName ?? "Unknown");
-    }
-    if (byId.size < 2) return [];
-    return [
-      { value: "all", label: "Everyone" },
-      ...[...byId].map(([value, label]) => ({ value, label })),
-    ];
-  }, [playlists]);
-
-  // Sharer + source + search narrow first, so the chip counts describe what's
-  // actually reachable under the current scope rather than the whole library.
-  const inSource = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return playlists
-      .filter((p) => !q || p.name.toLowerCase().includes(q))
-      .filter((p) => sharer === "all" || p.sharerId === sharer)
-      .filter((p) => matchesSource(p, source));
-  }, [playlists, source, sharer, query]);
-
-  // The one thing to do next: resume the most recently touched in-progress
-  // playlist, else start the newest unwatched one. Computed over ALL
-  // playlists — the hero is a call to action, not a search result.
-  const hero = useMemo(() => {
-    const inProgress = playlists.filter((p) => watchStateOf(p) === "progress").sort(byLastWatched);
-    if (inProgress.length > 0) return { kind: "continue" as const, playlist: inProgress[0] };
-    const fresh = playlists.filter((p) => watchStateOf(p) === "new").sort(byNewest);
-    if (fresh.length > 0) return { kind: "start" as const, playlist: fresh[0], count: fresh.length };
-    if (playlists.length > 0) return { kind: "done" as const };
-    return null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playlists]);
-
-  const counts = useMemo(() => {
-    const c = { all: inSource.length, new: 0, progress: 0, watched: 0 };
-    for (const p of inSource) c[watchStateOf(p)] += 1;
-    return c;
-  }, [inSource]);
-
-  const visible = useMemo(
-    () => (watch === "all" ? inSource : inSource.filter((p) => watchStateOf(p) === watch)),
-    [inSource, watch]
+  const inSource = useMemo(
+    () => filterFeed(playlists, { query, sharer, source }),
+    [playlists, source, sharer, query],
   );
+
+  // Hero is computed over ALL playlists (not the filtered view) — it's a call
+  // to action, not a search result.
+  const hero = useMemo(() => computeHero(playlists), [playlists]);
+
+  const counts = useMemo(() => feedCounts(inSource), [inSource]);
+
+  const visible = useMemo(() => visibleFeed(inSource, watch), [inSource, watch]);
 
   const chips: { key: WatchFilter; label: string }[] = [
     { key: "all", label: "All" },
