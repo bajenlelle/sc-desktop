@@ -16,6 +16,7 @@ import type { Playlist, PlaylistClipItem, PlaylistItem, StoredMatch } from "@sco
 import type { OrgTeam, UserProfile } from "@scoutable/shared/types/org";
 import {
   getMyDirectPlaylists,
+  getMySharedPlaylists,
   getMyTeamPlaylists,
 } from "@scoutable/shared/lib/playlists-db";
 import { listMatches } from "@scoutable/shared/lib/matches-db";
@@ -59,10 +60,12 @@ interface PlaylistsData {
 const PlaylistsContext = createContext<PlaylistsData | null>(null);
 
 export function PlaylistsProvider({ children }: { children: React.ReactNode }) {
-  const { activeOrgId } = useAuth();
+  const { activeOrgId, activeOrgRole } = useAuth();
+  const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   const [loading, setLoading] = useState(true);
   const [teamPlaylists, setTeamPlaylists] = useState<Playlist[]>([]);
   const [directPlaylists, setDirectPlaylists] = useState<Playlist[]>([]);
+  const [sharedOutPlaylists, setSharedOutPlaylists] = useState<Playlist[]>([]);
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [teamMap, setTeamMap] = useState<Map<string, OrgTeam>>(new Map());
   const [memberMap, setMemberMap] = useState<Map<string, UserProfile>>(new Map());
@@ -86,12 +89,19 @@ export function PlaylistsProvider({ children }: { children: React.ReactNode }) {
       setMemberMap(new Map(orgCtx.orgMembers.map((m) => [m.id, m])));
     }
     const activeTeamIds = orgCtx?.myTeams.map((t) => t.id) ?? [];
-    const [pls, directPls] = await Promise.all([
+    const [pls, directPls, sharedOut] = await Promise.all([
       getMyTeamPlaylists(supabase, activeTeamIds).catch(() => [] as Playlist[]),
       getMyDirectPlaylists(supabase, activeTeamIds).catch(() => [] as Playlist[]),
+      // Coaches only: their own shared-out playlists, so the watch screen can
+      // open a playlist that was shared direct-to-players (it never appears
+      // in the team/direct feeds above).
+      isCoachOrAdmin
+        ? getMySharedPlaylists(supabase).catch(() => [] as Playlist[])
+        : Promise.resolve([] as Playlist[]),
     ]);
     setTeamPlaylists(pls);
     setDirectPlaylists(directPls);
+    setSharedOutPlaylists(sharedOut);
 
     // Watch history drives the feed's NEW badges and progress bars.
     const views = await listMyClipViews(supabase).catch(() => []);
@@ -102,7 +112,7 @@ export function PlaylistsProvider({ children }: { children: React.ReactNode }) {
       if (!prev || v.watchedAt > prev) last.set(v.playlistId, v.watchedAt);
     }
     setLastWatched(last);
-  }, [activeOrgId]);
+  }, [activeOrgId, isCoachOrAdmin]);
 
   useEffect(() => {
     // No org resolved yet (auth still settling) → stay in loading rather than
@@ -119,14 +129,16 @@ export function PlaylistsProvider({ children }: { children: React.ReactNode }) {
   }, [activeOrgId, load]);
 
   // A playlist can arrive via both a team share and a direct share — dedup,
-  // direct wins (it carries sharedBy).
+  // direct wins (it carries sharedBy). A coach's own shared-out playlists
+  // merge last so the watch screen can resolve them; the feed filters them
+  // out (they belong on the dashboard tab).
   const allPlaylists = useMemo(() => {
     const byId = new Map<string, Playlist>();
-    for (const p of [...directPlaylists, ...teamPlaylists]) {
+    for (const p of [...directPlaylists, ...teamPlaylists, ...sharedOutPlaylists]) {
       if (!byId.has(p.id)) byId.set(p.id, p);
     }
     return [...byId.values()];
-  }, [directPlaylists, teamPlaylists]);
+  }, [directPlaylists, teamPlaylists, sharedOutPlaylists]);
 
   const directPlaylistIds = useMemo(
     () => new Set(directPlaylists.map((p) => p.id)),

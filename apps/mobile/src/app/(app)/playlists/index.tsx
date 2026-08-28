@@ -9,11 +9,13 @@ import { themeColors } from "@/lib/theme";
 import { Avatar } from "@/components/Avatar";
 import { PlaylistFeed } from "@/components/PlaylistFeed";
 import { ReportProblemSheet } from "@/components/ReportProblemSheet";
+import { SharedByMeDashboard } from "@/components/SharedByMeDashboard";
 import type { PlaylistCardData } from "@/components/PlaylistCard";
 import type { SelectOption } from "@/components/Select";
 
 export default function PlaylistsScreen() {
-  const { profile } = useAuth();
+  const { profile, user, activeOrgRole } = useAuth();
+  const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   const {
     loading,
     allPlaylists,
@@ -27,11 +29,16 @@ export default function PlaylistsScreen() {
   const scheme = useColorScheme();
   const [refreshing, setRefreshing] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [coachTab, setCoachTab] = useState<"by-me" | "with-me">("by-me");
 
   // Cards for the landing feed, with per-playlist progress folded in
-  // (port of web's feedItems memo).
+  // (port of web's feedItems memo). Own playlists are excluded: "Shared
+  // with me" means what OTHERS sent — a coach's outbound playlists live on
+  // the dashboard tab, otherwise they'd see themselves as the sharer.
   const feedItems = useMemo<PlaylistCardData[]>(() => {
-    return allPlaylists.map((pl) => {
+    return allPlaylists
+      .filter((pl) => !user?.id || pl.createdBy !== user.id)
+      .map((pl) => {
       const clips = playableClips(pl);
       const watchedCount = clips.filter((c) =>
         clipViews.has(clipViewKey(pl.id, c.matchId, c.eventId))
@@ -56,7 +63,7 @@ export default function PlaylistsScreen() {
           .filter((n): n is string => !!n),
       };
     });
-  }, [allPlaylists, directPlaylistIds, clipViews, lastWatched, memberMap, teamMap]);
+  }, [allPlaylists, directPlaylistIds, clipViews, lastWatched, memberMap, teamMap, user?.id]);
 
   // Only teams that actually have playlists appear as filter options.
   const sourceOptions = useMemo<SelectOption[]>(() => {
@@ -107,7 +114,7 @@ export default function PlaylistsScreen() {
     <SafeAreaView edges={["top"]} className="flex-1 bg-background dark:bg-background-dark">
       <View className="flex-row items-center justify-between px-4 pb-1 pt-3">
         <Text className="font-heading text-2xl text-foreground dark:text-foreground-dark">
-          My Playlists
+          {isCoachOrAdmin ? "Shared Playlists" : "My Playlists"}
         </Text>
         <View className="flex-row items-center gap-1">
           <Pressable
@@ -131,10 +138,44 @@ export default function PlaylistsScreen() {
         </View>
       </View>
 
+      {/* Coaches get two views: their outbound dashboard and the normal
+          inbound feed — same split as web/desktop. */}
+      {isCoachOrAdmin && (
+        <View className="flex-row gap-1 border-b border-border dark:border-border-dark px-4 pb-2">
+          {(
+            [
+              ["by-me", "Shared by me"],
+              ["with-me", "Shared with me"],
+            ] as const
+          ).map(([key, label]) => (
+            <Pressable
+              key={key}
+              accessibilityRole="button"
+              onPress={() => setCoachTab(key)}
+              className={`min-h-[36px] justify-center rounded-md px-3 ${
+                coachTab === key ? "bg-primary/10 dark:bg-primary-dark/10" : ""
+              }`}
+            >
+              <Text
+                className={`text-sm font-medium ${
+                  coachTab === key
+                    ? "text-primary dark:text-primary-dark"
+                    : "text-muted-foreground dark:text-muted-foreground-dark"
+                }`}
+              >
+                {label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
       {loading ? (
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator size="large" color={themeColors(scheme).primary} />
         </View>
+      ) : isCoachOrAdmin && coachTab === "by-me" ? (
+        <SharedByMeDashboard />
       ) : (
         <PlaylistFeed
           playlists={feedItems}
@@ -143,6 +184,11 @@ export default function PlaylistsScreen() {
           onResume={resumePlaylist}
           refreshing={refreshing}
           onRefresh={handleRefresh}
+          emptyCopy={
+            isCoachOrAdmin
+              ? "Playlists other coaches share with you show up here."
+              : undefined
+          }
         />
       )}
       <ReportProblemSheet visible={feedbackOpen} onClose={() => setFeedbackOpen(false)} />

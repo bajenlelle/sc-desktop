@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronDown, ListVideo } from "lucide-react";
+import { Check, ChevronDown, ListVideo, Play, Search, X } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,10 +11,28 @@ import { cn } from "@/lib/utils";
 
 type WatchFilter = "all" | "new" | "progress" | "watched";
 
+/** Search earns its place once the list stops fitting on one screen. */
+const SEARCH_THRESHOLD = 10;
+
 export interface SourceOption {
   /** "all" | "direct" | `team:<id>` */
   value: string;
   label: string;
+}
+
+/** Same short form the cards use — "2h ago", "3d ago", "12 apr". */
+function relativeTimeShort(iso?: string): string | null {
+  if (!iso) return null;
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return null;
+  const mins = Math.floor((Date.now() - then) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString("sv-SE", { day: "numeric", month: "short" });
 }
 
 function watchStateOf(p: PlaylistCardData): Exclude<WatchFilter, "all"> {
@@ -77,15 +95,19 @@ export function PlaylistFeed({
   sourceOptions,
   onOpen,
   onResume,
+  emptyCopy,
 }: {
   playlists: PlaylistCardData[];
   sourceOptions: SourceOption[];
   onOpen: (id: string) => void;
   onResume: (id: string) => void;
+  /** Overrides the no-playlists body copy (coaches get non-player phrasing). */
+  emptyCopy?: string;
 }) {
   const [watch, setWatch] = useState<WatchFilter>("all");
   const [source, setSource] = useState("all");
   const [sharer, setSharer] = useState("all");
+  const [query, setQuery] = useState("");
 
   const byNewest = (a: PlaylistCardData, b: PlaylistCardData) =>
     (b.sharedAt ?? "").localeCompare(a.sharedAt ?? "");
@@ -107,15 +129,15 @@ export function PlaylistFeed({
     ];
   }, [playlists]);
 
-  // Sharer + source narrow first, so the chip counts describe what's
+  // Sharer + source + search narrow first, so the chip counts describe what's
   // actually reachable under the current scope rather than the whole library.
-  const inSource = useMemo(
-    () =>
-      playlists
-        .filter((p) => sharer === "all" || p.sharerId === sharer)
-        .filter((p) => matchesSource(p, source)),
-    [playlists, source, sharer],
-  );
+  const inSource = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return playlists
+      .filter((p) => !q || p.name.toLowerCase().includes(q))
+      .filter((p) => sharer === "all" || p.sharerId === sharer)
+      .filter((p) => matchesSource(p, source));
+  }, [playlists, source, sharer, query]);
 
   const counts = useMemo(() => {
     const c = { all: inSource.length, new: 0, progress: 0, watched: 0 };
@@ -127,6 +149,20 @@ export function PlaylistFeed({
     () => (watch === "all" ? inSource : inSource.filter((p) => watchStateOf(p) === watch)),
     [inSource, watch],
   );
+
+  // The one thing to do next: resume the most recently touched in-progress
+  // playlist, else start the newest unwatched one. Computed over ALL
+  // playlists (not the filtered view) — the hero is a call to action, not a
+  // search result.
+  const hero = useMemo(() => {
+    const inProgress = playlists.filter((p) => watchStateOf(p) === "progress").sort(byLastWatched);
+    if (inProgress.length > 0) return { kind: "continue" as const, playlist: inProgress[0] };
+    const fresh = playlists.filter((p) => watchStateOf(p) === "new").sort(byNewest);
+    if (fresh.length > 0) return { kind: "start" as const, playlist: fresh[0], count: fresh.length };
+    if (playlists.length > 0) return { kind: "done" as const };
+    return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playlists]);
 
   const activeSourceLabel =
     sourceOptions.find((o) => o.value === source)?.label ?? "All playlists";
@@ -183,7 +219,7 @@ export function PlaylistFeed({
             )}
             {sourceOptions.length > 1 && (
               <label className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">To</span>
+              <span className="text-xs text-muted-foreground">Team</span>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
@@ -210,6 +246,29 @@ export function PlaylistFeed({
             )}
             </div>
           </div>
+
+          {playlists.length > SEARCH_THRESHOLD && (
+            <div className="relative px-4 pb-2 sm:px-6">
+              <Search className="pointer-events-none absolute left-7 top-1/2 mt-[-4px] h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground sm:left-9" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search playlists…"
+                className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-8 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  aria-label="Clear search"
+                  className="absolute right-5 top-1/2 mt-[-4px] flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:text-foreground sm:right-7"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Scrolls sideways rather than wrapping — keeps the bar one row on
               a narrow screen. */}
@@ -243,7 +302,7 @@ export function PlaylistFeed({
           <ListVideo className="h-10 w-10 text-muted-foreground/40" />
           <p className="text-sm font-medium text-foreground">No playlists yet</p>
           <p className="max-w-xs text-sm text-muted-foreground">
-            When your coach shares clips with you, they&apos;ll show up here.
+            {emptyCopy ?? "When your coach shares clips with you, they'll show up here."}
           </p>
         </div>
       ) : visible.length === 0 ? (
@@ -251,7 +310,7 @@ export function PlaylistFeed({
           <p className="text-sm text-muted-foreground">Nothing here right now.</p>
           <button
             type="button"
-            onClick={() => { setWatch("all"); setSource("all"); setSharer("all"); }}
+            onClick={() => { setWatch("all"); setSource("all"); setSharer("all"); setQuery(""); }}
             className="min-h-[36px] text-sm font-medium text-primary"
           >
             Clear filters
@@ -261,6 +320,49 @@ export function PlaylistFeed({
         // Unfiltered, the grouping is the point — it answers "what's new?"
         // at a glance without any interaction.
         <div className="flex flex-col gap-8 px-4 py-5 sm:px-6">
+          {/* Hero CTA — hidden while searching (the user is already navigating). */}
+          {hero && !query.trim() && hero.kind !== "done" && (
+            <div className="flex flex-col gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-wider text-primary">
+                  {hero.kind === "continue"
+                    ? "Pick up where you left off"
+                    : hero.count === 1
+                      ? "You have a new playlist"
+                      : `You have ${hero.count} new playlists`}
+                </p>
+                <p className="mt-1 truncate text-base font-semibold text-foreground">
+                  {hero.playlist.name}
+                  {hero.playlist.teamNames && hero.playlist.teamNames.length > 0 && (
+                    <span className="text-xs font-normal text-muted-foreground">
+                      {" "}· {hero.playlist.teamNames.join(", ")}
+                    </span>
+                  )}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {hero.kind === "continue"
+                    ? `${hero.playlist.watchedCount} of ${hero.playlist.clipCount} watched`
+                    : [hero.playlist.sharerName, relativeTimeShort(hero.playlist.sharedAt)]
+                        .filter(Boolean)
+                        .join(" · ")}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onResume(hero.playlist.id)}
+                className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+              >
+                <Play className="h-4 w-4" />
+                {hero.kind === "continue" ? "Continue watching" : "Start watching"}
+              </button>
+            </div>
+          )}
+          {hero?.kind === "done" && !query.trim() && (
+            <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              All caught up — you&apos;ve watched everything.
+            </p>
+          )}
           <Section
             title="New"
             playlists={visible.filter((p) => watchStateOf(p) === "new").sort(byNewest)}

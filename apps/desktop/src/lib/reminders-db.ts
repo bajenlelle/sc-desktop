@@ -1,5 +1,5 @@
 /**
- * Web wrapper — binds the platform Supabase client to the shared
+ * Desktop wrapper — binds the platform Supabase client to the shared
  * reminders lib.
  */
 import { createClient } from "@/lib/supabase/client";

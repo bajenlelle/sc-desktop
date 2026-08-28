@@ -116,6 +116,7 @@ export function MyPlaylistsPage() {
   const recordWatchedRef = useRef<(p: string, m: string, e: number) => void>(() => {});
   /** Set by Resume; consumed once the playlist's items have loaded. */
   const resumeTargetRef = useRef<string | null>(null);
+  const clipListRef = useRef<HTMLDivElement | null>(null);
   const pendingSeekRef = useRef<{ seekTo: number; clipEnd: number } | null>(null);
   const activeMatchIdRef = useRef<string | null>(null);
   const matchLookupRef = useRef<Map<string, StoredMatch>>(new Map());
@@ -255,9 +256,14 @@ export function MyPlaylistsPage() {
   }, [allPlaylists, clipViews]);
 
   // Cards for the landing feed, with per-playlist progress folded in.
+  // Own playlists are excluded: "Shared with me" means what OTHERS sent.
+  // A coach's outbound playlists live on the dashboard tab instead —
+  // otherwise they'd see their own name as the sharer.
   const feedItems = useMemo<PlaylistCardData[]>(() => {
     const directIds = new Set(directPlaylists.map((p) => p.id));
-    return allPlaylists.map((pl) => {
+    return allPlaylists
+      .filter((pl) => !currentUserId || pl.createdBy !== currentUserId)
+      .map((pl) => {
       const clips = playableClips(pl);
       const watchedCount = clips.filter((c) =>
         clipViews.has(clipViewKey(pl.id, c.matchId, c.eventId)),
@@ -277,9 +283,12 @@ export function MyPlaylistsPage() {
         sharerAvatarUrl: sharer?.avatarUrl ?? undefined,
         isDirect: directIds.has(pl.id),
         teamIds: pl.teamIds ?? [],
+        teamNames: (pl.teamIds ?? [])
+          .map((id) => teamMap.get(id)?.name)
+          .filter((n): n is string => !!n),
       };
     });
-  }, [allPlaylists, directPlaylists, clipViews, lastWatched, memberMap]);
+  }, [allPlaylists, directPlaylists, clipViews, lastWatched, memberMap, teamMap, currentUserId]);
 
   /** Source filter options — mirrors how the sidebar groups playlists. */
   const sourceOptions = useMemo<SourceOption[]>(() => {
@@ -592,6 +601,14 @@ export function MyPlaylistsPage() {
       : null
     : null;
 
+  // Keep the active row visible while Play All advances through a long list.
+  useEffect(() => {
+    if (!activeKey || !clipListRef.current) return;
+    clipListRef.current
+      .querySelector(`[data-item-key="${CSS.escape(activeKey)}"]`)
+      ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [activeKey]);
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -877,6 +894,11 @@ export function MyPlaylistsPage() {
                 sourceOptions={sourceOptions}
                 onOpen={openPlaylist}
                 onResume={resumePlaylist}
+                emptyCopy={
+                  isCoachOrAdmin
+                    ? "Playlists other coaches share with you show up here."
+                    : undefined
+                }
               />
             </div>
           ) : (
@@ -949,7 +971,7 @@ export function MyPlaylistsPage() {
               </div>
 
               {/* Clip list */}
-              <div className="flex-1 overflow-y-auto">
+              <div ref={clipListRef} className="flex-1 overflow-y-auto">
                 {displayItems.length === 0 ? (
                   <div className="flex items-center justify-center py-12">
                     <p className="text-sm text-muted-foreground">This playlist is empty.</p>
@@ -963,6 +985,7 @@ export function MyPlaylistsPage() {
                       return (
                         <button
                           key={key}
+                          data-item-key={key}
                           type="button"
                           onClick={() => handleRowClick(item)}
                           className={cn(
@@ -985,17 +1008,20 @@ export function MyPlaylistsPage() {
                       .filter(isClipItem)
                       .find((c) => c.matchId === qi.matchId && c.eventId === qi.event.eventId);
                     return (
-                      <ClipRow
-                        key={key}
-                        event={qi.event}
-                        matchTitle={match?.title}
-                        matchDate={match?.date}
-                        note={clip?.note}
-                        playable={!!qi.r2Url}
-                        watched={isClipWatched(selected.id, qi.matchId, qi.event.eventId)}
-                        active={isActive}
-                        onSelect={() => handleRowClick(item)}
-                      />
+                      // Wrapper carries the scroll anchor — ClipRow doesn't
+                      // forward arbitrary DOM props.
+                      <div key={key} data-item-key={key}>
+                        <ClipRow
+                          event={qi.event}
+                          matchTitle={match?.title}
+                          matchDate={match?.date}
+                          note={clip?.note}
+                          playable={!!qi.r2Url}
+                          watched={isClipWatched(selected.id, qi.matchId, qi.event.eventId)}
+                          active={isActive}
+                          onSelect={() => handleRowClick(item)}
+                        />
+                      </div>
                     );
                   })
                 )}

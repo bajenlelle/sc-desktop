@@ -76,6 +76,7 @@ export function PlaylistFeed({
   onResume,
   refreshing,
   onRefresh,
+  emptyCopy,
 }: {
   playlists: PlaylistCardData[];
   sourceOptions: SelectOption[];
@@ -83,6 +84,8 @@ export function PlaylistFeed({
   onResume: (id: string) => void;
   refreshing: boolean;
   onRefresh: () => void;
+  /** Overrides the no-playlists body copy (coaches get non-player phrasing). */
+  emptyCopy?: string;
 }) {
   const [watch, setWatch] = useState<WatchFilter>("all");
   const [source, setSource] = useState("all");
@@ -233,7 +236,7 @@ export function PlaylistFeed({
               No playlists yet
             </Text>
             <Text className="max-w-xs text-center text-sm text-muted-foreground dark:text-muted-foreground-dark">
-              When your coach shares clips with you, they&apos;ll show up here.
+              {emptyCopy ?? "When your coach shares clips with you, they'll show up here."}
             </Text>
           </View>
         ) : visible.length === 0 ? (
