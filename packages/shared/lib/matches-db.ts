@@ -372,11 +372,17 @@ interface FolderRow {
   user_id: string;
   name: string;
   sort_order: number;
+  parent_id: string | null;
   created_at: string;
 }
 
 function rowToFolder(row: FolderRow): PlaylistFolder {
-  return { id: row.id, name: row.name, sortOrder: row.sort_order };
+  return {
+    id: row.id,
+    name: row.name,
+    sortOrder: row.sort_order,
+    parentId: row.parent_id ?? undefined,
+  };
 }
 
 export async function listFolders(supabase: SupabaseClient): Promise<PlaylistFolder[]> {
@@ -388,12 +394,16 @@ export async function listFolders(supabase: SupabaseClient): Promise<PlaylistFol
   return (data as FolderRow[]).map(rowToFolder);
 }
 
-export async function createFolder(supabase: SupabaseClient, name: string): Promise<PlaylistFolder> {
+export async function createFolder(
+  supabase: SupabaseClient,
+  name: string,
+  parentId?: string,
+): Promise<PlaylistFolder> {
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) throw new Error("Not authenticated");
   const { data, error } = await supabase
     .from("playlist_folders")
-    .insert({ user_id: user.id, name, sort_order: 0 })
+    .insert({ user_id: user.id, name, sort_order: 0, parent_id: parentId ?? null })
     .select()
     .single();
   if (error || !data) throw new Error(`Failed to create folder: ${error?.message}`);
@@ -403,11 +413,13 @@ export async function createFolder(supabase: SupabaseClient, name: string): Prom
 export async function updateFolder(
   supabase: SupabaseClient,
   id: string,
-  patch: { name?: string; sortOrder?: number }
+  patch: { name?: string; sortOrder?: number; parentId?: string | null }
 ): Promise<void> {
   const row: Record<string, unknown> = {};
   if (patch.name !== undefined) row.name = patch.name;
   if (patch.sortOrder !== undefined) row.sort_order = patch.sortOrder;
+  // "key in patch" so an explicit null re-parents to root, omission leaves unchanged.
+  if ("parentId" in patch) row.parent_id = patch.parentId ?? null;
   const { error } = await supabase.from("playlist_folders").update(row).eq("id", id);
   if (error) throw new Error(`Failed to update folder: ${error.message}`);
 }

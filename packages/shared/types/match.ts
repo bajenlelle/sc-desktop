@@ -173,6 +173,7 @@ export interface PlaylistFolder {
   id: string;
   name: string;
   sortOrder: number;
+  parentId?: string; // references PlaylistFolder.id; undefined = root folder
 }
 
 export interface Playlist {
