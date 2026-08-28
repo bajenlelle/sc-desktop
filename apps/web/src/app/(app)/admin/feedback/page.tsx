@@ -68,7 +68,6 @@ export default function AdminFeedbackPage() {
   useEffect(() => {
     if (!checked) return;
     loadReports();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checked]);
 
   async function cycleStatus(report: FeedbackReport) {
