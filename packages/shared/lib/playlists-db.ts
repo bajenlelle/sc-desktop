@@ -15,7 +15,7 @@ import type { Playlist, PlaylistItem, PlaylistClipItem, PlaylistTextCard } from 
 // DB row types (snake_case columns from Postgres)
 // ---------------------------------------------------------------------------
 
-interface PlaylistClipRow {
+export interface PlaylistClipRow {
   item_type: string;
   item_id: string | null;
   match_id: string | null;
@@ -30,18 +30,18 @@ interface PlaylistClipRow {
   group_id: string | null;
 }
 
-interface PlaylistShareRow {
+export interface PlaylistShareRow {
   team_id: string;
   shared_at?: string;
 }
 
-interface PlaylistUserShareRow {
+export interface PlaylistUserShareRow {
   user_id: string;
   shared_at?: string;
   shared_by?: string;
 }
 
-interface PlaylistRow {
+export interface PlaylistRow {
   id: string;
   user_id: string;
   name: string;
@@ -54,7 +54,8 @@ interface PlaylistRow {
   playlist_user_shares: PlaylistUserShareRow[];
 }
 
-function rowToPlaylist(row: PlaylistRow): Playlist {
+/** Exported for tests — the DB-row → domain mapper everything downstream consumes. */
+export function rowToPlaylist(row: PlaylistRow): Playlist {
   const items = [...(row.playlist_clips ?? [])]
     .sort((a, b) => a.position - b.position)
     .map((c): PlaylistItem | null => {

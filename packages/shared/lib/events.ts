@@ -115,6 +115,18 @@ export function formatGameClock(raw: string): string {
   return parts.slice(0, 2).join(":");
 }
 
+/**
+ * Seconds for a "MM:SS" clock as produced by formatGameClock; -1 for "—" or
+ * anything unparseable. The -1 sentinel is what clock sorts key on, so
+ * unparseable clocks group at one extreme instead of interleaving.
+ */
+export function parseGameClock(raw: string): number {
+  if (!raw || raw === "—") return -1;
+  const parts = raw.split(":");
+  if (parts.length < 2) return -1;
+  return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+}
+
 /** "First Last", or an em dash when the event has no player attached. */
 export function playerName(e: PlayByPlayEvent): string {
   if (!e.player) return "—";
