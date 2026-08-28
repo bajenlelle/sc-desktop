@@ -17,6 +17,7 @@ import {
 } from "@/lib/profile-db";
 import type { OrgInvite, OrgTeam, UserProfile } from "@/types/org";
 import { toast } from "sonner";
+import { trackEvent } from "@/lib/analytics";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -200,6 +201,7 @@ export function InviteModal({
     setSending(true);
     try {
       const count = await sendEmailInvites(orgId, emails, selectedRole, selectedTeamId);
+      trackEvent("invite_emails_sent", { count, role: selectedRole });
       toast.success(`Invitation${count !== 1 ? "s" : ""} sent to ${count} address${count !== 1 ? "es" : ""}`);
       setEmails([]);
       onClose();
@@ -214,6 +216,7 @@ export function InviteModal({
     if (!linkInvite) return;
     const url = `${APP_URL}/join/${linkInvite.code}`;
     navigator.clipboard.writeText(url);
+    trackEvent("invite_link_copied", { role: selectedRole });
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
   }

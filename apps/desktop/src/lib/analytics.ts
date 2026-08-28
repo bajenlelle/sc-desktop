@@ -1,23 +1,7 @@
 import posthog from 'posthog-js'
+import type { AnalyticsEvent } from '@scoutable/shared/types/analytics'
 
-export type AnalyticsEvent =
-  | 'app_started'
-  | 'signed_in'
-  | 'signed_up'
-  | 'signed_out'
-  | 'game_synced'
-  | 'playlist_created'
-  | 'video_exported'
-  | 'page_viewed'
-  | 'clip_added_to_playlist'
-  | 'playlist_shipped'
-  | 'playlist_filtered'
-  | 'clips_grouped'
-  | 'highlight_sent_to_phone'
-  | 'demo_game_seeded'
-  | 'onboarding_step_clicked'
-  | 'onboarding_dismissed'
-  | 'onboarding_completed'
+export type { AnalyticsEvent }
 
 export function initAnalytics() {
   posthog.init(import.meta.env.VITE_POSTHOG_KEY, {

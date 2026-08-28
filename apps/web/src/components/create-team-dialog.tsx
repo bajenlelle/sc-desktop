@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 import { createTeam } from "@/lib/profile-db";
+import { trackEvent } from "@/lib/analytics";
 import { toast } from "sonner";
 
 interface CreateTeamDialogProps {
@@ -40,6 +41,7 @@ export function CreateTeamDialog({ open, onClose, onCreated, orgId }: CreateTeam
     setCreating(true);
     try {
       await createTeam(name.trim(), season.trim() || undefined, orgId);
+      trackEvent("team_created");
       toast.success("Team created");
       setName("");
       setSeason("");

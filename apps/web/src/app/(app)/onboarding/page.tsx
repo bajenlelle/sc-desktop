@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { joinByCode } from "@/lib/profile-db";
+import { trackEvent } from "@/lib/analytics";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth-context";
 import { toast } from "sonner";
@@ -32,6 +33,7 @@ export default function OnboardingPage() {
     setError(null);
     try {
       const res = await joinByCode(code);
+      trackEvent(res.type === "team" ? "team_joined" : "org_joined", { via: "code" });
       toast.success("You've joined successfully!");
       // Activate the joined space BEFORE reloading — resolveActiveOrg
       // validates the stored id against the fresh org list, so the new org

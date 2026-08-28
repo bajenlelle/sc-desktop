@@ -9,9 +9,10 @@
  * player never touches a file manager. Desktop browsers fall back to a
  * plain download.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Download, Loader2, Share2 } from "lucide-react";
 import { LogoMark } from "@/components/logo";
+import { trackEvent } from "@/lib/analytics";
 
 export type HighlightShareResult =
   | { valid: true; title: string; url: string; posterUrl: string | null }
@@ -19,6 +20,11 @@ export type HighlightShareResult =
 
 export default function HighlightView({ share }: { share: HighlightShareResult }) {
   const [sharing, setSharing] = useState(false);
+
+  useEffect(() => {
+    trackEvent("highlight_page_viewed", { valid: share.valid });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleShare() {
     if (!share.valid) return;
@@ -32,6 +38,8 @@ export default function HighlightView({ share }: { share: HighlightShareResult }
       if (navigator.canShare?.({ files: [file] })) {
         // Empty text on purpose — iOS Safari drops the file when text is set.
         await navigator.share({ files: [file], title: share.title });
+        // A dismissed share sheet throws, so reaching here means it succeeded.
+        trackEvent("highlight_saved", { method: "native_share" });
         return;
       }
       // No file-share support (desktop browsers): download instead.
@@ -40,6 +48,7 @@ export default function HighlightView({ share }: { share: HighlightShareResult }
       a.download = file.name;
       a.click();
       URL.revokeObjectURL(a.href);
+      trackEvent("highlight_saved", { method: "download" });
     } catch {
       // Share sheet dismissed or fetch failed — nothing to clean up.
     } finally {

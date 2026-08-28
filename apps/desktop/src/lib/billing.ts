@@ -1,7 +1,9 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import posthog from "posthog-js";
 import { createClient } from "@/lib/supabase/client";
 import { getSubscriptionStatus } from "@/lib/profile-db";
+import { trackEvent } from "@/lib/analytics";
 
 const PRICING_URL = "https://scoutable.se/";
 const BILLING_PORTAL_URL = "https://app.scoutable.se/api/billing-portal";
@@ -50,9 +52,13 @@ export async function openBillingPortal(): Promise<string | null> {
  * Query params go before the fragment or the browser drops them.
  */
 export async function openPricingPage(email?: string | null): Promise<void> {
-  const url = email
-    ? `${PRICING_URL}?email=${encodeURIComponent(email)}#pricing`
-    : `${PRICING_URL}#pricing`;
+  const params = new URLSearchParams();
+  if (email) params.set("email", email);
+  // Forward the PostHog distinct id so the landing page can stitch this
+  // anonymous visit to the desktop user's analytics identity.
+  if (posthog.__loaded) params.set("ph_did", posthog.get_distinct_id());
+  const query = params.toString();
+  const url = query ? `${PRICING_URL}?${query}#pricing` : `${PRICING_URL}#pricing`;
   await openUrl(url);
 }
 
@@ -74,7 +80,10 @@ export async function openUpgradeFlow(email?: string | null): Promise<string | n
     // Fall through to pricing — a failed lookup shouldn't dead-end the user.
   }
 
-  if (hasActiveSub) return openBillingPortal();
+  if (hasActiveSub) {
+    trackEvent("upgrade_clicked", { source: "billing_lib", has_subscription: true });
+    return openBillingPortal();
+  }
   await openPricingPage(email);
   return null;
 }

@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 import { markPlanCelebrated } from "@/lib/profile-db";
 import { orgPlanLabel, orgPlanColors } from "@scoutable/shared/lib/plan-tier";
 import { cn } from "@/lib/utils";
+import { trackEvent } from "@/lib/analytics";
 
 /** Only paid tiers rank above free; franchise is org licensing, never Stripe. */
 const TIER_RANK: Record<string, number> = { free: 0, rookie: 1, pro: 2 };
@@ -39,6 +40,7 @@ export function UpgradeCelebration() {
 
     firedRef.current = true;
     setTier(current);
+    trackEvent("plan_upgraded", { plan: current });
     // Write immediately (not on dismiss) so a second open client can't
     // double-show. Best effort — failing just risks one repeat later.
     markPlanCelebrated(current).catch((err) =>

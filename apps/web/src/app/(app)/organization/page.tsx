@@ -32,6 +32,7 @@ import { InviteModal } from "@/components/invite-modal";
 import { AddMembersToTeamModal } from "@/components/add-members-to-team-modal";
 import { CreateTeamDialog } from "@/components/create-team-dialog";
 import type { OrgContext, OrgTeam, UserProfile } from "@scoutable/shared/types/org";
+import { trackEvent } from "@/lib/analytics";
 import { toast } from "sonner";
 import { ChevronDown, ChevronUp, Loader2, MoreHorizontal, Search, UserPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -488,6 +489,7 @@ export default function OrganizationPage() {
     if (!orgId) return;
     try {
       await promoteToAdmin(userId, orgId);
+      trackEvent("member_promoted");
       toast.success("Member promoted to admin");
       await load(activeOrgId ?? undefined);
     } catch (e) {
@@ -501,6 +503,7 @@ export default function OrganizationPage() {
     setRemovingMemberId(userId);
     try {
       await removeOrgMember(userId, orgId);
+      trackEvent("member_removed");
       toast.success("Member removed");
       await load(activeOrgId ?? undefined);
     } catch (e) {

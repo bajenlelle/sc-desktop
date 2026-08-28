@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { ReportProblemDialog } from "@/components/report-problem-dialog";
 import { useAuth } from "@/lib/auth-context";
 import { getExportWatermarkDisabled, setExportWatermarkDisabled } from "@/lib/prefs";
+import { trackEvent } from "@/lib/analytics";
 
 export function SettingsPage() {
   const { activeOrgPlan } = useAuth();
@@ -20,6 +21,7 @@ export function SettingsPage() {
   function toggleWatermark(checked: boolean) {
     setWatermarkOn(checked);
     setExportWatermarkDisabled(!checked);
+    trackEvent("watermark_toggled", { enabled: checked });
   }
 
   useEffect(() => {

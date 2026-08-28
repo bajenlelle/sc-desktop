@@ -5,6 +5,14 @@ import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { getMyProfile, getMyOrgs } from "@/lib/profile-db";
 import type { UserProfile, OrgMembership, OrgPlanTier } from "@scoutable/shared/types/org";
+import {
+  aliasUser,
+  enablePersistentTracking,
+  getStashedAttribution,
+  identifyUser,
+  resetUser,
+  trackEvent,
+} from "@/lib/analytics";
 
 const ACTIVE_ORG_KEY = "scoutable_active_org_id";
 
@@ -104,6 +112,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfile(p);
       setMyOrgs(orgs);
       setActiveOrgIdState(resolveActiveOrg(orgs));
+      // Merge profile-level traits once loaded (role isn't known at SIGNED_IN
+      // time) — mirrors the desktop app's two-stage identify.
+      if (!opts?.silent) {
+        identifyUser(userId, {
+          declared_role: p?.declaredRole,
+          plan_tier: orgs.find((o) => o.isPersonal)?.planTier,
+        });
+      }
       return orgs;
     } catch (err) {
       console.error("[auth] loadProfile failed:", err);
@@ -173,8 +189,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       userRef.current = session?.user ?? null;
 
       if (session?.user && (event === "INITIAL_SESSION" || event === "SIGNED_IN")) {
+        if (event === "SIGNED_IN") {
+          enablePersistentTracking();
+          identifyUser(session.user.id, { email: session.user.email });
+          // Stitch the landing page's anonymous person (?ph_did=) to this
+          // user — once; alias is idempotent-ish but no need to repeat.
+          const phDid = getStashedAttribution().ph_did;
+          if (phDid) aliasUser(phDid);
+          trackEvent("signed_in");
+        }
         loadProfile(session.user.id);
       } else if (event === "SIGNED_OUT" || (!session?.user && event === "INITIAL_SESSION")) {
+        if (event === "SIGNED_OUT") {
+          trackEvent("signed_out");
+          resetUser();
+        }
         stopPlanPoll();
         setProfile(null);
         setMyOrgs([]);

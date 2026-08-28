@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/theme-provider";
+import PostHogProvider from "@/components/posthog-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -18,7 +19,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className="antialiased">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          {children}
+          <PostHogProvider>{children}</PostHogProvider>
           <Toaster richColors />
         </ThemeProvider>
       </body>

@@ -832,6 +832,7 @@ function ClipBrowserPanel({
         const wanted = new Set(existing);
         if (nextAssigned) wanted.add(labelId); else wanted.delete(labelId);
         await apiSetClipAssignments(activeOrgId, matchId, eventId, Array.from(wanted), null);
+        if (nextAssigned) trackEvent("label_applied", { bulk: false });
       } catch (e) {
         console.error("toggle clip label:", e);
         toast.error("Failed to update label");
@@ -856,6 +857,7 @@ function ClipBrowserPanel({
       });
       try {
         await apiBulkAssign(activeOrgId, selectedClipKeyPairs, labelId, mode, null);
+        if (mode === "add") trackEvent("label_applied", { bulk: true });
       } catch (e) {
         console.error("bulk toggle label:", e);
         toast.error("Failed to apply label");
@@ -1797,6 +1799,7 @@ export function PlaylistsPage() {
         const wanted = new Set(existing);
         if (nextAssigned) wanted.add(labelId); else wanted.delete(labelId);
         await apiSetClipAssignments(activeOrgId, matchId, eventId, Array.from(wanted), selected.id);
+        if (nextAssigned) trackEvent("label_applied", { bulk: false });
       } catch (e) {
         console.error("toggle clip label:", e);
         toast.error("Failed to update label");
@@ -1809,6 +1812,7 @@ export function PlaylistsPage() {
     async (name: string, color: LabelColor): Promise<Label> => {
       if (!activeOrgId) throw new Error("No active org");
       const created = await apiCreateLabel(activeOrgId, name, color);
+      trackEvent("label_created", { seeded: false });
       setLabels((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
       return created;
     },
@@ -1848,6 +1852,7 @@ export function PlaylistsPage() {
   const handleSeedDefaultLabels = useCallback(async () => {
     if (!activeOrgId) return;
     await seedDefaultLabels(activeOrgId);
+    trackEvent("label_created", { seeded: true });
     const rows = await listLabels(activeOrgId);
     setLabels(rows);
   }, [activeOrgId]);
@@ -1900,6 +1905,7 @@ export function PlaylistsPage() {
       });
       try {
         await apiBulkAssign(activeOrgId, selectedClipKeyPairs, labelId, mode, selected.id);
+        if (mode === "add") trackEvent("label_applied", { bulk: true });
       } catch (e) {
         console.error("bulk toggle label:", e);
         toast.error("Failed to apply label");
@@ -2625,12 +2631,14 @@ export function PlaylistsPage() {
 
   async function handleUngroup(groupId: string) {
     if (!selected || filtersActive) return;
+    const clipCount = selected.items.filter((it) => it.groupId === groupId).length;
     const newItems = selected.items.map((it) => {
       if (it.groupId !== groupId) return it;
       const { groupId: _g, ...rest } = it;
       return rest as PlaylistItem;
     });
     await applyItemsUpdate(newItems);
+    trackEvent("clips_ungrouped", { clip_count: clipCount });
   }
 
   // ---------------------------------------------------------------------------
@@ -2981,7 +2989,7 @@ export function PlaylistsPage() {
       }
     } catch (e) {
       setExportError(e instanceof Error ? e.message : String(e));
-      trackEvent('video_exported', { playlist_id: selected!.id, clip_count: segmentCount, status: 'error' });
+      trackEvent('video_exported', { playlist_id: selected!.id, clip_count: segmentCount, status: 'error', error: (e instanceof Error ? e.message : String(e)).slice(0, 200) });
     } finally {
       setIsExporting(false);
     }
@@ -3011,6 +3019,7 @@ export function PlaylistsPage() {
     // Clip & ship only when new recipients were added
     const newlyAdded = [...newlyAddedTeams, ...newlyAddedUsers];
     if (newlyAdded.length === 0) return;
+    trackEvent("playlist_shared", { team_count: newlyAddedTeams.length, user_count: newlyAddedUsers.length });
 
     setIsShipping(true);
     setShipProgress(null);
@@ -3171,6 +3180,7 @@ export function PlaylistsPage() {
       const parentId = folders.find((f) => f.id === id)?.parentId;
       try {
         const folder = await createFolder(name, parentId);
+        trackEvent("folder_created", { nested: parentId != null });
         setFolders((prev) => prev.map((f) => f.id === id ? folder : f));
         setExpandedFolders((prev) => { const s = new Set(prev); s.delete(id); s.add(folder.id); return s; });
       } catch (err) {
@@ -4058,6 +4068,7 @@ export function PlaylistsPage() {
     setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updated : p));
     await insertTextCard(selected.id, newCard.id, '', 5, finalInsertAt);
     await reorderItems(selected.id, newItems);
+    trackEvent("text_card_inserted");
   }
 
   function handleTextCardTextChange(id: string, text: string) {

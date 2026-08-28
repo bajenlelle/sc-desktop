@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Check } from "lucide-react";
 import { useAuth } from "@/components/auth-context";
 import { markPlanCelebrated } from "@/lib/profile-db";
+import { trackEvent } from "@/lib/analytics";
 import { orgPlanLabel, orgPlanColors } from "@scoutable/shared/lib/plan-tier";
 import { cn } from "@/lib/utils";
 
@@ -41,6 +42,7 @@ export function UpgradeCelebration() {
 
     firedRef.current = true;
     setTier(current);
+    trackEvent("plan_upgraded", { plan: current });
     // Write immediately (not on dismiss) so a second open client can't
     // double-show. Best effort — failing just risks one repeat later.
     markPlanCelebrated(current).catch((err) =>

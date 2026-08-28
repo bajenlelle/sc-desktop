@@ -10,6 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth-context";
 import { getOrgContext, updateMyProfile, uploadAvatar, getSubscriptionStatus } from "@/lib/profile-db";
+import { trackEvent } from "@/lib/analytics";
+import posthog from "posthog-js";
 import type { OrgContext } from "@scoutable/shared/types/org";
 import { orgPlanColors, orgPlanLabel, type ImportQuota } from "@scoutable/shared/lib/plan-tier";
 import { toast } from "sonner";
@@ -162,13 +164,19 @@ export default function ProfilePage() {
    */
   function handleUpgrade() {
     if (sub?.isActive) {
+      trackEvent("upgrade_clicked", { source: "profile", has_subscription: true });
       void handleManageSubscription();
       return;
     }
+    trackEvent("upgrade_clicked", { source: "profile", has_subscription: false });
     const email = user?.email;
-    const url = email
-      ? `${PRICING_URL_BASE}?email=${encodeURIComponent(email)}#pricing`
-      : `${PRICING_URL_BASE}#pricing`;
+    // ph_did links the pricing page's anonymous PostHog person back to this
+    // account; params must precede the #pricing fragment.
+    const params = new URLSearchParams();
+    if (email) params.set("email", email);
+    if (posthog.__loaded) params.set("ph_did", posthog.get_distinct_id());
+    const qs = params.toString();
+    const url = qs ? `${PRICING_URL_BASE}?${qs}#pricing` : `${PRICING_URL_BASE}#pricing`;
     window.open(url, "_blank");
     // Checkout runs in the new tab while this one stays mounted (unlike the
     // portal path, which navigates away and remounts fresh on return) — so

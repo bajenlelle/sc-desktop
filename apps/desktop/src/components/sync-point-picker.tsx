@@ -5,6 +5,7 @@ import { Play, Pause, Check } from "lucide-react";
 import { VideoPlayer } from "@/components/video-player";
 import { Button } from "@/components/ui/button";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
+import { trackEvent } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 
 export interface SyncPointPickerProps {
@@ -270,7 +271,13 @@ export function SyncPointPicker({
           )}
         </Button>
         {onSkip && (
-          <Button variant="outline" onClick={onSkip}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              trackEvent("sync_point_skipped");
+              onSkip();
+            }}
+          >
             Skip
           </Button>
         )}

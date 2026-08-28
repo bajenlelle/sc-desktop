@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { LogoMark, Wordmark } from "@/components/logo";
 import { createClient } from "@/lib/supabase/client";
+import { trackEvent, getStashedAttribution } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -108,11 +109,13 @@ export default function SignupPage() {
       return;
     }
 
+    trackEvent("signed_up", { declared_role: declaredRole, ...getStashedAttribution() });
     setSuccess(true);
     setLoading(false);
   }
 
   async function signInWithProvider(provider: "google" | "apple") {
+    trackEvent("signup_provider_clicked", { provider });
     const next = new URLSearchParams(window.location.search).get("next") ?? "/my-playlists";
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({

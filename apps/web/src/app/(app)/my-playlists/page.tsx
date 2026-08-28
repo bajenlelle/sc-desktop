@@ -20,6 +20,7 @@ import { SharedByMe } from "@/components/playlist/SharedByMe";
 import { WelcomeCard } from "@/components/welcome-card";
 import type { PlaylistCardData } from "@/components/playlist/PlaylistCard";
 import { listMyClipViews, markClipWatched, clipViewKey } from "@/lib/clip-views-db";
+import { trackEvent } from "@/lib/analytics";
 import type {
   Playlist,
   PlaylistItem,
@@ -130,7 +131,8 @@ export default function MyPlaylistsPage() {
     [allPlaylists, selectedId],
   );
 
-  const openPlaylist = useCallback((id: string) => {
+  const openPlaylist = useCallback((id: string, opts?: { resumed?: boolean }) => {
+    trackEvent("playlist_opened", { playlist_id: id, resumed: opts?.resumed ?? false });
     router.push(`/my-playlists?p=${id}`);
   }, [router]);
 
@@ -259,6 +261,7 @@ export default function MyPlaylistsPage() {
       setPlaylistTeams(supabase, shareTarget.id, teamIds),
       setPlaylistUsers(supabase, shareTarget.id, userIds),
     ]);
+    trackEvent("playlist_shared", { team_count: teamIds.length, user_count: userIds.length });
     setPlaylists((prev) => prev.map((p) =>
       p.id === shareTarget.id ? { ...p, teamIds, teamId: teamIds[0], userIds } : p
     ));
@@ -359,6 +362,7 @@ export default function MyPlaylistsPage() {
     });
     if (alreadyKnown) return;
     setLastWatched((prev) => new Map(prev).set(playlistId, new Date().toISOString()));
+    trackEvent("clip_watched", { playlist_id: playlistId });
     void markClipWatched(playlistId, matchId, eventId);
   }, []);
 
@@ -439,7 +443,7 @@ export default function MyPlaylistsPage() {
 
   /** Opens a playlist and starts from the first clip the player hasn't watched. */
   const resumePlaylist = useCallback((id: string) => {
-    openPlaylist(id);
+    openPlaylist(id, { resumed: true });
     const pl = allPlaylists.find((p) => p.id === id);
     if (!pl) return;
     // Playable clips only — an unshipped clip can't be the resume target

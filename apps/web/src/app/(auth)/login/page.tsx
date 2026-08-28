@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { LogoMark, Wordmark } from "@/components/logo";
 import { createClient } from "@/lib/supabase/client";
+import { trackEvent } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -48,6 +49,7 @@ function LoginContent() {
   }
 
   async function signInWithProvider(provider: "google" | "apple") {
+    trackEvent("login_provider_clicked", { provider });
     const next = new URLSearchParams(window.location.search).get("next") ?? "/my-playlists";
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({

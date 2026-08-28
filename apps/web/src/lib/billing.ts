@@ -1,4 +1,6 @@
+import posthog from "posthog-js";
 import { getSubscriptionStatus } from "@/lib/profile-db";
+import { trackEvent } from "@/lib/analytics";
 
 const PRICING_URL_BASE = "https://scoutable.se/";
 
@@ -37,11 +39,17 @@ export async function openUpgradeFlow(email?: string | null): Promise<string | n
     // Fall through to pricing — a failed lookup shouldn't dead-end the user.
   }
 
+  trackEvent("upgrade_clicked", { source: "billing_lib", has_subscription: hasActiveSub });
+
   if (hasActiveSub) return openBillingPortal();
 
-  const url = email
-    ? `${PRICING_URL_BASE}?email=${encodeURIComponent(email)}#pricing`
-    : `${PRICING_URL_BASE}#pricing`;
+  // ph_did links the pricing page's anonymous PostHog person back to this
+  // account; params must precede the #pricing fragment.
+  const params = new URLSearchParams();
+  if (email) params.set("email", email);
+  if (posthog.__loaded) params.set("ph_did", posthog.get_distinct_id());
+  const qs = params.toString();
+  const url = qs ? `${PRICING_URL_BASE}?${qs}#pricing` : `${PRICING_URL_BASE}#pricing`;
   window.open(url, "_blank");
   return null;
 }

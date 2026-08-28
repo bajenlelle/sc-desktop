@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/client";
 import { joinByCode } from "@/lib/profile-db";
+import { trackEvent } from "@/lib/analytics";
 import { setStoredActiveOrg } from "@/components/auth-context";
 import type { InviteInvalidReason } from "@scoutable/shared/types/org";
 import { toast } from "sonner";
@@ -73,7 +74,12 @@ export default function JoinPage() {
     Promise.all([
       Promise.resolve(supabase.rpc("get_invite_preview", { p_code: code.toUpperCase() })).then(({ data }) => {
         const r = data as { valid: boolean; reason?: string; org_name?: string; team_name?: string | null; role?: string; email?: string | null } | null;
-        if (!r) { setPreview({ valid: false, reason: 'not_found' }); return; }
+        if (!r) {
+          setPreview({ valid: false, reason: 'not_found' });
+          trackEvent("invite_link_viewed", { valid: false, reason: "not_found" });
+          return;
+        }
+        trackEvent("invite_link_viewed", { valid: r.valid, ...(r.valid ? {} : { reason: r.reason ?? "not_found" }) });
         setPreview({
           valid: r.valid,
           reason: r.reason as InviteInvalidReason | undefined,
@@ -107,6 +113,7 @@ export default function JoinPage() {
       joinByCode(code)
         .then((result) => {
           setJoining(false);
+          trackEvent(result.type === "team" ? "team_joined" : "org_joined", { via: "link" });
           // Make the joined org the active space — otherwise the user lands
           // back in their personal space and never sees what they joined.
           // (This page is outside AuthProvider, so write the stored choice

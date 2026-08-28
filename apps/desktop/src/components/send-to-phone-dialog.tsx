@@ -73,6 +73,8 @@ export function SendToPhoneDialog({
         trackEvent("highlight_sent_to_phone", {
           playlist_id: pl.id,
           clip_count: segments.filter((s) => s.kind === "clip").length,
+          reused: false,
+          is_selection: isSelection,
         });
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
@@ -93,6 +95,7 @@ export function SendToPhoneDialog({
         if (existing) {
           setShareUrl(`${APP_URL}/h/${existing.id}`);
           setReusedFrom(existing.createdAt);
+          trackEvent("highlight_sent_to_phone", { playlist_id: playlist.id, reused: true });
         } else {
           runPipeline(playlist);
         }

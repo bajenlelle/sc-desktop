@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createClient } from "@/lib/supabase/client";
 import { deleteAccount, mapDeleteAccountError } from "@/lib/account";
+import { trackEvent } from "@/lib/analytics";
 
 export function DeleteAccountDialog({
   email,
@@ -34,6 +35,9 @@ export function DeleteAccountDialog({
   async function handleDelete() {
     setDeleting(true);
     setError(null);
+    // Fired on the confirmed request (not after) — the session is torn down
+    // on success, so a post-success capture could be lost.
+    trackEvent("account_delete_requested");
     const result = await deleteAccount();
     if (!result.ok) {
       setError(mapDeleteAccountError(result));

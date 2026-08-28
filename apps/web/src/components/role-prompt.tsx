@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/components/auth-context";
 import { setDeclaredRole } from "@/lib/profile-db";
+import { trackEvent } from "@/lib/analytics";
 
 /**
  * One-click coach/player question for accounts that skipped the signup
@@ -14,6 +15,7 @@ export function RolePrompt() {
   if (!profile || profile.declaredRole != null) return null;
 
   function choose(role: "coach" | "player") {
+    trackEvent("declared_role_selected", { role });
     setDeclaredRole(role)
       .then(() => reloadProfile())
       .catch(() => {});

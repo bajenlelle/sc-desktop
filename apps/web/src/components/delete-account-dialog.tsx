@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createClient } from "@/lib/supabase/client";
+import { trackEvent } from "@/lib/analytics";
 
 function mapDeleteAccountError(status: number, body: { error?: string; orgName?: string }): string {
   if (status === 401) return "Your session expired. Sign in again and retry.";
@@ -43,6 +44,9 @@ export function DeleteAccountDialog({
   async function handleDelete() {
     setDeleting(true);
     setError(null);
+    // Before the call, not after — a successful deletion tears the session
+    // down and the event would never leave the page.
+    trackEvent("account_delete_requested");
     try {
       const res = await fetch("/api/delete-account", { method: "POST" });
       if (!res.ok) {

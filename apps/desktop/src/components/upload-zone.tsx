@@ -445,6 +445,7 @@ export function UploadZone({
         setSubmitError(null);
         return;
       }
+      trackEvent("game_sync_failed", { error: String(err).slice(0, 200) });
       setSubmitError(err instanceof Error ? err.message : "Failed to save match.");
       return;
     }
@@ -471,6 +472,8 @@ export function UploadZone({
     <UpgradeDialog
       open={importLimitDialogOpen}
       onClose={() => setImportLimitDialogOpen(false)}
+      analyticsFeature="import_limit"
+      analyticsSource="import_limit_dialog"
       featureName={activeOrgPlan === "rookie" ? "Monthly import limit reached" : "Free import limit reached"}
       description={activeOrgPlan === "rookie"
         ? `You've used all ${importLimitInfo?.limit ?? 10} Rookie imports for this month — they reset on the 1st. Upgrade to Pro and never count imports again.`

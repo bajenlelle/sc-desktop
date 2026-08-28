@@ -6,6 +6,7 @@ import { PlaylistFeed, type SourceOption } from "@/components/playlist/PlaylistF
 import { SharedByMe } from "@/components/playlist/SharedByMe";
 import type { PlaylistCardData } from "@/components/playlist/PlaylistCard";
 import { listMyClipViews, markClipWatched, clipViewKey } from "@/lib/clip-views-db";
+import { trackEvent } from "@/lib/analytics";
 import { VideoPlayer } from "@/components/video-player";
 import { VideoClipControls } from "@/components/video-clip-controls";
 import { VideoPlaceholder } from "@/components/video-placeholder";
@@ -231,6 +232,7 @@ export function MyPlaylistsPage() {
     if (alreadyKnown) return;
     setLastWatched((prev) => new Map(prev).set(playlistId, new Date().toISOString()));
     void markClipWatched(playlistId, matchId, eventId);
+    trackEvent("clip_watched", { playlist_id: playlistId });
   }, []);
 
   useEffect(() => { recordWatchedRef.current = recordWatched; }, [recordWatched]);
@@ -339,6 +341,7 @@ export function MyPlaylistsPage() {
       setPlaylistTeams(shareTarget.id, teamIds),
       setPlaylistUsers(shareTarget.id, userIds),
     ]);
+    trackEvent("playlist_shared", { team_count: teamIds.length, user_count: userIds.length });
     setPlaylists((prev) => prev.map((p) =>
       p.id === shareTarget.id ? { ...p, teamIds, teamId: teamIds[0], userIds } : p
     ));

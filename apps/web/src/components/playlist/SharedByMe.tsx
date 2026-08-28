@@ -23,6 +23,7 @@ import { getMySharedPlaylists, type SharedPlaylist } from "@scoutable/shared/lib
 import { getTeamMembers, type TeamMemberRef } from "@scoutable/shared/lib/teams-db";
 import { listPlaylistClipViews, type PlaylistClipView } from "@/lib/clip-views-db";
 import { sendPlaylistReminder } from "@/lib/reminders-db";
+import { trackEvent } from "@/lib/analytics";
 import {
   buildDashboardRows,
   summarizeDashboard,
@@ -175,6 +176,7 @@ export function SharedByMe({
     setRemindState((prev) => new Map(prev).set(key, "sending"));
     try {
       await sendPlaylistReminder(playlistId, recipient.userId);
+      trackEvent("reminder_sent", { bulk: false, count: 1 });
       setRemindState((prev) => new Map(prev).set(key, "sent"));
       toast.success(`Reminder sent to ${recipient.name}`);
     } catch (e) {
@@ -201,6 +203,7 @@ export function SharedByMe({
         if (!(e as Error).message.includes("24 hours")) failed++;
       }
     }
+    trackEvent("reminder_sent", { bulk: true, count: targets.length });
     if (sent > 0 && failed === 0) {
       toast.success(`Reminded ${sent} player${sent === 1 ? "" : "s"}`);
     } else if (sent > 0) {
