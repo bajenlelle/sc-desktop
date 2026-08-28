@@ -68,3 +68,8 @@ jobs:
                whose body explains the root cause and links the issue.
             5. If the fix is unclear, risky, or needs a product decision, comment
                your analysis on the issue instead of opening a PR.
+          # Broad Bash is acceptable here: the trigger is maintainer-gated
+          # (label writes need triage access) and the job carries no secrets
+          # beyond the Claude/GitHub tokens.
+          claude_args: |
+            --allowedTools "Bash,Read,Edit,Write,Grep,Glob,WebFetch"
