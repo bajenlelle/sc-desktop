@@ -47,7 +47,9 @@ playlists, and share them with teams; players watch on web/mobile.
 
 - Typecheck: `npx tsc --noEmit` in `apps/desktop` / `apps/web`;
   `npm run typecheck` in `apps/mobile` / `packages/shared`.
-- Tests: `npm test` in `packages/shared` (vitest).
+- Tests: `npm test` in `packages/shared` (vitest; pure logic extracted from
+  the apps lives and is tested here — extend these when touching it) and
+  `cargo test` in `apps/desktop/src-tauri`.
 - Lint (web only): `npm run lint` in `apps/web`.
 - Rust: `cargo clippy --no-deps -- -D warnings` in `apps/desktop/src-tauri`.
 - Desktop dev: `npm run tauri dev` in `apps/desktop`.
