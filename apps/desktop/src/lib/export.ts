@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { toast } from "sonner";
 import { isLocalPath } from "@/lib/stream";
 import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import type { PlayByPlayEvent, SyncPoint } from "@/types/match";
@@ -63,8 +65,8 @@ export async function exportPlaylistToPath(
 }
 
 /**
- * Returns true when a file was actually written — a cancelled save dialog
- * resolves false so callers don't record the export as having happened.
+ * Returns the written file's path, or null when the user cancelled the save
+ * dialog — so callers don't record the export as having happened.
  */
 export async function exportPlaylist(
   segments: ExportSegment[],
@@ -72,15 +74,32 @@ export async function exportPlaylist(
   postRoll: number,
   playlistName: string,
   watermark: boolean,
-): Promise<boolean> {
+): Promise<string | null> {
   const rustSegments = buildRustSegments(segments, preRoll, postRoll);
 
   const outputPath = await save({
     defaultPath: `${playlistName.replace(/[^a-z0-9]/gi, "_")}.mp4`,
     filters: [{ name: "MP4 Video", extensions: ["mp4"] }],
   });
-  if (!outputPath) return false; // user cancelled
+  if (!outputPath) return null; // user cancelled
 
   await invoke<void>("export_playlist", { segments: rustSegments, outputPath, watermark });
-  return true;
+  return outputPath;
+}
+
+/**
+ * Success feedback for "Save to computer" exports: a toast naming the file
+ * with a jump straight to it in Finder/Explorer.
+ */
+export function notifyExportSuccess(outputPath: string): void {
+  const fileName = outputPath.split(/[/\\]/).pop() ?? outputPath;
+  toast.success("Video exported", {
+    description: fileName,
+    action: {
+      label: "Show in folder",
+      onClick: () => {
+        revealItemInDir(outputPath).catch(() => {});
+      },
+    },
+  });
 }

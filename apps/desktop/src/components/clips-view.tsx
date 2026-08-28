@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MultiSelectDropdown } from "@/components/ui/multi-select-dropdown";
 import { isClipItem, type Playlist, type PlaylistFolder, type PlaylistClipItem, type PlayByPlayEvent, type SyncPoint } from "@/types/match";
-import { exportPlaylist, type ExportSegment } from "@/lib/export";
+import { exportPlaylist, notifyExportSuccess, type ExportSegment } from "@/lib/export";
 import { getExportWatermarkDisabled } from "@/lib/prefs";
 import { useAuth } from "@/lib/auth-context";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
@@ -429,7 +429,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
     setIsExporting(true);
     setExportError(null);
     try {
-      await exportPlaylist(
+      const exportedPath = await exportPlaylist(
         eventsToExport.map((e): ExportSegment => {
           const clip = activePlaylistRef.current?.items.filter(isClipItem).find(
             (c) => c.matchId === matchId && c.eventId === e.eventId
@@ -451,6 +451,7 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
         // pro/franchise honor the Settings toggle.
         !((activeOrgPlan === "pro" || activeOrgPlan === "franchise") && getExportWatermarkDisabled()),
       );
+      if (exportedPath) notifyExportSuccess(exportedPath);
     } catch (e) {
       setExportError(e instanceof Error ? e.message : String(e));
     } finally {
