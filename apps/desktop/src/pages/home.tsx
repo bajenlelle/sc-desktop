@@ -7,9 +7,10 @@ import { listMatches, listFolders } from "@/lib/matches-db";
 import { listPlaylists } from "@/lib/playlists-db";
 import { useAuth } from "@/lib/auth-context";
 import { GettingStarted } from "@/components/getting-started";
+import { folderPath } from "@scoutable/shared/lib/folder-tree";
 import type { StoredMatch, Playlist, PlaylistFolder } from "@/types/match";
 
-function PlaylistCard({ playlist, folder }: { playlist: Playlist; folder?: PlaylistFolder }) {
+function PlaylistCard({ playlist, folderLabel }: { playlist: Playlist; folderLabel?: string }) {
   return (
     <Link
       to="/playlists"
@@ -22,8 +23,8 @@ function PlaylistCard({ playlist, folder }: { playlist: Playlist; folder?: Playl
       <p className="mt-1 text-xs text-muted-foreground">
         {playlist.items.length} item{playlist.items.length !== 1 ? "s" : ""}
       </p>
-      {folder && (
-        <p className="mt-1 text-xs text-muted-foreground/60">{folder.name}</p>
+      {folderLabel && (
+        <p className="mt-1 truncate text-xs text-muted-foreground/60">{folderLabel}</p>
       )}
     </Link>
   );
@@ -135,9 +136,11 @@ function CoachHomePage() {
           ) : (
             <div className="grid gap-4 sm:grid-cols-3">
               {recentPlaylists.map((playlist) => {
-                const folder = folders.find((f) => f.id === playlist.folderId);
+                const label = playlist.folderId
+                  ? folderPath(folders, playlist.folderId).join(" / ")
+                  : undefined;
                 return (
-                  <PlaylistCard key={playlist.id} playlist={playlist} folder={folder} />
+                  <PlaylistCard key={playlist.id} playlist={playlist} folderLabel={label || undefined} />
                 );
               })}
             </div>

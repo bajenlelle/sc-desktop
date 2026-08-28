@@ -11,6 +11,7 @@ import { exportPlaylist, type ExportSegment } from "@/lib/export";
 import { useAuth } from "@/lib/auth-context";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
 import { eventLabel, formatGameClock, isBookkeepingEvent, parseGameClock, periodLabel, playerName } from "@scoutable/shared/lib/events";
+import { flattenFolderTree } from "@scoutable/shared/lib/folder-tree";
 import { computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { isLocalPath } from "@/lib/stream";
 
@@ -1248,8 +1249,9 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
                     onChange={(e) => setNewPlaylistFolderId(e.target.value)}
                   >
                     <option value="">No folder</option>
-                    {folders.map((f) => (
-                      <option key={f.id} value={f.id}>{f.name}</option>
+                    {/* NBSP indent because <option> collapses regular spaces */}
+                    {flattenFolderTree(folders).map(({ folder: f, depth }) => (
+                      <option key={f.id} value={f.id}>{" ".repeat(depth * 2) + f.name}</option>
                     ))}
                   </select>
                 )}
