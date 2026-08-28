@@ -1,47 +1,13 @@
 import { ChevronRight, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  initials,
+  relativeTimeShort as relativeTime,
+  type FeedPlaylist,
+} from "@scoutable/shared/lib/playlist-feed";
 
-export interface PlaylistCardData {
-  id: string;
-  name: string;
-  clipCount: number;
-  watchedCount: number;
-  sharedAt?: string;
-  /** Newest clip watch — orders "In progress" as continue-watching. */
-  lastWatchedAt?: string;
-  /** User id of the sharer — drives the "Shared by" filter. */
-  sharerId?: string;
-  sharerName?: string;
-  sharerAvatarUrl?: string;
-  /** Shared straight to this player rather than to one of their teams. */
-  isDirect?: boolean;
-  /** Teams this playlist reached the player through — drives the source filter. */
-  teamIds?: string[];
-  /** Resolved team names, shown muted next to the title. */
-  teamNames?: string[];
-}
-
-/** "2h ago", "3d ago", "12 Apr" — short enough for a card, precise enough to matter. */
-function relativeTime(iso?: string): string | null {
-  if (!iso) return null;
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return null;
-  const mins = Math.floor((Date.now() - then) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString("sv-SE", { day: "numeric", month: "short" });
-}
-
-function initials(name?: string): string {
-  if (!name) return "?";
-  const parts = name.trim().split(/\s+/);
-  return (parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : parts[0].slice(0, 2))
-    .toUpperCase();
-}
+/** The card's view-model — the shared feed type under its established local name. */
+export type PlaylistCardData = FeedPlaylist;
 
 export function PlaylistCard({
   playlist,

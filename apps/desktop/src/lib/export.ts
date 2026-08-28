@@ -1,15 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { isLocalPath } from "@/lib/stream";
+import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import type { PlayByPlayEvent, SyncPoint } from "@/types/match";
-
-function computeVideoTime(event: PlayByPlayEvent, sync: SyncPoint): number | null {
-  if (!event.realWorldTime || !sync.syncRealWorldTime) return null;
-  const eventMs = new Date(event.realWorldTime).getTime();
-  const syncMs = new Date(sync.syncRealWorldTime).getTime();
-  if (isNaN(eventMs) || isNaN(syncMs)) return null;
-  return sync.syncVideoTime + (eventMs - syncMs) / 1000;
-}
 
 export type ExportSegment =
   | { kind: 'clip'; videoPath: string; matchId: string; event: PlayByPlayEvent; syncPoint: SyncPoint; preRollOffset?: number; postRollOffset?: number }
@@ -45,12 +38,8 @@ function buildRustSegments(
       }
       const t = computeVideoTime(seg.event, seg.syncPoint);
       if (t === null) return null;
-      return {
-        kind: 'clip',
-        video_path: seg.videoPath,
-        start: Math.max(0, t - preRoll - (seg.preRollOffset ?? 0)),
-        end: t + postRoll + (seg.postRollOffset ?? 0),
-      };
+      const { start, end } = clipBounds(t, preRoll, postRoll, seg.preRollOffset, seg.postRollOffset);
+      return { kind: 'clip', video_path: seg.videoPath, start, end };
     })
     .filter((s): s is RustSegment => s !== null);
 

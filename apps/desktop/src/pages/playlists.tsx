@@ -50,7 +50,15 @@ import { listLabels, createLabel as apiCreateLabel, updateLabel as apiUpdateLabe
 import { LabelChip } from "@/components/labels/LabelChip";
 import { LabelPickerPopover, type LabelTriState } from "@/components/labels/LabelPickerPopover";
 import type { Label, LabelColor, ClipKey } from "@scoutable/shared/types/labels";
-import { eventColors, eventLabel, formatGameClock, isBookkeepingEvent, playerName } from "@scoutable/shared/lib/events";
+import { eventColors, eventLabel, formatGameClock, isBookkeepingEvent, parseGameClock, playerName } from "@scoutable/shared/lib/events";
+import { computeVideoTime } from "@scoutable/shared/lib/clip-timing";
+import {
+  moveBlock,
+  snapGapToGroupBoundary,
+  computeGroupRuns,
+  normalizeGroups,
+  type GroupRunInfo,
+} from "@scoutable/shared/lib/clip-groups";
 import { getOrgContext, getOrgContextForOrg, getOrgMembers, getTeamMemberIds } from "@/lib/profile-db";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
 import { SendToPhoneDialog } from "@/components/send-to-phone-dialog";
@@ -67,25 +75,6 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import type { Playlist, PlaylistFolder, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 import { isClipItem } from "@/types/match";
 import { toast } from "sonner";
-
-// ---------------------------------------------------------------------------
-// Helpers (mirrors clips-view.tsx)
-// ---------------------------------------------------------------------------
-
-function computeVideoTime(event: PlayByPlayEvent, sync: SyncPoint): number | null {
-  if (!event.realWorldTime || !sync.syncRealWorldTime) return null;
-  const eventMs = new Date(event.realWorldTime).getTime();
-  const syncMs = new Date(sync.syncRealWorldTime).getTime();
-  if (isNaN(eventMs) || isNaN(syncMs)) return null;
-  return sync.syncVideoTime + (eventMs - syncMs) / 1000;
-}
-
-function parseGameClock(raw: string): number {
-  if (!raw || raw === "—") return -1;
-  const parts = raw.split(":");
-  if (parts.length < 2) return -1;
-  return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
-}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -107,61 +96,6 @@ function itemKey(i: PlaybackItem): string {
 /** items-space twin of itemKey (display-space). */
 function playlistItemKey(i: PlaylistItem): string {
   return isClipItem(i) ? `${i.matchId}:${i.eventId}` : `text:${i.id}`;
-}
-
-// ---------------------------------------------------------------------------
-// Clip groups (ordering lock): block-move helpers
-// ---------------------------------------------------------------------------
-
-/** A row's placement within its group's contiguous run. */
-type GroupRunInfo = { groupId: string; pos: "first" | "middle" | "last" | "only"; size: number };
-
-/**
- * Remove the items at blockIndices (ascending) from list and reinsert them,
- * contiguously and in the same relative order, at gap position `gap`
- * (0..list.length, counted in the ORIGINAL list). Generalizes the old
- * single-item `insertIndex > sourceIndex ? insertIndex - 1 : insertIndex`.
- */
-function moveBlock(list: PlaybackItem[], blockIndices: number[], gap: number): PlaybackItem[] {
-  const set = new Set(blockIndices);
-  const moved = blockIndices.map((i) => list[i]);
-  const rest = list.filter((_, i) => !set.has(i));
-  const adjusted = gap - blockIndices.filter((i) => i < gap).length;
-  return [...rest.slice(0, adjusted), ...moved, ...rest.slice(adjusted)];
-}
-
-/**
- * A drop gap strictly inside a foreign group's run snaps to the run's nearest
- * boundary (tie → after the group). Gaps at run edges, and gaps inside a run
- * that belongs to the dragged block itself, pass through unchanged.
- */
-function snapGapToGroupBoundary(
-  gap: number,
-  list: PlaybackItem[],
-  groupIdOf: Map<string, string>,
-  excludedKeys: Set<string>
-): number {
-  if (gap <= 0 || gap >= list.length) return gap;
-  const gidBefore = groupIdOf.get(itemKey(list[gap - 1]));
-  const gidAfter = groupIdOf.get(itemKey(list[gap]));
-  if (!gidBefore || gidBefore !== gidAfter) return gap;
-  if (excludedKeys.has(itemKey(list[gap]))) return gap;
-  let s = gap - 1;
-  while (s > 0 && groupIdOf.get(itemKey(list[s - 1])) === gidBefore) s--;
-  let e = gap + 1;
-  while (e < list.length && groupIdOf.get(itemKey(list[e])) === gidBefore) e++;
-  return gap - s < e - gap ? s : e;
-}
-
-/** Auto-dissolve groups that fell below 2 members. */
-function normalizeGroups(items: PlaylistItem[]): PlaylistItem[] {
-  const counts = new Map<string, number>();
-  for (const it of items) if (it.groupId) counts.set(it.groupId, (counts.get(it.groupId) ?? 0) + 1);
-  return items.map((it) => {
-    if (!it.groupId || (counts.get(it.groupId) ?? 0) >= 2) return it;
-    const { groupId: _g, ...rest } = it;
-    return rest as PlaylistItem;
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -2117,27 +2051,10 @@ export function PlaylistsPage() {
   }, [displayItems, clockSort, clockSortLocked]);
 
   /** itemKey -> run info over the reorder-space list, for group visuals. */
-  const groupRuns = useMemo((): Map<string, GroupRunInfo> => {
-    const res = new Map<string, GroupRunInfo>();
-    if (itemGroupIds.size === 0) return res;
-    let i = 0;
-    while (i < sortedEvents.length) {
-      const gid = itemGroupIds.get(itemKey(sortedEvents[i]));
-      if (!gid) { i++; continue; }
-      let j = i + 1;
-      while (j < sortedEvents.length && itemGroupIds.get(itemKey(sortedEvents[j])) === gid) j++;
-      const size = j - i;
-      for (let p = i; p < j; p++) {
-        res.set(itemKey(sortedEvents[p]), {
-          groupId: gid,
-          size,
-          pos: size === 1 ? "only" : p === i ? "first" : p === j - 1 ? "last" : "middle",
-        });
-      }
-      i = j;
-    }
-    return res;
-  }, [sortedEvents, itemGroupIds]);
+  const groupRuns = useMemo(
+    (): Map<string, GroupRunInfo> => computeGroupRuns(sortedEvents, itemKey, itemGroupIds),
+    [sortedEvents, itemGroupIds],
+  );
 
   // -------------------------------------------------------------------------
   // In-playlist filtering (Johannes #4/#12): analysis lens over the queue.
@@ -2674,7 +2591,7 @@ export function PlaylistsPage() {
     // are blocked anyway — keep the raw indicator.
     if (!filtersActive) {
       gap = snapGapToGroupBoundary(
-        gap, sortedEvents, itemGroupIds, new Set(dragBlockKeysRef.current ?? [])
+        gap, sortedEvents, itemKey, itemGroupIds, new Set(dragBlockKeysRef.current ?? [])
       );
     }
     if (gap <= 0) {
@@ -2855,7 +2772,7 @@ export function PlaylistsPage() {
     if (sourceIndex === -1) {
       if (key.startsWith("text:")) return; // text cards don't migrate
       // Foreign clips never enter a group implicitly — land at the boundary.
-      const insertIndex = snapGapToGroupBoundary(rawGap, sortedEvents, itemGroupIds, new Set());
+      const insertIndex = snapGapToGroupBoundary(rawGap, sortedEvents, itemKey, itemGroupIds, new Set());
       const colonIdx = key.indexOf(":");
       const matchId = key.slice(0, colonIdx);
       const eventId = Number(key.slice(colonIdx + 1));
@@ -2898,7 +2815,7 @@ export function PlaylistsPage() {
       return;
     }
     // Gaps inside the block's own group are legal (they collapse to a no-op).
-    const gap = snapGapToGroupBoundary(rawGap, sortedEvents, itemGroupIds, keySet);
+    const gap = snapGapToGroupBoundary(rawGap, sortedEvents, itemKey, itemGroupIds, keySet);
     const next = moveBlock(sortedEvents, blockIndices, gap);
     const isNoop = next.length === sortedEvents.length &&
       next.every((it, i) => itemKey(it) === itemKey(sortedEvents[i]));

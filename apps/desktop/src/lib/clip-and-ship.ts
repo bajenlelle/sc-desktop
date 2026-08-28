@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { isLocalPath } from "@/lib/stream";
 import { uploadToR2 } from "@/lib/r2-upload";
 import { updateClipR2Url } from "@/lib/playlists-db";
+import { clipBounds, clipShipKey, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import type { ExportSegment } from "@/lib/export";
 import type { Playlist } from "@/types/match";
 
@@ -35,15 +36,9 @@ export async function clipAndShip(
 
   for (const seg of clipSegments) {
     const { event, syncPoint } = seg;
-    if (!event.realWorldTime || !syncPoint.syncRealWorldTime) continue;
-
-    const eventMs = new Date(event.realWorldTime).getTime();
-    const syncMs = new Date(syncPoint.syncRealWorldTime).getTime();
-    if (isNaN(eventMs) || isNaN(syncMs)) continue;
-
-    const t = syncPoint.syncVideoTime + (eventMs - syncMs) / 1000;
-    const start = Math.max(0, t - preRoll - (seg.preRollOffset ?? 0));
-    const end = t + postRoll + (seg.postRollOffset ?? 0);
+    const t = computeVideoTime(event, syncPoint);
+    if (t === null) continue;
+    const { start, end } = clipBounds(t, preRoll, postRoll, seg.preRollOffset, seg.postRollOffset);
 
     // Idempotent: skip if this clip was already uploaded
     const existingClip = playlist.items.find(
@@ -68,9 +63,14 @@ export async function clipAndShip(
       outputPath: tempPath,
     });
 
-    const preStr = (preRoll + (seg.preRollOffset ?? 0)).toFixed(1);
-    const postStr = (postRoll + (seg.postRollOffset ?? 0)).toFixed(1);
-    const key = `clips/${seg.matchId}/${event.eventId}_pre${preStr}_post${postStr}.mp4`;
+    // Effective totals (base roll + per-clip offset) — the key format is
+    // pinned by a golden test in shared; existing uploads are addressed by it.
+    const key = clipShipKey(
+      seg.matchId,
+      event.eventId,
+      preRoll + (seg.preRollOffset ?? 0),
+      postRoll + (seg.postRollOffset ?? 0),
+    );
     const r2Url = await uploadToR2(tempPath, key);
 
     await invoke<void>("delete_file", { path: tempPath });

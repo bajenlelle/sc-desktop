@@ -10,7 +10,8 @@ import { isClipItem, type Playlist, type PlaylistFolder, type PlaylistClipItem, 
 import { exportPlaylist, type ExportSegment } from "@/lib/export";
 import { useAuth } from "@/lib/auth-context";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
-import { eventLabel, formatGameClock, isBookkeepingEvent, periodLabel, playerName } from "@scoutable/shared/lib/events";
+import { eventLabel, formatGameClock, isBookkeepingEvent, parseGameClock, periodLabel, playerName } from "@scoutable/shared/lib/events";
+import { computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { isLocalPath } from "@/lib/stream";
 
 // ---------------------------------------------------------------------------
@@ -37,21 +38,6 @@ function eventBadgeColor(e: PlayByPlayEvent): string {
     default:
       return "bg-muted text-muted-foreground";
   }
-}
-
-function parseGameClock(raw: string): number {
-  if (!raw || raw === "—") return -1;
-  const parts = raw.split(":");
-  if (parts.length < 2) return -1;
-  return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
-}
-
-function computeVideoTime(event: PlayByPlayEvent, sync: SyncPoint): number | null {
-  if (!event.realWorldTime || !sync.syncRealWorldTime) return null;
-  const eventMs = new Date(event.realWorldTime).getTime();
-  const syncMs = new Date(sync.syncRealWorldTime).getTime();
-  if (isNaN(eventMs) || isNaN(syncMs)) return null;
-  return sync.syncVideoTime + (eventMs - syncMs) / 1000;
 }
 
 const EVENT_TYPE_OPTIONS = [
