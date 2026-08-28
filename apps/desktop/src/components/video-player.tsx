@@ -1,6 +1,8 @@
 "use client";
 
 import { RefObject, useEffect, useRef } from "react";
+import { useAuth } from "@/lib/auth-context";
+import { Wordmark } from "@/components/logo";
 
 interface VideoPlayerProps {
   src: string;
@@ -9,6 +11,11 @@ interface VideoPlayerProps {
 
 export function VideoPlayer({ src, videoRef }: VideoPlayerProps) {
   const imgRef = useRef<HTMLImageElement>(null);
+  // Free-tier corner mark: free users can't export, and this closes the
+  // screen-record workaround. Rendered only once the plan is known so it
+  // never flashes for paying users.
+  const { activeOrgPlan, profileLoading } = useAuth();
+  const showWatermark = !profileLoading && activeOrgPlan === "free";
 
   useEffect(() => {
     const video = videoRef.current;
@@ -78,6 +85,18 @@ export function VideoPlayer({ src, videoRef }: VideoPlayerProps) {
         className="absolute inset-0 h-full w-full pointer-events-none"
         style={{ display: "none", objectFit: "contain" }}
       />
+      {showWatermark && (
+        // Bare letterforms + cyan dot (no box). The `dark` wrapper forces the
+        // light fill regardless of app theme — footage is the background.
+        // Sized relative to the player so it reads the same in the small
+        // browser panel and full theater mode.
+        <div
+          aria-hidden
+          className="dark pointer-events-none absolute bottom-[7%] right-[2.5%] z-20 w-[18%] min-w-28 max-w-60 opacity-70 drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)] select-none"
+        >
+          <Wordmark className="h-auto w-full" />
+        </div>
+      )}
     </div>
   );
 }

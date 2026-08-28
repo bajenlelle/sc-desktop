@@ -56,9 +56,10 @@ export async function exportPlaylistToPath(
   preRoll: number,
   postRoll: number,
   outputPath: string,
+  watermark: boolean,
 ): Promise<void> {
   const rustSegments = buildRustSegments(segments, preRoll, postRoll);
-  await invoke<void>("export_playlist", { segments: rustSegments, outputPath });
+  await invoke<void>("export_playlist", { segments: rustSegments, outputPath, watermark });
 }
 
 /**
@@ -70,6 +71,7 @@ export async function exportPlaylist(
   preRoll: number,
   postRoll: number,
   playlistName: string,
+  watermark: boolean,
 ): Promise<boolean> {
   const rustSegments = buildRustSegments(segments, preRoll, postRoll);
 
@@ -79,6 +81,6 @@ export async function exportPlaylist(
   });
   if (!outputPath) return false; // user cancelled
 
-  await invoke<void>("export_playlist", { segments: rustSegments, outputPath });
+  await invoke<void>("export_playlist", { segments: rustSegments, outputPath, watermark });
   return true;
 }

@@ -23,11 +23,26 @@ enum ExportSegment {
     },
 }
 
+const FONT_BYTES: &[u8] = include_bytes!("../resources/fonts/Roboto-Regular.ttf");
+
+/// The brand wordmark (letterforms + cyan dot) pre-rendered to a 230x36
+/// transparent PNG at ~70% opacity with a soft shadow — the same mark the
+/// in-app player overlay shows. Regenerate from components/logo.tsx's
+/// Wordmark SVG if the brand changes. Burned into exports by the final
+/// concat pass when the watermark is enabled.
+const WATERMARK_BYTES: &[u8] = include_bytes!("../resources/watermark.png");
+
+fn render_watermark_png(path: &std::path::Path) -> Result<(), String> {
+    std::fs::write(path, WATERMARK_BYTES)
+        .map_err(|e| format!("Failed to write watermark: {e}"))
+}
+
 #[tauri::command]
 async fn export_playlist(
     app: tauri::AppHandle,
     segments: Vec<ExportSegment>,
     output_path: String,
+    watermark: bool,
 ) -> Result<(), String> {
     use tauri_plugin_shell::ShellExt;
 
@@ -81,8 +96,6 @@ async fn export_playlist(
                 use ab_glyph::{FontArc, PxScale};
                 use image::{ImageBuffer, Rgba};
                 use imageproc::drawing::{draw_text_mut, text_size};
-
-                const FONT_BYTES: &[u8] = include_bytes!("../resources/fonts/Roboto-Regular.ttf");
 
                 let font = FontArc::try_from_slice(FONT_BYTES)
                     .map_err(|e| format!("Failed to load font: {e}"))?;
@@ -184,11 +197,27 @@ async fn export_playlist(
         concat_args.push("-i".to_string());
         concat_args.push(p.to_str().unwrap().to_string());
     }
+    // Watermark rides as one extra input overlaid after the concat — every
+    // segment is already normalized to 1280x720 there, so one steady mark
+    // covers the whole timeline (and the poster frame inherits it).
+    // Best-effort: a failed raster must never lose a finished render.
+    let watermark_png = std::env::temp_dir().join(format!("sc_wm_{timestamp}.png"));
+    let with_watermark = watermark && render_watermark_png(&watermark_png).is_ok();
+    if with_watermark {
+        concat_args.push("-i".to_string());
+        concat_args.push(watermark_png.to_str().unwrap().to_string());
+    }
     let mut filter = String::new();
     for i in 0..n {
         filter.push_str(&format!("[{i}:v:0][{i}:a:0]"));
     }
-    filter.push_str(&format!("concat=n={n}:v=1:a=1[outv][outa]"));
+    if with_watermark {
+        filter.push_str(&format!(
+            "concat=n={n}:v=1:a=1[cv][outa];[cv][{n}:v]overlay=W-w-24:H-h-48[outv]"
+        ));
+    } else {
+        filter.push_str(&format!("concat=n={n}:v=1:a=1[outv][outa]"));
+    }
     concat_args.extend([
         "-filter_complex".to_string(), filter,
         "-map".to_string(), "[outv]".to_string(),
@@ -213,6 +242,7 @@ async fn export_playlist(
     for f in &temp_files {
         let _ = std::fs::remove_file(f);
     }
+    let _ = std::fs::remove_file(&watermark_png);
 
     if result.status.success() {
         Ok(())
@@ -568,6 +598,22 @@ fn mime_for_path(path: &str) -> &'static str {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn render_watermark_png_writes_a_transparent_mark() {
+        let path = std::env::temp_dir().join("sc_wm_test.png");
+        let _ = std::fs::remove_file(&path);
+        render_watermark_png(&path).expect("watermark raster should succeed");
+        let img = image::open(&path).expect("png should be readable").to_rgba8();
+        assert!(img.width() > 100, "mark should be wide enough to read");
+        assert!(img.height() > 15);
+        // Transparent background, non-transparent mark.
+        assert_eq!(img.get_pixel(0, 0).0[3], 0, "corner should be transparent");
+        assert!(
+            img.pixels().any(|p| p.0[3] > 0),
+            "mark should have visible pixels"
+        );
+    }
 
     /// Fresh scratch dir per test — resolve_within takes the base dir as a
     /// parameter precisely so tests never touch the real system temp policy.

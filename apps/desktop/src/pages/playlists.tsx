@@ -95,6 +95,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { exportPlaylist, type ExportSegment } from "@/lib/export";
+import { getExportWatermarkDisabled } from "@/lib/prefs";
 import { clipAndShip } from "@/lib/clip-and-ship";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
@@ -2965,7 +2966,11 @@ export function PlaylistsPage() {
     try {
       const segments = buildExportSegments();
       segmentCount = segments.filter(s => s.kind === 'clip').length;
-      const exported = await exportPlaylist(segments, preRoll, postRoll, selected!.name);
+      // Watermark policy: rookie exports always carry it (public tapes are
+      // the growth loop); pro/franchise may disable it in Settings.
+      const canDisableWatermark = activeOrgPlan === 'pro' || activeOrgPlan === 'franchise';
+      const watermark = !(canDisableWatermark && getExportWatermarkDisabled());
+      const exported = await exportPlaylist(segments, preRoll, postRoll, selected!.name, watermark);
       if (exported) {
         trackEvent('video_exported', { playlist_id: selected!.id, clip_count: segmentCount, status: 'success', selection_only: selectedClipIds.size > 0 });
         // Completes the Getting Started "export a playlist" step (per-device

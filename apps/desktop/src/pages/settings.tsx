@@ -4,12 +4,23 @@ import { check } from "@tauri-apps/plugin-updater";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { ReportProblemDialog } from "@/components/report-problem-dialog";
+import { useAuth } from "@/lib/auth-context";
+import { getExportWatermarkDisabled, setExportWatermarkDisabled } from "@/lib/prefs";
 
 export function SettingsPage() {
+  const { activeOrgPlan } = useAuth();
   const [version, setVersion] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [watermarkOn, setWatermarkOn] = useState(() => !getExportWatermarkDisabled());
+  const canToggleWatermark = activeOrgPlan === "pro" || activeOrgPlan === "franchise";
+
+  function toggleWatermark(checked: boolean) {
+    setWatermarkOn(checked);
+    setExportWatermarkDisabled(!checked);
+  }
 
   useEffect(() => {
     getVersion().then(setVersion).catch(() => {});
@@ -69,6 +80,32 @@ export function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {canToggleWatermark && (
+        <Card>
+          <CardContent className="space-y-4 p-6">
+            <h2 className="text-base font-semibold text-foreground">Exports</h2>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label htmlFor="export-watermark" className="text-sm text-foreground">
+                  Include the Scoutable watermark on exported videos
+                </Label>
+                <p className="text-sm text-muted-foreground">
+                  A small mark in the corner of videos saved to your computer.
+                  Clips sent to phones always include it.
+                </p>
+              </div>
+              <input
+                id="export-watermark"
+                type="checkbox"
+                checked={watermarkOn}
+                onChange={(e) => toggleWatermark(e.target.checked)}
+                className="h-4 w-4 shrink-0 accent-primary"
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <ReportProblemDialog open={reportOpen} onOpenChange={setReportOpen} />
     </div>

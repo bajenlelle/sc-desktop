@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { MultiSelectDropdown } from "@/components/ui/multi-select-dropdown";
 import { isClipItem, type Playlist, type PlaylistFolder, type PlaylistClipItem, type PlayByPlayEvent, type SyncPoint } from "@/types/match";
 import { exportPlaylist, type ExportSegment } from "@/lib/export";
+import { getExportWatermarkDisabled } from "@/lib/prefs";
 import { useAuth } from "@/lib/auth-context";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
 import { eventLabel, formatGameClock, isBookkeepingEvent, parseGameClock, periodLabel, playerName } from "@scoutable/shared/lib/events";
@@ -446,6 +447,9 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
         preRoll,
         postRoll,
         name,
+        // Same policy as the playlists page: rookie always watermarked,
+        // pro/franchise honor the Settings toggle.
+        !((activeOrgPlan === "pro" || activeOrgPlan === "franchise") && getExportWatermarkDisabled()),
       );
     } catch (e) {
       setExportError(e instanceof Error ? e.message : String(e));

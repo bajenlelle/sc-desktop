@@ -33,7 +33,9 @@ export async function sendHighlightToPhone(
   const posterTempPath = `${tempDir}/sc_highlight_${stamp}.jpg`;
 
   onStage?.("rendering");
-  await exportPlaylistToPath(segments, preRoll, postRoll, tempPath);
+  // Watermark always on: send-to-phone clips land on Instagram/TikTok —
+  // this surface is public distribution regardless of the sender's plan.
+  await exportPlaylistToPath(segments, preRoll, postRoll, tempPath, true);
 
   try {
     onStage?.("uploading");
