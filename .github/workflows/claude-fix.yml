@@ -14,6 +14,9 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
+  # claude-code-action exchanges an OIDC token for its GitHub App token.
+  id-token: write
+  actions: read
 
 # One fix at a time, repo-wide — agent PRs shouldn't race each other.
 concurrency:

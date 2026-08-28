@@ -5,11 +5,14 @@
 name: claude-triage
 on:
   issues:
-    types: [opened]
+    types: [opened, reopened]
 
 permissions:
   contents: read
   issues: write
+  # claude-code-action exchanges an OIDC token for its GitHub App token.
+  id-token: write
+  actions: read
 
 concurrency:
   group: triage-${{ github.event.issue.number }}
