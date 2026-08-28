@@ -161,7 +161,6 @@ export function PlaylistFeed({
     if (fresh.length > 0) return { kind: "start" as const, playlist: fresh[0], count: fresh.length };
     if (playlists.length > 0) return { kind: "done" as const };
     return null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playlists]);
 
   const activeSourceLabel =
