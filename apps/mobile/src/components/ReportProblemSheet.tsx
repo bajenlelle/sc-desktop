@@ -66,11 +66,11 @@ export function ReportProblemSheet({
           >
             <View className="mx-auto my-2 h-1 w-10 rounded-full bg-border dark:bg-border-dark" />
             <Text className="text-lg font-semibold text-foreground dark:text-foreground-dark">
-              Report a problem
+              Send feedback
             </Text>
             <Text className="mt-2 text-sm text-muted-foreground dark:text-muted-foreground-dark">
-              Describe what went wrong and what you expected. Your app version and current screen
-              are attached automatically.
+              Found a bug, got an idea, or something confusing? Tell us — your app version and
+              current screen are attached automatically.
             </Text>
             <TextInput
               value={description}
@@ -85,7 +85,7 @@ export function ReportProblemSheet({
             />
             <View className="mt-4 gap-2">
               <Button
-                title={submitting ? "Sending…" : "Send report"}
+                title={submitting ? "Sending…" : "Send feedback"}
                 onPress={handleSubmit}
                 loading={submitting}
                 disabled={!description.trim()}

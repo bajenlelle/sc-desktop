@@ -56,16 +56,16 @@ export function SettingsPage() {
 
       <Card>
         <CardContent className="space-y-4 p-6">
-          <h2 className="text-base font-semibold text-foreground">Support</h2>
+          <h2 className="text-base font-semibold text-foreground">Feedback</h2>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-foreground">Something not working right?</p>
+              <p className="text-sm text-foreground">Found a bug or got an idea?</p>
               <p className="text-sm text-muted-foreground">
                 Send us a description and an optional screenshot — version info is attached
                 automatically.
               </p>
             </div>
-            <Button onClick={() => setReportOpen(true)}>Report a Problem</Button>
+            <Button onClick={() => setReportOpen(true)}>Send Feedback</Button>
           </div>
         </CardContent>
       </Card>

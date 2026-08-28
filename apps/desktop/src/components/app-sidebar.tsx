@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
 import {
@@ -6,12 +7,15 @@ import {
   Film,
   Home,
   ListVideo,
+  MessageSquarePlus,
   Plus,
+  Settings,
   Share2,
   Sun,
   Moon,
   LogOut,
 } from "lucide-react";
+import { ReportProblemDialog } from "@/components/report-problem-dialog";
 import { LogoMark } from "@/components/logo";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -123,6 +127,7 @@ export function AppSidebar() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { resolvedTheme, setTheme } = useTheme();
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   const showOrganization = !activeOrgIsPersonal && activeOrgRole !== null;
@@ -227,6 +232,18 @@ export function AppSidebar() {
             <TooltipTrigger asChild>
               <button
                 type="button"
+                className="h-10 w-10 flex items-center justify-center rounded-lg transition-colors text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                onClick={() => setFeedbackOpen(true)}
+              >
+                <MessageSquarePlus className="h-5 w-5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Send feedback</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
                 className="relative h-10 w-10 flex items-center justify-center rounded-lg transition-colors text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                 onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
               >
@@ -238,6 +255,12 @@ export function AppSidebar() {
               {resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
             </TooltipContent>
           </Tooltip>
+          <SidebarIconButton
+            href="/settings"
+            icon={Settings}
+            label="Settings"
+            isActive={pathname === "/settings"}
+          />
           {user && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -272,6 +295,8 @@ export function AppSidebar() {
           )}
         </div>
       </div>
+
+      <ReportProblemDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
     </aside>
   );
 }

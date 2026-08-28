@@ -56,11 +56,6 @@ export default function AdminFeedbackPage() {
       .catch(() => router.replace("/organization"));
   }, [user, router]);
 
-  useEffect(() => {
-    if (!checked) return;
-    loadReports();
-  }, [checked]);
-
   async function loadReports() {
     setLoading(true);
     const supabase = createClient();
@@ -69,6 +64,12 @@ export default function AdminFeedbackPage() {
     else setReports((data ?? []) as FeedbackReport[]);
     setLoading(false);
   }
+
+  useEffect(() => {
+    if (!checked) return;
+    loadReports();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checked]);
 
   async function cycleStatus(report: FeedbackReport) {
     const next = NEXT_STATUS[report.status];

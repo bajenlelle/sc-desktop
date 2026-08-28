@@ -108,7 +108,7 @@ export default function ProfileScreen() {
             loading={resetting}
           />
           <Button
-            title="Report a problem"
+            title="Send feedback"
             variant="outline"
             onPress={() => setReportOpen(true)}
           />

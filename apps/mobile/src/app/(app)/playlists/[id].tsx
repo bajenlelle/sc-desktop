@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, Pressable, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -13,6 +13,7 @@ import {
 } from "@/hooks/use-clip-queue";
 import { ClipRow } from "@/components/ClipRow";
 import { PlayerControls } from "@/components/PlayerControls";
+import { ReportProblemSheet } from "@/components/ReportProblemSheet";
 import { ProgressBar } from "@/components/ProgressBar";
 import { TextCardOverlay } from "@/components/TextCardOverlay";
 
@@ -63,6 +64,7 @@ export default function WatchScreen() {
   // Keep the active row visible as the queue auto-advances — without this a
   // long playlist plays on while the highlight drifts below the fold.
   const listRef = useRef<FlatList<PlaybackItem>>(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   useEffect(() => {
     if (!queue.activeKey) return;
     const index = displayItems.findIndex((i) => itemKey(i) === queue.activeKey);
@@ -137,6 +139,16 @@ export default function WatchScreen() {
         >
           {playlist.name}
         </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Send feedback"
+          onPress={() => setFeedbackOpen(true)}
+          className="min-h-[44px] items-center justify-center rounded-full border border-border dark:border-border-dark px-3"
+        >
+          <Text className="text-xs font-medium text-muted-foreground dark:text-muted-foreground-dark">
+            Feedback
+          </Text>
+        </Pressable>
       </View>
 
       {/* Video area — 16:9, black; custom controls (no native seek UI). */}
@@ -252,6 +264,8 @@ export default function WatchScreen() {
           </View>
         }
       />
+
+      <ReportProblemSheet visible={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
     </SafeAreaView>
   );
 }

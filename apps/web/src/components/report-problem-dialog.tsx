@@ -53,7 +53,7 @@ export function ReportProblemDialog({ open, onOpenChange }: ReportProblemDialogP
     });
     setSubmitting(false);
     if (result.ok) {
-      toast.success("Thanks — your report is in. We'll take a look.");
+      toast.success("Thanks — feedback received!");
       setDescription("");
       setScreenshot(null);
       onOpenChange(false);
@@ -70,10 +70,10 @@ export function ReportProblemDialog({ open, onOpenChange }: ReportProblemDialogP
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Report a problem</DialogTitle>
+          <DialogTitle>Send feedback</DialogTitle>
           <DialogDescription>
-            Describe what went wrong and what you expected. Your current page is attached
-            automatically.
+            Found a bug, got an idea, or something confusing? Tell us — your current page is
+            attached automatically.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
@@ -105,7 +105,7 @@ export function ReportProblemDialog({ open, onOpenChange }: ReportProblemDialogP
             Cancel
           </Button>
           <Button onClick={handleSubmit} disabled={!description.trim() || submitting}>
-            {submitting ? "Sending…" : "Send Report"}
+            {submitting ? "Sending…" : "Send Feedback"}
           </Button>
         </DialogFooter>
       </DialogContent>

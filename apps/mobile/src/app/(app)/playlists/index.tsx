@@ -8,6 +8,7 @@ import { playableClips, usePlaylists } from "@/lib/playlists-store";
 import { themeColors } from "@/lib/theme";
 import { Avatar } from "@/components/Avatar";
 import { PlaylistFeed } from "@/components/PlaylistFeed";
+import { ReportProblemSheet } from "@/components/ReportProblemSheet";
 import type { PlaylistCardData } from "@/components/PlaylistCard";
 import type { SelectOption } from "@/components/Select";
 
@@ -25,6 +26,7 @@ export default function PlaylistsScreen() {
   } = usePlaylists();
   const scheme = useColorScheme();
   const [refreshing, setRefreshing] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   // Cards for the landing feed, with per-playlist progress folded in
   // (port of web's feedItems memo).
@@ -107,14 +109,26 @@ export default function PlaylistsScreen() {
         <Text className="font-heading text-2xl text-foreground dark:text-foreground-dark">
           My Playlists
         </Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Profile"
-          onPress={() => router.push("/profile")}
-          className="min-h-[44px] min-w-[44px] items-center justify-center"
-        >
-          <Avatar name={profile?.fullName} url={profile?.avatarUrl} size={32} />
-        </Pressable>
+        <View className="flex-row items-center gap-1">
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Send feedback"
+            onPress={() => setFeedbackOpen(true)}
+            className="min-h-[44px] items-center justify-center rounded-full border border-border dark:border-border-dark px-3"
+          >
+            <Text className="text-xs font-medium text-muted-foreground dark:text-muted-foreground-dark">
+              Feedback
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Profile"
+            onPress={() => router.push("/profile")}
+            className="min-h-[44px] min-w-[44px] items-center justify-center"
+          >
+            <Avatar name={profile?.fullName} url={profile?.avatarUrl} size={32} />
+          </Pressable>
+        </View>
       </View>
 
       {loading ? (
@@ -131,6 +145,7 @@ export default function PlaylistsScreen() {
           onRefresh={handleRefresh}
         />
       )}
+      <ReportProblemSheet visible={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
     </SafeAreaView>
   );
 }

@@ -238,7 +238,7 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
                 onClick={() => setReportOpen(true)}
               >
                 <LifeBuoy className="h-3.5 w-3.5" />
-                Report a problem
+                Send feedback
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
