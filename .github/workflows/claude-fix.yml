@@ -65,7 +65,10 @@ jobs:
             3. Verify: `npx tsc --noEmit` in every workspace you touched, and
                `npm test` in packages/shared if you touched it.
             4. Open a PR against `main` titled "fix: <summary> (#${{ github.event.issue.number }})"
-               whose body explains the root cause and links the issue.
+               whose body explains the root cause and links the issue with
+               "Fixes #${{ github.event.issue.number }}". If the issue references a Sentry issue
+               id (like SCOUTABLE-DESKTOP-3), also add "Fixes <that id>" on its
+               own line — it resolves the Sentry issue when the PR merges.
             5. If the fix is unclear, risky, or needs a product decision, comment
                your analysis on the issue instead of opening a PR.
           # Broad Bash is acceptable here: the trigger is maintainer-gated
