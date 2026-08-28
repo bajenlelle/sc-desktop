@@ -285,12 +285,17 @@ Deno.serve(async (req) => {
     return new Response("Method Not Allowed", { status: 405 });
   }
 
-  // Verify shared secret (skip check if no secret is configured — dev mode)
-  if (EMAIL_SECRET) {
-    const incoming = req.headers.get("x-email-secret") ?? "";
-    if (incoming !== EMAIL_SECRET) {
-      return new Response("Unauthorized", { status: 401 });
-    }
+  // Verify shared secret. Fail closed: this function is reachable from the
+  // public internet and sends from noreply@scoutable.se — a missing secret
+  // must never mean "no auth".
+  if (!EMAIL_SECRET) {
+    console.error(
+      "[send-email] EMAIL_NOTIFICATION_SECRET is not configured — refusing all requests",
+    );
+    return new Response("Server misconfigured", { status: 500 });
+  }
+  if ((req.headers.get("x-email-secret") ?? "") !== EMAIL_SECRET) {
+    return new Response("Unauthorized", { status: 401 });
   }
 
   let body: SendEmailRequest;
