@@ -82,7 +82,16 @@ import {
   ContextMenuSubTrigger,
   ContextMenuSubContent,
 } from "@/components/ui/context-menu";
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+} from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { exportPlaylist, type ExportSegment } from "@/lib/export";
@@ -3439,10 +3448,38 @@ export function PlaylistsPage() {
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  {/* Keep in lockstep with the row's ContextMenuContent below. */}
                   <>
                     <DropdownMenuItem onSelect={() => { setEditingPlaylistId(pl.id); setEditPlaylistName(pl.name); }}>
                       Rename
                     </DropdownMenuItem>
+                    {(folders.length > 0 || pl.folderId) && (
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>Move to folder</DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="max-h-72 overflow-y-auto">
+                          <DropdownMenuItem
+                            disabled={!pl.folderId}
+                            onSelect={() => movePlaylistToFolder(pl.id, null)}
+                          >
+                            Uncategorized
+                          </DropdownMenuItem>
+                          {folders.length > 0 && <DropdownMenuSeparator />}
+                          {flattenFolderTree(folders).map(({ folder, depth }) => (
+                            <DropdownMenuItem
+                              key={folder.id}
+                              disabled={pl.folderId === folder.id}
+                              style={{ paddingLeft: 8 + depth * 12 }}
+                              onSelect={() => {
+                                void movePlaylistToFolder(pl.id, folder.id);
+                                setExpandedFolders((prev) => new Set([...prev, folder.id]));
+                              }}
+                            >
+                              {folder.name}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+                    )}
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                       className="text-destructive focus:text-destructive"
@@ -3681,6 +3718,7 @@ export function PlaylistsPage() {
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
+                      {/* Keep in lockstep with the folder header's ContextMenuContent below. */}
                       <DropdownMenuItem onSelect={() => handleNewPlaylist(folder.id)}>
                         New Playlist
                       </DropdownMenuItem>
@@ -3688,6 +3726,34 @@ export function PlaylistsPage() {
                         New Subfolder
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>Move to</DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="max-h-72 overflow-y-auto">
+                          <DropdownMenuItem
+                            disabled={!folder.parentId}
+                            onSelect={() => void moveFolderToParent(folder.id, null)}
+                          >
+                            Top level
+                          </DropdownMenuItem>
+                          {folders.length > 1 && <DropdownMenuSeparator />}
+                          {flattenFolderTree(folders).map(({ folder: target, depth: targetDepth }) => (
+                            <DropdownMenuItem
+                              key={target.id}
+                              disabled={
+                                wouldCreateCycle(folders, folder.id, target.id) ||
+                                (folder.parentId ?? null) === target.id
+                              }
+                              style={{ paddingLeft: 8 + targetDepth * 12 }}
+                              onSelect={() => {
+                                void moveFolderToParent(folder.id, target.id);
+                                setExpandedFolders((prev) => new Set([...prev, target.id]));
+                              }}
+                            >
+                              {target.name}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
                       <DropdownMenuItem onSelect={() => { setEditingFolderId(folder.id); setEditFolderName(folder.name); }}>
                         Rename
                       </DropdownMenuItem>
