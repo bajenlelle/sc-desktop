@@ -4,6 +4,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://app.scoutable.se"),
   title: "Scoutable",
   description: "Watch your team's playlists",
 };
