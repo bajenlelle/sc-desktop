@@ -27,9 +27,15 @@ export function VideoPlayer({ src, videoRef }: VideoPlayerProps) {
       offscreen.height = video.videoHeight;
       const ctx = offscreen.getContext("2d");
       if (!ctx) return;
-      ctx.drawImage(video, 0, 0);
-      img.src = offscreen.toDataURL("image/jpeg", 0.9);
-      img.style.display = "block";
+      try {
+        ctx.drawImage(video, 0, 0);
+        img.src = offscreen.toDataURL("image/jpeg", 0.9);
+        img.style.display = "block";
+      } catch {
+        // A non-CORS-approved source taints the canvas and toDataURL throws
+        // SecurityError. Degrade to no freeze-frame (brief black on pause)
+        // rather than an uncaught error on every pause.
+      }
     }
 
     function hideFrame() {
@@ -57,6 +63,10 @@ export function VideoPlayer({ src, videoRef }: VideoPlayerProps) {
       <video
         ref={videoRef}
         src={src}
+        // CORS mode for remote (R2) sources so the pause freeze-frame canvas
+        // isn't tainted — R2 serves Access-Control-Allow-Origin: *. Local
+        // stream:// playback stays in no-cors mode, untouched.
+        crossOrigin={src.startsWith("http") ? "anonymous" : undefined}
         className="h-full w-full"
         playsInline
       />
