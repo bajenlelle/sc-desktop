@@ -59,12 +59,29 @@ import {
   normalizeGroups,
   type GroupRunInfo,
 } from "@scoutable/shared/lib/clip-groups";
+import {
+  childFoldersByParent,
+  flattenFolderTree,
+  collectSubtreeIds,
+  wouldCreateCycle,
+  subtreeStats,
+  ancestorIds,
+} from "@scoutable/shared/lib/folder-tree";
 import { getOrgContext, getOrgContextForOrg, getOrgMembers, getTeamMemberIds } from "@/lib/profile-db";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
 import { SendToPhoneDialog } from "@/components/send-to-phone-dialog";
 import { PlaylistFilterBar, EMPTY_QUEUE_FILTERS, queueFiltersActive, type QueueFilters } from "@/components/playlist-filter-bar";
 import type { OrgTeam, UserProfile } from "@/types/org";
-import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubTrigger,
+  ContextMenuSubContent,
+} from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
@@ -1495,6 +1512,11 @@ export function PlaylistsPage() {
   const [editPlaylistName, setEditPlaylistName] = useState("");
   const [openMenuPlaylistId, setOpenMenuPlaylistId] = useState<string | null>(null);
   const [openMenuFolderId, setOpenMenuFolderId] = useState<string | null>(null);
+  /** Non-empty folder pending subtree-delete confirmation. */
+  const [deleteFolderTarget, setDeleteFolderTarget] = useState<PlaylistFolder | null>(null);
+  // dataTransfer payloads are unreadable during dragover, so live cycle checks
+  // while hovering need the dragged folder id in a ref.
+  const draggedFolderIdRef = useRef<string | null>(null);
   const [clockSort, setClockSort] = useState<ClockSort>("none");
   const [search, setSearch] = useState("");
   const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
@@ -1934,19 +1956,44 @@ export function PlaylistsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localVideoUrl]);
 
-  // Filter playlists by search
+  // Folder tree: parent id (null = root) -> sorted child folders
+  const childFolders = useMemo(() => childFoldersByParent(folders), [folders]);
+
+  // folderId -> lowercased "own name + all ancestor names", so searching a
+  // parent folder's name surfaces playlists in its subfolders too.
+  const folderSearchText = useMemo(() => {
+    const map = new Map<string, string>();
+    const byId = new Map(folders.map((f) => [f.id, f]));
+    for (const f of folders) {
+      const names = [f.name, ...ancestorIds(folders, f.id).map((id) => byId.get(id)?.name ?? "")];
+      map.set(f.id, names.join(" ").toLowerCase());
+    }
+    return map;
+  }, [folders]);
+
+  // Filter playlists by search (playlist name or any ancestor folder name)
   const filteredPlaylists = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return playlists;
     return playlists.filter((pl) => {
       if (pl.name.toLowerCase().includes(q)) return true;
-      if (pl.folderId) {
-        const folder = folders.find((f) => f.id === pl.folderId);
-        if (folder?.name.toLowerCase().includes(q)) return true;
-      }
+      if (pl.folderId && folderSearchText.get(pl.folderId)?.includes(q)) return true;
       return false;
     });
-  }, [playlists, search, folders]);
+  }, [playlists, search, folderSearchText]);
+
+  // While searching, render only folders that contain a match (or an ancestor
+  // of one) — empty branches disappear instead of cluttering the results.
+  const visibleFolderIdsWhileSearching = useMemo(() => {
+    if (!search.trim()) return null;
+    const visible = new Set<string>();
+    for (const pl of filteredPlaylists) {
+      if (!pl.folderId) continue;
+      visible.add(pl.folderId);
+      for (const id of ancestorIds(folders, pl.folderId)) visible.add(id);
+    }
+    return visible;
+  }, [search, filteredPlaylists, folders]);
 
   const totalPlaylists = playlists.length;
 
@@ -3082,11 +3129,15 @@ export function PlaylistsPage() {
   // Folder operations
   // ---------------------------------------------------------------------------
 
-  function handleNewFolder() {
+  function handleNewFolder(parentId?: string) {
     const tempId = `temp-${Date.now()}`;
     setPendingNewFolderId(tempId);
-    setFolders((prev) => [...prev, { id: tempId, name: "New Folder", sortOrder: 0 }]);
-    setExpandedFolders((prev) => new Set([...prev, tempId]));
+    setFolders((prev) => [...prev, { id: tempId, name: "New Folder", sortOrder: 0, parentId }]);
+    setExpandedFolders((prev) => {
+      const s = new Set([...prev, tempId]);
+      if (parentId) s.add(parentId); // temp row must be visible inside its parent
+      return s;
+    });
     setEditingFolderId(tempId);
     setEditFolderName("New Folder");
   }
@@ -3102,8 +3153,9 @@ export function PlaylistsPage() {
         setExpandedFolders((prev) => { const s = new Set(prev); s.delete(id); return s; });
         return;
       }
+      const parentId = folders.find((f) => f.id === id)?.parentId;
       try {
-        const folder = await createFolder(name);
+        const folder = await createFolder(name, parentId);
         setFolders((prev) => prev.map((f) => f.id === id ? folder : f));
         setExpandedFolders((prev) => { const s = new Set(prev); s.delete(id); s.add(folder.id); return s; });
       } catch (err) {
@@ -3121,32 +3173,94 @@ export function PlaylistsPage() {
     setEditingFolderId(null);
   }
 
+  /** Opens the confirm dialog for non-empty folders; empty ones delete straight away. */
+  function requestDeleteFolder(folder: PlaylistFolder) {
+    const stats = subtreeStats(folders, playlists, folder.id);
+    if (stats.folderCount === 0 && stats.playlistCount === 0) {
+      void handleDeleteFolder(folder.id);
+    } else {
+      setDeleteFolderTarget(folder);
+    }
+  }
+
   async function handleDeleteFolder(folderId: string) {
-    // Move playlists in this folder to Uncategorized (DB handles ON DELETE SET NULL)
-    // Update local state optimistically
+    // Subtree delete: DB CASCADE removes descendant folders, and
+    // playlists.folder_id ON DELETE SET NULL moves every contained playlist to
+    // Uncategorized. Mirror all of it optimistically.
+    const ids = collectSubtreeIds(folders, folderId);
     setPlaylists((prev) => prev.map((p) =>
-      p.folderId === folderId ? { ...p, folderId: undefined } : p
+      p.folderId && ids.has(p.folderId) ? { ...p, folderId: undefined } : p
     ));
-    await deleteFolder(folderId);
-    setFolders((prev) => prev.filter((f) => f.id !== folderId));
+    setSelected((prev) =>
+      prev && prev.folderId && ids.has(prev.folderId) ? { ...prev, folderId: undefined } : prev
+    );
+    setFolders((prev) => prev.filter((f) => !ids.has(f.id)));
+    setExpandedFolders((prev) => {
+      const s = new Set(prev);
+      ids.forEach((id) => s.delete(id));
+      return s;
+    });
+    try {
+      await deleteFolder(folderId);
+    } catch (err) {
+      console.error("Failed to delete folder:", err);
+      toast.error("Couldn't delete the folder — reloading");
+      const [freshFolders, freshPlaylists] = await Promise.all([listFolders(), listPlaylists()]);
+      setFolders(freshFolders);
+      setPlaylists(freshPlaylists);
+    }
   }
 
   function handleDragStart(playlistId: string, e: React.DragEvent) {
     e.dataTransfer.setData("text/playlist-id", playlistId);
   }
 
-  async function handleDrop(targetFolderId: string | null, e: React.DragEvent) {
-    e.preventDefault();
-    setDragOverFolder(null);
-    const playlistId = e.dataTransfer.getData("text/playlist-id");
-    if (!playlistId) return;
-    await updatePlaylist(playlistId, { folderId: targetFolderId });
+  function handleFolderDragStart(folderId: string, e: React.DragEvent) {
+    e.dataTransfer.setData("text/folder-id", folderId);
+    draggedFolderIdRef.current = folderId;
+  }
+
+  async function movePlaylistToFolder(playlistId: string, folderId: string | null) {
+    await updatePlaylist(playlistId, { folderId });
     setPlaylists((prev) => prev.map((p) =>
-      p.id === playlistId ? { ...p, folderId: targetFolderId ?? undefined } : p
+      p.id === playlistId ? { ...p, folderId: folderId ?? undefined } : p
     ));
     if (selected?.id === playlistId) {
-      setSelected((prev) => prev ? { ...prev, folderId: targetFolderId ?? undefined } : prev);
+      setSelected((prev) => prev ? { ...prev, folderId: folderId ?? undefined } : prev);
     }
+  }
+
+  async function moveFolderToParent(folderId: string, newParentId: string | null) {
+    const current = folders.find((f) => f.id === folderId);
+    if (!current || (current.parentId ?? null) === newParentId) return;
+    if (wouldCreateCycle(folders, folderId, newParentId)) {
+      toast.error("Can't move a folder into itself");
+      return;
+    }
+    setFolders((prev) => prev.map((f) =>
+      f.id === folderId ? { ...f, parentId: newParentId ?? undefined } : f
+    ));
+    try {
+      await updateFolder(folderId, { parentId: newParentId });
+    } catch (err) {
+      console.error("Failed to move folder:", err);
+      toast.error("Couldn't move the folder — reloading");
+      setFolders(await listFolders());
+    }
+  }
+
+  async function handleDrop(targetFolderId: string | null, e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverFolder(null);
+    const folderId = e.dataTransfer.getData("text/folder-id");
+    if (folderId) {
+      await moveFolderToParent(folderId, targetFolderId);
+      return;
+    }
+    const playlistId = e.dataTransfer.getData("text/playlist-id");
+    if (!playlistId) return;
+    await movePlaylistToFolder(playlistId, targetFolderId);
   }
 
   // ---------------------------------------------------------------------------
@@ -3195,10 +3309,14 @@ export function PlaylistsPage() {
   // New Playlist inline creation
   // ---------------------------------------------------------------------------
 
-  function handleNewPlaylist() {
+  /**
+   * undefined → inherit the selected playlist's folder (header button
+   * behavior); a folder id → create inside it (context menu); null → root.
+   */
+  function handleNewPlaylist(folderIdOverride?: string | null) {
     if (browserPanelRef.current?.isCollapsed()) browserPanelRef.current.expand();
     const tempId = `temp-${Date.now()}`;
-    const folderId = selected?.folderId;
+    const folderId = folderIdOverride === undefined ? selected?.folderId : folderIdOverride ?? undefined;
     const tempPlaylist: Playlist = { id: tempId, name: "New Playlist", items: [], folderId };
     setPendingNewPlaylistId(tempId);
     setPlaylists((prev) => [tempPlaylist, ...prev]);
@@ -3209,6 +3327,421 @@ export function PlaylistsPage() {
     }
     setEditingPlaylistId(tempId);
     setEditPlaylistName("New Playlist");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sidebar tree rendering. Plain functions, NOT nested components — a nested
+  // component would remount (and lose focus in) the inline rename <input> on
+  // every keystroke.
+  // ---------------------------------------------------------------------------
+
+  function renderPlaylistRow(pl: Playlist, indentPx: number): React.ReactNode {
+    const isActive = selected?.id === pl.id;
+    const isEditingThis = editingPlaylistId === pl.id;
+    return (
+      <ContextMenu key={pl.id}>
+        <ContextMenuTrigger asChild>
+          <div
+            data-playlist-id={pl.id}
+            draggable={!isEditingThis}
+            onDragStart={(e) => handleDragStart(pl.id, e)}
+            onDragEnd={() => setDragOverFolder(null)}
+            onDragOver={(e) => {
+              if (!e.dataTransfer.types.includes("text/clip")) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "copy";
+              if (clipDragOverPlaylistIdRef.current !== pl.id) {
+                clipDragOverPlaylistIdRef.current = pl.id;
+                setClipDragOverPlaylistId(pl.id);
+                // Spring-load: open this playlist after a delay if not already open.
+                if (selected?.id !== pl.id && clipDragPlaylistOpenTimerRef.current === null) {
+                  setClipOpenPlaylistId(pl.id);
+                  clipDragPlaylistOpenTimerRef.current = setTimeout(() => {
+                    clipDragPlaylistOpenTimerRef.current = null;
+                    setClipOpenPlaylistId(null);
+                    selectPlaylist(pl);
+                  }, 600);
+                }
+              }
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                clipDragOverPlaylistIdRef.current = null;
+                setClipDragOverPlaylistId(null);
+                setClipOpenPlaylistId(null);
+                if (clipDragPlaylistOpenTimerRef.current) {
+                  clearTimeout(clipDragPlaylistOpenTimerRef.current);
+                  clipDragPlaylistOpenTimerRef.current = null;
+                }
+              }
+            }}
+            onDrop={(e) => {
+              const key = e.dataTransfer.getData("text/clip");
+              if (!key) return;
+              e.preventDefault();
+              handleClipDropOnPlaylist(pl.id, key);
+            }}
+            style={{ paddingLeft: indentPx }}
+            className={`group flex w-full cursor-pointer items-center justify-between border-l-2 pr-3 py-1.5 text-left transition-colors hover:bg-muted/50 ${
+              isActive
+                ? "border-l-primary bg-primary/10"
+                : "border-l-border hover:border-l-border/80"
+            } ${clipDragOverPlaylistId === pl.id ? "bg-primary/15 ring-1 ring-inset ring-primary" : ""} ${clipOpenPlaylistId === pl.id ? "animate-pulse" : ""}`}
+            onClick={() => !isEditingThis && selectPlaylist(pl)}
+          >
+            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+              <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40 opacity-0 group-hover:opacity-100 cursor-grab" />
+              <ListVideo className={`h-3 w-3 shrink-0 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
+              {isEditingThis ? (
+                <input
+                  autoFocus
+                  className="flex-1 min-w-0 rounded border border-primary bg-background px-1 py-0.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary"
+                  value={editPlaylistName}
+                  onChange={(e) => setEditPlaylistName(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  onBlur={() => handleRenamePlaylist(pl.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") e.currentTarget.blur();
+                    if (e.key === "Escape") {
+                      if (pl.id === pendingNewPlaylistId) {
+                        setPendingNewPlaylistId(null);
+                        setPlaylists((prev) => prev.filter((p) => p.id !== pl.id));
+                      }
+                      setEditingPlaylistId(null);
+                    }
+                  }}
+                />
+              ) : (
+                <>
+                  {(pl.teamIds?.length ?? 0) > 0 && (
+                    <Users className="h-3 w-3 shrink-0 text-primary/70" />
+                  )}
+                  <span className={`truncate text-sm ${isActive ? "font-medium text-primary" : "text-muted-foreground"}`}>
+                    {pl.name}
+                  </span>
+                </>
+              )}
+            </div>
+            <div className="ml-2 flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
+              <span className={`text-xs text-muted-foreground ${openMenuPlaylistId === pl.id ? "hidden" : "group-hover:hidden"}`}>
+                {pl.items.length}
+              </span>
+              <DropdownMenu
+                open={openMenuPlaylistId === pl.id}
+                onOpenChange={(open) => setOpenMenuPlaylistId(open ? pl.id : null)}
+              >
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className={`rounded p-0.5 text-muted-foreground hover:text-foreground focus:outline-none ${openMenuPlaylistId === pl.id ? "flex" : "hidden group-hover:flex"}`}
+                  >
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <>
+                    <DropdownMenuItem onSelect={() => { setEditingPlaylistId(pl.id); setEditPlaylistName(pl.name); }}>
+                      Rename
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onSelect={() => handleDeletePlaylist(pl.id)}
+                    >
+                      Delete
+                    </DropdownMenuItem>
+                    {userTeams.length > 0 && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onSelect={() => {
+                          selectPlaylist(pl);
+                          setPendingShareTeamIds(new Set(pl.teamIds ?? []));
+                          setShareDialogOpen(true);
+                        }}>Share…</DropdownMenuItem>
+                      </>
+                    )}
+                  </>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onSelect={() => { setEditingPlaylistId(pl.id); setEditPlaylistName(pl.name); }}>
+            Rename
+          </ContextMenuItem>
+          {(folders.length > 0 || pl.folderId) && (
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>Move to folder</ContextMenuSubTrigger>
+              <ContextMenuSubContent className="max-h-72 overflow-y-auto">
+                <ContextMenuItem
+                  disabled={!pl.folderId}
+                  onSelect={() => movePlaylistToFolder(pl.id, null)}
+                >
+                  Uncategorized
+                </ContextMenuItem>
+                {folders.length > 0 && <ContextMenuSeparator />}
+                {flattenFolderTree(folders).map(({ folder, depth }) => (
+                  <ContextMenuItem
+                    key={folder.id}
+                    disabled={pl.folderId === folder.id}
+                    style={{ paddingLeft: 8 + depth * 12 }}
+                    onSelect={() => {
+                      void movePlaylistToFolder(pl.id, folder.id);
+                      setExpandedFolders((prev) => new Set([...prev, folder.id]));
+                    }}
+                  >
+                    {folder.name}
+                  </ContextMenuItem>
+                ))}
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+          )}
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            className="text-destructive focus:text-destructive"
+            onSelect={() => handleDeletePlaylist(pl.id)}
+          >
+            Delete
+          </ContextMenuItem>
+          {userTeams.length > 0 && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem onSelect={() => {
+                selectPlaylist(pl);
+                setPendingShareTeamIds(new Set(pl.teamIds ?? []));
+                setShareDialogOpen(true);
+              }}>Share…</ContextMenuItem>
+            </>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  }
+
+  /** Indent scheme: header 12 + depth*16, playlist rows 36 + depth*16 (depth 0 matches the old fixed classes). */
+  const FOLDER_INDENT = 16;
+
+  function renderFolderNode(folder: PlaylistFolder, depth: number): React.ReactNode {
+    const items = byFolder.get(folder.id) ?? [];
+    const subfolders = childFolders.get(folder.id) ?? [];
+    if (visibleFolderIdsWhileSearching && !visibleFolderIdsWhileSearching.has(folder.id)) return null;
+    const isExpanded = search.trim() ? true : expandedFolders.has(folder.id);
+    const isEditing = editingFolderId === folder.id;
+    const isDragOver = dragOverFolder === folder.id;
+    return (
+      <div
+        key={folder.id}
+        className={isDragOver ? "bg-primary/10 ring-1 ring-inset ring-primary rounded-sm" : clipExpandFolderId === folder.id ? "bg-primary/10 rounded-sm" : ""}
+        onDragEnter={(e) => {
+          if (e.dataTransfer.types.includes("text/clip")) return;
+          e.preventDefault();
+          // Nested wrappers: only the innermost folder may claim the drag.
+          e.stopPropagation();
+          if (
+            e.dataTransfer.types.includes("text/folder-id") &&
+            draggedFolderIdRef.current &&
+            wouldCreateCycle(folders, draggedFolderIdRef.current, folder.id)
+          ) return;
+          setDragOverFolder(folder.id);
+        }}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes("text/clip")) {
+            e.stopPropagation();
+            // Auto-expand collapsed folder: start timer once on first dragOver
+            if (!expandedFolders.has(folder.id) && clipDragFolderExpandTimerRef.current === null) {
+              setClipExpandFolderId(folder.id);
+              clipDragFolderExpandTimerRef.current = setTimeout(() => {
+                clipDragFolderExpandTimerRef.current = null;
+                setClipExpandFolderId(null);
+                setExpandedFolders((prev) => new Set([...prev, folder.id]));
+              }, 600);
+            }
+            return;
+          }
+          e.preventDefault();
+          e.stopPropagation();
+          if (
+            e.dataTransfer.types.includes("text/folder-id") &&
+            draggedFolderIdRef.current &&
+            wouldCreateCycle(folders, draggedFolderIdRef.current, folder.id)
+          ) {
+            // Dropping a folder into itself/its own subtree: refuse visibly.
+            e.dataTransfer.dropEffect = "none";
+            setDragOverFolder(null);
+            return;
+          }
+          e.dataTransfer.dropEffect = "move";
+          setDragOverFolder(folder.id);
+          // Spring-load collapsed folders for playlist and folder drags too.
+          if (!isExpanded && clipDragFolderExpandTimerRef.current === null) {
+            setClipExpandFolderId(folder.id);
+            clipDragFolderExpandTimerRef.current = setTimeout(() => {
+              clipDragFolderExpandTimerRef.current = null;
+              setClipExpandFolderId(null);
+              setExpandedFolders((prev) => new Set([...prev, folder.id]));
+            }, 600);
+          }
+        }}
+        onDragLeave={(e) => {
+          if (e.dataTransfer.types.includes("text/clip")) {
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+              setClipExpandFolderId(null);
+              if (clipDragFolderExpandTimerRef.current) {
+                clearTimeout(clipDragFolderExpandTimerRef.current);
+                clipDragFolderExpandTimerRef.current = null;
+              }
+            }
+            return;
+          }
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+            setDragOverFolder(null);
+            if (clipDragFolderExpandTimerRef.current) {
+              clearTimeout(clipDragFolderExpandTimerRef.current);
+              clipDragFolderExpandTimerRef.current = null;
+              setClipExpandFolderId(null);
+            }
+          }
+        }}
+        onDrop={(e) => {
+          if (e.dataTransfer.types.includes("text/clip")) return;
+          handleDrop(folder.id, e);
+        }}
+      >
+        {/* Folder header */}
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div
+              draggable={!isEditing}
+              onDragStart={(e) => {
+                // Don't also start an ancestor folder's drag.
+                e.stopPropagation();
+                handleFolderDragStart(folder.id, e);
+              }}
+              onDragEnd={() => {
+                draggedFolderIdRef.current = null;
+                setDragOverFolder(null);
+              }}
+              style={{ paddingLeft: 12 + depth * FOLDER_INDENT }}
+              className={`group flex items-center gap-1.5 pr-3 py-2 cursor-pointer select-none transition-colors ${
+                isDragOver ? "" : "hover:bg-muted/50"
+              }`}
+              onClick={() => !isEditing && toggleFolder(folder.id)}
+            >
+              {isExpanded ? (
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              ) : (
+                <ChevronRight className={`h-3.5 w-3.5 shrink-0 transition-colors ${clipExpandFolderId === folder.id ? "text-primary animate-pulse" : "text-muted-foreground"}`} />
+              )}
+              {isEditing ? (
+                <input
+                  autoFocus
+                  className="flex-1 min-w-0 rounded border border-primary bg-background px-1 py-0.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary"
+                  value={editFolderName}
+                  onChange={(e) => setEditFolderName(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  onBlur={() => handleRenameFolder(folder.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleRenameFolder(folder.id);
+                    if (e.key === "Escape") {
+                      if (folder.id === pendingNewFolderId) {
+                        setPendingNewFolderId(null);
+                        setFolders((prev) => prev.filter((f) => f.id !== folder.id));
+                        setExpandedFolders((prev) => { const s = new Set(prev); s.delete(folder.id); return s; });
+                      }
+                      setEditingFolderId(null);
+                    }
+                  }}
+                />
+              ) : (
+                <span
+                  className="flex-1 min-w-0 truncate text-sm font-semibold text-foreground/80"
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    setEditingFolderId(folder.id);
+                    setEditFolderName(folder.name);
+                  }}
+                >
+                  {folder.name}
+                </span>
+              )}
+              {!isEditing ? (
+                <div className="flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
+                  <span className={`text-xs font-semibold text-muted-foreground ${openMenuFolderId === folder.id ? "hidden" : "group-hover:hidden"}`}>{items.length}</span>
+                  <DropdownMenu
+                    open={openMenuFolderId === folder.id}
+                    onOpenChange={(open) => setOpenMenuFolderId(open ? folder.id : null)}
+                  >
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className={`rounded p-0.5 text-muted-foreground hover:text-foreground focus:outline-none ${openMenuFolderId === folder.id ? "flex" : "hidden group-hover:flex"}`}
+                      >
+                        <MoreHorizontal className="h-3.5 w-3.5" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={() => handleNewPlaylist(folder.id)}>
+                        New Playlist
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => handleNewFolder(folder.id)}>
+                        New Subfolder
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onSelect={() => { setEditingFolderId(folder.id); setEditFolderName(folder.name); }}>
+                        Rename
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onSelect={() => requestDeleteFolder(folder)}
+                      >
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              ) : (
+                <span className="shrink-0 text-xs text-muted-foreground">{items.length}</span>
+              )}
+            </div>
+          </ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem onSelect={() => handleNewPlaylist(folder.id)}>
+              New Playlist
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => handleNewFolder(folder.id)}>
+              New Subfolder
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => { setEditingFolderId(folder.id); setEditFolderName(folder.name); }}>
+              Rename
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              className="text-destructive focus:text-destructive"
+              onSelect={() => requestDeleteFolder(folder)}
+            >
+              Delete
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+
+        {/* Subfolders, then this folder's playlists */}
+        {isExpanded && (
+          <div className="pb-1">
+            {subfolders.map((sub) => renderFolderNode(sub, depth + 1))}
+            {items.length === 0 && subfolders.length === 0 ? (
+              <p style={{ paddingLeft: 40 + depth * FOLDER_INDENT }} className="py-1.5 text-xs text-muted-foreground/60">
+                Empty — drag a playlist here
+              </p>
+            ) : (
+              items.map((pl) => renderPlaylistRow(pl, 36 + depth * FOLDER_INDENT))
+            )}
+          </div>
+        )}
+      </div>
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -3529,7 +4062,7 @@ export function PlaylistsPage() {
                       size="sm"
                       variant="ghost"
                       className="h-7 w-7 p-0"
-                      onClick={handleNewPlaylist}
+                      onClick={() => handleNewPlaylist()}
                     >
                       <ListPlus className="h-4 w-4" />
                     </Button>
@@ -3542,7 +4075,7 @@ export function PlaylistsPage() {
                       size="sm"
                       variant="ghost"
                       className="h-7 w-7 p-0"
-                      onClick={handleNewFolder}
+                      onClick={() => handleNewFolder()}
                     >
                       <FolderPlus className="h-4 w-4" />
                     </Button>
@@ -3588,7 +4121,7 @@ export function PlaylistsPage() {
             <p className="text-xs text-muted-foreground/70">
               Give it a name and add clips from your games.
             </p>
-            <Button size="sm" variant="outline" className="mt-2 text-xs" onClick={handleNewPlaylist}>
+            <Button size="sm" variant="outline" className="mt-2 text-xs" onClick={() => handleNewPlaylist()}>
                 New playlist
               </Button>
           </div>
@@ -3598,305 +4131,9 @@ export function PlaylistsPage() {
             <p className="text-sm text-muted-foreground">No matches for "{search}"</p>
           </div>
         ) : (
-          <div className="py-2">
-            {/* Named folders */}
-            {folders.map((folder) => {
-              const items = byFolder.get(folder.id) ?? [];
-              if (search.trim() && items.length === 0) return null;
-              const isExpanded = search.trim() ? true : expandedFolders.has(folder.id);
-              const isEditing = editingFolderId === folder.id;
-              const isDragOver = dragOverFolder === folder.id;
-              return (
-                <div
-                  key={folder.id}
-                  className={isDragOver ? "bg-primary/10 ring-1 ring-inset ring-primary rounded-sm" : clipExpandFolderId === folder.id ? "bg-primary/10 rounded-sm" : ""}
-                  onDragEnter={(e) => {
-                    if (e.dataTransfer.types.includes("text/clip")) return;
-                    e.preventDefault();
-                    setDragOverFolder(folder.id);
-                  }}
-                  onDragOver={(e) => {
-                    if (e.dataTransfer.types.includes("text/clip")) {
-                      // Auto-expand collapsed folder: start timer once on first dragOver
-                      if (!expandedFolders.has(folder.id) && clipDragFolderExpandTimerRef.current === null) {
-                        setClipExpandFolderId(folder.id);
-                        clipDragFolderExpandTimerRef.current = setTimeout(() => {
-                          clipDragFolderExpandTimerRef.current = null;
-                          setClipExpandFolderId(null);
-                          setExpandedFolders((prev) => new Set([...prev, folder.id]));
-                        }, 600);
-                      }
-                      return;
-                    }
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = "move";
-                    setDragOverFolder(folder.id);
-                  }}
-                  onDragLeave={(e) => {
-                    if (e.dataTransfer.types.includes("text/clip")) {
-                      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                        setClipExpandFolderId(null);
-                        if (clipDragFolderExpandTimerRef.current) {
-                          clearTimeout(clipDragFolderExpandTimerRef.current);
-                          clipDragFolderExpandTimerRef.current = null;
-                        }
-                      }
-                      return;
-                    }
-                    if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverFolder(null);
-                  }}
-                  onDrop={(e) => {
-                    if (e.dataTransfer.types.includes("text/clip")) return;
-                    handleDrop(folder.id, e);
-                  }}
-                >
-                  {/* Folder header */}
-                  <div
-                    className={`group flex items-center gap-1.5 px-3 py-2 cursor-pointer select-none transition-colors ${
-                      isDragOver ? "" : "hover:bg-muted/50"
-                    }`}
-                    onClick={() => !isEditing && toggleFolder(folder.id)}
-                  >
-                    {isExpanded ? (
-                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    ) : (
-                      <ChevronRight className={`h-3.5 w-3.5 shrink-0 transition-colors ${clipExpandFolderId === folder.id ? "text-primary animate-pulse" : "text-muted-foreground"}`} />
-                    )}
-                    {isEditing ? (
-                      <input
-                        autoFocus
-                        className="flex-1 min-w-0 rounded border border-primary bg-background px-1 py-0.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary"
-                        value={editFolderName}
-                        onChange={(e) => setEditFolderName(e.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                        onBlur={() => handleRenameFolder(folder.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleRenameFolder(folder.id);
-                          if (e.key === "Escape") {
-                            if (folder.id === pendingNewFolderId) {
-                              setPendingNewFolderId(null);
-                              setFolders((prev) => prev.filter((f) => f.id !== folder.id));
-                              setExpandedFolders((prev) => { const s = new Set(prev); s.delete(folder.id); return s; });
-                            }
-                            setEditingFolderId(null);
-                          }
-                        }}
-                      />
-                    ) : (
-                      <span
-                        className="flex-1 min-w-0 truncate text-sm font-semibold text-foreground/80"
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
-                          setEditingFolderId(folder.id);
-                          setEditFolderName(folder.name);
-                        }}
-                      >
-                        {folder.name}
-                      </span>
-                    )}
-                    {!isEditing ? (
-                      <div className="flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
-                        <span className={`text-xs font-semibold text-muted-foreground ${openMenuFolderId === folder.id ? "hidden" : "group-hover:hidden"}`}>{items.length}</span>
-                        <DropdownMenu
-                          open={openMenuFolderId === folder.id}
-                          onOpenChange={(open) => setOpenMenuFolderId(open ? folder.id : null)}
-                        >
-                          <DropdownMenuTrigger asChild>
-                            <button
-                              type="button"
-                              className={`rounded p-0.5 text-muted-foreground hover:text-foreground focus:outline-none ${openMenuFolderId === folder.id ? "flex" : "hidden group-hover:flex"}`}
-                            >
-                              <MoreHorizontal className="h-3.5 w-3.5" />
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onSelect={() => { setEditingFolderId(folder.id); setEditFolderName(folder.name); }}>
-                              Rename
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onSelect={() => handleDeleteFolder(folder.id)}
-                            >
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    ) : (
-                      <span className="shrink-0 text-xs text-muted-foreground">{items.length}</span>
-                    )}
-                  </div>
-
-                  {/* Folder playlists */}
-                  {isExpanded && (
-                    <div className="pb-1">
-                      {items.length === 0 ? (
-                        <p className="pl-10 py-1.5 text-xs text-muted-foreground/60">
-                          Empty — drag a playlist here
-                        </p>
-                      ) : (
-                        items.map((pl) => {
-                          const isActive = selected?.id === pl.id;
-                          const isEditingThis = editingPlaylistId === pl.id;
-                          return (
-                            <ContextMenu key={pl.id}>
-                              <ContextMenuTrigger asChild>
-                                <div
-                                  data-playlist-id={pl.id}
-                                  draggable={!isEditingThis}
-                                  onDragStart={(e) => handleDragStart(pl.id, e)}
-                                  onDragEnd={() => setDragOverFolder(null)}
-                                  onDragOver={(e) => {
-                                    if (!e.dataTransfer.types.includes("text/clip")) return;
-                                    e.preventDefault();
-                                    e.dataTransfer.dropEffect = "copy";
-                                    if (clipDragOverPlaylistIdRef.current !== pl.id) {
-                                      clipDragOverPlaylistIdRef.current = pl.id;
-                                      setClipDragOverPlaylistId(pl.id);
-                                      // Spring-load: open this playlist after a delay if not already open.
-                                      if (selected?.id !== pl.id && clipDragPlaylistOpenTimerRef.current === null) {
-                                        setClipOpenPlaylistId(pl.id);
-                                        clipDragPlaylistOpenTimerRef.current = setTimeout(() => {
-                                          clipDragPlaylistOpenTimerRef.current = null;
-                                          setClipOpenPlaylistId(null);
-                                          selectPlaylist(pl);
-                                        }, 600);
-                                      }
-                                    }
-                                  }}
-                                  onDragLeave={(e) => {
-                                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                                      clipDragOverPlaylistIdRef.current = null;
-                                      setClipDragOverPlaylistId(null);
-                                      setClipOpenPlaylistId(null);
-                                      if (clipDragPlaylistOpenTimerRef.current) {
-                                        clearTimeout(clipDragPlaylistOpenTimerRef.current);
-                                        clipDragPlaylistOpenTimerRef.current = null;
-                                      }
-                                    }
-                                  }}
-                                  onDrop={(e) => {
-                                    const key = e.dataTransfer.getData("text/clip");
-                                    if (!key) return;
-                                    e.preventDefault();
-                                    handleClipDropOnPlaylist(pl.id, key);
-                                  }}
-                                  className={`group flex w-full cursor-pointer items-center justify-between border-l-2 pl-9 pr-3 py-1.5 text-left transition-colors hover:bg-muted/50 ${
-                                    isActive
-                                      ? "border-l-primary bg-primary/10"
-                                      : "border-l-border hover:border-l-border/80"
-                                  } ${clipDragOverPlaylistId === pl.id ? "bg-primary/15 ring-1 ring-inset ring-primary" : ""} ${clipOpenPlaylistId === pl.id ? "animate-pulse" : ""}`}
-                                  onClick={() => !isEditingThis && selectPlaylist(pl)}
-                                >
-                                  <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                                    <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40 opacity-0 group-hover:opacity-100 cursor-grab" />
-                                    <ListVideo className={`h-3 w-3 shrink-0 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
-                                    {isEditingThis ? (
-                                      <input
-                                        autoFocus
-                                        className="flex-1 min-w-0 rounded border border-primary bg-background px-1 py-0.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary"
-                                        value={editPlaylistName}
-                                        onChange={(e) => setEditPlaylistName(e.target.value)}
-                                        onClick={(e) => e.stopPropagation()}
-                                        onBlur={() => handleRenamePlaylist(pl.id)}
-                                        onKeyDown={(e) => {
-                                          if (e.key === "Enter") e.currentTarget.blur();
-                                          if (e.key === "Escape") {
-                                            if (pl.id === pendingNewPlaylistId) {
-                                              setPendingNewPlaylistId(null);
-                                              setPlaylists((prev) => prev.filter((p) => p.id !== pl.id));
-                                            }
-                                            setEditingPlaylistId(null);
-                                          }
-                                        }}
-                                      />
-                                    ) : (
-                                      <>
-                                        {(pl.teamIds?.length ?? 0) > 0 && (
-                                          <Users className="h-3 w-3 shrink-0 text-primary/70" />
-                                        )}
-                                        <span className={`truncate text-sm ${isActive ? "font-medium text-primary" : "text-muted-foreground"}`}>
-                                          {pl.name}
-                                        </span>
-                                      </>
-                                    )}
-                                  </div>
-                                  <div className="ml-2 flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
-                                    <span className={`text-xs text-muted-foreground ${openMenuPlaylistId === pl.id ? "hidden" : "group-hover:hidden"}`}>
-                                      {pl.items.length}
-                                    </span>
-                                    <DropdownMenu
-                                      open={openMenuPlaylistId === pl.id}
-                                      onOpenChange={(open) => setOpenMenuPlaylistId(open ? pl.id : null)}
-                                    >
-                                      <DropdownMenuTrigger asChild>
-                                        <button
-                                          type="button"
-                                          className={`rounded p-0.5 text-muted-foreground hover:text-foreground focus:outline-none ${openMenuPlaylistId === pl.id ? "flex" : "hidden group-hover:flex"}`}
-                                        >
-                                          <MoreHorizontal className="h-3.5 w-3.5" />
-                                        </button>
-                                      </DropdownMenuTrigger>
-                                      <DropdownMenuContent align="end">
-                                        <>
-                                          <DropdownMenuItem onSelect={() => { setEditingPlaylistId(pl.id); setEditPlaylistName(pl.name); }}>
-                                            Rename
-                                          </DropdownMenuItem>
-                                          <DropdownMenuSeparator />
-                                          <DropdownMenuItem
-                                            className="text-destructive focus:text-destructive"
-                                            onSelect={() => handleDeletePlaylist(pl.id)}
-                                          >
-                                            Delete
-                                          </DropdownMenuItem>
-                                          {userTeams.length > 0 && (
-                                            <>
-                                              <DropdownMenuSeparator />
-                                              <DropdownMenuItem onSelect={() => {
-                                                selectPlaylist(pl);
-                                                setPendingShareTeamIds(new Set(pl.teamIds ?? []));
-                                                setShareDialogOpen(true);
-                                              }}>Share…</DropdownMenuItem>
-                                            </>
-                                          )}
-                                        </>
-                                      </DropdownMenuContent>
-                                    </DropdownMenu>
-                                  </div>
-                                </div>
-                              </ContextMenuTrigger>
-                              <ContextMenuContent>
-                                <ContextMenuItem onSelect={() => { setEditingPlaylistId(pl.id); setEditPlaylistName(pl.name); }}>
-                                  Rename
-                                </ContextMenuItem>
-                                <ContextMenuSeparator />
-                                <ContextMenuItem
-                                  className="text-destructive focus:text-destructive"
-                                  onSelect={() => handleDeletePlaylist(pl.id)}
-                                >
-                                  Delete
-                                </ContextMenuItem>
-                                {userTeams.length > 0 && (
-                                  <>
-                                    <ContextMenuSeparator />
-                                    <ContextMenuItem onSelect={() => {
-                                      selectPlaylist(pl);
-                                      setPendingShareTeamIds(new Set(pl.teamIds ?? []));
-                                      setShareDialogOpen(true);
-                                    }}>Share…</ContextMenuItem>
-                                  </>
-                                )}
-                              </ContextMenuContent>
-                            </ContextMenu>
-                          );
-                        })
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+          <div className="flex min-h-full flex-col py-2">
+            {/* Folder tree (roots; renderFolderNode recurses) */}
+            {(childFolders.get(null) ?? []).map((folder) => renderFolderNode(folder, 0))}
 
             {/* Uncategorized */}
             {(() => {
@@ -3964,158 +4201,7 @@ export function PlaylistsPage() {
                   </div>
                   {isExpanded && (
                     <div className="pb-1">
-                      {items.map((pl) => {
-                        const isActive = selected?.id === pl.id;
-                        const isEditingThis = editingPlaylistId === pl.id;
-                        return (
-                          <ContextMenu key={pl.id}>
-                            <ContextMenuTrigger asChild>
-                              <div
-                                data-playlist-id={pl.id}
-                                draggable={!isEditingThis}
-                                onDragStart={(e) => handleDragStart(pl.id, e)}
-                                onDragEnd={() => setDragOverFolder(null)}
-                                onDragOver={(e) => {
-                                  if (!e.dataTransfer.types.includes("text/clip")) return;
-                                  e.preventDefault();
-                                  e.dataTransfer.dropEffect = "copy";
-                                  if (clipDragOverPlaylistIdRef.current !== pl.id) {
-                                    clipDragOverPlaylistIdRef.current = pl.id;
-                                    setClipDragOverPlaylistId(pl.id);
-                                    if (selected?.id !== pl.id && clipDragPlaylistOpenTimerRef.current === null) {
-                                      setClipOpenPlaylistId(pl.id);
-                                      clipDragPlaylistOpenTimerRef.current = setTimeout(() => {
-                                        clipDragPlaylistOpenTimerRef.current = null;
-                                        setClipOpenPlaylistId(null);
-                                        selectPlaylist(pl);
-                                      }, 600);
-                                    }
-                                  }
-                                }}
-                                onDragLeave={(e) => {
-                                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                                    clipDragOverPlaylistIdRef.current = null;
-                                    setClipDragOverPlaylistId(null);
-                                    setClipOpenPlaylistId(null);
-                                    if (clipDragPlaylistOpenTimerRef.current) {
-                                      clearTimeout(clipDragPlaylistOpenTimerRef.current);
-                                      clipDragPlaylistOpenTimerRef.current = null;
-                                    }
-                                  }
-                                }}
-                                onDrop={(e) => {
-                                  const key = e.dataTransfer.getData("text/clip");
-                                  if (!key) return;
-                                  e.preventDefault();
-                                  handleClipDropOnPlaylist(pl.id, key);
-                                }}
-                                className={`group flex w-full cursor-pointer items-center justify-between border-l-2 pl-8 pr-3 py-1.5 text-left transition-colors hover:bg-muted/50 ${
-                                  isActive
-                                    ? "border-l-primary bg-primary/10"
-                                    : "border-l-border hover:border-l-border/80"
-                                } ${clipDragOverPlaylistId === pl.id ? "bg-primary/15 ring-1 ring-inset ring-primary" : ""} ${clipOpenPlaylistId === pl.id ? "animate-pulse" : ""}`}
-                                onClick={() => !isEditingThis && selectPlaylist(pl)}
-                              >
-                                <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                                  <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40 opacity-0 group-hover:opacity-100 cursor-grab" />
-                                  <ListVideo className={`h-3 w-3 shrink-0 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
-                                  {isEditingThis ? (
-                                    <input
-                                      autoFocus
-                                      className="flex-1 min-w-0 rounded border border-primary bg-background px-1 py-0.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary"
-                                      value={editPlaylistName}
-                                      onChange={(e) => setEditPlaylistName(e.target.value)}
-                                      onClick={(e) => e.stopPropagation()}
-                                      onBlur={() => handleRenamePlaylist(pl.id)}
-                                      onKeyDown={(e) => {
-                                        if (e.key === "Enter") e.currentTarget.blur();
-                                        if (e.key === "Escape") {
-                                          if (pl.id === pendingNewPlaylistId) {
-                                            setPendingNewPlaylistId(null);
-                                            setPlaylists((prev) => prev.filter((p) => p.id !== pl.id));
-                                          }
-                                          setEditingPlaylistId(null);
-                                        }
-                                      }}
-                                    />
-                                  ) : (
-                                    <>
-                                      {(pl.teamIds?.length ?? 0) > 0 && (
-                                        <Users className="h-3 w-3 shrink-0 text-primary/70" />
-                                      )}
-                                      <span className={`truncate text-sm ${isActive ? "font-medium text-primary" : "text-muted-foreground"}`}>
-                                        {pl.name}
-                                      </span>
-                                    </>
-                                  )}
-                                </div>
-                                <div className="ml-2 flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
-                                  <span className={`text-xs text-muted-foreground ${openMenuPlaylistId === pl.id ? "hidden" : "group-hover:hidden"}`}>
-                                    {pl.items.length}
-                                  </span>
-                                  <DropdownMenu
-                                    open={openMenuPlaylistId === pl.id}
-                                    onOpenChange={(open) => setOpenMenuPlaylistId(open ? pl.id : null)}
-                                  >
-                                    <DropdownMenuTrigger asChild>
-                                      <button
-                                        type="button"
-                                        className={`rounded p-0.5 text-muted-foreground hover:text-foreground focus:outline-none ${openMenuPlaylistId === pl.id ? "flex" : "hidden group-hover:flex"}`}
-                                      >
-                                        <MoreHorizontal className="h-3.5 w-3.5" />
-                                      </button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                      <DropdownMenuItem onSelect={() => { setEditingPlaylistId(pl.id); setEditPlaylistName(pl.name); }}>
-                                        Rename
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem
-                                        className="text-destructive focus:text-destructive"
-                                        onSelect={() => handleDeletePlaylist(pl.id)}
-                                      >
-                                        Delete
-                                      </DropdownMenuItem>
-                                      {userTeams.length > 0 && (
-                                        <>
-                                          <DropdownMenuSeparator />
-                                          <DropdownMenuItem onSelect={() => {
-                                            selectPlaylist(pl);
-                                            setPendingShareTeamIds(new Set(pl.teamIds ?? []));
-                                            setShareDialogOpen(true);
-                                          }}>Share…</DropdownMenuItem>
-                                        </>
-                                      )}
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
-                                </div>
-                              </div>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent>
-                              <ContextMenuItem onSelect={() => { setEditingPlaylistId(pl.id); setEditPlaylistName(pl.name); }}>
-                                Rename
-                              </ContextMenuItem>
-                              <ContextMenuSeparator />
-                              <ContextMenuItem
-                                className="text-destructive focus:text-destructive"
-                                onSelect={() => handleDeletePlaylist(pl.id)}
-                              >
-                                Delete
-                              </ContextMenuItem>
-                              {userTeams.length > 0 && (
-                                <>
-                                  <ContextMenuSeparator />
-                                  <ContextMenuItem onSelect={() => {
-                                    selectPlaylist(pl);
-                                    setPendingShareTeamIds(new Set(pl.teamIds ?? []));
-                                    setShareDialogOpen(true);
-                                  }}>Share…</ContextMenuItem>
-                                </>
-                              )}
-                            </ContextMenuContent>
-                          </ContextMenu>
-                        );
-                      })}
+                      {items.map((pl) => renderPlaylistRow(pl, 32))}
                     </div>
                   )}
                 </div>
@@ -4190,6 +4276,36 @@ export function PlaylistsPage() {
                 </div>
               );
             })()}
+
+            {/* Empty space below the sections: right-click to create at root,
+                drop to move a folder to root / a playlist to Uncategorized. */}
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <div
+                  className="min-h-6 flex-1"
+                  onDragOver={(e) => {
+                    if (
+                      !e.dataTransfer.types.includes("text/folder-id") &&
+                      !e.dataTransfer.types.includes("text/playlist-id")
+                    ) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                  }}
+                  onDrop={(e) => {
+                    if (e.dataTransfer.types.includes("text/clip")) return;
+                    handleDrop(null, e);
+                  }}
+                />
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem onSelect={() => handleNewPlaylist(null)}>
+                  New Playlist
+                </ContextMenuItem>
+                <ContextMenuItem onSelect={() => handleNewFolder()}>
+                  New Folder
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
           </div>
         )}
         {!loading && (
@@ -4198,7 +4314,7 @@ export function PlaylistsPage() {
               size="sm"
               variant="outline"
               className="w-full gap-1.5 text-xs"
-              onClick={handleNewPlaylist}
+              onClick={() => handleNewPlaylist()}
             >
               <ListPlus className="h-3.5 w-3.5" />
               New Playlist
@@ -4221,7 +4337,7 @@ export function PlaylistsPage() {
             <p className="text-sm text-muted-foreground/70">
               Choose one from the panel, or create a new playlist to start collecting clips.
             </p>
-            <Button size="sm" variant="outline" className="mt-1 text-xs" onClick={handleNewPlaylist}>
+            <Button size="sm" variant="outline" className="mt-1 text-xs" onClick={() => handleNewPlaylist()}>
                 New playlist
               </Button>
           </div>
@@ -5563,6 +5679,48 @@ export function PlaylistsPage() {
         )}
       </ResizablePanel>
     </ResizablePanelGroup>
+
+    {/* Subtree-delete confirmation — only opened for non-empty folders. */}
+    <Dialog open={!!deleteFolderTarget} onOpenChange={(o) => !o && setDeleteFolderTarget(null)}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Delete &quot;{deleteFolderTarget?.name}&quot;?</DialogTitle>
+          <DialogDescription>
+            {(() => {
+              if (!deleteFolderTarget) return null;
+              const stats = subtreeStats(folders, playlists, deleteFolderTarget.id);
+              const parts: string[] = [];
+              if (stats.folderCount > 0) {
+                parts.push(
+                  `This also deletes ${stats.folderCount} subfolder${stats.folderCount === 1 ? "" : "s"}.`,
+                );
+              }
+              if (stats.playlistCount > 0) {
+                parts.push(
+                  `${stats.playlistCount} playlist${stats.playlistCount === 1 ? "" : "s"} will move to Uncategorized.`,
+                );
+              }
+              return parts.join(" ");
+            })()}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => setDeleteFolderTarget(null)}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => {
+              if (deleteFolderTarget) void handleDeleteFolder(deleteFolderTarget.id);
+              setDeleteFolderTarget(null);
+            }}
+          >
+            Delete folder
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     </>
   );
