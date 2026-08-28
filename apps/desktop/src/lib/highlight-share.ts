@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { exportPlaylistToPath, type ExportSegment } from "@/lib/export";
 import { uploadToR2 } from "@/lib/r2-upload";
 import { createHighlightShare } from "@/lib/highlight-shares-db";
+import { highlightShareKeys } from "@scoutable/shared/lib/highlight-shares-db";
 
 const APP_URL = "https://app.scoutable.se";
 
@@ -27,7 +28,9 @@ export async function sendHighlightToPhone(
   const shareId = crypto.randomUUID();
   const tempDir = await invoke<string>("get_temp_dir");
   // Must stay inside the temp dir — delete_file's sandbox rejects anything else.
-  const tempPath = `${tempDir}/sc_highlight_${Date.now()}.mp4`;
+  const stamp = Date.now();
+  const tempPath = `${tempDir}/sc_highlight_${stamp}.mp4`;
+  const posterTempPath = `${tempDir}/sc_highlight_${stamp}.jpg`;
 
   onStage?.("rendering");
   await exportPlaylistToPath(segments, preRoll, postRoll, tempPath);
@@ -35,8 +38,19 @@ export async function sendHighlightToPhone(
   try {
     onStage?.("uploading");
     // Per-user, uuid-keyed — unlike Clip & Ship's guessable clip keys.
-    const key = `highlights/${user.id}/${shareId}.mp4`;
-    const r2Url = await uploadToR2(tempPath, key);
+    const keys = highlightShareKeys(user.id, shareId);
+    const r2Url = await uploadToR2(tempPath, keys.video);
+
+    // Poster frame for the /h page's OG image and <video poster>.
+    // Strictly best-effort: a rendered MP4 must never be lost to a
+    // failed thumbnail, so any error just leaves poster_url null.
+    let posterUrl: string | undefined;
+    try {
+      await invoke("extract_poster_frame", { videoPath: tempPath, outputPath: posterTempPath });
+      posterUrl = await uploadToR2(posterTempPath, keys.poster, "image/jpeg");
+    } catch {
+      posterUrl = undefined;
+    }
 
     onStage?.("saving");
     await createHighlightShare({
@@ -44,12 +58,15 @@ export async function sendHighlightToPhone(
       playlistId: playlist.id,
       title: playlist.name,
       r2Url,
-      r2Key: key,
+      r2Key: keys.video,
       clipCount: segments.filter((s) => s.kind === "clip").length,
+      posterUrl,
+      posterKey: posterUrl ? keys.poster : undefined,
     });
 
     return `${APP_URL}/h/${shareId}`;
   } finally {
     invoke("delete_file", { path: tempPath }).catch(() => {});
+    invoke("delete_file", { path: posterTempPath }).catch(() => {});
   }
 }

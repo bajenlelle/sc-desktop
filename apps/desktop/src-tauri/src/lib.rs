@@ -265,6 +265,64 @@ async fn export_clip_for_ship(
     }
 }
 
+/// Extract a single poster frame (JPEG) from a rendered highlight video.
+/// Seeks past the 0.25s fade-in first; retries at t=0 for videos shorter
+/// than the seek offset. Both paths are confined to the temp dir — the
+/// input is the MP4 the app just rendered there, the output sits beside it.
+#[tauri::command]
+async fn extract_poster_frame(
+    app: tauri::AppHandle,
+    video_path: String,
+    output_path: String,
+) -> Result<(), String> {
+    use tauri_plugin_shell::ShellExt;
+    let video = resolve_within(&video_path, &std::env::temp_dir())
+        .map_err(|e| format!("extract_poster_frame: {e}"))?;
+    // The output file doesn't exist yet, so canonicalize its parent instead.
+    let out = std::path::Path::new(&output_path);
+    let file_name = out
+        .file_name()
+        .ok_or("extract_poster_frame: output has no file name")?
+        .to_owned();
+    let parent = out
+        .parent()
+        .ok_or("extract_poster_frame: output has no parent")?
+        .to_string_lossy()
+        .to_string();
+    let output = resolve_within(&parent, &std::env::temp_dir())
+        .map_err(|e| format!("extract_poster_frame: {e}"))?
+        .join(file_name);
+
+    let video_arg = video.to_string_lossy().to_string();
+    let output_arg = output.to_string_lossy().to_string();
+    let mut last_err = String::from("no frame extracted");
+    for seek in ["0.6", "0"] {
+        let result = app
+            .shell()
+            .sidecar("ffmpeg")
+            .map_err(|e| e.to_string())?
+            .args([
+                "-y",
+                "-ss", seek,
+                "-i", &video_arg,
+                "-frames:v", "1",
+                "-q:v", "3",
+                &output_arg,
+            ])
+            .output()
+            .await
+            .map_err(|e| e.to_string())?;
+        // ffmpeg can exit 0 without producing a frame when -ss is past EOF,
+        // so an empty or missing output means "try again", not success.
+        let produced = std::fs::metadata(&output).map(|m| m.len() > 0).unwrap_or(false);
+        if result.status.success() && produced {
+            return Ok(());
+        }
+        last_err = String::from_utf8_lossy(&result.stderr).to_string();
+    }
+    Err(format!("extract_poster_frame: {last_err}"))
+}
+
 #[tauri::command]
 async fn get_temp_dir() -> String {
     std::env::temp_dir().to_string_lossy().to_string()
@@ -484,7 +542,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![export_playlist, get_temp_dir, delete_file, read_file, export_clip_for_ship])
+        .invoke_handler(tauri::generate_handler![export_playlist, get_temp_dir, delete_file, read_file, export_clip_for_ship, extract_poster_frame])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

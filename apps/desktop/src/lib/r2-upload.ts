@@ -25,7 +25,11 @@ function getR2Client(): S3Client {
  * aren't readable cross-origin; that combination once silently truncated
  * every upload over 4 MiB. std::fs::read returns the whole file or errors.
  */
-export async function uploadToR2(localPath: string, key: string): Promise<string> {
+export async function uploadToR2(
+  localPath: string,
+  key: string,
+  contentType: string = "video/mp4",
+): Promise<string> {
   const body = new Uint8Array(await invoke<ArrayBuffer>("read_file", { path: localPath }));
 
   await getR2Client().send(
@@ -33,7 +37,7 @@ export async function uploadToR2(localPath: string, key: string): Promise<string
       Bucket: import.meta.env.VITE_R2_BUCKET,
       Key: key,
       Body: body,
-      ContentType: "video/mp4",
+      ContentType: contentType,
     }),
   );
 

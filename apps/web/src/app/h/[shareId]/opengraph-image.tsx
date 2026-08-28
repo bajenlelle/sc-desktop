@@ -15,6 +15,7 @@ export default async function OgImage({ params }: { params: Promise<{ shareId: s
   const { shareId } = await params;
 
   let title = "Basketball highlight";
+  let posterUrl: string | null = null;
   try {
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,10 +23,79 @@ export default async function OgImage({ params }: { params: Promise<{ shareId: s
     );
     const { data } = await supabase.rpc("get_highlight_share", { p_id: shareId });
     if (data?.valid && data.title) title = data.title;
+    if (data?.valid && data.poster_url) posterUrl = data.poster_url;
   } catch {
     // Fall back to the generic title — never fail the unfurl.
   }
   if (title.length > 70) title = `${title.slice(0, 67)}…`;
+
+  // With a real poster frame: footage full-bleed under a dark bottom
+  // gradient, play affordance centered, title and wordmark on the gradient.
+  if (posterUrl) {
+    return new ImageResponse(
+      (
+        <div style={{ width: "100%", height: "100%", display: "flex", position: "relative", background: "#0c1018" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={posterUrl}
+            alt=""
+            width={1200}
+            height={630}
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "linear-gradient(180deg, rgba(12,16,24,0.15) 40%, rgba(12,16,24,0.88) 100%)",
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              top: 205,
+              left: 540,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 120,
+              height: 120,
+              borderRadius: 9999,
+              background: "rgba(12, 16, 24, 0.55)",
+              border: "3px solid #22d3ee",
+            }}
+          >
+            <svg width="52" height="52" viewBox="0 0 24 24" style={{ marginLeft: 8 }}>
+              <path d="M8 5v14l11-7z" fill="#22d3ee" />
+            </svg>
+          </div>
+          <div
+            style={{
+              position: "absolute",
+              left: 56,
+              right: 56,
+              bottom: 96,
+              display: "flex",
+              fontSize: title.length > 40 ? 44 : 56,
+              fontWeight: 800,
+              letterSpacing: -1,
+              color: "#f1f5f9",
+              lineHeight: 1.15,
+            }}
+          >
+            {title}
+          </div>
+          <div style={{ position: "absolute", left: 56, bottom: 44, display: "flex", alignItems: "baseline" }}>
+            <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: 3, color: "rgba(241, 245, 249, 0.75)" }}>
+              MADE WITH SCOUTABLE
+            </div>
+            <div style={{ width: 8, height: 8, borderRadius: 9999, background: "#22d3ee", marginLeft: 4 }} />
+          </div>
+        </div>
+      ),
+      size,
+    );
+  }
 
   return new ImageResponse(
     (

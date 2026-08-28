@@ -14,7 +14,7 @@ import { Download, Loader2, Share2 } from "lucide-react";
 import { LogoMark } from "@/components/logo";
 
 export type HighlightShareResult =
-  | { valid: true; title: string; url: string }
+  | { valid: true; title: string; url: string; posterUrl: string | null }
   | { valid: false; reason: "not_found" | "expired" };
 
 export default function HighlightView({ share }: { share: HighlightShareResult }) {
@@ -69,6 +69,7 @@ export default function HighlightView({ share }: { share: HighlightShareResult }
           {/* playsInline keeps iOS from hijacking into fullscreen on tap */}
           <video
             src={share.url}
+            poster={share.posterUrl ?? undefined}
             controls
             playsInline
             preload="metadata"
