@@ -230,8 +230,18 @@ jobs:
         run: |
           shopt -s globstar nullglob
           VERSION=${{ steps.version.outputs.version }}
-          TAG_NOTES=$(git tag -l --format='%(contents)' "v${VERSION}")
-          NOTES="${TAG_NOTES:-See the assets below to download for macOS or Windows.}"
+          # actions/checkout peels annotated tags to plain commit refs, so
+          # %(contents) would return the COMMIT message (which once put a
+          # Co-Authored-By trailer on the in-app update banner). Re-fetch the
+          # real tag object, and only read notes from actual annotations —
+          # the release body feeds the updater banner via the sc-landing
+          # /api/updates/latest proxy, so a lightweight/blank tag must yield
+          # an empty body, not commit text or filler prose.
+          git fetch --force origin "refs/tags/v${VERSION}:refs/tags/v${VERSION}"
+          NOTES=""
+          if [ "$(git cat-file -t "v${VERSION}")" = "tag" ]; then
+            NOTES=$(git tag -l --format='%(contents)' "v${VERSION}")
+          fi
           gh release create "v${VERSION}" \
             --repo bajenlelle/scoutable-releases \
             --title "Scoutable v${VERSION}" \
