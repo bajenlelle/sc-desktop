@@ -3714,6 +3714,36 @@ export function PlaylistsPage() {
               New Subfolder
             </ContextMenuItem>
             <ContextMenuSeparator />
+            {/* Menu path back to root (and anywhere else) — drag needs a drop
+                target, which a full sidebar doesn't always offer. */}
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>Move to</ContextMenuSubTrigger>
+              <ContextMenuSubContent className="max-h-72 overflow-y-auto">
+                <ContextMenuItem
+                  disabled={!folder.parentId}
+                  onSelect={() => void moveFolderToParent(folder.id, null)}
+                >
+                  Top level
+                </ContextMenuItem>
+                {folders.length > 1 && <ContextMenuSeparator />}
+                {flattenFolderTree(folders).map(({ folder: target, depth: targetDepth }) => (
+                  <ContextMenuItem
+                    key={target.id}
+                    disabled={
+                      wouldCreateCycle(folders, folder.id, target.id) ||
+                      (folder.parentId ?? null) === target.id
+                    }
+                    style={{ paddingLeft: 8 + targetDepth * 12 }}
+                    onSelect={() => {
+                      void moveFolderToParent(folder.id, target.id);
+                      setExpandedFolders((prev) => new Set([...prev, target.id]));
+                    }}
+                  >
+                    {target.name}
+                  </ContextMenuItem>
+                ))}
+              </ContextMenuSubContent>
+            </ContextMenuSub>
             <ContextMenuItem onSelect={() => { setEditingFolderId(folder.id); setEditFolderName(folder.name); }}>
               Rename
             </ContextMenuItem>
@@ -4131,7 +4161,7 @@ export function PlaylistsPage() {
             <p className="text-sm text-muted-foreground">No matches for "{search}"</p>
           </div>
         ) : (
-          <div className="flex min-h-full flex-col py-2">
+          <div className="py-2">
             {/* Folder tree (roots; renderFolderNode recurses) */}
             {(childFolders.get(null) ?? []).map((folder) => renderFolderNode(folder, 0))}
 
@@ -4277,12 +4307,13 @@ export function PlaylistsPage() {
               );
             })()}
 
-            {/* Empty space below the sections: right-click to create at root,
-                drop to move a folder to root / a playlist to Uncategorized. */}
+            {/* Strip below the sections: right-click to create at root,
+                drop to move a folder to root / a playlist to Uncategorized.
+                (Folders can also be moved via their right-click "Move to".) */}
             <ContextMenu>
               <ContextMenuTrigger asChild>
                 <div
-                  className="min-h-6 flex-1"
+                  className="h-16"
                   onDragOver={(e) => {
                     if (
                       !e.dataTransfer.types.includes("text/folder-id") &&
