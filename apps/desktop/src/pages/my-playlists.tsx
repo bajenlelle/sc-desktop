@@ -16,6 +16,7 @@ import { getOrgContext, getOrgContextForOrg } from "@/lib/profile-db";
 import { useAuth } from "@/lib/auth-context";
 import { listMatchesLight, listEventsForMatches } from "@/lib/matches-db";
 import { collectReferencedMatchIds, mergeEventsIntoMatches } from "@scoutable/shared/lib/playlist-matches";
+import { isWatchedPosition } from "@scoutable/shared/lib/clip-timing";
 import { isClipItem } from "@/types/match";
 import type { Playlist, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch } from "@/types/match";
 import type { OrgTeam, UserProfile } from "@/types/org";
@@ -491,9 +492,9 @@ export function MyPlaylistsPage() {
   const startTextCardRef = useRef(startTextCard);
   startTextCardRef.current = startTextCard;
 
-  // Watch tracking + auto-advance. Each clip is now its own file, so
-  // `video.duration` is the clip's length and the 90% rule applies directly —
-  // the same rule the web player uses.
+  // Watch tracking + auto-advance. Each clip is its own file, so
+  // `video.duration` is the clip's length. Watched = playback reached 3s
+  // before clip end (post-roll) — shared rule, isWatchedPosition.
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -503,9 +504,7 @@ export function MyPlaylistsPage() {
       const key = clipWatchKeyRef.current;
       const playlistId = selectedRef.current?.id;
       if (!key || !playlistId) return;
-      const d = video.duration;
-      if (!d || !Number.isFinite(d)) return;
-      if (video.currentTime / d < 0.9) return;
+      if (!isWatchedPosition(video.currentTime, video.duration)) return;
       clipWatchedRef.current = true;
       recordWatchedRef.current(playlistId, key.matchId, key.eventId);
     }

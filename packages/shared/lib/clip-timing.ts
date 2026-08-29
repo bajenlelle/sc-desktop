@@ -42,3 +42,19 @@ export function clipBounds(
 export function clipShipKey(matchId: string, eventId: number, pre: number, post: number): string {
   return `clips/${matchId}/${eventId}_pre${pre.toFixed(1)}_post${post.toFixed(1)}.mp4`;
 }
+
+/** Post-roll padding baked into shipped clips (desktop authoring default). */
+export const CLIP_POST_ROLL_SECONDS = 3;
+
+/**
+ * Playback-side watched rule, shared by all three players: a clip counts as
+ * watched once playback reaches 3 seconds before the end of the FILE — the
+ * action is over by then, the rest is post-roll padding, and skipping ahead
+ * at that point is the normal viewing behavior. Floored at 50% of the
+ * duration so short clips can't register as watched moments after starting
+ * (marking on play would let someone skim the list and register everything).
+ */
+export function isWatchedPosition(currentTime: number, duration: number): boolean {
+  if (!duration || !Number.isFinite(duration) || duration <= 0) return false;
+  return currentTime >= Math.max(duration - CLIP_POST_ROLL_SECONDS, duration * 0.5);
+}

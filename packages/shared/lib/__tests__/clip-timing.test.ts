@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PlayByPlayEvent, SyncPoint } from "../../types/match";
-import { clipBounds, clipShipKey, computeVideoTime } from "../clip-timing";
+import { clipBounds, clipShipKey, computeVideoTime, isWatchedPosition } from "../clip-timing";
 
 function ev(partial: Partial<PlayByPlayEvent>): PlayByPlayEvent {
   return partial as PlayByPlayEvent;
@@ -62,5 +62,35 @@ describe("clipShipKey", () => {
     // (5.25).toFixed(1) === "5.3" (tie rounds up); (3.05).toFixed(1) === "3.0"
     // (3.05 is stored below the tie in binary) — both pinned as-is.
     expect(clipShipKey("m1", 7, 5.25, 3.05)).toBe("clips/m1/7_pre5.3_post3.0.mp4");
+  });
+});
+
+describe("isWatchedPosition", () => {
+  it("marks watched 3 seconds before the end of a normal-length clip", () => {
+    expect(isWatchedPosition(12, 15)).toBe(true);
+    expect(isWatchedPosition(11.9, 15)).toBe(false);
+  });
+
+  it("is watched exactly at the duration-minus-3 boundary", () => {
+    expect(isWatchedPosition(7, 10)).toBe(true);
+  });
+
+  it("floors at 50% so short clips aren't watched moments after starting", () => {
+    // 4s clip: duration - 3 = 1s, but the 50% floor demands 2s.
+    expect(isWatchedPosition(1, 4)).toBe(false);
+    expect(isWatchedPosition(2, 4)).toBe(true);
+  });
+
+  it("uses the 3-second rule once it exceeds the floor", () => {
+    // 6s clip: max(3, 3) — both rules agree at 3s.
+    expect(isWatchedPosition(2.9, 6)).toBe(false);
+    expect(isWatchedPosition(3, 6)).toBe(true);
+  });
+
+  it("never marks watched for invalid durations", () => {
+    expect(isWatchedPosition(5, 0)).toBe(false);
+    expect(isWatchedPosition(5, NaN)).toBe(false);
+    expect(isWatchedPosition(5, Infinity)).toBe(false);
+    expect(isWatchedPosition(5, -1)).toBe(false);
   });
 });

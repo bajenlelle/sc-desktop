@@ -9,6 +9,7 @@ import { AppState } from "react-native";
 import { useVideoPlayer } from "expo-video";
 import { useEventListener } from "expo";
 import type { PlayByPlayEvent, PlaylistTextCard } from "@scoutable/shared/types/match";
+import { isWatchedPosition } from "@scoutable/shared/lib/clip-timing";
 
 export interface QueueClip {
   type: "clip";
@@ -63,7 +64,7 @@ export function useClipQueue({
   }, [playlistId]);
 
   const player = useVideoPlayer(null, (p) => {
-    // timeUpdate is disabled by default (interval 0) — the 90% watched rule needs it.
+    // timeUpdate is disabled by default (interval 0) — the watched rule needs it.
     p.timeUpdateEventInterval = 0.25;
     p.loop = false;
   });
@@ -180,11 +181,11 @@ export function useClipQueue({
       const item = activeItemRef.current;
       const plId = playlistIdRef.current;
       if (!item || isTextCard(item) || !plId) return;
-      const d = player.duration;
-      if (!d || !Number.isFinite(d) || d <= 0) return;
-      // 90%: marking on play would let someone skim the list and register
-      // everything; 90% still catches players who skip the last moment.
-      if (currentTime / d >= 0.9) recordWatched(plId, item.matchId, item.event.eventId);
+      // Watched = playback reached 3s before clip end (post-roll) — shared
+      // rule, isWatchedPosition.
+      if (isWatchedPosition(currentTime, player.duration)) {
+        recordWatched(plId, item.matchId, item.event.eventId);
+      }
     },
     [player, recordWatched]
   );

@@ -15,6 +15,7 @@ import {
   collectReferencedMatchIds,
   mergeEventsIntoMatches,
 } from "@scoutable/shared/lib/playlist-matches";
+import { isWatchedPosition } from "@scoutable/shared/lib/clip-timing";
 import { getOrgContext, getOrgContextForOrg } from "@/lib/profile-db";
 import { useAuth } from "@/components/auth-context";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -669,19 +670,17 @@ export default function MyPlaylistsPage() {
       video!.play().catch(() => {});
     }
 
-    /**
-     * A clip counts as watched at 90% of its duration. Marking on play would
-     * let someone skim the list and register everything; 90% still catches
-     * players who skip the last moment or navigate away before `ended`.
-     */
+    // Watched = playback reached 3s before clip end (the post-roll — the
+    // action is over, skipping ahead here is normal viewing). Shared rule:
+    // isWatchedPosition in @scoutable/shared/lib/clip-timing.
     function markIfWatched() {
       const playlistId = selectedRef.current?.id;
       const matchId = activeMatchIdRef.current;
       const eventId = activeEventIdRef.current;
       if (!playlistId || !matchId || eventId === null) return;
-      const d = video!.duration;
-      if (!d || !Number.isFinite(d)) return;
-      if (video!.currentTime / d >= 0.9) recordWatchedRef.current(playlistId, matchId, eventId);
+      if (isWatchedPosition(video!.currentTime, video!.duration)) {
+        recordWatchedRef.current(playlistId, matchId, eventId);
+      }
     }
 
     function handleEnded() {
