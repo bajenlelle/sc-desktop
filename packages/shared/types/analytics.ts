@@ -35,6 +35,7 @@ export type AnalyticsEvent =
   // Distribution & virality
   | "video_exported"
   | "playlist_shipped"
+  | "playlist_ship_failed"
   | "playlist_shared"
   | "highlight_sent_to_phone"
   | "highlight_page_viewed"

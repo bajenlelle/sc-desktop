@@ -45,7 +45,8 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/componen
 import { usePanelRef } from "react-resizable-panels";
 import { VideoClipControls } from "@/components/video-clip-controls";
 import { listMatchesLight, listEventsForMatches, listFolders, createFolder, updateFolder, deleteFolder } from "@/lib/matches-db";
-import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderItems, updateClip, insertTextCard, updateTextCard, setPlaylistTeams, setPlaylistUsers } from "@/lib/playlists-db";
+import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderItems, updateClip, insertTextCard, updateTextCard, setPlaylistTeams, setPlaylistUsers, notifyPendingPlaylistShares } from "@/lib/playlists-db";
+import { groupShipFailures, mergeShipResults, type ClipShipResult } from "@scoutable/shared/lib/ship-result";
 import { listLabels, createLabel as apiCreateLabel, updateLabel as apiUpdateLabel, deleteLabel as apiDeleteLabel, seedDefaultLabels, listAssignmentsForClips, setClipAssignments as apiSetClipAssignments, bulkAssign as apiBulkAssign } from "@/lib/labels-db";
 import { LabelChip } from "@/components/labels/LabelChip";
 import { LabelPickerPopover, type LabelTriState } from "@/components/labels/LabelPickerPopover";
@@ -1540,6 +1541,22 @@ export function PlaylistsPage() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [pendingShareTeamIds, setPendingShareTeamIds] = useState<Set<string>>(new Set());
   const [pendingShareUserIds, setPendingShareUserIds] = useState<Set<string>>(new Set());
+  // Ship-before-notify: the dialog walks pick → uploading → (resolve on
+  // failures). Share rows are only written AFTER clips upload, so recipients
+  // are never notified about clips they can't watch.
+  type SharePhase =
+    | { kind: "pick" }
+    | { kind: "uploading" }
+    | {
+        kind: "resolve";
+        result: ClipShipResult;
+        total: number;
+        teamIds: string[];
+        userIds: string[];
+        failedSegments: ExportSegment[];
+      };
+  const [sharePhase, setSharePhase] = useState<SharePhase>({ kind: "pick" });
+  const shareAbortRef = useRef<AbortController | null>(null);
   const [shareableMembers, setShareableMembers] = useState<UserProfile[]>([]);
   const [memberSearchQuery, setMemberSearchQuery] = useState("");
   const [sharedSectionExpanded, setSharedSectionExpanded] = useState(true);
@@ -2999,113 +3016,268 @@ export function PlaylistsPage() {
   // Clip & Ship
   // ---------------------------------------------------------------------------
 
+  /** Segments for shipping/exporting the given playlist's clips. */
+  function buildShipSegments(pl: Playlist): ExportSegment[] {
+    return sortedEvents
+      .map((item): ExportSegment | null => {
+        if (isTextCard(item)) return null;
+        const qi = item as QueueItem;
+        const m = matchLookup.get(qi.matchId);
+        if (!m?.videoUrl || !m.syncPoint) return null;
+        const clip = pl.items.filter(isClipItem).find(
+          (c) => c.matchId === qi.matchId && c.eventId === qi.event.eventId
+        );
+        const seg: ExportSegment = {
+          kind: "clip",
+          videoPath: m.videoUrl,
+          matchId: qi.matchId,
+          event: qi.event,
+          syncPoint: m.syncPoint,
+        };
+        if (clip?.preRollOffset !== undefined)
+          (seg as Extract<ExportSegment, { kind: "clip" }>).preRollOffset = clip.preRollOffset;
+        if (clip?.postRollOffset !== undefined)
+          (seg as Extract<ExportSegment, { kind: "clip" }>).postRollOffset = clip.postRollOffset;
+        return seg;
+      })
+      .filter((x): x is ExportSegment => x !== null);
+  }
+
+  /**
+   * Patch freshly-uploaded r2Urls into local playlist state so the coach
+   * dashboard's counts stay honest and re-runs skip finished clips — even
+   * when the run was aborted or the coach cancels the share afterwards.
+   */
+  function applyR2Urls(uploaded: ClipShipResult["uploaded"]) {
+    if (uploaded.length === 0) return;
+    const byKey = new Map(uploaded.map((u) => [`${u.matchId}:${u.eventId}`, u.r2Url]));
+    const patch = (pl: Playlist): Playlist => ({
+      ...pl,
+      items: pl.items.map((item) =>
+        item.type === "clip" && byKey.has(`${item.matchId}:${item.eventId}`)
+          ? { ...item, r2Url: byKey.get(`${item.matchId}:${item.eventId}`)! }
+          : item
+      ),
+    });
+    setSelected((prev) => (prev ? patch(prev) : prev));
+    setPlaylists((prev) => prev.map((p) => (selected && p.id === selected.id ? patch(p) : p)));
+  }
+
+  /** Write the share rows (this is what triggers recipient notifications). */
+  async function commitShare(teamIds: string[], userIds: string[], newlyAddedTeams: string[], newlyAddedUsers: string[]) {
+    if (!selected) return;
+    await Promise.all([
+      setPlaylistTeams(selected.id, teamIds),
+      setPlaylistUsers(selected.id, userIds),
+    ]);
+    setPlaylists((prev) => prev.map((p) =>
+      p.id === selected.id ? { ...p, teamIds, teamId: teamIds[0], userIds } : p
+    ));
+    setSelected((prev) => (prev ? { ...prev, teamIds, teamId: teamIds[0], userIds } : prev));
+    if (newlyAddedTeams.length + newlyAddedUsers.length > 0) {
+      trackEvent("playlist_shared", { team_count: newlyAddedTeams.length, user_count: newlyAddedUsers.length });
+    }
+  }
+
+  function shareRecipientNames(newlyAddedTeams: string[], newlyAddedUsers: string[]): string {
+    const teamNames = newlyAddedTeams.map((id) => userTeams.find((t) => t.id === id)?.name ?? "team");
+    const userNames = newlyAddedUsers.map((id) => shareableMembers.find((m) => m.id === id)?.fullName ?? "member");
+    return [...teamNames, ...userNames].join(", ");
+  }
+
+  // Ship BEFORE share: recipients are notified by the share-row insert, so
+  // the rows are only written once their clips are actually watchable.
+  // Failures pause in the dialog with explicit choices; Cancel/abort writes
+  // nothing and sends nothing.
   async function handleShare(teamIds: string[], userIds: string[]) {
     if (!selected) return;
-    setShareDialogOpen(false);
     const prevTeamIds = selected.teamIds ?? [];
     const prevUserIds = selected.userIds ?? [];
     const newlyAddedTeams = teamIds.filter((id) => !prevTeamIds.includes(id));
     const newlyAddedUsers = userIds.filter((id) => !prevUserIds.includes(id));
 
-    // Persist share rows
-    await Promise.all([
-      setPlaylistTeams(selected.id, teamIds),
-      setPlaylistUsers(selected.id, userIds),
-    ]);
-    const updated = { ...selected, teamIds, teamId: teamIds[0], userIds };
-    setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updated : p));
-    setSelected(updated);
+    // Removal-only (or no-op) changes need no uploads — commit and close.
+    if (newlyAddedTeams.length + newlyAddedUsers.length === 0) {
+      setShareDialogOpen(false);
+      try {
+        await commitShare(teamIds, userIds, [], []);
+      } catch (e) {
+        toast.error("Couldn't update sharing", { description: e instanceof Error ? e.message : String(e) });
+      }
+      return;
+    }
 
-    // Clip & ship only when new recipients were added
-    const newlyAdded = [...newlyAddedTeams, ...newlyAddedUsers];
-    if (newlyAdded.length === 0) return;
-    trackEvent("playlist_shared", { team_count: newlyAddedTeams.length, user_count: newlyAddedUsers.length });
-
+    const segments = buildShipSegments(selected);
+    setSharePhase({ kind: "uploading" });
     setIsShipping(true);
     setShipProgress(null);
+    const controller = new AbortController();
+    shareAbortRef.current = controller;
+    let result: ClipShipResult;
     try {
-      const segments = sortedEvents
-        .map((item): ExportSegment | null => {
-          if (isTextCard(item)) return null;
-          const qi = item as QueueItem;
-          const m = matchLookup.get(qi.matchId);
-          if (!m?.videoUrl || !m.syncPoint) return null;
-          const clip = updated.items.filter(isClipItem).find(
-            (c) => c.matchId === qi.matchId && c.eventId === qi.event.eventId
-          );
-          const seg: ExportSegment = {
-            kind: "clip",
-            videoPath: m.videoUrl,
-            matchId: qi.matchId,
-            event: qi.event,
-            syncPoint: m.syncPoint,
-          };
-          if (clip?.preRollOffset !== undefined)
-            (seg as Extract<ExportSegment, { kind: "clip" }>).preRollOffset = clip.preRollOffset;
-          if (clip?.postRollOffset !== undefined)
-            (seg as Extract<ExportSegment, { kind: "clip" }>).postRollOffset = clip.postRollOffset;
-          return seg;
-        })
-        .filter((x): x is ExportSegment => x !== null);
-
-      await clipAndShip(updated, segments, preRoll, postRoll, (done, total) => {
-        setShipProgress({ done, total });
+      result = await clipAndShip(selected, segments, preRoll, postRoll, {
+        onProgress: (done, total) => setShipProgress({ done, total }),
+        signal: controller.signal,
       });
-
-      const teamNames = newlyAddedTeams
-        .map((id) => userTeams.find((t) => t.id === id)?.name ?? "team");
-      const userNames = newlyAddedUsers
-        .map((id) => shareableMembers.find((m) => m.id === id)?.fullName ?? "member");
-      const allNames = [...teamNames, ...userNames].join(", ");
-      toast.success("Clips shared", {
-        description: `${segments.filter((s) => s.kind === "clip").length} clip(s) shared with ${allNames}.`,
-      });
-      trackEvent("playlist_shipped", { playlist_id: updated.id, clip_count: segments.filter((s) => s.kind === "clip").length });
     } catch (e) {
-      toast.error("Share failed", { description: e instanceof Error ? e.message : String(e) });
+      // Preflight throw (non-local video) — nothing was uploaded or shared.
+      toast.error("Couldn't upload clips", { description: e instanceof Error ? e.message : String(e) });
+      setSharePhase({ kind: "pick" });
+      return;
     } finally {
       setIsShipping(false);
       setShipProgress(null);
+      shareAbortRef.current = null;
     }
+
+    applyR2Urls(result.uploaded);
+
+    if (result.aborted) {
+      setSharePhase({ kind: "pick" });
+      return;
+    }
+
+    if (result.failures.length > 0) {
+      trackEvent("playlist_ship_failed", {
+        playlist_id: selected.id,
+        failed: result.failures.length,
+        total: segments.length,
+      });
+      const failedKeys = new Set(result.failures.map((f) => `${f.matchId}:${f.eventId}`));
+      setSharePhase({
+        kind: "resolve",
+        result,
+        total: segments.length,
+        teamIds,
+        userIds,
+        failedSegments: segments.filter(
+          (s) => s.kind === "clip" && failedKeys.has(`${s.matchId}:${s.event.eventId}`)
+        ),
+        });
+      return;
+    }
+
+    try {
+      await commitShare(teamIds, userIds, newlyAddedTeams, newlyAddedUsers);
+    } catch (e) {
+      toast.error("Couldn't share playlist", { description: e instanceof Error ? e.message : String(e) });
+      setSharePhase({ kind: "pick" });
+      return;
+    }
+    setShareDialogOpen(false);
+    setSharePhase({ kind: "pick" });
+    const clipCount = result.shipped + result.skipped;
+    toast.success("Clips shared", {
+      description: `${clipCount} clip${clipCount === 1 ? "" : "s"} shared with ${shareRecipientNames(newlyAddedTeams, newlyAddedUsers)}.`,
+    });
+    trackEvent("playlist_shipped", { playlist_id: selected.id, clip_count: clipCount });
   }
 
+  /** "Try again" in the resolve step: re-ship only the failed clips. */
+  async function handleShareRetry(phase: Extract<SharePhase, { kind: "resolve" }>) {
+    if (!selected) return;
+    setSharePhase({ kind: "uploading" });
+    setIsShipping(true);
+    setShipProgress(null);
+    const controller = new AbortController();
+    shareAbortRef.current = controller;
+    let retry: ClipShipResult;
+    try {
+      retry = await clipAndShip(selected, phase.failedSegments, preRoll, postRoll, {
+        onProgress: (done, total) => setShipProgress({ done, total }),
+        signal: controller.signal,
+      });
+    } catch (e) {
+      toast.error("Couldn't upload clips", { description: e instanceof Error ? e.message : String(e) });
+      setSharePhase(phase);
+      return;
+    } finally {
+      setIsShipping(false);
+      setShipProgress(null);
+      shareAbortRef.current = null;
+    }
+
+    applyR2Urls(retry.uploaded);
+    const merged = mergeShipResults(phase.result, retry);
+
+    if (retry.aborted || merged.failures.length > 0) {
+      const failedKeys = new Set(merged.failures.map((f) => `${f.matchId}:${f.eventId}`));
+      setSharePhase({
+        ...phase,
+        result: merged,
+        failedSegments: phase.failedSegments.filter(
+          (s) => s.kind === "clip" && failedKeys.has(`${s.matchId}:${s.event.eventId}`)
+        ),
+      });
+      return;
+    }
+    // Everything shipped on retry — proceed exactly like the happy path.
+    await finishResolvedShare(phase.teamIds, phase.userIds, merged, phase.total);
+  }
+
+  /** Commit + close from the resolve step ("Share without them" or clean retry). */
+  async function finishResolvedShare(teamIds: string[], userIds: string[], result: ClipShipResult, total: number) {
+    if (!selected) return;
+    const prevTeamIds = selected.teamIds ?? [];
+    const prevUserIds = selected.userIds ?? [];
+    const newlyAddedTeams = teamIds.filter((id) => !prevTeamIds.includes(id));
+    const newlyAddedUsers = userIds.filter((id) => !prevUserIds.includes(id));
+    try {
+      await commitShare(teamIds, userIds, newlyAddedTeams, newlyAddedUsers);
+    } catch (e) {
+      toast.error("Couldn't share playlist", { description: e instanceof Error ? e.message : String(e) });
+      return;
+    }
+    setShareDialogOpen(false);
+    setSharePhase({ kind: "pick" });
+    const uploadedCount = result.shipped + result.skipped;
+    if (result.failures.length === 0) {
+      toast.success("Clips shared", {
+        description: `${uploadedCount} clip${uploadedCount === 1 ? "" : "s"} shared with ${shareRecipientNames(newlyAddedTeams, newlyAddedUsers)}.`,
+      });
+    } else {
+      toast.success("Playlist shared", {
+        description: `${uploadedCount} of ${total} clips uploaded — recipients can watch them now.`,
+      });
+    }
+    trackEvent("playlist_shipped", { playlist_id: selected.id, clip_count: uploadedCount });
+  }
+
+  // Deferred/reship path (dashboard "Upload missing clips", clips added to an
+  // already-shared playlist). Headless — progress lives in the toolbar
+  // indicator; failures toast with counts and SharedByMe owns the recovery
+  // affordance. After any successful upload, pending silent shares (created
+  // before the playlist had clips) finally notify their recipients.
   async function handleShip() {
     if (!selected) return;
     setIsShipping(true);
     setShipProgress(null);
     try {
-      const segments = sortedEvents
-        .map((item): ExportSegment | null => {
-          if (isTextCard(item)) return null;
-          const qi = item as QueueItem;
-          const m = matchLookup.get(qi.matchId);
-          if (!m?.videoUrl || !m.syncPoint) return null;
-          const clip = selected.items.filter(isClipItem).find(
-            (c) => c.matchId === qi.matchId && c.eventId === qi.event.eventId
-          );
-          const seg: ExportSegment = {
-            kind: "clip",
-            videoPath: m.videoUrl,
-            matchId: qi.matchId,
-            event: qi.event,
-            syncPoint: m.syncPoint,
-          };
-          if (clip?.preRollOffset !== undefined)
-            (seg as Extract<ExportSegment, { kind: "clip" }>).preRollOffset = clip.preRollOffset;
-          if (clip?.postRollOffset !== undefined)
-            (seg as Extract<ExportSegment, { kind: "clip" }>).postRollOffset = clip.postRollOffset;
-          return seg;
-        })
-        .filter((x): x is ExportSegment => x !== null);
-
-      await clipAndShip(selected, segments, preRoll, postRoll, (done, total) => {
-        setShipProgress({ done, total });
+      const segments = buildShipSegments(selected);
+      const result = await clipAndShip(selected, segments, preRoll, postRoll, {
+        onProgress: (done, total) => setShipProgress({ done, total }),
       });
+      applyR2Urls(result.uploaded);
 
-      toast.success("Clips uploaded", {
-        description: `${segments.filter((s) => s.kind === "clip").length} clip(s) are now in the cloud.`,
-      });
-      trackEvent("playlist_shipped", { playlist_id: selected.id, clip_count: segments.filter((s) => s.kind === "clip").length });
+      const total = segments.length;
+      const uploadedCount = result.shipped + result.skipped;
+      if (result.failures.length > 0) {
+        trackEvent("playlist_ship_failed", { playlist_id: selected.id, failed: result.failures.length, total });
+        toast.error(
+          `${result.failures.length} of ${total} clips didn't upload`,
+          { description: "Recipients can't see these clips yet — try again from Shared by me." },
+        );
+      } else {
+        toast.success("Clips uploaded", {
+          description: `${uploadedCount} clip${uploadedCount === 1 ? "" : "s"} are now in the cloud.`,
+        });
+        trackEvent("playlist_shipped", { playlist_id: selected.id, clip_count: uploadedCount });
+      }
+
+      if (uploadedCount > 0) {
+        // Best-effort and idempotent — a no-op unless silent pending shares exist.
+        await notifyPendingPlaylistShares(selected.id).catch(() => {});
+      }
     } catch (e) {
       toast.error("Clip & Ship failed", { description: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -5666,7 +5838,94 @@ export function PlaylistsPage() {
             isSelection={selectedClipIds.size > 0}
           />
           {/* Share dialog — multi-team */}
-          <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
+          <Dialog
+            open={shareDialogOpen}
+            onOpenChange={(open) => {
+              // Mid-upload and resolve states must exit through their own
+              // buttons — dismissing would leave the outcome ambiguous.
+              if (!open && sharePhase.kind !== "pick") return;
+              setShareDialogOpen(open);
+            }}
+          >
+            {sharePhase.kind === "uploading" ? (
+              <DialogContent onEscapeKeyDown={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()}>
+                <DialogHeader>
+                  <DialogTitle>Sharing playlist</DialogTitle>
+                </DialogHeader>
+                <div className="flex flex-col gap-3 py-2">
+                  <p className="text-sm text-muted-foreground">
+                    Recipients are notified once every clip is watchable.
+                  </p>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-primary transition-all"
+                      style={{
+                        width: shipProgress && shipProgress.total > 0
+                          ? `${Math.round((shipProgress.done / shipProgress.total) * 100)}%`
+                          : "5%",
+                      }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {shipProgress
+                      ? `Uploading clip ${Math.min(shipProgress.done + 1, shipProgress.total)} of ${shipProgress.total}`
+                      : "Preparing clips…"}
+                  </p>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" size="sm" onClick={() => shareAbortRef.current?.abort()}>
+                    Cancel
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            ) : sharePhase.kind === "resolve" ? (
+              <DialogContent onEscapeKeyDown={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()}>
+                <DialogHeader>
+                  <DialogTitle>
+                    {sharePhase.result.failures.length} of {sharePhase.total} clips didn&apos;t upload
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="flex flex-col gap-2 py-1">
+                  {groupShipFailures(sharePhase.result.failures).map((g) => (
+                    <p key={g.message} className="truncate text-xs text-muted-foreground" title={g.message}>
+                      {g.message}
+                      {g.count > 1 ? ` (${g.count})` : ""}
+                    </p>
+                  ))}
+                  {sharePhase.result.failures.length > groupShipFailures(sharePhase.result.failures).reduce((n, g) => n + g.count, 0) && (
+                    <p className="text-xs text-muted-foreground">and more…</p>
+                  )}
+                  <p className="text-sm text-muted-foreground">
+                    Uploaded clips are saved — trying again only retries the failed ones. Nothing has
+                    been shared yet.
+                  </p>
+                </div>
+                <DialogFooter className="flex-row justify-end gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setShareDialogOpen(false);
+                      setSharePhase({ kind: "pick" });
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      finishResolvedShare(sharePhase.teamIds, sharePhase.userIds, sharePhase.result, sharePhase.total)
+                    }
+                  >
+                    Share without them
+                  </Button>
+                  <Button size="sm" onClick={() => handleShareRetry(sharePhase)}>
+                    Try again
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            ) : (
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Share Playlist</DialogTitle>
@@ -5789,6 +6048,7 @@ export function PlaylistsPage() {
                 </div>
               </DialogFooter>
             </DialogContent>
+            )}
           </Dialog>
           </>
         )}

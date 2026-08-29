@@ -27,3 +27,4 @@ export const getMyDirectPlaylists = (teamIds?: string[]) => db.getMyDirectPlayli
 export const getMySharedOutPlaylists = (teamIds?: string[]) => db.getMySharedOutPlaylists(c(), teamIds);
 export const getMySharedPlaylists = () => db.getMySharedPlaylists(c());
 export type { SharedPlaylist } from "@scoutable/shared/lib/playlists-db";
+export const notifyPendingPlaylistShares = (playlistId: string) => db.notifyPendingPlaylistShares(c(), playlistId);

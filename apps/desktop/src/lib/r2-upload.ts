@@ -29,6 +29,7 @@ export async function uploadToR2(
   localPath: string,
   key: string,
   contentType: string = "video/mp4",
+  signal?: AbortSignal,
 ): Promise<string> {
   const body = new Uint8Array(await invoke<ArrayBuffer>("read_file", { path: localPath }));
 
@@ -39,6 +40,7 @@ export async function uploadToR2(
       Body: body,
       ContentType: contentType,
     }),
+    { abortSignal: signal },
   );
 
   return `${import.meta.env.VITE_R2_PUBLIC_URL}/${key}`;

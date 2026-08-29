@@ -1137,6 +1137,17 @@ export function MyPlaylistsPage() {
             </div>
           </div>
         </div>
+        {(() => {
+          // The dashboard can't upload (no local video/ffmpeg here) — shares
+          // of unshipped clips stay silent until the editor uploads them.
+          const unshipped = shareTarget?.items.filter((i) => i.type === "clip" && !i.r2Url).length ?? 0;
+          return unshipped > 0 ? (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              {unshipped} clip{unshipped === 1 ? " isn't" : "s aren't"} uploaded yet — recipients
+              won&apos;t be notified until you upload them from the editor.
+            </p>
+          ) : null;
+        })()}
         <DialogFooter className="flex items-center">
           {((shareTarget?.teamIds?.length ?? 0) > 0 || (shareTarget?.userIds?.length ?? 0) > 0) && (
             <Button variant="ghost" size="sm" className="text-muted-foreground mr-auto" onClick={() => handleShare([], [])}>

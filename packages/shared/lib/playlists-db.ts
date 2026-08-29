@@ -607,3 +607,27 @@ export async function getMySharedPlaylists(supabase: SupabaseClient): Promise<Sh
       })),
     }));
 }
+
+/**
+ * Deliver notifications for share rows created before the playlist had any
+ * uploaded clips ("pending" shares — the ship-before-notify rule keeps them
+ * silent at insert). The desktop calls this after every successful upload
+ * run. Idempotent: each share row notifies exactly once, and the server
+ * refuses to deliver onto a playlist that still has no shipped clips.
+ *
+ * Throws user-facing messages (reminders-db style) — though callers treat
+ * this as best-effort and usually swallow.
+ */
+export async function notifyPendingPlaylistShares(
+  supabase: SupabaseClient,
+  playlistId: string,
+): Promise<void> {
+  const { error } = await supabase.rpc("notify_pending_playlist_shares", {
+    p_playlist_id: playlistId,
+  });
+  if (error) {
+    if (error.message.includes("not_owner"))
+      throw new Error("Only the playlist owner can notify recipients.");
+    throw new Error(`Failed to notify recipients: ${error.message}`);
+  }
+}

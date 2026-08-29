@@ -1083,7 +1083,11 @@ export default function MyPlaylistsPage() {
             <div ref={clipListRef} className="flex-1 overflow-y-auto">
               {displayItems.length === 0 ? (
                 <div className="flex items-center justify-center py-12">
-                  <p className="text-sm text-muted-foreground">This playlist is empty.</p>
+                  <p className="text-sm text-muted-foreground">
+                    {selected && currentUserId && selected.createdBy === currentUserId
+                      ? "No clips yet — add clips from the desktop editor."
+                      : "No clips to watch yet. Your coach may still be uploading."}
+                  </p>
                 </div>
               ) : (
                 displayItems.map((item, idx) => {
@@ -1225,6 +1229,17 @@ export default function MyPlaylistsPage() {
               </div>
             </div>
           </div>
+          {(() => {
+            // Web can't upload clips — shares of unshipped clips stay silent
+            // until the desktop editor uploads them.
+            const unshipped = shareTarget?.items.filter((i) => isClipItem(i) && !i.r2Url).length ?? 0;
+            return unshipped > 0 ? (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                {unshipped} clip{unshipped === 1 ? " isn't" : "s aren't"} uploaded yet — recipients
+                won&apos;t be notified until you upload them from the desktop editor.
+              </p>
+            ) : null;
+          })()}
           <DialogFooter className="flex items-center">
             {((shareTarget?.teamIds?.length ?? 0) > 0 || (shareTarget?.userIds?.length ?? 0) > 0) && (
               <Button variant="ghost" size="sm" className="text-muted-foreground mr-auto" onClick={() => handleShare([], [])}>
