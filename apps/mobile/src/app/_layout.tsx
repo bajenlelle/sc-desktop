@@ -1,11 +1,13 @@
 import "../global.css";
 
+import { useEffect } from "react";
 import * as Sentry from "@sentry/react-native";
 import { setDbErrorReporter } from "@scoutable/shared/lib/report";
-import { Stack, type ErrorBoundaryProps } from "expo-router";
+import { Stack, usePathname, type ErrorBoundaryProps } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { Pressable, Text, View, useColorScheme } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { initAnalytics, trackEvent } from "@/lib/analytics";
 import {
   useFonts,
   DMSans_400Regular,
@@ -36,6 +38,8 @@ Sentry.init({
     "AbortError",
   ],
 });
+
+initAnalytics();
 
 // Surface the shared DB helpers' gracefully-swallowed failures. captureMessage
 // with a db_fn tag so Sentry groups per function, not one mega-issue.
@@ -96,9 +100,22 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   );
 }
 
+/** Mobile twin of web's PostHogProvider pageview effect. */
+function PageTracker() {
+  const pathname = usePathname();
+  useEffect(() => {
+    trackEvent("page_viewed", { path: pathname });
+  }, [pathname]);
+  return null;
+}
+
 function RootLayout() {
   const scheme = useColorScheme();
   const colors = themeColors(scheme);
+
+  useEffect(() => {
+    trackEvent("app_started");
+  }, []);
 
   // Fonts load async; rendering with system fallbacks until then beats a blank screen.
   useFonts({
@@ -112,6 +129,7 @@ function RootLayout() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
+        <PageTracker />
         <Stack
           screenOptions={{
             headerShown: false,

@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { joinByCode } from "@scoutable/shared/lib/profile-db";
 import { supabase } from "@/lib/supabase";
+import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
@@ -27,6 +28,7 @@ export default function Onboarding() {
     try {
       const code = extractCode(input);
       const result = await joinByCode(supabase, code);
+      trackEvent("org_joined", { org_id: result.orgId });
       // Order matters: persist the org choice before the reload resolves it.
       setActiveOrg(result.orgId);
       await reloadProfile();

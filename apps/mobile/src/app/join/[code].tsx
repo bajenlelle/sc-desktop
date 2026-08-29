@@ -11,6 +11,7 @@ import { getInvitePreview, joinByCode } from "@scoutable/shared/lib/profile-db";
 import type { InviteInvalidReason } from "@scoutable/shared/types/org";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
+import { trackEvent } from "@/lib/analytics";
 import { setPendingJoinCode } from "@/lib/pending-join";
 import { themeColors } from "@/lib/theme";
 import { Button } from "@/components/Button";
@@ -45,6 +46,7 @@ export default function JoinScreen() {
         if (preview?.orgName) setOrgName(preview.orgName);
         const result = await joinByCode(supabase, normalized);
         if (cancelled) return;
+        trackEvent("org_joined", { org_id: result.orgId });
         setActiveOrg(result.orgId);
         await reloadProfile();
         router.replace("/playlists");

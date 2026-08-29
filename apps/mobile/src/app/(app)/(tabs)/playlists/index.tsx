@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { clipViewKey } from "@scoutable/shared/lib/clip-views-db";
 import { useAuth } from "@/lib/auth-context";
+import { trackEvent } from "@/lib/analytics";
 import { playableClips, usePlaylists } from "@/lib/playlists-store";
 import { themeColors } from "@/lib/theme";
 import { Avatar } from "@/components/Avatar";
@@ -78,12 +79,14 @@ export default function PlaylistsScreen() {
   }, [directPlaylistIds, allPlaylists, teamMap]);
 
   const openPlaylist = useCallback((id: string) => {
+    trackEvent("playlist_opened", { playlist_id: id, resumed: false });
     router.push(`/playlists/${id}`);
   }, []);
 
   /** Opens a playlist starting from the first clip the player hasn't watched. */
   const resumePlaylist = useCallback(
     (id: string) => {
+      trackEvent("playlist_opened", { playlist_id: id, resumed: true });
       const pl = allPlaylists.find((p) => p.id === id);
       const firstUnwatched = pl
         ? playableClips(pl).find((c) => !clipViews.has(clipViewKey(pl.id, c.matchId, c.eventId)))
@@ -130,7 +133,7 @@ export default function PlaylistsScreen() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Profile"
-            onPress={() => router.push("/profile")}
+            onPress={() => router.navigate("/profile")}
             className="min-h-[44px] min-w-[44px] items-center justify-center"
           >
             <Avatar name={profile?.fullName} url={profile?.avatarUrl} size={32} />

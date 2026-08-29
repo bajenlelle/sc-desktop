@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, Text, View } from "react-native";
-import { router } from "expo-router";
+import { Alert, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Constants from "expo-constants";
 import { supabase } from "@/lib/supabase";
@@ -13,8 +12,9 @@ import { ReportProblemSheet } from "@/components/ReportProblemSheet";
 import { Select } from "@/components/Select";
 
 export default function ProfileScreen() {
-  const { user, profile, myOrgs, activeOrg, activeOrgId, setActiveOrg, reloadProfile } = useAuth();
-  const { teamMap } = usePlaylists();
+  const { user, profile, myOrgs, activeOrg, activeOrgId, isPlayerOnly, setActiveOrg, reloadProfile } =
+    useAuth();
+  const { teamMap, clubTeams } = usePlaylists();
   const [resetting, setResetting] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
@@ -42,16 +42,9 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView edges={["top"]} className="flex-1 bg-background dark:bg-background-dark">
-      <View className="flex-row items-center gap-2 px-2 pb-2 pt-1">
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Back"
-          onPress={() => router.back()}
-          className="min-h-[44px] min-w-[44px] items-center justify-center"
-        >
-          <Text className="text-2xl text-foreground dark:text-foreground-dark">‹</Text>
-        </Pressable>
-        <Text className="text-base font-semibold text-foreground dark:text-foreground-dark">
+      {/* Tab root — no back affordance. */}
+      <View className="flex-row items-center px-4 pb-1 pt-3">
+        <Text className="font-heading text-2xl text-foreground dark:text-foreground-dark">
           Profile
         </Text>
       </View>
@@ -75,30 +68,53 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        <View className="gap-2 rounded-xl border border-border dark:border-border-dark p-4">
-          <Text className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground dark:text-muted-foreground-dark">
-            Club
-          </Text>
-          {myOrgs.length > 1 ? (
-            <Select
-              options={orgOptions}
-              value={activeOrgId ?? ""}
-              onChange={async (orgId) => {
-                setActiveOrg(orgId);
-                await reloadProfile();
-              }}
-            />
-          ) : (
-            <Text className="text-base text-foreground dark:text-foreground-dark">
-              {activeOrg?.orgName ?? "—"}
+        {isPlayerOnly ? (
+          // Player-only users have no active-space concept — their feed
+          // aggregates every club. Read-only membership list, raw team names
+          // (teamMap values carry club prefixes in the multi-club feed).
+          <View className="gap-3 rounded-xl border border-border dark:border-border-dark p-4">
+            <Text className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground dark:text-muted-foreground-dark">
+              {clubTeams.length > 1 ? "My clubs" : "My club"}
             </Text>
-          )}
-          {teamNames.length > 0 && (
-            <Text className="text-sm text-muted-foreground dark:text-muted-foreground-dark">
-              {teamNames.join(" · ")}
+            {clubTeams.map((c) => (
+              <View key={c.orgId}>
+                <Text className="text-base text-foreground dark:text-foreground-dark">
+                  {c.orgName}
+                </Text>
+                {c.teamNames.length > 0 && (
+                  <Text className="text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                    {c.teamNames.join(" · ")}
+                  </Text>
+                )}
+              </View>
+            ))}
+          </View>
+        ) : (
+          <View className="gap-2 rounded-xl border border-border dark:border-border-dark p-4">
+            <Text className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground dark:text-muted-foreground-dark">
+              Club
             </Text>
-          )}
-        </View>
+            {myOrgs.length > 1 ? (
+              <Select
+                options={orgOptions}
+                value={activeOrgId ?? ""}
+                onChange={async (orgId) => {
+                  setActiveOrg(orgId);
+                  await reloadProfile();
+                }}
+              />
+            ) : (
+              <Text className="text-base text-foreground dark:text-foreground-dark">
+                {activeOrg?.orgName ?? "—"}
+              </Text>
+            )}
+            {teamNames.length > 0 && (
+              <Text className="text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                {teamNames.join(" · ")}
+              </Text>
+            )}
+          </View>
+        )}
 
         <View className="gap-3">
           <Button

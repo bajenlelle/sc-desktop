@@ -9,8 +9,10 @@ import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { User } from "@supabase/supabase-js";
 import { getMyProfile, getMyOrgs, checkOnboardingNeeded } from "@scoutable/shared/lib/profile-db";
+import { sortOrgsClubFirst, isPlayerOnly as derivePlayerOnly } from "@scoutable/shared/lib/orgs";
 import type { UserProfile, OrgMembership, OrgPlanTier } from "@scoutable/shared/types/org";
 import { supabase } from "./supabase";
+import { identifyUser, resetUser, trackEvent } from "./analytics";
 
 const ACTIVE_ORG_KEY = "scoutable_active_org_id";
 
@@ -30,6 +32,13 @@ interface AuthContextValue {
   activeOrgRole: OrgMembership["role"] | null;
   activeOrgPlan: OrgPlanTier;
   activeOrgIsPersonal: boolean;
+  /**
+   * True when the user's only club-org roles are `player` (and they belong
+   * to at least one club org). Player-only users get the two-destination
+   * nav (My Playlists / My Highlights) instead of the space switcher —
+   * tenancy is a coach/admin concept.
+   */
+  isPlayerOnly: boolean;
   setActiveOrg: (orgId: string) => void;
   reloadProfile: () => Promise<void>;
 }
@@ -46,6 +55,7 @@ const AuthContext = createContext<AuthContextValue>({
   activeOrgRole: null,
   activeOrgPlan: "free",
   activeOrgIsPersonal: false,
+  isPlayerOnly: false,
   setActiveOrg: () => {},
   reloadProfile: async () => {},
 });
@@ -84,16 +94,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!opts?.silent) setProfileLoading(true);
     lastLoadedAtRef.current = Date.now();
     try {
-      const [p, orgs, onboarding] = await Promise.all([
+      const [p, rawOrgs, onboarding] = await Promise.all([
         getMyProfile(supabase, userId),
         getMyOrgs(supabase),
         checkOnboardingNeeded(supabase),
       ]);
+      // Without a stored choice resolveActiveOrg falls back to orgs[0] — a
+      // club space is always the more useful default than the personal one.
+      const orgs = sortOrgsClubFirst(rawOrgs);
       const resolved = await resolveActiveOrg(orgs);
       setProfile(p);
       setMyOrgs(orgs);
       setNeedsOnboarding(onboarding);
       setActiveOrgIdState(resolved);
+      // Merge profile-level traits once loaded (role isn't known at SIGNED_IN
+      // time) — mirrors the web/desktop two-stage identify.
+      if (!opts?.silent) {
+        identifyUser(userId, {
+          declared_role: p?.declaredRole,
+          plan_tier: orgs.find((o) => o.isPersonal)?.planTier,
+        });
+      }
     } catch (err) {
       console.error("[auth] loadProfile failed:", err);
       if (!opts?.silent) {
@@ -127,8 +148,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       userRef.current = session?.user ?? null;
 
       if (session?.user && (event === "INITIAL_SESSION" || event === "SIGNED_IN")) {
+        if (event === "SIGNED_IN") {
+          identifyUser(session.user.id, { email: session.user.email });
+          trackEvent("signed_in");
+        }
         loadProfile(session.user.id);
       } else if (event === "SIGNED_OUT" || (!session?.user && event === "INITIAL_SESSION")) {
+        if (event === "SIGNED_OUT") {
+          trackEvent("signed_out");
+          resetUser();
+        }
         setProfile(null);
         setMyOrgs([]);
         setNeedsOnboarding(null);
@@ -145,6 +174,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const activeOrgRole = activeOrg?.role ?? null;
   const activeOrgPlan: OrgPlanTier = activeOrg?.planTier ?? "free";
   const activeOrgIsPersonal = activeOrg?.isPersonal ?? false;
+  const isPlayerOnly = derivePlayerOnly(myOrgs);
 
   return (
     <AuthContext.Provider
@@ -160,6 +190,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         activeOrgRole,
         activeOrgPlan,
         activeOrgIsPersonal,
+        isPlayerOnly,
         setActiveOrg,
         reloadProfile: async () => {
           if (userRef.current) await loadProfile(userRef.current.id);
