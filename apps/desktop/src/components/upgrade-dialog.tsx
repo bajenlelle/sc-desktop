@@ -20,7 +20,7 @@ interface Props {
 export function UpgradeDialog({ open, onClose, featureName = "This feature", description, analyticsFeature, analyticsSource }: Props) {
   const { user, expectPlanChange } = useAuth();
   const [loading, setLoading] = useState(false);
-  const body = description ?? "Turn your playlists into MP4s you can share anywhere — and import up to unlimited games every month. Try Rookie or Pro free for 14 days, cancel anytime.";
+  const body = description ?? "Turn your playlists into MP4s you can share anywhere — plus 10 game imports a month on Rookie, unlimited on Pro. Try either free for 14 days, cancel anytime.";
 
   useEffect(() => {
     if (open) trackEvent("upgrade_gate_hit", { feature: analyticsFeature ?? featureName });

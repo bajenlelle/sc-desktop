@@ -59,7 +59,7 @@ export function PlanBadge({ tier, size = "md", href, quota, onUpgrade, showArrow
   const quotaText = !showQuota
     ? null
     : atCap
-      ? "Limit reached — Upgrade"
+      ? "Limit reached — upgrade"
       : `${quota.remaining} of ${quota.limit} imports left`;
 
   const title = !showQuota

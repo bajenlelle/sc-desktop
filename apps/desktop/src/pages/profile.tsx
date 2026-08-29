@@ -249,7 +249,7 @@ export function ProfilePage() {
         <CardContent className="p-6 space-y-4">
           <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
             <Zap className="h-4 w-4 text-muted-foreground" />
-            Plan & Usage
+            Plan & usage
           </h2>
 
           <div className="flex items-center justify-between">
@@ -284,7 +284,9 @@ export function ProfilePage() {
                       onClick={handleUpgrade}
                       className="font-medium text-primary hover:underline"
                     >
-                      Upgrade — unlimited imports
+                      {importQuota!.window === "lifetime"
+                        ? "Upgrade for more imports"
+                        : "Upgrade — unlimited imports"}
                     </button>
                   )}
                   <span className={usageAtCap ? "text-destructive font-medium" : usageWarn ? "text-amber-600 dark:text-amber-500 font-medium" : ""}>
@@ -335,7 +337,7 @@ export function ProfilePage() {
             </>
           ) : (
             <p className="text-xs text-muted-foreground">
-              Plan managed by your organisation admin.
+              Plan managed by your organization admin.
             </p>
           )}
         </CardContent>

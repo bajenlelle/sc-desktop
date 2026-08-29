@@ -4733,7 +4733,7 @@ export function PlaylistsPage() {
                               ? `Export ${selectedClipIds.size} selected`
                               : filtersActive
                                 ? `Export ${queueItems.filter((i) => !isTextCard(i)).length} filtered clips`
-                                : 'Export Playlist'}
+                                : 'Export playlist'}
                             <ChevronDown className="h-3 w-3 text-muted-foreground" />
                           </Button>
                         </DropdownMenuTrigger>
@@ -5189,7 +5189,7 @@ export function PlaylistsPage() {
                               ? `Export ${selectedClipIds.size} selected`
                               : filtersActive
                                 ? `Export ${queueItems.filter((i) => !isTextCard(i)).length} filtered clips`
-                                : 'Export Playlist'}
+                                : 'Export playlist'}
                             <ChevronDown className="h-3 w-3 text-muted-foreground" />
                           </Button>
                         </DropdownMenuTrigger>
@@ -5652,7 +5652,8 @@ export function PlaylistsPage() {
           <UpgradeDialog
             open={upgradeDialogOpen}
             onClose={() => setUpgradeDialogOpen(false)}
-            featureName="Export Playlist is a paid feature"
+            featureName="Save your tape as an MP4"
+            analyticsFeature="export_playlist"
           />
           {/* Send to phone — render + upload + QR */}
           <SendToPhoneDialog

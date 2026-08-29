@@ -913,7 +913,8 @@ export const ClipsView = forwardRef<ClipsViewHandle, ClipsViewProps>(function Cl
       <UpgradeDialog
         open={upgradeDialogOpen}
         onClose={() => setUpgradeDialogOpen(false)}
-        featureName="Export is a paid feature"
+        featureName="Save your clips as an MP4"
+        analyticsFeature="export_clips"
       />
       {/* Saved Playlists — only shown in all-clips mode */}
       {!activePlaylist && (matchPlaylists.length > 0 || onPlaylistCreated) && (
