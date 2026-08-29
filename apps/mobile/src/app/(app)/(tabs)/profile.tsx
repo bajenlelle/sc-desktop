@@ -4,6 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import Constants from "expo-constants";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
+import { signOutAndCleanup } from "@/lib/notifications";
 import { usePlaylists } from "@/lib/playlists-store";
 import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/Button";
@@ -131,7 +132,7 @@ export default function ProfileScreen() {
           <Button
             title="Sign out"
             variant="ghost"
-            onPress={() => supabase.auth.signOut()}
+            onPress={() => signOutAndCleanup()}
           />
           <Button
             title="Delete account"

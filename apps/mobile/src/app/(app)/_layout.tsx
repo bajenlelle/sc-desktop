@@ -2,6 +2,7 @@ import { Redirect, Stack } from "expo-router";
 import { ActivityIndicator, View, useColorScheme } from "react-native";
 import { useAuth } from "@/lib/auth-context";
 import { PlaylistsProvider } from "@/lib/playlists-store";
+import { NotificationsBridge } from "@/components/NotificationsBridge";
 import { themeColors } from "@/lib/theme";
 
 export default function AppLayout() {
@@ -18,6 +19,7 @@ export default function AppLayout() {
   if (!user) return <Redirect href="/sign-in" />;
   return (
     <PlaylistsProvider>
+      <NotificationsBridge />
       <Stack screenOptions={{ headerShown: false }} />
     </PlaylistsProvider>
   );

@@ -12,10 +12,9 @@ import {
   useRef,
   useState,
 } from "react";
+import { AppState } from "react-native";
 import type {
   Playlist,
-  PlaylistClipItem,
-  PlaylistItem,
   PlayByPlayEvent,
   StoredMatch,
 } from "@scoutable/shared/types/match";
@@ -32,27 +31,26 @@ import {
   mergeEventsIntoMatches,
 } from "@scoutable/shared/lib/playlist-matches";
 import { clipViewKey, listMyClipViews, markClipWatched } from "@scoutable/shared/lib/clip-views-db";
+import {
+  playableClips,
+  toFeedPlaylists,
+  type FeedPlaylist,
+} from "@scoutable/shared/lib/playlist-feed";
 import { getOrgContextForOrg } from "@scoutable/shared/lib/profile-db";
 import { supabase } from "./supabase";
 import { useAuth } from "./auth-context";
 import { trackEvent } from "./analytics";
 
-function isClipItem(i: PlaylistItem): i is PlaylistClipItem {
-  return i.type === "clip";
-}
-
-/**
- * The clips a recipient can actually watch — only those shipped to R2.
- * Unshipped clips are invisible on the player surface (not greyed out), and
- * every progress denominator counts these, so 100% is always reachable.
- */
-export function playableClips(pl: Playlist): PlaylistClipItem[] {
-  return pl.items.filter(isClipItem).filter((c) => !!c.r2Url);
-}
+export { playableClips };
 
 interface PlaylistsData {
   loading: boolean;
   allPlaylists: Playlist[];
+  /**
+   * The ONE feed view-model (shared toFeedPlaylists) — consumed by the feed
+   * screen AND the tab/app-icon badges so their counts can't drift.
+   */
+  feedItems: FeedPlaylist[];
   directPlaylistIds: Set<string>;
   matchLookup: Map<string, StoredMatch>;
   teamMap: Map<string, OrgTeam>;
@@ -78,7 +76,7 @@ interface PlaylistsData {
 const PlaylistsContext = createContext<PlaylistsData | null>(null);
 
 export function PlaylistsProvider({ children }: { children: React.ReactNode }) {
-  const { activeOrgId, activeOrgRole, isPlayerOnly, myOrgs, profileLoading } = useAuth();
+  const { user, activeOrgId, activeOrgRole, isPlayerOnly, myOrgs, profileLoading } = useAuth();
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   // Player-only users always see the aggregated cross-club feed — their film
   // lives here regardless of which space happens to be "active".
@@ -216,6 +214,36 @@ export function PlaylistsProvider({ children }: { children: React.ReactNode }) {
     [directPlaylists]
   );
 
+  const feedItems = useMemo(
+    () =>
+      toFeedPlaylists(allPlaylists, {
+        userId: user?.id,
+        clipViews,
+        lastWatched,
+        memberMap,
+        teamMap,
+        directPlaylistIds,
+      }),
+    [allPlaylists, user?.id, clipViews, lastWatched, memberMap, teamMap, directPlaylistIds]
+  );
+
+  // Foreground refresh (throttled like auth-context's): the tab/app-icon
+  // badges are derived from this store, and without a refetch they'd show
+  // whatever was true when the app was backgrounded.
+  const lastLoadedAtRef = useRef(0);
+  useEffect(() => {
+    lastLoadedAtRef.current = Date.now();
+  }, [loading]);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      if (Date.now() - lastLoadedAtRef.current < 30_000) return;
+      lastLoadedAtRef.current = Date.now();
+      load().catch(() => {});
+    });
+    return () => sub.remove();
+  }, [load]);
+
   const matchLookup = useMemo(() => new Map(matches.map((m) => [m.id, m])), [matches]);
 
   const recordWatched = useCallback((playlistId: string, matchId: string, eventId: number) => {
@@ -235,6 +263,7 @@ export function PlaylistsProvider({ children }: { children: React.ReactNode }) {
   const value: PlaylistsData = {
     loading,
     allPlaylists,
+    feedItems,
     directPlaylistIds,
     matchLookup,
     teamMap,

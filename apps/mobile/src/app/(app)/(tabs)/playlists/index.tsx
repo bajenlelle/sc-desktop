@@ -11,20 +11,19 @@ import { Avatar } from "@/components/Avatar";
 import { PlaylistFeed } from "@/components/PlaylistFeed";
 import { ReportProblemSheet } from "@/components/ReportProblemSheet";
 import { SharedByMeDashboard } from "@/components/SharedByMeDashboard";
-import type { PlaylistCardData } from "@/components/PlaylistCard";
+import { NotificationPrimer } from "@/components/NotificationPrimer";
 import type { SelectOption } from "@/components/Select";
 
 export default function PlaylistsScreen() {
-  const { profile, user, activeOrgRole } = useAuth();
+  const { profile, activeOrgRole } = useAuth();
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   const {
     loading,
     allPlaylists,
+    feedItems,
     directPlaylistIds,
     teamMap,
-    memberMap,
     clipViews,
-    lastWatched,
     refresh,
   } = usePlaylists();
   const scheme = useColorScheme();
@@ -32,39 +31,8 @@ export default function PlaylistsScreen() {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [coachTab, setCoachTab] = useState<"by-me" | "with-me">("by-me");
 
-  // Cards for the landing feed, with per-playlist progress folded in
-  // (port of web's feedItems memo). Own playlists are excluded: "Shared
-  // with me" means what OTHERS sent — a coach's outbound playlists live on
-  // the dashboard tab, otherwise they'd see themselves as the sharer.
-  const feedItems = useMemo<PlaylistCardData[]>(() => {
-    return allPlaylists
-      .filter((pl) => !user?.id || pl.createdBy !== user.id)
-      .map((pl) => {
-      const clips = playableClips(pl);
-      const watchedCount = clips.filter((c) =>
-        clipViews.has(clipViewKey(pl.id, c.matchId, c.eventId))
-      ).length;
-      const sharer = pl.sharedBy ? memberMap.get(pl.sharedBy) : undefined;
-      return {
-        id: pl.id,
-        name: pl.name,
-        clipCount: clips.length,
-        watchedCount,
-        sharedAt: pl.sharedAt,
-        lastWatchedAt: lastWatched.get(pl.id),
-        sharerId: pl.sharedBy,
-        // Email fallback: a sharer without full_name otherwise collapses to
-        // the anonymous "Your coach".
-        sharerName: sharer?.fullName ?? sharer?.email ?? undefined,
-        sharerAvatarUrl: sharer?.avatarUrl ?? undefined,
-        isDirect: directPlaylistIds.has(pl.id),
-        teamIds: pl.teamIds ?? [],
-        teamNames: (pl.teamIds ?? [])
-          .map((id) => teamMap.get(id)?.name)
-          .filter((n): n is string => !!n),
-      };
-    });
-  }, [allPlaylists, directPlaylistIds, clipViews, lastWatched, memberMap, teamMap, user?.id]);
+  // The feed view-model lives in the store (shared toFeedPlaylists) — the
+  // tab/app-icon badges derive from the same array, so counts can't drift.
 
   // Only teams that actually have playlists appear as filter options.
   const sourceOptions = useMemo<SelectOption[]>(() => {
@@ -172,6 +140,8 @@ export default function PlaylistsScreen() {
           ))}
         </View>
       )}
+
+      {!loading && feedItems.length > 0 && <NotificationPrimer />}
 
       {loading ? (
         <View className="flex-1 items-center justify-center">

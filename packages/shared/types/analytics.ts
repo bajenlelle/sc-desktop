@@ -48,6 +48,11 @@ export type AnalyticsEvent =
   | "playlist_opened"
   | "clip_watched"
   | "reminder_sent"
+  // Push notifications (mobile)
+  | "notification_prompt_shown"
+  | "notification_permission_granted"
+  | "notification_permission_denied"
+  | "notification_opened"
   // Onboarding
   | "onboarding_step_clicked"
   | "onboarding_dismissed"

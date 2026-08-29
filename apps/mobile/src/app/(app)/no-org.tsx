@@ -1,7 +1,7 @@
 import { Text, View } from "react-native";
 import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { supabase } from "@/lib/supabase";
+import { signOutAndCleanup } from "@/lib/notifications";
 import { Button } from "@/components/Button";
 
 /**
@@ -21,7 +21,7 @@ export default function NoOrg() {
         </Text>
         <View className="mt-8 gap-3">
           <Button title="I have an invite code" onPress={() => router.push("/onboarding")} />
-          <Button title="Sign out" variant="ghost" onPress={() => supabase.auth.signOut()} />
+          <Button title="Sign out" variant="ghost" onPress={() => signOutAndCleanup()} />
         </View>
       </View>
     </SafeAreaView>

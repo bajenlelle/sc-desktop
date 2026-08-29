@@ -5,6 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { joinByCode } from "@scoutable/shared/lib/profile-db";
 import { supabase } from "@/lib/supabase";
 import { trackEvent } from "@/lib/analytics";
+import { signOutAndCleanup } from "@/lib/notifications";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
@@ -41,7 +42,7 @@ export default function Onboarding() {
   }
 
   async function handleSignOut() {
-    await supabase.auth.signOut();
+    await signOutAndCleanup();
   }
 
   return (

@@ -28,6 +28,7 @@
       "expo-router",
       "expo-video",
       "expo-web-browser",
+      "expo-notifications",
       [
         "expo-splash-screen",
         {

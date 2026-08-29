@@ -1,7 +1,11 @@
+import { useEffect, useMemo } from "react";
 import { Tabs } from "expo-router";
 import { useColorScheme } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { feedCounts } from "@scoutable/shared/lib/playlist-feed";
 import { useAuth } from "@/lib/auth-context";
+import { usePlaylists } from "@/lib/playlists-store";
+import { syncAppBadge } from "@/lib/notifications";
 import { themeColors } from "@/lib/theme";
 
 /**
@@ -12,9 +16,21 @@ import { themeColors } from "@/lib/theme";
  */
 export default function TabsLayout() {
   const { isPlayerOnly, activeOrgRole } = useAuth();
+  const { feedItems, loading } = usePlaylists();
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   const scheme = useColorScheme();
   const colors = themeColors(scheme);
+
+  // Fully-unwatched playlists — same semantics as the feed's "New" chip
+  // (guaranteed: both derive from the store's shared feedItems).
+  const newCount = useMemo(() => feedCounts(feedItems).new, [feedItems]);
+  const playlistsTitle = isCoachOrAdmin ? "Shared" : "My Playlists";
+
+  // App-icon badge mirrors the tab badge. The !loading guard stops the
+  // initial fetch from flashing the icon count to 0.
+  useEffect(() => {
+    if (!loading) syncAppBadge(newCount);
+  }, [newCount, loading]);
 
   return (
     <Tabs
@@ -32,7 +48,11 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="playlists/index"
         options={{
-          title: isCoachOrAdmin ? "Shared" : "My Playlists",
+          title: playlistsTitle,
+          // 0 renders an empty badge — must be undefined when clear.
+          tabBarBadge: newCount > 0 ? newCount : undefined,
+          tabBarAccessibilityLabel:
+            newCount > 0 ? `${playlistsTitle}, ${newCount} new` : playlistsTitle,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="albums-outline" size={size} color={color} />
           ),

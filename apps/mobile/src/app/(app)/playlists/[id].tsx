@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Pressable, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { VideoView } from "expo-video";
@@ -19,12 +19,25 @@ import { TextCardOverlay } from "@/components/TextCardOverlay";
 
 export default function WatchScreen() {
   const { id, resume } = useLocalSearchParams<{ id: string; resume?: string }>();
-  const { allPlaylists, matchLookup, clipViews, recordWatched } = usePlaylists();
+  const { allPlaylists, loading, matchLookup, clipViews, recordWatched, refresh } = usePlaylists();
 
   const playlist = useMemo(
     () => allPlaylists.find((p) => p.id === id) ?? null,
     [allPlaylists, id]
   );
+
+  // A push tap can land here for a share newer than the mounted store
+  // snapshot — one refetch before declaring the playlist unavailable.
+  const retriedRef = useRef(false);
+  const [retrying, setRetrying] = useState(false);
+  useEffect(() => {
+    if (playlist || loading || retriedRef.current) return;
+    retriedRef.current = true;
+    setRetrying(true);
+    refresh()
+      .catch(() => {})
+      .finally(() => setRetrying(false));
+  }, [playlist, loading, refresh]);
 
   // Build display items — clips without r2Url are invisible to recipients
   // (a row they can never play only reads as broken), text cards pass through.
@@ -101,6 +114,14 @@ export default function WatchScreen() {
       total: clips.length,
     };
   }, [playlist, clipViews]);
+
+  if (!playlist && (loading || retrying)) {
+    return (
+      <SafeAreaView className="flex-1 items-center justify-center bg-background dark:bg-background-dark">
+        <ActivityIndicator size="large" />
+      </SafeAreaView>
+    );
+  }
 
   if (!playlist) {
     return (

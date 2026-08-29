@@ -146,3 +146,69 @@ export function initials(name?: string | null): string {
     : parts[0].slice(0, 2)
   ).toUpperCase();
 }
+
+// ---------------------------------------------------------------------------
+// Feed mapping — Playlist[] → FeedPlaylist[]
+// ---------------------------------------------------------------------------
+
+import { isClipItem, type Playlist, type PlaylistClipItem } from "../types/match";
+import type { OrgTeam, UserProfile } from "../types/org";
+import { clipViewKey } from "./clip-views-db";
+
+/**
+ * The clips a recipient can actually watch — only those shipped to R2.
+ * Unshipped clips are invisible on the player surface (not greyed out), and
+ * every progress denominator counts these, so 100% is always reachable.
+ */
+export function playableClips(pl: Playlist): PlaylistClipItem[] {
+  return pl.items.filter(isClipItem).filter((c) => !!c.r2Url);
+}
+
+export interface FeedContext {
+  /** Current user — their own (outbound) playlists are excluded from the feed. */
+  userId?: string | null;
+  clipViews: Set<string>;
+  lastWatched: Map<string, string>;
+  memberMap: Map<string, UserProfile>;
+  teamMap: Map<string, OrgTeam>;
+  directPlaylistIds: Set<string>;
+}
+
+/**
+ * The ONE mapping from raw playlists to the feed's view-model — shared by the
+ * feed list and the tab/app-icon badges so their counts physically cannot
+ * drift. Note a playlist with zero shipped clips maps to watchedCount 0 and
+ * therefore counts as "new" (watchStateOf) in the badge AND renders in the
+ * feed's New section — exact parity is the contract; if product ever wants
+ * empty playlists hidden, change watchStateOf/filtering once and every
+ * surface follows.
+ */
+export function toFeedPlaylists(playlists: Playlist[], ctx: FeedContext): FeedPlaylist[] {
+  return playlists
+    .filter((pl) => !ctx.userId || pl.createdBy !== ctx.userId)
+    .map((pl) => {
+      const clips = playableClips(pl);
+      const watchedCount = clips.filter((c) =>
+        ctx.clipViews.has(clipViewKey(pl.id, c.matchId, c.eventId))
+      ).length;
+      const sharer = pl.sharedBy ? ctx.memberMap.get(pl.sharedBy) : undefined;
+      return {
+        id: pl.id,
+        name: pl.name,
+        clipCount: clips.length,
+        watchedCount,
+        sharedAt: pl.sharedAt,
+        lastWatchedAt: ctx.lastWatched.get(pl.id),
+        sharerId: pl.sharedBy,
+        // Email fallback: a sharer without full_name otherwise collapses to
+        // the anonymous "Your coach".
+        sharerName: sharer?.fullName ?? sharer?.email ?? undefined,
+        sharerAvatarUrl: sharer?.avatarUrl ?? undefined,
+        isDirect: ctx.directPlaylistIds.has(pl.id),
+        teamIds: pl.teamIds ?? [],
+        teamNames: (pl.teamIds ?? [])
+          .map((id) => ctx.teamMap.get(id)?.name)
+          .filter((n): n is string => !!n),
+      };
+    });
+}
