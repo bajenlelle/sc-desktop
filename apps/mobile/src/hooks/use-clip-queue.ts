@@ -87,6 +87,11 @@ export function useClipQueue({
       clearTextCardTimer();
       setActiveItem(clip);
       activeItemRef.current = clip;
+      // Disarm watch marking until the NEW source proves it's playing from
+      // the start: timeUpdate events carry their payload time, so one emitted
+      // by the outgoing clip near its end can be delivered after this ref
+      // swap and would otherwise mark the incoming clip watched instantly.
+      watchArmedRef.current = false;
       try {
         pendingPlayRef.current = true;
         await player.replaceAsync(clip.r2Url);
@@ -176,6 +181,14 @@ export function useClipQueue({
 
   // -- watched marking ----------------------------------------------------------
 
+  /**
+   * Stale-event gate: disarmed on every source swap (startClip), re-armed
+   * only by a timeUpdate near the START of playback — which only the new
+   * source can produce, since clips always play from 0. Events straggling in
+   * from the previous clip carry near-end positions and never re-arm.
+   */
+  const watchArmedRef = useRef(false);
+
   const markIfWatched = useCallback(
     (currentTime: number) => {
       const item = activeItemRef.current;
@@ -191,10 +204,17 @@ export function useClipQueue({
   );
 
   useEventListener(player, "timeUpdate", ({ currentTime }) => {
+    if (!watchArmedRef.current) {
+      if (currentTime > 1) return; // straggler from the previous clip
+      watchArmedRef.current = true;
+    }
     markIfWatched(currentTime);
   });
 
   useEventListener(player, "playToEnd", () => {
+    // Same stale-event gate: an end-event from the outgoing clip delivered
+    // after a skip would mis-mark the incoming clip AND double-advance.
+    if (!watchArmedRef.current) return;
     const item = activeItemRef.current;
     const plId = playlistIdRef.current;
     if (item && !isTextCard(item) && plId) {
@@ -208,6 +228,13 @@ export function useClipQueue({
   });
 
   useEventListener(player, "statusChange", ({ status, error }) => {
+    if (status === "readyToPlay") {
+      // The new source is loaded — any straggler events from the previous
+      // clip were delivered before this point, so arming is safe. (Also
+      // covers sub-second clips whose playToEnd could beat the first
+      // timeUpdate.)
+      watchArmedRef.current = true;
+    }
     if (status === "readyToPlay" && pendingPlayRef.current) {
       pendingPlayRef.current = false;
       player.playbackRate = speedRef.current;
