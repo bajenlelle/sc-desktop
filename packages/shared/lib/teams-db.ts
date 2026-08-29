@@ -12,6 +12,43 @@ export interface TeamMemberRef {
   role: "coach" | "player";
 }
 
+export interface MyTeamRef {
+  teamId: string;
+  teamName: string;
+  orgId: string;
+  orgName: string;
+}
+
+/**
+ * Every team the current user belongs to, across ALL orgs, with org
+ * attribution. Powers the player's aggregated feed (badging playlists by
+ * club/team without an active-space concept). RLS scopes the join to the
+ * caller's own memberships.
+ */
+export async function getMyTeamsAcrossOrgs(
+  supabase: SupabaseClient,
+): Promise<MyTeamRef[]> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+  const { data, error } = await supabase
+    .from("team_members")
+    .select("team_id, teams (id, name, org_id, organizations (name))")
+    .eq("user_id", user.id);
+  if (error) { reportDbError("getMyTeamsAcrossOrgs", error); return []; }
+  type Row = {
+    team_id: string;
+    teams: { id: string; name: string; org_id: string; organizations: { name: string } | null } | null;
+  };
+  return ((data ?? []) as unknown as Row[])
+    .filter((r) => r.teams !== null)
+    .map((r) => ({
+      teamId: r.team_id,
+      teamName: r.teams!.name,
+      orgId: r.teams!.org_id,
+      orgName: r.teams!.organizations?.name ?? "",
+    }));
+}
+
 /**
  * Members of the given teams WITH team attribution — the existing desktop
  * getTeamMemberIds drops team_id, which the coach dashboard needs to know

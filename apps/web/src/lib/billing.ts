@@ -31,7 +31,10 @@ export async function openBillingPortal(): Promise<string | null> {
  * page in a new tab with their email pre-filled so the Stripe webhook can
  * match the customer back to this account.
  */
-export async function openUpgradeFlow(email?: string | null): Promise<string | null> {
+export async function openUpgradeFlow(
+  email?: string | null,
+  source: string = "billing_lib",
+): Promise<string | null> {
   let hasActiveSub = false;
   try {
     hasActiveSub = !!(await getSubscriptionStatus())?.isActive;
@@ -39,7 +42,7 @@ export async function openUpgradeFlow(email?: string | null): Promise<string | n
     // Fall through to pricing — a failed lookup shouldn't dead-end the user.
   }
 
-  trackEvent("upgrade_clicked", { source: "billing_lib", has_subscription: hasActiveSub });
+  trackEvent("upgrade_clicked", { source, has_subscription: hasActiveSub });
 
   if (hasActiveSub) return openBillingPortal();
 

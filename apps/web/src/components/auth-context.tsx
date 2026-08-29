@@ -44,6 +44,13 @@ interface AuthContextValue {
   activeOrgRole: OrgMembership['role'] | null;
   activeOrgPlan: OrgPlanTier;
   activeOrgIsPersonal: boolean;
+  /**
+   * True when the user's only club-org roles are `player` (and they belong
+   * to at least one club org). Player-only users get the two-destination
+   * nav (My Playlists / My Highlights) instead of the space switcher —
+   * tenancy is a coach/admin concept.
+   */
+  isPlayerOnly: boolean;
   setActiveOrg: (orgId: string) => void;
   reloadProfile: () => Promise<void>;
   /**
@@ -67,6 +74,7 @@ const AuthContext = createContext<AuthContextValue>({
   activeOrgRole: null,
   activeOrgPlan: 'free',
   activeOrgIsPersonal: false,
+  isPlayerOnly: false,
   setActiveOrg: () => {},
   reloadProfile: async () => {},
   expectPlanChange: () => {},
@@ -108,7 +116,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!opts?.silent) setProfileLoading(true);
     lastLoadedAtRef.current = Date.now();
     try {
-      const [p, orgs] = await Promise.all([getMyProfile(userId), getMyOrgs()]);
+      const [p, rawOrgs] = await Promise.all([getMyProfile(userId), getMyOrgs()]);
+      // Club orgs first, stable by name: get_my_orgs() has no ORDER BY, and
+      // without a stored choice resolveActiveOrg falls back to orgs[0] — a
+      // club space is always the more useful default than the personal one.
+      const orgs = [...rawOrgs].sort((a, b) => {
+        if (a.isPersonal !== b.isPersonal) return a.isPersonal ? 1 : -1;
+        return a.orgName.localeCompare(b.orgName);
+      });
       setProfile(p);
       setMyOrgs(orgs);
       setActiveOrgIdState(resolveActiveOrg(orgs));
@@ -220,6 +235,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const activeOrgRole = activeOrg?.role ?? null;
   const activeOrgPlan: OrgPlanTier = activeOrg?.planTier ?? 'free';
   const activeOrgIsPersonal = activeOrg?.isPersonal ?? false;
+  const clubOrgs = myOrgs.filter((o) => !o.isPersonal);
+  const isPlayerOnly = clubOrgs.length > 0 && clubOrgs.every((o) => o.role === "player");
 
   // expectPlanChange's baseline: whatever org/tier the user was on when they
   // clicked upgrade.
@@ -241,6 +258,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         activeOrgRole,
         activeOrgPlan,
         activeOrgIsPersonal,
+        isPlayerOnly,
         setActiveOrg,
         reloadProfile: async () => { if (user) await loadProfile(user.id); },
         expectPlanChange,

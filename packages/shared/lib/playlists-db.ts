@@ -510,8 +510,10 @@ export async function getMyDirectPlaylists(
   const playlistIds = shareRows.map((r: { playlist_id: string }) => r.playlist_id);
 
   // 2. Fetch those playlists, optionally scoped to the active org's teams.
-  // Strict org scoping: only return shares whose playlist is bound to a team
-  // in the active org. Personal (no-team) playlists are excluded under scoping.
+  // Two modes: with teamIds (coach view) shares are strictly org-scoped —
+  // only playlists bound to a team in the active org, no-team playlists
+  // excluded. Without teamIds (player aggregated feed) every direct share
+  // RLS permits is returned, team-bound or not.
   let query = supabase
     .from("playlists")
     .select(PLAYLIST_SELECT)

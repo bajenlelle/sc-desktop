@@ -47,10 +47,10 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
   const router = useRouter();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
-  const { myOrgs, activeOrg, activeOrgId, activeOrgRole, activeOrgIsPersonal, setActiveOrg } = useAuth();
+  const { myOrgs, activeOrg, activeOrgId, activeOrgRole, activeOrgIsPersonal, isPlayerOnly, setActiveOrg } = useAuth();
   const importQuota = useImportQuota();
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
-  const showOrganization = !activeOrgIsPersonal && activeOrgRole !== null;
+  const showOrganization = !isPlayerOnly && !activeOrgIsPersonal && activeOrgRole !== null;
   const hasOrg = !profile || !!profile.isPlatformAdmin || myOrgs.length > 0;
   // Show the "Get the desktop app" CTA to any signed-in user. Even team-org
   // players have a personal org — the desktop app lets them scout their
@@ -58,13 +58,23 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
   const showDesktopCTA = hasOrg;
   const DESKTOP_APP_URL = "https://scoutable.se/#download";
   const DESKTOP_APP_TOOLTIP = "Full scouting workflow lives in the desktop app";
-  const navLinks = [
-    ...(activeOrgIsPersonal
-      ? []
-      : [{ href: "/my-playlists", label: isCoachOrAdmin ? "Shared Playlists" : "My Playlists" }]),
-    ...(showOrganization ? [{ href: "/organization", label: "Organization" }] : []),
-    ...(profile?.isPlatformAdmin ? [{ href: "/admin", label: "Admin" }] : []),
-  ];
+  // Player-only users navigate by content, not by tenancy: two fixed
+  // destinations, no space switcher. Coaches/admins keep the space model,
+  // with the nav link named after the actual space instead of "Organization".
+  const navLinks = isPlayerOnly
+    ? [
+        { href: "/my-playlists", label: "My Playlists" },
+        { href: "/my-highlights", label: "My Highlights" },
+      ]
+    : [
+        ...(activeOrgIsPersonal
+          ? []
+          : [{ href: "/my-playlists", label: isCoachOrAdmin ? "Shared Playlists" : "My Playlists" }]),
+        ...(showOrganization
+          ? [{ href: "/organization", label: activeOrg?.orgName ?? "Organization" }]
+          : []),
+        ...(profile?.isPlatformAdmin ? [{ href: "/admin", label: "Admin" }] : []),
+      ];
 
   const initials = (profile?.fullName || profile?.email || "?").slice(0, 2).toUpperCase();
   // Personal orgs sort first, then teams alphabetically.
@@ -92,8 +102,9 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
           <Wordmark className="h-4 hidden sm:block" />
         </Link>
 
-        {/* Space indicator — always visible when an org is active */}
-        {activeOrg && (
+        {/* Space indicator — coaches/admins only. Player-only users navigate
+            by content (My Playlists / My Highlights); tenancy is hidden. */}
+        {activeOrg && !isPlayerOnly && (
           <>
             <div className="h-5 w-px bg-border shrink-0" />
             {myOrgs.length > 1 ? (

@@ -320,7 +320,7 @@ export default function ProfilePage() {
 
           {!activeOrgIsPersonal && (
             <p className="text-xs text-muted-foreground">
-              Plan managed by your organisation admin.
+              Plan managed by your organization admin.
             </p>
           )}
 
@@ -370,7 +370,7 @@ export default function ProfilePage() {
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
                 <Users className="h-4 w-4 text-muted-foreground" />
-                Organisation
+                Organization
               </h2>
               <Link href="/organization" className="flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
                 Manage <ChevronRight className="h-3 w-3" />

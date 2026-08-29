@@ -16,8 +16,8 @@ import { toast } from "sonner";
 
 const INVALID_COPY: Record<InviteInvalidReason, { title: string; body: string }> = {
   expired_license: {
-    title: "Organisation license expired",
-    body: "This invite belongs to an organisation whose license has expired. Ask the organisation's admin to renew before joining.",
+    title: "Organization license expired",
+    body: "This invite belongs to an organization whose license has expired. Ask the organization’s admin to renew before joining.",
   },
   expired_invite: {
     title: "Invite link expired",

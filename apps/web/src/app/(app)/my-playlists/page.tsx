@@ -69,7 +69,7 @@ function itemKey(i: PlaybackItem): string {
 // ---------------------------------------------------------------------------
 
 export default function MyPlaylistsPage() {
-  const { activeOrgId, activeOrgIsPersonal, profileLoading } = useAuth();
+  const { activeOrgId, activeOrgIsPersonal, isPlayerOnly, myOrgs, profileLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -78,12 +78,19 @@ export default function MyPlaylistsPage() {
   // and a refresh or shared link reopens the same playlist.
   const selectedId = searchParams.get("p");
 
+  const clubOrgs = useMemo(() => myOrgs.filter((o) => !o.isPersonal), [myOrgs]);
+  // Stable key so the load effect doesn't refire on referentially-new arrays.
+  const clubOrgIdsKey = clubOrgs.map((o) => o.orgId).sort().join(",");
+
   useEffect(() => {
     if (profileLoading) return;
+    // Player-only users always see the aggregated feed — their film lives
+    // here regardless of which space happens to be "active".
+    if (isPlayerOnly) return;
     // A personal-only user has nothing to watch here — send them to the
     // get-started page (the desktop app is their product), not the profile.
     if (activeOrgIsPersonal) router.replace("/get-started");
-  }, [activeOrgIsPersonal, profileLoading, router]);
+  }, [activeOrgIsPersonal, isPlayerOnly, profileLoading, router]);
 
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [directPlaylists, setDirectPlaylists] = useState<Playlist[]>([]);
@@ -165,27 +172,47 @@ export default function MyPlaylistsPage() {
   useEffect(() => { activeTextCardRef.current = activeTextCard; }, [activeTextCard]);
   useEffect(() => { selectedRef.current = selected; }, [selected]);
 
-  // Load playlists + matches + org context (two stages: orgCtx first to derive
-  // active-org team ids, then playlists scoped to those teams).
+  // Load playlists + matches + org context. Two modes:
+  // - Coach/admin (and legacy): scoped to the active org's teams.
+  // - Player-only: aggregated across ALL club orgs — no active-space concept.
+  //   Matches load unscoped (RLS already grants read on matches referenced by
+  //   shared playlists) and team/member context merges every club org, so
+  //   badges and sharer names resolve regardless of which club shared.
   useEffect(() => {
+    if (profileLoading) return;
     const supabase = createClient();
+    const aggregated = isPlayerOnly;
     Promise.all([
       supabase.auth.getUser(),
-      listMatches(supabase, activeOrgId ?? undefined).catch(() => [] as StoredMatch[]),
-      (activeOrgId ? getOrgContextForOrg(activeOrgId) : getOrgContext()).catch(() => null),
-    ]).then(async ([{ data: { user } }, ms, orgCtx]) => {
+      listMatches(supabase, aggregated ? undefined : (activeOrgId ?? undefined)).catch(() => [] as StoredMatch[]),
+      aggregated
+        ? Promise.all(clubOrgs.map((o) => getOrgContextForOrg(o.orgId).catch(() => null)))
+        : (activeOrgId ? getOrgContextForOrg(activeOrgId) : getOrgContext()).catch(() => null),
+    ]).then(async ([{ data: { user } }, ms, orgCtxRaw]) => {
       setCurrentUserId(user?.id ?? null);
       setMatches(ms);
+      const multiClub = aggregated && clubOrgs.length > 1;
+      const orgCtxs = (Array.isArray(orgCtxRaw) ? orgCtxRaw : [orgCtxRaw]).filter(
+        (c): c is NonNullable<typeof c> => c !== null,
+      );
+      const orgCtx = orgCtxs[0] ?? null;
       if (orgCtx) {
         setUserRole(orgCtx.profile?.role ?? null);
-        setAllOrgTeams(orgCtx.allOrgTeams);
-        setTeamMap(new Map(orgCtx.myTeams.map((t) => [t.id, t])));
-        setMemberMap(new Map(orgCtx.orgMembers.map((m) => [m.id, m])));
+        setAllOrgTeams(orgCtxs.flatMap((c) => c.allOrgTeams));
+        setTeamMap(new Map(orgCtxs.flatMap((c, i) => c.myTeams.map((t) => {
+          // In the aggregated multi-club feed, badge teams with their club.
+          const orgName = aggregated ? clubOrgs[i]?.orgName : undefined;
+          const name = multiClub && orgName ? `${orgName} · ${t.name}` : t.name;
+          return [t.id, { ...t, name }] as const;
+        }))));
+        setMemberMap(new Map(orgCtxs.flatMap((c) => c.orgMembers.map((m) => [m.id, m] as const))));
       }
-      const activeTeamIds = orgCtx?.myTeams.map((t) => t.id) ?? [];
+      const activeTeamIds = orgCtxs.flatMap((c) => c.myTeams.map((t) => t.id));
       const [pls, directPls, sharedOutPls] = await Promise.all([
         getMyTeamPlaylists(supabase, activeTeamIds).catch(() => [] as Playlist[]),
-        getMyDirectPlaylists(supabase, activeTeamIds).catch(() => [] as Playlist[]),
+        // Aggregated mode drops the team scoping for direct shares — every
+        // person-to-person share RLS permits shows, team-bound or not.
+        getMyDirectPlaylists(supabase, aggregated ? undefined : activeTeamIds).catch(() => [] as Playlist[]),
         // Owner-based (not direct-shares-only): a coach's team-only-shared
         // playlists must resolve here too, or ?p= deep links go blank.
         getMySharedPlaylists(supabase).catch(() => [] as Playlist[]),
@@ -208,7 +235,10 @@ export default function MyPlaylistsPage() {
     }).finally(() => {
       setLoading(false);
     });
-  }, [activeOrgId]);
+    // clubOrgIdsKey stands in for clubOrgs (referentially unstable), and the
+    // aggregated path ignores activeOrgId on purpose.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeOrgId, isPlayerOnly, clubOrgIdsKey, profileLoading]);
 
   const matchLookup = useMemo(() => new Map(matches.map((m) => [m.id, m])), [matches]);
   useEffect(() => { matchLookupRef.current = matchLookup; }, [matchLookup]);
