@@ -5,6 +5,7 @@ import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { getMyProfile, getMyOrgs } from "@/lib/profile-db";
 import type { UserProfile, OrgMembership, OrgPlanTier } from "@scoutable/shared/types/org";
+import { sortOrgsClubFirst, isPlayerOnly as derivePlayerOnly } from "@scoutable/shared/lib/orgs";
 import {
   aliasUser,
   enablePersistentTracking,
@@ -117,13 +118,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     lastLoadedAtRef.current = Date.now();
     try {
       const [p, rawOrgs] = await Promise.all([getMyProfile(userId), getMyOrgs()]);
-      // Club orgs first, stable by name: get_my_orgs() has no ORDER BY, and
-      // without a stored choice resolveActiveOrg falls back to orgs[0] — a
+      // Without a stored choice resolveActiveOrg falls back to orgs[0] — a
       // club space is always the more useful default than the personal one.
-      const orgs = [...rawOrgs].sort((a, b) => {
-        if (a.isPersonal !== b.isPersonal) return a.isPersonal ? 1 : -1;
-        return a.orgName.localeCompare(b.orgName);
-      });
+      const orgs = sortOrgsClubFirst(rawOrgs);
       setProfile(p);
       setMyOrgs(orgs);
       setActiveOrgIdState(resolveActiveOrg(orgs));
@@ -235,8 +232,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const activeOrgRole = activeOrg?.role ?? null;
   const activeOrgPlan: OrgPlanTier = activeOrg?.planTier ?? 'free';
   const activeOrgIsPersonal = activeOrg?.isPersonal ?? false;
-  const clubOrgs = myOrgs.filter((o) => !o.isPersonal);
-  const isPlayerOnly = clubOrgs.length > 0 && clubOrgs.every((o) => o.role === "player");
+  const isPlayerOnly = derivePlayerOnly(myOrgs);
 
   // expectPlanChange's baseline: whatever org/tier the user was on when they
   // clicked upgrade.

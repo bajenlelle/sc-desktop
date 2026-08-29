@@ -14,7 +14,8 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/componen
 import { getMyTeamPlaylists, getMyDirectPlaylists, getMySharedPlaylists, setPlaylistTeams, setPlaylistUsers } from "@/lib/playlists-db";
 import { getOrgContext, getOrgContextForOrg } from "@/lib/profile-db";
 import { useAuth } from "@/lib/auth-context";
-import { listMatches } from "@/lib/matches-db";
+import { listMatchesLight, listEventsForMatches } from "@/lib/matches-db";
+import { collectReferencedMatchIds, mergeEventsIntoMatches } from "@scoutable/shared/lib/playlist-matches";
 import { isClipItem } from "@/types/match";
 import type { Playlist, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch } from "@/types/match";
 import type { OrgTeam, UserProfile } from "@/types/org";
@@ -135,10 +136,12 @@ export function MyPlaylistsPage() {
   // active-org team ids, then playlists scoped to those teams).
   useEffect(() => {
     Promise.all([
-      listMatches(activeOrgId ?? undefined).catch(() => [] as StoredMatch[]),
+      // Light shells only — events arrive below, scoped to the matches the
+      // loaded playlists actually reference. Full listMatches pulled every
+      // accessible match's complete play-by-play (~500 events/game).
+      listMatchesLight(activeOrgId ?? undefined).catch(() => [] as StoredMatch[]),
       (activeOrgId ? getOrgContextForOrg(activeOrgId) : getOrgContext()).catch(() => null),
-    ]).then(async ([ms, orgCtx]) => {
-      setMatches(ms);
+    ]).then(async ([shells, orgCtx]) => {
       if (orgCtx) {
         setCurrentUserId(orgCtx.profile.id);
         setUserRole(orgCtx.profile.role);
@@ -154,6 +157,15 @@ export function MyPlaylistsPage() {
         // playlists must be resolvable/openable here too.
         getMySharedPlaylists().catch(() => [] as Playlist[]),
       ]);
+      // Events only for matches the loaded playlists can play, merged into
+      // the shells and published in ONE setMatches — clip rows silently drop
+      // when their event lookup misses, so light-shells-first would flash
+      // every playlist empty.
+      const referencedIds = collectReferencedMatchIds([...pls, ...directPls, ...sharedOutPls]);
+      const eventsByMatch = await listEventsForMatches(referencedIds).catch(
+        () => ({}) as Record<string, PlayByPlayEvent[]>,
+      );
+      setMatches(mergeEventsIntoMatches(shells, eventsByMatch));
       setPlaylists(pls);
       setDirectPlaylists(directPls);
       setSharedOutPlaylists(sharedOutPls);

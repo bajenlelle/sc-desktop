@@ -9,7 +9,12 @@ import { VideoPlayer } from "@/components/video-player";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
 import { getMyTeamPlaylists, getMyDirectPlaylists, getMySharedPlaylists, setPlaylistTeams, setPlaylistUsers } from "@scoutable/shared/lib/playlists-db";
-import { listMatches } from "@scoutable/shared/lib/matches-db";
+import { listMatchesLight, listEventsForMatches } from "@scoutable/shared/lib/matches-db";
+import {
+  buildAggregatedTeamMap,
+  collectReferencedMatchIds,
+  mergeEventsIntoMatches,
+} from "@scoutable/shared/lib/playlist-matches";
 import { getOrgContext, getOrgContextForOrg } from "@/lib/profile-db";
 import { useAuth } from "@/components/auth-context";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -184,27 +189,28 @@ export default function MyPlaylistsPage() {
     const aggregated = isPlayerOnly;
     Promise.all([
       supabase.auth.getUser(),
-      listMatches(supabase, aggregated ? undefined : (activeOrgId ?? undefined)).catch(() => [] as StoredMatch[]),
+      // Light shells only — events arrive below, scoped to the matches the
+      // loaded playlists actually reference. Full listMatches pulled every
+      // accessible match's complete play-by-play (~500 events/game).
+      listMatchesLight(supabase, aggregated ? undefined : (activeOrgId ?? undefined)).catch(() => [] as StoredMatch[]),
       aggregated
         ? Promise.all(clubOrgs.map((o) => getOrgContextForOrg(o.orgId).catch(() => null)))
         : (activeOrgId ? getOrgContextForOrg(activeOrgId) : getOrgContext()).catch(() => null),
-    ]).then(async ([{ data: { user } }, ms, orgCtxRaw]) => {
+    ]).then(async ([{ data: { user } }, shells, orgCtxRaw]) => {
       setCurrentUserId(user?.id ?? null);
-      setMatches(ms);
       const multiClub = aggregated && clubOrgs.length > 1;
-      const orgCtxs = (Array.isArray(orgCtxRaw) ? orgCtxRaw : [orgCtxRaw]).filter(
-        (c): c is NonNullable<typeof c> => c !== null,
+      const rawCtxList = Array.isArray(orgCtxRaw) ? orgCtxRaw : [orgCtxRaw];
+      // Zip org names before filtering nulls so a club whose context failed
+      // to load doesn't shift the org↔teams pairing.
+      const teamMapEntries = rawCtxList.map((c, i) =>
+        c ? { orgName: aggregated ? clubOrgs[i]?.orgName : undefined, teams: c.myTeams } : null,
       );
+      const orgCtxs = rawCtxList.filter((c): c is NonNullable<typeof c> => c !== null);
       const orgCtx = orgCtxs[0] ?? null;
       if (orgCtx) {
         setUserRole(orgCtx.profile?.role ?? null);
         setAllOrgTeams(orgCtxs.flatMap((c) => c.allOrgTeams));
-        setTeamMap(new Map(orgCtxs.flatMap((c, i) => c.myTeams.map((t) => {
-          // In the aggregated multi-club feed, badge teams with their club.
-          const orgName = aggregated ? clubOrgs[i]?.orgName : undefined;
-          const name = multiClub && orgName ? `${orgName} · ${t.name}` : t.name;
-          return [t.id, { ...t, name }] as const;
-        }))));
+        setTeamMap(buildAggregatedTeamMap(teamMapEntries, multiClub));
         setMemberMap(new Map(orgCtxs.flatMap((c) => c.orgMembers.map((m) => [m.id, m] as const))));
       }
       const activeTeamIds = orgCtxs.flatMap((c) => c.myTeams.map((t) => t.id));
@@ -217,6 +223,15 @@ export default function MyPlaylistsPage() {
         // playlists must resolve here too, or ?p= deep links go blank.
         getMySharedPlaylists(supabase).catch(() => [] as Playlist[]),
       ]);
+      // Events only for matches the loaded playlists can play, merged into
+      // the shells and published in ONE setMatches — clip rows silently drop
+      // when their event lookup misses, so light-shells-first would flash
+      // every playlist empty (and break ?p= deep links mid-load).
+      const referencedIds = collectReferencedMatchIds([...pls, ...directPls, ...sharedOutPls]);
+      const eventsByMatch = await listEventsForMatches(supabase, referencedIds).catch(
+        () => ({}) as Record<string, PlayByPlayEvent[]>,
+      );
+      setMatches(mergeEventsIntoMatches(shells, eventsByMatch));
       setPlaylists(pls);
       setDirectPlaylists(directPls);
       setSharedOutPlaylists(sharedOutPls);
