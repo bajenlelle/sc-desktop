@@ -3,16 +3,17 @@
  * Port of apps/web .../my-highlights/page.tsx.
  *
  * Personal orgs exist so players acquired through club orgs can upgrade to
- * Rookie/Pro and cut their own tapes. Free tier sees a value-first pitch;
- * upgraded players see their own playlists (built in the desktop app, listed
- * here for reference — watching stays via send-to-phone or desktop).
- *
- * iOS shows NO purchase path, price, or external store/pricing link (App
- * Store 3.1.1) — the pitch stands on its own and points at the desktop app
- * by name only. Android gets the full upgrade flow.
+ * Rookie/Pro and cut their own tapes. Free tier sees a value-first pitch
+ * whose only ask is the FREE desktop download — activation before
+ * monetization: the free tier (3 imports) is the trial, and the upsell
+ * happens inside the desktop app at the quota/watermark gates, where intent
+ * is highest. No price or purchase link here, which also keeps iOS clear of
+ * App Store 3.1.1. Upgraded players see their own playlists (built in the
+ * desktop app, listed here for reference — watching stays via send-to-phone
+ * or desktop).
  */
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, Text, View, useColorScheme } from "react-native";
+import { ActivityIndicator, ScrollView, Text, View, useColorScheme } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import * as WebBrowser from "expo-web-browser";
@@ -21,7 +22,6 @@ import { listPlaylists } from "@scoutable/shared/lib/playlists-db";
 import { isClipItem, type Playlist } from "@scoutable/shared/types/match";
 import { useAuth } from "@/lib/auth-context";
 import { supabase } from "@/lib/supabase";
-import { openUpgradeFlow } from "@/lib/billing";
 import { trackEvent } from "@/lib/analytics";
 import { themeColors } from "@/lib/theme";
 import { Button } from "@/components/Button";
@@ -47,30 +47,13 @@ const BULLETS = [
   },
 ] as const;
 
-function PitchPage({ email }: { email?: string | null }) {
+function PitchPage() {
   const scheme = useColorScheme();
   const colors = themeColors(scheme);
-  const [opening, setOpening] = useState(false);
 
-  async function handleAndroidUpgrade() {
-    setOpening(true);
-    try {
-      await openUpgradeFlow(email);
-    } finally {
-      setOpening(false);
-    }
-  }
-
-  function handleIosGetStarted() {
-    trackEvent("upgrade_clicked", {
-      source: "my_highlights",
-      platform: "ios",
-      has_subscription: false,
-    });
-    Alert.alert(
-      "Get started on your computer",
-      "Open scoutable.se on your computer and sign in with this account — your highlights sync automatically.",
-    );
+  function handleDownload() {
+    trackEvent("download_clicked", { source: "my_highlights" });
+    WebBrowser.openBrowserAsync(DESKTOP_APP_URL).catch(() => {});
   }
 
   return (
@@ -112,37 +95,16 @@ function PitchPage({ email }: { email?: string | null }) {
         ))}
       </View>
 
-      {Platform.OS === "android" ? (
-        <View className="items-center gap-3">
-          <Button
-            title="Start 14-day free trial"
-            onPress={handleAndroidUpgrade}
-            loading={opening}
-            className="self-stretch"
-          />
-          <Text className="text-sm text-muted-foreground dark:text-muted-foreground-dark">
-            Rookie — from 159 SEK/month. Cancel anytime.
-          </Text>
-          <Pressable
-            accessibilityRole="link"
-            onPress={() => WebBrowser.openBrowserAsync(DESKTOP_APP_URL).catch(() => {})}
-            className="min-h-[44px] flex-row items-center gap-1.5"
-          >
-            <Ionicons name="desktop-outline" size={16} color={colors.primary} />
-            <Text className="text-sm font-medium text-primary dark:text-primary-dark">
-              Download the desktop app
-            </Text>
-          </Pressable>
-        </View>
-      ) : (
-        <View className="items-center gap-3">
-          <Button
-            title="Get started on the desktop app"
-            onPress={handleIosGetStarted}
-            className="self-stretch"
-          />
-        </View>
-      )}
+      <View className="items-center gap-3">
+        <Button
+          title="Get the desktop app — free"
+          onPress={handleDownload}
+          className="self-stretch"
+        />
+        <Text className="text-sm text-muted-foreground dark:text-muted-foreground-dark">
+          3 game imports included. No card needed.
+        </Text>
+      </View>
     </ScrollView>
   );
 }
@@ -213,7 +175,7 @@ function OwnPlaylists() {
 }
 
 export default function HighlightsScreen() {
-  const { user, myOrgs, profile, profileLoading } = useAuth();
+  const { myOrgs, profileLoading } = useAuth();
   const scheme = useColorScheme();
 
   const personalOrg = myOrgs.find((o) => o.isPersonal) ?? null;
@@ -233,7 +195,7 @@ export default function HighlightsScreen() {
       ) : upgraded ? (
         <OwnPlaylists />
       ) : (
-        <PitchPage email={profile?.email ?? user?.email} />
+        <PitchPage />
       )}
     </SafeAreaView>
   );

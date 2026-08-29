@@ -4,32 +4,30 @@
  * My Highlights — the player's own space as a first-class destination.
  *
  * Personal orgs exist so players acquired through club orgs can upgrade to
- * Rookie/Pro and cut their own tapes. Free tier sees a value-first pitch;
- * upgraded players see their own playlists (built in the desktop app,
- * listed here for reference — watching stays on their phone via
- * send-to-phone, or in the desktop app).
+ * Rookie/Pro and cut their own tapes. Free tier sees a value-first pitch
+ * whose only ask is the FREE desktop download — activation before
+ * monetization: the free tier (3 imports) is the trial, and the upsell
+ * happens inside the desktop app at the quota/watermark gates, where intent
+ * is highest. Upgraded players see their own playlists (built in the
+ * desktop app, listed here for reference — watching stays on their phone
+ * via send-to-phone, or in the desktop app).
  */
 import { useEffect, useState } from "react";
 import { Check, Clapperboard, ListVideo, Loader2, Monitor, Share2, Wand2 } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/components/auth-context";
 import { createClient } from "@/lib/supabase/client";
-import { openUpgradeFlow } from "@/lib/billing";
+import { trackEvent } from "@/lib/analytics";
 import { listPlaylists } from "@scoutable/shared/lib/playlists-db";
 import { isClipItem, type Playlist } from "@scoutable/shared/types/match";
 
 const DESKTOP_APP_URL = "https://scoutable.se/#download";
 
-function PitchPage({ email }: { email?: string | null }) {
-  const [opening, setOpening] = useState(false);
-
-  async function handleUpgrade() {
-    setOpening(true);
-    const err = await openUpgradeFlow(email, "my_highlights");
-    if (err) toast.error(err);
-    setOpening(false);
+function PitchPage() {
+  function handleDownload() {
+    trackEvent("download_clicked", { source: "my_highlights" });
+    window.open(DESKTOP_APP_URL, "_blank", "noreferrer");
   }
 
   const bullets = [
@@ -85,22 +83,13 @@ function PitchPage({ email }: { email?: string | null }) {
       </div>
 
       <div className="mt-10 flex flex-col items-center gap-3">
-        <Button size="lg" className="min-h-11 px-8" onClick={handleUpgrade} disabled={opening}>
-          {opening ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-          Start 14-day free trial
+        <Button size="lg" className="min-h-11 px-8" onClick={handleDownload}>
+          <Monitor className="mr-2 h-4 w-4" aria-hidden />
+          Get the desktop app — free
         </Button>
         <p className="text-sm text-muted-foreground">
-          Rookie — from 159 SEK/month. Cancel anytime.
+          3 game imports included. No card needed.
         </p>
-        <a
-          href={DESKTOP_APP_URL}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-1 inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-primary underline-offset-2 hover:underline"
-        >
-          <Monitor className="h-4 w-4" aria-hidden />
-          Download the desktop app
-        </a>
       </div>
     </div>
   );
@@ -172,7 +161,7 @@ function OwnPlaylists() {
 }
 
 export default function MyHighlightsPage() {
-  const { myOrgs, profile, profileLoading } = useAuth();
+  const { myOrgs, profileLoading } = useAuth();
 
   if (profileLoading) {
     return (
@@ -185,5 +174,5 @@ export default function MyHighlightsPage() {
   const personalOrg = myOrgs.find((o) => o.isPersonal) ?? null;
   const upgraded = personalOrg != null && personalOrg.planTier !== "free";
 
-  return upgraded ? <OwnPlaylists /> : <PitchPage email={profile?.email} />;
+  return upgraded ? <OwnPlaylists /> : <PitchPage />;
 }
