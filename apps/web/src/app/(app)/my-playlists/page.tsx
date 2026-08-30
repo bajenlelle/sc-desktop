@@ -965,7 +965,7 @@ export default function MyPlaylistsPage() {
     ) : (
     <div className="flex flex-1 overflow-hidden">
       {/* Left: playlist list (desktop only) */}
-      <aside className="w-72 shrink-0 flex flex-col border-r border-border overflow-hidden hidden lg:flex">
+      <aside className="w-72 shrink-0 flex flex-col border-r border-border bg-card overflow-hidden hidden lg:flex">
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           {(userRole === "coach" || userRole === "admin") ? (
             <Share2 className="h-4 w-4 text-muted-foreground" />

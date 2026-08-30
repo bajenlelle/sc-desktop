@@ -738,7 +738,7 @@ export function MyPlaylistsPage() {
     <ResizablePanelGroup direction="horizontal" autoSaveId="my-playlists-browser" className="flex-1">
       {/* Left: playlist list */}
       <ResizablePanel defaultSize={25} minSize={15} collapsible collapsedSize={0}>
-        <div className="flex h-full flex-col border-r border-border">
+        <div className="flex h-full flex-col border-r border-border bg-card">
           <div className="flex items-center gap-2 border-b border-border px-4 py-3">
             {(userRole === "coach" || userRole === "admin") ? (
               <Share2 className="h-4 w-4 text-muted-foreground" />

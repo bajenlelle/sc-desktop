@@ -36,9 +36,9 @@ function ThemedToaster() {
       duration={4000}
       toastOptions={resolvedTheme === "dark" ? {
         style: {
-          background: "oklch(0.18 0.02 240)",
-          border: "1px solid oklch(0.27 0.02 240)",
-          color: "oklch(0.9 0.01 240)",
+          background: "var(--card)",
+          border: "1px solid var(--border)",
+          color: "var(--foreground)",
         },
       } : undefined}
     />
