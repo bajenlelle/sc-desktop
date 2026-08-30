@@ -9,6 +9,7 @@ import { usePlaylists } from "@/lib/playlists-store";
 import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/Button";
 import { DeleteAccountSheet } from "@/components/DeleteAccountSheet";
+import { DevicesSection } from "@/components/DevicesSection";
 import { ReportProblemSheet } from "@/components/ReportProblemSheet";
 import { Select } from "@/components/Select";
 
@@ -116,6 +117,8 @@ export default function ProfileScreen() {
             )}
           </View>
         )}
+
+        <DevicesSection />
 
         <View className="gap-3">
           <Button

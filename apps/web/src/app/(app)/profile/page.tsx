@@ -16,6 +16,7 @@ import type { OrgContext } from "@scoutable/shared/types/org";
 import { orgPlanColors, orgPlanLabel, type ImportQuota } from "@scoutable/shared/lib/plan-tier";
 import { toast } from "sonner";
 import { DeleteAccountDialog } from "@/components/delete-account-dialog";
+import { DevicesCard } from "@/components/devices-card";
 import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Loader2 } from "lucide-react";
 import Link from "next/link";
 
@@ -136,7 +137,7 @@ export default function ProfilePage() {
 
   async function handleSignOut() {
     const supabase = createClient();
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "local" });
     router.push("/login");
   }
 
@@ -429,6 +430,9 @@ export default function ProfilePage() {
           </Button>
         </CardContent>
       </Card>
+
+      {/* ── Devices ── */}
+      <DevicesCard />
 
       {/* ── Sign out ── */}
       <Card className="border-dashed">

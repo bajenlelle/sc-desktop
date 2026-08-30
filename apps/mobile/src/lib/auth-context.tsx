@@ -14,6 +14,7 @@ import type { UserProfile, OrgMembership, OrgPlanTier } from "@scoutable/shared/
 import { supabase } from "./supabase";
 import { identifyUser, resetUser, trackEvent } from "./analytics";
 import { registerForPush } from "./notifications";
+import { touchThisDevice } from "./device-registry";
 
 const ACTIVE_ORG_KEY = "scoutable_active_org_id";
 
@@ -156,6 +157,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Silent and permission-gated (never prompts); the upsert also
         // reassigns a shared device's token to this user.
         registerForPush(supabase);
+        void touchThisDevice(supabase);
         loadProfile(session.user.id);
       } else if (event === "SIGNED_OUT" || (!session?.user && event === "INITIAL_SESSION")) {
         if (event === "SIGNED_OUT") {

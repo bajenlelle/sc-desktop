@@ -3,6 +3,7 @@ import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { identifyUser, resetUser, trackEvent } from "@/lib/analytics";
 import { getMyProfile, getMyOrgs } from "@/lib/profile-db";
+import { touchThisDevice } from "@/lib/device-registry";
 import { seedDemoMatch } from "@/lib/matches-db";
 import type { UserProfile, OrgMembership, OrgPlanTier } from "@/types/org";
 
@@ -198,6 +199,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           identifyUser(session.user.id, { email: session.user.email });
           trackEvent("signed_in");
         }
+        touchThisDevice();
         loadProfile(session.user.id);
       } else if (event === "SIGNED_OUT" || (!session?.user && event === "INITIAL_SESSION")) {
         if (event === "SIGNED_OUT") {

@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { getMyProfile, getMyOrgs } from "@/lib/profile-db";
+import { touchThisDevice } from "@/lib/device-registry";
 import type { UserProfile, OrgMembership, OrgPlanTier } from "@scoutable/shared/types/org";
 import { sortOrgsClubFirst, isPlayerOnly as derivePlayerOnly } from "@scoutable/shared/lib/orgs";
 import {
@@ -210,6 +211,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (phDid) aliasUser(phDid);
           trackEvent("signed_in");
         }
+        touchThisDevice();
         loadProfile(session.user.id);
       } else if (event === "SIGNED_OUT" || (!session?.user && event === "INITIAL_SESSION")) {
         if (event === "SIGNED_OUT") {

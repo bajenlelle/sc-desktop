@@ -89,7 +89,7 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
 
   async function handleSignOut() {
     const supabase = createClient();
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "local" });
     router.push("/login");
   }
 

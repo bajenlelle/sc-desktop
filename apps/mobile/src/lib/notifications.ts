@@ -47,6 +47,11 @@ export async function requestPushPermission(): Promise<boolean> {
 /** Last token we registered from this process — consumed by sign-out cleanup. */
 let cachedToken: string | null = null;
 
+/** This device's registered push token, if any — "sign out other devices" keeps it. */
+export function getCachedPushToken(): string | null {
+  return cachedToken;
+}
+
 /**
  * Registers this device's Expo push token for the signed-in user. Silent and
  * permission-gated — never prompts. Safe to fire-and-forget on every sign-in:
@@ -101,7 +106,7 @@ export async function signOutAndCleanup(): Promise<void> {
   }
   cachedToken = null;
   await syncAppBadge(0);
-  await supabase.auth.signOut();
+  await supabase.auth.signOut({ scope: "local" });
 }
 
 /** iOS is the contract; Android home-screen badges are launcher-dependent. */

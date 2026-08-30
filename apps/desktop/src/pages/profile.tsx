@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { orgPlanColors, orgPlanLabel, type ImportQuota } from "@scoutable/shared/lib/plan-tier";
+import { DevicesCard } from "@/components/devices-card";
 
 
 type SubStatus = {
@@ -125,7 +126,7 @@ export function ProfilePage() {
 
   async function handleSignOut() {
     const supabase = createClient();
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "local" });
     navigate("/auth/login");
   }
 
@@ -409,6 +410,9 @@ export function ProfilePage() {
           </Button>
         </CardContent>
       </Card>
+
+      {/* ── Devices ── */}
+      <DevicesCard />
 
       {/* ── Sign out ── */}
       <Card className="border-dashed">
