@@ -91,7 +91,13 @@ export function ProfilePage() {
     }
   }
 
-  useEffect(() => { load(); }, [activeOrgId, activeOrgIsPersonal]);
+  // Skip when signed out: sign-out (local or from another device) collapses
+  // auth state while this page is still mounted, and reloading with a dead
+  // session would toast "Failed to load profile" mid-redirect.
+  useEffect(() => {
+    if (!user) return;
+    load();
+  }, [user?.id, activeOrgId, activeOrgIsPersonal]);
 
   function handleAvatarFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];

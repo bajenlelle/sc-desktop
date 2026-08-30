@@ -102,7 +102,13 @@ export default function ProfilePage() {
   // and the isPersonal flag a tick later, and the load() ternary needs the
   // flag to decide whether to fetch the Stripe sub. Without this dep the
   // Manage-subscription button stays hidden for Rookie/Pro users.
-  useEffect(() => { load(); }, [activeOrgId, activeOrgIsPersonal]);
+  // Skip when signed out: sign-out (local or from another device) collapses
+  // auth state while this page is still mounted, and reloading with a dead
+  // session would toast "Failed to load profile" mid-redirect.
+  useEffect(() => {
+    if (!user) return;
+    load();
+  }, [user?.id, activeOrgId, activeOrgIsPersonal]);
 
   function handleAvatarFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
