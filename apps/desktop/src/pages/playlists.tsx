@@ -1567,10 +1567,15 @@ export function PlaylistsPage() {
   const [onboardingHighlight, setOnboardingHighlight] = useState<"add-clips" | "export" | "share" | null>(null);
   const [sendToPhoneOpen, setSendToPhoneOpen] = useState(false);
   const [sendToPhoneSegments, setSendToPhoneSegments] = useState<ExportSegment[]>([]);
-  // Set when clips need shipping as soon as state settles: arriving from the
-  // dashboard's "Upload missing clips", or after adding clips to an
+  // Playlist IDs whose clips need shipping as soon as state settles: arriving
+  // from the dashboard's "Upload missing clips", or after adding clips to an
   // already-shared playlist (which previously left them stranded un-shipped).
-  const pendingShipRef = useRef(false);
+  // Carries IDs (not a boolean) so ships target the right playlists even if
+  // the coach switches focus before they run; a Set because drag-drop can arm
+  // several targets in quick succession — the watcher drains them one by one.
+  const pendingShipRef = useRef<Set<string>>(new Set());
+  // Ref writes don't re-render — bump this to wake the pending-ship watcher.
+  const [shipNonce, setShipNonce] = useState(0);
   const hl = (key: "add-clips" | "export" | "share") =>
     onboardingHighlight === key
       ? " ring-2 ring-primary ring-offset-2 ring-offset-background animate-pulse"
@@ -1679,7 +1684,10 @@ export function PlaylistsPage() {
     } | null;
     const restore = state?.restore;
     const createNew = state?.createNew;
-    if (state?.reship) pendingShipRef.current = true;
+    // One-shot flags: clear them from the history entry once read, or a
+    // remount of this page would restore/reship/create all over again.
+    if (state) navigate(location.pathname, { replace: true, state: null });
+    if (state?.reship && restore) pendingShipRef.current.add(restore.playlistId);
     let highlightTimer: number | undefined;
     if (state?.highlight) {
       setOnboardingHighlight(state.highlight);
@@ -2876,7 +2884,9 @@ export function PlaylistsPage() {
       const newItems = [...selected.items];
       newItems.splice(itemsInsertIndex, 0, newClip);
       const targetId = selected.id;
-      addClips(targetId, [newClip], itemsInsertIndex);
+      const dropTarget = selected;
+      // Arm after the rows exist so updateClipR2Url has something to patch.
+      void addClips(targetId, [newClip], itemsInsertIndex).then(() => queuePendingShip(dropTarget));
       trackEvent("clip_added_to_playlist", { playlist_id: targetId, match_id: matchId });
       setPlaylists((prev) => prev.map((p) => p.id === targetId ? { ...p, items: newItems } : p));
       setSelected((prev) => prev ? { ...prev, items: newItems } : prev);
@@ -2934,6 +2944,8 @@ export function PlaylistsPage() {
     trackEvent('clip_added_to_playlist', { playlist_id: targetPlaylistId, match_id: matchId })
     setPlaylists((prev) => prev.map((p) => p.id === targetPlaylistId ? { ...p, items: newItems } : p));
     if (selected?.id === targetPlaylistId) setSelected((prev) => prev ? { ...prev, items: newItems } : prev);
+    // A clip dragged into an already-shared playlist must ship like any other add.
+    queuePendingShip(target);
   }
 
   // ---------------------------------------------------------------------------
@@ -3017,26 +3029,39 @@ export function PlaylistsPage() {
   // ---------------------------------------------------------------------------
 
   /** Segments for shipping/exporting the given playlist's clips. */
+  /** Shared playlists need every clip in the cloud — recipients can't see unshipped clips. */
+  function playlistIsShared(pl: Playlist): boolean {
+    return (pl.teamIds?.length ?? 0) > 0 || (pl.userIds?.length ?? 0) > 0;
+  }
+
+  /** Arm a deferred ship for a shared playlist; the watcher effect picks it up. */
+  function queuePendingShip(pl: Playlist) {
+    if (!playlistIsShared(pl)) return;
+    pendingShipRef.current.add(pl.id);
+    setShipNonce((n) => n + 1); // ref writes don't re-render — wake the watcher
+  }
+
+  // Built from pl.items (not the selected playlist's queue) so a deferred
+  // ship stays correct when the coach has switched focus to another playlist.
+  // Upload order doesn't matter, so no sort is applied.
   function buildShipSegments(pl: Playlist): ExportSegment[] {
-    return sortedEvents
-      .map((item): ExportSegment | null => {
-        if (isTextCard(item)) return null;
-        const qi = item as QueueItem;
-        const m = matchLookup.get(qi.matchId);
+    return pl.items
+      .filter(isClipItem)
+      .map((clip): ExportSegment | null => {
+        const m = matchLookup.get(clip.matchId);
         if (!m?.videoUrl || !m.syncPoint) return null;
-        const clip = pl.items.filter(isClipItem).find(
-          (c) => c.matchId === qi.matchId && c.eventId === qi.event.eventId
-        );
+        const event = m.events.find((e) => e.eventId === clip.eventId);
+        if (!event) return null;
         const seg: ExportSegment = {
           kind: "clip",
           videoPath: m.videoUrl,
-          matchId: qi.matchId,
-          event: qi.event,
+          matchId: clip.matchId,
+          event,
           syncPoint: m.syncPoint,
         };
-        if (clip?.preRollOffset !== undefined)
+        if (clip.preRollOffset !== undefined)
           (seg as Extract<ExportSegment, { kind: "clip" }>).preRollOffset = clip.preRollOffset;
-        if (clip?.postRollOffset !== undefined)
+        if (clip.postRollOffset !== undefined)
           (seg as Extract<ExportSegment, { kind: "clip" }>).postRollOffset = clip.postRollOffset;
         return seg;
       })
@@ -3048,7 +3073,7 @@ export function PlaylistsPage() {
    * dashboard's counts stay honest and re-runs skip finished clips — even
    * when the run was aborted or the coach cancels the share afterwards.
    */
-  function applyR2Urls(uploaded: ClipShipResult["uploaded"]) {
+  function applyR2Urls(uploaded: ClipShipResult["uploaded"], plId: string) {
     if (uploaded.length === 0) return;
     const byKey = new Map(uploaded.map((u) => [`${u.matchId}:${u.eventId}`, u.r2Url]));
     const patch = (pl: Playlist): Playlist => ({
@@ -3059,8 +3084,8 @@ export function PlaylistsPage() {
           : item
       ),
     });
-    setSelected((prev) => (prev ? patch(prev) : prev));
-    setPlaylists((prev) => prev.map((p) => (selected && p.id === selected.id ? patch(p) : p)));
+    setSelected((prev) => (prev && prev.id === plId ? patch(prev) : prev));
+    setPlaylists((prev) => prev.map((p) => (p.id === plId ? patch(p) : p)));
   }
 
   /** Write the share rows (this is what triggers recipient notifications). */
@@ -3130,7 +3155,7 @@ export function PlaylistsPage() {
       shareAbortRef.current = null;
     }
 
-    applyR2Urls(result.uploaded);
+    applyR2Urls(result.uploaded, selected.id);
 
     if (result.aborted) {
       setSharePhase({ kind: "pick" });
@@ -3197,7 +3222,7 @@ export function PlaylistsPage() {
       shareAbortRef.current = null;
     }
 
-    applyR2Urls(retry.uploaded);
+    applyR2Urls(retry.uploaded, selected.id);
     const merged = mergeShipResults(phase.result, retry);
 
     if (retry.aborted || merged.failures.length > 0) {
@@ -3248,35 +3273,35 @@ export function PlaylistsPage() {
   // indicator; failures toast with counts and SharedByMe owns the recovery
   // affordance. After any successful upload, pending silent shares (created
   // before the playlist had clips) finally notify their recipients.
-  async function handleShip() {
-    if (!selected) return;
+  async function handleShip(target: Playlist) {
     setIsShipping(true);
     setShipProgress(null);
     try {
-      const segments = buildShipSegments(selected);
-      const result = await clipAndShip(selected, segments, preRoll, postRoll, {
+      const segments = buildShipSegments(target);
+      const result = await clipAndShip(target, segments, preRoll, postRoll, {
         onProgress: (done, total) => setShipProgress({ done, total }),
       });
-      applyR2Urls(result.uploaded);
+      applyR2Urls(result.uploaded, target.id);
 
       const total = segments.length;
       const uploadedCount = result.shipped + result.skipped;
       if (result.failures.length > 0) {
-        trackEvent("playlist_ship_failed", { playlist_id: selected.id, failed: result.failures.length, total });
+        trackEvent("playlist_ship_failed", { playlist_id: target.id, failed: result.failures.length, total });
         toast.error(
-          `${result.failures.length} of ${total} clips didn't upload`,
+          `${result.failures.length} of ${total} clips in "${target.name}" didn't upload`,
           { description: "Recipients can't see these clips yet — try again from Shared by me." },
         );
-      } else {
-        toast.success("Clips uploaded", {
+      } else if (result.shipped > 0) {
+        // Silent when everything was already in the cloud (idempotent re-run).
+        toast.success(`Clips uploaded to "${target.name}"`, {
           description: `${uploadedCount} clip${uploadedCount === 1 ? "" : "s"} are now in the cloud.`,
         });
-        trackEvent("playlist_shipped", { playlist_id: selected.id, clip_count: uploadedCount });
+        trackEvent("playlist_shipped", { playlist_id: target.id, clip_count: uploadedCount });
       }
 
       if (uploadedCount > 0) {
         // Best-effort and idempotent — a no-op unless silent pending shares exist.
-        await notifyPendingPlaylistShares(selected.id).catch(() => {});
+        await notifyPendingPlaylistShares(target.id).catch(() => {});
       }
     } catch (e) {
       toast.error("Clip & Ship failed", { description: e instanceof Error ? e.message : String(e) });
@@ -3288,19 +3313,29 @@ export function PlaylistsPage() {
 
   // handleShare is defined above (replaces handleShareToTeam / handleShareWithTeams)
 
-  // Runs a pending ship once the playlist and matches are actually in state —
-  // both the dashboard arrival and the post-add hook set the flag before the
-  // data they need has settled, so calling handleShip directly would ship a
-  // stale item list. clipAndShip is idempotent: only missing clips upload.
+  // Runs a pending ship once the recorded playlist and matches are actually
+  // in state — both the dashboard arrival and the post-add hook set the ref
+  // before the data they need has settled, so calling handleShip directly
+  // would ship a stale item list. Ships the RECORDED playlist (looked up
+  // fresh from state), not whatever is selected — the coach may have
+  // switched focus by the time this fires. clipAndShip is idempotent: only
+  // missing clips upload.
   const handleShipRef = useRef(handleShip);
   handleShipRef.current = handleShip;
   useEffect(() => {
-    if (!pendingShipRef.current || loading || isShipping) return;
-    if (!selected || matches.length === 0) return;
-    pendingShipRef.current = false;
-    void handleShipRef.current();
+    if (pendingShipRef.current.size === 0 || loading || isShipping) return;
+    if (matches.length === 0) return;
+    // Drain one pending ship; isShipping flipping back to false re-runs this
+    // effect, so multiple pending playlists ship sequentially.
+    const targetId = [...pendingShipRef.current].find(
+      (id) => selected?.id === id || playlists.some((p) => p.id === id)
+    );
+    if (!targetId) return;
+    const target = selected?.id === targetId ? selected : playlists.find((p) => p.id === targetId)!;
+    pendingShipRef.current.delete(targetId);
+    void handleShipRef.current(target);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, matches, loading, isShipping]);
+  }, [shipNonce, selected, playlists, matches, loading, isShipping]);
 
   // ---------------------------------------------------------------------------
   // Sidebar helpers
@@ -4044,10 +4079,9 @@ export function PlaylistsPage() {
     })
     // Clips added to an already-shared playlist must ship immediately —
     // recipients can't see unshipped clips at all, and nothing else would
-    // ever upload them (sharing only ships toward NEW recipients).
-    if ((selected.teamIds?.length ?? 0) > 0 || (selected.userIds?.length ?? 0) > 0) {
-      pendingShipRef.current = true;
-    }
+    // ever upload them (sharing only ships toward NEW recipients). Armed
+    // after addClips so the rows exist before updateClipR2Url patches them.
+    queuePendingShip(selected);
   }
 
   // ---------------------------------------------------------------------------
