@@ -16,6 +16,7 @@ import type {
   OrgMembership,
   SecondaryOrg,
   OrgPlanTier,
+  OrgLicenseEvent,
   InviteInvalidReason,
 } from "@scoutable/shared/types/org";
 
@@ -53,6 +54,9 @@ interface OrgRow {
   expires_at: string | null;
   is_nt_org?: boolean;
   plan_tier?: string;
+  contact_name?: string | null;
+  contact_email?: string | null;
+  notes?: string | null;
 }
 
 interface TeamRow {
@@ -110,6 +114,12 @@ interface OrgWithCountRow {
   plan_tier_locked_at: string | null;
   is_personal: boolean;
   owner_email: string | null;
+  expires_at: string | null;
+  coach_seat_limit: number | null;
+  player_seat_limit: number | null;
+  coach_count: number;
+  player_count: number;
+  contact_email: string | null;
 }
 
 function rowToProfile(r: ProfileRow): UserProfile {
@@ -153,6 +163,9 @@ function rowToOrg(r: OrgRow): Organization {
     expiresAt: r.expires_at ?? null,
     isNtOrg: r.is_nt_org ?? false,
     planTier: (r.plan_tier ?? 'free') as OrgPlanTier,
+    contactName: r.contact_name ?? null,
+    contactEmail: r.contact_email ?? null,
+    notes: r.notes ?? null,
   };
 }
 
@@ -547,11 +560,28 @@ export async function promoteToAdmin(userId: string, orgId?: string): Promise<vo
   }
 }
 
-export async function createOrgForPlatform(name: string, isNtOrg = false): Promise<string> {
+export interface CreateOrgInput {
+  name: string;
+  isNtOrg?: boolean;
+  planTier?: OrgPlanTier;
+  coachSeats?: number | null;
+  playerSeats?: number | null;
+  expiresAt?: string | null;
+  contactName?: string | null;
+  contactEmail?: string | null;
+}
+
+export async function createOrgForPlatform(input: CreateOrgInput): Promise<string> {
   const supabase = createClient();
   const { data, error } = await supabase.rpc("create_org_for_platform", {
-    org_name: name,
-    p_is_nt_org: isNtOrg,
+    org_name: input.name,
+    p_is_nt_org: input.isNtOrg ?? false,
+    p_plan_tier: input.planTier ?? "franchise",
+    p_coach_seats: input.coachSeats ?? null,
+    p_player_seats: input.playerSeats ?? null,
+    p_expires_at: input.expiresAt ?? null,
+    p_contact_name: input.contactName ?? null,
+    p_contact_email: input.contactEmail ?? null,
   });
   if (error) {
     if (error.message.includes("not_platform_admin")) throw new Error("Not authorized as platform admin.");
@@ -599,6 +629,12 @@ export async function getAllOrgsWithCounts(): Promise<OrgWithCount[]> {
     planTierLockedAt: r.plan_tier_locked_at ?? null,
     isPersonal: r.is_personal ?? false,
     ownerEmail: r.owner_email ?? null,
+    expiresAt: r.expires_at ?? null,
+    coachSeatLimit: r.coach_seat_limit ?? null,
+    playerSeatLimit: r.player_seat_limit ?? null,
+    coachCount: Number(r.coach_count ?? 0),
+    playerCount: Number(r.player_count ?? 0),
+    contactEmail: r.contact_email ?? null,
   }));
 }
 
@@ -606,7 +642,7 @@ export async function getOrgById(orgId: string): Promise<Organization> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("organizations")
-    .select("id, name, logo_url, created_at, coach_seat_limit, player_seat_limit, expires_at, is_nt_org, plan_tier")
+    .select("id, name, logo_url, created_at, coach_seat_limit, player_seat_limit, expires_at, is_nt_org, plan_tier, contact_name, contact_email, notes")
     .eq("id", orgId)
     .single();
   if (error || !data) throw new Error(`Failed to load organization: ${error?.message}`);
@@ -628,7 +664,8 @@ export async function joinByCode(code: string): Promise<{ type: "org" | "team" |
     if (error.message.includes("code_expired")) throw new Error("This invite code has expired.");
     if (error.message.includes("code_exhausted")) throw new Error("This invite code has reached its maximum uses.");
     if (error.message.includes("already_in_different_org")) throw new Error("You are already in a different organization.");
-    if (error.message.includes("license_expired")) throw new Error("Your organization's license has expired. Contact your admin.");
+    if (error.message.includes("license_expired"))
+      throw new Error("This organization's license has expired. The organization can request a renewal from Scoutable.");
     if (error.message.includes("coach_seat_limit_reached")) throw new Error("This organization has reached its coach seat limit. Contact your organization admin.");
     if (error.message.includes("player_seat_limit_reached")) throw new Error("This organization has reached its player seat limit. Contact your organization admin.");
     throw new Error(`Failed to join: ${error.message}`);
@@ -681,7 +718,62 @@ export async function updateOrgLicense(
   });
   if (error) {
     if (error.message.includes("not_platform_admin")) throw new Error("Not authorized as platform admin.");
+    if (error.message.includes("invalid_seat_limit")) throw new Error("Seat limits can't be negative.");
     throw new Error(`Failed to update license: ${error.message}`);
+  }
+}
+
+export async function updateOrgContact(
+  orgId: string,
+  contactName: string | null,
+  contactEmail: string | null,
+  notes: string | null
+): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.rpc("update_org_contact", {
+    p_org_id: orgId,
+    p_contact_name: contactName,
+    p_contact_email: contactEmail,
+    p_notes: notes,
+  });
+  if (error) {
+    if (error.message.includes("not_platform_admin")) throw new Error("Not authorized as platform admin.");
+    throw new Error(`Failed to update contact: ${error.message}`);
+  }
+}
+
+export async function listOrgLicenseEvents(orgId: string): Promise<OrgLicenseEvent[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("list_org_license_events", { p_org_id: orgId });
+  if (error) {
+    if (error.message.includes("not_platform_admin")) throw new Error("Not authorized as platform admin.");
+    throw new Error(`Failed to load license history: ${error.message}`);
+  }
+  return (data ?? []).map((r: {
+    id: number;
+    event: string;
+    actor_name: string;
+    old_values: Record<string, string | number | null> | null;
+    new_values: Record<string, string | number | null> | null;
+    created_at: string;
+  }) => ({
+    id: r.id,
+    event: r.event as OrgLicenseEvent["event"],
+    actorName: r.actor_name,
+    oldValues: r.old_values,
+    newValues: r.new_values,
+    createdAt: r.created_at,
+  }));
+}
+
+export async function requestLicenseRenewal(orgId: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.rpc("request_license_renewal", { p_org_id: orgId });
+  if (error) {
+    if (error.message.includes("renewal_already_requested"))
+      throw new Error("renewal_already_requested");
+    if (error.message.includes("not_admin")) throw new Error("Only org admins can request a renewal.");
+    throw new Error(`Failed to request renewal: ${error.message}`);
   }
 }
 
@@ -719,13 +811,14 @@ export async function removeOrgMember(userId: string, orgId: string): Promise<vo
 export async function getMyOrgs(): Promise<OrgMembership[]> {
   const supabase = createClient();
   const { data } = await supabase.rpc("get_my_orgs");
-  return (data ?? []).map((r: { org_id: string; org_name: string; role: string; is_nt_org: boolean; plan_tier: string; is_personal: boolean }) => ({
+  return (data ?? []).map((r: { org_id: string; org_name: string; role: string; is_nt_org: boolean; plan_tier: string; is_personal: boolean; expires_at?: string | null }) => ({
     orgId: r.org_id,
     orgName: r.org_name,
     role: r.role as OrgMembership['role'],
     isNtOrg: r.is_nt_org,
     planTier: (r.plan_tier ?? 'free') as OrgPlanTier,
     isPersonal: r.is_personal ?? false,
+    expiresAt: r.expires_at ?? null,
   }));
 }
 

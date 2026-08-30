@@ -442,7 +442,13 @@ export async function setPlaylistTeams(
     const { error: upsertError } = await supabase
       .from("playlist_shares")
       .upsert(rows, { onConflict: "playlist_id,team_id" });
-    if (upsertError) throw new Error(`Failed to upsert shares: ${upsertError.message}`);
+    if (upsertError) {
+      if (upsertError.message.includes("license_locked"))
+        throw new Error(
+          "This organization's license has expired — sharing is paused until it's renewed."
+        );
+      throw new Error(`Failed to upsert shares: ${upsertError.message}`);
+    }
   }
 
   // 3. Keep legacy team_id in sync (first team, or null)

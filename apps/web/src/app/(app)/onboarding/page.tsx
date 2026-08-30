@@ -66,7 +66,7 @@ export default function OnboardingPage() {
 
           <div className="space-y-2">
             <Input
-              placeholder="ABC123 or scoutable.app/join/ABC123"
+              placeholder="ABC123 or app.scoutable.se/join/ABC123"
               value={input}
               onChange={(e) => { setInput(e.target.value); setError(null); }}
               onKeyDown={(e) => e.key === "Enter" && handleJoin()}

@@ -10,6 +10,7 @@ import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/Button";
 import { DeleteAccountSheet } from "@/components/DeleteAccountSheet";
 import { DevicesSection } from "@/components/DevicesSection";
+import { LicenseNotice } from "@/components/LicenseNotice";
 import { ReportProblemSheet } from "@/components/ReportProblemSheet";
 import { Select } from "@/components/Select";
 
@@ -52,6 +53,8 @@ export default function ProfileScreen() {
       </View>
 
       <ScrollView contentContainerClassName="gap-6 px-4 py-4">
+        <LicenseNotice />
+
         <View className="flex-row items-center gap-4">
           <Avatar name={profile?.fullName} url={profile?.avatarUrl} size={56} />
           <View className="min-w-0 flex-1">

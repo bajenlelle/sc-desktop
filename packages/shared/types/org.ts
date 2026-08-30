@@ -4,7 +4,12 @@
 
 export type UserRole = 'coach' | 'player' | 'admin';
 export type OrgPlanTier = 'free' | 'rookie' | 'pro' | 'franchise';
-export type InviteInvalidReason = 'not_found' | 'expired_invite' | 'exhausted' | 'expired_license';
+export type InviteInvalidReason =
+  | 'not_found'
+  | 'expired_invite'
+  | 'exhausted'
+  | 'expired_license'
+  | 'seat_limit_reached';
 
 export interface UserProfile {
   id: string;
@@ -38,6 +43,9 @@ export interface Organization {
   expiresAt: string | null;
   isNtOrg: boolean;
   planTier: OrgPlanTier;
+  contactName?: string | null;
+  contactEmail?: string | null;
+  notes?: string | null;
 }
 
 export interface OrgTeam {
@@ -95,6 +103,27 @@ export interface OrgWithCount {
   planTierLockedAt: string | null;
   isPersonal: boolean;
   ownerEmail: string | null;
+  expiresAt: string | null;
+  coachSeatLimit: number | null;
+  playerSeatLimit: number | null;
+  coachCount: number;
+  playerCount: number;
+  contactEmail: string | null;
+}
+
+/** One row of the platform-admin license audit trail (list_org_license_events). */
+export interface OrgLicenseEvent {
+  id: number;
+  event:
+    | 'org_created'
+    | 'license_updated'
+    | 'plan_tier_updated'
+    | 'contact_updated'
+    | 'renewal_requested';
+  actorName: string;
+  oldValues: Record<string, string | number | null> | null;
+  newValues: Record<string, string | number | null> | null;
+  createdAt: string;
 }
 
 /** A single org the current user belongs to (replaces SecondaryOrg). */
@@ -105,6 +134,8 @@ export interface OrgMembership {
   isNtOrg: boolean;
   planTier: OrgPlanTier;
   isPersonal: boolean;
+  /** License expiry — drives grace/locked banners; null = never expires. */
+  expiresAt?: string | null;
 }
 
 /** @deprecated Use OrgMembership */

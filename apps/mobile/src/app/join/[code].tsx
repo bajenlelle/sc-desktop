@@ -20,7 +20,11 @@ const INVALID_COPY: Record<InviteInvalidReason, string> = {
   not_found: "This invite link doesn't exist. Double-check the link or ask your coach for a new one.",
   expired_invite: "This invite has expired. Ask your coach for a new link.",
   exhausted: "This invite has already been used the maximum number of times.",
-  expired_license: "This organization's license has expired. Ask your coach to contact Scoutable.",
+  // Same guidance as web: renewal goes through the org, not the player.
+  expired_license:
+    "This organization's license has expired. The organization can request a renewal from Scoutable.",
+  seat_limit_reached:
+    "This organization has used all its seats for this role. The organization admin has been notified — ask them to free a seat or add more.",
 };
 
 export default function JoinScreen() {

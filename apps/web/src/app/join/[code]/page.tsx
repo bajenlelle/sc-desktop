@@ -17,7 +17,7 @@ import { toast } from "sonner";
 const INVALID_COPY: Record<InviteInvalidReason, { title: string; body: string }> = {
   expired_license: {
     title: "Organization license expired",
-    body: "This invite belongs to an organization whose license has expired. Ask the organization’s admin to renew before joining.",
+    body: "This invite belongs to an organization whose license has expired. The organization can request a renewal from Scoutable — new members can join once it's renewed.",
   },
   expired_invite: {
     title: "Invite link expired",
@@ -27,15 +27,20 @@ const INVALID_COPY: Record<InviteInvalidReason, { title: string; body: string }>
     title: "Invite link no longer available",
     body: "This invite link has reached its usage limit. Ask your admin for a new one.",
   },
+  seat_limit_reached: {
+    title: "No seats left",
+    body: "This organization has used all its seats for this role. The organization admin has been notified — ask them to free a seat or add more.",
+  },
   not_found: {
     title: "Invalid invite",
-    body: "This invite link is not recognised. Double-check the URL or ask for a new one.",
+    body: "This invite link is not recognized. Double-check the URL or ask for a new one.",
   },
 };
 
 async function signOutAndRedirect(redirectTo: string) {
   const supabase = createClient();
-  await supabase.auth.signOut();
+  // Local scope: switching accounts here shouldn't kick the user's other devices.
+  await supabase.auth.signOut({ scope: "local" });
   window.location.href = redirectTo;
 }
 

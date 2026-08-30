@@ -1,6 +1,7 @@
 import { Outlet, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import { AppSidebar } from "@/components/app-sidebar";
+import { LicenseBanner } from "@/components/license-banner";
 import { SpaceHeader } from "@/components/space-header";
 import { useAuth } from "@/lib/auth-context";
 import { useImportQuota } from "@/lib/use-import-quota";
@@ -22,6 +23,7 @@ export function RootLayout() {
             importQuota={importQuota}
           />
         )}
+        <LicenseBanner />
         <motion.div
           key={pathname}
           className="flex-1 min-h-0 overflow-y-auto"

@@ -13,6 +13,10 @@ type TemplateId =
   | "playlist_shared"
   | "playlist_reminder"
   | "license_expiry"
+  | "license_expired"
+  | "license_digest"
+  | "renewal_requested"
+  | "seat_limit_reached"
   | "added_to_team"
   | "user_joined_org"
   | "removed_from_org"
@@ -159,18 +163,120 @@ ${ctaButton(playlistUrl, "Watch Clips")}`,
     case "license_expiry": {
       const orgName = d("org_name", "your organization");
       const days = d("days_until_expiry", "soon");
+      const expiresOn = d("expires_on");
       const manageUrl = d("manage_url", appUrl + "/organization");
-      const dayLabel = days === "1" ? "1 day" : `${days} days`;
+      const dayLabel = days === "1" ? "tomorrow" : `in ${days} days`;
       return {
-        subject: `Your Scoutable plan expires in ${dayLabel}`,
+        subject: `Your Scoutable license expires ${dayLabel}`,
         html: wrapEmail(
           "License expiry warning",
-          `<h1 style="margin:0 0 12px 0;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">Your plan is expiring soon</h1>
+          `<h1 style="margin:0 0 12px 0;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">Your license is expiring soon</h1>
 <p style="margin:0 0 32px 0;font-size:14px;line-height:1.65;color:#6b7280;">
-  The Scoutable license for <strong>${esc(orgName)}</strong> expires in <strong>${esc(dayLabel)}</strong>. Renew now to keep your team's access uninterrupted.
+  The Scoutable license for <strong>${esc(orgName)}</strong> expires <strong>${esc(dayLabel)}</strong>${
+    expiresOn ? ` (${esc(expiresOn)})` : ""
+  }. Request a renewal to keep your team's access uninterrupted.
 </p>
-${ctaButton(manageUrl, "Manage License")}`,
-          "You received this because you are an admin of this organization.",
+${ctaButton(manageUrl, "Request renewal")}`,
+          "You received this because you are an admin or contact of this organization.",
+        ),
+      };
+    }
+
+    case "license_expired": {
+      const orgName = d("org_name", "your organization");
+      const graceUntil = d("grace_until");
+      const manageUrl = d("manage_url", appUrl + "/organization");
+      return {
+        subject: `Your Scoutable license has expired`,
+        html: wrapEmail(
+          "License expired",
+          `<h1 style="margin:0 0 12px 0;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">The license for ${esc(orgName)} has expired</h1>
+<p style="margin:0 0 32px 0;font-size:14px;line-height:1.65;color:#6b7280;">
+  Your team keeps full access${graceUntil ? ` until <strong>${esc(graceUntil)}</strong>` : " for a short grace period"}. After that, sharing playlists, creating teams, and inviting members pause until the license is renewed — existing playlists stay watchable.
+</p>
+${ctaButton(manageUrl, "Request renewal")}`,
+          "You received this because you are an admin or contact of this organization.",
+        ),
+      };
+    }
+
+    case "license_digest": {
+      const adminUrl = d("admin_url", appUrl + "/admin");
+      const orgs = Array.isArray(data?.orgs)
+        ? (data.orgs as unknown as Array<Record<string, string>>)
+        : [];
+      const rows = orgs
+        .map(
+          (o) => `<tr>
+  <td style="padding:8px 12px 8px 0;font-size:13px;color:#111827;"><strong>${esc(o.org_name ?? "—")}</strong></td>
+  <td style="padding:8px 12px 8px 0;font-size:13px;color:${o.status === "expired" ? "#dc2626" : "#b45309"};">${
+    o.status === "expired" ? "Expired" : "Expires"
+  } ${esc(o.expires_on ?? "")}</td>
+  <td style="padding:8px 12px 8px 0;font-size:13px;color:#6b7280;">Coaches ${esc(o.coaches ?? "")} · Players ${esc(o.players ?? "")}</td>
+  <td style="padding:8px 0;font-size:13px;color:#6b7280;">${esc(o.contact ?? "—")}</td>
+</tr>`,
+        )
+        .join("");
+      const count = orgs.length;
+      return {
+        subject: `License digest: ${count} organization${count === 1 ? "" : "s"} need${count === 1 ? "s" : ""} attention`,
+        html: wrapEmail(
+          "License digest",
+          `<h1 style="margin:0 0 12px 0;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">Licenses expiring or recently expired</h1>
+<p style="margin:0 0 20px 0;font-size:14px;line-height:1.65;color:#6b7280;">
+  These organizations expire within 45 days or expired in the last week.
+</p>
+<table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;margin:0 0 32px 0;">${rows}</table>
+${ctaButton(adminUrl, "Open platform admin")}`,
+          "You received this because you are a Scoutable platform admin.",
+        ),
+      };
+    }
+
+    case "renewal_requested": {
+      const orgName = d("org_name", "an organization");
+      const requesterName = d("requester_name", "An org admin");
+      const requesterEmail = d("requester_email", "");
+      const coaches = d("coaches", "—");
+      const players = d("players", "—");
+      const expiresOn = d("expires_on", "—");
+      const orgAdminUrl = d("org_admin_url", appUrl + "/admin");
+      return {
+        subject: `Renewal requested: ${orgName}`,
+        html: wrapEmail(
+          `Renewal requested for ${orgName}`,
+          `<h1 style="margin:0 0 12px 0;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">${esc(orgName)} wants to renew</h1>
+<p style="margin:0 0 20px 0;font-size:14px;line-height:1.65;color:#6b7280;">
+  <strong>${esc(requesterName)}</strong>${requesterEmail ? ` (${esc(requesterEmail)})` : ""} requested a license renewal.
+</p>
+<p style="margin:0 0 32px 0;font-size:14px;line-height:1.9;color:#6b7280;">
+  Coach seats: <strong>${esc(coaches)}</strong><br>
+  Player seats: <strong>${esc(players)}</strong><br>
+  License expires: <strong>${esc(expiresOn)}</strong>
+</p>
+${ctaButton(orgAdminUrl, "Open organization")}`,
+          "You received this because you are a Scoutable platform admin.",
+        ),
+      };
+    }
+
+    case "seat_limit_reached": {
+      const orgName = d("org_name", "your organization");
+      const role = d("role", "coach");
+      const seatLimit = d("seat_limit", "");
+      const orgUrl = d("org_url", appUrl + "/organization");
+      return {
+        subject: `Someone couldn't join ${orgName} — ${role} seats are full`,
+        html: wrapEmail(
+          "Seat limit reached",
+          `<h1 style="margin:0 0 12px 0;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">All ${esc(role)} seats are in use</h1>
+<p style="margin:0 0 32px 0;font-size:14px;line-height:1.65;color:#6b7280;">
+  Someone tried to join <strong>${esc(orgName)}</strong> as a ${esc(role)}, but all${
+    seatLimit ? ` <strong>${esc(seatLimit)}</strong>` : ""
+  } ${esc(role)} seats are taken. Free a seat by removing an inactive member, or contact Scoutable to add more.
+</p>
+${ctaButton(orgUrl, "Manage members")}`,
+          "You received this because you are an admin of this organization or a Scoutable platform admin.",
         ),
       };
     }

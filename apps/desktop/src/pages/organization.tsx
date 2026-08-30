@@ -22,6 +22,7 @@ import {
   deleteTeam,
 } from "@/lib/profile-db";
 import { InviteModal } from "@/components/invite-modal";
+import { OrgLicenseCard } from "@/components/org-license-card";
 import { AddMembersToTeamModal } from "@/components/add-members-to-team-modal";
 import { CreateTeamDialog } from "@/components/create-team-dialog";
 import type { OrgContext, OrgTeam, UserProfile } from "@/types/org";
@@ -557,7 +558,7 @@ export function OrganizationPage() {
         {profile.isPlatformAdmin && (
           <p className="text-sm text-muted-foreground">
             Manage organizations from the Scoutable web app →{" "}
-            <span className="font-mono text-foreground">scoutable.app/admin</span>
+            <span className="font-mono text-foreground">app.scoutable.se/admin</span>
           </p>
         )}
       </div>
@@ -597,54 +598,23 @@ export function OrganizationPage() {
         )}
       </div>
 
-      {licenseExpired && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm">
-          <p className="font-semibold text-destructive">License expired</p>
-          <p className="text-muted-foreground mt-0.5">
-            Inviting and adding new members is paused until your platform admin renews your license.
-            Existing members keep access.
-          </p>
-        </div>
-      )}
-
-      {/* License banner — admin only */}
-      {isAdmin && (org.coachSeatLimit !== null || org.playerSeatLimit !== null || org.expiresAt !== null) && (
-        <div className="text-xs text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 border border-border rounded-md px-3 py-2">
-          {org.coachSeatLimit !== null && (
-            <span>
-              Coaches:{" "}
-              <span className="text-foreground font-medium">
-                {ctx.orgMembers.filter((m) => m.role !== "player").length} / {org.coachSeatLimit}
-              </span>
-            </span>
-          )}
-          {org.playerSeatLimit !== null && (
-            <span>
-              Players:{" "}
-              <span className="text-foreground font-medium">
-                {ctx.orgMembers.filter((m) => m.role === "player").length} / {org.playerSeatLimit}
-              </span>
-            </span>
-          )}
-          {org.expiresAt && (
-            <span>
-              Expires:{" "}
-              <span className="text-foreground font-medium">
-                {new Date(org.expiresAt).toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                })}
-              </span>
-            </span>
-          )}
-        </div>
+      {/* License card — admin only; non-admins get the app-shell LicenseBanner
+          once the license actually expires */}
+      {isAdmin && (
+        <OrgLicenseCard
+          orgId={org.id}
+          coachSeatLimit={org.coachSeatLimit}
+          playerSeatLimit={org.playerSeatLimit}
+          expiresAt={org.expiresAt}
+          coachCount={ctx.orgMembers.filter((m) => m.role !== "player").length}
+          playerCount={ctx.orgMembers.filter((m) => m.role === "player").length}
+        />
       )}
 
       {profile.isPlatformAdmin && (
         <p className="text-sm text-muted-foreground">
           Manage organizations from the Scoutable web app →{" "}
-          <span className="font-mono text-foreground">scoutable.app/admin</span>
+          <span className="font-mono text-foreground">app.scoutable.se/admin</span>
         </p>
       )}
 

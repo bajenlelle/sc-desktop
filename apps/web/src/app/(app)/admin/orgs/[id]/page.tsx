@@ -22,10 +22,20 @@ import {
   updateOrgNameForPlatform,
   generateAdminOrgInviteCode,
   updateOrgLicense,
+  updateOrgContact,
+  updateOrgPlanTier,
+  listOrgLicenseEvents,
+  promoteToAdmin,
   removeOrgMember,
   deleteOrgForPlatform,
 } from "@/lib/profile-db";
-import type { Organization, UserProfile } from "@scoutable/shared/types/org";
+import type {
+  Organization,
+  OrgLicenseEvent,
+  OrgPlanTier,
+  UserProfile,
+} from "@scoutable/shared/types/org";
+import { LicenseBadge } from "@/components/license-badge";
 import { useAuth } from "@/components/auth-context";
 import { toast } from "sonner";
 import { ArrowLeft, Clipboard, Check, Loader2, RefreshCw } from "lucide-react";
@@ -51,13 +61,38 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function expiryBadge(expiresAt: string | null): { label: string; variant: "default" | "secondary" | "destructive" } {
-  if (!expiresAt) return { label: "No expiry", variant: "secondary" };
-  const ms = new Date(expiresAt).getTime() - Date.now();
-  const days = ms / 1000 / 60 / 60 / 24;
-  if (days < 0) return { label: "Expired", variant: "destructive" };
-  if (days < 30) return { label: `Expires in ${Math.ceil(days)}d`, variant: "default" };
-  return { label: new Date(expiresAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }), variant: "secondary" };
+function fmtDate(iso: string | number | null | undefined): string {
+  if (iso == null) return "never";
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+/** One-line human description of an audit event's change. */
+function describeEvent(e: OrgLicenseEvent): string {
+  const o = e.oldValues ?? {};
+  const n = e.newValues ?? {};
+  const seat = (v: string | number | null | undefined) => (v == null ? "∞" : String(v));
+  switch (e.event) {
+    case "org_created":
+      return `Organization created — ${seat(n.coach_seat_limit)} coach / ${seat(n.player_seat_limit)} player seats, expires ${n.expires_at ? fmtDate(String(n.expires_at)) : "never"}`;
+    case "license_updated": {
+      const parts: string[] = [];
+      if (o.coach_seat_limit !== n.coach_seat_limit)
+        parts.push(`coach seats ${seat(o.coach_seat_limit)} → ${seat(n.coach_seat_limit)}`);
+      if (o.player_seat_limit !== n.player_seat_limit)
+        parts.push(`player seats ${seat(o.player_seat_limit)} → ${seat(n.player_seat_limit)}`);
+      if (o.expires_at !== n.expires_at)
+        parts.push(
+          `expiry ${o.expires_at ? fmtDate(String(o.expires_at)) : "never"} → ${n.expires_at ? fmtDate(String(n.expires_at)) : "never"}`
+        );
+      return parts.length > 0 ? `License updated — ${parts.join(", ")}` : "License saved (no changes)";
+    }
+    case "plan_tier_updated":
+      return `Plan tier ${o.plan_tier ?? "?"} → ${n.plan_tier ?? "?"}`;
+    case "contact_updated":
+      return `Contact updated — ${n.contact_name ?? "—"} (${n.contact_email ?? "—"})`;
+    case "renewal_requested":
+      return `Renewal requested by ${n.requester ?? "an org admin"}`;
+  }
 }
 
 export default function OrgDetailPage() {
@@ -68,6 +103,7 @@ export default function OrgDetailPage() {
   const [checked, setChecked] = useState(false);
   const [org, setOrg] = useState<Organization | null>(null);
   const [members, setMembers] = useState<UserProfile[]>([]);
+  const [events, setEvents] = useState<OrgLicenseEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [editNameOpen, setEditNameOpen] = useState(false);
@@ -80,11 +116,18 @@ export default function OrgDetailPage() {
   const [editExpiresAt, setEditExpiresAt] = useState("");
   const [savingLicense, setSavingLicense] = useState(false);
 
+  const [contactOpen, setContactOpen] = useState(false);
+  const [editContactName, setEditContactName] = useState("");
+  const [editContactEmail, setEditContactEmail] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [savingContact, setSavingContact] = useState(false);
+
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [generatingInvite, setGeneratingInvite] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [promotingId, setPromotingId] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -109,12 +152,14 @@ export default function OrgDetailPage() {
   async function loadData() {
     setLoading(true);
     try {
-      const [orgData, membersData] = await Promise.all([
+      const [orgData, membersData, eventsData] = await Promise.all([
         getOrgById(orgId),
         getOrgMembersForAdmin(orgId),
+        listOrgLicenseEvents(orgId),
       ]);
       setOrg(orgData);
       setMembers(membersData);
+      setEvents(eventsData);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -147,19 +192,94 @@ export default function OrgDetailPage() {
 
   async function handleSaveLicense() {
     if (!orgId) return;
+    const coachSeats = editCoachSeats.trim() ? parseInt(editCoachSeats, 10) : null;
+    const playerSeats = editPlayerSeats.trim() ? parseInt(editPlayerSeats, 10) : null;
+    if (
+      (coachSeats != null && (Number.isNaN(coachSeats) || coachSeats < 0)) ||
+      (playerSeats != null && (Number.isNaN(playerSeats) || playerSeats < 0))
+    ) {
+      toast.error("Seat limits must be zero or a positive number.");
+      return;
+    }
     setSavingLicense(true);
     try {
-      const coachSeats = editCoachSeats.trim() ? parseInt(editCoachSeats) : null;
-      const playerSeats = editPlayerSeats.trim() ? parseInt(editPlayerSeats) : null;
-      const expiresAt = editExpiresAt.trim() ? new Date(editExpiresAt).toISOString() : null;
+      // End of day, like the import-grants dialog — a license expiring
+      // "Mar 18" should last through Mar 18 locally, not die at UTC midnight.
+      const expiresAt = editExpiresAt.trim()
+        ? new Date(`${editExpiresAt}T23:59:59`).toISOString()
+        : null;
       await updateOrgLicense(orgId, coachSeats, playerSeats, expiresAt);
-      toast.success("License updated");
+      toast.success("License updated", {
+        description: `${coachSeats ?? "∞"} coach / ${playerSeats ?? "∞"} player seats · expires ${
+          expiresAt ? fmtDate(expiresAt) : "never"
+        }`,
+      });
       setLicenseOpen(false);
       await loadData();
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
       setSavingLicense(false);
+    }
+  }
+
+  /** +1 year from the current dialog expiry (or today when unset/past). */
+  function handleQuickRenew() {
+    const base = editExpiresAt.trim() ? new Date(editExpiresAt) : new Date();
+    const from = Number.isNaN(base.getTime()) || base.getTime() < Date.now() ? new Date() : base;
+    from.setFullYear(from.getFullYear() + 1);
+    setEditExpiresAt(from.toISOString().split("T")[0]);
+  }
+
+  function openContactDialog() {
+    if (!org) return;
+    setEditContactName(org.contactName ?? "");
+    setEditContactEmail(org.contactEmail ?? "");
+    setEditNotes(org.notes ?? "");
+    setContactOpen(true);
+  }
+
+  async function handleSaveContact() {
+    if (!orgId) return;
+    setSavingContact(true);
+    try {
+      await updateOrgContact(
+        orgId,
+        editContactName.trim() || null,
+        editContactEmail.trim() || null,
+        editNotes.trim() || null
+      );
+      toast.success("Contact updated");
+      setContactOpen(false);
+      await loadData();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSavingContact(false);
+    }
+  }
+
+  async function handlePlanTierChange(tier: OrgPlanTier) {
+    if (!orgId || !org) return;
+    try {
+      await updateOrgPlanTier(orgId, tier);
+      setOrg({ ...org, planTier: tier });
+      toast.success("Plan tier updated and locked");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function handlePromote(memberId: string) {
+    setPromotingId(memberId);
+    try {
+      await promoteToAdmin(memberId, orgId);
+      toast.success("Member promoted to admin");
+      await loadData();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setPromotingId(null);
     }
   }
 
@@ -177,7 +297,10 @@ export default function OrgDetailPage() {
 
   function handleCopy() {
     if (!inviteCode) return;
-    navigator.clipboard.writeText(`Join ${org?.name ?? ""} on Scoutable — Code: ${inviteCode}`);
+    // A pasteable link, not just a code — recipients land on /join/{code}.
+    navigator.clipboard.writeText(
+      `Join ${org?.name ?? ""} on Scoutable: ${window.location.origin}/join/${inviteCode} (code ${inviteCode})`
+    );
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
@@ -228,7 +351,6 @@ export default function OrgDetailPage() {
 
   const coachCount = members.filter((m) => m.role !== "player").length;
   const playerCount = members.filter((m) => m.role === "player").length;
-  const expiry = expiryBadge(org.expiresAt);
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
@@ -267,6 +389,7 @@ export default function OrgDetailPage() {
         <TabsContent value="overview" className="pt-4 space-y-4">
           <div className="grid grid-cols-3 gap-4">
             <StatCard label="Members" value={members.length} />
+            <StatCard label="Expires" value={org.expiresAt ? fmtDate(org.expiresAt) : "Never"} />
             <StatCard
               label="Created"
               value={new Date(org.createdAt).toLocaleDateString("en-US", {
@@ -283,7 +406,7 @@ export default function OrgDetailPage() {
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium text-foreground">License</p>
                 <div className="flex items-center gap-2">
-                  <Badge variant={expiry.variant} className="text-xs">{expiry.label}</Badge>
+                  <LicenseBadge expiresAt={org.expiresAt} />
                   <Button size="sm" variant="outline" className="h-7 text-xs" onClick={openLicenseDialog}>
                     Edit
                   </Button>
@@ -302,7 +425,74 @@ export default function OrgDetailPage() {
                     {playerCount} / {org.playerSeatLimit !== null ? org.playerSeatLimit : "∞"}
                   </p>
                 </div>
+                <div>
+                  <span className="text-muted-foreground text-xs">Plan tier</span>
+                  <select
+                    value={org.planTier}
+                    onChange={(e) => handlePlanTierChange(e.target.value as OrgPlanTier)}
+                    className="mt-0.5 block text-xs rounded border border-border bg-background px-2 py-1 cursor-pointer"
+                  >
+                    <option value="free">Free</option>
+                    <option value="rookie">Rookie</option>
+                    <option value="pro">Pro</option>
+                    <option value="franchise">Franchise</option>
+                  </select>
+                </div>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Contact & notes */}
+          <Card>
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-foreground">Contact &amp; notes</p>
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={openContactDialog}>
+                  Edit
+                </Button>
+              </div>
+              {org.contactName || org.contactEmail || org.notes ? (
+                <div className="space-y-1 text-sm">
+                  {(org.contactName || org.contactEmail) && (
+                    <p>
+                      {org.contactName ?? "—"}
+                      {org.contactEmail && (
+                        <span className="text-muted-foreground"> · {org.contactEmail}</span>
+                      )}
+                    </p>
+                  )}
+                  {org.notes && (
+                    <p className="text-muted-foreground whitespace-pre-wrap">{org.notes}</p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No contact yet. Add one — the contact gets license expiry reminders alongside org
+                  admins.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* License history */}
+          <Card>
+            <CardContent className="p-4 space-y-3">
+              <p className="text-sm font-medium text-foreground">License history</p>
+              {events.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No license changes recorded yet.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {events.map((e) => (
+                    <li key={e.id} className="text-sm">
+                      <span className="text-foreground">{describeEvent(e)}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {" "}
+                        — {e.actorName}, {fmtDate(e.createdAt)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -328,6 +518,17 @@ export default function OrgDetailPage() {
                     <span className="text-xs text-muted-foreground">
                       {new Date(m.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </span>
+                    {!m.isPlatformAdmin && m.role !== "admin" && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-xs"
+                        disabled={promotingId === m.id}
+                        onClick={() => handlePromote(m.id)}
+                      >
+                        {promotingId === m.id ? "Promoting…" : "Promote to admin"}
+                      </Button>
+                    )}
                     {!m.isPlatformAdmin && (
                       <Button
                         size="sm"
@@ -458,17 +659,92 @@ export default function OrgDetailPage() {
             </div>
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Expiry date (blank = never)</label>
-              <Input
-                type="date"
-                value={editExpiresAt}
-                onChange={(e) => setEditExpiresAt(e.target.value)}
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  type="date"
+                  value={editExpiresAt}
+                  onChange={(e) => setEditExpiresAt(e.target.value)}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-9 shrink-0 text-xs"
+                  onClick={handleQuickRenew}
+                >
+                  +1 year
+                </Button>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                The license lasts through the whole expiry day.
+              </p>
             </div>
+            {(() => {
+              const c = editCoachSeats.trim() ? parseInt(editCoachSeats, 10) : null;
+              const p = editPlayerSeats.trim() ? parseInt(editPlayerSeats, 10) : null;
+              const belowCoach = c != null && !Number.isNaN(c) && c < coachCount;
+              const belowPlayer = p != null && !Number.isNaN(p) && p < playerCount;
+              if (!belowCoach && !belowPlayer) return null;
+              return (
+                <p className="text-xs text-amber-600 dark:text-amber-500">
+                  {belowCoach && `Coach limit is below the current ${coachCount} coaches. `}
+                  {belowPlayer && `Player limit is below the current ${playerCount} players. `}
+                  Existing members keep access, but no one new can join.
+                </p>
+              );
+            })()}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setLicenseOpen(false)}>Cancel</Button>
             <Button onClick={handleSaveLicense} disabled={savingLicense}>
               {savingLicense ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Contact & notes dialog */}
+      <Dialog open={contactOpen} onOpenChange={setContactOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Contact &amp; notes</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Contact name</label>
+              <Input
+                placeholder="Anna Andersson"
+                value={editContactName}
+                onChange={(e) => setEditContactName(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Contact email</label>
+              <Input
+                type="email"
+                placeholder="kansli@club.se"
+                value={editContactEmail}
+                onChange={(e) => setEditContactEmail(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Gets license expiry reminders alongside org admins.
+              </p>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Notes</label>
+              <textarea
+                value={editNotes}
+                onChange={(e) => setEditNotes(e.target.value)}
+                rows={4}
+                placeholder="Contract terms, renewal history, who to call…"
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setContactOpen(false)}>Cancel</Button>
+            <Button onClick={handleSaveContact} disabled={savingContact}>
+              {savingContact ? "Saving…" : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>

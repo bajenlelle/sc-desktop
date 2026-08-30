@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Navbar } from "@/components/navbar";
+import { LicenseBanner } from "@/components/license-banner";
 import { FeedbackFab } from "@/components/feedback-fab";
 import { AuthProvider } from "@/components/auth-context";
 import { UpgradeCelebration } from "@/components/upgrade-celebration";
@@ -44,6 +45,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <UpgradeCelebration />
       <div className="min-h-screen flex flex-col">
         <Navbar profile={profile} />
+        <LicenseBanner />
         <main className="flex-1">{children}</main>
         <FeedbackFab />
       </div>

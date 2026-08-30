@@ -11,6 +11,7 @@ import { Avatar } from "@/components/Avatar";
 import { PlaylistFeed } from "@/components/PlaylistFeed";
 import { ReportProblemSheet } from "@/components/ReportProblemSheet";
 import { SharedByMeDashboard } from "@/components/SharedByMeDashboard";
+import { LicenseNotice } from "@/components/LicenseNotice";
 import { NotificationPrimer } from "@/components/NotificationPrimer";
 import type { SelectOption } from "@/components/Select";
 
@@ -140,6 +141,8 @@ export default function PlaylistsScreen() {
           ))}
         </View>
       )}
+
+      <LicenseNotice className="mx-4 mb-2" />
 
       {!loading && feedItems.length > 0 && <NotificationPrimer />}
 

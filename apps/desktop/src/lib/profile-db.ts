@@ -320,13 +320,14 @@ export async function getOrgMembers(orgId: string): Promise<UserProfile[]> {
 export async function getMyOrgs(): Promise<OrgMembership[]> {
   const supabase = createClient();
   const { data } = await supabase.rpc("get_my_orgs");
-  return (data ?? []).map((r: { org_id: string; org_name: string; role: string; is_nt_org: boolean; plan_tier: string; is_personal: boolean }) => ({
+  return (data ?? []).map((r: { org_id: string; org_name: string; role: string; is_nt_org: boolean; plan_tier: string; is_personal: boolean; expires_at?: string | null }) => ({
     orgId: r.org_id,
     orgName: r.org_name,
     role: r.role as OrgMembership['role'],
     isNtOrg: r.is_nt_org,
     planTier: (r.plan_tier ?? 'free') as OrgPlanTier,
     isPersonal: r.is_personal ?? false,
+    expiresAt: r.expires_at ?? null,
   }));
 }
 
@@ -602,7 +603,8 @@ export async function joinByCode(code: string): Promise<{ type: 'org' | 'team' |
     if (error.message.includes("code_expired")) throw new Error("This invite code has expired.");
     if (error.message.includes("code_exhausted")) throw new Error("This invite code has reached its maximum uses.");
     if (error.message.includes("already_in_different_org")) throw new Error("You are already in a different organization.");
-    if (error.message.includes("license_expired")) throw new Error("This organization's license has expired. Contact your admin.");
+    if (error.message.includes("license_expired"))
+      throw new Error("This organization's license has expired. The organization can request a renewal from Scoutable.");
     if (error.message.includes("coach_seat_limit_reached")) throw new Error("This organization has reached its coach seat limit. Contact your organization admin.");
     if (error.message.includes("player_seat_limit_reached")) throw new Error("This organization has reached its player seat limit. Contact your organization admin.");
     throw new Error(`Failed to join: ${error.message}`);
@@ -656,6 +658,17 @@ export async function updateOrgLicense(
   if (error) {
     if (error.message.includes("not_platform_admin")) throw new Error("Not authorized as platform admin.");
     throw new Error(`Failed to update license: ${error.message}`);
+  }
+}
+
+export async function requestLicenseRenewal(orgId: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.rpc("request_license_renewal", { p_org_id: orgId });
+  if (error) {
+    if (error.message.includes("renewal_already_requested"))
+      throw new Error("renewal_already_requested");
+    if (error.message.includes("not_admin")) throw new Error("Only org admins can request a renewal.");
+    throw new Error(`Failed to request renewal: ${error.message}`);
   }
 }
 
