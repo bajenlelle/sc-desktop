@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Loader2, Send, Share2, User2 } from "lucide-react";
 import { ClipRow } from "@/components/playlist/ClipRow";
 import { PlaylistFeed, type SourceOption } from "@/components/playlist/PlaylistFeed";
+import { PlayerWelcomeCard } from "@/components/player-welcome-card";
 import { SharedByMe } from "@/components/playlist/SharedByMe";
 import type { PlaylistCardData } from "@/components/playlist/PlaylistCard";
 import { listMyClipViews, markClipWatched, clipViewKey } from "@/lib/clip-views-db";
@@ -67,7 +68,7 @@ function playableClips(pl: Playlist): PlaylistClipItem[] {
 // ---------------------------------------------------------------------------
 
 export function MyPlaylistsPage() {
-  const { activeOrgId, activeOrgIsPersonal, profileLoading } = useAuth();
+  const { activeOrgId, activeOrgIsPersonal, profileLoading, myOrgs, setActiveOrg } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -903,6 +904,10 @@ export function MyPlaylistsPage() {
             // The feed answers the player's actual question on arrival —
             // "what's new for me?" — instead of an empty pane.
             <div className="flex-1 overflow-y-auto">
+              {/* Invited players get the two-sided explanation once: coach
+                  shares land here, building your own lives in the personal
+                  space. Coaches learn the layout elsewhere. */}
+              {!isCoachOrAdmin && <PlayerWelcomeCard />}
               <PlaylistFeed
                 playlists={feedItems}
                 sourceOptions={sourceOptions}
@@ -912,6 +917,23 @@ export function MyPlaylistsPage() {
                   isCoachOrAdmin
                     ? "Playlists other coaches share with you show up here."
                     : undefined
+                }
+                emptyExtra={
+                  !isCoachOrAdmin && myOrgs.some((o) => o.isPersonal) ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const personal = myOrgs.find((o) => o.isPersonal);
+                        if (!personal) return;
+                        trackEvent("player_feed_personal_space_link");
+                        setActiveOrg(personal.orgId);
+                        navigate("/");
+                      }}
+                      className="min-h-[36px] text-sm font-medium text-primary"
+                    >
+                      Want to build your own highlight tape? Open your personal space →
+                    </button>
+                  ) : undefined
                 }
               />
             </div>

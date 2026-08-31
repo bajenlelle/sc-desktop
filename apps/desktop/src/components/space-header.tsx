@@ -1,6 +1,7 @@
 import { Building2, Check, ChevronDown, User } from "lucide-react";
 import { toast } from "sonner";
 import type { OrgMembership } from "@scoutable/shared/types/org";
+import { sortOrgsClubFirst } from "@scoutable/shared/lib/orgs";
 import type { ImportQuota } from "@scoutable/shared/lib/plan-tier";
 import { PlanBadge } from "@/components/plan-badge";
 import { useAuth } from "@/lib/auth-context";
@@ -61,12 +62,9 @@ export function SpaceHeader({
   // plan on its own instead.
   const soloPersonal = org.isPersonal && !canSwitch;
 
-  const sortedOrgs = canSwitch
-    ? [...myOrgs!].sort((a, b) => {
-        if (a.isPersonal !== b.isPersonal) return a.isPersonal ? -1 : 1;
-        return a.orgName.localeCompare(b.orgName);
-      })
-    : [];
+  // Club-first, personal last — the same order as the sidebar switcher
+  // column, so the two switchers never disagree.
+  const sortedOrgs = canSwitch ? sortOrgsClubFirst(myOrgs!) : [];
 
   return (
     <div

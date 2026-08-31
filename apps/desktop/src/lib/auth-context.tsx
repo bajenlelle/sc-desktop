@@ -3,6 +3,7 @@ import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { identifyUser, resetUser, trackEvent } from "@/lib/analytics";
 import { getMyProfile, getMyOrgs } from "@/lib/profile-db";
+import { sortOrgsClubFirst } from "@scoutable/shared/lib/orgs";
 import { touchThisDevice } from "@/lib/device-registry";
 import { seedDemoMatch } from "@/lib/matches-db";
 import type { UserProfile, OrgMembership, OrgPlanTier } from "@/types/org";
@@ -92,7 +93,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!opts?.silent) setProfileLoading(true);
     lastLoadedAtRef.current = Date.now();
     try {
-      const [p, orgs] = await Promise.all([getMyProfile(userId), getMyOrgs()]);
+      const [p, rawOrgs] = await Promise.all([getMyProfile(userId), getMyOrgs()]);
+      // Belt-and-braces over the RPC's ORDER BY (see shared/lib/orgs.ts):
+      // the orgs[0] fallback must land on a club, not the personal org.
+      const orgs = sortOrgsClubFirst(rawOrgs);
       setProfile(p);
       setMyOrgs(orgs);
       setActiveOrgIdState(resolveActiveOrg(orgs));

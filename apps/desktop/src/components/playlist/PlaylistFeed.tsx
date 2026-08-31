@@ -78,6 +78,7 @@ export function PlaylistFeed({
   onOpen,
   onResume,
   emptyCopy,
+  emptyExtra,
 }: {
   playlists: PlaylistCardData[];
   sourceOptions: SourceOption[];
@@ -85,6 +86,8 @@ export function PlaylistFeed({
   onResume: (id: string) => void;
   /** Overrides the no-playlists body copy (coaches get non-player phrasing). */
   emptyCopy?: string;
+  /** Rendered under the empty-state body — e.g. the personal-space pointer. */
+  emptyExtra?: React.ReactNode;
 }) {
   const [watch, setWatch] = useState<WatchFilter>("all");
   const [source, setSource] = useState("all");
@@ -248,6 +251,7 @@ export function PlaylistFeed({
           <p className="max-w-xs text-sm text-muted-foreground">
             {emptyCopy ?? "When your coach shares clips with you, they'll show up here."}
           </p>
+          {emptyExtra}
         </div>
       ) : visible.length === 0 ? (
         <div className="flex flex-col items-center gap-2 px-6 py-16 text-center">

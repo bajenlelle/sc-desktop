@@ -58,6 +58,10 @@ export type AnalyticsEvent =
   | "onboarding_step_clicked"
   | "onboarding_dismissed"
   | "onboarding_completed"
+  // Player cross-space guidance (desktop club feed → personal space)
+  | "player_welcome_cta"
+  | "player_welcome_dismissed"
+  | "player_feed_personal_space_link"
   // Monetization funnel
   | "upgrade_gate_hit"
   | "upgrade_clicked"

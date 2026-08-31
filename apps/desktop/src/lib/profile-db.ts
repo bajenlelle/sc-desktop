@@ -206,6 +206,18 @@ export async function dismissOnboardingChecklist(): Promise<void> {
   if (error) throw new Error(`Failed to dismiss checklist: ${error.message}`);
 }
 
+/** Hide the first-visit welcome surfaces permanently (across devices & apps). */
+export async function dismissWelcome(): Promise<void> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+  const { error } = await supabase
+    .from("profiles")
+    .update({ welcome_dismissed_at: new Date().toISOString() })
+    .eq("id", user.id);
+  if (error) throw new Error(`Failed to dismiss welcome: ${error.message}`);
+}
+
 /**
  * Record that the one-time upgrade celebration was shown for this tier, so
  * no other device or app (web/desktop) shows it again.
