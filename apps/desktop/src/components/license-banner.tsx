@@ -14,6 +14,8 @@ import { getLicenseState, graceEndsAt } from "@scoutable/shared/lib/license-stat
 export function LicenseBanner() {
   const { activeOrg } = useAuth();
   const [requesting, setRequesting] = useState(false);
+  // Persistent inline confirmation — a transient toast alone is easy to miss.
+  const [requested, setRequested] = useState(false);
 
   if (!activeOrg || activeOrg.isPersonal) return null;
   const state = getLicenseState(activeOrg.expiresAt);
@@ -32,9 +34,11 @@ export function LicenseBanner() {
     setRequesting(true);
     try {
       await requestLicenseRenewal(activeOrg.orgId);
+      setRequested(true);
       toast.success("Renewal requested — we'll be in touch.");
     } catch (e) {
       if ((e as Error).message === "renewal_already_requested") {
+        setRequested(true);
         toast.info("Renewal already requested — we're on it.");
       } else {
         toast.error((e as Error).message);
@@ -57,15 +61,21 @@ export function LicenseBanner() {
             : "Sharing and invites are paused. Existing playlists stay watchable."}
         </span>
         {isAdmin ? (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 text-xs"
-            disabled={requesting}
-            onClick={handleRequestRenewal}
-          >
-            {requesting ? "Requesting…" : "Request renewal"}
-          </Button>
+          requested ? (
+            <span className="text-xs font-medium text-emerald-600 dark:text-emerald-500">
+              Renewal requested — we&apos;ll be in touch
+            </span>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              disabled={requesting}
+              onClick={handleRequestRenewal}
+            >
+              {requesting ? "Requesting…" : "Request renewal"}
+            </Button>
+          )
         ) : (
           <span className="text-xs text-muted-foreground">
             Ask your organization admin about renewal.
