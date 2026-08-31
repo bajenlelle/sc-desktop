@@ -21,6 +21,7 @@ import { getMySharedPlaylists, type SharedPlaylist } from "@/lib/playlists-db";
 import { getTeamMembers, type TeamMemberRef } from "@/lib/teams-db";
 import { listPlaylistClipViews, type PlaylistClipView } from "@/lib/clip-views-db";
 import { sendPlaylistReminder } from "@/lib/reminders-db";
+import { bulkSendReminders } from "@/lib/reminders-bulk";
 import { trackEvent } from "@/lib/analytics";
 import {
   buildDashboardRows,
@@ -188,30 +189,12 @@ export function SharedByMe({
     }
   }
 
-  /** Shared by the strip's global Remind all and the per-playlist button. */
+  /** Shared by the strip's global Remind all and the per-playlist button.
+   * Loop + toasts live in lib/reminders-bulk (also used by the Home page). */
   async function bulkRemind(targets: { playlistId: string; userId: string }[]) {
-    let sent = 0;
-    let failed = 0;
-    for (const t of targets) {
-      try {
-        await sendPlaylistReminder(t.playlistId, t.userId);
-        sent++;
-        setRemindState((prev) => new Map(prev).set(`${t.playlistId}:${t.userId}`, "sent"));
-      } catch (e) {
-        // Cooldown hits are expected on repeat clicks — not failures.
-        if (!(e as Error).message.includes("24 hours")) failed++;
-      }
-    }
-    if (sent > 0) trackEvent("reminder_sent", { bulk: true, count: sent });
-    if (sent > 0 && failed === 0) {
-      toast.success(`Reminded ${sent} player${sent === 1 ? "" : "s"}`);
-    } else if (sent > 0) {
-      toast.warning(`Reminded ${sent}, ${failed} failed`);
-    } else if (failed === 0) {
-      toast.info("Everyone was already reminded recently");
-    } else {
-      toast.error("Couldn't send reminders — try again");
-    }
+    await bulkSendReminders(targets, (t) =>
+      setRemindState((prev) => new Map(prev).set(`${t.playlistId}:${t.userId}`, "sent"))
+    );
   }
 
   async function handleRemindAll() {

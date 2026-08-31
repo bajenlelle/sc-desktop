@@ -14,6 +14,7 @@ import {
   Sun,
   Moon,
   LogOut,
+  UserRound,
 } from "lucide-react";
 import { ReportProblemDialog } from "@/components/report-problem-dialog";
 import { LogoMark } from "@/components/logo";
@@ -110,7 +111,9 @@ function WorkspaceIcon({
               : "bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           )}
         >
-          {getOrgInitials(org.orgName)}
+          {/* The personal org's name is the user's full name, so initials
+              would look like any club square — the User icon marks "yours". */}
+          {org.isPersonal ? <UserRound className="h-4 w-4" /> : getOrgInitials(org.orgName)}
         </button>
       </TooltipTrigger>
       <TooltipContent side="right">
@@ -179,9 +182,8 @@ export function AppSidebar() {
         {/* Nav items */}
         {user && !profileLoading && (
           <nav className="flex flex-col items-center gap-1 py-3">
-            {/* The Overview page was previously only reachable via the logo —
-                the Getting Started checklist lives there, so it needs a real
-                nav item. */}
+            {/* Home is the coach dashboard: next action, team engagement,
+                recent playlists and imports. */}
             {isCoachOrAdmin && (
               <SidebarIconButton
                 href="/"
