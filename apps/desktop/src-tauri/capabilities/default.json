@@ -16,6 +16,7 @@
         { "url": "https://app.scoutable.se/api/**" }
       ]
     },
+    "core:webview:allow-set-webview-zoom",
     "dialog:default",
     "opener:default",
     "updater:default",

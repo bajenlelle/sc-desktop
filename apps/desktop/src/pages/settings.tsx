@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { check } from "@tauri-apps/plugin-updater";
-import { toast } from "sonner";
+import { interactiveUpdateCheck } from "@/lib/updates";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -31,14 +30,7 @@ export function SettingsPage() {
   async function checkForUpdates() {
     setChecking(true);
     try {
-      const update = await check();
-      if (update?.available) {
-        toast.info(`Version ${update.version} is available — use the banner at the top to install.`);
-      } else {
-        toast.success("You're on the latest version.");
-      }
-    } catch {
-      toast.error("Couldn't reach the update server. Are you online?");
+      await interactiveUpdateCheck();
     } finally {
       setChecking(false);
     }

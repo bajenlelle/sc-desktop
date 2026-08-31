@@ -5,6 +5,8 @@ use http_range::HttpRange;
 use percent_encoding::percent_decode_str;
 use tauri::http::{Response, StatusCode};
 
+mod menu;
+
 // ---------------------------------------------------------------------------
 // Export command
 // ---------------------------------------------------------------------------
@@ -423,6 +425,17 @@ pub fn run() {
     let sentry_client = sentry::init((dsn, sentry_options));
 
     tauri::Builder::default()
+        // Native menu bar (macOS only). Built before the webview loads so the
+        // default menu never flashes; custom items reach the webview via a
+        // single "menu" event (see menu.rs / components/menu-handler.tsx).
+        .setup(|app| {
+            #[cfg(target_os = "macos")]
+            menu::init(app.handle())?;
+            #[cfg(not(target_os = "macos"))]
+            let _ = app;
+            Ok(())
+        })
+        .on_menu_event(menu::on_menu_event)
         // Rust panics + webview JS errors both flow through this client; the
         // webview runs its own @sentry/react init (src/lib/sentry.ts), so use
         // the no-injection variant to avoid a second injected SDK.
@@ -572,7 +585,16 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![export_playlist, get_temp_dir, delete_file, read_file, export_clip_for_ship, extract_poster_frame])
+        .invoke_handler(tauri::generate_handler![
+            export_playlist,
+            get_temp_dir,
+            delete_file,
+            read_file,
+            export_clip_for_ship,
+            extract_poster_frame,
+            menu::menu_set_enabled,
+            menu::menu_sync_theme
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

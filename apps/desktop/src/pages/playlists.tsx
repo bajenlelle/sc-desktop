@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useAuth } from "@/lib/auth-context";
 import { trackEvent } from "@/lib/analytics";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -4345,6 +4346,23 @@ export function PlaylistsPage() {
     window.addEventListener("playlist-browser-toggle", handler);
     return () => window.removeEventListener("playlist-browser-toggle", handler);
   }, []);
+
+  // ---------------------------------------------------------------------------
+  // Native menu: File → Export Playlist… (⌘E). menu-handler.tsx dispatches the
+  // event; the item is only enabled while an exportable playlist is open
+  // (menu-handler disables it again when this page unmounts).
+  // ---------------------------------------------------------------------------
+
+  const menuExportEnabled = !!selected && !exportDisabledReason && !isExporting;
+  const handleExportRef = useRef(handleExport);
+  handleExportRef.current = handleExport;
+  useEffect(() => {
+    invoke("menu_set_enabled", { id: "export-playlist", enabled: menuExportEnabled }).catch(() => {});
+    if (!menuExportEnabled) return;
+    const handler = () => void handleExportRef.current();
+    window.addEventListener("menu-export-playlist", handler);
+    return () => window.removeEventListener("menu-export-playlist", handler);
+  }, [menuExportEnabled]);
 
   // ---------------------------------------------------------------------------
   // Render

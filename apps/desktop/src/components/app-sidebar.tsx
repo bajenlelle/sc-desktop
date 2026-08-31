@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
 import {
@@ -132,6 +132,15 @@ export function AppSidebar() {
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   const showOrganization = !activeOrgIsPersonal && activeOrgRole !== null;
   const showWorkspaceSwitcher = myOrgs.length > 1;
+
+  // Native menu: Help → Send Feedback… opens the same dialog as the sidebar
+  // button (the sidebar is mounted on every authed route, matching where
+  // feedback is reachable today).
+  useEffect(() => {
+    const handler = () => setFeedbackOpen(true);
+    window.addEventListener("menu-send-feedback", handler);
+    return () => window.removeEventListener("menu-send-feedback", handler);
+  }, []);
 
   async function handleSignOut() {
     const supabase = createClient();
