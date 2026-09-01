@@ -11,6 +11,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { reportDbError } from "./report";
+import { currentUserId } from "./current-user";
 
 export interface ClipView {
   playlistId: string;
@@ -39,12 +40,12 @@ export function clipViewKey(playlistId: string, matchId: string, eventId: number
  * people's views into a coach's own progress.
  */
 export async function listMyClipViews(supabase: SupabaseClient): Promise<ClipView[]> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
+  const uid = await currentUserId(supabase);
+  if (!uid) return [];
   const { data, error } = await supabase
     .from("clip_views")
     .select("playlist_id, match_id, event_id, watched_at")
-    .eq("user_id", user.id);
+    .eq("user_id", uid);
   if (error) { reportDbError("listMyClipViews", error); return []; }
   return ((data ?? []) as ClipViewRow[]).map((r) => ({
     playlistId: r.playlist_id,
@@ -95,14 +96,14 @@ export async function markClipWatched(
   matchId: string,
   eventId: number,
 ): Promise<void> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
+  const uid = await currentUserId(supabase);
+  if (!uid) return;
 
   const { error } = await supabase
     .from("clip_views")
     .upsert(
       {
-        user_id: user.id,
+        user_id: uid,
         playlist_id: playlistId,
         match_id: matchId,
         event_id: eventId,

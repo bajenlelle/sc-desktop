@@ -19,7 +19,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
-import { getMySharedPlaylists, type SharedPlaylist } from "@scoutable/shared/lib/playlists-db";
+import type { SharedPlaylist } from "@scoutable/shared/lib/playlists-db";
 import { getTeamMembers, type TeamMemberRef } from "@scoutable/shared/lib/teams-db";
 import { listPlaylistClipViews, type PlaylistClipView } from "@/lib/clip-views-db";
 import { sendPlaylistReminder } from "@/lib/reminders-db";
@@ -94,12 +94,20 @@ function StatusPill({ done, started }: { done: boolean; started: boolean }) {
  * through the owner-read RLS added for exactly this surface.
  */
 export function SharedByMe({
+  shared,
   memberMap,
   teamMap,
   currentUserId,
   onOpenPlaylist,
   onManageShare,
 }: {
+  /**
+   * The coach's shared playlists, owned by the page — `null` while it loads.
+   * This component used to call getMySharedPlaylists() itself, so the full
+   * nested payload (every playlist with every clip) was fetched twice on every
+   * mount, and again on each coach-tab toggle.
+   */
+  shared: SharedPlaylist[] | null;
   memberMap: Map<string, UserProfile>;
   teamMap: Map<string, OrgTeam>;
   currentUserId: string | null;
@@ -107,7 +115,6 @@ export function SharedByMe({
   onOpenPlaylist: (id: string) => void;
   onManageShare: (pl: Playlist) => void;
 }) {
-  const [shared, setShared] = useState<SharedPlaylist[] | null>(null);
   const [teamMembers, setTeamMembers] = useState<TeamMemberRef[]>([]);
   const [views, setViews] = useState<PlaylistClipView[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -122,22 +129,31 @@ export function SharedByMe({
   const [remindingAll, setRemindingAll] = useState(false);
   const [remindingPlaylistId, setRemindingPlaylistId] = useState<string | null>(null);
 
+  // Recipients and watch state for the playlists the page handed us. Keyed on
+  // the id SETS rather than the arrays, so an unrelated parent re-render (or a
+  // clip edit elsewhere on the page) doesn't refetch either one.
+  const isLoading = shared === null;
+  const sharedIdsKey = (shared ?? []).map((p) => p.id).join(",");
+  const teamIdsKey = [
+    ...new Set((shared ?? []).flatMap((p) => p.teamShares.map((t) => t.teamId))),
+  ]
+    .sort()
+    .join(",");
+
   useEffect(() => {
+    if (isLoading) return;
     let cancelled = false;
-    getMySharedPlaylists(createClient()).then(async (playlists) => {
-      if (cancelled) return;
-      const teamIds = [...new Set(playlists.flatMap((p) => p.teamShares.map((t) => t.teamId)))];
-      const [members, clipViews] = await Promise.all([
-        getTeamMembers(createClient(), teamIds),
-        listPlaylistClipViews(playlists.map((p) => p.id)),
-      ]);
-      if (cancelled) return;
-      setTeamMembers(members);
-      setViews(clipViews);
-      setShared(playlists);
-    });
+    const playlistIds = sharedIdsKey ? sharedIdsKey.split(",") : [];
+    const teamIds = teamIdsKey ? teamIdsKey.split(",") : [];
+    Promise.all([getTeamMembers(createClient(), teamIds), listPlaylistClipViews(playlistIds)])
+      .then(([members, clipViews]) => {
+        if (cancelled) return;
+        setTeamMembers(members);
+        setViews(clipViews);
+      })
+      .catch((e) => console.error("SharedByMe recipients:", e));
     return () => { cancelled = true; };
-  }, []);
+  }, [isLoading, sharedIdsKey, teamIdsKey]);
 
   // All derivation lives in @scoutable/shared/lib/shared-by-me (tested there);
   // this component only wires state to it and renders.

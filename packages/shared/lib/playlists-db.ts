@@ -9,6 +9,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { reportDbError } from "./report";
+import { currentUserId } from "./current-user";
 import type { Playlist, PlaylistItem, PlaylistClipItem, PlaylistTextCard } from "../types/match";
 
 // ---------------------------------------------------------------------------
@@ -165,12 +166,12 @@ export async function getMyTeamPlaylists(
 // ---------------------------------------------------------------------------
 
 export async function listPlaylists(supabase: SupabaseClient): Promise<Playlist[]> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
+  const uid = await currentUserId(supabase);
+  if (!uid) return [];
   const { data, error } = await supabase
     .from("playlists")
     .select(PLAYLIST_SELECT)
-    .eq("user_id", user.id)
+    .eq("user_id", uid)
     .order("created_at", { ascending: false });
   if (error) { reportDbError("listPlaylists", error); return []; }
   if (!data) return [];
@@ -501,15 +502,15 @@ export async function getMyDirectPlaylists(
   supabase: SupabaseClient,
   teamIds?: string[],
 ): Promise<Playlist[]> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
+  const uid = await currentUserId(supabase);
+  if (!uid) return [];
   if (teamIds && teamIds.length === 0) return [];
 
   // 1. Get playlist IDs shared with current user (recipient rows only)
   const { data: shareRows, error: shareError } = await supabase
     .from("playlist_user_shares")
     .select("playlist_id")
-    .eq("user_id", user.id);
+    .eq("user_id", uid);
   if (shareError) { reportDbError("getMyDirectPlaylists shares", shareError); return []; }
   if (!shareRows || shareRows.length === 0) return [];
 
@@ -544,14 +545,14 @@ export async function getMySharedOutPlaylists(
   supabase: SupabaseClient,
   teamIds?: string[],
 ): Promise<Playlist[]> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
+  const uid = await currentUserId(supabase);
+  if (!uid) return [];
   if (teamIds && teamIds.length === 0) return [];
 
   const { data: shareRows, error: shareError } = await supabase
     .from("playlist_user_shares")
     .select("playlist_id")
-    .eq("shared_by", user.id);
+    .eq("shared_by", uid);
   if (shareError) { reportDbError("getMySharedOutPlaylists", shareError); return []; }
   if (!shareRows || shareRows.length === 0) return [];
 
@@ -589,12 +590,12 @@ export interface SharedPlaylist extends Playlist {
  * what clip_views_owner_read lets the caller read about recipients.
  */
 export async function getMySharedPlaylists(supabase: SupabaseClient): Promise<SharedPlaylist[]> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
+  const uid = await currentUserId(supabase);
+  if (!uid) return [];
   const { data, error } = await supabase
     .from("playlists")
     .select(PLAYLIST_SELECT)
-    .eq("user_id", user.id)
+    .eq("user_id", uid)
     .order("created_at", { ascending: false });
   if (error) { reportDbError("getMySharedPlaylists", error); return []; }
   if (!data) return [];

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAggregatedTeamMap,
+  collectClipMatchIds,
   collectReferencedMatchIds,
   mergeEventsIntoMatches,
 } from "../playlist-matches";
@@ -183,5 +184,36 @@ describe("buildAggregatedTeamMap", () => {
 
   it("is empty for no entries", () => {
     expect(buildAggregatedTeamMap([], true).size).toBe(0);
+  });
+});
+
+describe("collectClipMatchIds", () => {
+  it("collects unique matchIds from every clip, shipped or not", () => {
+    const ids = collectClipMatchIds([
+      pl({
+        items: [
+          clip({ matchId: "m1", r2Url: "https://r2/a.mp4" }),
+          clip({ matchId: "m2", eventId: 2 }), // unshipped
+        ],
+      }),
+      pl({ id: "p2", items: [clip({ matchId: "m3", eventId: 3 })] }),
+    ]);
+    expect(ids).toEqual(["m1", "m2", "m3"]);
+  });
+
+  it("includes matches whose clips are ALL unshipped — the editor case that collectReferencedMatchIds drops", () => {
+    const playlists = [pl({ items: [clip({ matchId: "draft" })] })];
+    expect(collectReferencedMatchIds(playlists)).toEqual([]);
+    expect(collectClipMatchIds(playlists)).toEqual(["draft"]);
+  });
+
+  it("ignores text cards", () => {
+    const ids = collectClipMatchIds([pl({ items: [textCard({}), clip({ matchId: "m9" })] })]);
+    expect(ids).toEqual(["m9"]);
+  });
+
+  it("returns [] for playlists with no clips", () => {
+    expect(collectClipMatchIds([pl({ items: [] })])).toEqual([]);
+    expect(collectClipMatchIds([])).toEqual([]);
   });
 });

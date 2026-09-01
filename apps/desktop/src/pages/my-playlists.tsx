@@ -12,7 +12,7 @@ import { VideoPlayer } from "@/components/video-player";
 import { VideoClipControls } from "@/components/video-clip-controls";
 import { VideoPlaceholder } from "@/components/video-placeholder";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
-import { getMyTeamPlaylists, getMyDirectPlaylists, getMySharedPlaylists, setPlaylistTeams, setPlaylistUsers } from "@/lib/playlists-db";
+import { getMyTeamPlaylists, getMyDirectPlaylists, getMySharedPlaylists, setPlaylistTeams, setPlaylistUsers, type SharedPlaylist } from "@/lib/playlists-db";
 import { getOrgContext, getOrgContextForOrg } from "@/lib/profile-db";
 import { useAuth } from "@/lib/auth-context";
 import { listMatchesLight, listEventsForMatches } from "@/lib/matches-db";
@@ -78,7 +78,7 @@ export function MyPlaylistsPage() {
 
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [directPlaylists, setDirectPlaylists] = useState<Playlist[]>([]);
-  const [sharedOutPlaylists, setSharedOutPlaylists] = useState<Playlist[]>([]);
+  const [sharedOutPlaylists, setSharedOutPlaylists] = useState<SharedPlaylist[]>([]);
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Playlist | null>(null);
@@ -142,7 +142,7 @@ export function MyPlaylistsPage() {
       // loaded playlists actually reference. Full listMatches pulled every
       // accessible match's complete play-by-play (~500 events/game).
       listMatchesLight(activeOrgId ?? undefined).catch(() => [] as StoredMatch[]),
-      (activeOrgId ? getOrgContextForOrg(activeOrgId) : getOrgContext()).catch(() => null),
+      (activeOrgId ? getOrgContextForOrg(activeOrgId, { myOrgs }) : getOrgContext()).catch(() => null),
     ]).then(async ([shells, orgCtx]) => {
       if (orgCtx) {
         setCurrentUserId(orgCtx.profile.id);
@@ -157,7 +157,7 @@ export function MyPlaylistsPage() {
         getMyDirectPlaylists(activeTeamIds).catch(() => [] as Playlist[]),
         // Owner-based (not direct-shares-only): a coach's team-only-shared
         // playlists must be resolvable/openable here too.
-        getMySharedPlaylists().catch(() => [] as Playlist[]),
+        getMySharedPlaylists().catch(() => [] as SharedPlaylist[]),
       ]);
       // Events only for matches the loaded playlists can play, merged into
       // the shells and published in ONE setMatches — clip rows silently drop
@@ -191,6 +191,19 @@ export function MyPlaylistsPage() {
     [matches]
   );
   useEffect(() => { matchLookupRef.current = matchLookup; }, [matchLookup]);
+
+  /**
+   * Event lookup by `matchId:eventId`, built once per matches change.
+   * Resolving a clip through `match.events.find(...)` scanned a full
+   * play-by-play array (~500 events per game) for every clip in the playlist.
+   */
+  const eventByKey = useMemo(() => {
+    const map = new Map<string, PlayByPlayEvent>();
+    for (const m of matches) {
+      for (const e of m.events) map.set(`${m.id}:${e.eventId}`, e);
+    }
+    return map;
+  }, [matches]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, Playlist[]>();
@@ -359,11 +372,25 @@ export function MyPlaylistsPage() {
     setPlaylists((prev) => prev.map((p) =>
       p.id === shareTarget.id ? { ...p, teamIds, teamId: teamIds[0], userIds } : p
     ));
+    // SharedByMe now derives its recipient rows from this state instead of
+    // refetching, so the optimistic entry has to carry teamShares/userShares
+    // too — not just the id lists. Timestamps we don't have yet are null
+    // (already the type's "unknown" value); existing ones are preserved.
     setSharedOutPlaylists((prev) => {
       if (userIds.length === 0) return prev.filter((p) => p.id !== shareTarget.id);
       const exists = prev.find((p) => p.id === shareTarget.id);
-      if (exists) return prev.map((p) => p.id === shareTarget.id ? { ...p, userIds } : p);
-      return [...prev, { ...shareTarget, teamIds, userIds }];
+      const teamShares = teamIds.map(
+        (teamId) => exists?.teamShares.find((t) => t.teamId === teamId) ?? { teamId, sharedAt: null },
+      );
+      const userShares = userIds.map(
+        (userId) => exists?.userShares.find((u) => u.userId === userId) ?? { userId, sharedAt: null },
+      );
+      if (exists) {
+        return prev.map((p) =>
+          p.id === shareTarget.id ? { ...p, teamIds, userIds, teamShares, userShares } : p,
+        );
+      }
+      return [...prev, { ...shareTarget, teamIds, userIds, teamShares, userShares }];
     });
     setShareTarget(null);
   }
@@ -418,8 +445,7 @@ export function MyPlaylistsPage() {
         // Unshipped clips are invisible to recipients — a greyed row they
         // can never play only reads as broken.
         if (!item.r2Url) continue;
-        const match = matchLookup.get(item.matchId);
-        const event = match?.events.find((e) => e.eventId === item.eventId);
+        const event = eventByKey.get(`${item.matchId}:${item.eventId}`);
         if (event) {
           items.push({ event, matchId: item.matchId, r2Url: item.r2Url, note: item.note });
         }
@@ -428,7 +454,7 @@ export function MyPlaylistsPage() {
       }
     }
     return items;
-  }, [selected, matchLookup]);
+  }, [selected, eventByKey]);
 
   const playableQueue = useMemo(() => displayItems.filter(isPlayable), [displayItems]);
 
@@ -724,6 +750,7 @@ export function MyPlaylistsPage() {
     {showDashboard ? (
       <div className="flex-1 overflow-y-auto">
         <SharedByMe
+          shared={loading ? null : sharedOutPlaylists}
           memberMap={memberMap}
           teamMap={teamMap}
           currentUserId={currentUserId}

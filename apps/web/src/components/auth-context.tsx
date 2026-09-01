@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { getMyProfile, getMyOrgs } from "@/lib/profile-db";
@@ -242,25 +242,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     ? { orgId: activeOrg.orgId, planTier: activeOrg.planTier }
     : null;
 
+  // loadProfile is redeclared every render, so route reloadProfile through a
+  // ref to keep it stable — otherwise the memo below would be defeated by a
+  // fresh closure on every render. Synced in an effect rather than during
+  // render (refs must not be written while rendering); the initial value
+  // already covers any call made before the first flush.
+  const loadProfileRef = useRef(loadProfile);
+  useEffect(() => {
+    loadProfileRef.current = loadProfile;
+  });
+  const reloadProfile = useCallback(async () => {
+    const u = userRef.current;
+    if (u) await loadProfileRef.current(u.id);
+  }, []);
+
+  // Memoized because every consumer in the app re-renders when this object's
+  // identity changes. The focus/visibility refresh calls setMyOrgs with a
+  // fresh array every 30s, which previously re-rendered the entire tree.
+  const value = useMemo(
+    () => ({
+      user,
+      loading,
+      profile,
+      profileLoading,
+      myOrgs,
+      secondaryOrgs: myOrgs,
+      activeOrgId,
+      activeOrg,
+      activeOrgRole,
+      activeOrgPlan,
+      activeOrgIsPersonal,
+      isPlayerOnly,
+      setActiveOrg,
+      reloadProfile,
+      expectPlanChange,
+    }),
+    [
+      user, loading, profile, profileLoading, myOrgs, activeOrgId, activeOrg,
+      activeOrgRole, activeOrgPlan, activeOrgIsPersonal, isPlayerOnly,
+      setActiveOrg, reloadProfile, expectPlanChange,
+    ],
+  );
+
   return (
     <AuthContext.Provider
-      value={{
-        user,
-        loading,
-        profile,
-        profileLoading,
-        myOrgs,
-        secondaryOrgs: myOrgs,
-        activeOrgId,
-        activeOrg,
-        activeOrgRole,
-        activeOrgPlan,
-        activeOrgIsPersonal,
-        isPlayerOnly,
-        setActiveOrg,
-        reloadProfile: async () => { if (user) await loadProfile(user.id); },
-        expectPlanChange,
-      }}
+      value={value}
     >
       {children}
     </AuthContext.Provider>

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { PlaylistFolder } from "../../types/match";
 import {
   ancestorIds,
+  buildDescendantMap,
   buildFolderTree,
   childFoldersByParent,
   collectSubtreeIds,
@@ -11,6 +12,7 @@ import {
   isDescendantOf,
   subtreeStats,
   wouldCreateCycle,
+  wouldCreateCycleWith,
 } from "../folder-tree";
 
 const f = (id: string, parentId?: string, extra?: Partial<PlaylistFolder>): PlaylistFolder => ({
@@ -291,5 +293,73 @@ describe("ancestorIds", () => {
   // though no such folder is in the set (folderPath, by contrast, drops it).
   it("includes a dangling parentId that points at no known folder", () => {
     expect(ancestorIds([f("orphan", "ghost")], "orphan")).toEqual(["ghost"]);
+  });
+});
+
+describe("buildDescendantMap", () => {
+  it("maps each folder to its strict descendants down a chain", () => {
+    const map = buildDescendantMap(chain());
+    expect([...(map.get("root") ?? [])].sort()).toEqual(["leaf", "mid"]);
+    expect([...(map.get("mid") ?? [])]).toEqual(["leaf"]);
+    expect(map.get("leaf")).toBeUndefined();
+  });
+
+  it("never lists a folder as its own descendant, even inside a cycle", () => {
+    const map = buildDescendantMap(cycleFixture());
+    expect(map.get("a")?.has("a")).toBe(false);
+    expect(map.get("b")?.has("b")).toBe(false);
+    // a and b are mutually descended, matching isDescendantOf
+    expect(map.get("a")?.has("b")).toBe(true);
+    expect(map.get("b")?.has("a")).toBe(true);
+  });
+
+  it("keys a dangling parentId even though no such folder exists", () => {
+    // Mirrors ancestorIds: the walk climbs into the ghost id before
+    // discovering it is unknown, so the ghost gains a descendant entry.
+    const map = buildDescendantMap([f("orphan", "ghost")]);
+    expect([...(map.get("ghost") ?? [])]).toEqual(["orphan"]);
+  });
+
+  it("returns an empty map for an empty list", () => {
+    expect(buildDescendantMap([]).size).toBe(0);
+  });
+});
+
+describe("wouldCreateCycleWith", () => {
+  // The whole point of the prebuilt map is to be a drop-in for the O(F)
+  // version, so pin them together across every shape this module documents.
+  const fixtures: Array<[string, PlaylistFolder[]]> = [
+    ["chain", chain()],
+    ["cycle", cycleFixture()],
+    ["orphan", [f("orphan", "ghost"), f("root")]],
+    ["flat", [f("a"), f("b"), f("c")]],
+    ["deep", [f("r"), f("x", "r"), f("y", "x"), f("z", "y")]],
+    ["empty", []],
+  ];
+
+  for (const [label, folders] of fixtures) {
+    it(`agrees with wouldCreateCycle for every id pair (${label})`, () => {
+      const map = buildDescendantMap(folders);
+      const candidates: Array<string | null> = [null, ...ids(folders), "ghost", "unknown"];
+      for (const folderId of [...ids(folders), "unknown"]) {
+        for (const target of candidates) {
+          expect(wouldCreateCycleWith(map, folderId, target)).toBe(
+            wouldCreateCycle(folders, folderId, target),
+          );
+        }
+      }
+    });
+  }
+
+  it("allows the root target and refuses self", () => {
+    const map = buildDescendantMap(chain());
+    expect(wouldCreateCycleWith(map, "mid", null)).toBe(false);
+    expect(wouldCreateCycleWith(map, "mid", "mid")).toBe(true);
+  });
+
+  it("refuses moving a folder into its own subtree but allows the reverse", () => {
+    const map = buildDescendantMap(chain());
+    expect(wouldCreateCycleWith(map, "root", "leaf")).toBe(true);
+    expect(wouldCreateCycleWith(map, "leaf", "root")).toBe(false);
   });
 });

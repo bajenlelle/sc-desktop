@@ -143,6 +143,49 @@ export function wouldCreateCycle(
 }
 
 /**
+ * folderId -> every STRICT descendant of it, in one pass over the list.
+ *
+ * For UI that tests many re-parent targets at once (a Move-to submenu asks
+ * once per target, per row): `wouldCreateCycle` rebuilds a parent map and
+ * walks ancestors on every call, so a submenu costs O(F²) and a whole sidebar
+ * O(F³). Build this once per folder list and each check is a Set lookup.
+ *
+ * Built by walking UP from each folder and claiming it as a descendant of
+ * every ancestor reached — the same traversal `isDescendantOf` performs, so
+ * the two agree by construction, including on orphans (a parentId pointing at
+ * a missing folder simply ends the walk) and cycle members (a folder is never
+ * a descendant of itself, matching `isDescendantOf`'s equal-ids early return).
+ */
+export function buildDescendantMap(
+  folders: PlaylistFolder[],
+): Map<string, Set<string>> {
+  const parentOf = new Map(folders.map((f) => [f.id, f.parentId]));
+  const out = new Map<string, Set<string>>();
+  for (const f of folders) {
+    const seen = new Set<string>();
+    let cur = parentOf.get(f.id);
+    while (cur !== undefined && !seen.has(cur) && cur !== f.id) {
+      seen.add(cur);
+      if (!out.has(cur)) out.set(cur, new Set<string>());
+      out.get(cur)!.add(f.id);
+      cur = parentOf.get(cur);
+    }
+  }
+  return out;
+}
+
+/** `wouldCreateCycle` against a prebuilt `buildDescendantMap`. */
+export function wouldCreateCycleWith(
+  descendants: Map<string, Set<string>>,
+  folderId: string,
+  newParentId: string | null,
+): boolean {
+  if (newParentId === null) return false;
+  if (newParentId === folderId) return true;
+  return descendants.get(folderId)?.has(newParentId) ?? false;
+}
+
+/**
  * Counts for the delete-confirm dialog. folderCount EXCLUDES the root (it's
  * the "N subfolders" figure); playlistCount covers the whole subtree.
  */

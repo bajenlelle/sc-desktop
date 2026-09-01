@@ -23,6 +23,25 @@ export function collectReferencedMatchIds(playlists: Playlist[]): string[] {
 }
 
 /**
+ * Every matchId referenced by a clip, shipped or not — the editing surface's
+ * counterpart to `collectReferencedMatchIds`.
+ *
+ * The coach's playlist editor renders a clip row only when it can resolve the
+ * clip's event (an unresolvable clip vanishes from the list), and clips are
+ * built long before they are shipped to R2. So the editor must load events for
+ * unshipped clips too, where a consumption surface deliberately skips them.
+ */
+export function collectClipMatchIds(playlists: Playlist[]): string[] {
+  const ids = new Set<string>();
+  for (const pl of playlists) {
+    for (const item of pl.items) {
+      if (isClipItem(item)) ids.add(item.matchId);
+    }
+  }
+  return [...ids];
+}
+
+/**
  * Fill listMatchesLight shells with events fetched via listEventsForMatches.
  * Callers must publish the merged result in ONE state update — clip rows
  * silently drop when an event lookup misses, so a light-shells-first render

@@ -5,6 +5,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { reportDbError } from "./report";
+import { currentUserId } from "./current-user";
 
 export interface TeamMemberRef {
   teamId: string;
@@ -28,12 +29,12 @@ export interface MyTeamRef {
 export async function getMyTeamsAcrossOrgs(
   supabase: SupabaseClient,
 ): Promise<MyTeamRef[]> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
+  const uid = await currentUserId(supabase);
+  if (!uid) return [];
   const { data, error } = await supabase
     .from("team_members")
     .select("team_id, teams (id, name, org_id, organizations (name))")
-    .eq("user_id", user.id);
+    .eq("user_id", uid);
   if (error) { reportDbError("getMyTeamsAcrossOrgs", error); return []; }
   type Row = {
     team_id: string;

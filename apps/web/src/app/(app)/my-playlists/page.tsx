@@ -8,7 +8,8 @@ import { VideoClipControls } from "@/components/video-clip-controls";
 import { VideoPlayer } from "@/components/video-player";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
-import { getMyTeamPlaylists, getMyDirectPlaylists, getMySharedPlaylists, setPlaylistTeams, setPlaylistUsers } from "@scoutable/shared/lib/playlists-db";
+import { currentUserId as sessionUserId } from "@scoutable/shared/lib/current-user";
+import { getMyTeamPlaylists, getMyDirectPlaylists, getMySharedPlaylists, setPlaylistTeams, setPlaylistUsers, type SharedPlaylist } from "@scoutable/shared/lib/playlists-db";
 import { listMatchesLight, listEventsForMatches } from "@scoutable/shared/lib/matches-db";
 import {
   buildAggregatedTeamMap,
@@ -100,7 +101,7 @@ export default function MyPlaylistsPage() {
 
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [directPlaylists, setDirectPlaylists] = useState<Playlist[]>([]);
-  const [sharedOutPlaylists, setSharedOutPlaylists] = useState<Playlist[]>([]);
+  const [sharedOutPlaylists, setSharedOutPlaylists] = useState<SharedPlaylist[]>([]);
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [clipViews, setClipViews] = useState<Set<string>>(new Set());
@@ -189,16 +190,19 @@ export default function MyPlaylistsPage() {
     const supabase = createClient();
     const aggregated = isPlayerOnly;
     Promise.all([
-      supabase.auth.getUser(),
+      sessionUserId(supabase),
       // Light shells only — events arrive below, scoped to the matches the
       // loaded playlists actually reference. Full listMatches pulled every
       // accessible match's complete play-by-play (~500 events/game).
       listMatchesLight(supabase, aggregated ? undefined : (activeOrgId ?? undefined)).catch(() => [] as StoredMatch[]),
+      // myOrgs is already resolved in the auth context and is identical for
+      // every org, so pass it in — otherwise a player in N clubs refetches
+      // get_my_orgs N times for the same answer.
       aggregated
-        ? Promise.all(clubOrgs.map((o) => getOrgContextForOrg(o.orgId).catch(() => null)))
-        : (activeOrgId ? getOrgContextForOrg(activeOrgId) : getOrgContext()).catch(() => null),
-    ]).then(async ([{ data: { user } }, shells, orgCtxRaw]) => {
-      setCurrentUserId(user?.id ?? null);
+        ? Promise.all(clubOrgs.map((o) => getOrgContextForOrg(o.orgId, { myOrgs }).catch(() => null)))
+        : (activeOrgId ? getOrgContextForOrg(activeOrgId, { myOrgs }) : getOrgContext()).catch(() => null),
+    ]).then(async ([uid, shells, orgCtxRaw]) => {
+      setCurrentUserId(uid);
       const multiClub = aggregated && clubOrgs.length > 1;
       const rawCtxList = Array.isArray(orgCtxRaw) ? orgCtxRaw : [orgCtxRaw];
       // Zip org names before filtering nulls so a club whose context failed
@@ -222,7 +226,7 @@ export default function MyPlaylistsPage() {
         getMyDirectPlaylists(supabase, aggregated ? undefined : activeTeamIds).catch(() => [] as Playlist[]),
         // Owner-based (not direct-shares-only): a coach's team-only-shared
         // playlists must resolve here too, or ?p= deep links go blank.
-        getMySharedPlaylists(supabase).catch(() => [] as Playlist[]),
+        getMySharedPlaylists(supabase).catch(() => [] as SharedPlaylist[]),
       ]);
       // Events only for matches the loaded playlists can play, merged into
       // the shells and published in ONE setMatches — clip rows silently drop
@@ -258,6 +262,19 @@ export default function MyPlaylistsPage() {
 
   const matchLookup = useMemo(() => new Map(matches.map((m) => [m.id, m])), [matches]);
   useEffect(() => { matchLookupRef.current = matchLookup; }, [matchLookup]);
+
+  /**
+   * Event lookup by `matchId:eventId`, built once per matches change.
+   * Resolving a clip through `match.events.find(...)` scanned a full
+   * play-by-play array (~500 events per game) for every clip in the playlist.
+   */
+  const eventByKey = useMemo(() => {
+    const map = new Map<string, PlayByPlayEvent>();
+    for (const m of matches) {
+      for (const e of m.events) map.set(`${m.id}:${e.eventId}`, e);
+    }
+    return map;
+  }, [matches]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, Playlist[]>();
@@ -311,11 +328,25 @@ export default function MyPlaylistsPage() {
     setPlaylists((prev) => prev.map((p) =>
       p.id === shareTarget.id ? { ...p, teamIds, teamId: teamIds[0], userIds } : p
     ));
+    // SharedByMe now derives its recipient rows from this state instead of
+    // refetching, so the optimistic entry has to carry teamShares/userShares
+    // too — not just the id lists. Timestamps we don't have yet are null
+    // (already the type's "unknown" value); existing ones are preserved.
     setSharedOutPlaylists((prev) => {
       if (userIds.length === 0) return prev.filter((p) => p.id !== shareTarget.id);
       const exists = prev.find((p) => p.id === shareTarget.id);
-      if (exists) return prev.map((p) => p.id === shareTarget.id ? { ...p, userIds } : p);
-      return [...prev, { ...shareTarget, teamIds, userIds }];
+      const teamShares = teamIds.map(
+        (teamId) => exists?.teamShares.find((t) => t.teamId === teamId) ?? { teamId, sharedAt: null },
+      );
+      const userShares = userIds.map(
+        (userId) => exists?.userShares.find((u) => u.userId === userId) ?? { userId, sharedAt: null },
+      );
+      if (exists) {
+        return prev.map((p) =>
+          p.id === shareTarget.id ? { ...p, teamIds, userIds, teamShares, userShares } : p,
+        );
+      }
+      return [...prev, { ...shareTarget, teamIds, userIds, teamShares, userShares }];
     });
     setShareTarget(null);
   }
@@ -359,8 +390,7 @@ export default function MyPlaylistsPage() {
         // Unshipped clips are invisible to recipients — a greyed row they
         // can never play only reads as broken.
         if (!item.r2Url) continue;
-        const match = matchLookup.get(item.matchId);
-        const event = match?.events.find((e) => e.eventId === item.eventId);
+        const event = eventByKey.get(`${item.matchId}:${item.eventId}`);
         if (event) {
           items.push({
             event,
@@ -375,7 +405,7 @@ export default function MyPlaylistsPage() {
       }
     }
     return items;
-  }, [selected, matchLookup]);
+  }, [selected, eventByKey]);
 
   // Playable queue: only items with r2Url or text cards
   const playableQueue = useMemo(
@@ -951,6 +981,7 @@ export default function MyPlaylistsPage() {
     {showDashboard ? (
       <div className="flex-1 overflow-y-auto">
         <SharedByMe
+          shared={loading ? null : sharedOutPlaylists}
           memberMap={memberMap}
           teamMap={teamMap}
           currentUserId={currentUserId}

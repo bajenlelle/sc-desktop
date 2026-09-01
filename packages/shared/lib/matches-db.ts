@@ -7,6 +7,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { currentUserId } from "./current-user";
 import type { PlaylistFolder, PlayByPlayEvent, StoredMatch, SyncPoint } from "../types/match";
 
 // ---------------------------------------------------------------------------
@@ -186,13 +187,13 @@ export async function findMatchBySourceGame(
   sourceGameId: string,
   orgId?: string
 ): Promise<{ id: string; title: string; videoUrl?: string; syncPoint?: SyncPoint } | null> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
+  const uid = await currentUserId(supabase);
+  if (!uid) return null;
 
   let query = supabase
     .from("matches")
     .select("id, title, video_url, sync_point")
-    .eq("user_id", user.id)
+    .eq("user_id", uid)
     .eq("source_game_id", sourceGameId);
   if (orgId) query = query.eq("org_id", orgId);
 
@@ -253,9 +254,9 @@ export async function listMatches(
     .order("created_at", { ascending: false });
   if (orgId) query = query.eq("org_id", orgId);
   if (opts?.ownOnly) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return [];
-    query = query.eq("user_id", user.id);
+    const uid = await currentUserId(supabase);
+    if (!uid) return [];
+    query = query.eq("user_id", uid);
   }
 
   const { data, error } = await query;
@@ -450,9 +451,9 @@ export async function listMatchesLight(
     .order("created_at", { ascending: false });
   if (orgId) query = query.eq("org_id", orgId);
   if (opts?.ownOnly) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return [];
-    query = query.eq("user_id", user.id);
+    const uid = await currentUserId(supabase);
+    if (!uid) return [];
+    query = query.eq("user_id", uid);
   }
   const { data, error } = await query;
   if (error || !data) return [];

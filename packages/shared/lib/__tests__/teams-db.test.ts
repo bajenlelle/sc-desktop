@@ -9,7 +9,8 @@ type TeamsJoin = {
 
 /**
  * Minimal Supabase double for the one chain getMyTeamsAcrossOrgs uses:
- * auth.getUser() then from("team_members").select(...).eq("user_id", id).
+ * currentUserId() -> auth.getSession(), then
+ * from("team_members").select(...).eq("user_id", id).
  */
 function mockClient(
   user: { id: string } | null,
@@ -17,7 +18,9 @@ function mockClient(
 ) {
   const calls: { from: string[]; eq: unknown[][] } = { from: [], eq: [] };
   const client = {
-    auth: { getUser: async () => ({ data: { user } }) },
+    auth: {
+      getSession: async () => ({ data: { session: user ? { user } : null }, error: null }),
+    },
     from(table: string) {
       calls.from.push(table);
       return {

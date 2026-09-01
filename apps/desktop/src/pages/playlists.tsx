@@ -66,9 +66,15 @@ import {
   flattenFolderTree,
   collectSubtreeIds,
   wouldCreateCycle,
+  buildDescendantMap,
+  wouldCreateCycleWith,
   subtreeStats,
   ancestorIds,
 } from "@scoutable/shared/lib/folder-tree";
+import {
+  collectClipMatchIds,
+  mergeEventsIntoMatches,
+} from "@scoutable/shared/lib/playlist-matches";
 import { getOrgContext, getOrgContextForOrg, getOrgMembers, getTeamMemberIds } from "@/lib/profile-db";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
 import { SendToPhoneDialog } from "@/components/send-to-phone-dialog";
@@ -682,6 +688,7 @@ function ClipBrowserPanel({
   activeOrgId,
   labels,
   labelHandlers,
+  onNeedEvents,
 }: {
   matches: StoredMatch[];
   matchLookup: Map<string, StoredMatch>;
@@ -697,8 +704,31 @@ function ClipBrowserPanel({
     onDelete: (id: string) => Promise<void>;
     onSeedDefaults: () => Promise<void>;
   };
+  /** Ask the page to load play-by-play for these matches if it hasn't yet. */
+  onNeedEvents: (matchIds: string[]) => Promise<void>;
 }) {
   const [filterMatchId, setFilterMatchId] = useState<string | null>(matches[0]?.id ?? null);
+  const [eventsLoading, setEventsLoading] = useState(false);
+
+  // Keyed on the match ID SET, not the matches array: merging fetched events
+  // produces a new array, and depending on that would re-run this on arrival
+  // and flicker the loading state.
+  const matchIdsKey = matches.map((m) => m.id).join(",");
+
+  // The page only preloads events for games a playlist references, so the
+  // browser pulls the game it is showing. Runs on open and on every game
+  // switch; onNeedEvents ignores ids it already has or is already fetching.
+  useEffect(() => {
+    // No filter means "all games" — the panel would render every event.
+    const ids = filterMatchId ? [filterMatchId] : matchIdsKey.split(",").filter(Boolean);
+    if (ids.length === 0) return;
+    let cancelled = false;
+    setEventsLoading(true);
+    void onNeedEvents(ids).finally(() => {
+      if (!cancelled) setEventsLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [filterMatchId, matchIdsKey, onNeedEvents]);
   const [filterTypes, setFilterTypes] = useState<Set<string>>(new Set());
   const [filterSubTypes, setFilterSubTypes] = useState<Set<string>>(new Set());
   const [filterSituations, setFilterSituations] = useState<Set<string>>(new Set());
@@ -1258,6 +1288,11 @@ function ClipBrowserPanel({
         <ResizablePanel defaultSize={55} minSize={30}>
           <div className="h-full overflow-y-auto">
             {filtered.length === 0 ? (
+              eventsLoading ? (
+                // This game's play-by-play is still arriving — without this
+                // branch the filter-advice copy below would be plainly wrong.
+                <div className="py-12 text-center text-sm text-muted-foreground">Loading clips…</div>
+              ) : (
               <div className="flex flex-col items-center gap-3 py-12 text-center">
                 <p className="text-sm text-muted-foreground">
                   {matches.length === 0
@@ -1272,6 +1307,7 @@ function ClipBrowserPanel({
                   </Link>
                 )}
               </div>
+              )
             ) : (
               <table className="w-full text-sm">
                 <thead className="sticky top-0 border-b border-border bg-muted/80 text-xs font-medium text-muted-foreground">
@@ -1490,7 +1526,7 @@ function AddToDropdown({
 // ---------------------------------------------------------------------------
 
 export function PlaylistsPage() {
-  const { activeOrgId, activeOrgPlan, activeOrgRole, activeOrgIsPersonal, profileLoading } = useAuth();
+  const { activeOrgId, activeOrgPlan, activeOrgRole, activeOrgIsPersonal, myOrgs, profileLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const canAccess = activeOrgIsPersonal || activeOrgRole === "coach" || activeOrgRole === "admin";
@@ -1502,6 +1538,11 @@ export function PlaylistsPage() {
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [loading, setLoading] = useState(true);
+  // Which matches already have their play-by-play in `matches`. The mount load
+  // covers only the games playlists reference; the clip browser can display
+  // any game, so it asks for the rest on demand via ensureEventsFor.
+  const loadedEventMatchIdsRef = useRef<Set<string>>(new Set());
+  const eventFetchInFlightRef = useRef<Set<string>>(new Set());
   const [selected, setSelected] = useState<Playlist | null>(null);
   const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
   const [activeEventId, setActiveEventId] = useState<number | null>(null);
@@ -1694,11 +1735,19 @@ export function PlaylistsPage() {
       setOnboardingHighlight(state.highlight);
       highlightTimer = window.setTimeout(() => setOnboardingHighlight(null), 6000);
     }
-    Promise.all([listPlaylists(), listMatchesLight(activeOrgId ?? undefined, { ownOnly: true }), listFolders(), (activeOrgId ? getOrgContextForOrg(activeOrgId) : getOrgContext()).catch(() => null)])
+    Promise.all([listPlaylists(), listMatchesLight(activeOrgId ?? undefined, { ownOnly: true }), listFolders(), (activeOrgId ? getOrgContextForOrg(activeOrgId, { myOrgs }) : getOrgContext()).catch(() => null)])
       .then(async ([loadedPlaylists, matchShells, loadedFolders, orgCtx]) => {
-        const matchIds = matchShells.map((m) => m.id);
-        const eventsByMatch = await listEventsForMatches(matchIds).catch(() => ({} as Record<string, PlayByPlayEvent[]>));
-        const loadedMatches = matchShells.map((m) => ({ ...m, events: eventsByMatch[m.id] ?? [] }));
+        // Events only for matches a playlist actually references. Passing
+        // every match id pulled the complete play-by-play of every game the
+        // coach had ever imported (~500 events each) on every mount. The clip
+        // browser fetches whichever game it displays via ensureEventsFor.
+        //
+        // collectClipMatchIds, not collectReferencedMatchIds: the editor must
+        // resolve UNSHIPPED clips too, or their rows vanish (see displayItems).
+        const referencedIds = collectClipMatchIds(loadedPlaylists);
+        const eventsByMatch = await listEventsForMatches(referencedIds).catch(() => ({} as Record<string, PlayByPlayEvent[]>));
+        loadedEventMatchIdsRef.current = new Set(referencedIds);
+        const loadedMatches = mergeEventsIntoMatches(matchShells, eventsByMatch);
 
         setPlaylists(loadedPlaylists);
         setMatches(loadedMatches);
@@ -1751,6 +1800,33 @@ export function PlaylistsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeOrgId]);
 
+  /**
+   * Fetch play-by-play for matches that don't have it yet and merge it in.
+   *
+   * The mount load covers only games a playlist references, so the clip
+   * browser calls this for whichever game it is about to show. Already-loaded
+   * and in-flight ids are skipped, making repeat opens and re-renders free.
+   * Existing events are preserved — only the newly fetched matches change.
+   */
+  const ensureEventsFor = useCallback(async (matchIds: string[]) => {
+    const wanted = matchIds.filter(
+      (id) => id && !loadedEventMatchIdsRef.current.has(id) && !eventFetchInFlightRef.current.has(id),
+    );
+    if (wanted.length === 0) return;
+    for (const id of wanted) eventFetchInFlightRef.current.add(id);
+    try {
+      const eventsByMatch = await listEventsForMatches(wanted);
+      for (const id of wanted) loadedEventMatchIdsRef.current.add(id);
+      setMatches((prev) =>
+        prev.map((m) => (eventsByMatch[m.id] ? { ...m, events: eventsByMatch[m.id] } : m)),
+      );
+    } catch (e) {
+      console.error("ensureEventsFor:", e);
+    } finally {
+      for (const id of wanted) eventFetchInFlightRef.current.delete(id);
+    }
+  }, []);
+
   // Load label vocabulary for the active org. Re-runs when org switches.
   useEffect(() => {
     if (!activeOrgId) { setLabels([]); return; }
@@ -1766,13 +1842,47 @@ export function PlaylistsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id]);
 
+  // The clips whose labels we need, plus a stable string identity for that
+  // set. Every mutation (note keystroke, roll nudge, reorder) replaces the
+  // whole `selected` object, so keying the effect below on `selected` re-ran
+  // two label fetches — each fanning out one query per distinct match — on
+  // every debounced note save. The clip SET is what the fetch depends on.
+  const selectedClipKeys = useMemo<ClipKey[]>(
+    () =>
+      selected
+        ? selected.items.filter(isClipItem).map((c) => ({ matchId: c.matchId, eventId: c.eventId }))
+        : [],
+    [selected],
+  );
+  const selectedClipKeysKey = useMemo(
+    () => selectedClipKeys.map((c) => `${c.matchId}:${c.eventId}`).join(","),
+    [selectedClipKeys],
+  );
+
+  /**
+   * Clip lookup by `matchId:eventId`.
+   *
+   * The queue row renderers used to run
+   * `selected.items.filter(isClipItem).find(...)` per row — a fresh
+   * intermediate array plus a linear scan for every rendered row, so a
+   * 150-clip playlist did 150 allocations and ~22,500 comparisons per render,
+   * in each of the two view modes.
+   */
+  const clipByKey = useMemo(() => {
+    const map = new Map<string, PlaylistClipItem>();
+    if (selected) {
+      for (const item of selected.items) {
+        if (isClipItem(item)) map.set(`${item.matchId}:${item.eventId}`, item);
+      }
+    }
+    return map;
+  }, [selected]);
+
   // Load label assignments for the selected playlist's clips.
   // Scope is the active playlist's id — labels here are playlist-scoped.
   useEffect(() => {
     if (!activeOrgId || !selected) { setClipAssignments(new Map()); setBankAssignments(new Map()); return; }
-    const clipKeys: ClipKey[] = selected.items
-      .filter(isClipItem)
-      .map((c) => ({ matchId: c.matchId, eventId: c.eventId }));
+    const clipKeys = selectedClipKeys;
     if (clipKeys.length === 0) { setClipAssignments(new Map()); setBankAssignments(new Map()); return; }
     const playlistScopeId = selected.id;
     const toMap = (rows: Awaited<ReturnType<typeof listAssignmentsForClips>>) => {
@@ -1792,7 +1902,10 @@ export function PlaylistsPage() {
     listAssignmentsForClips(activeOrgId, clipKeys, null)
       .then((rows) => setBankAssignments(toMap(rows)))
       .catch((e) => console.error("listAssignmentsForClips (bank):", e));
-  }, [activeOrgId, selected]);
+    // selectedClipKeysKey stands in for the clip set; `selected` is read only
+    // for its id and that same set, so a same-key identity change is inert.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeOrgId, selected?.id, selectedClipKeysKey]);
 
   // -------------------------------------------------------------------------
   // Label handlers — vocabulary mgmt + per-clip and bulk assignment
@@ -1949,6 +2062,21 @@ export function PlaylistsPage() {
   const matchLookupRef = useRef(matchLookup);
   useEffect(() => { matchLookupRef.current = matchLookup; }, [matchLookup]);
 
+  /**
+   * Event lookup by `matchId:eventId`, built once per matches change.
+   *
+   * Resolving a clip through `match.events.find(...)` scanned a full
+   * play-by-play array (~500 events per game) for every clip, so a 150-clip
+   * playlist cost ~75,000 comparisons on each recompute of the queue.
+   */
+  const eventByKey = useMemo(() => {
+    const map = new Map<string, PlayByPlayEvent>();
+    for (const m of matches) {
+      for (const e of m.events) map.set(`${m.id}:${e.eventId}`, e);
+    }
+    return map;
+  }, [matches]);
+
   // Determine the primary match for a playlist (first clip item's match)
   function primaryMatchId(pl: Playlist): string | null {
     return pl.items.find(isClipItem)?.matchId ?? null;
@@ -2000,6 +2128,15 @@ export function PlaylistsPage() {
 
   // Folder tree: parent id (null = root) -> sorted child folders
   const childFolders = useMemo(() => childFoldersByParent(folders), [folders]);
+
+  // Both feed the "Move to folder" submenus, which every playlist row and
+  // every folder row builds. JSX children are constructed eagerly — Radix
+  // declines to MOUNT a closed menu, but the array and each item's `disabled`
+  // prop are already computed — so calling flattenFolderTree/wouldCreateCycle
+  // inline cost O(F) and O(F²) per row on every render, menus closed or not.
+  // Hoisted here they are computed once per folder change.
+  const flatFolders = useMemo(() => flattenFolderTree(folders), [folders]);
+  const folderDescendants = useMemo(() => buildDescendantMap(folders), [folders]);
 
   // folderId -> lowercased "own name + all ancestor names", so searching a
   // parent folder's name surfaces playlists in its subfolders too.
@@ -2074,12 +2211,11 @@ export function PlaylistsPage() {
     return selected.items
       .filter(isClipItem)
       .map((clip) => {
-        const match = matchLookup.get(clip.matchId);
-        const event = match?.events.find((e) => e.eventId === clip.eventId);
+        const event = eventByKey.get(`${clip.matchId}:${clip.eventId}`);
         return event ? { event, matchId: clip.matchId } : null;
       })
       .filter((x): x is QueueItem => x !== null);
-  }, [selected, matchLookup]);
+  }, [selected, eventByKey]);
 
   const isMultiMatch = useMemo(
     () => new Set(selected?.items.filter(isClipItem).map((c) => c.matchId)).size > 1,
@@ -2114,15 +2250,14 @@ export function PlaylistsPage() {
     const items: PlaybackItem[] = [];
     for (const item of selected.items) {
       if (isClipItem(item)) {
-        const match = matchLookup.get(item.matchId);
-        const event = match?.events.find((e) => e.eventId === item.eventId);
+        const event = eventByKey.get(`${item.matchId}:${item.eventId}`);
         if (event) items.push({ event, matchId: item.matchId });
       } else {
         items.push(item);
       }
     }
     return items;
-  }, [selected, matchLookup]);
+  }, [selected, eventByKey]);
 
   // sortedEvents: displayItems optionally sorted by clock (only when no text cards or groups)
   const sortedEvents = useMemo((): PlaybackItem[] => {
@@ -3051,7 +3186,7 @@ export function PlaylistsPage() {
       .map((clip): ExportSegment | null => {
         const m = matchLookup.get(clip.matchId);
         if (!m?.videoUrl || !m.syncPoint) return null;
-        const event = m.events.find((e) => e.eventId === clip.eventId);
+        const event = eventByKey.get(`${clip.matchId}:${clip.eventId}`);
         if (!event) return null;
         const seg: ExportSegment = {
           kind: "clip",
@@ -3688,7 +3823,7 @@ export function PlaylistsPage() {
                             Uncategorized
                           </DropdownMenuItem>
                           {folders.length > 0 && <DropdownMenuSeparator />}
-                          {flattenFolderTree(folders).map(({ folder, depth }) => (
+                          {flatFolders.map(({ folder, depth }) => (
                             <DropdownMenuItem
                               key={folder.id}
                               disabled={pl.folderId === folder.id}
@@ -3742,7 +3877,7 @@ export function PlaylistsPage() {
                   Uncategorized
                 </ContextMenuItem>
                 {folders.length > 0 && <ContextMenuSeparator />}
-                {flattenFolderTree(folders).map(({ folder, depth }) => (
+                {flatFolders.map(({ folder, depth }) => (
                   <ContextMenuItem
                     key={folder.id}
                     disabled={pl.folderId === folder.id}
@@ -3802,7 +3937,7 @@ export function PlaylistsPage() {
           if (
             e.dataTransfer.types.includes("text/folder-id") &&
             draggedFolderIdRef.current &&
-            wouldCreateCycle(folders, draggedFolderIdRef.current, folder.id)
+            wouldCreateCycleWith(folderDescendants, draggedFolderIdRef.current, folder.id)
           ) return;
           setDragOverFolder(folder.id);
         }}
@@ -3825,7 +3960,7 @@ export function PlaylistsPage() {
           if (
             e.dataTransfer.types.includes("text/folder-id") &&
             draggedFolderIdRef.current &&
-            wouldCreateCycle(folders, draggedFolderIdRef.current, folder.id)
+            wouldCreateCycleWith(folderDescendants, draggedFolderIdRef.current, folder.id)
           ) {
             // Dropping a folder into itself/its own subtree: refuse visibly.
             e.dataTransfer.dropEffect = "none";
@@ -3960,11 +4095,11 @@ export function PlaylistsPage() {
                             Top level
                           </DropdownMenuItem>
                           {folders.length > 1 && <DropdownMenuSeparator />}
-                          {flattenFolderTree(folders).map(({ folder: target, depth: targetDepth }) => (
+                          {flatFolders.map(({ folder: target, depth: targetDepth }) => (
                             <DropdownMenuItem
                               key={target.id}
                               disabled={
-                                wouldCreateCycle(folders, folder.id, target.id) ||
+                                wouldCreateCycleWith(folderDescendants, folder.id, target.id) ||
                                 (folder.parentId ?? null) === target.id
                               }
                               style={{ paddingLeft: 8 + targetDepth * 12 }}
@@ -4016,11 +4151,11 @@ export function PlaylistsPage() {
                   Top level
                 </ContextMenuItem>
                 {folders.length > 1 && <ContextMenuSeparator />}
-                {flattenFolderTree(folders).map(({ folder: target, depth: targetDepth }) => (
+                {flatFolders.map(({ folder: target, depth: targetDepth }) => (
                   <ContextMenuItem
                     key={target.id}
                     disabled={
-                      wouldCreateCycle(folders, folder.id, target.id) ||
+                      wouldCreateCycleWith(folderDescendants, folder.id, target.id) ||
                       (folder.parentId ?? null) === target.id
                     }
                     style={{ paddingLeft: 8 + targetDepth * 12 }}
@@ -4211,7 +4346,7 @@ export function PlaylistsPage() {
         return selectedClipIds.has(key) && !existingSet.has(key);
       })
       .map((item) => {
-        const found = selected.items.filter(isClipItem).find((c) => c.matchId === item.matchId && c.eventId === item.event.eventId)
+        const found = clipByKey.get(`${item.matchId}:${item.event.eventId}`)
           ?? { type: 'clip' as const, matchId: item.matchId, eventId: item.event.eventId };
         // Copies never carry group membership into the target playlist.
         const { groupId: _g, ...clean } = found;
@@ -5242,10 +5377,8 @@ export function PlaylistsPage() {
                             );
                           }
                           const queueItem = item as QueueItem;
-                          const clip = selected?.items.filter(isClipItem).find(
-                            (c) => c.matchId === queueItem.matchId && c.eventId === queueItem.event.eventId
-                          );
                           const rowKey = `${queueItem.matchId}:${queueItem.event.eventId}`;
+                          const clip = clipByKey.get(rowKey);
                           return (
                             <DraggableRow
                               key={key}
@@ -5698,10 +5831,8 @@ export function PlaylistsPage() {
                             );
                           }
                           const queueItem = item as QueueItem;
-                          const clip = selected?.items.filter(isClipItem).find(
-                            (c) => c.matchId === queueItem.matchId && c.eventId === queueItem.event.eventId
-                          );
                           const rowKey = `${queueItem.matchId}:${queueItem.event.eventId}`;
+                          const clip = clipByKey.get(rowKey);
                           return (
                             <DraggableRow
                               key={key}
@@ -5862,6 +5993,7 @@ export function PlaylistsPage() {
                 onClose={() => setShowClipBrowser(false)}
                 activeOrgId={activeOrgId}
                 labels={labels}
+                onNeedEvents={ensureEventsFor}
                 labelHandlers={{
                   onCreate: handleCreateLabel,
                   onRename: handleRenameLabel,
