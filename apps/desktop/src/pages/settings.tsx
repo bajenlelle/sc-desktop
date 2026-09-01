@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { getVersion } from "@tauri-apps/api/app";
 import { interactiveUpdateCheck } from "@/lib/updates";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,7 +11,7 @@ import { getExportWatermarkDisabled, setExportWatermarkDisabled } from "@/lib/pr
 import { trackEvent } from "@/lib/analytics";
 
 export function SettingsPage() {
-  const { activeOrgPlan } = useAuth();
+  const { activeOrg, activeOrgCanManage, activeOrgPlan } = useAuth();
   const [version, setVersion] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -41,6 +42,23 @@ export function SettingsPage() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">Settings</h1>
       </div>
+
+      {/* Space-level settings first; the cards below are app chrome. */}
+      {activeOrgCanManage && activeOrg && (
+        <Card>
+          <CardContent className="space-y-4 p-6">
+            <h2 className="text-base font-semibold text-foreground">Organization</h2>
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm text-muted-foreground">
+                Teams, members, invites and license for {activeOrg.orgName}.
+              </p>
+              <Link to="/organization">
+                <Button variant="outline">Manage</Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardContent className="space-y-4 p-6">

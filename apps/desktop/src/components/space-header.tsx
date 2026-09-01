@@ -1,4 +1,5 @@
-import { Building2, Check, ChevronDown, User } from "lucide-react";
+import { Building2, Check, ChevronDown, Settings, User } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import type { OrgMembership } from "@scoutable/shared/types/org";
 import { sortOrgsClubFirst } from "@scoutable/shared/lib/orgs";
@@ -10,6 +11,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -51,16 +53,25 @@ export function SpaceHeader({
   className,
 }: SpaceHeaderProps) {
   const { user, expectPlanChange } = useAuth();
+  const navigate = useNavigate();
   if (!org) return null;
   const Icon = orgIcon(org.isPersonal);
   const label = orgLabel(org);
 
   const canSwitch = !!myOrgs && myOrgs.length > 1 && !!setActiveOrg;
 
+  // Org management lives here now that it's off the sidebar. OrgMembership
+  // already carries the role, so no extra plumbing.
+  const canManage = !org.isPersonal && (org.role === "coach" || org.role === "admin");
+
+  // The menu opens for switching OR for managing, so club staff with a
+  // single space still have a way in.
+  const hasMenu = canSwitch || canManage;
+
   // With only a personal space there's nothing to switch to and no other
   // space to distinguish it from — naming it "Personal" is noise. Show the
   // plan on its own instead.
-  const soloPersonal = org.isPersonal && !canSwitch;
+  const soloPersonal = org.isPersonal && !hasMenu;
 
   // Club-first, personal last — the same order as the sidebar switcher
   // column, so the two switchers never disagree.
@@ -73,7 +84,7 @@ export function SpaceHeader({
         className,
       )}
     >
-      {canSwitch ? (
+      {hasMenu ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
@@ -91,9 +102,11 @@ export function SpaceHeader({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-64">
-            <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Spaces
-            </div>
+            {canSwitch && (
+              <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Spaces
+              </div>
+            )}
             {sortedOrgs.map((o) => {
               const OrgIcon = orgIcon(o.isPersonal);
               return (
@@ -109,6 +122,18 @@ export function SpaceHeader({
                 </DropdownMenuItem>
               );
             })}
+            {canManage && (
+              <>
+                {canSwitch && <DropdownMenuSeparator />}
+                <DropdownMenuItem
+                  onSelect={() => navigate("/organization")}
+                  className="flex items-center gap-2"
+                >
+                  <Settings className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <span className="flex-1 truncate">Manage {org.orgName}</span>
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       ) : !soloPersonal ? (

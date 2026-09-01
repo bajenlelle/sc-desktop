@@ -30,7 +30,7 @@ import { toast } from "sonner";
 import { ChevronDown, ChevronUp, Loader2, MoreHorizontal, Search, UserPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/auth-context";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -394,9 +394,12 @@ function TeamCard({
 // ---------------------------------------------------------------------------
 
 export function OrganizationPage() {
-  const { user, activeOrgId, activeOrgRole, activeOrgIsPersonal, profileLoading } = useAuth();
+  const { user, activeOrgId, activeOrgCanManage, profileLoading } = useAuth();
   const navigate = useNavigate();
-  const canAccess = !activeOrgIsPersonal && activeOrgRole !== null;
+  const location = useLocation();
+  // Staff only: everything here is team/member/license management. Players
+  // see their club and teams read-only on their profile instead.
+  const canAccess = activeOrgCanManage;
 
   useEffect(() => {
     if (profileLoading) return;
@@ -410,6 +413,16 @@ export function OrganizationPage() {
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showCreateTeam, setShowCreateTeam] = useState(false);
+
+  // One-shot flag from Home's "Invite players" shortcut — opens the modal on
+  // arrival. Cleared immediately so a remount doesn't re-open it (same idiom
+  // as the playlists page's restore/createNew flags).
+  useEffect(() => {
+    if ((location.state as { invite?: boolean } | null)?.invite) {
+      setShowInviteModal(true);
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.state, location.pathname, navigate]);
 
   // Members tab search/filter
   const [memberSearch, setMemberSearch] = useState("");

@@ -18,8 +18,7 @@ import { openBillingPortal, openUpgradeFlow } from "@/lib/billing";
 import { DeleteAccountDialog } from "@/components/delete-account-dialog";
 import type { OrgContext } from "@/types/org";
 import { toast } from "sonner";
-import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Loader2 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { LogOut, Zap, Users, Building2, ArrowUpRight, Loader2 } from "lucide-react";
 import { orgPlanColors, orgPlanLabel, type ImportQuota } from "@scoutable/shared/lib/plan-tier";
 import { DevicesCard } from "@/components/devices-card";
 
@@ -187,7 +186,16 @@ export function ProfilePage() {
   const displayRole = activeOrgRole ?? profile.role;
   const initials = (fullName || user?.email || "?").slice(0, 2).toUpperCase();
   const activeOrg = ctx.myOrgs.find((o) => o.orgId === activeOrgId) ?? null;
-  const activeOrgTeams = activeOrgId ? ctx.myTeams.filter((t) => t.orgId === activeOrgId) : [];
+
+  // Every club the user belongs to, with the teams they're on inside it.
+  // ctx.myTeams already spans orgs, so this needs no extra queries — a
+  // multi-club player previously saw only their active space here.
+  const myClubs = ctx.myOrgs
+    .filter((o) => !o.isPersonal)
+    .map((o) => ({
+      ...o,
+      teamNames: ctx.myTeams.filter((t) => t.orgId === o.orgId).map((t) => t.name),
+    }));
 
   // Plan & Usage — single source of truth: organizations.plan_tier (via activeOrgPlan).
   // Stripe sub state only drives ancillaries (period-end date, Manage button visibility).
@@ -350,35 +358,31 @@ export function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* ── Org & Teams ── */}
-      {activeOrg && !activeOrg.isPersonal && (
+      {/* ── My clubs ── read-only membership across every club, mirroring the
+           mobile profile. Managing a club lives in Settings and the space
+           menu; this answers "what am I part of?", which is the one question
+           players had on the org page. */}
+      {myClubs.length > 0 && (
         <Card>
           <CardContent className="p-6 space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <Users className="h-4 w-4 text-muted-foreground" />
-                Organisation
-              </h2>
-              <Link to="/organization" className="flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
-                Manage <ChevronRight className="h-3 w-3" />
-              </Link>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-foreground">{activeOrg.orgName}</span>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground capitalize">{activeOrg.role}</span>
-                {activeOrg.isNtOrg && <span className="text-xs text-muted-foreground">NT</span>}
+            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <Users className="h-4 w-4 text-muted-foreground" />
+              {myClubs.length > 1 ? "My clubs" : "My club"}
+            </h2>
+            {myClubs.map((club) => (
+              <div key={club.orgId} className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-foreground">{club.orgName}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground capitalize">{club.role}</span>
+                    {club.isNtOrg && <span className="text-xs text-muted-foreground">NT</span>}
+                  </div>
+                </div>
+                {club.teamNames.length > 0 && (
+                  <p className="text-xs text-muted-foreground">{club.teamNames.join(" · ")}</p>
+                )}
               </div>
-            </div>
-            {activeOrgTeams.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {activeOrgTeams.map((team) => (
-                  <span key={team.id} className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-                    {team.name}
-                  </span>
-                ))}
-              </div>
-            )}
+            ))}
           </CardContent>
         </Card>
       )}

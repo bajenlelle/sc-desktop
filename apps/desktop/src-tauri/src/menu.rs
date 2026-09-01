@@ -129,11 +129,14 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     let go_playlists = item("go-playlists", "Playlists", Some("CmdOrCtrl+2"))?;
     let go_my_playlists = item("go-my-playlists", "Shared Playlists", Some("CmdOrCtrl+3"))?;
     let go_library = item("go-library", "Library", Some("CmdOrCtrl+4"))?;
+    let go_organization = item("go-organization", "Organization", Some("CmdOrCtrl+5"))?;
     let go_menu = SubmenuBuilder::new(app, "Go")
         .item(&go_home)
         .item(&go_playlists)
         .item(&go_my_playlists)
         .item(&go_library)
+        .separator()
+        .item(&go_organization)
         .build()?;
 
     // -- Window ------------------------------------------------------------

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Menu, Moon, Sun, LogOut, User as UserIcon, Building2, ChevronDown, Check, Laptop, LifeBuoy } from "lucide-react";
+import { Menu, Moon, Sun, LogOut, User as UserIcon, Building2, ChevronDown, Check, Laptop, LifeBuoy, Settings } from "lucide-react";
 import { ReportProblemDialog } from "@/components/report-problem-dialog";
 import { LogoMark, Wordmark } from "@/components/logo";
 import { useTheme } from "next-themes";
@@ -59,8 +59,8 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
   const DESKTOP_APP_URL = "https://scoutable.se/#download";
   const DESKTOP_APP_TOOLTIP = "Full scouting workflow lives in the desktop app";
   // Player-only users navigate by content, not by tenancy: two fixed
-  // destinations, no space switcher. Coaches/admins keep the space model,
-  // with the nav link named after the actual space instead of "Organization".
+  // destinations, no space switcher. Org management is secondary nav — it
+  // lives in the space menu and on the profile, not in this bar.
   const navLinks = isPlayerOnly
     ? [
         { href: "/my-playlists", label: "My Playlists" },
@@ -70,9 +70,6 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
         ...(activeOrgIsPersonal
           ? []
           : [{ href: "/my-playlists", label: isCoachOrAdmin ? "Shared Playlists" : "My Playlists" }]),
-        ...(showOrganization
-          ? [{ href: "/organization", label: activeOrg?.orgName ?? "Organization" }]
-          : []),
         ...(profile?.isPlatformAdmin ? [{ href: "/admin", label: "Admin" }] : []),
       ];
 
@@ -167,6 +164,19 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
                       </DropdownMenuItem>
                     );
                   })}
+                  {showOrganization && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem asChild>
+                        <Link href="/organization" className="flex items-center gap-2">
+                          <Settings className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          <span className="flex-1 truncate">
+                            Manage {activeOrg.orgName}
+                          </span>
+                        </Link>
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (

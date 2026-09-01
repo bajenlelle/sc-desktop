@@ -410,7 +410,10 @@ function TeamCard({
 export default function OrganizationPage() {
   const { user, activeOrgId, activeOrgRole, activeOrgIsPersonal, profileLoading } = useAuth();
   const router = useRouter();
-  const canAccess = !activeOrgIsPersonal && activeOrgRole !== null;
+  // Staff only, matching desktop: everything here is team/member/license
+  // management. Players see their club and teams read-only on their profile.
+  const canAccess =
+    !activeOrgIsPersonal && (activeOrgRole === "coach" || activeOrgRole === "admin");
 
   useEffect(() => {
     if (profileLoading) return;

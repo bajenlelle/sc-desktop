@@ -3,7 +3,6 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
 import {
   BookOpen,
-  Building2,
   Film,
   Home,
   ListVideo,
@@ -133,7 +132,6 @@ export function AppSidebar() {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
-  const showOrganization = !activeOrgIsPersonal && activeOrgRole !== null;
   const showWorkspaceSwitcher = myOrgs.length > 1;
 
   // Native menu: Help → Send Feedback… opens the same dialog as the sidebar
@@ -217,14 +215,8 @@ export function AppSidebar() {
                 isActive={pathname.startsWith("/matches")}
               />
             )}
-            {showOrganization && (
-              <SidebarIconButton
-                href="/organization"
-                icon={Building2}
-                label="Organization"
-                isActive={pathname.startsWith("/organization")}
-              />
-            )}
+            {/* Organization is secondary nav — reachable from the space menu,
+                Settings, and Go ⌘5, not from this rail of daily destinations. */}
           </nav>
         )}
 

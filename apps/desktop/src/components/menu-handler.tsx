@@ -39,7 +39,7 @@ function setEnabled(id: string, enabled: boolean) {
 export function MenuHandler() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const { user, activeOrgRole, activeOrgIsPersonal } = useAuth();
+  const { user, activeOrgRole, activeOrgIsPersonal, activeOrgCanManage } = useAuth();
   const { theme, setTheme } = useTheme();
   const zoomRef = useRef(storedZoom());
 
@@ -84,6 +84,9 @@ export function MenuHandler() {
           break;
         case "go-library":
           navigate("/matches");
+          break;
+        case "go-organization":
+          navigate("/organization");
           break;
         case "new-playlist":
           // One-shot flag consumed (and cleared) by pages/playlists.tsx.
@@ -141,8 +144,11 @@ export function MenuHandler() {
   useEffect(() => {
     for (const id of COACH_ADMIN_IDS) setEnabled(id, isCoachOrAdmin);
     setEnabled("go-my-playlists", !!user && !activeOrgIsPersonal);
+    // Club staff only — role alone would enable it in personal spaces, where
+    // there is no organization to manage.
+    setEnabled("go-organization", activeOrgCanManage);
     setEnabled("sign-out", !!user);
-  }, [user, isCoachOrAdmin, activeOrgIsPersonal]);
+  }, [user, isCoachOrAdmin, activeOrgIsPersonal, activeOrgCanManage]);
 
   useEffect(() => {
     setEnabled("toggle-playlist-browser", pathname === "/playlists");

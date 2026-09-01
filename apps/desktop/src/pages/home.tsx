@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
-import { ListVideo, Plus, Share2 } from "lucide-react";
+import { ListVideo, Plus, Share2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MatchRow } from "@/components/match-row";
 import { EmptyState } from "@/components/empty-state";
@@ -63,7 +63,8 @@ const PLAYLIST_TILE_COUNT = 6;
 
 function CoachHomePage() {
   const navigate = useNavigate();
-  const { user, profile, activeOrgId, activeOrgIsPersonal, myOrgs, setActiveOrg } = useAuth();
+  const { user, profile, activeOrgId, activeOrgIsPersonal, activeOrgCanManage, myOrgs, setActiveOrg } =
+    useAuth();
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [folders, setFolders] = useState<PlaylistFolder[]>([]);
@@ -225,6 +226,19 @@ function CoachHomePage() {
             )}
           </div>
           <div className="flex items-center gap-2">
+            {/* Squads change every season, so inviting shouldn't require
+                finding org settings — this opens the invite modal there. */}
+            {activeOrgCanManage && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => navigate("/organization", { state: { invite: true } })}
+              >
+                <UserPlus className="h-4 w-4" />
+                Invite players
+              </Button>
+            )}
             <Button variant="outline" size="sm" className="gap-2" onClick={goNewPlaylist}>
               <ListVideo className="h-4 w-4" />
               New playlist

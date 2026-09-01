@@ -217,6 +217,9 @@ export default function ProfilePage() {
   const initials = (fullName || user?.email || "?").slice(0, 2).toUpperCase();
   const activeOrg = ctx.myOrgs.find((o) => o.orgId === activeOrgId) ?? null;
   const activeOrgTeams = activeOrgId ? ctx.myTeams.filter((t) => t.orgId === activeOrgId) : [];
+  // Managing a club is staff-only; players get the same card read-only.
+  const canManageActiveOrg =
+    !!activeOrg && !activeOrg.isPersonal && (activeOrg.role === "coach" || activeOrg.role === "admin");
 
   const planColors = orgPlanColors(activeOrgPlan);
   const planLabel = orgPlanLabel(activeOrgPlan);
@@ -377,11 +380,13 @@ export default function ProfilePage() {
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
                 <Users className="h-4 w-4 text-muted-foreground" />
-                Organization
+                {canManageActiveOrg ? "Organization" : "My club"}
               </h2>
-              <Link href="/organization" className="flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
-                Manage <ChevronRight className="h-3 w-3" />
-              </Link>
+              {canManageActiveOrg && (
+                <Link href="/organization" className="flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                  Manage <ChevronRight className="h-3 w-3" />
+                </Link>
+              )}
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-foreground">{activeOrg.orgName}</span>

@@ -29,6 +29,12 @@ interface AuthContextValue {
   activeOrgRole: OrgMembership['role'] | null;
   activeOrgPlan: OrgPlanTier;
   activeOrgIsPersonal: boolean;
+  /**
+   * Staff in a club space — the single gate for org-management entry points
+   * (space menu, Settings card, Go menu, invite shortcut). Players and
+   * personal spaces are excluded.
+   */
+  activeOrgCanManage: boolean;
   setActiveOrg: (orgId: string) => void;
   reloadProfile: () => Promise<void>;
   /**
@@ -52,6 +58,7 @@ const AuthContext = createContext<AuthContextValue>({
   activeOrgRole: null,
   activeOrgPlan: 'free',
   activeOrgIsPersonal: false,
+  activeOrgCanManage: false,
   setActiveOrg: () => {},
   reloadProfile: async () => {},
   expectPlanChange: () => {},
@@ -226,6 +233,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const activeOrgRole = activeOrg?.role ?? null;
   const activeOrgPlan: OrgPlanTier = activeOrg?.planTier ?? 'free';
   const activeOrgIsPersonal = activeOrg?.isPersonal ?? false;
+  const activeOrgCanManage =
+    !activeOrgIsPersonal && (activeOrgRole === 'coach' || activeOrgRole === 'admin');
 
   // expectPlanChange's baseline: whatever org/tier the user was on when they
   // clicked upgrade.
@@ -237,7 +246,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider value={{
       user, loading, profile, profileLoading,
       myOrgs, secondaryOrgs: myOrgs,
-      activeOrgId, activeOrg, activeOrgRole, activeOrgPlan, activeOrgIsPersonal, setActiveOrg,
+      activeOrgId, activeOrg, activeOrgRole, activeOrgPlan, activeOrgIsPersonal,
+      activeOrgCanManage, setActiveOrg,
       reloadProfile: async () => { if (user) await loadProfile(user.id); },
       expectPlanChange,
     }}>
