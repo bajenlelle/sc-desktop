@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { trackEvent } from "@/lib/analytics";
-import { useNavigate } from "react-router-dom";
 import { Film, X, Loader2, Search, ChevronRight } from "lucide-react";
 import { GeneratingSession } from "@/components/generating-session";
 import { SyncPointPicker } from "@/components/sync-point-picker";
@@ -13,6 +12,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import type { OrgMembership } from "@/types/org";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
+import { ImportSuccessDialog, type ImportSummary } from "@/components/import-success-dialog";
 import { NT_LEAGUE_IDS } from "@scoutable/shared/lib/plan-tier";
 import { fetchBoxscore, fetchPlayByPlay, fetchPlayByPlaySportradar, getLeagueSchedule, LEAGUES, NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
 import type { ScheduleGame, League, Season, Stage } from "@/lib/basketball-api";
@@ -124,7 +124,6 @@ export function UploadZone({
   ntMemberships?: OrgMembership[];
   hasClubAccess?: boolean;
 }) {
-  const navigate = useNavigate();
   const { activeOrgId, activeOrgPlan } = useAuth();
 
   const hasNtAccess = ntMemberships.length > 0;
@@ -185,13 +184,17 @@ export function UploadZone({
   const [importLimitInfo, setImportLimitInfo] = useState<{ count: number; limit: number } | null>(null);
   const [generatingVisible, setGeneratingVisible] = useState(false);
   const [animationDone, setAnimationDone] = useState(false);
-  const [pendingNavigate, setPendingNavigate] = useState<string | null>(null);
-  // Navigate once both the animation and the save are done
+  const [importedSummary, setImportedSummary] = useState<ImportSummary | null>(null);
+  const [successOpen, setSuccessOpen] = useState(false);
+  // Hand over to the success dialog once both the animation and the save are
+  // done — it owns navigation from here (previously this redirected straight
+  // to /playlists with no confirmation).
   useEffect(() => {
-    if (animationDone && pendingNavigate) {
-      navigate("/playlists");
+    if (animationDone && importedSummary) {
+      setGeneratingVisible(false);
+      setSuccessOpen(true);
     }
-  }, [animationDone, pendingNavigate, navigate]);
+  }, [animationDone, importedSummary]);
 
 
   useEffect(() => {
@@ -392,7 +395,7 @@ export function UploadZone({
     setSubmitStatus("saving");
     setGeneratingVisible(true);
     setAnimationDone(false);
-    setPendingNavigate(null);
+    setImportedSummary(null);
 
     let syncPoint: SyncPoint | undefined;
     if (syncSeconds !== null) {
@@ -451,7 +454,14 @@ export function UploadZone({
     }
 
     setSubmitStatus("idle");
-    setPendingNavigate(matchId);
+    setImportedSummary({
+      matchId,
+      title: storedMatch.title,
+      clipCount: playByPlayEvents.length,
+      hasVideo: !!videoPath,
+      hasSyncPoint: !!syncPoint,
+      isUpdate: !!existingMatch,
+    });
   }
 
   const tipoffLocalHint = tipoffRealWorldTime
@@ -755,6 +765,8 @@ export function UploadZone({
         isVisible={generatingVisible}
         onComplete={() => setAnimationDone(true)}
       />
+
+      <ImportSuccessDialog open={successOpen} summary={importedSummary} />
     </div>
     </>
   );
