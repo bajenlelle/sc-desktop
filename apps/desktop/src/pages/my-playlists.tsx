@@ -205,9 +205,30 @@ export function MyPlaylistsPage() {
     return map;
   }, [matches]);
 
+  /**
+   * What "Shared with me" actually means: playlists OTHERS sent.
+   *
+   * getMyTeamPlaylists returns everything shared to a team the user belongs
+   * to, regardless of who owns it — so a coach who shares their own playlist
+   * to their own team saw it listed here, under a tab that says otherwise.
+   * Their outbound playlists belong on the "Shared by me" dashboard.
+   *
+   * allPlaylists below stays unfiltered on purpose: selection and ?p= deep
+   * links must still resolve a coach's own playlist when they open it from
+   * that dashboard. This only narrows what the sidebar LISTS.
+   */
+  const receivedTeamPlaylists = useMemo(
+    () => playlists.filter((pl) => !currentUserId || pl.createdBy !== currentUserId),
+    [playlists, currentUserId],
+  );
+  const receivedDirectPlaylists = useMemo(
+    () => directPlaylists.filter((pl) => !currentUserId || pl.createdBy !== currentUserId),
+    [directPlaylists, currentUserId],
+  );
+
   const grouped = useMemo(() => {
     const map = new Map<string, Playlist[]>();
-    for (const pl of playlists) {
+    for (const pl of receivedTeamPlaylists) {
       const keys = (pl.teamIds && pl.teamIds.length > 0) ? pl.teamIds : [pl.teamId ?? '__none__'];
       for (const key of keys) {
         if (!map.has(key)) map.set(key, []);
@@ -215,17 +236,17 @@ export function MyPlaylistsPage() {
       }
     }
     return map;
-  }, [playlists]);
+  }, [receivedTeamPlaylists]);
 
   const { directOnlyPlaylists, overlappingDirectIds } = useMemo(() => {
-    const teamPlaylistIds = new Set(playlists.map((p) => p.id));
+    const teamPlaylistIds = new Set(receivedTeamPlaylists.map((p) => p.id));
     return {
-      directOnlyPlaylists: directPlaylists.filter((p) => !teamPlaylistIds.has(p.id)),
+      directOnlyPlaylists: receivedDirectPlaylists.filter((p) => !teamPlaylistIds.has(p.id)),
       overlappingDirectIds: new Set(
-        directPlaylists.filter((p) => teamPlaylistIds.has(p.id)).map((p) => p.id)
+        receivedDirectPlaylists.filter((p) => teamPlaylistIds.has(p.id)).map((p) => p.id)
       ),
     };
-  }, [playlists, directPlaylists]);
+  }, [receivedTeamPlaylists, receivedDirectPlaylists]);
 
   // Every playlist the user can open, deduped — one can arrive via both a
   // team share and a direct share.
@@ -322,16 +343,16 @@ export function MyPlaylistsPage() {
   /** Source filter options — mirrors how the sidebar groups playlists. */
   const sourceOptions = useMemo<SourceOption[]>(() => {
     const opts: SourceOption[] = [{ value: "all", label: "All playlists" }];
-    if (directPlaylists.length > 0) {
+    if (receivedDirectPlaylists.length > 0) {
       opts.push({ value: "direct", label: "Shared with me" });
     }
     for (const [teamId, team] of teamMap) {
-      if (playlists.some((p) => (p.teamIds ?? []).includes(teamId))) {
+      if (receivedTeamPlaylists.some((p) => (p.teamIds ?? []).includes(teamId))) {
         opts.push({ value: `team:${teamId}`, label: team.name });
       }
     }
     return opts;
-  }, [directPlaylists, playlists, teamMap]);
+  }, [receivedDirectPlaylists, receivedTeamPlaylists, teamMap]);
 
   /** Watched/total for the open playlist, shown under the controls. */
   const selectedProgress = useMemo(() => {
@@ -776,17 +797,22 @@ export function MyPlaylistsPage() {
             <span className="text-sm font-semibold text-foreground">
               {(userRole === "coach" || userRole === "admin") ? "Shared Playlists" : "My Playlists"}
             </span>
-            {playlists.length > 0 && (
-              <span className="ml-auto text-xs text-muted-foreground">{playlists.length}</span>
+            {receivedTeamPlaylists.length > 0 && (
+              <span className="ml-auto text-xs text-muted-foreground">{receivedTeamPlaylists.length}</span>
             )}
           </div>
 
           <div className="flex-1 overflow-y-auto py-2">
-            {playlists.length === 0 && directOnlyPlaylists.length === 0 ? (
+            {receivedTeamPlaylists.length === 0 && directOnlyPlaylists.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
                 <p className="text-sm font-medium text-foreground">No playlists yet</p>
+                {/* Reachable for coaches now that their own outbound playlists
+                    are excluded here — "your coach" would read as nonsense.
+                    Same wording as the feed's coach empty state. */}
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Your coach will send playlists here.
+                  {isCoachOrAdmin
+                    ? "Playlists other coaches share with you show up here."
+                    : "Your coach will send playlists here."}
                 </p>
               </div>
             ) : (
