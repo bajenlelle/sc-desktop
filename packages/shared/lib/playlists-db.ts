@@ -144,18 +144,55 @@ const PLAYLIST_SELECT = `
 // List playlists assigned to the current user's teams (player view)
 // ---------------------------------------------------------------------------
 
+/**
+ * Playlists shared with the given teams — or, with no teamIds, every team
+ * share RLS exposes (the aggregated player feed).
+ *
+ * Resolved through playlist_shares, the real playlist<->team relation. This
+ * used to filter `playlists.team_id`, a denormalized copy that setPlaylistTeams
+ * only ever fills with `teamIds[0]`. That broke two ways, both verified against
+ * production:
+ *
+ *   - A playlist shared with teams [A, B] stored only A. A player in B — but
+ *     not A — never saw it, even though it was shared with their team.
+ *   - `playlists.team_id` is ON DELETE SET NULL while playlist_shares is
+ *     per-team CASCADE. So deleting team A nulled the column and the playlist
+ *     vanished for EVERYONE, including players still in team B whose share row
+ *     was intact.
+ *
+ * Two steps rather than one, matching getMyDirectPlaylists below: PostgREST can
+ * only restrict parents by an embedded resource using an inner join, and that
+ * filters the embed itself — which would strip the other teams out of
+ * Playlist.teamIds, the list the share editor reads to preselect checkboxes.
+ *
+ * Scoping without teamIds is left to RLS, as before: playlist_shares_team_read
+ * exposes only shares to the caller's own teams (plus, for an owner, their own
+ * playlists' shares via playlist_shares_owner).
+ */
 export async function getMyTeamPlaylists(
   supabase: SupabaseClient,
   teamIds?: string[],
 ): Promise<Playlist[]> {
   if (teamIds && teamIds.length === 0) return [];
-  let query = supabase
+
+  // 1. Which playlists reach these teams.
+  let shareQuery = supabase.from("playlist_shares").select("playlist_id");
+  if (teamIds) shareQuery = shareQuery.in("team_id", teamIds);
+  const { data: shareRows, error: shareError } = await shareQuery;
+  if (shareError) { reportDbError("getMyTeamPlaylists shares", shareError); return []; }
+  if (!shareRows || shareRows.length === 0) return [];
+
+  // Deduped: a playlist shared with two of the caller's teams yields two rows.
+  const playlistIds = [
+    ...new Set(shareRows.map((r: { playlist_id: string }) => r.playlist_id)),
+  ];
+
+  // 2. Fetch them with the full payload.
+  const { data, error } = await supabase
     .from("playlists")
     .select(PLAYLIST_SELECT)
-    .not("team_id", "is", null)
+    .in("id", playlistIds)
     .order("created_at", { ascending: false });
-  if (teamIds) query = query.in("team_id", teamIds);
-  const { data, error } = await query;
   if (error) { reportDbError("getMyTeamPlaylists", error); return []; }
   if (!data) return [];
   return (data as PlaylistRow[]).map(rowToPlaylist);
