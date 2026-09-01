@@ -5,6 +5,7 @@
 
 import { createClient } from "@/lib/supabase/client";
 import { currentUserId } from "@scoutable/shared/lib/current-user";
+import { type TeamDeleteImpact } from "@scoutable/shared/lib/team-delete";
 import type { UserProfile, Organization, OrgTeam, TeamMember, TeamInvite, OrgInvite, OrgContext, OrgWithCount, OrgMembership, SecondaryOrg, OrgPlanTier, InviteInvalidReason } from "@/types/org";
 
 // ---------------------------------------------------------------------------
@@ -719,6 +720,29 @@ export async function deleteTeam(teamId: string): Promise<void> {
     if (error.message.includes("not_admin")) throw new Error("Only org admins can delete teams.");
     throw new Error(`Failed to delete team: ${error.message}`);
   }
+}
+
+/**
+ * Member / shared-playlist / invite-link counts for the delete-team
+ * confirmation. Goes through a definer RPC because playlist_shares RLS only
+ * exposes shares for teams the caller belongs to — counting client-side would
+ * silently report 0 for any other team.
+ */
+export async function getTeamDeleteImpact(teamId: string): Promise<TeamDeleteImpact> {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("team_delete_impact", { p_team_id: teamId });
+  if (error) {
+    if (error.message.includes("not_admin")) throw new Error("Only org admins can delete teams.");
+    throw new Error(`Failed to load team details: ${error.message}`);
+  }
+  const row = (Array.isArray(data) ? data[0] : data) as
+    | { member_count: number; shared_playlist_count: number; invite_link_count: number }
+    | undefined;
+  return {
+    memberCount: row?.member_count ?? 0,
+    sharedPlaylistCount: row?.shared_playlist_count ?? 0,
+    inviteLinkCount: row?.invite_link_count ?? 0,
+  };
 }
 
 export async function removeOrgMember(userId: string, orgId: string): Promise<void> {

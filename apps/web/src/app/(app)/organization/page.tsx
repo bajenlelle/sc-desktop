@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
@@ -27,11 +28,13 @@ import {
   removeOrgMember,
   removeTeamMember,
   deleteTeam,
+  getTeamDeleteImpact,
 } from "@/lib/profile-db";
 import { InviteModal } from "@/components/invite-modal";
 import { OrgLicenseCard } from "@/components/org-license-card";
 import { AddMembersToTeamModal } from "@/components/add-members-to-team-modal";
 import { CreateTeamDialog } from "@/components/create-team-dialog";
+import { teamDeleteWarning, type TeamDeleteImpact } from "@scoutable/shared/lib/team-delete";
 import type { OrgContext, OrgTeam, UserProfile } from "@scoutable/shared/types/org";
 import { trackEvent } from "@/lib/analytics";
 import { toast } from "sonner";
@@ -310,7 +313,7 @@ function TeamCard({
   orgTeams: OrgTeam[];
   orgMembers: UserProfile[];
   onContextReload: () => void;
-  onDelete: (teamId: string) => void;
+  onDelete: (team: OrgTeam) => void;
   licenseExpired?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -354,7 +357,7 @@ function TeamCard({
             <DropdownMenuContent align="end">
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive"
-                onClick={() => onDelete(team.id)}
+                onClick={() => onDelete(team)}
               >
                 Delete team
               </DropdownMenuItem>
@@ -424,6 +427,10 @@ export default function OrganizationPage() {
   const [memberCounts, setMemberCounts] = useState<Record<string, number>>({});
   const [myTeamRoles, setMyTeamRoles] = useState<Record<string, string>>({});
   const [joiningTeamId, setJoiningTeamId] = useState<string | null>(null);
+  const [deleteTeamTarget, setDeleteTeamTarget] = useState<OrgTeam | null>(null);
+  /** Keyed by team so a slow response can't describe a different team. */
+  const [deleteImpact, setDeleteImpact] = useState<{ teamId: string; impact: TeamDeleteImpact } | null>(null);
+  const [deletingTeam, setDeletingTeam] = useState(false);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showCreateTeam, setShowCreateTeam] = useState(false);
@@ -465,13 +472,40 @@ export default function OrganizationPage() {
     if (canAccess) load(activeOrgId ?? undefined);
   }, [activeOrgId, canAccess]);
 
-  async function handleDeleteTeam(teamId: string) {
+  /**
+   * Deleting a team is irreversible and cascades to playlist_shares, so it
+   * always goes through a confirmation. The counts behind that confirmation
+   * come from a definer RPC (see getTeamDeleteImpact) and load while the
+   * dialog is already open, so the admin never waits on a request to see it.
+   * Confirming stays disabled until they land — the point of the dialog is
+   * that the decision is informed.
+   */
+  function requestDeleteTeam(team: OrgTeam) {
+    setDeleteTeamTarget(team);
+    setDeleteImpact(null);
+    getTeamDeleteImpact(team.id)
+      .then((impact) => setDeleteImpact({ teamId: team.id, impact }))
+      .catch((e) => {
+        // Close rather than strand the admin on a dialog that can never
+        // confirm; the toast explains why.
+        setDeleteTeamTarget(null);
+        toast.error((e as Error).message);
+      });
+  }
+
+  async function confirmDeleteTeam() {
+    const team = deleteTeamTarget;
+    if (!team) return;
+    setDeletingTeam(true);
     try {
-      await deleteTeam(teamId);
+      await deleteTeam(team.id);
       toast.success("Team deleted");
+      setDeleteTeamTarget(null);
       await load(activeOrgId ?? undefined);
     } catch (e) {
       toast.error((e as Error).message);
+    } finally {
+      setDeletingTeam(false);
     }
   }
 
@@ -686,7 +720,7 @@ export default function OrganizationPage() {
                     orgTeams={ctx.allOrgTeams}
                     orgMembers={ctx.orgMembers}
                     onContextReload={() => load(activeOrgId ?? undefined)}
-                    onDelete={handleDeleteTeam}
+                    onDelete={requestDeleteTeam}
                     licenseExpired={licenseExpired}
                   />
                 ))}
@@ -809,6 +843,41 @@ export default function OrganizationPage() {
         onCreated={() => load(activeOrgId ?? undefined)}
         orgId={activeOrgId ?? undefined}
       />
+
+      {/* Team deletion is irreversible and unshares the team's playlists. */}
+      <Dialog
+        open={!!deleteTeamTarget}
+        onOpenChange={(o) => { if (!o && !deletingTeam) setDeleteTeamTarget(null); }}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete &quot;{deleteTeamTarget?.name}&quot;?</DialogTitle>
+            <DialogDescription>
+              {deleteTeamTarget && deleteImpact?.teamId === deleteTeamTarget.id
+                ? teamDeleteWarning(deleteImpact.impact)
+                : "Checking what this affects…"}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={deletingTeam}
+              onClick={() => setDeleteTeamTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={deletingTeam || !deleteTeamTarget || deleteImpact?.teamId !== deleteTeamTarget.id}
+              onClick={() => void confirmDeleteTeam()}
+            >
+              {deletingTeam ? "Deleting…" : "Delete team"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
