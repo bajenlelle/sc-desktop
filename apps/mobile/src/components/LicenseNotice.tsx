@@ -13,6 +13,8 @@ export function LicenseNotice({ className = "" }: { className?: string }) {
 
   const affected = myOrgs.filter((o) => {
     if (o.isPersonal) return false;
+    // Staff only — players shouldn't be nagged about their club's renewals.
+    if (o.role !== "admin" && o.role !== "coach") return false;
     const state = getLicenseState(o.expiresAt);
     return state === "grace" || state === "locked";
   });

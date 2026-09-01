@@ -18,6 +18,9 @@ export function LicenseBanner() {
   const [requested, setRequested] = useState(false);
 
   if (!activeOrg || activeOrg.isPersonal) return null;
+  // License admin is a staff concern — players just keep watching what's
+  // already shared and shouldn't be nagged about renewals.
+  if (activeOrg.role !== "admin" && activeOrg.role !== "coach") return null;
   const state = getLicenseState(activeOrg.expiresAt);
   if (state !== "grace" && state !== "locked") return null;
 
@@ -57,8 +60,8 @@ export function LicenseBanner() {
         </span>
         <span className="text-muted-foreground">
           {state === "grace"
-            ? `Sharing and invites pause on ${graceEndLabel} unless it's renewed.`
-            : "Sharing and invites are paused. Existing playlists stay watchable."}
+            ? `Importing, sharing, and invites pause on ${graceEndLabel} unless it's renewed.`
+            : "Importing, sharing, and invites are paused. Existing playlists stay watchable."}
         </span>
         {isAdmin ? (
           requested ? (

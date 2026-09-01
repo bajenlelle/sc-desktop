@@ -139,8 +139,8 @@ export function OrgLicenseCard({
       {expired && (
         <p className="mt-1.5 text-xs text-muted-foreground">
           {state === "grace"
-            ? "Inviting new members is paused. Sharing and team changes pause when the grace period ends — existing members keep watching."
-            : "Inviting, sharing, and team changes are paused until the license is renewed. Existing playlists stay watchable."}
+            ? "Inviting new members is paused. Importing, sharing, and team changes pause when the grace period ends — existing members keep watching."
+            : "Inviting, importing, sharing, and team changes are paused until the license is renewed. Existing playlists stay watchable."}
         </p>
       )}
     </div>

@@ -192,7 +192,7 @@ ${ctaButton(manageUrl, "Request renewal")}`,
           "License expired",
           `<h1 style="margin:0 0 12px 0;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">The license for ${esc(orgName)} has expired</h1>
 <p style="margin:0 0 32px 0;font-size:14px;line-height:1.65;color:#6b7280;">
-  Your team keeps full access${graceUntil ? ` until <strong>${esc(graceUntil)}</strong>` : " for a short grace period"}. After that, sharing playlists, creating teams, and inviting members pause until the license is renewed — existing playlists stay watchable.
+  Your team keeps full access${graceUntil ? ` until <strong>${esc(graceUntil)}</strong>` : " for a short grace period"}. After that, importing games, sharing playlists, creating teams, and inviting members pause until the license is renewed — existing playlists stay watchable.
 </p>
 ${ctaButton(manageUrl, "Request renewal")}`,
           "You received this because you are an admin or contact of this organization.",

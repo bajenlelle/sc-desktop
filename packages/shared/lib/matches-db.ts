@@ -134,7 +134,13 @@ export async function saveMatch(
     matchData.source_game_id = match.sourceGameId;
   }
   const { error: matchError } = await supabase.from("matches").upsert(matchData, { onConflict: "id" });
-  if (matchError) throw new Error(`Failed to save match: ${matchError.message}`);
+  if (matchError) {
+    if (matchError.message.includes("license_locked"))
+      throw new Error(
+        "This organization's license has expired — importing is paused until it's renewed."
+      );
+    throw new Error(`Failed to save match: ${matchError.message}`);
+  }
 
   if (match.events.length > 0) {
     const eventRows = match.events
