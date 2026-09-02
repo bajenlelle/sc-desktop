@@ -14,7 +14,7 @@ import type { OrgMembership } from "@/types/org";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
 import { ImportSuccessDialog, type ImportSummary } from "@/components/import-success-dialog";
 import { NT_LEAGUE_IDS } from "@scoutable/shared/lib/plan-tier";
-import { fetchBoxscore, fetchPlayByPlay, fetchPlayByPlaySportradar, getLeagueSchedule, LEAGUES, NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
+import { fetchGameData, getLeagueSchedule, LEAGUES, NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
 import type { ScheduleGame, League, Season, Stage } from "@/lib/basketball-api";
 import { LeaguePicker } from "@/components/league-picker";
 import { SingleSelectDropdown } from "@/components/ui/multi-select-dropdown";
@@ -128,7 +128,7 @@ export function UploadZone({
 
   const hasNtAccess = ntMemberships.length > 0;
   const leagueList = [
-    ...(hasClubAccess ? LEAGUES.filter((l) => l.id !== "austria-zweite-liga") : []),
+    ...(hasClubAccess ? LEAGUES : []),
     ...(hasNtAccess ? NATIONAL_TEAM_LEAGUES : []),
   ];
 
@@ -265,13 +265,13 @@ export function UploadZone({
   }
 
   async function handleSelectGame(game: ScheduleGame) {
-    if (!selectedLeague) return;
+    if (!selectedLeague || !selectedSeason) return;
     setSelectedGame(game);
     setFetchStatus("loading");
     setFetchError(null);
 
     // Seed names and date from schedule data immediately so the match is always
-    // populated even if the boxscore API call fails or the user submits quickly.
+    // populated even if the game-data call fails or the user submits quickly.
     const fallbackHome = game.homeTeamInfo.names.long;
     const fallbackAway = game.awayTeamInfo.names.long;
     setHomeTeam(fallbackHome);
@@ -282,80 +282,35 @@ export function UploadZone({
       setMatchDate(fallbackDate.toISOString().slice(0, 10));
     }
 
-    if (selectedLeague.provider !== "sportradar") {
-      try {
-        const [data, pbp] = await Promise.all([
-          fetchBoxscore(game.uuid, selectedLeague.baseUrl ?? ""),
-          fetchPlayByPlay(game.uuid, selectedLeague.baseUrl ?? "").catch(() => null),
-        ]);
+    try {
+      const data = await fetchGameData(selectedSeason, game);
 
-        const boxData = data as {
-          stats: {
-            homeTeamValue: Array<{ NR: number | string; info: { team: string; playerId: number } }>;
-            awayTeamValue: Array<{ NR: number | string; info: { team: string; playerId: number } }>;
-          };
-          players: {
-            homeTeamValue: Record<string, { fullName: string }>;
-            awayTeamValue: Record<string, { fullName: string }>;
-          };
-          date?: string | null;
-        };
+      const home = data.homeName || fallbackHome;
+      const away = data.awayName || fallbackAway;
+      setHomeTeam(home);
+      setAwayTeam(away);
+      setMatchTitle(`${home} vs ${away}`);
+      if (data.date) setMatchDate(data.date);
 
-        // Override with boxscore names if present (may be more canonical than schedule names)
-        const home = boxData.stats.homeTeamValue[0]?.info.team || fallbackHome;
-        const away = boxData.stats.awayTeamValue[0]?.info.team || fallbackAway;
+      setHomeRoster(data.homeRoster.length ? data.homeRoster : [{ jerseyNumber: "", playerName: "" }]);
+      setAwayRoster(data.awayRoster.length ? data.awayRoster : [{ jerseyNumber: "", playerName: "" }]);
 
-        setHomeTeam(home);
-        setAwayTeam(away);
-        setMatchTitle(`${home} vs ${away}`);
+      setPlayByPlayEvents(data.events);
+      setTipoffRealWorldTime(data.tipoffRealWorldTime);
 
-        const dateStr = boxData.date ?? game.rawStartDateTime;
-        if (dateStr) {
-          const parsed = new Date(dateStr);
-          if (!isNaN(parsed.getTime())) {
-            setMatchDate(parsed.toISOString().slice(0, 10));
-          }
-        }
-
-        const homePlayers = boxData.players?.homeTeamValue ?? {};
-        const awayPlayers = boxData.players?.awayTeamValue ?? {};
-
-        type StatsEntry = typeof boxData.stats.homeTeamValue[0];
-        const toRoster = (
-          entries: StatsEntry[],
-          playerMap: Record<string, { fullName: string }>
-        ): RosterEntry[] =>
-          entries.map((s) => ({
-            jerseyNumber: String(s.NR),
-            playerName: playerMap[String(s.info.playerId)]?.fullName ?? "",
-          }));
-
-        const newHome = toRoster(boxData.stats.homeTeamValue, homePlayers);
-        const newAway = toRoster(boxData.stats.awayTeamValue, awayPlayers);
-
-        setHomeRoster(newHome.length ? newHome : [{ jerseyNumber: "", playerName: "" }]);
-        setAwayRoster(newAway.length ? newAway : [{ jerseyNumber: "", playerName: "" }]);
-
-        if (pbp) {
-          setPlayByPlayEvents(pbp.events ?? []);
-          setTipoffRealWorldTime(pbp.tipoffRealWorldTime ?? null);
-        }
-
-        setFetchStatus("idle");
-      } catch (err) {
+      // Schedule filtering hides PBP-less games, so this is belt-and-braces —
+      // but if it ever happens, say so instead of showing an empty timeline.
+      if (data.pbpStatus === "empty") {
         setFetchStatus("error");
-        setFetchError(err instanceof Error ? err.message : "Failed to fetch game data.");
-        // Team names/date are already set from schedule data above — no further action needed.
+        setFetchError("No play-by-play is available for this game, so clips can't be created from it.");
+        return;
       }
-    } else {
-      try {
-        const pbp = await fetchPlayByPlaySportradar(game.uuid, game.seasonId ?? "");
-        setPlayByPlayEvents(pbp.events);
-        setTipoffRealWorldTime(null);
-      } catch {
-        // PBP is optional for Austrian games — names/date already set
-      }
+
       setFetchStatus("idle");
+    } catch (err) {
+      setFetchStatus("error");
+      setFetchError(err instanceof Error ? err.message : "Failed to fetch game data.");
+      // Team names/date are already set from schedule data above — no further action needed.
     }
   }
 

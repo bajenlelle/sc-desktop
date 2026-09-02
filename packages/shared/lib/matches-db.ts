@@ -48,11 +48,45 @@ interface EventRow {
   player: PlayByPlayEvent["player"];
   event_team: PlayByPlayEvent["eventTeam"];
   qualifiers: string[] | null;
+  // Genius-only columns — null on rows imported from the old scrape.
+  x?: number | null;
+  y?: number | null;
+  area?: string | null;
+  shot_clock?: string | null;
+  previous_action?: number | null;
+  on_court_home?: number[] | null;
+  on_court_away?: number[] | null;
+  score_home?: number | null;
+  score_away?: number | null;
 }
 
 // ---------------------------------------------------------------------------
 // Converters
 // ---------------------------------------------------------------------------
+
+function rowToEvent(e: EventRow): PlayByPlayEvent {
+  return {
+    eventId: e.event_id ?? 0,
+    type: e.type,
+    subType: e.sub_type ?? "",
+    period: e.period ?? 0,
+    gameClockTime: e.game_clock_time ?? "",
+    realWorldTime: e.real_world_time ?? "",
+    isSuccessful: e.is_successful ?? 0,
+    player: e.player ?? null,
+    eventTeam: e.event_team ?? null,
+    qualifiers: e.qualifiers ?? [],
+    x: e.x ?? null,
+    y: e.y ?? null,
+    area: e.area ?? null,
+    shotClock: e.shot_clock ?? null,
+    previousAction: e.previous_action ?? null,
+    onCourtHome: e.on_court_home ?? null,
+    onCourtAway: e.on_court_away ?? null,
+    scoreHome: e.score_home ?? null,
+    scoreAway: e.score_away ?? null,
+  };
+}
 
 function rowToStoredMatch(row: MatchRow, events: EventRow[]): StoredMatch {
   return {
@@ -71,18 +105,7 @@ function rowToStoredMatch(row: MatchRow, events: EventRow[]): StoredMatch {
     orgId: row.org_id ?? undefined,
     isDemo: row.is_demo ?? false,
     sourceGameId: row.source_game_id ?? undefined,
-    events: events.map((e) => ({
-      eventId: e.event_id ?? 0,
-      type: e.type,
-      subType: e.sub_type ?? "",
-      period: e.period ?? 0,
-      gameClockTime: e.game_clock_time ?? "",
-      realWorldTime: e.real_world_time ?? "",
-      isSuccessful: e.is_successful ?? 0,
-      player: e.player ?? null,
-      eventTeam: e.event_team ?? null,
-      qualifiers: e.qualifiers ?? [],
-    })),
+    events: events.map(rowToEvent),
   };
 }
 
@@ -158,6 +181,15 @@ export async function saveMatch(
         player: e.player ?? null,
         event_team: e.eventTeam ?? null,
         qualifiers: e.qualifiers.length > 0 ? e.qualifiers : null,
+        x: e.x ?? null,
+        y: e.y ?? null,
+        area: e.area ?? null,
+        shot_clock: e.shotClock ?? null,
+        previous_action: e.previousAction ?? null,
+        on_court_home: e.onCourtHome ?? null,
+        on_court_away: e.onCourtAway ?? null,
+        score_home: e.scoreHome ?? null,
+        score_away: e.scoreAway ?? null,
       }));
 
     if (eventRows.length > 0) {
@@ -283,18 +315,7 @@ export async function listEventsForMatches(
   if (error || !data) return {};
   const byMatch: Record<string, PlayByPlayEvent[]> = {};
   for (const row of data as { id: string; play_by_play_events: EventRow[] }[]) {
-    byMatch[row.id] = (row.play_by_play_events ?? []).map((e) => ({
-      eventId: e.event_id ?? 0,
-      type: e.type,
-      subType: e.sub_type ?? "",
-      period: e.period ?? 0,
-      gameClockTime: e.game_clock_time ?? "",
-      realWorldTime: e.real_world_time ?? "",
-      isSuccessful: e.is_successful ?? 0,
-      player: e.player ?? null,
-      eventTeam: e.event_team ?? null,
-      qualifiers: e.qualifiers ?? [],
-    }));
+    byMatch[row.id] = (row.play_by_play_events ?? []).map(rowToEvent);
   }
   return byMatch;
 }

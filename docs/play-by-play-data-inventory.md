@@ -1,3 +1,10 @@
+> **Superseded (2026-09):** the app now imports from the Genius Sports
+> Warehouse API (`/matches/{id}/actions`), which carries every field below
+> plus shot x/y + named areas, on-court lineups, running score and
+> previousAction links — the type/subType/qualifier vocabulary is identical,
+> so this catalogue still applies. Coordinates and lineups are persisted
+> since migration 20260907100000.
+
 # Play-by-Play API — Data Inventory & Coaching Opportunities
 
 *Research only — no implementation planned yet.*

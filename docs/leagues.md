@@ -1,3 +1,10 @@
+> **Superseded (2026-09):** imports now go through the official Genius Sports
+> Warehouse API via the `genius` edge function (supabase/functions/genius) —
+> see apps/desktop/src/lib/basketball-api.ts. The league-site endpoints below
+> are the old scrape, kept as payload reference only; the data is the same
+> feed one hop removed (its own `source` field reads
+> "genius-basketball-stream-reader").
+
 ## SBL Herr
 * Game schedule example URL:
 https://www.sblherr.se/api/sports-v2/game-schedule?seasonUuid=ye02q4jwit&seriesUuid=qZn-4Xda9zkK3&gameTypeUuid=qZn-4XtW2vrrT&gamePlace=all&played=all

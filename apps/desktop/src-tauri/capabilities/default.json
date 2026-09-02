@@ -9,10 +9,6 @@
       "identifier": "http:default",
       "allow": [
         { "url": "https://*.supabase.co/**" },
-        { "url": "https://www.superettanherr.se/**" },
-        { "url": "https://www.sblherr.se/**" },
-        { "url": "https://www.sbldam.se/**" },
-        { "url": "https://embed-api.eui.connect.sportradar.com/**" },
         { "url": "https://app.scoutable.se/api/**" }
       ]
     },

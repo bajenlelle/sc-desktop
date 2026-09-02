@@ -113,14 +113,14 @@ export interface FrameData {
   playerPositions: PlayerPosition[];
 }
 
-// --- Play-by-Play (Superettanherr API) --------------------------------------
+// --- Play-by-Play (Genius Sports Warehouse API) ------------------------------
 
 export interface PlayByPlayEvent {
   eventId: number;
   type: string;       // "2pt", "3pt", "freethrow", "rebound", "turnover", "steal", "foul", "foulon", "block", "assist"
   subType: string;    // "jumpshot", "offensive", "defensive", "badpass", "start", etc.
-  period: number;
-  gameClockTime: string; // "MM:SS:CS" countdown format from API
+  period: number;     // global: OT1 = 5, OT2 = 6, …
+  gameClockTime: string; // "MM:SS" countdown
   realWorldTime: string; // ISO UTC — used for video sync
   isSuccessful: number;  // 1 = made/success, 0 = miss
   player?: {
@@ -128,7 +128,7 @@ export interface PlayByPlayEvent {
     pno: number;
     firstName: string;
     familyName: string;
-    teamNumber: number;
+    teamNumber: number; // 1 = home, 2 = away
   } | null;
   eventTeam?: {
     teamCode: string;
@@ -136,6 +136,17 @@ export interface PlayByPlayEvent {
     teamNumber: number;
   } | null;
   qualifiers: string[];
+  // Genius-only fields below — null/absent on matches imported from the old
+  // scrape. All optional so pre-Genius rows and readers are unaffected.
+  x?: number | null;              // shot coords, 0-100 court space (shots only)
+  y?: number | null;
+  area?: string | null;           // named zone: "underbasket", "outsideleftwing", …
+  shotClock?: string | null;      // schema-ready; all zeros in the feed so far
+  previousAction?: number | null; // actionNumber this one follows (assist → shot)
+  onCourtHome?: number[] | null;  // Genius personIds on court at this action
+  onCourtAway?: number[] | null;
+  scoreHome?: number | null;      // running score at this action
+  scoreAway?: number | null;
 }
 
 export interface SyncPoint {

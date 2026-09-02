@@ -20,7 +20,9 @@ playlists, and share them with teams; players watch on web/mobile.
   as the first argument. Never import app-specific or platform code here;
   error reporting goes through the `setDbErrorReporter` hook in
   `lib/report.ts`.
-- `supabase/` — migrations and edge functions (`send-email`, `report-issue`).
+- `supabase/` — migrations and edge functions (`send-email`, `send-push`,
+  `report-issue`, `genius` — the Genius Sports proxy/cache; holds
+  `GENIUS_API_KEY`, all match imports go through it).
   Remote project `nbmrujmazvdoaldirpyx`; apply with `npx supabase db push`.
 
 ## Conventions

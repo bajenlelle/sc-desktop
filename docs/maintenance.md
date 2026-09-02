@@ -73,5 +73,6 @@ the way. Set up 2026-08 — see `.github/workflows/claude-*.yml`, the
 | `SENTRY_AUTH_TOKEN` (org token) | GitHub Actions, Vercel, EAS | sourcemap upload |
 | `SENTRY_API_TOKEN` (read scopes) | local `.env.local` | reading issues via API |
 | `GITHUB_ISSUES_TOKEN` (fine-grained PAT, Issues r/w) | Supabase function secrets | report-issue files issues |
+| `GENIUS_API_KEY` (20k calls/month, SBF scope) | Supabase function secrets | genius proxies + caches match data |
 | `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) | GitHub Actions | triage + fix agents |
 | Sentry DSNs | hardcoded in each app | public identifiers, not secrets |
