@@ -1565,6 +1565,15 @@ export function PlaylistsPage() {
   const [pendingNewPlaylistId, setPendingNewPlaylistId] = useState<string | null>(null);
   const [editingPlaylistId, setEditingPlaylistId] = useState<string | null>(null);
   const [editPlaylistName, setEditPlaylistName] = useState("");
+  // Where the rename was initiated. The selected playlist renders in BOTH the
+  // sidebar and the header; keying the inline input on the id alone mounted
+  // two autoFocus inputs at once, and whichever lost the focus race fired
+  // onBlur → handleRenamePlaylist → close, cancelling the rename instantly.
+  const [editingVia, setEditingVia] = useState<"sidebar" | "header">("sidebar");
+  // Playlist pending delete confirmation — deletion is irreversible and
+  // unshares the playlist, so it never runs on a bare icon click.
+  const [deleteTarget, setDeleteTarget] = useState<Playlist | null>(null);
+  const [deletingPlaylist, setDeletingPlaylist] = useState(false);
   const [openMenuPlaylistId, setOpenMenuPlaylistId] = useState<string | null>(null);
   const [openMenuFolderId, setOpenMenuFolderId] = useState<string | null>(null);
   /** Non-empty folder pending subtree-delete confirmation. */
@@ -1790,6 +1799,7 @@ export function PlaylistsPage() {
           setPendingNewPlaylistId(tempId);
           setPlaylists((prev) => [tempPlaylist, ...prev]);
           setUncategorizedExpanded(true);
+          setEditingVia("sidebar");
           setEditingPlaylistId(tempId);
           setEditPlaylistName("New Playlist");
         }
@@ -3667,10 +3677,18 @@ export function PlaylistsPage() {
     }
   }
 
-  async function handleDeletePlaylist(playlistId: string) {
-    await deletePlaylist(playlistId);
-    setPlaylists((prev) => prev.filter((p) => p.id !== playlistId));
-    if (selected?.id === playlistId) setSelected(null);
+  async function confirmDeletePlaylist() {
+    const target = deleteTarget;
+    if (!target) return;
+    setDeletingPlaylist(true);
+    try {
+      await deletePlaylist(target.id);
+      setPlaylists((prev) => prev.filter((p) => p.id !== target.id));
+      if (selected?.id === target.id) setSelected(null);
+    } finally {
+      setDeletingPlaylist(false);
+      setDeleteTarget(null);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -3693,6 +3711,7 @@ export function PlaylistsPage() {
     } else {
       setUncategorizedExpanded(true);
     }
+    setEditingVia("sidebar");
     setEditingPlaylistId(tempId);
     setEditPlaylistName("New Playlist");
   }
@@ -3760,7 +3779,7 @@ export function PlaylistsPage() {
             <div className="flex min-w-0 flex-1 items-center gap-1.5">
               <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40 opacity-0 group-hover:opacity-100 cursor-grab" />
               <ListVideo className={`h-3 w-3 shrink-0 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
-              {isEditingThis ? (
+              {isEditingThis && editingVia === "sidebar" ? (
                 <input
                   autoFocus
                   className="flex-1 min-w-0 rounded border border-primary bg-background px-1 py-0.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary"
@@ -3809,7 +3828,7 @@ export function PlaylistsPage() {
                 <DropdownMenuContent align="end">
                   {/* Keep in lockstep with the row's ContextMenuContent below. */}
                   <>
-                    <DropdownMenuItem onSelect={() => { setEditingPlaylistId(pl.id); setEditPlaylistName(pl.name); }}>
+                    <DropdownMenuItem onSelect={() => { setEditingVia("sidebar"); setEditingPlaylistId(pl.id); setEditPlaylistName(pl.name); }}>
                       Rename
                     </DropdownMenuItem>
                     {(folders.length > 0 || pl.folderId) && (
@@ -3842,7 +3861,7 @@ export function PlaylistsPage() {
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                       className="text-destructive focus:text-destructive"
-                      onSelect={() => handleDeletePlaylist(pl.id)}
+                      onSelect={() => setDeleteTarget(pl)}
                     >
                       Delete
                     </DropdownMenuItem>
@@ -3863,7 +3882,7 @@ export function PlaylistsPage() {
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
-          <ContextMenuItem onSelect={() => { setEditingPlaylistId(pl.id); setEditPlaylistName(pl.name); }}>
+          <ContextMenuItem onSelect={() => { setEditingVia("sidebar"); setEditingPlaylistId(pl.id); setEditPlaylistName(pl.name); }}>
             Rename
           </ContextMenuItem>
           {(folders.length > 0 || pl.folderId) && (
@@ -3896,7 +3915,7 @@ export function PlaylistsPage() {
           <ContextMenuSeparator />
           <ContextMenuItem
             className="text-destructive focus:text-destructive"
-            onSelect={() => handleDeletePlaylist(pl.id)}
+            onSelect={() => setDeleteTarget(pl)}
           >
             Delete
           </ContextMenuItem>
@@ -4821,7 +4840,7 @@ export function PlaylistsPage() {
             <div className="flex items-center justify-between flex-none">
               <div className="group flex min-w-0 flex-1 items-start gap-1">
                 <div className="flex min-w-0 flex-col">
-                  {editingPlaylistId === selected.id ? (
+                  {editingPlaylistId === selected.id && editingVia === "header" ? (
                     <input
                       autoFocus
                       className="rounded border border-primary bg-background px-1 py-0.5 text-base font-semibold text-foreground outline-none focus:ring-1 focus:ring-primary"
@@ -4849,7 +4868,7 @@ export function PlaylistsPage() {
                       type="button"
                       className="opacity-0 group-hover:opacity-100 transition-opacity rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-muted"
                       title="Rename playlist"
-                      onClick={() => { setEditingPlaylistId(selected.id); setEditPlaylistName(selected.name); }}
+                      onClick={() => { setEditingVia("header"); setEditingPlaylistId(selected.id); setEditPlaylistName(selected.name); }}
                     >
                       <Pencil className="h-4 w-4" />
                     </button>
@@ -4857,7 +4876,7 @@ export function PlaylistsPage() {
                       type="button"
                       className="opacity-0 group-hover:opacity-100 transition-opacity rounded-md p-1 text-muted-foreground hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950"
                       title="Delete playlist"
-                      onClick={() => handleDeletePlaylist(selected.id)}
+                      onClick={() => setDeleteTarget(selected)}
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -6002,6 +6021,47 @@ export function PlaylistsPage() {
                   onSeedDefaults: handleSeedDefaultLabels,
                 }}
               />
+            </DialogContent>
+          </Dialog>
+          {/* Playlist deletion is irreversible and unshares it everywhere. */}
+          <Dialog
+            open={!!deleteTarget}
+            onOpenChange={(o) => { if (!o && !deletingPlaylist) setDeleteTarget(null); }}
+          >
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Delete &quot;{deleteTarget?.name}&quot;?</DialogTitle>
+                <DialogDescription>
+                  {deleteTarget && (() => {
+                    const clips = deleteTarget.items.filter(isClipItem).length;
+                    const shared =
+                      (deleteTarget.teamIds?.length ?? 0) + (deleteTarget.userIds?.length ?? 0) > 0;
+                    const parts: string[] = [];
+                    if (clips > 0) parts.push(`This deletes the playlist and its ${clips} clip${clips !== 1 ? "s" : ""}.`);
+                    if (shared) parts.push("Everyone it's shared with loses access.");
+                    parts.push("This can't be undone.");
+                    return parts.join(" ");
+                  })()}
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={deletingPlaylist}
+                  onClick={() => setDeleteTarget(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={deletingPlaylist || !deleteTarget}
+                  onClick={() => void confirmDeletePlaylist()}
+                >
+                  {deletingPlaylist ? "Deleting…" : "Delete playlist"}
+                </Button>
+              </DialogFooter>
             </DialogContent>
           </Dialog>
           {/* Upgrade dialog — shown when free user tries a paid feature */}
