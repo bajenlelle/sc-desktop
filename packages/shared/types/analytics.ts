@@ -71,6 +71,7 @@ export type AnalyticsEvent =
   | "checkout_started" // landing page
   | "download_clicked" // landing page
   // Org management & account
+  | "manage_org_web_clicked" // mobile Club card → app.scoutable.se/organization
   | "team_created"
   | "member_removed"
   | "member_promoted"

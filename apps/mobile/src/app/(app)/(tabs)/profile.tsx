@@ -1,9 +1,13 @@
 import { useMemo, useState } from "react";
-import { Alert, ScrollView, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, View, useColorScheme } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Constants from "expo-constants";
+import * as WebBrowser from "expo-web-browser";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
+import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth-context";
+import { themeColors } from "@/lib/theme";
 import { signOutAndCleanup } from "@/lib/notifications";
 import { usePlaylists } from "@/lib/playlists-store";
 import { Avatar } from "@/components/Avatar";
@@ -14,13 +18,28 @@ import { LicenseNotice } from "@/components/LicenseNotice";
 import { ReportProblemSheet } from "@/components/ReportProblemSheet";
 import { Select } from "@/components/Select";
 
+// Org management (teams, members, licenses) is web-only.
+const WEB_ORG_URL = "https://app.scoutable.se/organization";
+
 export default function ProfileScreen() {
   const { user, profile, myOrgs, activeOrg, activeOrgId, isPlayerOnly, setActiveOrg, reloadProfile } =
     useAuth();
   const { teamMap, clubTeams } = usePlaylists();
+  const colors = themeColors(useColorScheme());
   const [resetting, setResetting] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+
+  // Web parity: managing a club is staff-only; players never see the link.
+  const canManageOrg =
+    !!activeOrg &&
+    !activeOrg.isPersonal &&
+    (activeOrg.role === "coach" || activeOrg.role === "admin");
+
+  function handleManageOnWeb() {
+    trackEvent("manage_org_web_clicked");
+    WebBrowser.openBrowserAsync(WEB_ORG_URL).catch(() => {});
+  }
 
   const orgOptions = useMemo(
     () => myOrgs.map((o) => ({ value: o.orgId, label: o.orgName })),
@@ -96,9 +115,23 @@ export default function ProfileScreen() {
           </View>
         ) : (
           <View className="gap-2 rounded-xl border border-border dark:border-border-dark p-4">
-            <Text className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground dark:text-muted-foreground-dark">
-              Club
-            </Text>
+            <View className="flex-row items-center justify-between">
+              <Text className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground dark:text-muted-foreground-dark">
+                Club
+              </Text>
+              {canManageOrg && (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={handleManageOnWeb}
+                  className="min-h-[32px] flex-row items-center gap-1 active:opacity-60"
+                >
+                  <Text className="text-xs font-medium text-muted-foreground dark:text-muted-foreground-dark">
+                    Manage on web
+                  </Text>
+                  <Ionicons name="open-outline" size={13} color={colors.mutedForeground} />
+                </Pressable>
+              )}
+            </View>
             {myOrgs.length > 1 ? (
               <Select
                 options={orgOptions}
