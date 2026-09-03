@@ -266,16 +266,18 @@ jobs:
       - name: Update download URLs
         run: |
           VERSION=${{ needs.publish.outputs.version }}
-          sed -i -E "s|releases/download/v[0-9.]+/Scoutable_[0-9.]+_universal\.dmg|releases/download/v${VERSION}/Scoutable_${VERSION}_universal.dmg|g" \
-            components/Hero.tsx components/Download.tsx
-          sed -i -E "s|releases/download/v[0-9.]+/Scoutable_[0-9.]+_x64-setup\.exe|releases/download/v${VERSION}/Scoutable_${VERSION}_x64-setup.exe|g" \
-            components/Hero.tsx components/Download.tsx
+          # Discover the files holding release URLs (lib/downloads.ts today)
+          # so this job survives refactors that move them.
+          FILES=$(git grep -lE "releases/download/v[0-9.]+/Scoutable_" -- '*.ts' '*.tsx')
+          test -n "$FILES"
+          sed -i -E "s|releases/download/v[0-9.]+/Scoutable_[0-9.]+_universal\.dmg|releases/download/v${VERSION}/Scoutable_${VERSION}_universal.dmg|g" $FILES
+          sed -i -E "s|releases/download/v[0-9.]+/Scoutable_[0-9.]+_x64-setup\.exe|releases/download/v${VERSION}/Scoutable_${VERSION}_x64-setup.exe|g" $FILES
 
       - name: Commit and push
         run: |
           VERSION=${{ needs.publish.outputs.version }}
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add components/Hero.tsx components/Download.tsx
+          git add -A
           git diff --staged --quiet || git commit -m "chore: update download URL to v${VERSION}"
           git push
