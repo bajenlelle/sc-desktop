@@ -6023,47 +6023,6 @@ export function PlaylistsPage() {
               />
             </DialogContent>
           </Dialog>
-          {/* Playlist deletion is irreversible and unshares it everywhere. */}
-          <Dialog
-            open={!!deleteTarget}
-            onOpenChange={(o) => { if (!o && !deletingPlaylist) setDeleteTarget(null); }}
-          >
-            <DialogContent className="max-w-sm">
-              <DialogHeader>
-                <DialogTitle>Delete &quot;{deleteTarget?.name}&quot;?</DialogTitle>
-                <DialogDescription>
-                  {deleteTarget && (() => {
-                    const clips = deleteTarget.items.filter(isClipItem).length;
-                    const shared =
-                      (deleteTarget.teamIds?.length ?? 0) + (deleteTarget.userIds?.length ?? 0) > 0;
-                    const parts: string[] = [];
-                    if (clips > 0) parts.push(`This deletes the playlist and its ${clips} clip${clips !== 1 ? "s" : ""}.`);
-                    if (shared) parts.push("Everyone it's shared with loses access.");
-                    parts.push("This can't be undone.");
-                    return parts.join(" ");
-                  })()}
-                </DialogDescription>
-              </DialogHeader>
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={deletingPlaylist}
-                  onClick={() => setDeleteTarget(null)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  disabled={deletingPlaylist || !deleteTarget}
-                  onClick={() => void confirmDeletePlaylist()}
-                >
-                  {deletingPlaylist ? "Deleting…" : "Delete playlist"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
           {/* Upgrade dialog — shown when free user tries a paid feature */}
           <UpgradeDialog
             open={upgradeDialogOpen}
@@ -6298,6 +6257,51 @@ export function PlaylistsPage() {
         )}
       </ResizablePanel>
     </ResizablePanelGroup>
+
+    {/* Playlist deletion is irreversible and unshares it everywhere.
+        Lives at the page root (not inside the selected-playlist branch):
+        deletion is triggered from the always-visible sidebar, so the dialog
+        must exist even when no playlist is open. */}
+    <Dialog
+      open={!!deleteTarget}
+      onOpenChange={(o) => { if (!o && !deletingPlaylist) setDeleteTarget(null); }}
+    >
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Delete &quot;{deleteTarget?.name}&quot;?</DialogTitle>
+          <DialogDescription>
+            {deleteTarget && (() => {
+              const clips = deleteTarget.items.filter(isClipItem).length;
+              const shared =
+                (deleteTarget.teamIds?.length ?? 0) + (deleteTarget.userIds?.length ?? 0) > 0;
+              const parts: string[] = [];
+              if (clips > 0) parts.push(`This deletes the playlist and its ${clips} clip${clips !== 1 ? "s" : ""}.`);
+              if (shared) parts.push("Everyone it's shared with loses access.");
+              parts.push("This can't be undone.");
+              return parts.join(" ");
+            })()}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={deletingPlaylist}
+            onClick={() => setDeleteTarget(null)}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={deletingPlaylist || !deleteTarget}
+            onClick={() => void confirmDeletePlaylist()}
+          >
+            {deletingPlaylist ? "Deleting…" : "Delete playlist"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     {/* Subtree-delete confirmation — only opened for non-empty folders. */}
     <Dialog open={!!deleteFolderTarget} onOpenChange={(o) => !o && setDeleteFolderTarget(null)}>
