@@ -262,6 +262,20 @@ export async function dismissWelcome(): Promise<void> {
   if (error) throw new Error(`Failed to dismiss welcome: ${error.message}`);
 }
 
+/** Hide the Getting Started / admin setup checklist permanently (across devices and apps). */
+export async function dismissOnboardingChecklist(): Promise<void> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+  const { error } = await supabase
+    .from("profiles")
+    .update({ onboarding_checklist_dismissed_at: new Date().toISOString() })
+    .eq("id", user.id);
+  if (error) throw new Error(`Failed to dismiss checklist: ${error.message}`);
+}
+
 /**
  * Record that the one-time upgrade celebration was shown for this tier, so
  * no other device or app (web/desktop) shows it again.

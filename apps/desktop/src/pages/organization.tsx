@@ -419,14 +419,23 @@ export function OrganizationPage() {
   const [deletingTeam, setDeletingTeam] = useState(false);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteRole, setInviteRole] = useState<"coach" | "player" | undefined>(undefined);
   const [showCreateTeam, setShowCreateTeam] = useState(false);
 
-  // One-shot flag from Home's "Invite players" shortcut — opens the modal on
-  // arrival. Cleared immediately so a remount doesn't re-open it (same idiom
-  // as the playlists page's restore/createNew flags).
+  // One-shot flags from Home shortcuts and the admin setup checklist —
+  // { invite: true, inviteRole? } opens the invite modal (optionally with a
+  // preselected role), { newTeam: true } opens the create-team dialog.
+  // Cleared immediately so a remount doesn't re-open them (same idiom as the
+  // playlists page's restore/createNew flags).
   useEffect(() => {
-    if ((location.state as { invite?: boolean } | null)?.invite) {
-      setShowInviteModal(true);
+    const state = location.state as { invite?: boolean; inviteRole?: "coach" | "player"; newTeam?: boolean } | null;
+    if (state?.invite || state?.newTeam) {
+      if (state.newTeam) {
+        setShowCreateTeam(true);
+      } else {
+        setInviteRole(state.inviteRole);
+        setShowInviteModal(true);
+      }
       navigate(location.pathname, { replace: true, state: null });
     }
   }, [location.state, location.pathname, navigate]);
@@ -691,11 +700,25 @@ export function OrganizationPage() {
             </div>
 
             {myTeamsForOrg.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                {canManageTeams
-                  ? "You're not in any teams yet."
-                  : "You're not on any teams yet. Ask your coach to add you."}
-              </p>
+              isAdmin && ctx.allOrgTeams.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border p-6 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    No teams yet. Create your first team — invites can target a team so new
+                    members land in the right place.
+                  </p>
+                  <Button size="sm" className="mt-3" onClick={() => setShowCreateTeam(true)}>
+                    New Team
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {canManageTeams
+                    ? ctx.allOrgTeams.length === 0
+                      ? "No teams yet — your admin can create one."
+                      : "You're not in any teams yet."
+                    : "You're not on any teams yet. Ask your coach to add you."}
+                </p>
+              )
             ) : (
               <div className="space-y-2">
                 {myTeamsForOrg.map((team) => (
@@ -816,7 +839,8 @@ export function OrganizationPage() {
 
       <InviteModal
         open={showInviteModal}
-        onClose={() => setShowInviteModal(false)}
+        onClose={() => { setShowInviteModal(false); setInviteRole(undefined); }}
+        initialRole={inviteRole}
         orgId={org.id}
         orgName={org.name}
         orgTeams={ctx.allOrgTeams}

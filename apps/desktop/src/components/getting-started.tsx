@@ -3,8 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { Check, ChevronRight, Lock, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
-import { dismissOnboardingChecklist, setDeclaredRole } from "@/lib/profile-db";
+import { dismissOnboardingChecklist, getOrgContextForOrg, setDeclaredRole } from "@/lib/profile-db";
 import { getMySharedOutPlaylists } from "@/lib/playlists-db";
+import { deriveOrgSetupProgress, type OrgSetupProgress } from "@scoutable/shared/lib/org-setup";
 import { getHasExported } from "@/lib/prefs";
 import { trackEvent } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
@@ -38,10 +39,11 @@ export function GettingStarted({
   playlists: Playlist[];
 }) {
   const navigate = useNavigate();
-  const { user, profile, activeOrg, activeOrgIsPersonal, activeOrgPlan, activeOrgRole, reloadProfile } = useAuth();
+  const { user, profile, activeOrg, activeOrgId, activeOrgIsPersonal, activeOrgPlan, activeOrgRole, myOrgs, reloadProfile } = useAuth();
   const [hidden, setHidden] = useState(false);
   const [hasSharedOut, setHasSharedOut] = useState(false);
   const [hasExported, setHasExported] = useState(() => getHasExported(user?.id));
+  const [orgSetup, setOrgSetup] = useState<OrgSetupProgress | null>(null);
   const celebratedRef = useRef(false);
 
   // In club spaces the membership role is authoritative: player members
@@ -68,6 +70,18 @@ export function GettingStarted({
     return () => window.removeEventListener("playlist-exported", onExported);
   }, []);
 
+  // Club admins get org-setup steps instead of the editing walkthrough —
+  // their first job is teams and invites, not clips. Derived from real org
+  // data, like every other step.
+  const isClubAdmin = !activeOrgIsPersonal && activeOrgRole === "admin";
+  useEffect(() => {
+    if (!show || !isClubAdmin || !activeOrgId) return;
+    getOrgContextForOrg(activeOrgId, { myOrgs })
+      .then((ctx) => setOrgSetup(deriveOrgSetupProgress(ctx.allOrgTeams, ctx.orgMembers)))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [show, isClubAdmin, activeOrgId]);
+
   // The sample game lives in the personal space only — in a club space the
   // checklist must not point at something the Clip Browser there won't have.
   const hasDemo = activeOrgIsPersonal && matches.some((m) => m.isDemo);
@@ -93,7 +107,40 @@ export function GettingStarted({
     ? { restore: { playlistId: playlists[0].id } }
     : undefined;
 
-  const steps: Step[] = [
+  const steps: Step[] = isClubAdmin ? [
+    { key: "account", title: "Create your account", done: true },
+    {
+      key: "team",
+      title: "Create your first team",
+      hint: "Invites can target a team, so new members land in the right place",
+      done: orgSetup?.teamsDone ?? false,
+      to: "/organization",
+      toState: { newTeam: true },
+    },
+    {
+      key: "coaches",
+      title: "Invite your coaches",
+      hint: "Coaches can invite their players and other coaches themselves",
+      done: orgSetup?.coachesDone ?? false,
+      to: "/organization",
+      toState: { invite: true, inviteRole: "coach" },
+    },
+    {
+      key: "players",
+      title: "Invite your players",
+      hint: "Or leave this to your coaches",
+      done: orgSetup?.playersDone ?? false,
+      to: "/organization",
+      toState: { invite: true, inviteRole: "player" },
+    },
+    {
+      key: "import",
+      title: "Import your own game",
+      hint: "You'll need the game's video file on your computer",
+      done: hasOwnGame,
+      to: "/upload",
+    },
+  ] : [
     { key: "account", title: "Create your account", done: true },
     {
       key: "playlist",
@@ -147,9 +194,9 @@ export function GettingStarted({
   useEffect(() => {
     if (!show || !allDone || celebratedRef.current) return;
     celebratedRef.current = true;
-    trackEvent("onboarding_completed");
+    trackEvent("onboarding_completed", { variant: isClubAdmin ? "admin" : "member" });
     dismissOnboardingChecklist().catch(() => {});
-    toast.success("You're all set — happy scouting! 🎉");
+    toast.success(isClubAdmin ? "Your club is set up 🎉" : "You're all set — happy scouting! 🎉");
     setHidden(true);
   }, [show, allDone]);
 
@@ -173,7 +220,9 @@ export function GettingStarted({
         ? "We've added a sample game so you can try building a tape without your own footage."
         : "We've added a sample game so you can try everything without your own footage."
       : "Here's the fastest way to get to your first playlist."
-    : `You've joined ${activeOrg?.orgName ?? "your organization"}. Here's how to get going.`;
+    : isClubAdmin
+      ? `You're an admin of ${activeOrg?.orgName ?? "your organization"}. Set up your club so coaches and players can get going.`
+      : `You've joined ${activeOrg?.orgName ?? "your organization"}. Here's how to get going.`;
 
   return (
     <div className="rounded-xl border border-primary/30 bg-card p-5">

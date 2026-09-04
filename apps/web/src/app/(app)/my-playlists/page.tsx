@@ -25,6 +25,7 @@ import { ClipRow } from "@/components/playlist/ClipRow";
 import { PlaylistFeed, type SourceOption } from "@/components/playlist/PlaylistFeed";
 import { SharedByMe } from "@/components/playlist/SharedByMe";
 import { WelcomeCard } from "@/components/welcome-card";
+import { AdminSetupCard } from "@/components/admin-setup-card";
 import type { PlaylistCardData } from "@/components/playlist/PlaylistCard";
 import { listMyClipViews, markClipWatched, clipViewKey } from "@/lib/clip-views-db";
 import { trackEvent } from "@/lib/analytics";
@@ -1006,6 +1007,7 @@ export default function MyPlaylistsPage() {
 
     {showDashboard ? (
       <div className="flex-1 overflow-y-auto">
+        <AdminSetupCard className="mx-4 mt-4 sm:mx-6" />
         <SharedByMe
           shared={loading ? null : sharedOutPlaylists}
           memberMap={memberMap}

@@ -70,6 +70,12 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
         ...(activeOrgIsPersonal
           ? []
           : [{ href: "/my-playlists", label: isCoachOrAdmin ? "Shared Playlists" : "My Playlists" }]),
+        // Web is the org-management surface (mobile links out to it), so for
+        // club staff Organization is a daily destination — unlike desktop,
+        // where it stays in the space menu.
+        ...(!activeOrgIsPersonal && isCoachOrAdmin
+          ? [{ href: "/organization", label: "Organization" }]
+          : []),
         ...(profile?.isPlatformAdmin ? [{ href: "/admin", label: "Admin" }] : []),
       ];
 
