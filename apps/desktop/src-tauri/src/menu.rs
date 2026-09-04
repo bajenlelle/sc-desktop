@@ -109,11 +109,15 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         .build()?;
 
     let toggle_browser = item("toggle-playlist-browser", "Toggle Playlist Browser", Some("CmdOrCtrl+B"))?;
+    // Player fullscreen (stage + clip controls) — distinct from the
+    // predefined window fullscreen below, which just resizes the window.
+    let fullscreen_player = item("fullscreen-player", "Fullscreen Player", Some("CmdOrCtrl+Shift+F"))?;
     let zoom_in = item("zoom-in", "Zoom In", Some("CmdOrCtrl+="))?;
     let zoom_out = item("zoom-out", "Zoom Out", Some("CmdOrCtrl+-"))?;
     let zoom_reset = item("zoom-reset", "Actual Size", Some("CmdOrCtrl+0"))?;
     let view_menu = SubmenuBuilder::new(app, "View")
         .item(&toggle_browser)
+        .item(&fullscreen_player)
         .separator()
         .item(&appearance_menu)
         .separator()

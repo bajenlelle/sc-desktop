@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Pause, Play, RotateCcw, SkipBack, SkipForward, Square } from "lucide-react";
+import { Maximize2, Minimize2, Pause, Play, RotateCcw, SkipBack, SkipForward, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface VideoClipControlsProps {
@@ -16,6 +16,11 @@ interface VideoClipControlsProps {
   activeClipPostOffset?: number;
   onPreOffsetChange?: (delta: number) => void;
   onPostOffsetChange?: (delta: number) => void;
+  /** Shows the fullscreen toggle when provided. */
+  onToggleFullscreen?: () => void;
+  isFullscreen?: boolean;
+  /** Extra root classes (e.g. translucency when overlaid on footage). */
+  className?: string;
 }
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -34,6 +39,9 @@ export function VideoClipControls({
   activeClipPostOffset,
   onPreOffsetChange,
   onPostOffsetChange,
+  onToggleFullscreen,
+  isFullscreen,
+  className,
 }: VideoClipControlsProps) {
   const preOffset = activeClipPreOffset ?? 0;
   const postOffset = activeClipPostOffset ?? 0;
@@ -105,7 +113,7 @@ export function VideoClipControls({
   }, []);
 
   return (
-    <div className="flex flex-col rounded-xl border border-border bg-card px-3 py-2 shadow-sm">
+    <div className={cn("flex flex-col rounded-xl border border-border bg-card px-3 py-2 shadow-sm", className)}>
     <div className="flex items-center justify-center gap-0.5">
       <CtrlBtn onClick={onPrev} disabled={!canPrev} title="Previous clip">
         <SkipBack className="h-5 w-5" />
@@ -169,6 +177,18 @@ export function VideoClipControls({
           </div>
         )}
       </div>
+
+      {onToggleFullscreen && (
+        <>
+          <div className="mx-1 h-5 w-px bg-border" />
+          <CtrlBtn
+            onClick={onToggleFullscreen}
+            title={isFullscreen ? "Exit full screen (F)" : "Full screen (F)"}
+          >
+            {isFullscreen ? <Minimize2 className="h-[18px] w-[18px]" /> : <Maximize2 className="h-[18px] w-[18px]" />}
+          </CtrlBtn>
+        </>
+      )}
     </div>
 
     {isQueueActive && (onPreOffsetChange || onPostOffsetChange) && (

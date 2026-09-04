@@ -98,6 +98,9 @@ export function MenuHandler() {
         case "toggle-playlist-browser":
           window.dispatchEvent(new CustomEvent("playlist-browser-toggle"));
           break;
+        case "fullscreen-player":
+          window.dispatchEvent(new CustomEvent("player-fullscreen-toggle"));
+          break;
         case "send-feedback":
           window.dispatchEvent(new CustomEvent("menu-send-feedback"));
           break;
@@ -152,6 +155,7 @@ export function MenuHandler() {
 
   useEffect(() => {
     setEnabled("toggle-playlist-browser", pathname === "/playlists");
+    setEnabled("fullscreen-player", pathname === "/playlists");
     // Export is enabled by pages/playlists.tsx while a playlist is open;
     // everywhere else it must be off.
     if (pathname !== "/playlists") setEnabled("export-playlist", false);

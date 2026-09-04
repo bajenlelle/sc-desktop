@@ -32,6 +32,7 @@ import {
   Search,
   SkipForward,
   Square,
+  Minimize2,
   Tag,
   VideoOff,
   Trash2,
@@ -49,6 +50,8 @@ import { VideoClipControls } from "@/components/video-clip-controls";
 import { listMatchesLight, listEventsForMatches, listFolders, createFolder, updateFolder, deleteFolder, updateVideoUrl } from "@/lib/matches-db";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { probeMatches, type VideoFileStatus } from "@/lib/video-probe";
+import { usePlayerFullscreen, useIdleControls } from "@/lib/use-player-fullscreen";
+import { cn } from "@/lib/utils";
 import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderItems, updateClip, insertTextCard, updateTextCard, setPlaylistTeams, setPlaylistUsers, notifyPendingPlaylistShares } from "@/lib/playlists-db";
 import { groupShipFailures, mergeShipResults, type ClipShipResult } from "@scoutable/shared/lib/ship-result";
 import { listLabels, createLabel as apiCreateLabel, updateLabel as apiUpdateLabel, deleteLabel as apiDeleteLabel, seedDefaultLabels, listAssignmentsForClips, setClipAssignments as apiSetClipAssignments, bulkAssign as apiBulkAssign } from "@/lib/labels-db";
@@ -1659,6 +1662,39 @@ export function PlaylistsPage() {
   // Vertical-crop editor: overlay visible + "export view" dim toggle.
   const [cropMode, setCropMode] = useState(false);
   const [cropDimmed, setCropDimmed] = useState(false);
+  // Fullscreen player (native window fullscreen + fixed stage layer).
+  const playerFs = usePlayerFullscreen();
+  const fsIdle = useIdleControls(playerFs.active);
+  const [fsChromeHover, setFsChromeHover] = useState(false);
+  const [fsPaused, setFsPaused] = useState(true);
+  const playerFsRef = useRef(playerFs);
+  playerFsRef.current = playerFs;
+  // Chrome never hides while paused (a presenting coach talks over frozen
+  // frames) or while the pointer is on the controls.
+  useEffect(() => {
+    fsIdle.setPinned(fsChromeHover || fsPaused);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fsChromeHover, fsPaused]);
+  useEffect(() => {
+    if (!playerFs.active) return;
+    const video = videoRef.current;
+    if (!video) return;
+    setFsPaused(video.paused);
+    const onPlay = () => setFsPaused(false);
+    const onPause = () => setFsPaused(true);
+    video.addEventListener("play", onPlay);
+    video.addEventListener("pause", onPause);
+    return () => {
+      video.removeEventListener("play", onPlay);
+      video.removeEventListener("pause", onPause);
+    };
+  }, [playerFs.active]);
+  // View → Fullscreen Player (⌘⇧F) — same CustomEvent bridge as ⌘B.
+  useEffect(() => {
+    const handler = () => playerFsRef.current.toggle();
+    window.addEventListener("player-fullscreen-toggle", handler);
+    return () => window.removeEventListener("player-fullscreen-toggle", handler);
+  }, []);
   // Playlist IDs whose clips need shipping as soon as state settles: arriving
   // from the dashboard's "Upload missing clips", or after adding clips to an
   // already-shared playlist (which previously left them stranded un-shipped).
@@ -2840,10 +2876,30 @@ export function PlaylistsPage() {
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.code !== "ArrowDown" && e.code !== "ArrowUp" && e.code !== "ArrowLeft") return;
+      if (
+        e.code !== "ArrowDown" && e.code !== "ArrowUp" && e.code !== "ArrowLeft" &&
+        e.code !== "KeyF" && e.code !== "Escape"
+      ) return;
       const tag = (e.target as HTMLElement).tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if ((e.target as HTMLElement).isContentEditable) return;
+      if (e.code === "KeyF") {
+        // Plain F only — leave ⌘F/etc. to the system.
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
+        e.preventDefault();
+        playerFsRef.current.toggle();
+        return;
+      }
+      if (e.code === "Escape") {
+        // Dialogs own their Escape; only a bare fullscreen layer exits here.
+        // (macOS may have already dropped native fullscreen itself — this
+        // closes the CSS layer; the hook's poll reconciles the window.)
+        if (!playerFsRef.current.active) return;
+        if (document.querySelector('[role="dialog"]')) return;
+        e.preventDefault();
+        void playerFsRef.current.exit();
+        return;
+      }
       e.preventDefault();
       if (e.code === "ArrowLeft") { _handleReplayRef.current(); return; }
       const items = _sortedEventsRef.current;
@@ -4754,8 +4810,20 @@ export function PlaylistsPage() {
   // they were duplicated verbatim before; only the ResizablePanel wrappers
   // and padding differ per layout. Edit these once for both.
   const playerStack = localVideoUrl ? (
-      <>
-        <div className="relative">
+      <div
+        className={playerFs.active
+          ? cn("fixed inset-0 z-50 flex flex-col bg-black", !fsIdle.visible && "cursor-none")
+          : "contents"}
+      >
+        {/* Stage: in fullscreen a fixed-aspect box centered on black, so every
+            overlay's coordinate system (crop window, keyframes, text cards)
+            stays exactly the rendered video box. Chrome floats above it and
+            never reflows it. Windowed renders today's exact markup. */}
+        <div
+          className={playerFs.active ? "relative min-h-0 flex-1 flex items-center justify-center" : "contents"}
+          onDoubleClick={cropMode ? undefined : () => playerFsRef.current.toggle()}
+        >
+        <div className={playerFs.active ? "relative w-full max-w-full max-h-full aspect-video" : "relative"}>
           <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
           {cropMode && activeClipKey && !activeTextCard && (
             <CropOverlay
@@ -4790,6 +4858,43 @@ export function PlaylistsPage() {
             </div>
           )}
         </div>
+        </div>
+        {playerFs.active && (
+          <div
+            className={cn(
+              "dark absolute inset-x-0 top-0 z-[25] flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-5 pb-10 pt-4 transition-opacity motion-safe:duration-200",
+              fsIdle.visible ? "opacity-100" : "pointer-events-none opacity-0"
+            )}
+          >
+            <span className="truncate text-sm font-medium text-white">{selected?.name}</span>
+            {listPosition >= 0 && (
+              <span className="shrink-0 text-xs tabular-nums text-white/70">
+                {listPosition + 1} / {queueItems.length}
+              </span>
+            )}
+            <div className="flex-1" />
+            {/* Esc is the OS's on macOS — an explicit exit must always exist. */}
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 shrink-0 gap-1.5 border-white/25 bg-black/40 text-white hover:bg-black/60 hover:text-white"
+              onClick={() => void playerFs.exit()}
+            >
+              <Minimize2 className="h-3.5 w-3.5" />
+              Exit full screen
+            </Button>
+          </div>
+        )}
+        <div
+          className={playerFs.active
+            ? cn(
+                "dark absolute inset-x-0 bottom-0 z-[25] flex flex-col gap-2 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-5 pb-4 pt-10 transition-opacity motion-safe:duration-200",
+                fsIdle.visible ? "opacity-100" : "pointer-events-none opacity-0"
+              )
+            : "contents"}
+          onPointerEnter={playerFs.active ? () => setFsChromeHover(true) : undefined}
+          onPointerLeave={playerFs.active ? () => setFsChromeHover(false) : undefined}
+        >
         {cropMode && activeClipKey && activeClipCrop.start !== null && activeClipCrop.end !== null && (
           <CropTimeline
             videoRef={videoRef}
@@ -4813,6 +4918,9 @@ export function PlaylistsPage() {
           activeClipPostOffset={activeClipOffsets.post}
           onPreOffsetChange={(delta) => adjustActiveClip(delta, 0)}
           onPostOffsetChange={(delta) => adjustActiveClip(0, delta)}
+          onToggleFullscreen={() => playerFsRef.current.toggle()}
+          isFullscreen={playerFs.active}
+          className={playerFs.active ? "mx-auto w-full max-w-3xl border-white/10 bg-card/85 backdrop-blur-md" : undefined}
         />
         {activeClipKey && (
           <CropEditorBar
@@ -4825,7 +4933,7 @@ export function PlaylistsPage() {
             onReset={() => setActiveClipCropKeyframes(null)}
           />
         )}
-        {activeClipKey && activeOrgId && (() => {
+        {!playerFs.active && activeClipKey && activeOrgId && (() => {
           const key = `${activeClipKey.matchId}:${activeClipKey.eventId}`;
           const assignedIds = clipAssignments.get(key) ?? new Set<string>();
           const assigned = labels.filter((l) => assignedIds.has(l.id));
@@ -4860,7 +4968,7 @@ export function PlaylistsPage() {
             </div>
           );
         })()}
-        {activeEventId !== null && (
+        {!playerFs.active && activeEventId !== null && (
           <textarea
             className="w-full resize-none rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary transition-colors"
             rows={3}
@@ -4869,7 +4977,8 @@ export function PlaylistsPage() {
             onChange={(e) => handleNoteChange(e.target.value)}
           />
         )}
-      </>
+        </div>
+      </div>
     ) : (
       <div className="space-y-2">
         <VideoPlaceholder />
