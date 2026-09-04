@@ -111,15 +111,20 @@ function PitchPage() {
 
 function OwnPlaylists() {
   const scheme = useColorScheme();
+  const { myOrgs } = useAuth();
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [loading, setLoading] = useState(true);
+  // My Highlights = the player's own reels, which live in the personal
+  // space. Coach-org content reaches them via My Playlists → Shared with me.
+  const personalOrgId = myOrgs.find((o) => o.isPersonal)?.orgId;
 
   useEffect(() => {
-    listPlaylists(supabase)
+    if (!personalOrgId) return;
+    listPlaylists(supabase, personalOrgId, { includeUnscoped: true })
       .then(setPlaylists)
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [personalOrgId]);
 
   if (loading) {
     return (

@@ -54,7 +54,8 @@ export function GettingStarted({
     !hidden && canActHere && profile != null && profile.onboardingChecklistDismissedAt == null;
 
   // The club-space final step ("share with your team") is the one signal not
-  // already loaded on Home.
+  // already loaded on Home. Deliberately NOT org-scoped: it answers "has
+  // this coach ever shared anything", a one-time checklist boolean.
   useEffect(() => {
     if (!show || activeOrgIsPersonal) return;
     getMySharedOutPlaylists()

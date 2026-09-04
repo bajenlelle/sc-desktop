@@ -9,8 +9,8 @@ import type { PlaylistClipItem, PlaylistItem } from "@/types/match";
 const c = () => createClient();
 
 export const getMyTeamPlaylists = (teamIds?: string[]) => db.getMyTeamPlaylists(c(), teamIds);
-export const listPlaylists = () => db.listPlaylists(c());
-export const createPlaylist = (name: string, folderId?: string) => db.createPlaylist(c(), name, folderId);
+export const listPlaylists = (orgId?: string, opts?: db.OrgScopeOpts) => db.listPlaylists(c(), orgId, opts);
+export const createPlaylist = (name: string, folderId?: string, orgId?: string) => db.createPlaylist(c(), name, folderId, orgId);
 export const updatePlaylist = (id: string, patch: { name?: string; folderId?: string | null }) => db.updatePlaylist(c(), id, patch);
 export const deletePlaylist = (id: string) => db.deletePlaylist(c(), id);
 export const addClips = (playlistId: string, clips: PlaylistClipItem[], startPosition: number) => db.addClips(c(), playlistId, clips, startPosition);
@@ -25,6 +25,6 @@ export const setPlaylistTeams = (playlistId: string, teamIds: string[]) => db.se
 export const setPlaylistUsers = (playlistId: string, userIds: string[]) => db.setPlaylistUsers(c(), playlistId, userIds);
 export const getMyDirectPlaylists = (teamIds?: string[]) => db.getMyDirectPlaylists(c(), teamIds);
 export const getMySharedOutPlaylists = (teamIds?: string[]) => db.getMySharedOutPlaylists(c(), teamIds);
-export const getMySharedPlaylists = () => db.getMySharedPlaylists(c());
+export const getMySharedPlaylists = (orgId?: string, opts?: db.OrgScopeOpts) => db.getMySharedPlaylists(c(), orgId, opts);
 export type { SharedPlaylist } from "@scoutable/shared/lib/playlists-db";
 export const notifyPendingPlaylistShares = (playlistId: string) => db.notifyPendingPlaylistShares(c(), playlistId);

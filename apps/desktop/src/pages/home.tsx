@@ -90,8 +90,8 @@ function CoachHomePage() {
         listMatchesLight(activeOrgId ?? undefined, { ownOnly: true }).catch(
           () => [] as StoredMatch[]
         ),
-        listPlaylists().catch(() => [] as Playlist[]),
-        listFolders().catch(() => [] as PlaylistFolder[]),
+        listPlaylists(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }).catch(() => [] as Playlist[]),
+        listFolders(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }).catch(() => [] as PlaylistFolder[]),
       ]);
       if (cancelled) return;
       const recent = ms.slice(0, RECENT_MATCH_COUNT);
@@ -126,7 +126,7 @@ function CoachHomePage() {
       return;
     }
     let cancelled = false;
-    getMySharedPlaylists()
+    getMySharedPlaylists(activeOrgId ?? undefined)
       .then(async (shared) => {
         if (cancelled) return;
         if (shared.length === 0) {

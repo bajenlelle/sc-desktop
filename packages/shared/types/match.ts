@@ -185,6 +185,8 @@ export interface PlaylistFolder {
   name: string;
   sortOrder: number;
   parentId?: string; // references PlaylistFolder.id; undefined = root folder
+  /** Org (space) this folder belongs to; undefined only for rows written by pre-org clients. */
+  orgId?: string;
 }
 
 export interface Playlist {
@@ -192,6 +194,8 @@ export interface Playlist {
   name: string;
   items: PlaylistItem[]; // ordered items (clips and text cards)
   folderId?: string; // references PlaylistFolder.id; undefined = Uncategorized
+  /** Org (space) this playlist belongs to; undefined only for rows written by pre-org clients. */
+  orgId?: string;
   teamId?: string;   // kept for backward compat; prefer teamIds
   teamIds?: string[]; // all teams this playlist is shared with (from playlist_shares)
   userIds?: string[]; // user IDs this playlist is directly shared with (coach view)

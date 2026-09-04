@@ -48,6 +48,7 @@ export interface PlaylistRow {
   name: string;
   folder_id: string | null;
   team_id: string | null;
+  org_id: string | null;
   created_at: string;
   updated_at: string;
   playlist_clips: PlaylistClipRow[];
@@ -103,6 +104,7 @@ export function rowToPlaylist(row: PlaylistRow): Playlist {
     name: row.name,
     items,
     folderId: row.folder_id ?? undefined,
+    orgId: row.org_id ?? undefined,
     teamId: row.team_id ?? undefined,
     teamIds,
     userIds,
@@ -133,6 +135,7 @@ const PLAYLIST_SELECT = `
   name,
   folder_id,
   team_id,
+  org_id,
   created_at,
   updated_at,
   playlist_clips (${CLIPS_SELECT}),
@@ -202,13 +205,39 @@ export async function getMyTeamPlaylists(
 // List all playlists for the current user (with items via join)
 // ---------------------------------------------------------------------------
 
-export async function listPlaylists(supabase: SupabaseClient): Promise<Playlist[]> {
+/**
+ * Org scoping options shared by the own-content list functions. `orgId`
+ * omitted = unfiltered (cross-org). `includeUnscoped` additionally returns
+ * org_id NULL rows — pass it when querying the personal space so content
+ * written by pre-org desktop clients stays visible instead of vanishing.
+ */
+export interface OrgScopeOpts {
+  includeUnscoped?: boolean;
+}
+
+export function applyOrgScope<T extends { eq(col: string, val: string): T; or(f: string): T }>(
+  query: T,
+  orgId?: string,
+  opts?: OrgScopeOpts,
+): T {
+  if (!orgId) return query;
+  return opts?.includeUnscoped
+    ? query.or(`org_id.eq.${orgId},org_id.is.null`)
+    : query.eq("org_id", orgId);
+}
+
+export async function listPlaylists(
+  supabase: SupabaseClient,
+  orgId?: string,
+  opts?: OrgScopeOpts,
+): Promise<Playlist[]> {
   const uid = await currentUserId(supabase);
   if (!uid) return [];
-  const { data, error } = await supabase
+  const query = supabase
     .from("playlists")
     .select(PLAYLIST_SELECT)
-    .eq("user_id", uid)
+    .eq("user_id", uid);
+  const { data, error } = await applyOrgScope(query, orgId, opts)
     .order("created_at", { ascending: false });
   if (error) { reportDbError("listPlaylists", error); return []; }
   if (!data) return [];
@@ -222,7 +251,8 @@ export async function listPlaylists(supabase: SupabaseClient): Promise<Playlist[
 export async function createPlaylist(
   supabase: SupabaseClient,
   name: string,
-  folderId?: string
+  folderId?: string,
+  orgId?: string
 ): Promise<Playlist> {
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) throw new Error("Not authenticated");
@@ -233,11 +263,12 @@ export async function createPlaylist(
       user_id: user.id,
       name,
       folder_id: folderId ?? null,
+      org_id: orgId ?? null,
     })
     .select()
     .single();
   if (error || !data) throw new Error(`Failed to create playlist: ${error?.message}`);
-  return { id: data.id, name: data.name, items: [], folderId: data.folder_id ?? undefined };
+  return { id: data.id, name: data.name, items: [], folderId: data.folder_id ?? undefined, orgId: data.org_id ?? undefined };
 }
 
 // ---------------------------------------------------------------------------
@@ -626,13 +657,18 @@ export interface SharedPlaylist extends Playlist {
  * shared solely to a team never appears in it. Owner scoping also matches
  * what clip_views_owner_read lets the caller read about recipients.
  */
-export async function getMySharedPlaylists(supabase: SupabaseClient): Promise<SharedPlaylist[]> {
+export async function getMySharedPlaylists(
+  supabase: SupabaseClient,
+  orgId?: string,
+  opts?: OrgScopeOpts,
+): Promise<SharedPlaylist[]> {
   const uid = await currentUserId(supabase);
   if (!uid) return [];
-  const { data, error } = await supabase
+  const query = supabase
     .from("playlists")
     .select(PLAYLIST_SELECT)
-    .eq("user_id", uid)
+    .eq("user_id", uid);
+  const { data, error } = await applyOrgScope(query, orgId, opts)
     .order("created_at", { ascending: false });
   if (error) { reportDbError("getMySharedPlaylists", error); return []; }
   if (!data) return [];

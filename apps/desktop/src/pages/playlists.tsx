@@ -1744,7 +1744,7 @@ export function PlaylistsPage() {
       setOnboardingHighlight(state.highlight);
       highlightTimer = window.setTimeout(() => setOnboardingHighlight(null), 6000);
     }
-    Promise.all([listPlaylists(), listMatchesLight(activeOrgId ?? undefined, { ownOnly: true }), listFolders(), (activeOrgId ? getOrgContextForOrg(activeOrgId, { myOrgs }) : getOrgContext()).catch(() => null)])
+    Promise.all([listPlaylists(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }), listMatchesLight(activeOrgId ?? undefined, { ownOnly: true }), listFolders(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }), (activeOrgId ? getOrgContextForOrg(activeOrgId, { myOrgs }) : getOrgContext()).catch(() => null)])
       .then(async ([loadedPlaylists, matchShells, loadedFolders, orgCtx]) => {
         // Events only for matches a playlist actually references. Passing
         // every match id pulled the complete play-by-play of every game the
@@ -3532,7 +3532,7 @@ export function PlaylistsPage() {
       }
       const parentId = folders.find((f) => f.id === id)?.parentId;
       try {
-        const folder = await createFolder(name, parentId);
+        const folder = await createFolder(name, parentId, activeOrgId ?? undefined);
         trackEvent("folder_created", { nested: parentId != null });
         setFolders((prev) => prev.map((f) => f.id === id ? folder : f));
         setExpandedFolders((prev) => { const s = new Set(prev); s.delete(id); s.add(folder.id); return s; });
@@ -3583,7 +3583,10 @@ export function PlaylistsPage() {
     } catch (err) {
       console.error("Failed to delete folder:", err);
       toast.error("Couldn't delete the folder — reloading");
-      const [freshFolders, freshPlaylists] = await Promise.all([listFolders(), listPlaylists()]);
+      const [freshFolders, freshPlaylists] = await Promise.all([
+        listFolders(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }),
+        listPlaylists(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }),
+      ]);
       setFolders(freshFolders);
       setPlaylists(freshPlaylists);
     }
@@ -3623,7 +3626,7 @@ export function PlaylistsPage() {
     } catch (err) {
       console.error("Failed to move folder:", err);
       toast.error("Couldn't move the folder — reloading");
-      setFolders(await listFolders());
+      setFolders(await listFolders(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }));
     }
   }
 
@@ -3657,7 +3660,7 @@ export function PlaylistsPage() {
       }
       const folderId = playlists.find((p) => p.id === playlistId)?.folderId;
       try {
-        const created = await createPlaylist(name, folderId);
+        const created = await createPlaylist(name, folderId, activeOrgId ?? undefined);
         trackEvent('playlist_created', { playlist_id: created.id, in_folder: !!folderId })
         setPlaylists((prev) => prev.map((p) => (p.id === playlistId ? created : p)));
         selectPlaylist(created);

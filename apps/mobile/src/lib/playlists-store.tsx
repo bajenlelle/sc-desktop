@@ -150,7 +150,7 @@ export function PlaylistsProvider({ children }: { children: React.ReactNode }) {
       // open a playlist that was shared direct-to-players (it never appears
       // in the team/direct feeds above).
       isCoachOrAdmin
-        ? getMySharedPlaylists(supabase).catch(() => [] as Playlist[])
+        ? getMySharedPlaylists(supabase, aggregated ? undefined : activeOrgId ?? undefined).catch(() => [] as Playlist[])
         : Promise.resolve([] as Playlist[]),
     ]);
     // Events only for matches the loaded playlists can play, merged into the

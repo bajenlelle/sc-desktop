@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  createPlaylist,
+  getMySharedPlaylists,
   getMyTeamPlaylists,
+  listPlaylists,
   rowToPlaylist,
   type PlaylistClipRow,
   type PlaylistRow,
@@ -36,6 +39,7 @@ function plRow(partial: Partial<PlaylistRow>): PlaylistRow {
     name: "P",
     folder_id: null,
     team_id: null,
+    org_id: null,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
     playlist_clips: [],
@@ -297,5 +301,100 @@ describe("getMyTeamPlaylists", () => {
       playlistsError: { message: "boom" },
     });
     await expect(getMyTeamPlaylists(client, ["teamA"])).resolves.toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Org scoping — the space-isolation filter on own-content queries
+// ---------------------------------------------------------------------------
+
+/**
+ * Double for the owner-scoped chains:
+ *   from("playlists").select(…).eq("user_id", …)[.eq("org_id", …)|.or(…)].order(…)
+ *   from("playlists").insert(…).select().single()
+ */
+function mockOwnClient(rows: PlaylistRow[] = []) {
+  const calls: { eq: Array<[string, unknown]>; or: string[]; inserted?: Record<string, unknown> } = {
+    eq: [],
+    or: [],
+  };
+  const listResult = { data: rows, error: null };
+  const b: Record<string, unknown> = {
+    select() { return b; },
+    eq(col: string, val: unknown) { calls.eq.push([col, val]); return b; },
+    or(filter: string) { calls.or.push(filter); return b; },
+    order() { return b; },
+    insert(payload: Record<string, unknown>) { calls.inserted = payload; return b; },
+    single: async () => ({
+      data: { id: "new", name: "N", folder_id: null, org_id: calls.inserted?.org_id ?? null },
+      error: null,
+    }),
+    then: (r: (x: typeof listResult) => unknown) => Promise.resolve(listResult).then(r),
+  };
+  const client = {
+    auth: {
+      getSession: async () => ({ data: { session: { user: { id: "owner" } } }, error: null }),
+      getUser: async () => ({ data: { user: { id: "owner" } }, error: null }),
+    },
+    from: () => b,
+  } as unknown as SupabaseClient;
+  return { client, calls };
+}
+
+describe("listPlaylists org scoping", () => {
+  it("filters by org_id when an orgId is given", async () => {
+    const { client, calls } = mockOwnClient([plRow({ org_id: "orgA" })]);
+    await listPlaylists(client, "orgA");
+    expect(calls.eq).toContainEqual(["user_id", "owner"]);
+    expect(calls.eq).toContainEqual(["org_id", "orgA"]);
+    expect(calls.or).toEqual([]);
+  });
+
+  it("includes org_id NULL rows via .or when includeUnscoped is set (personal space)", async () => {
+    const { client, calls } = mockOwnClient();
+    await listPlaylists(client, "orgP", { includeUnscoped: true });
+    expect(calls.or).toEqual(["org_id.eq.orgP,org_id.is.null"]);
+    expect(calls.eq).toEqual([["user_id", "owner"]]);
+  });
+
+  it("stays unfiltered (cross-org) when orgId is omitted", async () => {
+    const { client, calls } = mockOwnClient();
+    await listPlaylists(client);
+    expect(calls.eq).toEqual([["user_id", "owner"]]);
+    expect(calls.or).toEqual([]);
+  });
+
+  it("maps org_id onto the domain object", async () => {
+    const { client } = mockOwnClient([plRow({ org_id: "orgA" })]);
+    const [p] = await listPlaylists(client, "orgA");
+    expect(p.orgId).toBe("orgA");
+  });
+});
+
+describe("createPlaylist org scoping", () => {
+  it("writes the org_id it was given", async () => {
+    const { client, calls } = mockOwnClient();
+    const created = await createPlaylist(client, "Name", undefined, "orgA");
+    expect(calls.inserted?.org_id).toBe("orgA");
+    expect(created.orgId).toBe("orgA");
+  });
+
+  it("writes org_id NULL when no org is given (legacy caller)", async () => {
+    const { client, calls } = mockOwnClient();
+    const created = await createPlaylist(client, "Name");
+    expect(calls.inserted?.org_id).toBeNull();
+    expect(created.orgId).toBeUndefined();
+  });
+});
+
+describe("getMySharedPlaylists org scoping", () => {
+  it("applies the org filter and still keeps only rows with shares", async () => {
+    const { client, calls } = mockOwnClient([
+      plRow({ id: "shared", org_id: "orgA", playlist_shares: [{ team_id: "t1" }] }),
+      plRow({ id: "unshared", org_id: "orgA" }),
+    ]);
+    const out = await getMySharedPlaylists(client, "orgA");
+    expect(calls.eq).toContainEqual(["org_id", "orgA"]);
+    expect(out.map((p) => p.id)).toEqual(["shared"]);
   });
 });

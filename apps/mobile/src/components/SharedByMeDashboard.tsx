@@ -90,7 +90,7 @@ export function SharedByMeDashboard() {
   const scheme = useColorScheme();
   const colors = themeColors(scheme);
   const { teamMap, memberMap } = usePlaylists();
-  const { user } = useAuth();
+  const { user, activeOrgId } = useAuth();
   const currentUserId = user?.id ?? null;
 
   const [shared, setShared] = useState<SharedPlaylist[] | null>(null);
@@ -107,7 +107,7 @@ export function SharedByMeDashboard() {
 
   useEffect(() => {
     let cancelled = false;
-    getMySharedPlaylists(supabase).then(async (playlists) => {
+    getMySharedPlaylists(supabase, activeOrgId ?? undefined).then(async (playlists) => {
       if (cancelled) return;
       const teamIds = [...new Set(playlists.flatMap((p) => p.teamShares.map((t) => t.teamId)))];
       const [members, clipViews] = await Promise.all([
@@ -125,7 +125,8 @@ export function SharedByMeDashboard() {
     return () => {
       cancelled = true;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeOrgId]);
 
   // All derivation lives in @scoutable/shared/lib/shared-by-me (tested there);
   // this component only wires state to it and renders.

@@ -8,6 +8,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { currentUserId } from "./current-user";
+import { applyOrgScope, type OrgScopeOpts } from "./playlists-db";
 import type { PlaylistFolder, PlayByPlayEvent, StoredMatch, SyncPoint } from "../types/match";
 
 // ---------------------------------------------------------------------------
@@ -401,6 +402,7 @@ interface FolderRow {
   name: string;
   sort_order: number;
   parent_id: string | null;
+  org_id: string | null;
   created_at: string;
 }
 
@@ -410,14 +412,20 @@ function rowToFolder(row: FolderRow): PlaylistFolder {
     name: row.name,
     sortOrder: row.sort_order,
     parentId: row.parent_id ?? undefined,
+    orgId: row.org_id ?? undefined,
   };
 }
 
-export async function listFolders(supabase: SupabaseClient): Promise<PlaylistFolder[]> {
-  const { data, error } = await supabase
+export async function listFolders(
+  supabase: SupabaseClient,
+  orgId?: string,
+  opts?: OrgScopeOpts,
+): Promise<PlaylistFolder[]> {
+  let query = supabase
     .from("playlist_folders")
-    .select("*")
-    .order("sort_order", { ascending: true });
+    .select("*");
+  query = applyOrgScope(query, orgId, opts);
+  const { data, error } = await query.order("sort_order", { ascending: true });
   if (error || !data) return [];
   return (data as FolderRow[]).map(rowToFolder);
 }
@@ -426,12 +434,13 @@ export async function createFolder(
   supabase: SupabaseClient,
   name: string,
   parentId?: string,
+  orgId?: string,
 ): Promise<PlaylistFolder> {
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) throw new Error("Not authenticated");
   const { data, error } = await supabase
     .from("playlist_folders")
-    .insert({ user_id: user.id, name, sort_order: 0, parent_id: parentId ?? null })
+    .insert({ user_id: user.id, name, sort_order: 0, parent_id: parentId ?? null, org_id: orgId ?? null })
     .select()
     .single();
   if (error || !data) throw new Error(`Failed to create folder: ${error?.message}`);
