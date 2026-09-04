@@ -12,6 +12,7 @@ import { listPlaylists, getMySharedPlaylists } from "@/lib/playlists-db";
 import { getTeamMembers } from "@/lib/teams-db";
 import { listPlaylistClipViews } from "@/lib/clip-views-db";
 import { bulkSendReminders } from "@/lib/reminders-bulk";
+import { getHasExported } from "@/lib/prefs";
 import { useAuth } from "@/lib/auth-context";
 import { folderPath } from "@scoutable/shared/lib/folder-tree";
 import { computeHomeHero } from "@scoutable/shared/lib/home-hero";
@@ -177,7 +178,7 @@ function CoachHomePage() {
       isClubSpace,
       hasSharedAny: dashboardRows.length > 0,
       behindCount: summary.behind,
-      hasExported: localStorage.getItem("scoutable_has_exported") === "1",
+      hasExported: getHasExported(user?.id),
     });
   }, [matches, playlists, isClubSpace, dashboardRows, summary.behind, exportTick]);
 

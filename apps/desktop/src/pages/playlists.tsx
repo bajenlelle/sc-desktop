@@ -103,7 +103,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { exportPlaylist, notifyExportSuccess, type ExportSegment } from "@/lib/export";
-import { getExportWatermarkDisabled } from "@/lib/prefs";
+import { getExportWatermarkDisabled, setHasExported } from "@/lib/prefs";
 import { clipAndShip } from "@/lib/clip-and-ship";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
@@ -1142,6 +1142,12 @@ function ClipBrowserPanel({
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <Link to="/upload">
+            <Button size="sm" variant="outline" className="h-8 gap-1.5">
+              <Plus className="h-3.5 w-3.5" />
+              Import game
+            </Button>
+          </Link>
           {activeOrgId && selectedClipKeyPairs.length > 0 && (
             <LabelPickerPopover
               trigger={
@@ -1296,13 +1302,14 @@ function ClipBrowserPanel({
               <div className="flex flex-col items-center gap-3 py-12 text-center">
                 <p className="text-sm text-muted-foreground">
                   {matches.length === 0
-                    ? "No games imported yet. Add a game in the Library to get started."
+                    ? "No games imported yet. Import a game to get started."
                     : "No events match the current filters. Try adjusting them."}
                 </p>
                 {matches.length === 0 && (
-                  <Link to="/matches">
-                    <Button size="sm" variant="outline" className="text-xs">
-                      Go to Library
+                  <Link to="/upload">
+                    <Button size="sm" variant="outline" className="text-xs gap-1.5">
+                      <Plus className="h-3.5 w-3.5" />
+                      Import game
                     </Button>
                   </Link>
                 )}
@@ -1526,7 +1533,7 @@ function AddToDropdown({
 // ---------------------------------------------------------------------------
 
 export function PlaylistsPage() {
-  const { activeOrgId, activeOrgPlan, activeOrgRole, activeOrgIsPersonal, myOrgs, profileLoading } = useAuth();
+  const { user, activeOrgId, activeOrgPlan, activeOrgRole, activeOrgIsPersonal, myOrgs, profileLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const canAccess = activeOrgIsPersonal || activeOrgRole === "coach" || activeOrgRole === "admin";
@@ -1808,6 +1815,33 @@ export function PlaylistsPage() {
       .finally(() => setLoading(false));
     return () => { if (highlightTimer !== undefined) window.clearTimeout(highlightTimer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeOrgId]);
+
+  // Demo seeding can land after this page mounts (auth-context fires
+  // demo-seeded when the sample-game copy completes), and imports elsewhere
+  // dispatch matches-changed — refresh the match list so the clip browser's
+  // empty state self-corrects. Matches only: rerunning the full load effect
+  // would clobber the open playlist's selection/editing state. Existing rows
+  // keep their object (and thus their merged play-by-play events) — fresh
+  // shells arrive with events: [] and ensureEventsFor skips already-loaded
+  // ids, so replacing a known match would lose its events for good.
+  useEffect(() => {
+    const refreshMatches = () => {
+      listMatchesLight(activeOrgId ?? undefined, { ownOnly: true })
+        .then((shells) => {
+          setMatches((prev) => {
+            const prevById = new Map(prev.map((m) => [m.id, m]));
+            return shells.map((s) => prevById.get(s.id) ?? s);
+          });
+        })
+        .catch(() => {});
+    };
+    window.addEventListener("demo-seeded", refreshMatches);
+    window.addEventListener("matches-changed", refreshMatches);
+    return () => {
+      window.removeEventListener("demo-seeded", refreshMatches);
+      window.removeEventListener("matches-changed", refreshMatches);
+    };
   }, [activeOrgId]);
 
   /**
@@ -3157,9 +3191,9 @@ export function PlaylistsPage() {
       if (exportedPath) {
         notifyExportSuccess(exportedPath);
         trackEvent('video_exported', { playlist_id: selected!.id, clip_count: segmentCount, status: 'success', selection_only: selectedClipIds.size > 0 });
-        // Completes the Getting Started "export a playlist" step (per-device
+        // Completes the Getting Started "export a playlist" step (local-only
         // is fine — the checklist is a first-session aid, not a record).
-        localStorage.setItem("scoutable_has_exported", "1");
+        setHasExported(user?.id);
         window.dispatchEvent(new CustomEvent("playlist-exported"));
       }
     } catch (e) {
