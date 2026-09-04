@@ -176,7 +176,6 @@ export function UploadZone({
 
   // Video state
   const [videoPath, setVideoPath] = useState<string | null>(null);
-  const [dragActive, setDragActive] = useState(false);
   const [syncSeconds, setSyncSeconds] = useState<number | null>(null);
   const [submitStatus, setSubmitStatus] = useState<"idle" | "saving" | "error">("idle");
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -590,17 +589,16 @@ export function UploadZone({
           <CardContent className="space-y-5 p-6">
             {/* Video file picker */}
             <div className="space-y-2">
+              {/* Click-to-pick only: OS file drops are disabled app-wide
+                  (dragDropEnabled: false — native drop would break the HTML5
+                  drag that playlist reorder uses), so no drop affordance. */}
               <div
-                onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-                onDragLeave={() => setDragActive(false)}
-                onDrop={(e) => { e.preventDefault(); setDragActive(false); }}
+                onClick={videoPath ? undefined : handlePickVideo}
                 className={cn(
                   "flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 transition-colors",
-                  dragActive
-                    ? "border-primary bg-primary/10"
-                    : videoPath
-                      ? "border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950"
-                      : "border-border bg-muted/30 hover:border-primary/50 hover:bg-primary/5"
+                  videoPath
+                    ? "border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950"
+                    : "cursor-pointer border-border bg-muted/30 hover:border-primary/50 hover:bg-primary/5"
                 )}
               >
                 {videoPath ? (
@@ -623,7 +621,7 @@ export function UploadZone({
                   <>
                     <Film className="mb-3 h-8 w-8 text-muted-foreground" />
                     <p className="text-sm font-semibold text-foreground/80">
-                      {dragActive ? "Drop video file here" : "Choose or drop a video file"}
+                      Choose a video file
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       MP4, MOV, AVI, MKV — plays locally, nothing is uploaded
@@ -633,7 +631,7 @@ export function UploadZone({
                       variant="outline"
                       size="sm"
                       className="mt-4"
-                      onClick={handlePickVideo}
+                      onClick={(e) => { e.stopPropagation(); handlePickVideo(); }}
                     >
                       Choose video file…
                     </Button>
