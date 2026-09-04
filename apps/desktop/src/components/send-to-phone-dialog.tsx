@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { sendHighlightToPhone, type SendToPhoneStage } from "@/lib/highlight-share";
 import { getMyShareForPlaylist } from "@/lib/highlight-shares-db";
+import { highlightContentKey } from "@scoutable/shared/lib/highlight-shares-db";
 import { trackEvent } from "@/lib/analytics";
 import type { ExportSegment } from "@/lib/export";
 
@@ -90,19 +91,25 @@ export function SendToPhoneDialog({
 
   useEffect(() => {
     if (!open || !playlist || runningRef.current || shareUrl) return;
-    // Vertical renders never reuse a stored link — existing shares point at
-    // 16:9 masters, and a subset (selection) must not impersonate the full
-    // playlist's link either.
-    if (isSelection || vertical) {
+    // A subset (selection) must not impersonate the full playlist's link.
+    if (isSelection) {
       runPipeline(playlist);
       return;
     }
-    getMyShareForPlaylist(playlist.id)
+    // Reuse is exact-match only: same aspect AND same content fingerprint
+    // (clips, order, rolls, and — for 9:16 — crop pans). Any edit between
+    // sends misses the lookup and re-renders automatically.
+    const aspect = vertical ? ("9:16" as const) : ("16:9" as const);
+    getMyShareForPlaylist(playlist.id, aspect, highlightContentKey(segments, preRoll, postRoll, aspect))
       .then((existing) => {
         if (existing) {
           setShareUrl(`${APP_URL}/h/${existing.id}`);
           setReusedFrom(existing.createdAt);
-          trackEvent("highlight_sent_to_phone", { playlist_id: playlist.id, reused: true });
+          trackEvent("highlight_sent_to_phone", {
+            playlist_id: playlist.id,
+            reused: true,
+            ...(vertical ? { aspect: "9:16" } : {}),
+          });
         } else {
           runPipeline(playlist);
         }
