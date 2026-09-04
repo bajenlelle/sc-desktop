@@ -11,6 +11,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { getMatch, updateMatchMeta, updateVideoUrl, updateSyncPoint } from "@/lib/matches-db";
 import { listPlaylists } from "@/lib/playlists-db";
+import { useAuth } from "@/lib/auth-context";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { cn } from "@/lib/utils";
@@ -93,6 +94,7 @@ export function MatchDetailPage() {
   const matchId = id!;
   const navigate = useNavigate();
   const location = useLocation();
+  const { activeOrgId, activeOrgIsPersonal } = useAuth();
   const locationState = location.state as { from?: string; matchId?: string; playlistId?: string } | null;
   const fromPlaylists = locationState?.from === "/playlists";
 
@@ -121,7 +123,7 @@ export function MatchDetailPage() {
       try {
         const [dbMatch, loadedPlaylists] = await Promise.all([
           getMatch(matchId),
-          listPlaylists(),
+          listPlaylists(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }),
         ]);
         if (cancelled) return;
         if (dbMatch) {
@@ -150,7 +152,8 @@ export function MatchDetailPage() {
     }
     load();
     return () => { cancelled = true; };
-  }, [matchId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchId, activeOrgId]);
 
   // --- derive localVideoUrl from storedMatch ---
   useEffect(() => {

@@ -96,14 +96,19 @@ function PitchPage() {
 }
 
 function OwnPlaylists() {
+  const { myOrgs } = useAuth();
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [loading, setLoading] = useState(true);
+  // My Highlights = the player's own reels, which live in the personal
+  // space. Coach-org content reaches them via My Playlists → Shared with me.
+  const personalOrgId = myOrgs.find((o) => o.isPersonal)?.orgId;
 
   useEffect(() => {
-    listPlaylists(createClient())
+    if (!personalOrgId) return;
+    listPlaylists(createClient(), personalOrgId, { includeUnscoped: true })
       .then(setPlaylists)
       .finally(() => setLoading(false));
-  }, []);
+  }, [personalOrgId]);
 
   if (loading) {
     return (

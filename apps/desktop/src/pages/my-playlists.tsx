@@ -157,7 +157,7 @@ export function MyPlaylistsPage() {
         getMyDirectPlaylists(activeTeamIds).catch(() => [] as Playlist[]),
         // Owner-based (not direct-shares-only): a coach's team-only-shared
         // playlists must be resolvable/openable here too.
-        getMySharedPlaylists().catch(() => [] as SharedPlaylist[]),
+        getMySharedPlaylists(activeOrgId ?? undefined).catch(() => [] as SharedPlaylist[]),
       ]);
       // Events only for matches the loaded playlists can play, merged into
       // the shells and published in ONE setMatches — clip rows silently drop

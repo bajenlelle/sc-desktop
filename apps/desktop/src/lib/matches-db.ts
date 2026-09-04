@@ -37,8 +37,8 @@ export const deleteMatch = async (matchId: string) => {
   await db.deleteMatch(c(), matchId);
   window.dispatchEvent(new CustomEvent("matches-changed"));
 };
-export const listFolders = () => db.listFolders(c());
-export const createFolder = (name: string, parentId?: string) => db.createFolder(c(), name, parentId);
+export const listFolders = (orgId?: string, opts?: { includeUnscoped?: boolean }) => db.listFolders(c(), orgId, opts);
+export const createFolder = (name: string, parentId?: string, orgId?: string) => db.createFolder(c(), name, parentId, orgId);
 export const updateFolder = (id: string, patch: { name?: string; sortOrder?: number; parentId?: string | null }) => db.updateFolder(c(), id, patch);
 export const deleteFolder = (id: string) => db.deleteFolder(c(), id);
 export const listMatchesLight = (orgId?: string, opts?: { ownOnly?: boolean }) => db.listMatchesLight(c(), orgId, opts);
