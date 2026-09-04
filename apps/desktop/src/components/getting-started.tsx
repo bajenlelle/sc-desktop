@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import { dismissOnboardingChecklist, setDeclaredRole } from "@/lib/profile-db";
 import { getMySharedOutPlaylists } from "@/lib/playlists-db";
+import { getHasExported } from "@/lib/prefs";
 import { trackEvent } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 import type { Playlist, StoredMatch } from "@/types/match";
@@ -37,12 +38,10 @@ export function GettingStarted({
   playlists: Playlist[];
 }) {
   const navigate = useNavigate();
-  const { profile, activeOrg, activeOrgIsPersonal, activeOrgPlan, activeOrgRole, reloadProfile } = useAuth();
+  const { user, profile, activeOrg, activeOrgIsPersonal, activeOrgPlan, activeOrgRole, reloadProfile } = useAuth();
   const [hidden, setHidden] = useState(false);
   const [hasSharedOut, setHasSharedOut] = useState(false);
-  const [hasExported, setHasExported] = useState(
-    () => !!localStorage.getItem("scoutable_has_exported"),
-  );
+  const [hasExported, setHasExported] = useState(() => getHasExported(user?.id));
   const celebratedRef = useRef(false);
 
   // In club spaces the membership role is authoritative: player members

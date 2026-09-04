@@ -21,3 +21,18 @@ export function setExportWatermarkDisabled(disabled: boolean): void {
     localStorage.removeItem(EXPORT_WATERMARK_OFF);
   }
 }
+
+/**
+ * "Has this user ever exported a playlist on this device" — drives the
+ * Getting Started export step, which leaves no server trace. Namespaced per
+ * user: the legacy un-namespaced `scoutable_has_exported` key pre-checked the
+ * step for every later account on a shared machine, so it is deliberately
+ * ignored (not migrated, not deleted).
+ */
+export function getHasExported(userId: string | undefined): boolean {
+  return !!userId && localStorage.getItem(`scoutable_has_exported:${userId}`) === "1";
+}
+
+export function setHasExported(userId: string | undefined): void {
+  if (userId) localStorage.setItem(`scoutable_has_exported:${userId}`, "1");
+}
