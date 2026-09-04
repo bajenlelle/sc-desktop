@@ -169,12 +169,13 @@ function formatClipTime(seconds: number): string {
 }
 
 /**
- * Clip timeline shown in crop mode: a scrubber over the ACTIVE CLIP's window
- * (not the whole game file) with the pan keyframes as dots and a live
- * playhead — so it's always visible where a drag will drop its keyframe.
- * The playhead is rAF-driven (WKWebView's timeupdate is ~4 Hz).
+ * Playback timeline for the ACTIVE CLIP's window (not the whole game file):
+ * elapsed/total time, click-or-drag scrubbing, and a live playhead —
+ * rAF-driven (WKWebView's timeupdate is ~4 Hz). In crop mode the pan
+ * keyframes render as jump-to dots; otherwise pass no keyframes and it's a
+ * plain scrubber.
  */
-export function CropTimeline({
+export function ClipTimeline({
   videoRef,
   keyframes,
   clipStart,

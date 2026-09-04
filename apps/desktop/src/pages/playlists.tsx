@@ -61,7 +61,7 @@ import type { Label, LabelColor, ClipKey } from "@scoutable/shared/types/labels"
 import { eventColors, eventLabel, formatGameClock, isBookkeepingEvent, parseGameClock, playerName } from "@scoutable/shared/lib/events";
 import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import type { CropKeyframe } from "@scoutable/shared/lib/crop-path";
-import { CropEditorBar, CropOverlay, CropTimeline, upsertKeyframe } from "@/components/crop-editor";
+import { ClipTimeline, CropEditorBar, CropOverlay, upsertKeyframe } from "@/components/crop-editor";
 import { ExportFormatDialog, type ExportAction } from "@/components/export-format-dialog";
 import {
   moveBlock,
@@ -4895,10 +4895,12 @@ export function PlaylistsPage() {
           onPointerEnter={playerFs.active ? () => setFsChromeHover(true) : undefined}
           onPointerLeave={playerFs.active ? () => setFsChromeHover(false) : undefined}
         >
-        {cropMode && activeClipKey && activeClipCrop.start !== null && activeClipCrop.end !== null && (
-          <CropTimeline
+        {/* Clip scrubber — always on during playback (both layouts, windowed
+            and fullscreen); the pan-keyframe dots appear only in crop mode. */}
+        {activeClipKey && activeClipCrop.start !== null && activeClipCrop.end !== null && (
+          <ClipTimeline
             videoRef={videoRef}
-            keyframes={activeClipCrop.keyframes}
+            keyframes={cropMode ? activeClipCrop.keyframes : undefined}
             clipStart={activeClipCrop.start}
             clipEnd={activeClipCrop.end}
             onSeek={handleCropSeek}
