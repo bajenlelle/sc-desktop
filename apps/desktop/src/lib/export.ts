@@ -3,6 +3,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { toast } from "sonner";
 import { isLocalPath } from "@/lib/stream";
+import { probeVideoPath, videoBasename } from "@/lib/video-probe";
 import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { toSegmentKeyframes, type CropKeyframe } from "@scoutable/shared/lib/crop-path";
 import type { PlayByPlayEvent, SyncPoint } from "@/types/match";
@@ -23,6 +24,23 @@ export interface ExportItem {
 type RustSegment =
   | { kind: 'clip'; video_path: string; start: number; end: number; crop_keyframes?: CropKeyframe[] }
   | { kind: 'text'; text: string; duration_seconds: number };
+
+/**
+ * A moved/deleted source file (machine switch) would otherwise surface as
+ * raw ffmpeg stderr after a long wait — fail fast with a fixable message.
+ */
+async function assertVideosPresent(segments: ExportSegment[]): Promise<void> {
+  const paths = [...new Set(
+    segments.flatMap((s) => (s.kind === "clip" && isLocalPath(s.videoPath) ? [s.videoPath] : [])),
+  )];
+  const results = await Promise.all(paths.map((p) => probeVideoPath(p)));
+  const gone = paths.find((_, i) => results[i].status !== "ok");
+  if (gone) {
+    throw new Error(
+      `The video file for "${videoBasename(gone)}" isn't on this computer — open the game in the Library and locate it.`,
+    );
+  }
+}
 
 function buildRustSegments(
   segments: ExportSegment[],
@@ -74,6 +92,7 @@ export async function exportPlaylistToPath(
   watermark: boolean,
   vertical = false,
 ): Promise<void> {
+  await assertVideosPresent(segments);
   const rustSegments = buildRustSegments(segments, preRoll, postRoll, vertical);
   await invoke<void>("export_playlist", { segments: rustSegments, outputPath, watermark, vertical });
 }
@@ -90,6 +109,7 @@ export async function exportPlaylist(
   watermark: boolean,
   vertical = false,
 ): Promise<string | null> {
+  await assertVideosPresent(segments);
   const rustSegments = buildRustSegments(segments, preRoll, postRoll, vertical);
 
   const outputPath = await save({

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
-import { ArrowLeft, CalendarIcon, Film, FolderOpen, Loader2 } from "lucide-react";
+import { ArrowLeft, CalendarIcon, Film, FolderOpen, Loader2, VideoOff } from "lucide-react";
+import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 import { DeleteMatchDialog } from "@/components/delete-match-dialog";
 import { SyncPointPicker } from "@/components/sync-point-picker";
@@ -14,6 +15,7 @@ import { listPlaylists } from "@/lib/playlists-db";
 import { useAuth } from "@/lib/auth-context";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
+import { probeVideoPath, type VideoFileStatus } from "@/lib/video-probe";
 import { cn } from "@/lib/utils";
 import type { StoredMatch, SyncPoint } from "@/types/match";
 
@@ -173,7 +175,22 @@ export function MatchDetailPage() {
     };
   }, []);
 
-  // --- file picker ---
+  // Machine-switch detection: is the referenced local file actually here?
+  const [videoStatus, setVideoStatus] = useState<VideoFileStatus | null>(null);
+  useEffect(() => {
+    const url = storedMatch?.videoUrl;
+    if (!url || !isLocalPath(url)) {
+      setVideoStatus(url ? "ok" : null);
+      return;
+    }
+    let cancelled = false;
+    probeVideoPath(url).then(({ status }) => {
+      if (!cancelled) setVideoStatus(status);
+    });
+    return () => { cancelled = true; };
+  }, [storedMatch?.videoUrl]);
+
+  // --- file picker (attach or relink) ---
   const handlePickVideoFile = useCallback(async () => {
     const result = await openFileDialog({
       multiple: false,
@@ -187,8 +204,12 @@ export function MatchDetailPage() {
     try {
       await updateVideoUrl(matchId, result);
       setStoredMatch((m) => m ? { ...m, videoUrl: result } : m);
-    } catch {
-      // Non-fatal
+      setVideoStatus("ok");
+    } catch (e) {
+      // The optimistic player src would lie across reloads — say so.
+      toast.error("Couldn't save the video link", {
+        description: e instanceof Error ? e.message : String(e),
+      });
     }
   }, [matchId]);
 
@@ -434,6 +455,28 @@ export function MatchDetailPage() {
                 Sample game — video streams from Scoutable
               </span>
             </div>
+          ) : videoFileName && videoStatus !== null && videoStatus !== "ok" ? (
+            <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/5 px-4 py-3">
+              <div className="flex items-center gap-2">
+                <VideoOff className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <span className="text-sm font-medium text-foreground">
+                  This video isn't on this computer
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {videoStatus === "unreadable"
+                  ? "Scoutable doesn't have permission to read the file — pick it again to grant access."
+                  : "Games reference the video file on the machine that imported them — nothing is uploaded. Point Scoutable at the file on this computer to keep working."}
+              </p>
+              <div className="flex items-center gap-3">
+                <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
+                  {videoFileName}
+                </span>
+                <Button size="sm" className="h-7 shrink-0 text-xs" onClick={handlePickVideoFile}>
+                  Locate file…
+                </Button>
+              </div>
+            </div>
           ) : videoFileName ? (
             <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3">
               <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -469,8 +512,10 @@ export function MatchDetailPage() {
             </div>
           )}
 
-          {/* Sync point */}
-          {storedMatch.videoUrl ? (
+          {/* Sync point. The scrub picker only mounts on a video that's
+              actually readable here — on a dead path its confirm would
+              silently overwrite a correct sync point with 0:00. */}
+          {storedMatch.videoUrl && (!isLocalPath(storedMatch.videoUrl) || videoStatus === "ok") ? (
             <SyncPointPicker
               videoPath={storedMatch.videoUrl}
               tipoffHint={syncHint ?? undefined}

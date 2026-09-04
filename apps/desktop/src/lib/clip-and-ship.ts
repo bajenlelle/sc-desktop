@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isLocalPath } from "@/lib/stream";
+import { probeVideoPath, videoBasename } from "@/lib/video-probe";
 import { uploadToR2 } from "@/lib/r2-upload";
 import { updateClipR2Url } from "@/lib/playlists-db";
 import { clipBounds, clipShipKey, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
@@ -42,6 +43,18 @@ export async function clipAndShip(
   for (const seg of clipSegments) {
     if (!isLocalPath(seg.videoPath))
       throw new Error(`Clip & Ship requires a local video file (got: ${seg.videoPath})`);
+  }
+  // Machine-switch guard: a moved/deleted file would otherwise fail every
+  // clip twice (the run + the automatic retry) with raw ffmpeg stderr.
+  {
+    const paths = [...new Set(clipSegments.map((s) => s.videoPath))];
+    const probes = await Promise.all(paths.map((p) => probeVideoPath(p)));
+    const gone = paths.find((_, i) => probes[i].status !== "ok");
+    if (gone) {
+      throw new Error(
+        `The video file for "${videoBasename(gone)}" isn't on this computer — open the game in the Library and locate it.`,
+      );
+    }
   }
 
   const tempDir = await invoke<string>("get_temp_dir");

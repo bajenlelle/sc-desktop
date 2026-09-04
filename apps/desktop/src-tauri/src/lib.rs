@@ -451,6 +451,74 @@ async fn get_temp_dir() -> String {
     std::env::temp_dir().to_string_lossy().to_string()
 }
 
+#[derive(serde::Serialize)]
+struct VideoFileEntry {
+    path: String,
+    file_name: String,
+    size: u64,
+}
+
+const VIDEO_EXTENSIONS: [&str; 6] = ["mp4", "mov", "avi", "mkv", "webm", "m4v"];
+const VIDEO_SCAN_MAX_DEPTH: usize = 5;
+const VIDEO_SCAN_MAX_ENTRIES: usize = 5000;
+
+fn collect_video_files(
+    dir: &std::path::Path,
+    depth: usize,
+    out: &mut Vec<VideoFileEntry>,
+) {
+    if depth > VIDEO_SCAN_MAX_DEPTH || out.len() >= VIDEO_SCAN_MAX_ENTRIES {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        if out.len() >= VIDEO_SCAN_MAX_ENTRIES {
+            return;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue; // hidden files and dirs
+        }
+        let path = entry.path();
+        let Ok(file_type) = entry.file_type() else { continue };
+        if file_type.is_dir() {
+            collect_video_files(&path, depth + 1, out);
+        } else if file_type.is_file() {
+            let ext_matches = path
+                .extension()
+                .map(|e| {
+                    let e = e.to_string_lossy().to_lowercase();
+                    VIDEO_EXTENSIONS.contains(&e.as_str())
+                })
+                .unwrap_or(false);
+            if ext_matches {
+                let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                out.push(VideoFileEntry {
+                    path: path.to_string_lossy().to_string(),
+                    file_name: name,
+                    size,
+                });
+            }
+        }
+        // Symlinks are skipped: following them risks cycles and scanning
+        // outside the folder the user actually pointed at.
+    }
+}
+
+/// Recursively list video files under a user-picked folder — feeds the
+/// "Find missing videos" bulk-relink flow. Bounded (depth 5, 5000 entries,
+/// hidden dirs skipped) so pointing at ~/ by accident stays cheap.
+#[tauri::command]
+async fn list_video_files(dir: String) -> Result<Vec<VideoFileEntry>, String> {
+    let root = std::path::PathBuf::from(&dir);
+    if !root.is_dir() {
+        return Err("Not a folder".into());
+    }
+    let mut out = Vec::new();
+    collect_video_files(&root, 0, &mut out);
+    Ok(out)
+}
+
 /// Canonicalize `path` and require it to live inside `dir` (also
 /// canonicalized — on macOS temp_dir() sits behind the /var -> /private/var
 /// symlink). Rejects `..` traversal and symlink escapes, which a plain
@@ -679,6 +747,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             export_playlist,
             get_temp_dir,
+            list_video_files,
             delete_file,
             read_file,
             export_clip_for_ship,
@@ -766,6 +835,30 @@ mod tests {
             expr,
             "2*trunc(clip(if(lt(t\\,4.000)\\,lerp(0.1000\\,0.9000\\,(t-0.000)/4.000)\\,0.9000)*iw-ow/2\\,0\\,iw-ow)/2)"
         );
+    }
+
+    #[test]
+    fn collect_video_files_filters_extensions_hidden_and_depth() {
+        let base = scratch("videoscan");
+        let root = base.join("sandbox");
+        std::fs::create_dir_all(root.join("sub/.hidden")).unwrap();
+        std::fs::create_dir_all(root.join("a/b/c/d/e/f/g")).unwrap(); // beyond depth 5
+        std::fs::write(root.join("game one.MP4"), b"x").unwrap();
+        std::fs::write(root.join("sub/practice.mov"), b"xy").unwrap();
+        std::fs::write(root.join("sub/notes.txt"), b"x").unwrap();
+        std::fs::write(root.join("sub/.hidden/secret.mp4"), b"x").unwrap();
+        std::fs::write(root.join(".DS_Store"), b"x").unwrap();
+        std::fs::write(root.join("a/b/c/d/e/f/g/deep.mp4"), b"x").unwrap();
+
+        let mut out = Vec::new();
+        collect_video_files(&root, 0, &mut out);
+        let mut names: Vec<&str> = out.iter().map(|e| e.file_name.as_str()).collect();
+        names.sort();
+        // Uppercase extension matches; txt, hidden dir, and beyond-depth files don't.
+        assert_eq!(names, vec!["game one.MP4", "practice.mov"]);
+        let practice = out.iter().find(|e| e.file_name == "practice.mov").unwrap();
+        assert_eq!(practice.size, 2);
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

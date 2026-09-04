@@ -39,6 +39,9 @@ export function SyncPointPicker({
   const [duration, setDuration] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [confirmedTime, setConfirmedTime] = useState<number | null>(initialSeconds ?? null);
+  // Load failure (file gone/unreadable): confirming would silently persist
+  // 0:00 over a possibly-correct sync point — block it and say why.
+  const [videoFailed, setVideoFailed] = useState(false);
 
   // The sample game's video is a remote R2 URL, not a local file.
   const src = isLocalPath(videoPath) ? streamFileSrc(videoPath) : videoPath;
@@ -64,11 +67,15 @@ export function SyncPointPicker({
 
     function onPlay() { setPlaying(true); }
     function onPause() { setPlaying(false); }
+    function onError() { setVideoFailed(true); }
+    function onLoadStart() { setVideoFailed(false); }
 
     video.addEventListener("loadedmetadata", onLoadedMetadata);
     video.addEventListener("timeupdate", onTimeUpdate);
     video.addEventListener("play", onPlay);
     video.addEventListener("pause", onPause);
+    video.addEventListener("error", onError);
+    video.addEventListener("loadstart", onLoadStart);
 
     // Already loaded
     if (video.readyState >= 1) {
@@ -84,6 +91,8 @@ export function SyncPointPicker({
       video.removeEventListener("timeupdate", onTimeUpdate);
       video.removeEventListener("play", onPlay);
       video.removeEventListener("pause", onPause);
+      video.removeEventListener("error", onError);
+      video.removeEventListener("loadstart", onLoadStart);
     };
   }, [initialSeconds]);
 
@@ -256,6 +265,8 @@ export function SyncPointPicker({
             confirmedTime !== null && "border-emerald-600 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
           )}
           variant={confirmedTime !== null ? "outline" : "default"}
+          disabled={videoFailed}
+          title={videoFailed ? "The video couldn't be loaded on this computer" : undefined}
           onClick={() => {
             setConfirmedTime(currentTime);
             onConfirm(currentTime);
