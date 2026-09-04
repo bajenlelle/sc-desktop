@@ -28,7 +28,6 @@ import {
   Pencil,
   Play,
   Plus,
-  RectangleVertical,
   Rows2,
   Search,
   SkipForward,
@@ -57,6 +56,7 @@ import { eventColors, eventLabel, formatGameClock, isBookkeepingEvent, parseGame
 import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import type { CropKeyframe } from "@scoutable/shared/lib/crop-path";
 import { CropEditorBar, CropOverlay, CropTimeline, upsertKeyframe } from "@/components/crop-editor";
+import { ExportFormatDialog, type ExportAction } from "@/components/export-format-dialog";
 import {
   moveBlock,
   snapGapToGroupBoundary,
@@ -1629,6 +1629,8 @@ export function PlaylistsPage() {
   const [sendToPhoneOpen, setSendToPhoneOpen] = useState(false);
   const [sendToPhoneSegments, setSendToPhoneSegments] = useState<ExportSegment[]>([]);
   const [sendToPhoneVertical, setSendToPhoneVertical] = useState(false);
+  // Which export action is waiting on a format pick (null = dialog closed).
+  const [exportFormatAction, setExportFormatAction] = useState<ExportAction | null>(null);
   // Vertical-crop editor: overlay visible + "export view" dim toggle.
   const [cropMode, setCropMode] = useState(false);
   const [cropDimmed, setCropDimmed] = useState(false);
@@ -3256,6 +3258,39 @@ export function PlaylistsPage() {
     setSendToPhoneOpen(true);
   }
 
+  /** Both export verbs go through the format step; free plan upsells instead. */
+  function openExportPicker(action: ExportAction) {
+    if (activeOrgPlan === 'free') {
+      setUpgradeDialogOpen(true);
+      return;
+    }
+    setExportFormatAction(action);
+  }
+
+  function handleFormatPicked(format: "16:9" | "9:16") {
+    const action = exportFormatAction;
+    setExportFormatAction(null);
+    if (!action) return;
+    const vertical = format === "9:16";
+    if (action === "save") void handleExport(vertical);
+    else handleSendToPhone(vertical);
+  }
+
+  // Pan coverage for the format dialog — same set buildExportSegments uses.
+  const exportPanCounts = useMemo(() => {
+    const itemsToExport = selectedClipIds.size > 0
+      ? queueItems.filter((item) => selectedClipIds.has(itemKey(item)))
+      : queueItems;
+    const clips = itemsToExport.filter((i): i is QueueItem => !isTextCard(i));
+    const byKey = new Map(
+      (selected?.items.filter(isClipItem) ?? []).map((c) => [`${c.matchId}:${c.eventId}`, c])
+    );
+    const panned = clips.filter(
+      (qi) => (byKey.get(`${qi.matchId}:${qi.event.eventId}`)?.cropKeyframes?.length ?? 0) > 0
+    ).length;
+    return { panned, total: clips.length };
+  }, [selectedClipIds, queueItems, selected]);
+
   async function handleExport(vertical = false) {
     if (activeOrgPlan === 'free') {
       setUpgradeDialogOpen(true);
@@ -4629,12 +4664,13 @@ export function PlaylistsPage() {
   // ---------------------------------------------------------------------------
 
   const menuExportEnabled = !!selected && !exportDisabledReason && !isExporting;
-  const handleExportRef = useRef(handleExport);
-  handleExportRef.current = handleExport;
+  // ⌘E opens the same format step as the dropdown's "Save to computer…".
+  const openExportPickerRef = useRef(openExportPicker);
+  openExportPickerRef.current = openExportPicker;
   useEffect(() => {
     invoke("menu_set_enabled", { id: "export-playlist", enabled: menuExportEnabled }).catch(() => {});
     if (!menuExportEnabled) return;
-    const handler = () => void handleExportRef.current();
+    const handler = () => openExportPickerRef.current("save");
     window.addEventListener("menu-export-playlist", handler);
     return () => window.removeEventListener("menu-export-playlist", handler);
   }, [menuExportEnabled]);
@@ -5265,22 +5301,13 @@ export function PlaylistsPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-52">
-                          <DropdownMenuItem onClick={() => handleExport()} className="gap-2">
+                          <DropdownMenuItem onClick={() => openExportPicker("save")} className="gap-2">
                             <FileDown className="h-3.5 w-3.5" />
                             Save to computer…
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleSendToPhone()} className="gap-2">
+                          <DropdownMenuItem onClick={() => openExportPicker("send")} className="gap-2">
                             <Smartphone className="h-3.5 w-3.5" />
                             Send to my phone…
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => handleExport(true)} className="gap-2">
-                            <RectangleVertical className="h-3.5 w-3.5" />
-                            Save vertical (9:16)…
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleSendToPhone(true)} className="gap-2">
-                            <RectangleVertical className="h-3.5 w-3.5" />
-                            Send vertical (9:16) to my phone…
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -5728,22 +5755,13 @@ export function PlaylistsPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-52">
-                          <DropdownMenuItem onClick={() => handleExport()} className="gap-2">
+                          <DropdownMenuItem onClick={() => openExportPicker("save")} className="gap-2">
                             <FileDown className="h-3.5 w-3.5" />
                             Save to computer…
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleSendToPhone()} className="gap-2">
+                          <DropdownMenuItem onClick={() => openExportPicker("send")} className="gap-2">
                             <Smartphone className="h-3.5 w-3.5" />
                             Send to my phone…
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => handleExport(true)} className="gap-2">
-                            <RectangleVertical className="h-3.5 w-3.5" />
-                            Save vertical (9:16)…
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleSendToPhone(true)} className="gap-2">
-                            <RectangleVertical className="h-3.5 w-3.5" />
-                            Send vertical (9:16) to my phone…
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -6226,6 +6244,13 @@ export function PlaylistsPage() {
             analyticsFeature="export_playlist"
           />
           {/* Send to phone — render + upload + QR */}
+          <ExportFormatDialog
+            action={exportFormatAction}
+            onClose={() => setExportFormatAction(null)}
+            onPick={handleFormatPicked}
+            pannedClipCount={exportPanCounts.panned}
+            clipCount={exportPanCounts.total}
+          />
           <SendToPhoneDialog
             open={sendToPhoneOpen}
             onClose={() => { setSendToPhoneOpen(false); setSendToPhoneVertical(false); }}
