@@ -1631,6 +1631,9 @@ export function PlaylistsPage() {
   const [sendToPhoneVertical, setSendToPhoneVertical] = useState(false);
   // Which export action is waiting on a format pick (null = dialog closed).
   const [exportFormatAction, setExportFormatAction] = useState<ExportAction | null>(null);
+  // What the last format pick asked for — shapes the upgrade dialog's copy
+  // and its upgrade_gate_hit analytics when the free-plan gate trips.
+  const [upsellContext, setUpsellContext] = useState<{ action: ExportAction; format: "16:9" | "9:16" } | null>(null);
   // Vertical-crop editor: overlay visible + "export view" dim toggle.
   const [cropMode, setCropMode] = useState(false);
   const [cropDimmed, setCropDimmed] = useState(false);
@@ -3258,12 +3261,13 @@ export function PlaylistsPage() {
     setSendToPhoneOpen(true);
   }
 
-  /** Both export verbs go through the format step; free plan upsells instead. */
+  /**
+   * Both export verbs go through the format step — free plan included: the
+   * picker shows what exporting offers (incl. vertical), and the upsell
+   * fires AFTER the format pick, when intent is fully expressed. The gates
+   * inside handleExport/handleSendToPhone are what stop the free path.
+   */
   function openExportPicker(action: ExportAction) {
-    if (activeOrgPlan === 'free') {
-      setUpgradeDialogOpen(true);
-      return;
-    }
     setExportFormatAction(action);
   }
 
@@ -3271,6 +3275,9 @@ export function PlaylistsPage() {
     const action = exportFormatAction;
     setExportFormatAction(null);
     if (!action) return;
+    // Remember what was asked for so the upgrade dialog (if the plan gate
+    // trips) names the action and tracks the wanted format.
+    setUpsellContext({ action, format });
     const vertical = format === "9:16";
     if (action === "save") void handleExport(vertical);
     else handleSendToPhone(vertical);
@@ -6240,8 +6247,15 @@ export function PlaylistsPage() {
           <UpgradeDialog
             open={upgradeDialogOpen}
             onClose={() => setUpgradeDialogOpen(false)}
-            featureName="Save your tape as an MP4"
-            analyticsFeature="export_playlist"
+            featureName={
+              upsellContext?.action === "send"
+                ? "Send your tape to your phone"
+                : "Save your tape as an MP4"
+            }
+            analyticsFeature={
+              (upsellContext?.action === "send" ? "send_to_phone" : "export_playlist") +
+              (upsellContext?.format === "9:16" ? "_vertical" : "")
+            }
           />
           {/* Send to phone — render + upload + QR */}
           <ExportFormatDialog
