@@ -20,7 +20,11 @@ export const getMatch = (id: string) => db.getMatch(c(), id);
 export const listMatches = (orgId?: string, opts?: { ownOnly?: boolean }) => db.listMatches(c(), orgId, opts);
 export const listEventsForMatches = (matchIds: string[]) => db.listEventsForMatches(c(), matchIds);
 export const updateSyncPoint = (matchId: string, syncPoint: SyncPoint | null) => db.updateSyncPoint(c(), matchId, syncPoint);
-export const updateVideoUrl = (matchId: string, videoUrl: string) => db.updateVideoUrl(c(), matchId, videoUrl);
+// Announced so open pages (Library badges, playlists probe) refresh after a relink.
+export const updateVideoUrl = async (matchId: string, videoUrl: string) => {
+  await db.updateVideoUrl(c(), matchId, videoUrl);
+  window.dispatchEvent(new CustomEvent("matches-changed"));
+};
 export const updateMatchMeta = (
   matchId: string,
   updates: {

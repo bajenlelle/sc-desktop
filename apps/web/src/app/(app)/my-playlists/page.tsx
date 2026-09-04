@@ -394,11 +394,14 @@ export default function MyPlaylistsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id]);
 
-  // Swap video source when activeMatchId changes
+  // Swap video source when activeMatchId changes. matches.video_url can hold
+  // the coach's LOCAL filesystem path (desktop imports) — a browser can't
+  // play it and must never receive it as a src; only http(s) sources count.
   useEffect(() => {
     if (!activeMatchId) { setVideoUrl(null); return; }
     const m = matchLookupRef.current.get(activeMatchId);
-    setVideoUrl(m?.videoUrl ?? null);
+    const url = m?.videoUrl;
+    setVideoUrl(url && /^https?:\/\//.test(url) ? url : null);
   }, [activeMatchId]);
 
 

@@ -33,6 +33,7 @@ import {
   SkipForward,
   Square,
   Tag,
+  VideoOff,
   Trash2,
   Type,
   X,
@@ -45,7 +46,9 @@ import { VideoPlaceholder } from "@/components/video-placeholder";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { usePanelRef } from "react-resizable-panels";
 import { VideoClipControls } from "@/components/video-clip-controls";
-import { listMatchesLight, listEventsForMatches, listFolders, createFolder, updateFolder, deleteFolder } from "@/lib/matches-db";
+import { listMatchesLight, listEventsForMatches, listFolders, createFolder, updateFolder, deleteFolder, updateVideoUrl } from "@/lib/matches-db";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { probeMatches, type VideoFileStatus } from "@/lib/video-probe";
 import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderItems, updateClip, insertTextCard, updateTextCard, setPlaylistTeams, setPlaylistUsers, notifyPendingPlaylistShares } from "@/lib/playlists-db";
 import { groupShipFailures, mergeShipResults, type ClipShipResult } from "@scoutable/shared/lib/ship-result";
 import { listLabels, createLabel as apiCreateLabel, updateLabel as apiUpdateLabel, deleteLabel as apiDeleteLabel, seedDefaultLabels, listAssignmentsForClips, setClipAssignments as apiSetClipAssignments, bulkAssign as apiBulkAssign } from "@/lib/labels-db";
@@ -692,6 +695,7 @@ function ClipBrowserPanel({
   labels,
   labelHandlers,
   onNeedEvents,
+  videoStatusByMatch,
 }: {
   matches: StoredMatch[];
   matchLookup: Map<string, StoredMatch>;
@@ -709,6 +713,8 @@ function ClipBrowserPanel({
   };
   /** Ask the page to load play-by-play for these matches if it hasn't yet. */
   onNeedEvents: (matchIds: string[]) => Promise<void>;
+  /** Per-match video-file health from the page's probe (machine switches). */
+  videoStatusByMatch: Map<string, VideoFileStatus>;
 }) {
   const [filterMatchId, setFilterMatchId] = useState<string | null>(matches[0]?.id ?? null);
   const [eventsLoading, setEventsLoading] = useState(false);
@@ -1449,7 +1455,23 @@ function ClipBrowserPanel({
           <div className="flex h-full flex-col gap-2 p-4">
             {localVideoUrl ? (
               <>
-                <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
+                <div className="relative">
+                  <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
+                  {videoMatchId &&
+                    videoStatusByMatch.get(videoMatchId) !== undefined &&
+                    videoStatusByMatch.get(videoMatchId) !== "ok" && (
+                    <div className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-2 bg-black/85 px-6 text-center">
+                      <VideoOff className="h-6 w-6 text-amber-400" />
+                      <p className="text-sm font-medium text-white">
+                        This game's video is on another computer
+                      </p>
+                      <p className="max-w-xs text-xs text-white/70">
+                        Open the game in the Library and use Locate file to point at it on
+                        this computer.
+                      </p>
+                    </div>
+                  )}
+                </div>
                 <VideoClipControls
                   videoRef={videoRef}
                   canPrev={canPrev}
@@ -4623,6 +4645,44 @@ export function PlaylistsPage() {
 
   // ---------------------------------------------------------------------------
 
+  // Machine-switch detection: matches sync via the DB but video files don't.
+  // Probed per loaded match; gates export/share and swaps the silent black
+  // player for an explanation + Locate action.
+  const [videoStatusByMatch, setVideoStatusByMatch] = useState<Map<string, VideoFileStatus>>(new Map());
+  useEffect(() => {
+    if (matches.length === 0) return;
+    let cancelled = false;
+    probeMatches(matches).then((map) => {
+      if (!cancelled) setVideoStatusByMatch(map);
+    });
+    return () => { cancelled = true; };
+  }, [matches]);
+
+  /** Relink the ACTIVE game's video from the player overlay. */
+  async function handleLocateActiveVideo() {
+    const mId = activeMatchIdRef.current ?? (selected ? primaryMatchId(selected) : null);
+    if (!mId) return;
+    const result = await openFileDialog({
+      multiple: false,
+      filters: [{ name: "Video", extensions: ["mp4", "mov", "avi", "mkv", "webm", "m4v"] }],
+    });
+    if (typeof result !== "string") return;
+    try {
+      await updateVideoUrl(mId, result); // dispatches matches-changed → matches reload → re-probe
+      // The src-swap effect keys on activeMatchId only — swap directly so the
+      // player recovers without a re-navigation.
+      setLocalVideoUrl(streamFileSrc(result));
+      setVideoStatusByMatch((prev) => new Map(prev).set(mId, "ok"));
+      toast.success("Video linked", {
+        description: "Check a clip — if the timing looks off, redo the sync point in the game.",
+      });
+    } catch (e) {
+      toast.error("Couldn't save the video link", {
+        description: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
   const hasAnyClips = queueItems.some((i) => !isTextCard(i));
   const noSync = selected !== null && hasAnyClips && !matchLookup.get(primaryMatchId(selected) ?? "")?.syncPoint;
   const noVideo = selected !== null && !matchLookup.get(primaryMatchId(selected) ?? "")?.videoUrl;
@@ -4644,6 +4704,8 @@ export function PlaylistsPage() {
         return "The sample game can't be exported — import your own game to export";
       if (!m?.videoUrl || !isLocalPath(m.videoUrl))
         return "All games need a local video file for export";
+      if (videoStatusByMatch.get(mId) === "missing" || videoStatusByMatch.get(mId) === "unreadable")
+        return "A game's video file isn't on this computer — open it in the Library to locate it";
       if (!m.syncPoint)
         return "All games need a sync point for export";
     }
@@ -5089,6 +5151,25 @@ export function PlaylistsPage() {
                           dimmed={cropDimmed}
                           onCommit={handleCropCommit}
                         />
+                      )}
+                      {activeMatchId &&
+                        videoStatusByMatch.get(activeMatchId) !== undefined &&
+                        videoStatusByMatch.get(activeMatchId) !== "ok" &&
+                        !activeTextCard && (
+                        <div className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-3 bg-black/85 px-6 text-center">
+                          <VideoOff className="h-8 w-8 text-amber-400" />
+                          <p className="text-sm font-medium text-white">
+                            This game's video is on another computer
+                          </p>
+                          <p className="max-w-sm text-xs text-white/70">
+                            Games reference the video file on the machine that imported them —
+                            nothing is uploaded. Point Scoutable at the file on this computer
+                            to keep working.
+                          </p>
+                          <Button size="sm" onClick={handleLocateActiveVideo}>
+                            Locate file…
+                          </Button>
+                        </div>
                       )}
                       {activeTextCard && (
                         <div className="absolute inset-0 z-10 flex items-center justify-center bg-black transition-opacity duration-200">
@@ -6113,6 +6194,25 @@ export function PlaylistsPage() {
                           onCommit={handleCropCommit}
                         />
                       )}
+                      {activeMatchId &&
+                        videoStatusByMatch.get(activeMatchId) !== undefined &&
+                        videoStatusByMatch.get(activeMatchId) !== "ok" &&
+                        !activeTextCard && (
+                        <div className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-3 bg-black/85 px-6 text-center">
+                          <VideoOff className="h-8 w-8 text-amber-400" />
+                          <p className="text-sm font-medium text-white">
+                            This game's video is on another computer
+                          </p>
+                          <p className="max-w-sm text-xs text-white/70">
+                            Games reference the video file on the machine that imported them —
+                            nothing is uploaded. Point Scoutable at the file on this computer
+                            to keep working.
+                          </p>
+                          <Button size="sm" onClick={handleLocateActiveVideo}>
+                            Locate file…
+                          </Button>
+                        </div>
+                      )}
                       {activeTextCard && (
                         <div className="absolute inset-0 z-10 flex items-center justify-center bg-black transition-opacity duration-200">
                           <p className="text-center text-4xl font-semibold text-white px-8">{activeTextCard.text}</p>
@@ -6233,6 +6333,7 @@ export function PlaylistsPage() {
                 activeOrgId={activeOrgId}
                 labels={labels}
                 onNeedEvents={ensureEventsFor}
+                videoStatusByMatch={videoStatusByMatch}
                 labelHandlers={{
                   onCreate: handleCreateLabel,
                   onRename: handleRenameLabel,

@@ -1,9 +1,19 @@
 import { Link } from "react-router-dom";
-import { Trash2, ChevronRight } from "lucide-react";
+import { Trash2, ChevronRight, VideoOff } from "lucide-react";
 import { DeleteMatchDialog } from "@/components/delete-match-dialog";
+import type { VideoFileStatus } from "@/lib/video-probe";
 import type { StoredMatch } from "@/types/match";
 
-export function MatchRow({ match, onDelete }: { match: StoredMatch; onDelete?: () => void }) {
+export function MatchRow({
+  match,
+  onDelete,
+  videoStatus,
+}: {
+  match: StoredMatch;
+  onDelete?: () => void;
+  /** From probeMatches — undefined while probing (no badge until known). */
+  videoStatus?: VideoFileStatus;
+}) {
   return (
     <Link
       to={`/matches/${match.id}`}
@@ -49,6 +59,21 @@ export function MatchRow({ match, onDelete }: { match: StoredMatch; onDelete?: (
       <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
         {match.events.length} clips
       </span>
+
+      {/* Video-on-another-computer indicator (machine switch / moved file) */}
+      {videoStatus && videoStatus !== "ok" && (
+        <span
+          className="flex shrink-0 items-center gap-1 text-xs text-amber-600 dark:text-amber-400"
+          title={
+            videoStatus === "unreadable"
+              ? "Scoutable doesn't have permission to read this video — pick it again to grant access"
+              : "The video file isn't on this computer — open the game to locate it"
+          }
+        >
+          <VideoOff className="h-3.5 w-3.5" />
+          Video not on this computer
+        </span>
+      )}
 
       {/* Sync indicator */}
       {match.syncPoint && (

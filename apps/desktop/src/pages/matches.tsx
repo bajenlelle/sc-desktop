@@ -4,7 +4,9 @@ import { Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MatchRow } from "@/components/match-row";
+import { RelinkVideosDialog } from "@/components/relink-videos-dialog";
 import { listMatches } from "@/lib/matches-db";
+import { probeMatches, type VideoFileStatus } from "@/lib/video-probe";
 import { useAuth } from "@/lib/auth-context";
 import type { StoredMatch } from "@/types/match";
 
@@ -15,6 +17,28 @@ export function MatchesPage() {
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [videoStatus, setVideoStatus] = useState<Map<string, VideoFileStatus>>(new Map());
+
+  // Machine-switch detection: matches sync via the DB, but video files live
+  // on the machine that imported them. Probe each local path (1-byte local
+  // fetch per game) so dead references get a badge instead of a black player.
+  useEffect(() => {
+    if (matches.length === 0) return;
+    let cancelled = false;
+    probeMatches(matches).then((map) => {
+      if (!cancelled) setVideoStatus(map);
+    });
+    return () => { cancelled = true; };
+  }, [matches]);
+
+  const missingMatches = useMemo(
+    () =>
+      matches.filter((m) => {
+        const s = videoStatus.get(m.id);
+        return s !== undefined && s !== "ok";
+      }),
+    [matches, videoStatus],
+  );
 
   useEffect(() => {
     if (profileLoading) return;
@@ -61,12 +85,26 @@ export function MatchesPage() {
             Browse imported games and their clips
           </p>
         </div>
-        <Link to="/upload">
-          <Button className="gap-2">
-            <Plus className="h-4 w-4" />
-            Import game
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          {missingMatches.length > 0 && (
+            <RelinkVideosDialog
+              missing={missingMatches}
+              onRelinked={() => {
+                // Re-load + re-probe: updateVideoUrl dispatched matches-changed,
+                // but this page's loader only listens for demo-seeded.
+                listMatches(activeOrgId ?? undefined, { ownOnly: true })
+                  .then(setMatches)
+                  .catch(() => {});
+              }}
+            />
+          )}
+          <Link to="/upload">
+            <Button className="gap-2">
+              <Plus className="h-4 w-4" />
+              Import game
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {!loading && matches.length > 0 && (
@@ -118,6 +156,7 @@ export function MatchesPage() {
               <MatchRow
                 key={match.id}
                 match={match}
+                videoStatus={videoStatus.get(match.id)}
                 onDelete={() => setMatches((ms) => ms.filter((m) => m.id !== match.id))}
               />
             ))}
