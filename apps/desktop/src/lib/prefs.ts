@@ -29,6 +29,18 @@ export function setExportWatermarkDisabled(disabled: boolean): void {
  * step for every later account on a shared machine, so it is deliberately
  * ignored (not migrated, not deleted).
  */
+export type ExportFormat = "16:9" | "9:16";
+
+/** Last format picked in the export dialog — surfaced as a hint, not a default. */
+export function getLastExportFormat(): ExportFormat | null {
+  const v = localStorage.getItem("scoutable_last_export_format");
+  return v === "16:9" || v === "9:16" ? v : null;
+}
+
+export function setLastExportFormat(format: ExportFormat): void {
+  localStorage.setItem("scoutable_last_export_format", format);
+}
+
 export function getHasExported(userId: string | undefined): boolean {
   return !!userId && localStorage.getItem(`scoutable_has_exported:${userId}`) === "1";
 }

@@ -24,6 +24,7 @@ function clipRow(partial: Partial<PlaylistClipRow>): PlaylistClipRow {
     duration_seconds: null,
     r2_url: null,
     group_id: null,
+    crop_keyframes: null,
     ...partial,
   };
 }

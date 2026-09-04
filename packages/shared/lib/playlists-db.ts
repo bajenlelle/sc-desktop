@@ -11,6 +11,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { reportDbError } from "./report";
 import { currentUserId } from "./current-user";
 import type { Playlist, PlaylistItem, PlaylistClipItem, PlaylistTextCard } from "../types/match";
+import type { CropKeyframe } from "./crop-path";
 
 // ---------------------------------------------------------------------------
 // DB row types (snake_case columns from Postgres)
@@ -29,6 +30,7 @@ export interface PlaylistClipRow {
   duration_seconds: number | null;
   r2_url: string | null;
   group_id: string | null;
+  crop_keyframes: CropKeyframe[] | null;
 }
 
 export interface PlaylistShareRow {
@@ -82,6 +84,9 @@ export function rowToPlaylist(row: PlaylistRow): Playlist {
         ...(c.note ? { note: c.note } : {}),
         ...(c.r2_url ? { r2Url: c.r2_url } : {}),
         ...(c.group_id ? { groupId: c.group_id } : {}),
+        ...(c.crop_keyframes && c.crop_keyframes.length > 0
+          ? { cropKeyframes: c.crop_keyframes }
+          : {}),
       } satisfies PlaylistClipItem;
     })
     .filter((x): x is PlaylistItem => x !== null);
@@ -126,7 +131,8 @@ const CLIPS_SELECT = `
   text_content,
   duration_seconds,
   r2_url,
-  group_id
+  group_id,
+  crop_keyframes
 `;
 
 const PLAYLIST_SELECT = `
@@ -317,6 +323,7 @@ export async function addClips(
     pre_roll_offset: clip.preRollOffset ?? 0,
     post_roll_offset: clip.postRollOffset ?? 0,
     note: clip.note ?? null,
+    crop_keyframes: clip.cropKeyframes ?? null,
   }));
   const { error } = await supabase.from("playlist_clips").insert(rows);
   if (error) throw new Error(`Failed to add clips: ${error.message}`);
@@ -434,12 +441,20 @@ export async function updateClip(
   playlistId: string,
   matchId: string,
   eventId: number,
-  patch: { preRollOffset?: number; postRollOffset?: number; note?: string | null }
+  patch: {
+    preRollOffset?: number;
+    postRollOffset?: number;
+    note?: string | null;
+    cropKeyframes?: CropKeyframe[] | null;
+  }
 ): Promise<void> {
   const row: Record<string, unknown> = {};
   if (patch.preRollOffset !== undefined) row.pre_roll_offset = patch.preRollOffset;
   if (patch.postRollOffset !== undefined) row.post_roll_offset = patch.postRollOffset;
   if ("note" in patch) row.note = patch.note ?? null;
+  // Empty array normalizes to NULL — "no keyframes" has one representation.
+  if ("cropKeyframes" in patch)
+    row.crop_keyframes = patch.cropKeyframes?.length ? patch.cropKeyframes : null;
   if (Object.keys(row).length === 0) return;
   const { error } = await supabase
     .from("playlist_clips")

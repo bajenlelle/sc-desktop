@@ -18,11 +18,63 @@ enum ExportSegment {
         video_path: String,
         start: f64,
         end: f64,
+        /// Vertical-export pan path: segment-relative times (seconds from the
+        /// clip's start) + normalized crop-window centers (0..1 of source
+        /// width). Sorted and non-empty when present (TS toSegmentKeyframes
+        /// guarantees both). Ignored for 16:9 exports.
+        #[serde(default)]
+        crop_keyframes: Option<Vec<CropKf>>,
     },
     Text {
         text: String,
         duration_seconds: f64,
     },
+}
+
+#[derive(serde::Deserialize, Clone, Copy)]
+struct CropKf {
+    t: f64,
+    cx: f64,
+}
+
+/// Build the ffmpeg `crop` x-expression for a moving 9:16 window.
+///
+/// The crop filter re-evaluates `x` every output frame, so a piecewise-linear
+/// `lerp` chain over `t` renders the whole pan in a single filter. The chain
+/// produces the normalized window CENTER cx(t); the surrounding arithmetic
+/// converts to a left-edge pixel offset, clamps the window inside the frame,
+/// and forces an even offset (`2*trunc(../2)`) so yuv420p chroma alignment
+/// can't add a one-pixel wobble as the parity flips mid-pan.
+fn build_crop_x_expr(keyframes: &[CropKf]) -> String {
+    let mut kfs: Vec<CropKf> = keyframes.to_vec();
+    kfs.sort_by(|a, b| a.t.total_cmp(&b.t));
+    // Collapse near-duplicate times (would divide by ~zero in lerp).
+    kfs.dedup_by(|b, a| (b.t - a.t).abs() < 0.001);
+
+    let cx_chain = match kfs.len() {
+        0 => "0.5".to_string(),
+        1 => format!("{:.4}", kfs[0].cx),
+        _ => {
+            // Innermost value = last keyframe's cx (held after the pan ends);
+            // wrap backwards in if(lt(t,ti), lerp(...), rest).
+            let mut expr = format!("{:.4}", kfs[kfs.len() - 1].cx);
+            for i in (1..kfs.len()).rev() {
+                let a = kfs[i - 1];
+                let b = kfs[i];
+                expr = format!(
+                    "if(lt(t\\,{t1:.3})\\,lerp({c0:.4}\\,{c1:.4}\\,(t-{t0:.3})/{span:.3})\\,{rest})",
+                    t1 = b.t,
+                    c0 = a.cx,
+                    c1 = b.cx,
+                    t0 = a.t,
+                    span = b.t - a.t,
+                    rest = expr,
+                );
+            }
+            expr
+        }
+    };
+    format!("2*trunc(clip({cx_chain}*iw-ow/2\\,0\\,iw-ow)/2)")
 }
 
 const FONT_BYTES: &[u8] = include_bytes!("../resources/fonts/Roboto-Regular.ttf");
@@ -45,12 +97,17 @@ async fn export_playlist(
     segments: Vec<ExportSegment>,
     output_path: String,
     watermark: bool,
+    vertical: Option<bool>,
 ) -> Result<(), String> {
     use tauri_plugin_shell::ShellExt;
 
     if segments.is_empty() {
         return Err("No segments to export".into());
     }
+    // 9:16 social export: crop a (possibly moving) window at source
+    // resolution, then scale to 1080x1920. The concat filter requires every
+    // segment to share one WxH, so the whole export is either 16:9 or 9:16.
+    let vertical = vertical.unwrap_or(false);
 
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -64,32 +121,60 @@ async fn export_playlist(
         let temp_path = std::env::temp_dir().join(format!("sc_seg_{}_{}.mp4", timestamp, i));
 
         let status = match segment {
-            ExportSegment::Clip { video_path, start, end } => {
+            ExportSegment::Clip { video_path, start, end, crop_keyframes } => {
                 let duration = (end - start).max(0.001);
                 let fade_out_start = (duration - 0.25).max(0.0);
+
+                let vf = if vertical {
+                    // Crop first (at native resolution), scale second. Window
+                    // width comes from expression vars (2*trunc(ih*9/32) =
+                    // even-rounded ih*9/16), so no probing is needed; min(iw,..)
+                    // keeps narrow sources valid. x is re-evaluated per frame —
+                    // the whole pan is this one filter.
+                    let x_expr = build_crop_x_expr(
+                        crop_keyframes.as_deref().unwrap_or(&[]),
+                    );
+                    format!(
+                        "setpts=PTS-STARTPTS,\
+                         crop=w=min(iw\\,2*trunc(ih*9/32)):h=ih:x={x_expr}:y=0,\
+                         scale=1080:1920:flags=lanczos,setsar=1,\
+                         fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25"
+                    )
+                } else {
+                    format!(
+                        "setpts=PTS-STARTPTS,\
+                         scale=1280:720:force_original_aspect_ratio=decrease,\
+                         pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black,\
+                         fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25"
+                    )
+                };
+
+                let mut args: Vec<String> = vec![
+                    "-y".into(),
+                    "-ss".into(), format!("{start:.3}"),
+                    "-to".into(), format!("{end:.3}"),
+                    "-i".into(), video_path.clone(),
+                    "-vf".into(), vf,
+                    "-af".into(), "asetpts=PTS-STARTPTS".into(),
+                    "-c:v".into(), "libx264".into(),
+                    "-preset".into(), "fast".into(),
+                    "-crf".into(), "23".into(),
+                ];
+                if vertical {
+                    // Upscaled crop must stay 4:2:0 — social platforms reject
+                    // exotic pixel formats. (16:9 path left byte-identical.)
+                    args.extend(["-pix_fmt".into(), "yuv420p".into()]);
+                }
+                args.extend([
+                    "-c:a".into(), "aac".into(),
+                    "-b:a".into(), "128k".into(),
+                    temp_path.to_str().unwrap().to_string(),
+                ]);
 
                 app.shell()
                     .sidecar("ffmpeg")
                     .map_err(|e| e.to_string())?
-                    .args([
-                        "-y",
-                        "-ss", &format!("{start:.3}"),
-                        "-to", &format!("{end:.3}"),
-                        "-i", video_path,
-                        "-vf", &format!(
-                            "setpts=PTS-STARTPTS,\
-                             scale=1280:720:force_original_aspect_ratio=decrease,\
-                             pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black,\
-                             fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25"
-                        ),
-                        "-af", "asetpts=PTS-STARTPTS",
-                        "-c:v", "libx264",
-                        "-preset", "fast",
-                        "-crf", "23",
-                        "-c:a", "aac",
-                        "-b:a", "128k",
-                        temp_path.to_str().unwrap(),
-                    ])
+                    .args(&args)
                     .output()
                     .await
                     .map_err(|e| e.to_string())?
@@ -102,8 +187,11 @@ async fn export_playlist(
                 let font = FontArc::try_from_slice(FONT_BYTES)
                     .map_err(|e| format!("Failed to load font: {e}"))?;
 
+                // Raster dims must match the clip segments' output exactly or
+                // the concat filter fails (same-WxH invariant).
+                let (card_w, card_h) = if vertical { (1080i32, 1920i32) } else { (1280i32, 720i32) };
                 let scale = PxScale::from(72.0);
-                let max_w = 1280i32 - 80; // 40px padding each side
+                let max_w = card_w - if vertical { 120 } else { 80 }; // side padding
 
                 // Word-wrap: greedily fill lines up to max_w
                 let mut lines: Vec<String> = Vec::new();
@@ -129,13 +217,13 @@ async fn export_playlist(
                 let (_, line_h) = text_size(scale, &font, "Ag");
                 let line_step = (line_h as f32 * 1.3) as i32;
                 let total_h = lines.len() as i32 * line_step;
-                let start_y = ((720i32 - total_h) / 2).max(0);
+                let start_y = ((card_h - total_h) / 2).max(0);
 
                 let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> =
-                    ImageBuffer::from_pixel(1280, 720, Rgba([0, 0, 0, 255]));
+                    ImageBuffer::from_pixel(card_w as u32, card_h as u32, Rgba([0, 0, 0, 255]));
                 for (li, line) in lines.iter().enumerate() {
                     let (lw, _) = text_size(scale, &font, line);
-                    let x = ((1280i32 - lw as i32) / 2).max(0);
+                    let x = ((card_w - lw as i32) / 2).max(0);
                     let y = start_y + li as i32 * line_step;
                     draw_text_mut(&mut img, Rgba([255, 255, 255, 255]), x, y, scale, &font, line);
                 }
@@ -214,8 +302,11 @@ async fn export_playlist(
         filter.push_str(&format!("[{i}:v:0][{i}:a:0]"));
     }
     if with_watermark {
+        // Vertical: bottom-center, lifted 700px — TikTok/Reels UI covers the
+        // bottom ~35% and the right edge, where the 16:9 position would hide.
+        let overlay_pos = if vertical { "(W-w)/2:H-h-700" } else { "W-w-24:H-h-48" };
         filter.push_str(&format!(
-            "concat=n={n}:v=1:a=1[cv][outa];[cv][{n}:v]overlay=W-w-24:H-h-48[outv]"
+            "concat=n={n}:v=1:a=1[cv][outa];[cv][{n}:v]overlay={overlay_pos}[outv]"
         ));
     } else {
         filter.push_str(&format!("concat=n={n}:v=1:a=1[outv][outa]"));
@@ -620,6 +711,62 @@ fn mime_for_path(path: &str) -> &'static str {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    // ── build_crop_x_expr goldens ────────────────────────────────────────────
+    // The expression grammar is load-bearing: `\,` protects commas at the
+    // filtergraph level, and the 2*trunc(../2) wrapper keeps x even for
+    // yuv420p. Golden strings pin both.
+
+    #[test]
+    fn crop_expr_no_keyframes_is_static_center() {
+        assert_eq!(
+            build_crop_x_expr(&[]),
+            "2*trunc(clip(0.5*iw-ow/2\\,0\\,iw-ow)/2)"
+        );
+    }
+
+    #[test]
+    fn crop_expr_single_keyframe_is_constant() {
+        assert_eq!(
+            build_crop_x_expr(&[CropKf { t: 3.0, cx: 0.25 }]),
+            "2*trunc(clip(0.2500*iw-ow/2\\,0\\,iw-ow)/2)"
+        );
+    }
+
+    #[test]
+    fn crop_expr_two_keyframes_lerp() {
+        assert_eq!(
+            build_crop_x_expr(&[CropKf { t: 0.0, cx: 0.3 }, CropKf { t: 5.0, cx: 0.7 }]),
+            "2*trunc(clip(if(lt(t\\,5.000)\\,lerp(0.3000\\,0.7000\\,(t-0.000)/5.000)\\,0.7000)*iw-ow/2\\,0\\,iw-ow)/2)"
+        );
+    }
+
+    #[test]
+    fn crop_expr_three_keyframes_nest_and_hold_last() {
+        assert_eq!(
+            build_crop_x_expr(&[
+                CropKf { t: 0.0, cx: 0.5 },
+                CropKf { t: 2.0, cx: 0.2 },
+                CropKf { t: 6.0, cx: 0.8 },
+            ]),
+            "2*trunc(clip(if(lt(t\\,2.000)\\,lerp(0.5000\\,0.2000\\,(t-0.000)/2.000)\\,if(lt(t\\,6.000)\\,lerp(0.2000\\,0.8000\\,(t-2.000)/4.000)\\,0.8000))*iw-ow/2\\,0\\,iw-ow)/2)"
+        );
+    }
+
+    #[test]
+    fn crop_expr_sorts_and_dedupes_near_duplicate_times() {
+        // Unsorted input + a duplicate time within 1ms: must not emit a
+        // zero-span lerp (division by ~zero in the ffmpeg evaluator).
+        let expr = build_crop_x_expr(&[
+            CropKf { t: 4.0, cx: 0.9 },
+            CropKf { t: 0.0, cx: 0.1 },
+            CropKf { t: 4.0005, cx: 0.6 },
+        ]);
+        assert_eq!(
+            expr,
+            "2*trunc(clip(if(lt(t\\,4.000)\\,lerp(0.1000\\,0.9000\\,(t-0.000)/4.000)\\,0.9000)*iw-ow/2\\,0\\,iw-ow)/2)"
+        );
+    }
 
     #[test]
     fn render_watermark_png_writes_a_transparent_mark() {

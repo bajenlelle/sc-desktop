@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { sendHighlightToPhone, type SendToPhoneStage } from "@/lib/highlight-share";
 import { getMyShareForPlaylist } from "@/lib/highlight-shares-db";
+import { highlightContentKey } from "@scoutable/shared/lib/highlight-shares-db";
 import { trackEvent } from "@/lib/analytics";
 import type { ExportSegment } from "@/lib/export";
 
@@ -45,6 +46,7 @@ export function SendToPhoneDialog({
   preRoll,
   postRoll,
   isSelection,
+  vertical = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -53,6 +55,8 @@ export function SendToPhoneDialog({
   preRoll: number;
   postRoll: number;
   isSelection: boolean;
+  /** Render 9:16 instead of 16:9. Always renders fresh — stored links point at 16:9 masters. */
+  vertical?: boolean;
 }) {
   const [stage, setStage] = useState<SendToPhoneStage | null>(null);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -67,7 +71,7 @@ export function SendToPhoneDialog({
     setError(null);
     setShareUrl(null);
     setReusedFrom(null);
-    sendHighlightToPhone(pl, segments, preRoll, postRoll, setStage)
+    sendHighlightToPhone(pl, segments, preRoll, postRoll, setStage, vertical)
       .then((url) => {
         setShareUrl(url);
         trackEvent("highlight_sent_to_phone", {
@@ -75,6 +79,7 @@ export function SendToPhoneDialog({
           clip_count: segments.filter((s) => s.kind === "clip").length,
           reused: false,
           is_selection: isSelection,
+          ...(vertical ? { aspect: "9:16" } : {}),
         });
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
@@ -86,16 +91,25 @@ export function SendToPhoneDialog({
 
   useEffect(() => {
     if (!open || !playlist || runningRef.current || shareUrl) return;
+    // A subset (selection) must not impersonate the full playlist's link.
     if (isSelection) {
       runPipeline(playlist);
       return;
     }
-    getMyShareForPlaylist(playlist.id)
+    // Reuse is exact-match only: same aspect AND same content fingerprint
+    // (clips, order, rolls, and — for 9:16 — crop pans). Any edit between
+    // sends misses the lookup and re-renders automatically.
+    const aspect = vertical ? ("9:16" as const) : ("16:9" as const);
+    getMyShareForPlaylist(playlist.id, aspect, highlightContentKey(segments, preRoll, postRoll, aspect))
       .then((existing) => {
         if (existing) {
           setShareUrl(`${APP_URL}/h/${existing.id}`);
           setReusedFrom(existing.createdAt);
-          trackEvent("highlight_sent_to_phone", { playlist_id: playlist.id, reused: true });
+          trackEvent("highlight_sent_to_phone", {
+            playlist_id: playlist.id,
+            reused: true,
+            ...(vertical ? { aspect: "9:16" } : {}),
+          });
         } else {
           runPipeline(playlist);
         }

@@ -8,7 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { exportPlaylistToPath, type ExportSegment } from "@/lib/export";
 import { uploadToR2 } from "@/lib/r2-upload";
 import { createHighlightShare } from "@/lib/highlight-shares-db";
-import { highlightShareKeys } from "@scoutable/shared/lib/highlight-shares-db";
+import { highlightContentKey, highlightShareKeys } from "@scoutable/shared/lib/highlight-shares-db";
 
 const APP_URL = "https://app.scoutable.se";
 
@@ -20,6 +20,7 @@ export async function sendHighlightToPhone(
   preRoll: number,
   postRoll: number,
   onStage?: (stage: SendToPhoneStage) => void,
+  vertical = false,
 ): Promise<string> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -35,7 +36,7 @@ export async function sendHighlightToPhone(
   onStage?.("rendering");
   // Watermark always on: send-to-phone clips land on Instagram/TikTok —
   // this surface is public distribution regardless of the sender's plan.
-  await exportPlaylistToPath(segments, preRoll, postRoll, tempPath, true);
+  await exportPlaylistToPath(segments, preRoll, postRoll, tempPath, true, vertical);
 
   try {
     onStage?.("uploading");
@@ -64,6 +65,10 @@ export async function sendHighlightToPhone(
       clipCount: segments.filter((s) => s.kind === "clip").length,
       posterUrl,
       posterKey: posterUrl ? keys.poster : undefined,
+      // Aspect + fingerprint make the row reusable ONLY for an identical
+      // later send (same clips/order/rolls/crop pans, same orientation).
+      aspect: vertical ? "9:16" : "16:9",
+      contentKey: highlightContentKey(segments, preRoll, postRoll, vertical ? "9:16" : "16:9"),
     });
 
     return `${APP_URL}/h/${shareId}`;

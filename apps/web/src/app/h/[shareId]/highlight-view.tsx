@@ -75,14 +75,17 @@ export default function HighlightView({ share }: { share: HighlightShareResult }
         <>
           <h1 className="text-center text-lg font-semibold text-foreground">{share.title}</h1>
 
-          {/* playsInline keeps iOS from hijacking into fullscreen on tap */}
+          {/* playsInline keeps iOS from hijacking into fullscreen on tap.
+              No forced aspect ratio: masters are 16:9 or 9:16 (vertical
+              export) and the element sizes to whichever it gets — max-h
+              keeps a portrait video from pushing the buttons off screen. */}
           <video
             src={share.url}
             poster={share.posterUrl ?? undefined}
             controls
             playsInline
             preload="metadata"
-            className="w-full rounded-xl border border-border bg-black"
+            className="max-h-[70vh] w-full rounded-xl border border-border bg-black object-contain"
           />
 
           <button
