@@ -28,6 +28,7 @@ import {
   Pencil,
   Play,
   Plus,
+  RectangleVertical,
   Rows2,
   Search,
   SkipForward,
@@ -53,7 +54,9 @@ import { LabelChip } from "@/components/labels/LabelChip";
 import { LabelPickerPopover, type LabelTriState } from "@/components/labels/LabelPickerPopover";
 import type { Label, LabelColor, ClipKey } from "@scoutable/shared/types/labels";
 import { eventColors, eventLabel, formatGameClock, isBookkeepingEvent, parseGameClock, playerName } from "@scoutable/shared/lib/events";
-import { computeVideoTime } from "@scoutable/shared/lib/clip-timing";
+import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
+import type { CropKeyframe } from "@scoutable/shared/lib/crop-path";
+import { CropEditorBar, CropOverlay, upsertKeyframe } from "@/components/crop-editor";
 import {
   moveBlock,
   snapGapToGroupBoundary,
@@ -1625,6 +1628,10 @@ export function PlaylistsPage() {
   const [onboardingHighlight, setOnboardingHighlight] = useState<"add-clips" | "export" | "share" | null>(null);
   const [sendToPhoneOpen, setSendToPhoneOpen] = useState(false);
   const [sendToPhoneSegments, setSendToPhoneSegments] = useState<ExportSegment[]>([]);
+  const [sendToPhoneVertical, setSendToPhoneVertical] = useState(false);
+  // Vertical-crop editor: overlay visible + "export view" dim toggle.
+  const [cropMode, setCropMode] = useState(false);
+  const [cropDimmed, setCropDimmed] = useState(false);
   // Playlist IDs whose clips need shipping as soon as state settles: arriving
   // from the dashboard's "Upload missing clips", or after adding clips to an
   // already-shared playlist (which previously left them stranded un-shipped).
@@ -2479,6 +2486,81 @@ export function PlaylistsPage() {
     return { matchId, eventId: activeEventId };
   }, [activeEventId, activeMatchId, selected]);
 
+  // The active clip's crop pan (vertical export) + its bounds in source-video
+  // seconds — the keyframe strip and seek clamping need the window.
+  const activeClipCrop = useMemo(() => {
+    const empty = {
+      keyframes: undefined as CropKeyframe[] | undefined,
+      start: null as number | null,
+      end: null as number | null,
+    };
+    if (!activeClipKey || !selected) return empty;
+    const clip = selected.items.filter(isClipItem).find(
+      (c) => c.matchId === activeClipKey.matchId && c.eventId === activeClipKey.eventId
+    );
+    const m = matchLookup.get(activeClipKey.matchId);
+    const event = eventByKey.get(`${activeClipKey.matchId}:${activeClipKey.eventId}`);
+    let start: number | null = null;
+    let end: number | null = null;
+    if (m?.syncPoint && event) {
+      const t = computeVideoTime(event, m.syncPoint);
+      if (t !== null) {
+        const b = clipBounds(t, preRoll, postRoll, clip?.preRollOffset, clip?.postRollOffset);
+        start = b.start;
+        end = b.end;
+      }
+    }
+    return { keyframes: clip?.cropKeyframes, start, end };
+  }, [activeClipKey, selected, matchLookup, eventByKey, preRoll, postRoll]);
+
+  /** Persist the active clip's crop pan — same optimistic shape as adjustActiveClip. */
+  function setActiveClipCropKeyframes(kfs: CropKeyframe[] | null) {
+    if (!selected || !activeClipKey) return;
+    const newItems = selected.items.map((c) =>
+      isClipItem(c) && c.matchId === activeClipKey.matchId && c.eventId === activeClipKey.eventId
+        ? { ...c, cropKeyframes: kfs ?? undefined }
+        : c
+    );
+    const updatedPlaylist = { ...selected, items: newItems };
+    setSelected(updatedPlaylist);
+    selectedRef.current = updatedPlaylist;
+    setPlaylists((prev) => prev.map((p) => (p.id === selected.id ? updatedPlaylist : p)));
+    updateClip(selected.id, activeClipKey.matchId, activeClipKey.eventId, { cropKeyframes: kfs }).catch(() => {});
+  }
+
+  function handleCropCommit(t: number, cx: number) {
+    setActiveClipCropKeyframes(upsertKeyframe(activeClipCrop.keyframes, t, cx));
+  }
+
+  function handleCropRemoveAtPlayhead() {
+    const kfs = activeClipCrop.keyframes;
+    const video = videoRef.current;
+    if (!kfs?.length || !video) return;
+    const t = video.currentTime;
+    let nearest = 0;
+    for (let i = 1; i < kfs.length; i++) {
+      if (Math.abs(kfs[i].t - t) < Math.abs(kfs[nearest].t - t)) nearest = i;
+    }
+    if (Math.abs(kfs[nearest].t - t) > 1.5) {
+      toast.info("Jump to a keyframe dot first, then remove it");
+      return;
+    }
+    const next = kfs.filter((_, i) => i !== nearest);
+    setActiveClipCropKeyframes(next.length ? next : null);
+  }
+
+  function handleCropSeek(t: number) {
+    const video = videoRef.current;
+    if (!video) return;
+    const { start, end } = activeClipCrop;
+    // Stay inside the clip window — a hair short of the end so the
+    // timeupdate auto-advance doesn't immediately fire.
+    video.currentTime =
+      start !== null && end !== null
+        ? Math.min(Math.max(t, start), Math.max(start, end - 0.05))
+        : t;
+  }
+
   function getClipOffsets(matchId: string, eventId: number) {
     const clip = selectedRef.current?.items.filter(isClipItem).find(
       (c) => c.matchId === matchId && c.eventId === eventId
@@ -3158,21 +3240,23 @@ export function PlaylistsPage() {
         };
         if (clip?.preRollOffset !== undefined) (seg as Extract<ExportSegment, { kind: 'clip' }>).preRollOffset = clip.preRollOffset;
         if (clip?.postRollOffset !== undefined) (seg as Extract<ExportSegment, { kind: 'clip' }>).postRollOffset = clip.postRollOffset;
+        if (clip?.cropKeyframes) (seg as Extract<ExportSegment, { kind: 'clip' }>).cropKeyframes = clip.cropKeyframes;
         return seg;
       })
       .filter((x): x is ExportSegment => x !== null);
   }
 
-  function handleSendToPhone() {
+  function handleSendToPhone(vertical = false) {
     if (activeOrgPlan === 'free') {
       setUpgradeDialogOpen(true);
       return;
     }
+    setSendToPhoneVertical(vertical);
     setSendToPhoneSegments(buildExportSegments());
     setSendToPhoneOpen(true);
   }
 
-  async function handleExport() {
+  async function handleExport(vertical = false) {
     if (activeOrgPlan === 'free') {
       setUpgradeDialogOpen(true);
       return;
@@ -3187,10 +3271,10 @@ export function PlaylistsPage() {
       // the growth loop); pro/franchise may disable it in Settings.
       const canDisableWatermark = activeOrgPlan === 'pro' || activeOrgPlan === 'franchise';
       const watermark = !(canDisableWatermark && getExportWatermarkDisabled());
-      const exportedPath = await exportPlaylist(segments, preRoll, postRoll, selected!.name, watermark);
+      const exportedPath = await exportPlaylist(segments, preRoll, postRoll, selected!.name, watermark, vertical);
       if (exportedPath) {
         notifyExportSuccess(exportedPath);
-        trackEvent('video_exported', { playlist_id: selected!.id, clip_count: segmentCount, status: 'success', selection_only: selectedClipIds.size > 0 });
+        trackEvent('video_exported', { playlist_id: selected!.id, clip_count: segmentCount, status: 'success', selection_only: selectedClipIds.size > 0, ...(vertical ? { aspect: '9:16' } : {}) });
         // Completes the Getting Started "export a playlist" step (local-only
         // is fine — the checklist is a first-session aid, not a record).
         setHasExported(user?.id);
@@ -4955,6 +5039,17 @@ export function PlaylistsPage() {
                   <>
                     <div className="relative">
                       <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
+                      {cropMode && activeClipKey && !activeTextCard && (
+                        <CropOverlay
+                          videoRef={videoRef}
+                          keyframes={activeClipCrop.keyframes}
+                          clipStart={activeClipCrop.start}
+                          clipEnd={activeClipCrop.end}
+                          dimmed={cropDimmed}
+                          onCommit={handleCropCommit}
+                          onSeek={handleCropSeek}
+                        />
+                      )}
                       {activeTextCard && (
                         <div className="absolute inset-0 z-10 flex items-center justify-center bg-black transition-opacity duration-200">
                           <p className="text-center text-4xl font-semibold text-white px-8">{activeTextCard.text}</p>
@@ -4976,6 +5071,17 @@ export function PlaylistsPage() {
                       onPreOffsetChange={(delta) => adjustActiveClip(delta, 0)}
                       onPostOffsetChange={(delta) => adjustActiveClip(0, delta)}
                     />
+                    {activeClipKey && (
+                      <CropEditorBar
+                        active={cropMode}
+                        onToggle={() => setCropMode((v) => !v)}
+                        dimmed={cropDimmed}
+                        onToggleDimmed={() => setCropDimmed((v) => !v)}
+                        keyframeCount={activeClipCrop.keyframes?.length ?? 0}
+                        onRemoveAtPlayhead={handleCropRemoveAtPlayhead}
+                        onReset={() => setActiveClipCropKeyframes(null)}
+                      />
+                    )}
                     {activeClipKey && activeOrgId && (() => {
                       const key = `${activeClipKey.matchId}:${activeClipKey.eventId}`;
                       const assignedIds = clipAssignments.get(key) ?? new Set<string>();
@@ -5153,13 +5259,22 @@ export function PlaylistsPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-52">
-                          <DropdownMenuItem onClick={handleExport} className="gap-2">
+                          <DropdownMenuItem onClick={() => handleExport()} className="gap-2">
                             <FileDown className="h-3.5 w-3.5" />
                             Save to computer…
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={handleSendToPhone} className="gap-2">
+                          <DropdownMenuItem onClick={() => handleSendToPhone()} className="gap-2">
                             <Smartphone className="h-3.5 w-3.5" />
                             Send to my phone…
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => handleExport(true)} className="gap-2">
+                            <RectangleVertical className="h-3.5 w-3.5" />
+                            Save vertical (9:16)…
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleSendToPhone(true)} className="gap-2">
+                            <RectangleVertical className="h-3.5 w-3.5" />
+                            Send vertical (9:16) to my phone…
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -5607,13 +5722,22 @@ export function PlaylistsPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-52">
-                          <DropdownMenuItem onClick={handleExport} className="gap-2">
+                          <DropdownMenuItem onClick={() => handleExport()} className="gap-2">
                             <FileDown className="h-3.5 w-3.5" />
                             Save to computer…
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={handleSendToPhone} className="gap-2">
+                          <DropdownMenuItem onClick={() => handleSendToPhone()} className="gap-2">
                             <Smartphone className="h-3.5 w-3.5" />
                             Send to my phone…
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => handleExport(true)} className="gap-2">
+                            <RectangleVertical className="h-3.5 w-3.5" />
+                            Save vertical (9:16)…
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleSendToPhone(true)} className="gap-2">
+                            <RectangleVertical className="h-3.5 w-3.5" />
+                            Send vertical (9:16) to my phone…
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -5950,6 +6074,17 @@ export function PlaylistsPage() {
                   <>
                     <div className="relative">
                       <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
+                      {cropMode && activeClipKey && !activeTextCard && (
+                        <CropOverlay
+                          videoRef={videoRef}
+                          keyframes={activeClipCrop.keyframes}
+                          clipStart={activeClipCrop.start}
+                          clipEnd={activeClipCrop.end}
+                          dimmed={cropDimmed}
+                          onCommit={handleCropCommit}
+                          onSeek={handleCropSeek}
+                        />
+                      )}
                       {activeTextCard && (
                         <div className="absolute inset-0 z-10 flex items-center justify-center bg-black transition-opacity duration-200">
                           <p className="text-center text-4xl font-semibold text-white px-8">{activeTextCard.text}</p>
@@ -5971,6 +6106,17 @@ export function PlaylistsPage() {
                       onPreOffsetChange={(delta) => adjustActiveClip(delta, 0)}
                       onPostOffsetChange={(delta) => adjustActiveClip(0, delta)}
                     />
+                    {activeClipKey && (
+                      <CropEditorBar
+                        active={cropMode}
+                        onToggle={() => setCropMode((v) => !v)}
+                        dimmed={cropDimmed}
+                        onToggleDimmed={() => setCropDimmed((v) => !v)}
+                        keyframeCount={activeClipCrop.keyframes?.length ?? 0}
+                        onRemoveAtPlayhead={handleCropRemoveAtPlayhead}
+                        onReset={() => setActiveClipCropKeyframes(null)}
+                      />
+                    )}
                     {activeClipKey && activeOrgId && (() => {
                       const key = `${activeClipKey.matchId}:${activeClipKey.eventId}`;
                       const assignedIds = clipAssignments.get(key) ?? new Set<string>();
@@ -6070,12 +6216,13 @@ export function PlaylistsPage() {
           {/* Send to phone — render + upload + QR */}
           <SendToPhoneDialog
             open={sendToPhoneOpen}
-            onClose={() => setSendToPhoneOpen(false)}
+            onClose={() => { setSendToPhoneOpen(false); setSendToPhoneVertical(false); }}
             playlist={selected ? { id: selected.id, name: selected.name } : null}
             segments={sendToPhoneSegments}
             preRoll={preRoll}
             postRoll={postRoll}
             isSelection={selectedClipIds.size > 0}
+            vertical={sendToPhoneVertical}
           />
           {/* Share dialog — multi-team */}
           <Dialog

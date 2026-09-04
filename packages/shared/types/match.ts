@@ -3,6 +3,9 @@
 // Derived from the AI engine's output structures (ByteTrack + RF-DETR + OCR)
 // =============================================================================
 
+import type { CropKeyframe } from '../lib/crop-path';
+export type { CropKeyframe };
+
 export type MatchStatus = "pending" | "processing" | "completed" | "failed";
 export type EventOutcome = "success" | "miss" | "turnover" | "foul";
 export type EventType =
@@ -163,6 +166,8 @@ export interface PlaylistClipItem {
   note?: string;           // per-clip note scoped to this playlist
   r2Url?: string;          // set after Clip & Ship upload
   groupId?: string;        // ordering-lock group (editor-only); members stay contiguous
+  /** Vertical-export pan path; absent = static centered crop. See lib/crop-path.ts. */
+  cropKeyframes?: CropKeyframe[];
 }
 
 export interface PlaylistTextCard {

@@ -45,6 +45,7 @@ export function SendToPhoneDialog({
   preRoll,
   postRoll,
   isSelection,
+  vertical = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -53,6 +54,8 @@ export function SendToPhoneDialog({
   preRoll: number;
   postRoll: number;
   isSelection: boolean;
+  /** Render 9:16 instead of 16:9. Always renders fresh — stored links point at 16:9 masters. */
+  vertical?: boolean;
 }) {
   const [stage, setStage] = useState<SendToPhoneStage | null>(null);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -67,7 +70,7 @@ export function SendToPhoneDialog({
     setError(null);
     setShareUrl(null);
     setReusedFrom(null);
-    sendHighlightToPhone(pl, segments, preRoll, postRoll, setStage)
+    sendHighlightToPhone(pl, segments, preRoll, postRoll, setStage, vertical)
       .then((url) => {
         setShareUrl(url);
         trackEvent("highlight_sent_to_phone", {
@@ -75,6 +78,7 @@ export function SendToPhoneDialog({
           clip_count: segments.filter((s) => s.kind === "clip").length,
           reused: false,
           is_selection: isSelection,
+          ...(vertical ? { aspect: "9:16" } : {}),
         });
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
@@ -86,7 +90,10 @@ export function SendToPhoneDialog({
 
   useEffect(() => {
     if (!open || !playlist || runningRef.current || shareUrl) return;
-    if (isSelection) {
+    // Vertical renders never reuse a stored link — existing shares point at
+    // 16:9 masters, and a subset (selection) must not impersonate the full
+    // playlist's link either.
+    if (isSelection || vertical) {
       runPipeline(playlist);
       return;
     }
