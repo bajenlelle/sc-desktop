@@ -490,13 +490,16 @@ export function MatchDetailPage() {
               </button>
             </div>
           ) : (
+            // Click-to-pick only: OS file drops are disabled app-wide
+            // (dragDropEnabled: false), so no drop affordance.
             <div
+              onClick={handlePickVideoFile}
               className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed py-10 transition-colors border-border bg-muted hover:border-primary/50 hover:bg-primary/5"
             >
               <FolderOpen className="h-8 w-8 text-muted-foreground" />
               <div className="text-center">
                 <p className="text-sm font-semibold text-foreground/80">
-                  Drop a file or click to select
+                  Choose a video file
                 </p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   Your video stays on your machine — nothing is uploaded
@@ -505,7 +508,7 @@ export function MatchDetailPage() {
               <button
                 type="button"
                 className="inline-flex h-8 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                onClick={handlePickVideoFile}
+                onClick={(e) => { e.stopPropagation(); handlePickVideoFile(); }}
               >
                 Choose video file…
               </button>
