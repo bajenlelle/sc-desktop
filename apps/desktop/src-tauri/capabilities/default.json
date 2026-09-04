@@ -13,6 +13,7 @@
       ]
     },
     "core:webview:allow-set-webview-zoom",
+    "core:window:allow-set-fullscreen",
     "dialog:default",
     "opener:default",
     "updater:default",

@@ -32,6 +32,7 @@ import {
   Search,
   SkipForward,
   Square,
+  Minimize2,
   Tag,
   VideoOff,
   Trash2,
@@ -49,6 +50,8 @@ import { VideoClipControls } from "@/components/video-clip-controls";
 import { listMatchesLight, listEventsForMatches, listFolders, createFolder, updateFolder, deleteFolder, updateVideoUrl } from "@/lib/matches-db";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { probeMatches, type VideoFileStatus } from "@/lib/video-probe";
+import { usePlayerFullscreen, useIdleControls } from "@/lib/use-player-fullscreen";
+import { cn } from "@/lib/utils";
 import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderItems, updateClip, insertTextCard, updateTextCard, setPlaylistTeams, setPlaylistUsers, notifyPendingPlaylistShares } from "@/lib/playlists-db";
 import { groupShipFailures, mergeShipResults, type ClipShipResult } from "@scoutable/shared/lib/ship-result";
 import { listLabels, createLabel as apiCreateLabel, updateLabel as apiUpdateLabel, deleteLabel as apiDeleteLabel, seedDefaultLabels, listAssignmentsForClips, setClipAssignments as apiSetClipAssignments, bulkAssign as apiBulkAssign } from "@/lib/labels-db";
@@ -58,7 +61,7 @@ import type { Label, LabelColor, ClipKey } from "@scoutable/shared/types/labels"
 import { eventColors, eventLabel, formatGameClock, isBookkeepingEvent, parseGameClock, playerName } from "@scoutable/shared/lib/events";
 import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import type { CropKeyframe } from "@scoutable/shared/lib/crop-path";
-import { CropEditorBar, CropOverlay, CropTimeline, upsertKeyframe } from "@/components/crop-editor";
+import { ClipTimeline, CropEditorBar, CropOverlay, upsertKeyframe } from "@/components/crop-editor";
 import { ExportFormatDialog, type ExportAction } from "@/components/export-format-dialog";
 import {
   moveBlock,
@@ -1659,6 +1662,39 @@ export function PlaylistsPage() {
   // Vertical-crop editor: overlay visible + "export view" dim toggle.
   const [cropMode, setCropMode] = useState(false);
   const [cropDimmed, setCropDimmed] = useState(false);
+  // Fullscreen player (native window fullscreen + fixed stage layer).
+  const playerFs = usePlayerFullscreen();
+  const fsIdle = useIdleControls(playerFs.active);
+  const [fsChromeHover, setFsChromeHover] = useState(false);
+  const [fsPaused, setFsPaused] = useState(true);
+  const playerFsRef = useRef(playerFs);
+  playerFsRef.current = playerFs;
+  // Chrome never hides while paused (a presenting coach talks over frozen
+  // frames) or while the pointer is on the controls.
+  useEffect(() => {
+    fsIdle.setPinned(fsChromeHover || fsPaused);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fsChromeHover, fsPaused]);
+  useEffect(() => {
+    if (!playerFs.active) return;
+    const video = videoRef.current;
+    if (!video) return;
+    setFsPaused(video.paused);
+    const onPlay = () => setFsPaused(false);
+    const onPause = () => setFsPaused(true);
+    video.addEventListener("play", onPlay);
+    video.addEventListener("pause", onPause);
+    return () => {
+      video.removeEventListener("play", onPlay);
+      video.removeEventListener("pause", onPause);
+    };
+  }, [playerFs.active]);
+  // View → Fullscreen Player (⌘⇧F) — same CustomEvent bridge as ⌘B.
+  useEffect(() => {
+    const handler = () => playerFsRef.current.toggle();
+    window.addEventListener("player-fullscreen-toggle", handler);
+    return () => window.removeEventListener("player-fullscreen-toggle", handler);
+  }, []);
   // Playlist IDs whose clips need shipping as soon as state settles: arriving
   // from the dashboard's "Upload missing clips", or after adding clips to an
   // already-shared playlist (which previously left them stranded un-shipped).
@@ -2840,10 +2876,30 @@ export function PlaylistsPage() {
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.code !== "ArrowDown" && e.code !== "ArrowUp" && e.code !== "ArrowLeft") return;
+      if (
+        e.code !== "ArrowDown" && e.code !== "ArrowUp" && e.code !== "ArrowLeft" &&
+        e.code !== "KeyF" && e.code !== "Escape"
+      ) return;
       const tag = (e.target as HTMLElement).tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if ((e.target as HTMLElement).isContentEditable) return;
+      if (e.code === "KeyF") {
+        // Plain F only — leave ⌘F/etc. to the system.
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
+        e.preventDefault();
+        playerFsRef.current.toggle();
+        return;
+      }
+      if (e.code === "Escape") {
+        // Dialogs own their Escape; only a bare fullscreen layer exits here.
+        // (macOS may have already dropped native fullscreen itself — this
+        // closes the CSS layer; the hook's poll reconciles the window.)
+        if (!playerFsRef.current.active) return;
+        if (document.querySelector('[role="dialog"]')) return;
+        e.preventDefault();
+        void playerFsRef.current.exit();
+        return;
+      }
       e.preventDefault();
       if (e.code === "ArrowLeft") { _handleReplayRef.current(); return; }
       const items = _sortedEventsRef.current;
@@ -4750,6 +4806,644 @@ export function PlaylistsPage() {
 
   if (!profileLoading && !canAccess) return null;
 
+  // Theater and split layouts render the SAME player and clip-list stacks —
+  // they were duplicated verbatim before; only the ResizablePanel wrappers
+  // and padding differ per layout. Edit these once for both.
+  const playerStack = localVideoUrl ? (
+      <div
+        className={playerFs.active
+          ? cn("fixed inset-0 z-50 flex flex-col bg-black", !fsIdle.visible && "cursor-none")
+          : "contents"}
+      >
+        {/* Stage: in fullscreen a fixed-aspect box centered on black, so every
+            overlay's coordinate system (crop window, keyframes, text cards)
+            stays exactly the rendered video box. Chrome floats above it and
+            never reflows it. Windowed renders today's exact markup. */}
+        <div
+          className={playerFs.active ? "relative min-h-0 flex-1 flex items-center justify-center" : "contents"}
+          onDoubleClick={cropMode ? undefined : () => playerFsRef.current.toggle()}
+        >
+        <div className={playerFs.active ? "relative w-full max-w-full max-h-full aspect-video" : "relative"}>
+          <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
+          {cropMode && activeClipKey && !activeTextCard && (
+            <CropOverlay
+              videoRef={videoRef}
+              keyframes={activeClipCrop.keyframes}
+              dimmed={cropDimmed}
+              onCommit={handleCropCommit}
+            />
+          )}
+          {activeMatchId &&
+            videoStatusByMatch.get(activeMatchId) !== undefined &&
+            videoStatusByMatch.get(activeMatchId) !== "ok" &&
+            !activeTextCard && (
+            <div className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-3 bg-black/85 px-6 text-center">
+              <VideoOff className="h-8 w-8 text-amber-400" />
+              <p className="text-sm font-medium text-white">
+                This game's video is on another computer
+              </p>
+              <p className="max-w-sm text-xs text-white/70">
+                Games reference the video file on the machine that imported them —
+                nothing is uploaded. Point Scoutable at the file on this computer
+                to keep working.
+              </p>
+              <Button size="sm" onClick={handleLocateActiveVideo}>
+                Locate file…
+              </Button>
+            </div>
+          )}
+          {activeTextCard && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-black transition-opacity duration-200">
+              <p className="text-center text-4xl font-semibold text-white px-8">{activeTextCard.text}</p>
+            </div>
+          )}
+        </div>
+        </div>
+        {playerFs.active && (
+          <div
+            className={cn(
+              "dark absolute inset-x-0 top-0 z-[25] flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-5 pb-10 pt-4 transition-opacity motion-safe:duration-200",
+              fsIdle.visible ? "opacity-100" : "pointer-events-none opacity-0"
+            )}
+          >
+            <span className="truncate text-sm font-medium text-white">{selected?.name}</span>
+            {listPosition >= 0 && (
+              <span className="shrink-0 text-xs tabular-nums text-white/70">
+                {listPosition + 1} / {queueItems.length}
+              </span>
+            )}
+            <div className="flex-1" />
+            {/* Esc is the OS's on macOS — an explicit exit must always exist. */}
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 shrink-0 gap-1.5 border-white/25 bg-black/40 text-white hover:bg-black/60 hover:text-white"
+              onClick={() => void playerFs.exit()}
+            >
+              <Minimize2 className="h-3.5 w-3.5" />
+              Exit full screen
+            </Button>
+          </div>
+        )}
+        <div
+          className={playerFs.active
+            ? cn(
+                "dark absolute inset-x-0 bottom-0 z-[25] flex flex-col gap-2 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-5 pb-4 pt-10 transition-opacity motion-safe:duration-200",
+                fsIdle.visible ? "opacity-100" : "pointer-events-none opacity-0"
+              )
+            : "contents"}
+          onPointerEnter={playerFs.active ? () => setFsChromeHover(true) : undefined}
+          onPointerLeave={playerFs.active ? () => setFsChromeHover(false) : undefined}
+        >
+        {/* Clip scrubber — always on during playback (both layouts, windowed
+            and fullscreen); the pan-keyframe dots appear only in crop mode. */}
+        {activeClipKey && activeClipCrop.start !== null && activeClipCrop.end !== null && (
+          <ClipTimeline
+            videoRef={videoRef}
+            keyframes={cropMode ? activeClipCrop.keyframes : undefined}
+            clipStart={activeClipCrop.start}
+            clipEnd={activeClipCrop.end}
+            onSeek={handleCropSeek}
+          />
+        )}
+        <VideoClipControls
+          videoRef={videoRef}
+          canPrev={canPrev}
+          canNext={canNext}
+          isQueueActive={isQueueActive}
+          onPrev={handlePrev}
+          onNext={handleNext}
+          onReplay={handleReplay}
+          onStop={handleStop}
+          onPlayAll={() => startQueue(queueItems)}
+          activeClipPreOffset={activeClipOffsets.pre}
+          activeClipPostOffset={activeClipOffsets.post}
+          onPreOffsetChange={(delta) => adjustActiveClip(delta, 0)}
+          onPostOffsetChange={(delta) => adjustActiveClip(0, delta)}
+          onToggleFullscreen={() => playerFsRef.current.toggle()}
+          isFullscreen={playerFs.active}
+          className={playerFs.active ? "mx-auto w-full max-w-3xl border-white/10 bg-card/85 backdrop-blur-md" : undefined}
+        />
+        {activeClipKey && (
+          <CropEditorBar
+            active={cropMode}
+            onToggle={() => setCropMode((v) => !v)}
+            dimmed={cropDimmed}
+            onToggleDimmed={() => setCropDimmed((v) => !v)}
+            keyframeCount={activeClipCrop.keyframes?.length ?? 0}
+            onRemoveAtPlayhead={handleCropRemoveAtPlayhead}
+            onReset={() => setActiveClipCropKeyframes(null)}
+          />
+        )}
+        {!playerFs.active && activeClipKey && activeOrgId && (() => {
+          const key = `${activeClipKey.matchId}:${activeClipKey.eventId}`;
+          const assignedIds = clipAssignments.get(key) ?? new Set<string>();
+          const assigned = labels.filter((l) => assignedIds.has(l.id));
+          const playlistName = selected?.name ?? "this playlist";
+          const scopeTitle = `Labels in ${playlistName}`;
+          return (
+            <div className="flex flex-wrap items-center gap-1.5 px-1">
+              <LabelPickerPopover
+                trigger={
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground hover:border-primary/60 hover:text-primary transition-colors"
+                    title={scopeTitle}
+                  >
+                    <Tag className="h-3 w-3" />
+                    {assigned.length === 0 ? "Add labels" : "Edit"}
+                  </button>
+                }
+                labels={labels}
+                assignedAllIds={assignedIds}
+                onToggle={(labelId, state) => handleToggleClipLabel(activeClipKey.matchId, activeClipKey.eventId, labelId, state)}
+                onCreate={handleCreateLabel}
+                onRename={handleRenameLabel}
+                onRecolor={handleRecolorLabel}
+                onDelete={handleDeleteLabel}
+                onSeedDefaults={handleSeedDefaultLabels}
+                align="start"
+                scopeTitle={scopeTitle}
+                scopeHint="Visible only in this playlist"
+              />
+              {assigned.map((l) => <LabelChip key={l.id} label={l} />)}
+            </div>
+          );
+        })()}
+        {!playerFs.active && activeEventId !== null && (
+          <textarea
+            className="w-full resize-none rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary transition-colors"
+            rows={3}
+            placeholder="Add a note for this clip…"
+            value={clipNote}
+            onChange={(e) => handleNoteChange(e.target.value)}
+          />
+        )}
+        </div>
+      </div>
+    ) : (
+      <div className="space-y-2">
+        <VideoPlaceholder />
+        {noVideo && selected.items.filter(isClipItem).length > 0 && (
+          <p className="text-center text-xs text-muted-foreground">
+            No video linked. Add one in the game.
+          </p>
+        )}
+      </div>
+    );
+
+  const clipListStack = (
+    <>
+      <div className="flex shrink-0 flex-col gap-3">
+      {noSync && selected.items.filter(isClipItem).length > 0 && (
+        <div className="rounded-md bg-amber-50 dark:bg-amber-950 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300">
+          No sync point — set one in the game to enable playback controls.
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-2.5">
+        <div className="flex items-center gap-1.5">
+          <label className="text-xs text-muted-foreground">Pre</label>
+          <Input
+            type="number"
+            min={0}
+            max={30}
+            className="h-7 w-16 text-xs"
+            value={preRoll}
+            onChange={(e) => setPreRoll(Number(e.target.value))}
+          />
+          <label className="text-xs text-muted-foreground">Post</label>
+          <Input
+            type="number"
+            min={0}
+            max={60}
+            className="h-7 w-16 text-xs"
+            value={postRoll}
+            onChange={(e) => setPostRoll(Number(e.target.value))}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            className={"h-8 gap-1.5" + hl("add-clips")}
+            onClick={() => { setOnboardingHighlight(null); setShowClipBrowser(true); }}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Clips
+          </Button>
+          <Button
+            size="sm"
+            variant={filtersActive ? "default" : "outline"}
+            className="h-8 gap-1.5"
+            onClick={() => setFiltersOpen((v) => !v)}
+            title="Filter clips by player, label, event type, period or game"
+          >
+            <Filter className="h-3.5 w-3.5" />
+            Filter
+            {activeFilterDims > 0 && (
+              <span className="rounded-full bg-primary-foreground/20 px-1.5 text-[10px] tabular-nums">
+                {activeFilterDims}
+              </span>
+            )}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5"
+            onClick={() => handleInsertTextCard(sortedEvents.length)}
+            disabled={filtersActive}
+            title={filtersActive ? "Clear filters to edit the playlist" : undefined}
+          >
+            <Type className="h-3.5 w-3.5" />
+            Add Text Card
+          </Button>
+        </div>
+        <div className="flex items-center gap-2">
+          {isPlaying ? (
+            <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={handleStop}>
+              <Square className="h-3.5 w-3.5" />
+              Stop
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5"
+              onClick={() => startQueue(queueItems)}
+              disabled={queueItems.length === 0 || noSync}
+            >
+              <SkipForward className="h-3.5 w-3.5" />
+              {filtersActive
+                ? `Play ${queueItems.filter((i) => !isTextCard(i)).length} filtered`
+                : "Play Playlist"}
+            </Button>
+          )}
+          {isExporting ? (
+            <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Exporting…
+            </Button>
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className={"h-8 gap-1.5" + hl("export")}
+                  onClick={() => setOnboardingHighlight(null)}
+                  disabled={exportLocked ? playlistEmpty : !!exportDisabledReason}
+                  title={exportLocked
+                    ? "Export playlists as MP4 with Rookie or Pro"
+                    : (exportDisabledReason ?? "Export playlist as MP4")}
+                >
+                  {activeOrgPlan === 'free'
+                    ? <Lock className="h-3.5 w-3.5" />
+                    : <FileDown className="h-3.5 w-3.5" />
+                  }
+                  {selectedClipIds.size > 0
+                    ? `Export ${selectedClipIds.size} selected`
+                    : filtersActive
+                      ? `Export ${queueItems.filter((i) => !isTextCard(i)).length} filtered clips`
+                      : 'Export playlist'}
+                  <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuItem onClick={() => openExportPicker("save")} className="gap-2">
+                  <FileDown className="h-3.5 w-3.5" />
+                  Save to computer…
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => openExportPicker("send")} className="gap-2">
+                  <Smartphone className="h-3.5 w-3.5" />
+                  Send to my phone…
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+        {/* Share button — icon-only, colored when shared */}
+        {userTeams.length > 0 && (
+          isShipping ? (
+            <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {shipProgress ? `${shipProgress.done} / ${shipProgress.total}` : "Uploading…"}
+            </Button>
+          ) : (() => {
+            const teamCount = selected?.teamIds?.length ?? 0;
+            const userCount = selected?.userIds?.length ?? 0;
+            const isShared = teamCount > 0 || userCount > 0;
+            const teamNames = (selected?.teamIds ?? [])
+              .map((id) => userTeams.find((t) => t.id === id)?.name ?? "Team");
+            const parts: string[] = [];
+            if (teamNames.length > 0) parts.push(teamNames.join(", "));
+            if (userCount > 0) parts.push(`${userCount} member${userCount !== 1 ? "s" : ""}`);
+            const sharedLabel = parts.join(" · ");
+            return (
+              <Button
+                size="sm"
+                variant={isShared ? "default" : "outline"}
+                className={"h-8 w-8 p-0" + hl("share")}
+                onClick={() => {
+                  setOnboardingHighlight(null);
+                  setPendingShareTeamIds(new Set(selected?.teamIds ?? []));
+                  setPendingShareUserIds(new Set(selected?.userIds ?? []));
+                  setMemberSearchQuery("");
+                  setShareDialogOpen(true);
+                }}
+                disabled={!!exportDisabledReason}
+                title={isShared ? `Shared with: ${sharedLabel}` : (exportDisabledReason ?? "Share with team or members")}
+              >
+                <Share2 className="h-3.5 w-3.5" />
+              </Button>
+            );
+          })()
+        )}
+        {exportError && (
+          <p className="w-full text-xs text-red-500 mt-1">{exportError}</p>
+        )}
+      </div>
+      {selectedClipIds.size > 0 && (
+        <div className="flex items-center gap-3 rounded-lg bg-primary/10 px-4 py-2.5">
+          <span className="text-sm font-medium text-primary">
+            {selectedClipIds.size} item{selectedClipIds.size !== 1 ? "s" : ""} selected
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              className="h-7 gap-1 bg-red-600 px-2 text-xs text-white hover:bg-red-700"
+              onClick={handleRemoveSelected}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Remove from playlist
+            </Button>
+            {(() => {
+              const keys = [...selectedClipIds];
+              const gid = itemGroupIds.get(keys[0] ?? "");
+              const groupTotal = gid
+                ? [...itemGroupIds.values()].filter((g) => g === gid).length
+                : 0;
+              const isExactlyOneGroup = !!gid
+                && keys.every((k) => itemGroupIds.get(k) === gid)
+                && keys.length === groupTotal;
+              if (isExactlyOneGroup) {
+                return (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 gap-1 px-2 text-xs"
+                    disabled={filtersActive}
+                    onClick={() => handleUngroup(gid!)}
+                  >
+                    <Link2 className="h-3.5 w-3.5" />
+                    Ungroup
+                  </Button>
+                );
+              }
+              if (keys.length >= 2) {
+                return (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 gap-1 px-2 text-xs"
+                    disabled={filtersActive}
+                    title={filtersActive ? "Clear filters to group" : "Keep these items together when reordering"}
+                    onClick={handleGroupSelected}
+                  >
+                    <Link2 className="h-3.5 w-3.5" />
+                    Group
+                  </Button>
+                );
+              }
+              return null;
+            })()}
+            {selectedClipKeyPairs.length > 0 && (
+              <LabelPickerPopover
+                trigger={
+                  <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs">
+                    <Tag className="h-3.5 w-3.5" />
+                    Apply label
+                    <ChevronDown className="h-3 w-3" />
+                  </Button>
+                }
+                labels={labels}
+                assignedAllIds={bulkAssignedAll}
+                assignedSomeIds={bulkAssignedSome}
+                onToggle={handleBulkToggleLabel}
+                onCreate={handleCreateLabel}
+                onRename={handleRenameLabel}
+                onRecolor={handleRecolorLabel}
+                onDelete={handleDeleteLabel}
+                onSeedDefaults={handleSeedDefaultLabels}
+                scopeTitle={`Labels in ${selected?.name ?? "this playlist"}`}
+                scopeHint="Visible only in this playlist"
+              />
+            )}
+            {playlists.filter((p) => p.id !== selected?.id).length > 0 && (
+              <div ref={addToDropdownRef} className="relative">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1 px-2 text-xs"
+                  onClick={() => { setShowAddToDropdown((v) => !v); setAddToSearch(""); }}
+                >
+                  Add to another playlist
+                  <ChevronDown className="h-3 w-3" />
+                </Button>
+                {showAddToDropdown && (
+                  <AddToDropdown
+                    playlists={playlists}
+                    activePlaylistId={selected?.id ?? null}
+                    addToSearch={addToSearch}
+                    setAddToSearch={setAddToSearch}
+                    onAddToPlaylist={handleAddSelectedToPlaylist}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      </div>
+
+      <div ref={playlistScrollRef} className="min-h-0 flex-1 overflow-y-auto">
+      {filtersOpen && (
+        <PlaylistFilterBar
+          filters={queueFilters}
+          onChange={(next) => {
+            if (!filtersActive && queueFiltersActive(next)) trackEvent("playlist_filtered");
+            setQueueFilters(next);
+          }}
+          options={queueFilterOptions}
+          shownCount={queueItems.filter((i) => !isTextCard(i)).length}
+          totalCount={sortedEvents.filter((i) => !isTextCard(i)).length}
+        />
+      )}
+      {filtersActive && !filtersOpen && (
+        <div className="flex items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-700 dark:text-amber-400">
+          Filtered: showing {queueItems.filter((i) => !isTextCard(i)).length} of{" "}
+          {sortedEvents.filter((i) => !isTextCard(i)).length} clips
+          <button
+            type="button"
+            onClick={() => setQueueFilters({ ...EMPTY_QUEUE_FILTERS })}
+            className="font-medium underline underline-offset-2"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+      {queueItems.length === 0 ? (
+        <div
+          onDragOver={(e) => {
+            if (!e.dataTransfer.types.includes("text/clip")) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "copy";
+            setClipDragOverIndex(0);
+            setClipDragOverPosition("above");
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) setClipDragOverIndex(null);
+          }}
+          onDrop={(e) => handleClipDrop(e, 0)}
+          className={`flex min-h-full flex-col items-center justify-center gap-3 py-12 text-center rounded-lg border-2 border-dashed transition-colors ${
+            clipDragOverIndex === 0 ? "border-primary bg-primary/5" : "border-transparent"
+          }`}
+        >
+          <p className="text-sm text-muted-foreground">
+            This playlist has no clips yet.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className={"gap-1.5" + hl("add-clips")}
+            onClick={() => { setOnboardingHighlight(null); setShowClipBrowser(true); }}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Clips
+          </Button>
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full min-w-[580px] text-sm">
+            <thead className="border-b border-border bg-muted/80 text-xs font-medium text-muted-foreground">
+              <tr>
+                <th className="w-1.5 min-w-1.5 p-0" aria-hidden />
+                <th className="w-8" />
+                <th className="w-8 px-3 py-2.5">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleSelectAll}
+                    className="h-3.5 w-3.5 rounded border-border accent-primary"
+                  />
+                </th>
+                <th className="px-4 py-2.5 text-left">Period</th>
+                <th
+                  className={`px-4 py-2.5 text-left select-none ${clockSortLocked ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:text-foreground"}`}
+                  onClick={() => !clockSortLocked && setClockSort((s) => s === "none" ? "asc" : s === "asc" ? "desc" : "none")}
+                  title={clockSortLocked ? "Clock sort is unavailable when text cards or groups are present" : undefined}
+                >
+                  <span className="inline-flex items-center gap-1">
+                    Clock
+                    {!clockSortLocked && clockSort === "asc" && <ArrowUp className="h-3 w-3" />}
+                    {!clockSortLocked && clockSort === "desc" && <ArrowDown className="h-3 w-3" />}
+                  </span>
+                </th>
+                {isMultiMatch && <th className="px-4 py-2.5 text-left">Game</th>}
+                <th className="px-4 py-2.5 text-left">Event</th>
+                <th className="px-4 py-2.5 text-left">Player</th>
+                <th className="px-4 py-2.5 text-left">Team</th>
+                <th className="px-4 py-2.5" />
+                <th className="px-3 py-2.5" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border bg-card">
+              {queueItems.map((item, index) => {
+                const key = itemKey(item);
+                if (isTextCard(item)) {
+                  const card = item as PlaylistTextCard;
+                  return (
+                    <TextCardRow
+                      key={key}
+                      card={card}
+                      index={index}
+                      isActive={activeTextCard?.id === card.id}
+                      isSelected={selectedClipIds.has(key)}
+                      onSelect={(e) => toggleSelectClip(key, e)}
+                      isDragTarget={clipDragOverIndex === index}
+                      dragTargetPosition={clipDragOverPosition}
+                      onClick={(e) => { if (e.shiftKey) { toggleSelectClip(key, e); return; } handleRowClick(card); }}
+                      onDragStart={(e) => handleClipDragStart(e, key)}
+                      onDragOver={(e, i) => handleClipDragOver(e, i)}
+                      onDragLeave={() => setClipDragOverIndex(null)}
+                      onDrop={(e, i) => handleClipDrop(e, i)}
+                      onDragEnd={handleClipDragEnd}
+                      onTextChange={handleTextCardTextChange}
+                      onTextSave={handleTextCardTextSave}
+                      onDurationChange={handleTextCardDurationChange}
+                      onRemove={() => handleRemoveSingleTextCard(card)}
+                      groupPos={!filtersActive ? groupRuns.get(key)?.pos : undefined}
+                      groupSize={groupRuns.get(key)?.size}
+                      onUngroup={!filtersActive && groupRuns.get(key) ? () => handleUngroup(groupRuns.get(key)!.groupId) : undefined}
+                      isDragSource={dragBlockKeys?.has(key) ?? false}
+                    />
+                  );
+                }
+                const queueItem = item as QueueItem;
+                const rowKey = `${queueItem.matchId}:${queueItem.event.eventId}`;
+                const clip = clipByKey.get(rowKey);
+                return (
+                  <DraggableRow
+                    key={key}
+                    index={index}
+                    item={queueItem}
+                    isActive={queueItem.event.eventId === activeEventId}
+                    isMultiMatch={isMultiMatch}
+                    matchTitle={matchLookup.get(queueItem.matchId)?.title}
+                    preOffset={clip?.preRollOffset ?? 0}
+                    postOffset={clip?.postRollOffset ?? 0}
+                    note={clip?.note}
+                    isSelected={selectedClipIds.has(key)}
+                    onSelect={(e) => toggleSelectClip(key, e)}
+                    isDragTarget={clipDragOverIndex === index}
+                    dragTargetPosition={clipDragOverPosition}
+                    onClick={(e) => { if (e.shiftKey) { toggleSelectClip(key, e); return; } handleRowClick(queueItem); }}
+                    onDragStart={(e) => handleClipDragStart(e, key)}
+                    onDragOver={(e, i) => handleClipDragOver(e, i)}
+                    onDragLeave={() => setClipDragOverIndex(null)}
+                    onDrop={(e, i) => handleClipDrop(e, i)}
+                    onDragEnd={handleClipDragEnd}
+                    onInsertTextCardAbove={() => handleInsertTextCard(index)}
+                    onRemove={() => { if (clip) handleRemoveSingleClip(clip); }}
+                    labelControls={activeOrgId ? {
+                      labels,
+                      assignedIds: clipAssignments.get(rowKey) ?? new Set<string>(),
+                      onToggle: (labelId, state) => handleToggleClipLabel(queueItem.matchId, queueItem.event.eventId, labelId, state),
+                      onCreate: handleCreateLabel,
+                      onRename: handleRenameLabel,
+                      onRecolor: handleRecolorLabel,
+                      onDelete: handleDeleteLabel,
+                      onSeedDefaults: handleSeedDefaultLabels,
+                      scopeTitle: `Labels in ${selected?.name ?? "this playlist"}`,
+                      scopeHint: "Visible only in this playlist",
+                    } : undefined}
+                    groupPos={!filtersActive ? groupRuns.get(key)?.pos : undefined}
+                    groupSize={groupRuns.get(key)?.size}
+                    onUngroup={!filtersActive && groupRuns.get(key) ? () => handleUngroup(groupRuns.get(key)!.groupId) : undefined}
+                    isDragSource={dragBlockKeys?.has(key) ?? false}
+                    canGroupSelection={!filtersActive && selectedClipIds.size >= 2}
+                    selectionCount={selectedClipIds.size}
+                    onGroupSelected={handleGroupSelected}
+                  />
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      </div>
+    </>
+  );
+
   return (
     <>
     <ResizablePanelGroup direction="horizontal" autoSaveId="playlists-browser" className="h-full">
@@ -5140,133 +5834,7 @@ export function PlaylistsPage() {
               <ResizablePanelGroup key="theater" direction="vertical" autoSaveId="playlists-theater" className="min-h-0 flex-1">
                 <ResizablePanel defaultSize={70} minSize={25}>
                 <div className="flex h-full flex-col gap-2 pb-3 min-w-0">
-                {localVideoUrl ? (
-                  <>
-                    <div className="relative">
-                      <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
-                      {cropMode && activeClipKey && !activeTextCard && (
-                        <CropOverlay
-                          videoRef={videoRef}
-                          keyframes={activeClipCrop.keyframes}
-                          dimmed={cropDimmed}
-                          onCommit={handleCropCommit}
-                        />
-                      )}
-                      {activeMatchId &&
-                        videoStatusByMatch.get(activeMatchId) !== undefined &&
-                        videoStatusByMatch.get(activeMatchId) !== "ok" &&
-                        !activeTextCard && (
-                        <div className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-3 bg-black/85 px-6 text-center">
-                          <VideoOff className="h-8 w-8 text-amber-400" />
-                          <p className="text-sm font-medium text-white">
-                            This game's video is on another computer
-                          </p>
-                          <p className="max-w-sm text-xs text-white/70">
-                            Games reference the video file on the machine that imported them —
-                            nothing is uploaded. Point Scoutable at the file on this computer
-                            to keep working.
-                          </p>
-                          <Button size="sm" onClick={handleLocateActiveVideo}>
-                            Locate file…
-                          </Button>
-                        </div>
-                      )}
-                      {activeTextCard && (
-                        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black transition-opacity duration-200">
-                          <p className="text-center text-4xl font-semibold text-white px-8">{activeTextCard.text}</p>
-                        </div>
-                      )}
-                    </div>
-                    {cropMode && activeClipKey && activeClipCrop.start !== null && activeClipCrop.end !== null && (
-                      <CropTimeline
-                        videoRef={videoRef}
-                        keyframes={activeClipCrop.keyframes}
-                        clipStart={activeClipCrop.start}
-                        clipEnd={activeClipCrop.end}
-                        onSeek={handleCropSeek}
-                      />
-                    )}
-                    <VideoClipControls
-                      videoRef={videoRef}
-                      canPrev={canPrev}
-                      canNext={canNext}
-                      isQueueActive={isQueueActive}
-                      onPrev={handlePrev}
-                      onNext={handleNext}
-                      onReplay={handleReplay}
-                      onStop={handleStop}
-                      onPlayAll={() => startQueue(queueItems)}
-                      activeClipPreOffset={activeClipOffsets.pre}
-                      activeClipPostOffset={activeClipOffsets.post}
-                      onPreOffsetChange={(delta) => adjustActiveClip(delta, 0)}
-                      onPostOffsetChange={(delta) => adjustActiveClip(0, delta)}
-                    />
-                    {activeClipKey && (
-                      <CropEditorBar
-                        active={cropMode}
-                        onToggle={() => setCropMode((v) => !v)}
-                        dimmed={cropDimmed}
-                        onToggleDimmed={() => setCropDimmed((v) => !v)}
-                        keyframeCount={activeClipCrop.keyframes?.length ?? 0}
-                        onRemoveAtPlayhead={handleCropRemoveAtPlayhead}
-                        onReset={() => setActiveClipCropKeyframes(null)}
-                      />
-                    )}
-                    {activeClipKey && activeOrgId && (() => {
-                      const key = `${activeClipKey.matchId}:${activeClipKey.eventId}`;
-                      const assignedIds = clipAssignments.get(key) ?? new Set<string>();
-                      const assigned = labels.filter((l) => assignedIds.has(l.id));
-                      const playlistName = selected?.name ?? "this playlist";
-                      const scopeTitle = `Labels in ${playlistName}`;
-                      return (
-                        <div className="flex flex-wrap items-center gap-1.5 px-1">
-                          <LabelPickerPopover
-                            trigger={
-                              <button
-                                type="button"
-                                className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground hover:border-primary/60 hover:text-primary transition-colors"
-                                title={scopeTitle}
-                              >
-                                <Tag className="h-3 w-3" />
-                                {assigned.length === 0 ? "Add labels" : "Edit"}
-                              </button>
-                            }
-                            labels={labels}
-                            assignedAllIds={assignedIds}
-                            onToggle={(labelId, state) => handleToggleClipLabel(activeClipKey.matchId, activeClipKey.eventId, labelId, state)}
-                            onCreate={handleCreateLabel}
-                            onRename={handleRenameLabel}
-                            onRecolor={handleRecolorLabel}
-                            onDelete={handleDeleteLabel}
-                            onSeedDefaults={handleSeedDefaultLabels}
-                            align="start"
-                            scopeTitle={scopeTitle}
-                            scopeHint="Visible only in this playlist"
-                          />
-                          {assigned.map((l) => <LabelChip key={l.id} label={l} />)}
-                        </div>
-                      );
-                    })()}
-                    {activeEventId !== null && (
-                      <textarea
-                        className="w-full resize-none rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary transition-colors"
-                        rows={3}
-                        placeholder="Add a note for this clip…"
-                        value={clipNote}
-                        onChange={(e) => handleNoteChange(e.target.value)}
-                      />
-                    )}
-                  </>
-                ) : (
-                  <div className="space-y-2">
-                    <VideoPlaceholder />
-                    {noVideo && selected.items.filter(isClipItem).length > 0 && (
-                      <p className="text-center text-xs text-muted-foreground">
-                        No video linked. Add one in the game.
-                      </p>
-                    )}
-                  </div>
-                )}
+                {playerStack}
                 </div>
                 </ResizablePanel>
 
@@ -5274,453 +5842,7 @@ export function PlaylistsPage() {
 
                 <ResizablePanel defaultSize={30} minSize={20}>
                 <div className="flex h-full flex-col gap-3 overflow-hidden pt-3">
-                <div className="flex shrink-0 flex-col gap-3">
-                {noSync && selected.items.filter(isClipItem).length > 0 && (
-                  <div className="rounded-md bg-amber-50 dark:bg-amber-950 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300">
-                    No sync point — set one in the game to enable playback controls.
-                  </div>
-                )}
-
-                <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-2.5">
-                  <div className="flex items-center gap-1.5">
-                    <label className="text-xs text-muted-foreground">Pre</label>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={30}
-                      className="h-7 w-16 text-xs"
-                      value={preRoll}
-                      onChange={(e) => setPreRoll(Number(e.target.value))}
-                    />
-                    <label className="text-xs text-muted-foreground">Post</label>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={60}
-                      className="h-7 w-16 text-xs"
-                      value={postRoll}
-                      onChange={(e) => setPostRoll(Number(e.target.value))}
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      className={"h-8 gap-1.5" + hl("add-clips")}
-                      onClick={() => { setOnboardingHighlight(null); setShowClipBrowser(true); }}
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      Add Clips
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={filtersActive ? "default" : "outline"}
-                      className="h-8 gap-1.5"
-                      onClick={() => setFiltersOpen((v) => !v)}
-                      title="Filter clips by player, label, event type, period or game"
-                    >
-                      <Filter className="h-3.5 w-3.5" />
-                      Filter
-                      {activeFilterDims > 0 && (
-                        <span className="rounded-full bg-primary-foreground/20 px-1.5 text-[10px] tabular-nums">
-                          {activeFilterDims}
-                        </span>
-                      )}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-8 gap-1.5"
-                      onClick={() => handleInsertTextCard(sortedEvents.length)}
-                      disabled={filtersActive}
-                      title={filtersActive ? "Clear filters to edit the playlist" : undefined}
-                    >
-                      <Type className="h-3.5 w-3.5" />
-                      Add Text Card
-                    </Button>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {isPlaying ? (
-                      <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={handleStop}>
-                        <Square className="h-3.5 w-3.5" />
-                        Stop
-                      </Button>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 gap-1.5"
-                        onClick={() => startQueue(queueItems)}
-                        disabled={queueItems.length === 0 || noSync}
-                      >
-                        <SkipForward className="h-3.5 w-3.5" />
-                        {filtersActive
-                          ? `Play ${queueItems.filter((i) => !isTextCard(i)).length} filtered`
-                          : "Play Playlist"}
-                      </Button>
-                    )}
-                    {isExporting ? (
-                      <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        Exporting…
-                      </Button>
-                    ) : (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className={"h-8 gap-1.5" + hl("export")}
-                            onClick={() => setOnboardingHighlight(null)}
-                            disabled={exportLocked ? playlistEmpty : !!exportDisabledReason}
-                            title={exportLocked
-                              ? "Export playlists as MP4 with Rookie or Pro"
-                              : (exportDisabledReason ?? "Export playlist as MP4")}
-                          >
-                            {activeOrgPlan === 'free'
-                              ? <Lock className="h-3.5 w-3.5" />
-                              : <FileDown className="h-3.5 w-3.5" />
-                            }
-                            {selectedClipIds.size > 0
-                              ? `Export ${selectedClipIds.size} selected`
-                              : filtersActive
-                                ? `Export ${queueItems.filter((i) => !isTextCard(i)).length} filtered clips`
-                                : 'Export playlist'}
-                            <ChevronDown className="h-3 w-3 text-muted-foreground" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-52">
-                          <DropdownMenuItem onClick={() => openExportPicker("save")} className="gap-2">
-                            <FileDown className="h-3.5 w-3.5" />
-                            Save to computer…
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openExportPicker("send")} className="gap-2">
-                            <Smartphone className="h-3.5 w-3.5" />
-                            Send to my phone…
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
-                  </div>
-                  {/* Share button — icon-only, colored when shared */}
-                  {userTeams.length > 0 && (
-                    isShipping ? (
-                      <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        {shipProgress ? `${shipProgress.done} / ${shipProgress.total}` : "Uploading…"}
-                      </Button>
-                    ) : (() => {
-                      const teamCount = selected?.teamIds?.length ?? 0;
-                      const userCount = selected?.userIds?.length ?? 0;
-                      const isShared = teamCount > 0 || userCount > 0;
-                      const teamNames = (selected?.teamIds ?? [])
-                        .map((id) => userTeams.find((t) => t.id === id)?.name ?? "Team");
-                      const parts: string[] = [];
-                      if (teamNames.length > 0) parts.push(teamNames.join(", "));
-                      if (userCount > 0) parts.push(`${userCount} member${userCount !== 1 ? "s" : ""}`);
-                      const sharedLabel = parts.join(" · ");
-                      return (
-                        <Button
-                          size="sm"
-                          variant={isShared ? "default" : "outline"}
-                          className={"h-8 w-8 p-0" + hl("share")}
-                          onClick={() => {
-                            setOnboardingHighlight(null);
-                            setPendingShareTeamIds(new Set(selected?.teamIds ?? []));
-                            setPendingShareUserIds(new Set(selected?.userIds ?? []));
-                            setMemberSearchQuery("");
-                            setShareDialogOpen(true);
-                          }}
-                          disabled={!!exportDisabledReason}
-                          title={isShared ? `Shared with: ${sharedLabel}` : (exportDisabledReason ?? "Share with team or members")}
-                        >
-                          <Share2 className="h-3.5 w-3.5" />
-                        </Button>
-                      );
-                    })()
-                  )}
-                  {exportError && (
-                    <p className="w-full text-xs text-red-500 mt-1">{exportError}</p>
-                  )}
-                </div>
-                {selectedClipIds.size > 0 && (
-                  <div className="flex items-center gap-3 rounded-lg bg-primary/10 px-4 py-2.5">
-                    <span className="text-sm font-medium text-primary">
-                      {selectedClipIds.size} item{selectedClipIds.size !== 1 ? "s" : ""} selected
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        className="h-7 gap-1 bg-red-600 px-2 text-xs text-white hover:bg-red-700"
-                        onClick={handleRemoveSelected}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        Remove from playlist
-                      </Button>
-                      {(() => {
-                        const keys = [...selectedClipIds];
-                        const gid = itemGroupIds.get(keys[0] ?? "");
-                        const groupTotal = gid
-                          ? [...itemGroupIds.values()].filter((g) => g === gid).length
-                          : 0;
-                        const isExactlyOneGroup = !!gid
-                          && keys.every((k) => itemGroupIds.get(k) === gid)
-                          && keys.length === groupTotal;
-                        if (isExactlyOneGroup) {
-                          return (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 gap-1 px-2 text-xs"
-                              disabled={filtersActive}
-                              onClick={() => handleUngroup(gid!)}
-                            >
-                              <Link2 className="h-3.5 w-3.5" />
-                              Ungroup
-                            </Button>
-                          );
-                        }
-                        if (keys.length >= 2) {
-                          return (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 gap-1 px-2 text-xs"
-                              disabled={filtersActive}
-                              title={filtersActive ? "Clear filters to group" : "Keep these items together when reordering"}
-                              onClick={handleGroupSelected}
-                            >
-                              <Link2 className="h-3.5 w-3.5" />
-                              Group
-                            </Button>
-                          );
-                        }
-                        return null;
-                      })()}
-                      {selectedClipKeyPairs.length > 0 && (
-                        <LabelPickerPopover
-                          trigger={
-                            <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs">
-                              <Tag className="h-3.5 w-3.5" />
-                              Apply label
-                              <ChevronDown className="h-3 w-3" />
-                            </Button>
-                          }
-                          labels={labels}
-                          assignedAllIds={bulkAssignedAll}
-                          assignedSomeIds={bulkAssignedSome}
-                          onToggle={handleBulkToggleLabel}
-                          onCreate={handleCreateLabel}
-                          onRename={handleRenameLabel}
-                          onRecolor={handleRecolorLabel}
-                          onDelete={handleDeleteLabel}
-                          onSeedDefaults={handleSeedDefaultLabels}
-                          scopeTitle={`Labels in ${selected?.name ?? "this playlist"}`}
-                          scopeHint="Visible only in this playlist"
-                        />
-                      )}
-                      {playlists.filter((p) => p.id !== selected?.id).length > 0 && (
-                        <div ref={addToDropdownRef} className="relative">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 gap-1 px-2 text-xs"
-                            onClick={() => { setShowAddToDropdown((v) => !v); setAddToSearch(""); }}
-                          >
-                            Add to another playlist
-                            <ChevronDown className="h-3 w-3" />
-                          </Button>
-                          {showAddToDropdown && (
-                            <AddToDropdown
-                              playlists={playlists}
-                              activePlaylistId={selected?.id ?? null}
-                              addToSearch={addToSearch}
-                              setAddToSearch={setAddToSearch}
-                              onAddToPlaylist={handleAddSelectedToPlaylist}
-                            />
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-                </div>
-
-                <div ref={playlistScrollRef} className="min-h-0 flex-1 overflow-y-auto">
-                {filtersOpen && (
-                  <PlaylistFilterBar
-                    filters={queueFilters}
-                    onChange={(next) => {
-                      if (!filtersActive && queueFiltersActive(next)) trackEvent("playlist_filtered");
-                      setQueueFilters(next);
-                    }}
-                    options={queueFilterOptions}
-                    shownCount={queueItems.filter((i) => !isTextCard(i)).length}
-                    totalCount={sortedEvents.filter((i) => !isTextCard(i)).length}
-                  />
-                )}
-                {filtersActive && !filtersOpen && (
-                  <div className="flex items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-700 dark:text-amber-400">
-                    Filtered: showing {queueItems.filter((i) => !isTextCard(i)).length} of{" "}
-                    {sortedEvents.filter((i) => !isTextCard(i)).length} clips
-                    <button
-                      type="button"
-                      onClick={() => setQueueFilters({ ...EMPTY_QUEUE_FILTERS })}
-                      className="font-medium underline underline-offset-2"
-                    >
-                      Clear
-                    </button>
-                  </div>
-                )}
-                {queueItems.length === 0 ? (
-                  <div
-                    onDragOver={(e) => {
-                      if (!e.dataTransfer.types.includes("text/clip")) return;
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = "copy";
-                      setClipDragOverIndex(0);
-                      setClipDragOverPosition("above");
-                    }}
-                    onDragLeave={(e) => {
-                      if (!e.currentTarget.contains(e.relatedTarget as Node)) setClipDragOverIndex(null);
-                    }}
-                    onDrop={(e) => handleClipDrop(e, 0)}
-                    className={`flex min-h-full flex-col items-center justify-center gap-3 py-12 text-center rounded-lg border-2 border-dashed transition-colors ${
-                      clipDragOverIndex === 0 ? "border-primary bg-primary/5" : "border-transparent"
-                    }`}
-                  >
-                    <p className="text-sm text-muted-foreground">
-                      This playlist has no clips yet.
-                    </p>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className={"gap-1.5" + hl("add-clips")}
-                      onClick={() => { setOnboardingHighlight(null); setShowClipBrowser(true); }}
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      Add Clips
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto rounded-lg border border-border">
-                    <table className="w-full min-w-[580px] text-sm">
-                      <thead className="border-b border-border bg-muted/80 text-xs font-medium text-muted-foreground">
-                        <tr>
-                          <th className="w-1.5 min-w-1.5 p-0" aria-hidden />
-                          <th className="w-8" />
-                          <th className="w-8 px-3 py-2.5">
-                            <input
-                              type="checkbox"
-                              checked={allSelected}
-                              onChange={toggleSelectAll}
-                              className="h-3.5 w-3.5 rounded border-border accent-primary"
-                            />
-                          </th>
-                          <th className="px-4 py-2.5 text-left">Period</th>
-                          <th
-                            className={`px-4 py-2.5 text-left select-none ${clockSortLocked ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:text-foreground"}`}
-                            onClick={() => !clockSortLocked && setClockSort((s) => s === "none" ? "asc" : s === "asc" ? "desc" : "none")}
-                            title={clockSortLocked ? "Clock sort is unavailable when text cards or groups are present" : undefined}
-                          >
-                            <span className="inline-flex items-center gap-1">
-                              Clock
-                              {!clockSortLocked && clockSort === "asc" && <ArrowUp className="h-3 w-3" />}
-                              {!clockSortLocked && clockSort === "desc" && <ArrowDown className="h-3 w-3" />}
-                            </span>
-                          </th>
-                          {isMultiMatch && <th className="px-4 py-2.5 text-left">Game</th>}
-                          <th className="px-4 py-2.5 text-left">Event</th>
-                          <th className="px-4 py-2.5 text-left">Player</th>
-                          <th className="px-4 py-2.5 text-left">Team</th>
-                          <th className="px-4 py-2.5" />
-                          <th className="px-3 py-2.5" />
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border bg-card">
-                        {queueItems.map((item, index) => {
-                          const key = itemKey(item);
-                          if (isTextCard(item)) {
-                            const card = item as PlaylistTextCard;
-                            return (
-                              <TextCardRow
-                                key={key}
-                                card={card}
-                                index={index}
-                                isActive={activeTextCard?.id === card.id}
-                                isSelected={selectedClipIds.has(key)}
-                                onSelect={(e) => toggleSelectClip(key, e)}
-                                isDragTarget={clipDragOverIndex === index}
-                                dragTargetPosition={clipDragOverPosition}
-                                onClick={(e) => { if (e.shiftKey) { toggleSelectClip(key, e); return; } handleRowClick(card); }}
-                                onDragStart={(e) => handleClipDragStart(e, key)}
-                                onDragOver={(e, i) => handleClipDragOver(e, i)}
-                                onDragLeave={() => setClipDragOverIndex(null)}
-                                onDrop={(e, i) => handleClipDrop(e, i)}
-                                onDragEnd={handleClipDragEnd}
-                                onTextChange={handleTextCardTextChange}
-                                onTextSave={handleTextCardTextSave}
-                                onDurationChange={handleTextCardDurationChange}
-                                onRemove={() => handleRemoveSingleTextCard(card)}
-                                groupPos={!filtersActive ? groupRuns.get(key)?.pos : undefined}
-                                groupSize={groupRuns.get(key)?.size}
-                                onUngroup={!filtersActive && groupRuns.get(key) ? () => handleUngroup(groupRuns.get(key)!.groupId) : undefined}
-                                isDragSource={dragBlockKeys?.has(key) ?? false}
-                              />
-                            );
-                          }
-                          const queueItem = item as QueueItem;
-                          const rowKey = `${queueItem.matchId}:${queueItem.event.eventId}`;
-                          const clip = clipByKey.get(rowKey);
-                          return (
-                            <DraggableRow
-                              key={key}
-                              index={index}
-                              item={queueItem}
-                              isActive={queueItem.event.eventId === activeEventId}
-                              isMultiMatch={isMultiMatch}
-                              matchTitle={matchLookup.get(queueItem.matchId)?.title}
-                              preOffset={clip?.preRollOffset ?? 0}
-                              postOffset={clip?.postRollOffset ?? 0}
-                              note={clip?.note}
-                              isSelected={selectedClipIds.has(key)}
-                              onSelect={(e) => toggleSelectClip(key, e)}
-                              isDragTarget={clipDragOverIndex === index}
-                              dragTargetPosition={clipDragOverPosition}
-                              onClick={(e) => { if (e.shiftKey) { toggleSelectClip(key, e); return; } handleRowClick(queueItem); }}
-                              onDragStart={(e) => handleClipDragStart(e, key)}
-                              onDragOver={(e, i) => handleClipDragOver(e, i)}
-                              onDragLeave={() => setClipDragOverIndex(null)}
-                              onDrop={(e, i) => handleClipDrop(e, i)}
-                              onDragEnd={handleClipDragEnd}
-                              onInsertTextCardAbove={() => handleInsertTextCard(index)}
-                              onRemove={() => { if (clip) handleRemoveSingleClip(clip); }}
-                              labelControls={activeOrgId ? {
-                                labels,
-                                assignedIds: clipAssignments.get(rowKey) ?? new Set<string>(),
-                                onToggle: (labelId, state) => handleToggleClipLabel(queueItem.matchId, queueItem.event.eventId, labelId, state),
-                                onCreate: handleCreateLabel,
-                                onRename: handleRenameLabel,
-                                onRecolor: handleRecolorLabel,
-                                onDelete: handleDeleteLabel,
-                                onSeedDefaults: handleSeedDefaultLabels,
-                                scopeTitle: `Labels in ${selected?.name ?? "this playlist"}`,
-                                scopeHint: "Visible only in this playlist",
-                              } : undefined}
-                              groupPos={!filtersActive ? groupRuns.get(key)?.pos : undefined}
-                              groupSize={groupRuns.get(key)?.size}
-                              onUngroup={!filtersActive && groupRuns.get(key) ? () => handleUngroup(groupRuns.get(key)!.groupId) : undefined}
-                              isDragSource={dragBlockKeys?.has(key) ?? false}
-                              canGroupSelection={!filtersActive && selectedClipIds.size >= 2}
-                              selectionCount={selectedClipIds.size}
-                              onGroupSelected={handleGroupSelected}
-                            />
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                </div>
+                {clipListStack}
                 </div>
                 </ResizablePanel>
               </ResizablePanelGroup>
@@ -5728,453 +5850,7 @@ export function PlaylistsPage() {
               <ResizablePanelGroup key="split" direction="horizontal" autoSaveId="playlists-split" className="min-h-0 flex-1">
                 <ResizablePanel defaultSize={45} minSize={20}>
                 <div className="flex h-full flex-col gap-3 overflow-hidden pr-3">
-                <div className="flex shrink-0 flex-col gap-3">
-                {noSync && selected.items.filter(isClipItem).length > 0 && (
-                  <div className="rounded-md bg-amber-50 dark:bg-amber-950 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300">
-                    No sync point — set one in the game to enable playback controls.
-                  </div>
-                )}
-
-                <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-2.5">
-                  <div className="flex items-center gap-1.5">
-                    <label className="text-xs text-muted-foreground">Pre</label>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={30}
-                      className="h-7 w-16 text-xs"
-                      value={preRoll}
-                      onChange={(e) => setPreRoll(Number(e.target.value))}
-                    />
-                    <label className="text-xs text-muted-foreground">Post</label>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={60}
-                      className="h-7 w-16 text-xs"
-                      value={postRoll}
-                      onChange={(e) => setPostRoll(Number(e.target.value))}
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      className={"h-8 gap-1.5" + hl("add-clips")}
-                      onClick={() => { setOnboardingHighlight(null); setShowClipBrowser(true); }}
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      Add Clips
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={filtersActive ? "default" : "outline"}
-                      className="h-8 gap-1.5"
-                      onClick={() => setFiltersOpen((v) => !v)}
-                      title="Filter clips by player, label, event type, period or game"
-                    >
-                      <Filter className="h-3.5 w-3.5" />
-                      Filter
-                      {activeFilterDims > 0 && (
-                        <span className="rounded-full bg-primary-foreground/20 px-1.5 text-[10px] tabular-nums">
-                          {activeFilterDims}
-                        </span>
-                      )}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-8 gap-1.5"
-                      onClick={() => handleInsertTextCard(sortedEvents.length)}
-                      disabled={filtersActive}
-                      title={filtersActive ? "Clear filters to edit the playlist" : undefined}
-                    >
-                      <Type className="h-3.5 w-3.5" />
-                      Add Text Card
-                    </Button>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {isPlaying ? (
-                      <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={handleStop}>
-                        <Square className="h-3.5 w-3.5" />
-                        Stop
-                      </Button>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 gap-1.5"
-                        onClick={() => startQueue(queueItems)}
-                        disabled={queueItems.length === 0 || noSync}
-                      >
-                        <SkipForward className="h-3.5 w-3.5" />
-                        {filtersActive
-                          ? `Play ${queueItems.filter((i) => !isTextCard(i)).length} filtered`
-                          : "Play Playlist"}
-                      </Button>
-                    )}
-                    {isExporting ? (
-                      <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        Exporting…
-                      </Button>
-                    ) : (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className={"h-8 gap-1.5" + hl("export")}
-                            onClick={() => setOnboardingHighlight(null)}
-                            disabled={exportLocked ? playlistEmpty : !!exportDisabledReason}
-                            title={exportLocked
-                              ? "Export playlists as MP4 with Rookie or Pro"
-                              : (exportDisabledReason ?? "Export playlist as MP4")}
-                          >
-                            {activeOrgPlan === 'free'
-                              ? <Lock className="h-3.5 w-3.5" />
-                              : <FileDown className="h-3.5 w-3.5" />
-                            }
-                            {selectedClipIds.size > 0
-                              ? `Export ${selectedClipIds.size} selected`
-                              : filtersActive
-                                ? `Export ${queueItems.filter((i) => !isTextCard(i)).length} filtered clips`
-                                : 'Export playlist'}
-                            <ChevronDown className="h-3 w-3 text-muted-foreground" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-52">
-                          <DropdownMenuItem onClick={() => openExportPicker("save")} className="gap-2">
-                            <FileDown className="h-3.5 w-3.5" />
-                            Save to computer…
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openExportPicker("send")} className="gap-2">
-                            <Smartphone className="h-3.5 w-3.5" />
-                            Send to my phone…
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
-                  </div>
-                  {/* Share button — icon-only, colored when shared */}
-                  {userTeams.length > 0 && (
-                    isShipping ? (
-                      <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        {shipProgress ? `${shipProgress.done} / ${shipProgress.total}` : "Uploading…"}
-                      </Button>
-                    ) : (() => {
-                      const teamCount = selected?.teamIds?.length ?? 0;
-                      const userCount = selected?.userIds?.length ?? 0;
-                      const isShared = teamCount > 0 || userCount > 0;
-                      const teamNames = (selected?.teamIds ?? [])
-                        .map((id) => userTeams.find((t) => t.id === id)?.name ?? "Team");
-                      const parts: string[] = [];
-                      if (teamNames.length > 0) parts.push(teamNames.join(", "));
-                      if (userCount > 0) parts.push(`${userCount} member${userCount !== 1 ? "s" : ""}`);
-                      const sharedLabel = parts.join(" · ");
-                      return (
-                        <Button
-                          size="sm"
-                          variant={isShared ? "default" : "outline"}
-                          className={"h-8 w-8 p-0" + hl("share")}
-                          onClick={() => {
-                            setOnboardingHighlight(null);
-                            setPendingShareTeamIds(new Set(selected?.teamIds ?? []));
-                            setPendingShareUserIds(new Set(selected?.userIds ?? []));
-                            setMemberSearchQuery("");
-                            setShareDialogOpen(true);
-                          }}
-                          disabled={!!exportDisabledReason}
-                          title={isShared ? `Shared with: ${sharedLabel}` : (exportDisabledReason ?? "Share with team or members")}
-                        >
-                          <Share2 className="h-3.5 w-3.5" />
-                        </Button>
-                      );
-                    })()
-                  )}
-                  {exportError && (
-                    <p className="w-full text-xs text-red-500 mt-1">{exportError}</p>
-                  )}
-                </div>
-                {selectedClipIds.size > 0 && (
-                  <div className="flex items-center gap-3 rounded-lg bg-primary/10 px-4 py-2.5">
-                    <span className="text-sm font-medium text-primary">
-                      {selectedClipIds.size} item{selectedClipIds.size !== 1 ? "s" : ""} selected
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        className="h-7 gap-1 bg-red-600 px-2 text-xs text-white hover:bg-red-700"
-                        onClick={handleRemoveSelected}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        Remove from playlist
-                      </Button>
-                      {(() => {
-                        const keys = [...selectedClipIds];
-                        const gid = itemGroupIds.get(keys[0] ?? "");
-                        const groupTotal = gid
-                          ? [...itemGroupIds.values()].filter((g) => g === gid).length
-                          : 0;
-                        const isExactlyOneGroup = !!gid
-                          && keys.every((k) => itemGroupIds.get(k) === gid)
-                          && keys.length === groupTotal;
-                        if (isExactlyOneGroup) {
-                          return (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 gap-1 px-2 text-xs"
-                              disabled={filtersActive}
-                              onClick={() => handleUngroup(gid!)}
-                            >
-                              <Link2 className="h-3.5 w-3.5" />
-                              Ungroup
-                            </Button>
-                          );
-                        }
-                        if (keys.length >= 2) {
-                          return (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 gap-1 px-2 text-xs"
-                              disabled={filtersActive}
-                              title={filtersActive ? "Clear filters to group" : "Keep these items together when reordering"}
-                              onClick={handleGroupSelected}
-                            >
-                              <Link2 className="h-3.5 w-3.5" />
-                              Group
-                            </Button>
-                          );
-                        }
-                        return null;
-                      })()}
-                      {selectedClipKeyPairs.length > 0 && (
-                        <LabelPickerPopover
-                          trigger={
-                            <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs">
-                              <Tag className="h-3.5 w-3.5" />
-                              Apply label
-                              <ChevronDown className="h-3 w-3" />
-                            </Button>
-                          }
-                          labels={labels}
-                          assignedAllIds={bulkAssignedAll}
-                          assignedSomeIds={bulkAssignedSome}
-                          onToggle={handleBulkToggleLabel}
-                          onCreate={handleCreateLabel}
-                          onRename={handleRenameLabel}
-                          onRecolor={handleRecolorLabel}
-                          onDelete={handleDeleteLabel}
-                          onSeedDefaults={handleSeedDefaultLabels}
-                          scopeTitle={`Labels in ${selected?.name ?? "this playlist"}`}
-                          scopeHint="Visible only in this playlist"
-                        />
-                      )}
-                      {playlists.filter((p) => p.id !== selected?.id).length > 0 && (
-                        <div ref={addToDropdownRef} className="relative">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 gap-1 px-2 text-xs"
-                            onClick={() => { setShowAddToDropdown((v) => !v); setAddToSearch(""); }}
-                          >
-                            Add to another playlist
-                            <ChevronDown className="h-3 w-3" />
-                          </Button>
-                          {showAddToDropdown && (
-                            <AddToDropdown
-                              playlists={playlists}
-                              activePlaylistId={selected?.id ?? null}
-                              addToSearch={addToSearch}
-                              setAddToSearch={setAddToSearch}
-                              onAddToPlaylist={handleAddSelectedToPlaylist}
-                            />
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-                </div>
-
-                <div ref={playlistScrollRef} className="min-h-0 flex-1 overflow-y-auto">
-                {filtersOpen && (
-                  <PlaylistFilterBar
-                    filters={queueFilters}
-                    onChange={(next) => {
-                      if (!filtersActive && queueFiltersActive(next)) trackEvent("playlist_filtered");
-                      setQueueFilters(next);
-                    }}
-                    options={queueFilterOptions}
-                    shownCount={queueItems.filter((i) => !isTextCard(i)).length}
-                    totalCount={sortedEvents.filter((i) => !isTextCard(i)).length}
-                  />
-                )}
-                {filtersActive && !filtersOpen && (
-                  <div className="flex items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-700 dark:text-amber-400">
-                    Filtered: showing {queueItems.filter((i) => !isTextCard(i)).length} of{" "}
-                    {sortedEvents.filter((i) => !isTextCard(i)).length} clips
-                    <button
-                      type="button"
-                      onClick={() => setQueueFilters({ ...EMPTY_QUEUE_FILTERS })}
-                      className="font-medium underline underline-offset-2"
-                    >
-                      Clear
-                    </button>
-                  </div>
-                )}
-                {queueItems.length === 0 ? (
-                  <div
-                    onDragOver={(e) => {
-                      if (!e.dataTransfer.types.includes("text/clip")) return;
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = "copy";
-                      setClipDragOverIndex(0);
-                      setClipDragOverPosition("above");
-                    }}
-                    onDragLeave={(e) => {
-                      if (!e.currentTarget.contains(e.relatedTarget as Node)) setClipDragOverIndex(null);
-                    }}
-                    onDrop={(e) => handleClipDrop(e, 0)}
-                    className={`flex min-h-full flex-col items-center justify-center gap-3 py-12 text-center rounded-lg border-2 border-dashed transition-colors ${
-                      clipDragOverIndex === 0 ? "border-primary bg-primary/5" : "border-transparent"
-                    }`}
-                  >
-                    <p className="text-sm text-muted-foreground">
-                      This playlist has no clips yet.
-                    </p>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className={"gap-1.5" + hl("add-clips")}
-                      onClick={() => { setOnboardingHighlight(null); setShowClipBrowser(true); }}
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      Add Clips
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto rounded-lg border border-border">
-                    <table className="w-full min-w-[580px] text-sm">
-                      <thead className="border-b border-border bg-muted/80 text-xs font-medium text-muted-foreground">
-                        <tr>
-                          <th className="w-1.5 min-w-1.5 p-0" aria-hidden />
-                          <th className="w-8" />
-                          <th className="w-8 px-3 py-2.5">
-                            <input
-                              type="checkbox"
-                              checked={allSelected}
-                              onChange={toggleSelectAll}
-                              className="h-3.5 w-3.5 rounded border-border accent-primary"
-                            />
-                          </th>
-                          <th className="px-4 py-2.5 text-left">Period</th>
-                          <th
-                            className={`px-4 py-2.5 text-left select-none ${clockSortLocked ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:text-foreground"}`}
-                            onClick={() => !clockSortLocked && setClockSort((s) => s === "none" ? "asc" : s === "asc" ? "desc" : "none")}
-                            title={clockSortLocked ? "Clock sort is unavailable when text cards or groups are present" : undefined}
-                          >
-                            <span className="inline-flex items-center gap-1">
-                              Clock
-                              {!clockSortLocked && clockSort === "asc" && <ArrowUp className="h-3 w-3" />}
-                              {!clockSortLocked && clockSort === "desc" && <ArrowDown className="h-3 w-3" />}
-                            </span>
-                          </th>
-                          {isMultiMatch && <th className="px-4 py-2.5 text-left">Game</th>}
-                          <th className="px-4 py-2.5 text-left">Event</th>
-                          <th className="px-4 py-2.5 text-left">Player</th>
-                          <th className="px-4 py-2.5 text-left">Team</th>
-                          <th className="px-4 py-2.5" />
-                          <th className="px-3 py-2.5" />
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border bg-card">
-                        {queueItems.map((item, index) => {
-                          const key = itemKey(item);
-                          if (isTextCard(item)) {
-                            const card = item as PlaylistTextCard;
-                            return (
-                              <TextCardRow
-                                key={key}
-                                card={card}
-                                index={index}
-                                isActive={activeTextCard?.id === card.id}
-                                isSelected={selectedClipIds.has(key)}
-                                onSelect={(e) => toggleSelectClip(key, e)}
-                                isDragTarget={clipDragOverIndex === index}
-                                dragTargetPosition={clipDragOverPosition}
-                                onClick={(e) => { if (e.shiftKey) { toggleSelectClip(key, e); return; } handleRowClick(card); }}
-                                onDragStart={(e) => handleClipDragStart(e, key)}
-                                onDragOver={(e, i) => handleClipDragOver(e, i)}
-                                onDragLeave={() => setClipDragOverIndex(null)}
-                                onDrop={(e, i) => handleClipDrop(e, i)}
-                                onDragEnd={handleClipDragEnd}
-                                onTextChange={handleTextCardTextChange}
-                                onTextSave={handleTextCardTextSave}
-                                onDurationChange={handleTextCardDurationChange}
-                                onRemove={() => handleRemoveSingleTextCard(card)}
-                                groupPos={!filtersActive ? groupRuns.get(key)?.pos : undefined}
-                                groupSize={groupRuns.get(key)?.size}
-                                onUngroup={!filtersActive && groupRuns.get(key) ? () => handleUngroup(groupRuns.get(key)!.groupId) : undefined}
-                                isDragSource={dragBlockKeys?.has(key) ?? false}
-                              />
-                            );
-                          }
-                          const queueItem = item as QueueItem;
-                          const rowKey = `${queueItem.matchId}:${queueItem.event.eventId}`;
-                          const clip = clipByKey.get(rowKey);
-                          return (
-                            <DraggableRow
-                              key={key}
-                              index={index}
-                              item={queueItem}
-                              isActive={queueItem.event.eventId === activeEventId}
-                              isMultiMatch={isMultiMatch}
-                              matchTitle={matchLookup.get(queueItem.matchId)?.title}
-                              preOffset={clip?.preRollOffset ?? 0}
-                              postOffset={clip?.postRollOffset ?? 0}
-                              note={clip?.note}
-                              isSelected={selectedClipIds.has(key)}
-                              onSelect={(e) => toggleSelectClip(key, e)}
-                              isDragTarget={clipDragOverIndex === index}
-                              dragTargetPosition={clipDragOverPosition}
-                              onClick={(e) => { if (e.shiftKey) { toggleSelectClip(key, e); return; } handleRowClick(queueItem); }}
-                              onDragStart={(e) => handleClipDragStart(e, key)}
-                              onDragOver={(e, i) => handleClipDragOver(e, i)}
-                              onDragLeave={() => setClipDragOverIndex(null)}
-                              onDrop={(e, i) => handleClipDrop(e, i)}
-                              onDragEnd={handleClipDragEnd}
-                              onInsertTextCardAbove={() => handleInsertTextCard(index)}
-                              onRemove={() => { if (clip) handleRemoveSingleClip(clip); }}
-                              labelControls={activeOrgId ? {
-                                labels,
-                                assignedIds: clipAssignments.get(rowKey) ?? new Set<string>(),
-                                onToggle: (labelId, state) => handleToggleClipLabel(queueItem.matchId, queueItem.event.eventId, labelId, state),
-                                onCreate: handleCreateLabel,
-                                onRename: handleRenameLabel,
-                                onRecolor: handleRecolorLabel,
-                                onDelete: handleDeleteLabel,
-                                onSeedDefaults: handleSeedDefaultLabels,
-                                scopeTitle: `Labels in ${selected?.name ?? "this playlist"}`,
-                                scopeHint: "Visible only in this playlist",
-                              } : undefined}
-                              groupPos={!filtersActive ? groupRuns.get(key)?.pos : undefined}
-                              groupSize={groupRuns.get(key)?.size}
-                              onUngroup={!filtersActive && groupRuns.get(key) ? () => handleUngroup(groupRuns.get(key)!.groupId) : undefined}
-                              isDragSource={dragBlockKeys?.has(key) ?? false}
-                              canGroupSelection={!filtersActive && selectedClipIds.size >= 2}
-                              selectionCount={selectedClipIds.size}
-                              onGroupSelected={handleGroupSelected}
-                            />
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                </div>
+                {clipListStack}
                 </div>
                 </ResizablePanel>
 
@@ -6182,133 +5858,7 @@ export function PlaylistsPage() {
 
                 <ResizablePanel defaultSize={55} minSize={20}>
                 <div className="flex h-full flex-col gap-2 pl-3 min-w-0">
-                {localVideoUrl ? (
-                  <>
-                    <div className="relative">
-                      <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
-                      {cropMode && activeClipKey && !activeTextCard && (
-                        <CropOverlay
-                          videoRef={videoRef}
-                          keyframes={activeClipCrop.keyframes}
-                          dimmed={cropDimmed}
-                          onCommit={handleCropCommit}
-                        />
-                      )}
-                      {activeMatchId &&
-                        videoStatusByMatch.get(activeMatchId) !== undefined &&
-                        videoStatusByMatch.get(activeMatchId) !== "ok" &&
-                        !activeTextCard && (
-                        <div className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-3 bg-black/85 px-6 text-center">
-                          <VideoOff className="h-8 w-8 text-amber-400" />
-                          <p className="text-sm font-medium text-white">
-                            This game's video is on another computer
-                          </p>
-                          <p className="max-w-sm text-xs text-white/70">
-                            Games reference the video file on the machine that imported them —
-                            nothing is uploaded. Point Scoutable at the file on this computer
-                            to keep working.
-                          </p>
-                          <Button size="sm" onClick={handleLocateActiveVideo}>
-                            Locate file…
-                          </Button>
-                        </div>
-                      )}
-                      {activeTextCard && (
-                        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black transition-opacity duration-200">
-                          <p className="text-center text-4xl font-semibold text-white px-8">{activeTextCard.text}</p>
-                        </div>
-                      )}
-                    </div>
-                    {cropMode && activeClipKey && activeClipCrop.start !== null && activeClipCrop.end !== null && (
-                      <CropTimeline
-                        videoRef={videoRef}
-                        keyframes={activeClipCrop.keyframes}
-                        clipStart={activeClipCrop.start}
-                        clipEnd={activeClipCrop.end}
-                        onSeek={handleCropSeek}
-                      />
-                    )}
-                    <VideoClipControls
-                      videoRef={videoRef}
-                      canPrev={canPrev}
-                      canNext={canNext}
-                      isQueueActive={isQueueActive}
-                      onPrev={handlePrev}
-                      onNext={handleNext}
-                      onReplay={handleReplay}
-                      onStop={handleStop}
-                      onPlayAll={() => startQueue(queueItems)}
-                      activeClipPreOffset={activeClipOffsets.pre}
-                      activeClipPostOffset={activeClipOffsets.post}
-                      onPreOffsetChange={(delta) => adjustActiveClip(delta, 0)}
-                      onPostOffsetChange={(delta) => adjustActiveClip(0, delta)}
-                    />
-                    {activeClipKey && (
-                      <CropEditorBar
-                        active={cropMode}
-                        onToggle={() => setCropMode((v) => !v)}
-                        dimmed={cropDimmed}
-                        onToggleDimmed={() => setCropDimmed((v) => !v)}
-                        keyframeCount={activeClipCrop.keyframes?.length ?? 0}
-                        onRemoveAtPlayhead={handleCropRemoveAtPlayhead}
-                        onReset={() => setActiveClipCropKeyframes(null)}
-                      />
-                    )}
-                    {activeClipKey && activeOrgId && (() => {
-                      const key = `${activeClipKey.matchId}:${activeClipKey.eventId}`;
-                      const assignedIds = clipAssignments.get(key) ?? new Set<string>();
-                      const assigned = labels.filter((l) => assignedIds.has(l.id));
-                      const playlistName = selected?.name ?? "this playlist";
-                      const scopeTitle = `Labels in ${playlistName}`;
-                      return (
-                        <div className="flex flex-wrap items-center gap-1.5 px-1">
-                          <LabelPickerPopover
-                            trigger={
-                              <button
-                                type="button"
-                                className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground hover:border-primary/60 hover:text-primary transition-colors"
-                                title={scopeTitle}
-                              >
-                                <Tag className="h-3 w-3" />
-                                {assigned.length === 0 ? "Add labels" : "Edit"}
-                              </button>
-                            }
-                            labels={labels}
-                            assignedAllIds={assignedIds}
-                            onToggle={(labelId, state) => handleToggleClipLabel(activeClipKey.matchId, activeClipKey.eventId, labelId, state)}
-                            onCreate={handleCreateLabel}
-                            onRename={handleRenameLabel}
-                            onRecolor={handleRecolorLabel}
-                            onDelete={handleDeleteLabel}
-                            onSeedDefaults={handleSeedDefaultLabels}
-                            align="start"
-                            scopeTitle={scopeTitle}
-                            scopeHint="Visible only in this playlist"
-                          />
-                          {assigned.map((l) => <LabelChip key={l.id} label={l} />)}
-                        </div>
-                      );
-                    })()}
-                    {activeEventId !== null && (
-                      <textarea
-                        className="w-full resize-none rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary transition-colors"
-                        rows={3}
-                        placeholder="Add a note for this clip…"
-                        value={clipNote}
-                        onChange={(e) => handleNoteChange(e.target.value)}
-                      />
-                    )}
-                  </>
-                ) : (
-                  <div className="space-y-2">
-                    <VideoPlaceholder />
-                    {noVideo && selected.items.filter(isClipItem).length > 0 && (
-                      <p className="text-center text-xs text-muted-foreground">
-                        No video linked. Add one in the game.
-                      </p>
-                    )}
-                  </div>
-                )}
+                {playerStack}
                 </div>
                 </ResizablePanel>
               </ResizablePanelGroup>

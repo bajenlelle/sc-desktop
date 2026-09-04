@@ -76,6 +76,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // stale closures.
   const userRef = useRef<User | null>(null);
   const lastLoadedAtRef = useRef(0);
+  /** User whose profile boot already ran — dedupes focus-triggered SIGNED_IN re-emits. */
+  const bootedUserIdRef = useRef<string | null>(null);
   const planPollRef = useRef<number | null>(null);
   const activeOrgSnapshotRef = useRef<{ orgId: string; planTier: OrgPlanTier } | null>(null);
 
@@ -206,6 +208,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       userRef.current = session?.user ?? null;
 
       if (session?.user && (event === "INITIAL_SESSION" || event === "SIGNED_IN")) {
+        // supabase-js re-emits SIGNED_IN whenever it revalidates the session
+        // on window focus (macOS fullscreen transitions focus the window
+        // too). Re-booting there flips profileLoading, which unmounts every
+        // page behind ProtectedRoute and wipes in-page state (open playlist,
+        // playback, fullscreen). Boot once per user; the throttled focus
+        // listener above already owns silent freshness after that.
+        if (bootedUserIdRef.current === session.user.id) {
+          setLoading(false);
+          return;
+        }
+        bootedUserIdRef.current = session.user.id;
         if (event === "SIGNED_IN") {
           identifyUser(session.user.id, { email: session.user.email });
           trackEvent("signed_in");
@@ -213,6 +226,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         touchThisDevice();
         loadProfile(session.user.id);
       } else if (event === "SIGNED_OUT" || (!session?.user && event === "INITIAL_SESSION")) {
+        bootedUserIdRef.current = null;
         if (event === "SIGNED_OUT") {
           trackEvent("signed_out");
           resetUser();
