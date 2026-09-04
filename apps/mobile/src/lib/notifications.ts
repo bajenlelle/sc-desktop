@@ -15,17 +15,17 @@ import { registerPushToken, deletePushToken } from "@scoutable/shared/lib/push-t
 import { supabase } from "./supabase";
 
 /**
- * Foreground banners are suppressed entirely (v1 simplification): while the
- * app is open, the store refresh + tab badge surface new content within
- * seconds, and a banner over the very screen it links to reads as noise.
- * Route-aware banners ("show unless viewing that playlist") are a possible
- * follow-up.
+ * Foreground banners are ON: a share can land while the user is anywhere in
+ * the app, and the banner is the only immediate, tappable path to it (the
+ * store refresh is silent). Kept quiet — no sound, no badge mutation (the
+ * badge count is managed separately). Route-aware suppression ("hide when
+ * already viewing that playlist") is a possible refinement.
  */
 export function configureNotificationHandler() {
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
-      shouldShowBanner: false,
-      shouldShowList: false,
+      shouldShowBanner: true,
+      shouldShowList: true,
       shouldPlaySound: false,
       shouldSetBadge: false,
     }),
