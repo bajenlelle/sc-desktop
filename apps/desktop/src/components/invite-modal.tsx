@@ -34,6 +34,8 @@ interface InviteModalProps {
   orgMembers: UserProfile[];
   isAdmin: boolean;
   initialTeamId?: string;
+  /** Preselect a role (e.g. the admin setup checklist's invite steps). */
+  initialRole?: Role;
   licenseExpired?: boolean;
 }
 
@@ -62,9 +64,10 @@ export function InviteModal({
   orgMembers,
   isAdmin,
   initialTeamId,
+  initialRole,
   licenseExpired,
 }: InviteModalProps) {
-  const [selectedRole, setSelectedRole] = useState<Role>("coach");
+  const [selectedRole, setSelectedRole] = useState<Role>(initialRole ?? "coach");
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(initialTeamId ?? null);
   const [emails, setEmails] = useState<string[]>([]);
   const [emailInput, setEmailInput] = useState("");
@@ -91,7 +94,7 @@ export function InviteModal({
       setEmails([]);
       setEmailInput("");
       setShowSettings(false);
-      setSelectedRole("coach");
+      setSelectedRole(initialRole ?? "coach");
       setSelectedTeamId(initialTeamId ?? null);
       setLinkInvite(null);
       listOrgInvites(orgId).then((invites) =>
@@ -389,6 +392,11 @@ export function InviteModal({
               </div>
             )}
           </div>
+
+          <p className="text-xs text-muted-foreground">
+            Coaches can invite players and other coaches themselves — you don&apos;t have to
+            send every invite.
+          </p>
 
           {/* Email chip input */}
           <div className="space-y-1.5">

@@ -25,8 +25,11 @@ import {
   type DashboardRow,
   type RecipientRow,
 } from "@scoutable/shared/lib/shared-by-me";
+import * as WebBrowser from "expo-web-browser";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
+import { trackEvent } from "@/lib/analytics";
+import { Button } from "@/components/Button";
 import { usePlaylists } from "@/lib/playlists-store";
 import { relativeTime } from "@/lib/format";
 import { themeColors } from "@/lib/theme";
@@ -90,7 +93,7 @@ export function SharedByMeDashboard() {
   const scheme = useColorScheme();
   const colors = themeColors(scheme);
   const { teamMap, memberMap } = usePlaylists();
-  const { user, activeOrgId } = useAuth();
+  const { user, activeOrg, activeOrgId } = useAuth();
   const currentUserId = user?.id ?? null;
 
   const [shared, setShared] = useState<SharedPlaylist[] | null>(null);
@@ -258,6 +261,10 @@ export function SharedByMeDashboard() {
   }
 
   if (rows.length === 0) {
+    // Staff of a club org get pointed at org setup — a brand-new admin's
+    // first job is teams and invites (web-only), not sharing playlists.
+    const canManageOrg =
+      !!activeOrg && !activeOrg.isPersonal && (activeOrg.role === "coach" || activeOrg.role === "admin");
     return (
       <View className="flex-1 items-center justify-center gap-3 px-6 py-16">
         <Text className="text-sm font-medium text-foreground dark:text-foreground-dark">
@@ -267,6 +274,21 @@ export function SharedByMeDashboard() {
           Share one from the desktop playlist editor and you&apos;ll see here who has watched
           what.
         </Text>
+        {canManageOrg && (
+          <>
+            <Text className="max-w-xs text-center text-sm text-muted-foreground dark:text-muted-foreground-dark">
+              New club? Create teams and invite coaches and players from the web.
+            </Text>
+            <Button
+              title="Set up your club on the web"
+              className="mt-1"
+              onPress={() => {
+                trackEvent("manage_org_web_clicked");
+                WebBrowser.openBrowserAsync("https://app.scoutable.se/organization").catch(() => {});
+              }}
+            />
+          </>
+        )}
       </View>
     );
   }

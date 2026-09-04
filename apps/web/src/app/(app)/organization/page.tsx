@@ -31,6 +31,7 @@ import {
   getTeamDeleteImpact,
 } from "@/lib/profile-db";
 import { InviteModal } from "@/components/invite-modal";
+import { AdminSetupCard } from "@/components/admin-setup-card";
 import { OrgLicenseCard } from "@/components/org-license-card";
 import { AddMembersToTeamModal } from "@/components/add-members-to-team-modal";
 import { CreateTeamDialog } from "@/components/create-team-dialog";
@@ -41,7 +42,7 @@ import { toast } from "sonner";
 import { ChevronDown, ChevronUp, Loader2, MoreHorizontal, Search, UserPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth-context";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
@@ -433,7 +434,27 @@ export default function OrganizationPage() {
   const [deletingTeam, setDeletingTeam] = useState(false);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteRole, setInviteRole] = useState<"coach" | "player" | undefined>(undefined);
   const [showCreateTeam, setShowCreateTeam] = useState(false);
+  const searchParams = useSearchParams();
+
+  // Deep links from the admin setup checklist: ?team=new opens the
+  // create-team dialog, ?invite=coach|player opens the invite modal with the
+  // role preselected. The URL is replaced right away so a refresh or
+  // back-navigation doesn't reopen the dialog.
+  useEffect(() => {
+    if (!canAccess) return;
+    const invite = searchParams.get("invite");
+    const team = searchParams.get("team");
+    if (!invite && team !== "new") return;
+    if (team === "new") {
+      setShowCreateTeam(true);
+    } else {
+      setInviteRole(invite === "coach" || invite === "player" ? invite : undefined);
+      setShowInviteModal(true);
+    }
+    router.replace("/organization");
+  }, [canAccess, searchParams, router]);
 
   // Members tab search/filter
   const [memberSearch, setMemberSearch] = useState("");
@@ -665,6 +686,10 @@ export default function OrganizationPage() {
         />
       )}
 
+      {/* First-run setup checklist — self-gates on admin role + the shared
+          onboarding flag; live-updates through this page's ctx reloads. */}
+      <AdminSetupCard teams={ctx.allOrgTeams} members={ctx.orgMembers} />
+
       {/* Platform admin link */}
       {profile.isPlatformAdmin && (
         <Link
@@ -700,11 +725,25 @@ export default function OrganizationPage() {
               )}
             </div>
             {myTeamsForOrg.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                {canManageTeams
-                  ? "You're not in any teams yet."
-                  : "You're not on any teams yet. Ask your coach to add you."}
-              </p>
+              isAdmin && ctx.allOrgTeams.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border p-6 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    No teams yet. Create your first team — invites can target a team so new
+                    members land in the right place.
+                  </p>
+                  <Button size="sm" className="mt-3" onClick={() => setShowCreateTeam(true)}>
+                    New Team
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {canManageTeams
+                    ? ctx.allOrgTeams.length === 0
+                      ? "No teams yet — your admin can create one."
+                      : "You're not in any teams yet."
+                    : "You're not on any teams yet. Ask your coach to add you."}
+                </p>
+              )
             ) : (
               <div className="space-y-2">
                 {myTeamsForOrg.map((team) => (
@@ -828,7 +867,8 @@ export default function OrganizationPage() {
 
       <InviteModal
         open={showInviteModal}
-        onClose={() => setShowInviteModal(false)}
+        onClose={() => { setShowInviteModal(false); setInviteRole(undefined); }}
+        initialRole={inviteRole}
         orgId={org.id}
         orgName={org.name}
         orgTeams={ctx.allOrgTeams}

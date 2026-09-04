@@ -126,7 +126,10 @@ export default function JoinPage() {
           setStoredActiveOrg(result.orgId);
           if (result.type === "org" || result.type === "secondary_org") {
             toast.success(`You joined ${preview.orgName ?? "the organization"}!`);
-            window.location.href = "/my-playlists";
+            // Admins land where their setup work happens (teams, invites);
+            // everyone else lands on the playlists they came for.
+            window.location.href =
+              preview.role === "admin" ? "/organization" : "/my-playlists";
           } else {
             setJoinResult(result);
           }
