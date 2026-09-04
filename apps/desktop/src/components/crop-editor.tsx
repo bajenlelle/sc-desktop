@@ -38,22 +38,15 @@ export function upsertKeyframe(
 export function CropOverlay({
   videoRef,
   keyframes,
-  clipStart,
-  clipEnd,
   dimmed,
   onCommit,
-  onSeek,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   keyframes: CropKeyframe[] | undefined;
-  /** Active clip's bounds in source-video seconds (for the keyframe strip). */
-  clipStart: number | null;
-  clipEnd: number | null;
   /** true = near-black surroundings — a "what the export shows" preview. */
   dimmed: boolean;
   /** Drag finished: persist a keyframe at this time/center. */
   onCommit: (t: number, cx: number) => void;
-  onSeek: (t: number) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const windowRef = useRef<HTMLDivElement | null>(null);
@@ -143,7 +136,6 @@ export function CropOverlay({
     onCommit(video.currentTime, drag.cx);
   }
 
-  const clipDuration = clipStart !== null && clipEnd !== null ? clipEnd - clipStart : null;
   const maskClass = dimmed ? "bg-black/90" : "bg-black/60";
 
   return (
@@ -167,24 +159,117 @@ export function CropOverlay({
           </>
         )}
       </div>
-      {/* Keyframe strip: dots along the clip's own timeline. */}
-      {clipDuration !== null && clipDuration > 0 && (keyframes?.length ?? 0) > 0 && (
-        <div className="pointer-events-none absolute inset-x-3 bottom-1.5 h-4">
-          {keyframes!.map((k) => {
-            const frac = Math.min(1, Math.max(0, (k.t - clipStart!) / clipDuration));
-            return (
-              <button
-                key={`${k.t}`}
-                type="button"
-                title={`Keyframe at ${(k.t - clipStart!).toFixed(1)}s — click to jump`}
-                onClick={() => onSeek(k.t)}
-                className="pointer-events-auto absolute top-0 h-3 w-3 -translate-x-1/2 rounded-full border border-black/40 bg-primary shadow"
-                style={{ left: `${frac * 100}%` }}
-              />
-            );
-          })}
+    </div>
+  );
+}
+
+function formatClipTime(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/**
+ * Clip timeline shown in crop mode: a scrubber over the ACTIVE CLIP's window
+ * (not the whole game file) with the pan keyframes as dots and a live
+ * playhead — so it's always visible where a drag will drop its keyframe.
+ * The playhead is rAF-driven (WKWebView's timeupdate is ~4 Hz).
+ */
+export function CropTimeline({
+  videoRef,
+  keyframes,
+  clipStart,
+  clipEnd,
+  onSeek,
+}: {
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  keyframes: CropKeyframe[] | undefined;
+  clipStart: number;
+  clipEnd: number;
+  onSeek: (t: number) => void;
+}) {
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const playheadRef = useRef<HTMLDivElement | null>(null);
+  const fillRef = useRef<HTMLDivElement | null>(null);
+  const timeRef = useRef<HTMLSpanElement | null>(null);
+  const scrubbingRef = useRef(false);
+  const duration = Math.max(0.001, clipEnd - clipStart);
+
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const video = videoRef.current;
+      if (video) {
+        const frac = Math.min(1, Math.max(0, (video.currentTime - clipStart) / duration));
+        if (playheadRef.current) playheadRef.current.style.left = `${frac * 100}%`;
+        if (fillRef.current) fillRef.current.style.width = `${frac * 100}%`;
+        if (timeRef.current) {
+          timeRef.current.textContent = formatClipTime(video.currentTime - clipStart);
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [videoRef, clipStart, duration]);
+
+  function seekFromPointer(e: React.PointerEvent<HTMLDivElement>) {
+    const track = trackRef.current;
+    if (!track) return;
+    const rect = track.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    onSeek(clipStart + frac * duration);
+  }
+
+  return (
+    <div className="flex items-center gap-2 px-1">
+      <span ref={timeRef} className="w-9 text-right text-xs tabular-nums text-muted-foreground">
+        0:00
+      </span>
+      <div
+        ref={trackRef}
+        onPointerDown={(e) => {
+          scrubbingRef.current = true;
+          e.currentTarget.setPointerCapture(e.pointerId);
+          seekFromPointer(e);
+        }}
+        onPointerMove={(e) => {
+          if (scrubbingRef.current) seekFromPointer(e);
+        }}
+        onPointerUp={() => {
+          scrubbingRef.current = false;
+        }}
+        className="relative h-6 flex-1 cursor-pointer touch-none select-none"
+        title="Click or drag to move the playhead"
+      >
+        <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-muted">
+          <div ref={fillRef} className="h-full rounded-full bg-primary/30" style={{ width: 0 }} />
         </div>
-      )}
+        {(keyframes ?? []).map((k) => {
+          const frac = Math.min(1, Math.max(0, (k.t - clipStart) / duration));
+          return (
+            <button
+              key={`${k.t}`}
+              type="button"
+              title={`Keyframe at ${formatClipTime(k.t - clipStart)} — click to jump`}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSeek(k.t);
+              }}
+              className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-background bg-primary shadow hover:scale-125 transition-transform"
+              style={{ left: `${frac * 100}%` }}
+            />
+          );
+        })}
+        <div
+          ref={playheadRef}
+          className="pointer-events-none absolute top-0 h-6 w-0.5 -translate-x-1/2 rounded bg-foreground"
+          style={{ left: 0 }}
+        />
+      </div>
+      <span className="w-9 text-xs tabular-nums text-muted-foreground">
+        {formatClipTime(duration)}
+      </span>
     </div>
   );
 }

@@ -56,7 +56,7 @@ import type { Label, LabelColor, ClipKey } from "@scoutable/shared/types/labels"
 import { eventColors, eventLabel, formatGameClock, isBookkeepingEvent, parseGameClock, playerName } from "@scoutable/shared/lib/events";
 import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import type { CropKeyframe } from "@scoutable/shared/lib/crop-path";
-import { CropEditorBar, CropOverlay, upsertKeyframe } from "@/components/crop-editor";
+import { CropEditorBar, CropOverlay, CropTimeline, upsertKeyframe } from "@/components/crop-editor";
 import {
   moveBlock,
   snapGapToGroupBoundary,
@@ -5043,11 +5043,8 @@ export function PlaylistsPage() {
                         <CropOverlay
                           videoRef={videoRef}
                           keyframes={activeClipCrop.keyframes}
-                          clipStart={activeClipCrop.start}
-                          clipEnd={activeClipCrop.end}
                           dimmed={cropDimmed}
                           onCommit={handleCropCommit}
-                          onSeek={handleCropSeek}
                         />
                       )}
                       {activeTextCard && (
@@ -5056,6 +5053,15 @@ export function PlaylistsPage() {
                         </div>
                       )}
                     </div>
+                    {cropMode && activeClipKey && activeClipCrop.start !== null && activeClipCrop.end !== null && (
+                      <CropTimeline
+                        videoRef={videoRef}
+                        keyframes={activeClipCrop.keyframes}
+                        clipStart={activeClipCrop.start}
+                        clipEnd={activeClipCrop.end}
+                        onSeek={handleCropSeek}
+                      />
+                    )}
                     <VideoClipControls
                       videoRef={videoRef}
                       canPrev={canPrev}
@@ -6078,11 +6084,8 @@ export function PlaylistsPage() {
                         <CropOverlay
                           videoRef={videoRef}
                           keyframes={activeClipCrop.keyframes}
-                          clipStart={activeClipCrop.start}
-                          clipEnd={activeClipCrop.end}
                           dimmed={cropDimmed}
                           onCommit={handleCropCommit}
-                          onSeek={handleCropSeek}
                         />
                       )}
                       {activeTextCard && (
@@ -6091,6 +6094,15 @@ export function PlaylistsPage() {
                         </div>
                       )}
                     </div>
+                    {cropMode && activeClipKey && activeClipCrop.start !== null && activeClipCrop.end !== null && (
+                      <CropTimeline
+                        videoRef={videoRef}
+                        keyframes={activeClipCrop.keyframes}
+                        clipStart={activeClipCrop.start}
+                        clipEnd={activeClipCrop.end}
+                        onSeek={handleCropSeek}
+                      />
+                    )}
                     <VideoClipControls
                       videoRef={videoRef}
                       canPrev={canPrev}
