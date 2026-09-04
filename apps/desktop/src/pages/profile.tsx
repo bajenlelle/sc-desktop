@@ -43,7 +43,7 @@ function roleBadgeVariant(role: string | null, isPlatformAdmin: boolean): "defau
 }
 
 export function ProfilePage() {
-  const { user, activeOrgId, activeOrgPlan, activeOrgRole, activeOrgIsPersonal, expectPlanChange } = useAuth();
+  const { user, activeOrgId, activeOrgPlan, activeOrgRole, activeOrgIsPersonal, expectPlanChange, setActiveOrg } = useAuth();
   const navigate = useNavigate();
 
   const [ctx, setCtx] = useState<OrgContext | null>(null);
@@ -358,10 +358,11 @@ export function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* ── My clubs ── read-only membership across every club, mirroring the
-           mobile profile. Managing a club lives in Settings and the space
-           menu; this answers "what am I part of?", which is the one question
-           players had on the org page. */}
+      {/* ── My clubs ── membership across every club, mirroring the mobile
+           profile. Answers "what am I part of?" (the one question players
+           had on the org page); staff additionally get a Manage shortcut
+           per club — it switches the active space like the space menu's
+           Manage action, since the org page manages the active org. */}
       {myClubs.length > 0 && (
         <Card>
           <CardContent className="p-6 space-y-3">
@@ -376,6 +377,21 @@ export function ProfilePage() {
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground capitalize">{club.role}</span>
                     {club.isNtOrg && <span className="text-xs text-muted-foreground">NT</span>}
+                    {(club.role === "coach" || club.role === "admin") && (
+                      <button
+                        type="button"
+                        className="text-xs text-primary underline-offset-2 hover:underline"
+                        title={`Teams, members and invites for ${club.orgName}`}
+                        onClick={() => {
+                          // The org page manages the ACTIVE space — switch
+                          // first, same as the space menu's Manage action.
+                          setActiveOrg(club.orgId);
+                          navigate("/organization");
+                        }}
+                      >
+                        Manage
+                      </button>
+                    )}
                   </div>
                 </div>
                 {club.teamNames.length > 0 && (
