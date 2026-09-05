@@ -113,10 +113,17 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
             {myOrgs.length > 1 ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  {/* min-w-0 down the chain lets the org name give way on
-                      narrow screens — without it the trigger's content width
-                      wins and shoves the right-side controls off the bar. */}
-                  <Button variant="ghost" size="sm" className="flex gap-1.5 h-8 px-2 min-w-0">
+                  {/* Phone-width discipline: min-w-0 + overflow-hidden let the
+                      org name give way (truncate) instead of shoving the
+                      right-side controls off the bar, and the plan badge —
+                      the widest unshrinkable piece ("Franchise" ≈ 77px) — is
+                      desktop-only. Plan info stays one tap away in the
+                      dropdown rows and on the profile card. */}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="flex gap-1.5 h-8 px-2 min-w-0 overflow-hidden"
+                  >
                     <ActiveSpaceIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                     <span className="min-w-0 max-w-[100px] sm:max-w-[128px] truncate text-sm font-medium">
                       {activeSpaceLabel}
@@ -124,7 +131,7 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
                     <PlanBadge
                       tier={activeOrg.planTier}
                       size="xs"
-                      className="shrink-0"
+                      className="hidden sm:inline-flex shrink-0"
                       quota={activeOrg.isPersonal ? importQuota : null}
                     />
                     <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />

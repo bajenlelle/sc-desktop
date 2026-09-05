@@ -52,6 +52,10 @@ export function SpaceHeader({
         size={soloPersonal ? "md" : "xs"}
         href={org.isPersonal ? "/profile" : undefined}
         quota={org.isPersonal ? importQuota : null}
+        // Next to a name the badge is decoration a phone can't afford
+        // (plan info lives on the profile card); standing alone
+        // (solo personal) it IS the content, so it stays.
+        className={soloPersonal ? undefined : "hidden sm:inline-flex shrink-0"}
       />
     </div>
   );
