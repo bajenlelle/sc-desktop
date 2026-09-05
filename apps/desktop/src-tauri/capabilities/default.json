@@ -9,7 +9,8 @@
       "identifier": "http:default",
       "allow": [
         { "url": "https://*.supabase.co/**" },
-        { "url": "https://app.scoutable.se/api/**" }
+        { "url": "https://app.scoutable.se/api/**" },
+        { "url": "https://*.r2.cloudflarestorage.com/**" }
       ]
     },
     "core:webview:allow-set-webview-zoom",

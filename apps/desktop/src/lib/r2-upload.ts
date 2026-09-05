@@ -1,24 +1,15 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { invoke } from "@tauri-apps/api/core";
-
-let r2: S3Client | null = null;
-
-function getR2Client(): S3Client {
-  if (!r2) {
-    r2 = new S3Client({
-      region: "auto",
-      endpoint: import.meta.env.VITE_R2_ENDPOINT,
-      credentials: {
-        accessKeyId: import.meta.env.VITE_R2_ACCESS_KEY_ID,
-        secretAccessKey: import.meta.env.VITE_R2_SECRET_ACCESS_KEY,
-      },
-    });
-  }
-  return r2;
-}
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { presignUpload, type UploadContentType } from "@scoutable/shared/lib/presign-upload-client";
+import { createClient } from "@/lib/supabase/client";
 
 /**
  * Upload a local file to Cloudflare R2. Returns the public URL.
+ *
+ * No R2 credentials live in this app: the presign-upload edge function
+ * authorizes the key (owner / org coach-admin) and mints a short-lived
+ * presigned PUT URL, which we hit through the Rust-side plugin-http fetch —
+ * the webview never talks to R2, so no bucket CORS config is involved.
  *
  * Reads through the read_file Tauri command (raw bytes over IPC) — NOT
  * fetch() against stream://, whose responses cap at 4 MiB and whose headers
@@ -31,17 +22,19 @@ export async function uploadToR2(
   contentType: string = "video/mp4",
   signal?: AbortSignal,
 ): Promise<string> {
+  const presign = await presignUpload(createClient(), key, contentType as UploadContentType);
+  if (!presign.ok) throw new Error(`Upload not authorized (${presign.error})`);
+
   const body = new Uint8Array(await invoke<ArrayBuffer>("read_file", { path: localPath }));
 
-  await getR2Client().send(
-    new PutObjectCommand({
-      Bucket: import.meta.env.VITE_R2_BUCKET,
-      Key: key,
-      Body: body,
-      ContentType: contentType,
-    }),
-    { abortSignal: signal },
-  );
+  const res = await tauriFetch(presign.data.uploadUrl, {
+    method: "PUT",
+    // Must equal the contentType we presigned — it's in the signed headers.
+    headers: { "Content-Type": contentType },
+    body,
+    signal,
+  });
+  if (!res.ok) throw new Error(`Upload failed (${res.status})`);
 
-  return `${import.meta.env.VITE_R2_PUBLIC_URL}/${key}`;
+  return presign.data.publicUrl;
 }
