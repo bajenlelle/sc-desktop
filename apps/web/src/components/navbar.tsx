@@ -113,14 +113,18 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
             {myOrgs.length > 1 ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="flex gap-1.5 h-8 px-2">
+                  {/* min-w-0 down the chain lets the org name give way on
+                      narrow screens — without it the trigger's content width
+                      wins and shoves the right-side controls off the bar. */}
+                  <Button variant="ghost" size="sm" className="flex gap-1.5 h-8 px-2 min-w-0">
                     <ActiveSpaceIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                    <span className="max-w-[100px] sm:max-w-[128px] truncate text-sm font-medium">
+                    <span className="min-w-0 max-w-[100px] sm:max-w-[128px] truncate text-sm font-medium">
                       {activeSpaceLabel}
                     </span>
                     <PlanBadge
                       tier={activeOrg.planTier}
                       size="xs"
+                      className="shrink-0"
                       quota={activeOrg.isPersonal ? importQuota : null}
                     />
                     <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -219,8 +223,8 @@ export function Navbar({ profile }: { profile: UserProfile | null }) {
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Right side */}
-        <div className="flex items-center gap-2">
+        {/* Right side — never shrinks; the space indicator yields instead. */}
+        <div className="flex shrink-0 items-center gap-2">
           {showDesktopCTA && (
             <a
               href={DESKTOP_APP_URL}

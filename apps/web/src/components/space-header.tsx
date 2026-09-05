@@ -37,7 +37,10 @@ export function SpaceHeader({
         <>
           <Icon className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
           <span
-            className="truncate text-sm font-medium text-foreground max-w-[128px]"
+            // min-w-0: a flex item's min-width defaults to its content, so
+            // without it the name refuses to truncate below 128px and
+            // overflows the navbar on narrow screens.
+            className="min-w-0 truncate text-sm font-medium text-foreground max-w-[128px]"
             title={label}
           >
             {label}
