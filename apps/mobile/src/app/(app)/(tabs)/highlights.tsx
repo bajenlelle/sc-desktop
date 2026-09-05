@@ -27,7 +27,11 @@ import { themeColors } from "@/lib/theme";
 import { Button } from "@/components/Button";
 
 const DESKTOP_APP_URL = "https://scoutable.se/#download";
-const SCREENSHOT_URL = "https://scoutable.se/screenshot.png";
+// The landing site's /players hero poster — the editor mid vertical-crop.
+// (The old screenshot.png 404'd after the landing redesign; it only looked
+// alive on devices where expo-image had cached it.) A still, not the video:
+// an autoplaying loop on a feed tab isn't worth the data/battery here.
+const SCREENSHOT_URL = "https://scoutable.se/posters/hero-players.jpg";
 
 const BULLETS = [
   {
@@ -74,8 +78,8 @@ function PitchPage() {
       <Image
         source={{ uri: SCREENSHOT_URL }}
         contentFit="cover"
-        accessibilityLabel="The Scoutable editor with a game automatically broken into clips"
-        style={{ width: "100%", aspectRatio: 16 / 10, borderRadius: 12 }}
+        accessibilityLabel="The Scoutable editor cropping a play into a vertical highlight reel"
+        style={{ width: "100%", aspectRatio: 1600 / 1034, borderRadius: 12 }}
       />
 
       <View className="gap-3">
@@ -102,7 +106,7 @@ function PitchPage() {
           className="self-stretch"
         />
         <Text className="text-sm text-muted-foreground dark:text-muted-foreground-dark">
-          3 game imports included. No card needed.
+          No card needed.
         </Text>
       </View>
     </ScrollView>
