@@ -473,13 +473,21 @@ export async function deleteFolder(supabase: SupabaseClient, id: string): Promis
 export async function listMatchesLight(
   supabase: SupabaseClient,
   orgId?: string,
-  opts?: { ownOnly?: boolean }
+  opts?: { ownOnly?: boolean; includeUnscoped?: boolean }
 ): Promise<StoredMatch[]> {
   let query = supabase
     .from("matches")
     .select("*")
     .order("created_at", { ascending: false });
-  if (orgId) query = query.eq("org_id", orgId);
+  // Same scoping contract as listPlaylists/listFolders (applyOrgScope):
+  // includeUnscoped admits legacy org_id-NULL rows. Callers that pass it for
+  // playlists MUST pass it here too, or those playlists reference matches
+  // the page can't see and their clips silently vanish.
+  if (orgId) {
+    query = opts?.includeUnscoped
+      ? query.or(`org_id.eq.${orgId},org_id.is.null`)
+      : query.eq("org_id", orgId);
+  }
   if (opts?.ownOnly) {
     const uid = await currentUserId(supabase);
     if (!uid) return [];

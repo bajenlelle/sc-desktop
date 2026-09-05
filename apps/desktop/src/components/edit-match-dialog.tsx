@@ -231,7 +231,10 @@ export function EditMatchDialog({ match, onSave }: EditMatchDialogProps) {
     setSaving(true);
     setSaveError(null);
 
-    let syncPoint: SyncPoint | null = null;
+    // Only include syncPoint when the input parsed to a value — updateMatchMeta
+    // writes every key present ("syncPoint" in updates), so passing null for an
+    // empty/invalid input silently WIPED a good sync point on unrelated edits.
+    let syncPoint: SyncPoint | undefined;
     if (syncInput && match.syncPoint) {
       const secs = parseMMSS(syncInput);
       if (secs !== null) {
@@ -246,7 +249,7 @@ export function EditMatchDialog({ match, onSave }: EditMatchDialogProps) {
       awayTeam: { name: match.awayTeam.name, color: awayColor },
       homeRoster,
       awayRoster,
-      syncPoint,
+      ...(syncPoint ? { syncPoint } : {}),
     };
 
     try {

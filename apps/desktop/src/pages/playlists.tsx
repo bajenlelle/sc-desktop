@@ -1821,7 +1821,10 @@ export function PlaylistsPage() {
       setOnboardingHighlight(state.highlight);
       highlightTimer = window.setTimeout(() => setOnboardingHighlight(null), 6000);
     }
-    Promise.all([listPlaylists(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }), listMatchesLight(activeOrgId ?? undefined, { ownOnly: true }), listFolders(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }), (activeOrgId ? getOrgContextForOrg(activeOrgId, { myOrgs }) : getOrgContext()).catch(() => null)])
+    // Matches take the same includeUnscoped treatment as playlists/folders:
+    // a legacy unscoped playlist otherwise references matches this page
+    // can't see, so its clips silently vanish from every list.
+    Promise.all([listPlaylists(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }), listMatchesLight(activeOrgId ?? undefined, { ownOnly: true, includeUnscoped: activeOrgIsPersonal }), listFolders(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }), (activeOrgId ? getOrgContextForOrg(activeOrgId, { myOrgs }) : getOrgContext()).catch(() => null)])
       .then(async ([loadedPlaylists, matchShells, loadedFolders, orgCtx]) => {
         // Events only for matches a playlist actually references. Passing
         // every match id pulled the complete play-by-play of every game the
@@ -1831,8 +1834,16 @@ export function PlaylistsPage() {
         // collectClipMatchIds, not collectReferencedMatchIds: the editor must
         // resolve UNSHIPPED clips too, or their rows vanish (see displayItems).
         const referencedIds = collectClipMatchIds(loadedPlaylists);
-        const eventsByMatch = await listEventsForMatches(referencedIds).catch(() => ({} as Record<string, PlayByPlayEvent[]>));
-        loadedEventMatchIdsRef.current = new Set(referencedIds);
+        // Mark ids loaded ONLY on success — marking them after a failed
+        // fetch disabled ensureEventsFor's retry for the whole session, so
+        // every referenced playlist rendered empty until app restart.
+        let eventsByMatch: Record<string, PlayByPlayEvent[]> = {};
+        try {
+          eventsByMatch = await listEventsForMatches(referencedIds);
+          loadedEventMatchIdsRef.current = new Set(referencedIds);
+        } catch {
+          // ensureEventsFor refetches per-game as the clip browser opens.
+        }
         const loadedMatches = mergeEventsIntoMatches(matchShells, eventsByMatch);
 
         setPlaylists(loadedPlaylists);
@@ -1891,17 +1902,21 @@ export function PlaylistsPage() {
   // demo-seeded when the sample-game copy completes), and imports elsewhere
   // dispatch matches-changed — refresh the match list so the clip browser's
   // empty state self-corrects. Matches only: rerunning the full load effect
-  // would clobber the open playlist's selection/editing state. Existing rows
-  // keep their object (and thus their merged play-by-play events) — fresh
-  // shells arrive with events: [] and ensureEventsFor skips already-loaded
-  // ids, so replacing a known match would lose its events for good.
+  // would clobber the open playlist's selection/editing state. Fresh row
+  // fields win (a relink's videoUrl or a re-set syncPoint must propagate —
+  // keeping old objects verbatim silently discarded those updates); only the
+  // merged play-by-play survives from the old object, since shells arrive
+  // with events: [] and ensureEventsFor skips already-loaded ids.
   useEffect(() => {
     const refreshMatches = () => {
-      listMatchesLight(activeOrgId ?? undefined, { ownOnly: true })
+      listMatchesLight(activeOrgId ?? undefined, { ownOnly: true, includeUnscoped: activeOrgIsPersonal })
         .then((shells) => {
           setMatches((prev) => {
             const prevById = new Map(prev.map((m) => [m.id, m]));
-            return shells.map((s) => prevById.get(s.id) ?? s);
+            return shells.map((s) => {
+              const known = prevById.get(s.id);
+              return known ? { ...s, events: known.events } : s;
+            });
           });
         })
         .catch(() => {});
@@ -1912,7 +1927,7 @@ export function PlaylistsPage() {
       window.removeEventListener("demo-seeded", refreshMatches);
       window.removeEventListener("matches-changed", refreshMatches);
     };
-  }, [activeOrgId]);
+  }, [activeOrgId, activeOrgIsPersonal]);
 
   /**
    * Fetch play-by-play for matches that don't have it yet and merge it in.
@@ -4740,8 +4755,19 @@ export function PlaylistsPage() {
   }
 
   const hasAnyClips = queueItems.some((i) => !isTextCard(i));
-  const noSync = selected !== null && hasAnyClips && !matchLookup.get(primaryMatchId(selected) ?? "")?.syncPoint;
-  const noVideo = selected !== null && !matchLookup.get(primaryMatchId(selected) ?? "")?.videoUrl;
+  // Gate on the matches of clips ACTUALLY in the queue (exactly like
+  // exportDisabledReason below) — NOT primaryMatchId, which is the
+  // playlist's first clip ROW. Unresolvable clips are hidden from the queue
+  // (legacy unscoped matches, a failed events fetch), so a playlist that
+  // renders empty could still steer primaryMatchId at an invisible match
+  // and false-alarm "No sync point" the moment real clips were added.
+  const queueClipMatchIds = [
+    ...new Set(queueItems.filter((i) => !isTextCard(i)).map((i) => (i as QueueItem).matchId)),
+  ];
+  const noSync =
+    selected !== null && hasAnyClips && queueClipMatchIds.some((id) => !matchLookup.get(id)?.syncPoint);
+  const noVideo =
+    selected !== null && hasAnyClips && queueClipMatchIds.some((id) => !matchLookup.get(id)?.videoUrl);
 
   // Free users must stay able to CLICK export — the click is what opens the
   // UpgradeDialog. Mechanical blockers (demo game, missing video/sync) only
