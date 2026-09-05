@@ -14,6 +14,7 @@ import {
   getOrCreateLinkInvite,
   updateOrgInviteExpiry,
   deleteOrgInvite,
+  markOrgInviteCopied,
 } from "@/lib/profile-db";
 import type { OrgInvite, OrgTeam, UserProfile } from "@/types/org";
 import { toast } from "sonner";
@@ -205,6 +206,7 @@ export function InviteModal({
     try {
       const count = await sendEmailInvites(orgId, emails, selectedRole, selectedTeamId);
       trackEvent("invite_emails_sent", { count, role: selectedRole });
+      window.dispatchEvent(new CustomEvent("org-setup-changed"));
       toast.success(`Invitation${count !== 1 ? "s" : ""} sent to ${count} address${count !== 1 ? "es" : ""}`);
       setEmails([]);
       onClose();
@@ -220,6 +222,12 @@ export function InviteModal({
     const url = `${APP_URL}/join/${linkInvite.code}`;
     navigator.clipboard.writeText(url);
     trackEvent("invite_link_copied", { role: selectedRole });
+    // Copying IS the "invite your coaches/players" onboarding action — stamp
+    // it (fire-and-forget, never blocking the copy UX) so the admin setup
+    // checklist can check the step, and poke any mounted checklist to refresh.
+    markOrgInviteCopied(linkInvite.id)
+      .then(() => window.dispatchEvent(new CustomEvent("org-setup-changed")))
+      .catch(() => {});
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
   }

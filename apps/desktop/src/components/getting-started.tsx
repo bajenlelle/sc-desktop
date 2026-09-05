@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Check, ChevronRight, Lock, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
-import { dismissOnboardingChecklist, getOrgContextForOrg, setDeclaredRole } from "@/lib/profile-db";
+import { dismissOnboardingChecklist, getOrgContextForOrg, listOrgSetupInvites, setDeclaredRole } from "@/lib/profile-db";
 import { getMySharedOutPlaylists } from "@/lib/playlists-db";
 import { deriveOrgSetupProgress, type OrgSetupProgress } from "@scoutable/shared/lib/org-setup";
 import { getHasExported } from "@/lib/prefs";
@@ -76,9 +76,19 @@ export function GettingStarted({
   const isClubAdmin = !activeOrgIsPersonal && activeOrgRole === "admin";
   useEffect(() => {
     if (!show || !isClubAdmin || !activeOrgId) return;
-    getOrgContextForOrg(activeOrgId, { myOrgs })
-      .then((ctx) => setOrgSetup(deriveOrgSetupProgress(ctx.allOrgTeams, ctx.orgMembers)))
-      .catch(() => {});
+    const load = () => {
+      // Invite signals ride along: the invite steps complete when the admin
+      // sends/copies an invite, not when someone joins (shared org-setup.ts).
+      Promise.all([getOrgContextForOrg(activeOrgId, { myOrgs }), listOrgSetupInvites(activeOrgId)])
+        .then(([ctx, invites]) =>
+          setOrgSetup(deriveOrgSetupProgress(ctx.allOrgTeams, ctx.orgMembers, invites)),
+        )
+        .catch(() => {});
+    };
+    load();
+    // Same-session freshness: the invite modal announces copies/sends.
+    window.addEventListener("org-setup-changed", load);
+    return () => window.removeEventListener("org-setup-changed", load);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [show, isClubAdmin, activeOrgId]);
 

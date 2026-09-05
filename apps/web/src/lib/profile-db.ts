@@ -6,6 +6,7 @@
 import { createClient } from "@/lib/supabase/client";
 import { currentUserId } from "@scoutable/shared/lib/current-user";
 import { type TeamDeleteImpact } from "@scoutable/shared/lib/team-delete";
+import type { OrgSetupInvite } from "@scoutable/shared/lib/org-setup";
 import type {
   UserProfile,
   Organization,
@@ -1028,4 +1029,32 @@ export async function getSubscriptionStatus(): Promise<{
     plan: data?.plan_name ?? null,
     currentPeriodEnd: data?.current_period_end ?? null,
   };
+}
+
+
+// ---------------------------------------------------------------------------
+// Admin setup checklist invite signals (see shared/lib/org-setup.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Invite rows as setup-progress signals: an email invite or a copied link
+ * checks the "invite your coaches"/"invite players" steps.
+ */
+export async function listOrgSetupInvites(orgId: string): Promise<OrgSetupInvite[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("org_invites")
+    .select("role, email, copied_at")
+    .eq("org_id", orgId);
+  if (error || !data) return [];
+  return (data as { role: string; email: string | null; copied_at: string | null }[]).map(
+    (r) => ({ role: r.role, email: r.email ?? null, copiedAt: r.copied_at ?? null }),
+  );
+}
+
+/** Fire-and-forget from the Copy button — never block the copy UX on it. */
+export async function markOrgInviteCopied(inviteId: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.rpc("mark_org_invite_copied", { p_invite_id: inviteId });
+  if (error) throw new Error(`Failed to mark invite copied: ${error.message}`);
 }

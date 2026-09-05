@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation";
 import { Check, ChevronRight, Monitor, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/components/auth-context";
-import { dismissOnboardingChecklist, getOrgContextForOrg } from "@/lib/profile-db";
+import { dismissOnboardingChecklist, getOrgContextForOrg, listOrgSetupInvites } from "@/lib/profile-db";
 import { trackEvent } from "@/lib/analytics";
-import { deriveOrgSetupProgress } from "@scoutable/shared/lib/org-setup";
+import { deriveOrgSetupProgress, type OrgSetupInvite } from "@scoutable/shared/lib/org-setup";
 import { cn } from "@/lib/utils";
 import type { OrgTeam, UserProfile } from "@scoutable/shared/types/org";
 
@@ -44,6 +44,10 @@ export function AdminSetupCard({
   const { profile, activeOrg, activeOrgId, activeOrgRole, activeOrgIsPersonal } = useAuth();
   const [hidden, setHidden] = useState(false);
   const [fetched, setFetched] = useState<{ teams: { id: string }[]; members: { role: string }[] } | null>(null);
+  // Invite signals (email sent / link copied) — the invite steps complete on
+  // the admin's action, not on someone joining. Fetched separately from the
+  // org context and re-fetched when the invite modal announces a change.
+  const [invites, setInvites] = useState<OrgSetupInvite[]>([]);
   const celebratedRef = useRef(false);
 
   const show =
@@ -60,8 +64,20 @@ export function AdminSetupCard({
       .catch(() => {});
   }, [show, teams, activeOrgId]);
 
+  useEffect(() => {
+    if (!show || !activeOrgId) return;
+    const load = () => {
+      listOrgSetupInvites(activeOrgId).then(setInvites).catch(() => {});
+    };
+    load();
+    // The invite modal lives on the same page — refresh the moment the admin
+    // copies a link or sends invites, so the step checks itself immediately.
+    window.addEventListener("org-setup-changed", load);
+    return () => window.removeEventListener("org-setup-changed", load);
+  }, [show, activeOrgId]);
+
   const data = teams && members ? { teams, members } : fetched;
-  const progress = data ? deriveOrgSetupProgress(data.teams, data.members) : null;
+  const progress = data ? deriveOrgSetupProgress(data.teams, data.members, invites) : null;
 
   // Auto-retire once the club is set up — same behavior as the desktop
   // checklist: celebrate once, persist the dismissal, disappear everywhere.
