@@ -18,7 +18,8 @@ export interface HomeHeroPlaylist {
 export interface HomeHeroInput {
   /** Imported games excluding the seeded sample game. */
   ownGameCount: number;
-  /** The sample game's match id when present (personal spaces only). */
+  /** The sample game's match id when present in the ACTIVE space (seeded
+   * per space: personal always, clubs for staff). */
   demoMatchId: string | null;
   /** Own playlists, newest first (listPlaylists order). */
   playlists: HomeHeroPlaylist[];

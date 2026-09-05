@@ -132,25 +132,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   /**
-   * Seed the sample game into a brand-new user's personal org so they can
-   * try clips → playlists with zero footage. Fire-and-forget off the login
-   * path, once per app start. The RPC is idempotent server-side (once per
-   * user, ever) and cheaply no-ops until a demo template is configured — so
-   * a user who signed up before the template existed still gets seeded on a
-   * later launch. No client-side guard: it must not block that catch-up.
+   * Seed the sample game into every space the user can act in — their
+   * personal org, plus club orgs where they're staff — so each Library has
+   * footage to try clips → playlists with. Fire-and-forget off the login
+   * path, once per app start. The RPC is idempotent server-side (one seed
+   * per user+org via demo_seeds, staff-only in clubs, no-op when the club's
+   * license is locked) and cheaply no-ops until a demo template is
+   * configured — so a user who signed up before the template existed still
+   * gets seeded on a later launch. No client-side guard: it must not block
+   * that catch-up.
    */
   function maybeSeedDemo(_userId: string, orgs: OrgMembership[]) {
-    const personal = orgs.find((o) => o.isPersonal);
-    if (!personal) return;
-    seedDemoMatch(personal.orgId)
-      .then((matchId) => {
-        if (matchId) {
-          trackEvent("demo_game_seeded");
-          // Library/playlists may already be mounted before the copy lands.
-          window.dispatchEvent(new CustomEvent("demo-seeded"));
-        }
-      })
-      .catch((err) => console.error("[auth] demo seeding failed:", err));
+    const targets = orgs.filter(
+      (o) => o.isPersonal || o.role === "admin" || o.role === "coach",
+    );
+    for (const target of targets) {
+      seedDemoMatch(target.orgId)
+        .then((matchId) => {
+          if (matchId) {
+            trackEvent("demo_game_seeded", {
+              org_kind: target.isPersonal ? "personal" : "club",
+            });
+            // Library/playlists may already be mounted before the copy lands.
+            window.dispatchEvent(new CustomEvent("demo-seeded"));
+          }
+        })
+        .catch((err) => console.error("[auth] demo seeding failed:", err));
+    }
   }
 
   const stopPlanPoll = useCallback(() => {

@@ -92,9 +92,9 @@ export function GettingStarted({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [show, isClubAdmin, activeOrgId]);
 
-  // The sample game lives in the personal space only — in a club space the
-  // checklist must not point at something the Clip Browser there won't have.
-  const hasDemo = activeOrgIsPersonal && matches.some((m) => m.isDemo);
+  // The sample game is seeded per space (personal always; clubs for staff),
+  // so the checklist can point at it wherever this space's Library has one.
+  const hasDemo = matches.some((m) => m.isDemo);
   // Declared at signup (or inferred from an invite); null = OAuth signup
   // that skipped the form — ask inline below. The player voice only applies
   // in the personal space: in a club space the membership role decides, and
@@ -224,6 +224,9 @@ export function GettingStarted({
     navigate(step.to, step.toState ? { state: step.toState } : undefined);
   }
 
+  const demoNote = hasDemo
+    ? " We've added a sample game so you can try everything without your own footage."
+    : "";
   const welcome = activeOrgIsPersonal
     ? hasDemo
       ? isPlayer
@@ -231,8 +234,8 @@ export function GettingStarted({
         : "We've added a sample game so you can try everything without your own footage."
       : "Here's the fastest way to get to your first playlist."
     : isClubAdmin
-      ? `You're an admin of ${activeOrg?.orgName ?? "your organization"}. Set up your club so coaches and players can get going.`
-      : `You've joined ${activeOrg?.orgName ?? "your organization"}. Here's how to get going.`;
+      ? `You're an admin of ${activeOrg?.orgName ?? "your organization"}. Set up your club so coaches and players can get going.${demoNote}`
+      : `You've joined ${activeOrg?.orgName ?? "your organization"}. Here's how to get going.${demoNote}`;
 
   return (
     <div className="rounded-xl border border-primary/30 bg-card p-5">

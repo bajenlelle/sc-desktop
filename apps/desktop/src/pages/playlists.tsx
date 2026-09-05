@@ -3468,6 +3468,20 @@ export function PlaylistsPage() {
   }
 
   /**
+   * Sharing ships clips to the cloud, which the sample game can't do — its
+   * video is a remote stream, not a local file, so Clip & Ship's preflight
+   * would throw a raw path error. Mirror the export gate's friendly copy.
+   */
+  function demoShipBlockReason(pl: Playlist): string | null {
+    const hasDemoClip = pl.items
+      .filter(isClipItem)
+      .some((c) => matchLookup.get(c.matchId)?.isDemo);
+    return hasDemoClip
+      ? "The sample game can't be shared — import your own game to share clips with your team."
+      : null;
+  }
+
+  /**
    * Patch freshly-uploaded r2Urls into local playlist state so the coach
    * dashboard's counts stay honest and re-runs skip finished clips — even
    * when the run was aborted or the coach cancels the share afterwards.
@@ -3528,6 +3542,14 @@ export function PlaylistsPage() {
       } catch (e) {
         toast.error("Couldn't update sharing", { description: e instanceof Error ? e.message : String(e) });
       }
+      return;
+    }
+
+    const demoBlock = demoShipBlockReason(selected);
+    if (demoBlock) {
+      setShareDialogOpen(false);
+      setSharePhase({ kind: "pick" });
+      toast.error("Couldn't share playlist", { description: demoBlock });
       return;
     }
 
@@ -3673,6 +3695,11 @@ export function PlaylistsPage() {
   // affordance. After any successful upload, pending silent shares (created
   // before the playlist had clips) finally notify their recipients.
   async function handleShip(target: Playlist) {
+    const demoBlock = demoShipBlockReason(target);
+    if (demoBlock) {
+      toast.error("Couldn't upload clips", { description: demoBlock });
+      return;
+    }
     setIsShipping(true);
     setShipProgress(null);
     try {
