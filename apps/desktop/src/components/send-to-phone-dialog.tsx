@@ -13,7 +13,7 @@ import { sendHighlightToPhone, type SendToPhoneStage } from "@/lib/highlight-sha
 import { getMyShareForPlaylist } from "@/lib/highlight-shares-db";
 import { highlightContentKey } from "@scoutable/shared/lib/highlight-shares-db";
 import { trackEvent } from "@/lib/analytics";
-import type { ExportSegment } from "@/lib/export";
+import { dropClipsOutsideVideos, type ExportSegment } from "@/lib/export";
 
 const APP_URL = "https://app.scoutable.se";
 
@@ -63,7 +63,14 @@ export function SendToPhoneDialog({
   const [reusedFrom, setReusedFrom] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Clips outside a partial recording are dropped, not fatal — this note
+  // tells the sender what the rendered video won't contain.
+  const [rangeNote, setRangeNote] = useState<string | null>(null);
   const runningRef = useRef(false);
+  // What actually renders: segments minus out-of-range clips. Everything
+  // downstream (render, analytics, the reuse fingerprint) must read this,
+  // never the raw prop, or the cached link stops matching its content.
+  const keptRef = useRef<ExportSegment[]>(segments);
 
   function runPipeline(pl: { id: string; name: string }) {
     if (runningRef.current) return;
@@ -71,12 +78,13 @@ export function SendToPhoneDialog({
     setError(null);
     setShareUrl(null);
     setReusedFrom(null);
-    sendHighlightToPhone(pl, segments, preRoll, postRoll, setStage, vertical)
+    const kept = keptRef.current;
+    sendHighlightToPhone(pl, kept, preRoll, postRoll, setStage, vertical)
       .then((url) => {
         setShareUrl(url);
         trackEvent("highlight_sent_to_phone", {
           playlist_id: pl.id,
-          clip_count: segments.filter((s) => s.kind === "clip").length,
+          clip_count: kept.filter((s) => s.kind === "clip").length,
           reused: false,
           is_selection: isSelection,
           ...(vertical ? { aspect: "9:16" } : {}),
@@ -91,30 +99,52 @@ export function SendToPhoneDialog({
 
   useEffect(() => {
     if (!open || !playlist || runningRef.current || shareUrl) return;
-    // A subset (selection) must not impersonate the full playlist's link.
-    if (isSelection) {
-      runPipeline(playlist);
-      return;
-    }
-    // Reuse is exact-match only: same aspect AND same content fingerprint
-    // (clips, order, rolls, and — for 9:16 — crop pans). Any edit between
-    // sends misses the lookup and re-renders automatically.
-    const aspect = vertical ? ("9:16" as const) : ("16:9" as const);
-    getMyShareForPlaylist(playlist.id, aspect, highlightContentKey(segments, preRoll, postRoll, aspect))
-      .then((existing) => {
-        if (existing) {
-          setShareUrl(`${APP_URL}/h/${existing.id}`);
-          setReusedFrom(existing.createdAt);
-          trackEvent("highlight_sent_to_phone", {
-            playlist_id: playlist.id,
-            reused: true,
-            ...(vertical ? { aspect: "9:16" } : {}),
-          });
-        } else {
-          runPipeline(playlist);
-        }
-      })
-      .catch(() => runPipeline(playlist));
+    let cancelled = false;
+    (async () => {
+      // Partial recordings (first half only) are legitimate: render what the
+      // video covers, surface what it can't. Zero coverage = wrong file.
+      const { kept, skipped, note } = await dropClipsOutsideVideos(segments, preRoll, postRoll);
+      if (cancelled) return;
+      if (!kept.some((s) => s.kind === "clip")) {
+        setError(
+          "None of these clips fall inside the linked video — it may be the wrong file, " +
+            "or its sync point may be off. Open the game in the Library to relink or re-sync.",
+        );
+        return;
+      }
+      keptRef.current = kept;
+      setRangeNote(skipped > 0 ? note : null);
+
+      // A subset (selection) must not impersonate the full playlist's link.
+      if (isSelection) {
+        runPipeline(playlist);
+        return;
+      }
+      // Reuse is exact-match only: same aspect AND same content fingerprint
+      // (clips, order, rolls, and — for 9:16 — crop pans). Any edit between
+      // sends misses the lookup and re-renders automatically. Fingerprint the
+      // KEPT set: relinking the full recording changes it → fresh render
+      // instead of reusing a partial master.
+      const aspect = vertical ? ("9:16" as const) : ("16:9" as const);
+      getMyShareForPlaylist(playlist.id, aspect, highlightContentKey(kept, preRoll, postRoll, aspect))
+        .then((existing) => {
+          if (existing) {
+            setShareUrl(`${APP_URL}/h/${existing.id}`);
+            setReusedFrom(existing.createdAt);
+            trackEvent("highlight_sent_to_phone", {
+              playlist_id: playlist.id,
+              reused: true,
+              ...(vertical ? { aspect: "9:16" } : {}),
+            });
+          } else {
+            runPipeline(playlist);
+          }
+        })
+        .catch(() => runPipeline(playlist));
+    })();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -123,6 +153,7 @@ export function SendToPhoneDialog({
     setShareUrl(null);
     setReusedFrom(null);
     setError(null);
+    setRangeNote(null);
     setCopied(false);
     onClose();
   }
@@ -149,6 +180,12 @@ export function SendToPhoneDialog({
               : "We'll render your highlight and give you a QR code to scan."}
           </DialogDescription>
         </DialogHeader>
+
+        {!error && rangeNote && (
+          <p className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-500">
+            {rangeNote}
+          </p>
+        )}
 
         {error ? (
           <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/50 dark:text-red-400">
