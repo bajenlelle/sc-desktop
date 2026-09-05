@@ -161,9 +161,12 @@ export function statusOf(r: DashboardRow): DashboardStatus | null {
 }
 
 /**
- * Cross-playlist roll-up. behindTargets dedupes per player — "Remind all"
- * sends one email each (their most recently shared unfinished playlist),
- * never one per playlist.
+ * Cross-playlist roll-up. behindTargets dedupes per player (one entry each,
+ * pointing at their most recently shared unfinished playlist). The strips
+ * only display `behind` today — the global "Remind all" the targets once fed
+ * was removed (nudging players about weeks-old playlists), and bulk reminding
+ * is now playlist-scoped: see latestBehindPlaylist and the per-playlist
+ * remind buttons.
  */
 export function summarizeDashboard(rows: DashboardRow[]): DashboardSummary {
   const allRecipients = new Set<string>();
@@ -191,6 +194,42 @@ export function summarizeDashboard(rows: DashboardRow[]): DashboardSummary {
     behind: behindByPlayer.size,
     behindTargets: [...behindByPlayer.values()],
   };
+}
+
+export interface LatestBehindPlaylist {
+  playlistId: string;
+  playlistName: string;
+  behindCount: number;
+  /** The players behind on THIS playlist — the Home hero's remind scope. */
+  targets: BehindTarget[];
+}
+
+/**
+ * The newest shared playlist someone hasn't finished. Bulk reminding is
+ * deliberately scoped to this one playlist: a coach cares about the tape
+ * shared before the next practice, not about stragglers on a playlist from
+ * four weeks ago — which is why the cross-dashboard "Remind all" is gone.
+ * Rows arrive newest-shared first (buildDashboardRows sorts them), so the
+ * first row with someone behind is the freshest.
+ */
+export function latestBehindPlaylist(rows: DashboardRow[]): LatestBehindPlaylist | null {
+  for (const r of rows) {
+    if (r.playableCount === 0) continue;
+    const behind = r.recipients.filter((rec) => rec.watched < r.playableCount);
+    if (behind.length === 0) continue;
+    return {
+      playlistId: r.playlist.id,
+      playlistName: r.playlist.name,
+      behindCount: behind.length,
+      targets: behind.map((rec) => ({
+        userId: rec.userId,
+        name: rec.name,
+        playlistId: r.playlist.id,
+        sharedAt: r.newestSharedAt ?? "",
+      })),
+    };
+  }
+  return null;
 }
 
 /** Team dropdown options; "Direct to members" appears once any row has a direct share. */

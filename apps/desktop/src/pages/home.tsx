@@ -19,6 +19,7 @@ import { computeHomeHero } from "@scoutable/shared/lib/home-hero";
 import {
   buildDashboardRows,
   summarizeDashboard,
+  latestBehindPlaylist,
   type DashboardRow,
 } from "@scoutable/shared/lib/shared-by-me";
 import { isClipItem } from "@/types/match";
@@ -164,6 +165,9 @@ function CoachHomePage() {
   }, []);
 
   const summary = useMemo(() => summarizeDashboard(dashboardRows), [dashboardRows]);
+  // The hero's remind scope: the newest shared playlist with stragglers.
+  // Reminding is playlist-scoped by design — see latestBehindPlaylist.
+  const latestBehind = useMemo(() => latestBehindPlaylist(dashboardRows), [dashboardRows]);
 
   const hero = useMemo(() => {
     void exportTick; // hero depends on the localStorage flag below
@@ -177,16 +181,22 @@ function CoachHomePage() {
       })),
       isClubSpace,
       hasSharedAny: dashboardRows.length > 0,
-      behindCount: summary.behind,
+      latestBehind: latestBehind
+        ? {
+            playlistId: latestBehind.playlistId,
+            playlistName: latestBehind.playlistName,
+            behindCount: latestBehind.behindCount,
+          }
+        : null,
       hasExported: getHasExported(user?.id),
     });
-  }, [matches, playlists, isClubSpace, dashboardRows, summary.behind, exportTick]);
+  }, [matches, playlists, isClubSpace, dashboardRows, latestBehind, exportTick]);
 
-  async function handleRemindAll() {
-    if (remindingAll || summary.behindTargets.length === 0) return;
+  async function handleRemindLatest() {
+    if (remindingAll || !latestBehind || latestBehind.targets.length === 0) return;
     setRemindingAll(true);
     try {
-      await bulkSendReminders(summary.behindTargets);
+      await bulkSendReminders(latestBehind.targets);
     } finally {
       setRemindingAll(false);
     }
@@ -261,14 +271,12 @@ function CoachHomePage() {
           <NextActionHero
             hero={hero}
             playerVoice={playerVoice}
-            onRemindAll={handleRemindAll}
-            remindingAll={remindingAll}
+            onRemind={handleRemindLatest}
+            reminding={remindingAll}
           />
         )}
 
-        {isClubSpace && (
-          <TeamEngagement summary={summary} onRemindAll={handleRemindAll} remindingAll={remindingAll} />
-        )}
+        {isClubSpace && <TeamEngagement summary={summary} />}
 
         {/* Playlists */}
         <div>

@@ -5,20 +5,11 @@
  * /my-playlists.
  */
 import { Link } from "react-router-dom";
-import { Loader2, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type { DashboardSummary } from "@scoutable/shared/lib/shared-by-me";
 
-export function TeamEngagement({
-  summary,
-  onRemindAll,
-  remindingAll,
-}: {
-  summary: DashboardSummary;
-  onRemindAll: () => void;
-  remindingAll: boolean;
-}) {
+export function TeamEngagement({ summary }: { summary: DashboardSummary }) {
   if (summary.playlists === 0) return null;
 
   return (
@@ -54,6 +45,10 @@ export function TeamEngagement({
             summary.behind > 0 ? "border-amber-500/40 bg-amber-500/5" : "border-border bg-card"
           )}
         >
+          {/* Informational only — bulk reminding is playlist-scoped (the
+              hero's newest-behind playlist, or per-playlist on the
+              dashboard). A cross-dashboard "Remind all" nudged players
+              about weeks-old playlists, so it's gone. */}
           <div className="flex min-w-0 flex-col">
             <span
               className={cn(
@@ -67,17 +62,6 @@ export function TeamEngagement({
               {summary.behind === 1 ? "player hasn't finished" : "players haven't finished"}
             </span>
           </div>
-          {summary.behind > 0 && (
-            <button
-              type="button"
-              onClick={onRemindAll}
-              disabled={remindingAll}
-              className="inline-flex min-h-[32px] shrink-0 items-center gap-1.5 rounded-md bg-amber-500/15 px-2.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/25 disabled:opacity-60 dark:text-amber-400"
-            >
-              {remindingAll ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
-              Remind all
-            </button>
-          )}
         </div>
       </div>
     </div>

@@ -7,7 +7,7 @@ const base: HomeHeroInput = {
   playlists: [],
   isClubSpace: true,
   hasSharedAny: false,
-  behindCount: 0,
+  latestBehind: null,
   hasExported: false,
 };
 
@@ -42,14 +42,19 @@ describe("computeHomeHero", () => {
     expect(hero).toEqual({ kind: "share", playlist: pl("full", 4) });
   });
 
-  it("club space: nudges reminders when players are behind", () => {
+  it("club space: nudges reminders scoped to the newest playlist with stragglers", () => {
     const hero = computeHomeHero({
       ...base,
       playlists: [pl("a", 4)],
       hasSharedAny: true,
+      latestBehind: { playlistId: "p1", playlistName: "Crunch Time", behindCount: 3 },
+    });
+    expect(hero).toEqual({
+      kind: "remind",
+      playlistId: "p1",
+      playlistName: "Crunch Time",
       behindCount: 3,
     });
-    expect(hero).toEqual({ kind: "remind", behindCount: 3 });
   });
 
   it("club space: caught up when shared and nobody is behind", () => {

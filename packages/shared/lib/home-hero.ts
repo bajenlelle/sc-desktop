@@ -26,8 +26,13 @@ export interface HomeHeroInput {
   isClubSpace: boolean;
   /** Whether any playlist has ever been shared (dashboard rows exist). */
   hasSharedAny: boolean;
-  /** Players who haven't finished something shared with them. */
-  behindCount: number;
+  /**
+   * Newest shared playlist someone hasn't finished (latestBehindPlaylist in
+   * shared-by-me.ts), or null when everyone is caught up. The remind hero is
+   * scoped to ONE playlist on purpose — nudging stragglers of a weeks-old
+   * playlist is never the coach's next action.
+   */
+  latestBehind: { playlistId: string; playlistName: string; behindCount: number } | null;
   /** Personal spaces: has the user ever exported an MP4. */
   hasExported: boolean;
 }
@@ -38,7 +43,7 @@ export type HomeHero =
   | { kind: "add-clips"; playlist: HomeHeroPlaylist }
   | { kind: "share"; playlist: HomeHeroPlaylist }
   | { kind: "export"; playlist: HomeHeroPlaylist }
-  | { kind: "remind"; behindCount: number }
+  | { kind: "remind"; playlistId: string; playlistName: string; behindCount: number }
   | { kind: "caught-up" };
 
 /** Newest playlist that actually has clips (input order is newest-first). */
@@ -59,7 +64,7 @@ export function computeHomeHero(input: HomeHeroInput): HomeHero {
   }
   if (input.isClubSpace) {
     if (!input.hasSharedAny) return { kind: "share", playlist: withClips };
-    if (input.behindCount > 0) return { kind: "remind", behindCount: input.behindCount };
+    if (input.latestBehind) return { kind: "remind", ...input.latestBehind };
     return { kind: "caught-up" };
   }
   if (!input.hasExported) {
