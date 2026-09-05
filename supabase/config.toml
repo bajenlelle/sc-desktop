@@ -226,10 +226,13 @@ pass = "env(RESEND_SMTP_PASSWORD)"
 admin_email = "noreply@scoutable.se"
 sender_name = "Scoutable"
 
-# Uncomment to customize email template
-# [auth.email.template.invite]
-# subject = "You have been invited"
-# content_path = "./supabase/templates/invite.html"
+[auth.email.template.invite]
+subject = "You're invited to Scoutable"
+content_path = "./supabase/templates/invite.html"
+
+[auth.email.template.magic_link]
+subject = "Your Scoutable sign-in link"
+content_path = "./supabase/templates/magic_link.html"
 
 [auth.email.template.confirmation]
 subject = "Confirm your Scoutable account"
