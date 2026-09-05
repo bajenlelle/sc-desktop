@@ -126,7 +126,6 @@ export function SharedByMe({
   const [query, setQuery] = useState("");
   /** key = `${playlistId}:${userId}` — per-recipient nudge lifecycle. */
   const [remindState, setRemindState] = useState<Map<string, "sending" | "sent">>(new Map());
-  const [remindingAll, setRemindingAll] = useState(false);
   const [remindingPlaylistId, setRemindingPlaylistId] = useState<string | null>(null);
 
   // Recipients and watch state for the playlists the page handed us. Keyed on
@@ -205,7 +204,9 @@ export function SharedByMe({
     }
   }
 
-  /** Shared by the strip's global Remind all and the per-playlist button. */
+  /** The per-playlist Remind button's engine. Deliberately no cross-
+   * dashboard "Remind all": it nudged players about weeks-old playlists;
+   * reminding is per playlist or per player. */
   async function bulkRemind(targets: { playlistId: string; userId: string }[]) {
     let sent = 0;
     let failed = 0;
@@ -228,16 +229,6 @@ export function SharedByMe({
       toast.info("Everyone was already reminded recently");
     } else {
       toast.error("Couldn't send reminders — try again");
-    }
-  }
-
-  async function handleRemindAll() {
-    if (remindingAll || summary.behindTargets.length === 0) return;
-    setRemindingAll(true);
-    try {
-      await bulkRemind(summary.behindTargets);
-    } finally {
-      setRemindingAll(false);
     }
   }
 
@@ -339,17 +330,6 @@ export function SharedByMe({
               {summary.behind === 1 ? "player hasn't finished" : "players haven't finished"}
             </span>
           </button>
-          {summary.behind > 0 && (
-            <button
-              type="button"
-              onClick={handleRemindAll}
-              disabled={remindingAll}
-              className="inline-flex min-h-[32px] shrink-0 items-center gap-1.5 rounded-md bg-amber-500/15 px-2.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/25 disabled:opacity-60 dark:text-amber-400"
-            >
-              {remindingAll ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
-              Remind all
-            </button>
-          )}
         </div>
       </div>
 

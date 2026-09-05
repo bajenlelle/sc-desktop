@@ -126,7 +126,6 @@ export function SharedByMe({
   const [query, setQuery] = useState("");
   /** key = `${playlistId}:${userId}` — per-recipient nudge lifecycle. */
   const [remindState, setRemindState] = useState<Map<string, "sending" | "sent">>(new Map());
-  const [remindingAll, setRemindingAll] = useState(false);
   const [remindingPlaylistId, setRemindingPlaylistId] = useState<string | null>(null);
 
   // Recipients and watch state for the playlists the page handed us. Keyed on
@@ -205,22 +204,14 @@ export function SharedByMe({
     }
   }
 
-  /** Shared by the strip's global Remind all and the per-playlist button.
-   * Loop + toasts live in lib/reminders-bulk (also used by the Home page). */
+  /** The per-playlist Remind button's engine. Loop + toasts live in
+   * lib/reminders-bulk (also used by the Home page's hero). Deliberately no
+   * cross-dashboard "Remind all": it nudged players about weeks-old
+   * playlists; reminding is per playlist or per player. */
   async function bulkRemind(targets: { playlistId: string; userId: string }[]) {
     await bulkSendReminders(targets, (t) =>
       setRemindState((prev) => new Map(prev).set(`${t.playlistId}:${t.userId}`, "sent"))
     );
-  }
-
-  async function handleRemindAll() {
-    if (remindingAll || summary.behindTargets.length === 0) return;
-    setRemindingAll(true);
-    try {
-      await bulkRemind(summary.behindTargets);
-    } finally {
-      setRemindingAll(false);
-    }
   }
 
   async function handleRemindPlaylist(row: DashboardRow) {
@@ -303,6 +294,9 @@ export function SharedByMe({
             summary.behind > 0 ? "border-amber-500/40 bg-amber-500/5" : "border-border bg-card",
           )}
         >
+          {/* Stat doubles as a filter; no global Remind all — reminding is
+              per playlist (row buttons) or per player, since a cross-
+              dashboard blast nudged players about weeks-old playlists. */}
           <button
             type="button"
             onClick={() => setStatusFilter("attention")}
@@ -321,17 +315,6 @@ export function SharedByMe({
               {summary.behind === 1 ? "player hasn't finished" : "players haven't finished"}
             </span>
           </button>
-          {summary.behind > 0 && (
-            <button
-              type="button"
-              onClick={handleRemindAll}
-              disabled={remindingAll}
-              className="inline-flex min-h-[32px] shrink-0 items-center gap-1.5 rounded-md bg-amber-500/15 px-2.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/25 disabled:opacity-60 dark:text-amber-400"
-            >
-              {remindingAll ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
-              Remind all
-            </button>
-          )}
         </div>
       </div>
 

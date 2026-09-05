@@ -11,14 +11,15 @@ import type { HomeHero } from "@scoutable/shared/lib/home-hero";
 export function NextActionHero({
   hero,
   playerVoice = false,
-  onRemindAll,
-  remindingAll,
+  onRemind,
+  reminding,
 }: {
   hero: HomeHero;
   /** Personal-space declared players read "highlight tape", not "playlist". */
   playerVoice?: boolean;
-  onRemindAll: () => void;
-  remindingAll: boolean;
+  /** Sends reminders scoped to the hero's playlist (the newest one behind). */
+  onRemind: () => void;
+  reminding: boolean;
 }) {
   const navigate = useNavigate();
 
@@ -87,13 +88,13 @@ export function NextActionHero({
         return {
           title:
             hero.behindCount === 1
-              ? "1 player hasn't finished watching"
-              : `${hero.behindCount} players haven't finished watching`,
-          body: "Send a nudge — each gets an email linking straight to their playlist.",
+              ? `1 player hasn't finished watching "${hero.playlistName}"`
+              : `${hero.behindCount} players haven't finished watching "${hero.playlistName}"`,
+          body: "Send a nudge — each gets an email linking straight to the playlist.",
           ctaIcon: Send,
           ctaLabel: "Remind them",
-          onCta: onRemindAll,
-          ctaBusy: remindingAll,
+          onCta: onRemind,
+          ctaBusy: reminding,
           secondary: {
             label: "Open dashboard",
             onClick: () => navigate("/my-playlists"),

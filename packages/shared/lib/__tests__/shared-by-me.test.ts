@@ -8,6 +8,7 @@ import {
   buildDashboardRows,
   dashboardCounts,
   filterByTeamAndQuery,
+  latestBehindPlaylist,
   statusOf,
   summarizeDashboard,
   teamFilterOptions,
@@ -309,6 +310,76 @@ describe("summarizeDashboard", () => {
     expect(s.behind).toBe(0);
     expect(s.behindTargets).toEqual([]);
     expect(s.recipients).toBe(2);
+  });
+});
+
+describe("latestBehindPlaylist", () => {
+  it("picks the first row with someone behind, not a later one with more stragglers", () => {
+    const found = latestBehindPlaylist([
+      row({
+        playlist: pl({ id: "newest", name: "Newest" }),
+        playableCount: 3,
+        recipients: [rec("u1", 1), rec("u2", 3)],
+      }),
+      row({
+        playlist: pl({ id: "older", name: "Older" }),
+        playableCount: 2,
+        recipients: [rec("u1", 0), rec("u2", 0), rec("u3", 0)],
+      }),
+    ]);
+    expect(found?.playlistId).toBe("newest");
+    expect(found?.playlistName).toBe("Newest");
+    expect(found?.behindCount).toBe(1);
+  });
+
+  it("skips rows with nothing playable so an all-uploading playlist never wins", () => {
+    const found = latestBehindPlaylist([
+      row({
+        playlist: pl({ id: "uploading", name: "U" }),
+        playableCount: 0,
+        recipients: [rec("u1", 0)],
+      }),
+      row({
+        playlist: pl({ id: "ready", name: "R" }),
+        playableCount: 1,
+        recipients: [rec("u1", 0)],
+      }),
+    ]);
+    expect(found?.playlistId).toBe("ready");
+  });
+
+  it("returns null when everyone is caught up and when there are no rows", () => {
+    expect(
+      latestBehindPlaylist([row({ playableCount: 2, recipients: [rec("u1", 2)] })]),
+    ).toBeNull();
+    expect(latestBehindPlaylist([])).toBeNull();
+  });
+
+  it("targets are exactly that playlist's stragglers, stamped with its newestSharedAt", () => {
+    const found = latestBehindPlaylist([
+      row({
+        playlist: pl({ id: "p1", name: "A" }),
+        playableCount: 2,
+        newestSharedAt: "2026-02-01T00:00:00Z",
+        recipients: [rec("u1", 0, "Anna"), rec("u2", 1, "Bea"), rec("u3", 2, "Cia")],
+      }),
+      row({
+        playlist: pl({ id: "p2", name: "B" }),
+        playableCount: 2,
+        recipients: [rec("u4", 0, "Dora")], // behind on an older playlist — out of scope
+      }),
+    ]);
+    expect(found?.targets).toEqual([
+      { userId: "u1", name: "Anna", playlistId: "p1", sharedAt: "2026-02-01T00:00:00Z" },
+      { userId: "u2", name: "Bea", playlistId: "p1", sharedAt: "2026-02-01T00:00:00Z" },
+    ]);
+  });
+
+  it("falls back to an empty sharedAt when the row has no newestSharedAt", () => {
+    const found = latestBehindPlaylist([
+      row({ playableCount: 1, recipients: [rec("u1", 0)] }),
+    ]);
+    expect(found?.targets[0].sharedAt).toBe("");
   });
 });
 
