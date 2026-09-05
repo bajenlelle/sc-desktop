@@ -73,7 +73,14 @@ export function MyPlaylistsPage() {
 
   useEffect(() => {
     if (profileLoading) return;
-    if (activeOrgIsPersonal) navigate("/playlists", { replace: true });
+    // No shared-with-me feed exists in a personal space — bounce to home,
+    // the checklist / next-action surface. This effect also fires when the
+    // space flips WHILE this page is mounted ("Open my space" runs
+    // setActiveOrg + navigate("/"), but the router transition lands after
+    // the context commit), so its target IS the landing players get — it
+    // must stay "/" or it hijacks that navigation (used to strand players
+    // on an empty personal /playlists).
+    if (activeOrgIsPersonal) navigate("/", { replace: true });
   }, [activeOrgIsPersonal, profileLoading, navigate]);
 
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
