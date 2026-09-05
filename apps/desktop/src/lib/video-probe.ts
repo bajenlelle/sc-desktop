@@ -51,6 +51,38 @@ export async function probeMatches(
   return new Map(entries);
 }
 
+/**
+ * Duration of a local video via an offscreen metadata load — ffprobe isn't in
+ * the sidecar build, and the webview already reads these files over stream://.
+ * Resolves null when the duration can't be determined (unsupported container,
+ * timeout); callers must treat null as "unknown", never as an error.
+ */
+export function probeVideoDuration(path: string, timeoutMs = 8000): Promise<number | null> {
+  return new Promise((resolve) => {
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    let settled = false;
+    const done = (d: number | null) => {
+      if (settled) return;
+      settled = true;
+      // Detach the source so WKWebView releases the decoder slot.
+      video.removeAttribute("src");
+      video.load();
+      resolve(d);
+    };
+    const timer = window.setTimeout(() => done(null), timeoutMs);
+    video.onloadedmetadata = () => {
+      window.clearTimeout(timer);
+      done(Number.isFinite(video.duration) ? video.duration : null);
+    };
+    video.onerror = () => {
+      window.clearTimeout(timer);
+      done(null);
+    };
+    video.src = streamFileSrc(path);
+  });
+}
+
 /** Basename of a stored local path — the signal bulk relink matches on. */
 export function videoBasename(path: string): string {
   return path.split(/[/\\]/).pop() ?? path;

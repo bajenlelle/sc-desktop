@@ -91,6 +91,27 @@ fn render_watermark_png(path: &std::path::Path) -> Result<(), String> {
         .map_err(|e| format!("Failed to write watermark: {e}"))
 }
 
+/// ffmpeg exits 0 even when `-ss` seeks past the source's end: it reads zero
+/// packets and the MP4 muxer silently drops the empty tracks, leaving a valid
+/// container with no streams that only blows up later — the concat pass dies
+/// with a cryptic "matches no streams", or a shipped clip uploads unplayable.
+/// A track-less MP4 is a few hundred bytes; any real segment (even a short
+/// black text card) is tens of KB, so a size floor is a reliable stream check
+/// without ffprobe (not in the sidecar build).
+const MIN_RENDERED_OUTPUT_BYTES: u64 = 4096;
+
+fn assert_rendered_output(path: &std::path::Path, what: &str) -> Result<(), String> {
+    let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    if size < MIN_RENDERED_OUTPUT_BYTES {
+        return Err(format!(
+            "{what} rendered empty — its time range is probably outside the source video. \
+             The video linked to this game may be the wrong file (open it in the Library \
+             and locate the right one), or its sync point may be off."
+        ));
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn export_playlist(
     app: tauri::AppHandle,
@@ -267,13 +288,19 @@ async fn export_playlist(
             }
         };
 
-        if !status.status.success() {
+        let segment_error = if !status.status.success() {
+            Some(String::from_utf8_lossy(&status.stderr).to_string())
+        } else {
+            assert_rendered_output(&temp_path, &format!("Segment {} of {}", i + 1, segments.len()))
+                .err()
+        };
+        if let Some(message) = segment_error {
             // Clean up already-created temp files before returning error
             for f in &temp_files {
                 let _ = std::fs::remove_file(f);
             }
             let _ = std::fs::remove_file(&temp_path);
-            return Err(String::from_utf8_lossy(&status.stderr).to_string());
+            return Err(message);
         }
 
         temp_files.push(temp_path);
@@ -382,7 +409,7 @@ async fn export_clip_for_ship(
         .await
         .map_err(|e| e.to_string())?;
     if result.status.success() {
-        Ok(())
+        assert_rendered_output(std::path::Path::new(&output_path), "This clip")
     } else {
         Err(String::from_utf8_lossy(&result.stderr).to_string())
     }
