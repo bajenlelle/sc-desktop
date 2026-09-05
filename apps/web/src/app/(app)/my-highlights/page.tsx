@@ -24,7 +24,19 @@ import { isClipItem, type Playlist } from "@scoutable/shared/types/match";
 
 const DESKTOP_APP_URL = "https://scoutable.se/#download";
 
+// Media from the landing site (single source of truth for product footage):
+// the /players hero recording — the editor panning a vertical crop across a
+// play — is exactly what this page is selling.
+const PITCH_VIDEO_WEBM = "https://scoutable.se/videos/hero-players.webm";
+const PITCH_VIDEO_MP4 = "https://scoutable.se/videos/hero-players.mp4";
+const PITCH_POSTER = "https://scoutable.se/posters/hero-players.jpg";
+const PITCH_MEDIA_ALT = "The Scoutable editor cropping a play into a vertical highlight reel";
+
 function PitchPage() {
+  // Poster fallback when the video can't load — the old hotlinked screenshot
+  // 404'd silently after a landing redesign, so never trust a single asset.
+  const [videoFailed, setVideoFailed] = useState(false);
+
   function handleDownload() {
     trackEvent("download_clicked", { source: "my_highlights" });
     window.open(DESKTOP_APP_URL, "_blank", "noreferrer");
@@ -62,12 +74,32 @@ function PitchPage() {
       </div>
 
       <div className="mt-8 overflow-hidden rounded-xl border border-border shadow-sm">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="https://scoutable.se/screenshot.png"
-          alt="The Scoutable editor with a game automatically broken into clips"
-          className="w-full"
-        />
+        {videoFailed ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img src={PITCH_POSTER} alt={PITCH_MEDIA_ALT} className="w-full" />
+        ) : (
+          <>
+            <video
+              className="w-full motion-reduce:hidden"
+              autoPlay
+              muted
+              loop
+              playsInline
+              preload="metadata"
+              poster={PITCH_POSTER}
+              aria-label={PITCH_MEDIA_ALT}
+              onError={() => setVideoFailed(true)}
+            >
+              <source src={PITCH_VIDEO_WEBM} type="video/webm" />
+              {/* Source errors fire on the element, not the video — the last
+                  source failing means no playable source at all. */}
+              <source src={PITCH_VIDEO_MP4} type="video/mp4" onError={() => setVideoFailed(true)} />
+            </video>
+            {/* Reduced motion: still frame instead of the loop. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={PITCH_POSTER} alt={PITCH_MEDIA_ALT} className="hidden w-full motion-reduce:block" />
+          </>
+        )}
       </div>
 
       <div className="mt-8 grid gap-4 sm:grid-cols-3">
@@ -88,7 +120,7 @@ function PitchPage() {
           Get the desktop app — free
         </Button>
         <p className="text-sm text-muted-foreground">
-          3 game imports included. No card needed.
+          No card needed.
         </p>
       </div>
     </div>
