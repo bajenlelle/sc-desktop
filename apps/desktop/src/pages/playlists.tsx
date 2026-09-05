@@ -1511,28 +1511,54 @@ function AddToDropdown({
   addToSearch,
   setAddToSearch,
   onAddToPlaylist,
+  onCreatePlaylist,
 }: {
   playlists: Playlist[];
   activePlaylistId: string | null;
   addToSearch: string;
   setAddToSearch: (v: string) => void;
   onAddToPlaylist: (playlist: Playlist) => void;
+  onCreatePlaylist: (name: string) => Promise<void>;
 }) {
-  const q = addToSearch.toLowerCase();
-  const options = playlists.filter((pl) => {
-    if (activePlaylistId && pl.id === activePlaylistId) return false;
-    if (q && !pl.name.toLowerCase().includes(q)) return false;
-    return true;
-  });
+  const [creating, setCreating] = useState(false);
+  const trimmed = addToSearch.trim();
+  const q = trimmed.toLowerCase();
+  const candidates = playlists.filter(
+    (pl) => !(activePlaylistId && pl.id === activePlaylistId),
+  );
+  const options = candidates.filter((pl) => !q || pl.name.toLowerCase().includes(q));
+  // Same search-or-create mechanics as LabelPickerPopover: the search input
+  // doubles as the name field; an exact name match hides the create row.
+  const exactMatch = candidates.some((pl) => pl.name.toLowerCase() === q);
+  const showCreateRow = trimmed.length > 0 && !exactMatch;
+
+  async function handleCreate() {
+    if (!showCreateRow || creating) return;
+    setCreating(true);
+    try {
+      await onCreatePlaylist(trimmed);
+    } catch (err) {
+      console.error("[playlists] Failed to create playlist from dropdown:", err);
+      toast.error("Couldn't create playlist");
+      setCreating(false);
+    }
+  }
+
   return (
     <div className="absolute right-0 z-20 mt-1 w-72 rounded-md border border-border bg-popover shadow-lg">
       <div className="border-b border-border p-2">
         <input
           autoFocus
           type="text"
-          placeholder="Search playlists…"
+          placeholder="Search or create…"
           value={addToSearch}
           onChange={(e) => setAddToSearch(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && showCreateRow) {
+              e.preventDefault();
+              void handleCreate();
+            }
+          }}
           className="w-full rounded-sm bg-muted px-2 py-1 text-xs outline-none"
         />
       </div>
@@ -1550,7 +1576,27 @@ function AddToDropdown({
           ))}
         </div>
       ) : (
-        <p className="px-3 py-3 text-xs text-muted-foreground">No playlists found</p>
+        !showCreateRow && (
+          <p className="px-3 py-3 text-xs text-muted-foreground">
+            Type a name to create a new playlist
+          </p>
+        )
+      )}
+      {showCreateRow && (
+        <button
+          className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-50"
+          onClick={() => void handleCreate()}
+          disabled={creating}
+        >
+          {creating ? (
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+          ) : (
+            <Plus className="h-3.5 w-3.5 shrink-0 text-primary" />
+          )}
+          <span className="flex-1 truncate">
+            Create &ldquo;<span className="font-medium">{trimmed}</span>&rdquo;
+          </span>
+        </button>
       )}
     </div>
   );
@@ -4665,6 +4711,20 @@ export function PlaylistsPage() {
     setAddToSearch("");
   }
 
+  /** Create-and-add from the AddToDropdown: the new playlist lands in the same
+   * folder as the playlist being copied from (matches the sidebar + button
+   * convention of inheriting selected?.folderId). Errors surface in the
+   * dropdown's own catch so it can stay open for a retry. */
+  async function handleCreatePlaylistAndAdd(name: string) {
+    const created = await createPlaylist(name, selected?.folderId, activeOrgId ?? undefined);
+    trackEvent('playlist_created', { playlist_id: created.id, in_folder: !!selected?.folderId })
+    // Prepend before adding: both updates are functional, so the add handler's
+    // map below sees the new playlist and its items update isn't lost.
+    setPlaylists((prev) => [created, ...prev]);
+    await handleAddSelectedToPlaylist(created);
+    toast.success(`Created "${name}" and added the clips`);
+  }
+
   // ---------------------------------------------------------------------------
   // Text card operations
   // ---------------------------------------------------------------------------
@@ -5291,28 +5351,29 @@ export function PlaylistsPage() {
                 scopeHint="Visible only in this playlist"
               />
             )}
-            {playlists.filter((p) => p.id !== selected?.id).length > 0 && (
-              <div ref={addToDropdownRef} className="relative">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 gap-1 px-2 text-xs"
-                  onClick={() => { setShowAddToDropdown((v) => !v); setAddToSearch(""); }}
-                >
-                  Add to another playlist
-                  <ChevronDown className="h-3 w-3" />
-                </Button>
-                {showAddToDropdown && (
-                  <AddToDropdown
-                    playlists={playlists}
-                    activePlaylistId={selected?.id ?? null}
-                    addToSearch={addToSearch}
-                    setAddToSearch={setAddToSearch}
-                    onAddToPlaylist={handleAddSelectedToPlaylist}
-                  />
-                )}
-              </div>
-            )}
+            {/* Always shown: with no other playlist the dropdown opens straight
+                into its "type a name to create" state. */}
+            <div ref={addToDropdownRef} className="relative">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1 px-2 text-xs"
+                onClick={() => { setShowAddToDropdown((v) => !v); setAddToSearch(""); }}
+              >
+                Add to another playlist
+                <ChevronDown className="h-3 w-3" />
+              </Button>
+              {showAddToDropdown && (
+                <AddToDropdown
+                  playlists={playlists}
+                  activePlaylistId={selected?.id ?? null}
+                  addToSearch={addToSearch}
+                  setAddToSearch={setAddToSearch}
+                  onAddToPlaylist={handleAddSelectedToPlaylist}
+                  onCreatePlaylist={handleCreatePlaylistAndAdd}
+                />
+              )}
+            </div>
           </div>
         </div>
       )}
