@@ -4,11 +4,16 @@
 // GENIUS_API_KEY exists: Genius requires all Warehouse calls to go through a
 // backend with caching (20k calls/month quota), so every response is cached in
 // genius_fixture_cache / genius_match_cache and repeat requests cost nothing
-// upstream. Two actions:
+// upstream. Three actions:
 //   { action: "fixtures", competitionId }          → fixture list, 6h TTL
 //   { action: "match", competitionId, matchId }    → actions + players, cached
 //                                                    forever (COMPLETE matches
 //                                                    are immutable upstream)
+//   { action: "competitions" }                     → raw competition list,
+//                                                    platform-admin only; the
+//                                                    once-a-season maintenance
+//                                                    tool for finding the new
+//                                                    season's competition ids
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -24,6 +29,11 @@ const PAGE_LIMIT = 500; // Warehouse max per page
 // apps/desktop/src/lib/basketball-api.ts. A Genius competition IS a
 // league-season, so next season is one id added here + one in LEAGUES.
 const COMPETITIONS = new Set<number>([
+  48974, // SBL Herr 2026-27
+  49288, // SBL Dam 2026-27
+  49176, // Superettan Herr 2026-27
+  // Basketettan 2026-27 didn't exist upstream as of 2026-09-06 — discover the
+  // ids with the `competitions` action once SBF creates them.
   41539, // SBL Herr 2025-26
   42013, // SBL Dam 2025-26
   42132, // Superettan Herr 2025-26
@@ -161,9 +171,26 @@ Deno.serve(async (req) => {
   }
 
   const competitionId = Number(payload.competitionId);
-  if (!COMPETITIONS.has(competitionId)) return err(400, "unknown_competition");
+  if (payload.action !== "competitions" && !COMPETITIONS.has(competitionId)) {
+    return err(400, "unknown_competition");
+  }
 
   try {
+    // Annual maintenance: list every competition the key can see, to find the
+    // new season's ids (a Genius competition IS a league-season). Raw objects
+    // on purpose — this is a discovery tool, trimming would hide the fields
+    // you're looking for. Admin-gated: it always costs upstream quota.
+    if (payload.action === "competitions") {
+      const { data: prof } = await admin
+        .from("profiles")
+        .select("is_platform_admin")
+        .eq("id", userData.user.id)
+        .maybeSingle();
+      if (!prof?.is_platform_admin) return err(403, "not_platform_admin");
+      const competitions = await geniusAll("/competitions");
+      return ok({ competitions });
+    }
+
     if (payload.action === "fixtures") {
       const { data: cached } = await admin
         .from("genius_fixture_cache")

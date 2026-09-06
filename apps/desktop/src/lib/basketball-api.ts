@@ -63,27 +63,32 @@ const season = (id: string, label: string, competitionId: number): Season => ({
   stages: [REGULAR, PLAYOFF],
 });
 
+// Competition ids come from Genius (a competition IS a league-season); find a
+// new season's ids with the genius edge function's platform-admin-only
+// `competitions` action, and mirror every id in its COMPETITIONS allowlist.
+// Basketettan 2026/27 didn't exist upstream as of 2026-09-06 — add those two
+// seasons here + in the allowlist once SBF creates them.
 export const LEAGUES: League[] = [
   {
     id: "sbl-herr",
     name: "SBL Herr",
     country: "SE",
     gender: "men",
-    seasons: [season("2025-26", "2025/26", 41539)],
+    seasons: [season("2026-27", "2026/27", 48974), season("2025-26", "2025/26", 41539)],
   },
   {
     id: "sbl-dam",
     name: "SBL Dam",
     country: "SE",
     gender: "women",
-    seasons: [season("2025-26", "2025/26", 42013)],
+    seasons: [season("2026-27", "2026/27", 49288), season("2025-26", "2025/26", 42013)],
   },
   {
     id: "superettan-herr",
     name: "Superettan Herr",
     country: "SE",
     gender: "men",
-    seasons: [season("2025-26", "2025/26", 42132)],
+    seasons: [season("2026-27", "2026/27", 49176), season("2025-26", "2025/26", 42132)],
   },
   {
     id: "basketettan-herr",

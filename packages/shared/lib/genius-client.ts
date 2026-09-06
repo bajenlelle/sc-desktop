@@ -56,3 +56,14 @@ export function getGeniusMatch(
 ): Promise<GeniusResult<GeniusMatchData>> {
   return invokeGenius(supabase, { action: "match", competitionId, matchId });
 }
+
+/**
+ * Platform-admin only: every competition the API key can see, raw and
+ * untrimmed. The once-a-season maintenance tool for finding the new season's
+ * competition ids (which go into LEAGUES and the function's allowlist).
+ */
+export function getGeniusCompetitions(
+  supabase: SupabaseClient,
+): Promise<GeniusResult<{ competitions: Array<Record<string, unknown>> }>> {
+  return invokeGenius(supabase, { action: "competitions" });
+}

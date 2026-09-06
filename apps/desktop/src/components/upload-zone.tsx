@@ -546,7 +546,13 @@ export function UploadZone({
                 {scheduleStatus === "idle" && (
                   <div className="max-h-72 overflow-y-auto rounded-md divide-y divide-border">
                     {filteredGames.length === 0 ? (
-                      <p className="py-6 text-center text-sm text-muted-foreground">No games found.</p>
+                      // An empty schedule (early in a season, before any game
+                      // is COMPLETE) reads differently from a search miss.
+                      <p className="py-6 text-center text-sm text-muted-foreground">
+                        {scheduleGames.length === 0 && (selectedLeague?.seasons.length ?? 0) > 1
+                          ? `No completed games in ${selectedSeason?.label ?? "this season"} yet — switch season above to import earlier games.`
+                          : "No games found."}
+                      </p>
                     ) : (
                       filteredGames.map((game: ScheduleGame) => (
                         <GameRow
