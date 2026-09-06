@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { VideoView } from "expo-video";
 import { clipViewKey } from "@scoutable/shared/lib/clip-views-db";
+import { useAuth } from "@/lib/auth-context";
 import { playableClips, usePlaylists } from "@/lib/playlists-store";
 import {
   itemKey,
@@ -19,6 +20,8 @@ import { TextCardOverlay } from "@/components/TextCardOverlay";
 
 export default function WatchScreen() {
   const { id, resume } = useLocalSearchParams<{ id: string; resume?: string }>();
+  const { activeOrgRole } = useAuth();
+  const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   const { allPlaylists, loading, matchLookup, clipViews, recordWatched, refresh } = usePlaylists();
 
   const playlist = useMemo(
@@ -280,7 +283,9 @@ export default function WatchScreen() {
         ListEmptyComponent={
           <View className="items-center px-6 py-16">
             <Text className="text-center text-sm text-muted-foreground dark:text-muted-foreground-dark">
-              No clips to watch yet. Your coach may still be uploading.
+              {isCoachOrAdmin
+                ? "No clips to watch yet."
+                : "No clips to watch yet. Your coach may still be uploading."}
             </Text>
           </View>
         }

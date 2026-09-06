@@ -10,6 +10,7 @@ import { Pressable, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Device from "expo-device";
 import { trackEvent } from "@/lib/analytics";
+import { useAuth } from "@/lib/auth-context";
 import {
   getPermissionState,
   registerForPush,
@@ -19,6 +20,8 @@ import {
 const DISMISSED_KEY = "scoutable_notification_primer_dismissed";
 
 export function NotificationPrimer() {
+  const { activeOrgRole } = useAuth();
+  const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
@@ -66,7 +69,9 @@ export function NotificationPrimer() {
         Know when new clips land
       </Text>
       <Text className="mt-1 text-sm text-muted-foreground dark:text-muted-foreground-dark">
-        Get a notification when your coach shares a playlist with you.
+        {isCoachOrAdmin
+          ? "Get a notification when someone shares a playlist with you."
+          : "Get a notification when your coach shares a playlist with you."}
       </Text>
       <View className="mt-3 flex-row items-center gap-2">
         <Pressable

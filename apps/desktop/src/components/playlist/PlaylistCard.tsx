@@ -56,7 +56,7 @@ export function PlaylistCard({
               : initials(sharerName)}
           </span>
           <span className="truncate">
-            {sharerName ?? "Your coach"}
+            {sharerName ?? "A coach"}
             {when && ` · ${when}`}
           </span>
         </div>

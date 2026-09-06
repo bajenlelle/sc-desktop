@@ -503,7 +503,7 @@ export default function MyPlaylistsPage() {
         lastWatchedAt: lastWatched.get(pl.id),
         sharerId: pl.sharedBy,
         // Email fallback: a sharer without full_name otherwise collapses to
-        // the anonymous "Your coach".
+        // the anonymous "A coach".
         sharerName: sharer?.fullName ?? sharer?.email ?? undefined,
         sharerAvatarUrl: sharer?.avatarUrl ?? undefined,
         isDirect: directIds.has(pl.id),
@@ -1147,7 +1147,9 @@ export default function MyPlaylistsPage() {
                   <p className="text-sm text-muted-foreground">
                     {selected && currentUserId && selected.createdBy === currentUserId
                       ? "No clips yet — add clips from the desktop editor."
-                      : "No clips to watch yet. Your coach may still be uploading."}
+                      : isCoachOrAdmin
+                        ? "No clips to watch yet."
+                        : "No clips to watch yet. Your coach may still be uploading."}
                   </p>
                 </div>
               ) : (

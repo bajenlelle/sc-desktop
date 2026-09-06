@@ -59,7 +59,7 @@ export function PlaylistCard({
             <AvatarFallback className="text-[9px]">{initials(sharerName)}</AvatarFallback>
           </Avatar>
           <span className="truncate">
-            {sharerName ?? "Your coach"}
+            {sharerName ?? "A coach"}
             {when && ` · ${when}`}
           </span>
         </div>

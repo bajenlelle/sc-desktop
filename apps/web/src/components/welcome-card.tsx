@@ -11,11 +11,14 @@ import { dismissWelcome } from "@/lib/profile-db";
  * otherwise land on an empty feed with no explanation. Also cross-sells the
  * personal space: players can import and scout their own games in the
  * desktop app (and maybe buy a subscription there), so we never hide that
- * side of the product from them.
+ * side of the product from them. Coaches/admins in the active org get their
+ * own voice ("other coaches") and a desktop-editor CTA instead.
  */
 export function WelcomeCard() {
-  const { profile, isPlayerOnly } = useAuth();
+  const { profile, isPlayerOnly, activeOrgRole } = useAuth();
   const [hidden, setHidden] = useState(false);
+
+  const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
 
   if (hidden || !profile || profile.welcomeDismissedAt != null) return null;
 
@@ -30,10 +33,33 @@ export function WelcomeCard() {
         <div className="flex flex-col gap-2">
           <h2 className="text-sm font-semibold text-foreground">Welcome to Scoutable 👋</h2>
           <p className="text-sm text-muted-foreground">
-            When your coach shares clips with you, they show up here — you&apos;ll get an
-            email whenever something new lands.
+            {isCoachOrAdmin ? (
+              <>Playlists other coaches share with you show up here.</>
+            ) : (
+              <>
+                When your coach shares clips with you, they show up here — you&apos;ll get an
+                email whenever something new lands.
+              </>
+            )}
           </p>
-          {isPlayerOnly ? (
+          {isCoachOrAdmin ? (
+            // A new coach's real work happens in the editor — point them there.
+            <p className="flex items-start gap-1.5 text-sm text-muted-foreground">
+              <Monitor className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary/70" aria-hidden />
+              <span>
+                Import your games, cut clips, and share playlists with your team in the{" "}
+                <a
+                  href="https://scoutable.se/#download"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-primary underline-offset-2 hover:underline"
+                >
+                  desktop app
+                </a>
+                .
+              </span>
+            </p>
+          ) : isPlayerOnly ? (
             <p className="flex items-start gap-1.5 text-sm text-muted-foreground">
               <Clapperboard className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary/70" aria-hidden />
               <span>

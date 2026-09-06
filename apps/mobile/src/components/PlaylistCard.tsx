@@ -63,7 +63,7 @@ export function PlaylistCard({
             numberOfLines={1}
             className="flex-1 text-xs text-muted-foreground dark:text-muted-foreground-dark"
           >
-            {sharerName ?? "Your coach"}
+            {sharerName ?? "A coach"}
             {when ? ` · ${when}` : ""}
           </Text>
         </View>
