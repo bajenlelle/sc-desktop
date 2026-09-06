@@ -4,6 +4,7 @@ import { Navbar } from "@/components/navbar";
 import { LicenseBanner } from "@/components/license-banner";
 import { FeedbackFab } from "@/components/feedback-fab";
 import { AuthProvider } from "@/components/auth-context";
+import { DeviceGate } from "@/components/device-gate";
 import { UpgradeCelebration } from "@/components/upgrade-celebration";
 import type { UserProfile } from "@scoutable/shared/types/org";
 
@@ -46,7 +47,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <div className="min-h-screen flex flex-col">
         <Navbar profile={profile} />
         <LicenseBanner />
-        <main className="flex-1">{children}</main>
+        <main className="flex-1">
+          <DeviceGate>{children}</DeviceGate>
+        </main>
         <FeedbackFab />
       </div>
     </AuthProvider>

@@ -1,11 +1,12 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth-context";
 import { Loader2 } from "lucide-react";
+import { DeviceGateScreen } from "@/components/device-gate-screen";
 
 const PLAYER_BLOCKED_PATHS = ["/matches", "/upload", "/playlists"];
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading, profile, profileLoading, myOrgs, activeOrgIsPersonal, activeOrgRole } = useAuth();
+  const { user, loading, profile, profileLoading, myOrgs, activeOrgIsPersonal, activeOrgRole, deviceBlocked } = useAuth();
   const { pathname } = useLocation();
 
   if (loading || (user && profileLoading)) {
@@ -18,6 +19,10 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) return <Navigate to="/auth/login" replace />;
+
+  // Device hard cap (dark-launched): render, don't navigate — every route
+  // sits behind ProtectedRoute, so there is nothing to escape to.
+  if (deviceBlocked) return <DeviceGateScreen />;
 
   const needsOnboarding = profile && !profile.isPlatformAdmin && myOrgs.length === 0;
 

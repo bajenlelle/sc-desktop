@@ -62,6 +62,12 @@ export type AnalyticsEvent =
   | "player_welcome_cta"
   | "player_welcome_dismissed"
   | "player_feed_personal_space_link"
+  // Device registry & gate
+  | "device_identity_migrated" // legacy random-uuid row collapsed into a hardware id
+  | "device_gate_hit" // touch returned blocked (flag on)
+  | "device_removed" // per-device Remove, from profile or the gate screen
+  | "device_gate_resolved" // gate unblocked after removing a device
+  | "device_gate_signed_out" // user bailed out of the gate via sign out
   // Monetization funnel
   | "upgrade_gate_hit"
   | "upgrade_clicked"

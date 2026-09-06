@@ -122,6 +122,11 @@ export default function AdminDevicesPage() {
                           <Badge variant="destructive">
                             {o.activeDevices} of {o.cap}
                           </Badge>
+                          {o.blocked30d > 0 && (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              blocked: {o.blocked30d} in 30d
+                            </p>
+                          )}
                         </td>
                       </tr>
                       {expanded.has(o.userId) && (

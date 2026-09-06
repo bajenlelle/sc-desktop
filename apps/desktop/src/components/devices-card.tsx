@@ -1,19 +1,35 @@
 /**
- * Profile "Devices" section (anti-account-sharing v1) — desktop twin of
- * apps/web/src/components/devices-card.tsx. Shows the account's registered
- * devices and offers "Sign out all other devices"; push tokens for evicted
- * devices are pruned too (revoking refresh tokens alone doesn't stop
- * notifications).
+ * Profile "Devices" section — desktop twin of
+ * apps/web/src/components/devices-card.tsx. Lists the account's registered
+ * devices (split at the cap's 30-day activity window), offers per-device
+ * Remove (registry-row eviction — the removed device gets gated on its next
+ * boot once the hard cap is on) and "Sign out all other devices" (a different
+ * lever: kills sessions, not rows; evicted push tokens are pruned too).
  */
-import { useEffect, useState } from "react";
-import { Globe, Laptop, LogOut, Smartphone } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Globe, Laptop, LogOut, Smartphone, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
 import { getDeviceId } from "@/lib/device-registry";
-import { listMyDevices, pruneOtherPushTokens, type UserDevice } from "@scoutable/shared/lib/devices-db";
+import { trackEvent } from "@/lib/analytics";
+import {
+  listMyDevices,
+  pruneOtherPushTokens,
+  removeDevice,
+  type UserDevice,
+} from "@scoutable/shared/lib/devices-db";
+import { appKindLabel, partitionDevicesByActivity } from "@scoutable/shared/lib/device-boot";
 
 function lastActive(iso: string): string {
   const d = new Date(iso);
@@ -32,13 +48,16 @@ const APP_ICON = {
 export function DevicesCard() {
   const [devices, setDevices] = useState<UserDevice[] | null>(null);
   const [signingOut, setSigningOut] = useState(false);
+  const [confirming, setConfirming] = useState<UserDevice | null>(null);
+  const [removing, setRemoving] = useState(false);
   const ownDeviceId = getDeviceId();
 
-  useEffect(() => {
+  const load = useCallback(() => {
     listMyDevices(createClient())
       .then(setDevices)
       .catch(() => setDevices([]));
   }, []);
+  useEffect(load, [load]);
 
   async function handleSignOutOthers() {
     setSigningOut(true);
@@ -58,32 +77,71 @@ export function DevicesCard() {
     }
   }
 
+  async function handleRemove(device: UserDevice) {
+    setRemoving(true);
+    try {
+      await removeDevice(createClient(), device.deviceId);
+      trackEvent("device_removed", { source: "profile", target_app: device.app });
+      setConfirming(null);
+      load();
+    } catch {
+      toast.error("Couldn't remove the device. Try again.");
+    } finally {
+      setRemoving(false);
+    }
+  }
+
   if (devices === null || devices.length === 0) return null;
+
+  const { active, inactive } = partitionDevicesByActivity(devices);
+
+  const renderRow = (d: UserDevice, muted: boolean) => {
+    const Icon = APP_ICON[d.app] ?? Globe;
+    const isThis = d.deviceId === ownDeviceId;
+    return (
+      <li key={d.deviceId} className="flex items-center gap-3">
+        <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <p className={`truncate text-sm ${muted ? "text-muted-foreground" : "text-foreground"}`}>
+            {d.deviceName ?? d.platform ?? "Unknown device"}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {appKindLabel(d.app)} · Last active {lastActive(d.lastSeen)}
+          </p>
+        </div>
+        {isThis ? (
+          <Badge variant="secondary">This device</Badge>
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-muted-foreground"
+            onClick={() => setConfirming(d)}
+            aria-label={`Remove ${d.deviceName ?? d.platform ?? "device"}`}
+          >
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        )}
+      </li>
+    );
+  };
 
   return (
     <Card>
       <CardContent className="p-6 space-y-4">
         <h2 className="text-sm font-semibold text-foreground">Devices</h2>
-        <ul className="space-y-3">
-          {devices.map((d) => {
-            const Icon = APP_ICON[d.app] ?? Globe;
-            const isThis = d.deviceId === ownDeviceId;
-            return (
-              <li key={d.deviceId} className="flex items-center gap-3">
-                <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm text-foreground">
-                    {d.deviceName ?? d.platform ?? "Unknown device"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Last active {lastActive(d.lastSeen)}
-                  </p>
-                </div>
-                {isThis && <Badge variant="secondary">This device</Badge>}
-              </li>
-            );
-          })}
-        </ul>
+        <ul className="space-y-3">{active.map((d) => renderRow(d, false))}</ul>
+        {inactive.length > 0 && (
+          <div className="space-y-3 border-t border-border pt-3">
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">Inactive</p>
+              <p className="text-xs text-muted-foreground">
+                Not used in the last 30 days — these don&apos;t count toward your device limit.
+              </p>
+            </div>
+            <ul className="space-y-3">{inactive.map((d) => renderRow(d, true))}</ul>
+          </div>
+        )}
         {devices.length > 1 && (
           <Button variant="outline" size="sm" onClick={handleSignOutOthers} disabled={signingOut}>
             <LogOut className="mr-2 h-4 w-4" />
@@ -91,6 +149,30 @@ export function DevicesCard() {
           </Button>
         )}
       </CardContent>
+
+      <Dialog open={confirming !== null} onOpenChange={(open) => !open && setConfirming(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove this device?</DialogTitle>
+            <DialogDescription>
+              {(confirming?.deviceName ?? confirming?.platform ?? "This device") +
+                " will lose access the next time it opens Scoutable."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirming(null)} disabled={removing}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => confirming && handleRemove(confirming)}
+              disabled={removing}
+            >
+              {removing ? "Removing…" : "Remove device"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

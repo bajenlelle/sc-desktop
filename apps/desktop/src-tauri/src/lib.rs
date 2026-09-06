@@ -5,6 +5,7 @@ use http_range::HttpRange;
 use percent_encoding::percent_decode_str;
 use tauri::http::{Response, StatusCode};
 
+mod device_identity;
 mod menu;
 
 // ---------------------------------------------------------------------------
@@ -779,6 +780,7 @@ pub fn run() {
             read_file,
             export_clip_for_ship,
             extract_poster_frame,
+            device_identity::get_device_identity,
             menu::menu_set_enabled,
             menu::menu_sync_theme
         ])

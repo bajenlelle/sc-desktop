@@ -53,6 +53,14 @@ interface AuthContextValue {
    * tenancy is a coach/admin concept.
    */
   isPlayerOnly: boolean;
+  /**
+   * True when the device gate is up: the last touch_device came back
+   * `blocked` (account at its device cap and this browser holds no slot).
+   * DeviceGate swaps the page content for the resolve screen while set.
+   */
+  deviceBlocked: boolean;
+  /** Re-touch this device; clears deviceBlocked when a slot has freed up. */
+  retryDeviceGate: () => Promise<void>;
   setActiveOrg: (orgId: string) => void;
   reloadProfile: () => Promise<void>;
   /**
@@ -77,6 +85,8 @@ const AuthContext = createContext<AuthContextValue>({
   activeOrgPlan: 'free',
   activeOrgIsPersonal: false,
   isPlayerOnly: false,
+  deviceBlocked: false,
+  retryDeviceGate: async () => {},
   setActiveOrg: () => {},
   reloadProfile: async () => {},
   expectPlanChange: () => {},
@@ -89,6 +99,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profileLoading, setProfileLoading] = useState(true);
   const [myOrgs, setMyOrgs] = useState<OrgMembership[]>([]);
   const [activeOrgId, setActiveOrgIdState] = useState<string | null>(null);
+  const [deviceBlocked, setDeviceBlocked] = useState(false);
 
   // Refs mirror state so effect-scoped listeners and the poll never read
   // stale closures.
@@ -211,7 +222,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (phDid) aliasUser(phDid);
           trackEvent("signed_in");
         }
-        touchThisDevice();
+        // Fire-and-forget: the gate flips on asynchronously; profile loading
+        // never waits on registry plumbing.
+        void touchThisDevice().then((v) => {
+          if (v?.status === "blocked") {
+            setDeviceBlocked(true);
+            trackEvent("device_gate_hit", { active_count: v.activeCount, cap: v.cap });
+          }
+        });
         loadProfile(session.user.id);
       } else if (event === "SIGNED_OUT" || (!session?.user && event === "INITIAL_SESSION")) {
         if (event === "SIGNED_OUT") {
@@ -219,6 +237,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           resetUser();
         }
         stopPlanPoll();
+        setDeviceBlocked(false);
         setProfile(null);
         setMyOrgs([]);
         setActiveOrgIdState(null);
@@ -256,6 +275,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (u) await loadProfileRef.current(u.id);
   }, []);
 
+  const retryDeviceGate = useCallback(async () => {
+    const v = await touchThisDevice();
+    if (v?.status === "ok") setDeviceBlocked(false);
+  }, []);
+
   // Memoized because every consumer in the app re-renders when this object's
   // identity changes. The focus/visibility refresh calls setMyOrgs with a
   // fresh array every 30s, which previously re-rendered the entire tree.
@@ -273,6 +297,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       activeOrgPlan,
       activeOrgIsPersonal,
       isPlayerOnly,
+      deviceBlocked,
+      retryDeviceGate,
       setActiveOrg,
       reloadProfile,
       expectPlanChange,
@@ -280,7 +306,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [
       user, loading, profile, profileLoading, myOrgs, activeOrgId, activeOrg,
       activeOrgRole, activeOrgPlan, activeOrgIsPersonal, isPlayerOnly,
-      setActiveOrg, reloadProfile, expectPlanChange,
+      deviceBlocked, retryDeviceGate, setActiveOrg, reloadProfile, expectPlanChange,
     ],
   );
 

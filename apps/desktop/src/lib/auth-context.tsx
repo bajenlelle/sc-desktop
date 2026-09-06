@@ -44,6 +44,11 @@ interface AuthContextValue {
    * without it, quota/export gating stays on the old plan until app restart.
    */
   expectPlanChange: () => void;
+  /** Device hard cap: this device's registration was refused (gate flag on).
+   * ProtectedRoute swaps the app for the gate screen while true. */
+  deviceBlocked: boolean;
+  /** Re-attempt registration after the user freed a device slot. */
+  retryDeviceGate: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -62,6 +67,8 @@ const AuthContext = createContext<AuthContextValue>({
   setActiveOrg: () => {},
   reloadProfile: async () => {},
   expectPlanChange: () => {},
+  deviceBlocked: false,
+  retryDeviceGate: async () => {},
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -71,6 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profileLoading, setProfileLoading] = useState(true);
   const [myOrgs, setMyOrgs] = useState<OrgMembership[]>([]);
   const [activeOrgId, setActiveOrgIdState] = useState<string | null>(null);
+  const [deviceBlocked, setDeviceBlocked] = useState(false);
 
   // Refs mirror state so effect-scoped listeners and the poll never read
   // stale closures.
@@ -231,7 +239,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           identifyUser(session.user.id, { email: session.user.email });
           trackEvent("signed_in");
         }
-        touchThisDevice();
+        // Fire-and-forget so sign-in latency is untouched; a blocked verdict
+        // flips the gate after the fact (content may flash for the sub-second
+        // before it lands — fail-open by design).
+        void touchThisDevice().then((v) => {
+          if (v?.status === "blocked") {
+            setDeviceBlocked(true);
+            trackEvent("device_gate_hit", { active_count: v.activeCount, cap: v.cap });
+          }
+        });
         loadProfile(session.user.id);
       } else if (event === "SIGNED_OUT" || (!session?.user && event === "INITIAL_SESSION")) {
         bootedUserIdRef.current = null;
@@ -243,6 +259,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile(null);
         setMyOrgs([]);
         setActiveOrgIdState(null);
+        setDeviceBlocked(false);
         setProfileLoading(false);
       }
 
@@ -278,6 +295,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (u) await loadProfileRef.current(u.id);
   }, []);
 
+  // Deliberately bypasses the bootedUserIdRef guard: retrying the gate is an
+  // explicit user action, not a session re-emit.
+  const retryDeviceGate = useCallback(async () => {
+    const v = await touchThisDevice();
+    if (v?.status === "ok") {
+      setDeviceBlocked(false);
+      trackEvent("device_gate_resolved");
+    }
+  }, []);
+
   // Memoized because every consumer in the app re-renders when this object's
   // identity changes. The focus/visibility refresh calls setMyOrgs with a
   // fresh array every 30s, which previously re-rendered the entire tree —
@@ -290,11 +317,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       activeOrgCanManage, setActiveOrg,
       reloadProfile,
       expectPlanChange,
+      deviceBlocked,
+      retryDeviceGate,
     }),
     [
       user, loading, profile, profileLoading, myOrgs,
       activeOrgId, activeOrg, activeOrgRole, activeOrgPlan, activeOrgIsPersonal,
       activeOrgCanManage, setActiveOrg, reloadProfile, expectPlanChange,
+      deviceBlocked, retryDeviceGate,
     ],
   );
 

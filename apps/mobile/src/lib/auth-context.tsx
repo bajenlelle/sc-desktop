@@ -41,6 +41,11 @@ interface AuthContextValue {
    * tenancy is a coach/admin concept.
    */
   isPlayerOnly: boolean;
+  /** True when the last device touch returned blocked — the (app) layout
+   * swaps in the DeviceGateScreen until a retry comes back ok. */
+  deviceBlocked: boolean;
+  /** Re-touch this device; clears deviceBlocked on an ok verdict. */
+  retryDeviceGate: () => Promise<void>;
   setActiveOrg: (orgId: string) => void;
   reloadProfile: () => Promise<void>;
 }
@@ -58,6 +63,8 @@ const AuthContext = createContext<AuthContextValue>({
   activeOrgPlan: "free",
   activeOrgIsPersonal: false,
   isPlayerOnly: false,
+  deviceBlocked: false,
+  retryDeviceGate: async () => {},
   setActiveOrg: () => {},
   reloadProfile: async () => {},
 });
@@ -70,6 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [myOrgs, setMyOrgs] = useState<OrgMembership[]>([]);
   const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
   const [activeOrgId, setActiveOrgIdState] = useState<string | null>(null);
+  const [deviceBlocked, setDeviceBlocked] = useState(false);
 
   // Refs mirror state so effect-scoped listeners never read stale closures.
   const userRef = useRef<User | null>(null);
@@ -81,6 +89,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (stored && orgs.some((o) => o.orgId === stored)) return stored;
     return orgs[0].orgId;
   }
+
+  // Only reachable from the gate screen (rendered while blocked), so an ok
+  // verdict here IS the resolution — tracked here because the void return
+  // keeps the screen from seeing the verdict itself.
+  const retryDeviceGate = useCallback(async () => {
+    const v = await touchThisDevice(supabase);
+    if (v?.status === "ok") {
+      setDeviceBlocked(false);
+      trackEvent("device_gate_resolved");
+    }
+  }, []);
 
   const setActiveOrg = useCallback((orgId: string) => {
     AsyncStorage.setItem(ACTIVE_ORG_KEY, orgId).catch(() => {});
@@ -157,7 +176,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Silent and permission-gated (never prompts); the upsert also
         // reassigns a shared device's token to this user.
         registerForPush(supabase);
-        void touchThisDevice(supabase);
+        void touchThisDevice(supabase).then((v) => {
+          if (v?.status === "blocked") {
+            setDeviceBlocked(true);
+            trackEvent("device_gate_hit", { active_count: v.activeCount, cap: v.cap });
+          }
+        });
         loadProfile(session.user.id);
       } else if (event === "SIGNED_OUT" || (!session?.user && event === "INITIAL_SESSION")) {
         if (event === "SIGNED_OUT") {
@@ -168,6 +192,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setMyOrgs([]);
         setNeedsOnboarding(null);
         setActiveOrgIdState(null);
+        setDeviceBlocked(false);
         setProfileLoading(false);
       }
 
@@ -197,6 +222,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         activeOrgPlan,
         activeOrgIsPersonal,
         isPlayerOnly,
+        deviceBlocked,
+        retryDeviceGate,
         setActiveOrg,
         reloadProfile: async () => {
           if (userRef.current) await loadProfile(userRef.current.id);
