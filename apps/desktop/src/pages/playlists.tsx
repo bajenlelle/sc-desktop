@@ -42,6 +42,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MultiSelectDropdown, SingleSelectDropdown } from "@/components/ui/multi-select-dropdown";
+import { LeadersPopover } from "@/components/leaders-popover";
 import { VideoPlayer } from "@/components/video-player";
 import { VideoPlaceholder } from "@/components/video-placeholder";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
@@ -798,6 +799,23 @@ function ClipBrowserPanel({
       source.map((x) => x.event.player ? playerName(x.event) : null).filter(Boolean) as string[]
     ));
   }, [allEvents, filterTeams]);
+  // Same Game + Team narrowing as the players list, so the Leaders popover
+  // never offers a player the Team filter would immediately hide.
+  const leaderEvents = useMemo(() => {
+    const source = filterTeams.size > 0
+      ? allEvents.filter(({ event }) => filterTeams.has(event.eventTeam?.teamName ?? ""))
+      : allEvents;
+    return source.map((x) => x.event);
+  }, [allEvents, filterTeams]);
+
+  const handleLeaderToggle = useCallback((name: string) => {
+    setFilterPlayers((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }, []);
 
   const filtered = useMemo(() => allEvents.filter(({ event, matchId }) => {
     if (filterTypes.size > 0 && !Array.from(filterTypes).some((f) => matchesSingleType(event, f))) return false;
@@ -1259,6 +1277,18 @@ function ClipBrowserPanel({
             selected={filterPlayers}
             onChange={setFilterPlayers}
             placeholder="All players"
+          />
+        </div>
+
+        <div className="space-y-1">
+          {/* Non-breaking space keeps the trigger aligned with its labeled
+              neighbors — Leaders is a picker for the Player filter, not its
+              own dimension. */}
+          <label className="text-xs text-muted-foreground">&nbsp;</label>
+          <LeadersPopover
+            events={leaderEvents}
+            selectedPlayers={filterPlayers}
+            onTogglePlayer={handleLeaderToggle}
           />
         </div>
 

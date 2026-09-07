@@ -62,6 +62,8 @@ export type AnalyticsEvent =
   | "player_welcome_cta"
   | "player_welcome_dismissed"
   | "player_feed_personal_space_link"
+  // Clip browser
+  | "clip_leaders_used" // player picked from the Leaders popover (props: metric)
   // Device registry & gate
   | "device_identity_migrated" // legacy random-uuid row collapsed into a hardware id
   | "device_gate_hit" // touch returned blocked (flag on)
