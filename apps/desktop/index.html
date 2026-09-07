@@ -8,6 +8,26 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono:wght@100..900&display=swap" rel="stylesheet" />
+    <script>
+      // Anti-flash: apply the stored mode + color theme before first paint.
+      // Mirrors next-themes (localStorage "theme", app default "dark") and
+      // the theme slots in lib/prefs.ts — keep keys in sync with both.
+      (function () {
+        try {
+          var mode = localStorage.getItem("theme") || "dark";
+          if (mode === "system") {
+            mode = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+          }
+          var root = document.documentElement;
+          if (mode === "dark") root.classList.add("dark");
+          var slot = mode === "dark" ? "scoutable_theme_dark" : "scoutable_theme_light";
+          var theme = localStorage.getItem(slot);
+          // An unknown id matches no CSS block (base palette shows); the
+          // provider re-validates and corrects the attribute after mount.
+          if (theme) root.dataset.theme = theme;
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

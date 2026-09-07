@@ -6,6 +6,27 @@
 const EXPORT_WATERMARK_OFF = "scoutable_export_watermark_off";
 
 /**
+ * Color-theme slots — one remembered theme id per light/dark mode, so the
+ * mode toggle (sidebar sun/moon, macOS Appearance menu, OS change under
+ * "system") swaps between the user's two picks. Validation against the
+ * registry happens in ColorThemeProvider; the inline boot script in
+ * index.html reads these same keys, so rename them in both places or not
+ * at all.
+ */
+const THEME_SLOT_KEYS = {
+  dark: "scoutable_theme_dark",
+  light: "scoutable_theme_light",
+} as const;
+
+export function getColorThemeSlot(mode: "dark" | "light"): string | null {
+  return localStorage.getItem(THEME_SLOT_KEYS[mode]);
+}
+
+export function setColorThemeSlot(mode: "dark" | "light", themeId: string): void {
+  localStorage.setItem(THEME_SLOT_KEYS[mode], themeId);
+}
+
+/**
  * Whether the user disabled the watermark on "Save to computer" exports.
  * Only honored for pro/franchise plans — callers gate on tier, and the
  * send-to-phone path ignores it entirely (always watermarked).

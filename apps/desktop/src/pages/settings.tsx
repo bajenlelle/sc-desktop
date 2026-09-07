@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { ReportProblemDialog } from "@/components/report-problem-dialog";
+import { ThemePicker } from "@/components/theme-picker";
 import { useAuth } from "@/lib/auth-context";
 import { getExportWatermarkDisabled, setExportWatermarkDisabled } from "@/lib/prefs";
 import { trackEvent } from "@/lib/analytics";
@@ -74,6 +75,19 @@ export function SettingsPage() {
               {checking ? "Checking…" : "Check for Updates"}
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="space-y-4 p-6">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">Appearance</h2>
+            <p className="text-sm text-muted-foreground">
+              Choose how Scoutable looks. Picking a theme applies it right away, switching
+              between dark and light if needed. Your latest pick in each group is remembered.
+            </p>
+          </div>
+          <ThemePicker />
         </CardContent>
       </Card>
 

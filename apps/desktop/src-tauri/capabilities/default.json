@@ -15,6 +15,7 @@
     },
     "core:webview:allow-set-webview-zoom",
     "core:window:allow-set-fullscreen",
+    "core:window:allow-set-theme",
     "dialog:default",
     "opener:default",
     "updater:default",

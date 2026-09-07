@@ -27,21 +27,22 @@ import { UpdateChecker } from "@/components/UpdateChecker";
 import { MenuHandler } from "@/components/menu-handler";
 import { UpgradeCelebration } from "@/components/upgrade-celebration";
 import { Toaster } from "sonner";
-import { useTheme } from "next-themes";
+import { ColorThemeProvider } from "@/components/color-theme-provider";
 
 function ThemedToaster() {
-  const { resolvedTheme } = useTheme();
+  // Token-driven unconditionally so toasts follow every color theme —
+  // sonner's own light default ignores the active palette.
   return (
     <Toaster
       position="bottom-center"
       duration={4000}
-      toastOptions={resolvedTheme === "dark" ? {
+      toastOptions={{
         style: {
           background: "var(--card)",
           border: "1px solid var(--border)",
           color: "var(--foreground)",
         },
-      } : undefined}
+      }}
     />
   );
 }
@@ -133,6 +134,7 @@ export default function App() {
   return (
     <AuthProvider>
       <ThemeProvider>
+        <ColorThemeProvider>
         <UpdateChecker />
         <UpgradeCelebration />
         <ThemedToaster />
@@ -205,6 +207,7 @@ export default function App() {
           </Routes>
         </BrowserRouter>
         </Sentry.ErrorBoundary>
+        </ColorThemeProvider>
       </ThemeProvider>
     </AuthProvider>
   );
