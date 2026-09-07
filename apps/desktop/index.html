@@ -23,8 +23,10 @@
           var slot = mode === "dark" ? "scoutable_theme_dark" : "scoutable_theme_light";
           var theme = localStorage.getItem(slot);
           // An unknown id matches no CSS block (base palette shows); the
-          // provider re-validates and corrects the attribute after mount.
+          // provider re-validates and corrects the attributes after mount.
           if (theme) root.dataset.theme = theme;
+          var darkTheme = localStorage.getItem("scoutable_theme_dark");
+          if (darkTheme) root.dataset.themeDark = darkTheme;
         } catch (e) {}
       })();
     </script>

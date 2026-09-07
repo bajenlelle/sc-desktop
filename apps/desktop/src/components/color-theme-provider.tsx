@@ -51,6 +51,12 @@ export function ColorThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!mode) return;
     document.documentElement.dataset.theme = slots[mode];
+    // Forced-dark islands (video chrome wraps itself in a literal `dark`
+    // class) re-declare every token from the base .dark block, which would
+    // pin them to the default palette. Projecting the dark slot separately
+    // lets themes.css restyle those subtrees with the user's dark theme in
+    // BOTH modes — video chrome stays dark under light themes, by design.
+    document.documentElement.dataset.themeDark = slots.dark;
     // Keep the native titlebar on the same side as the content — without
     // this, a light theme on a dark-mode Mac gets a dark titlebar.
     getCurrentWindow()

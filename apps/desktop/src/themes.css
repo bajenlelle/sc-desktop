@@ -17,8 +17,18 @@
  * intentionally not token-driven: themes never tint footage surroundings.
  */
 
+/*
+ * Dark theme blocks carry a second selector: html[data-theme-dark="<id>"]
+ * .dark restyles forced-dark islands (video chrome wraps itself in a literal
+ * `dark` class, which re-declares every token per element and would otherwise
+ * pin the subtree to the base palette). data-theme-dark is always the chosen
+ * dark theme, so those islands follow it in both modes — under a light theme
+ * the video chrome deliberately stays dark, just in the user's dark palette.
+ */
+
 /* Film Room — neutral charcoal, chroma ~0 (pro-video surround; brand sky/amber kept) */
-html[data-theme="film-room"] {
+html[data-theme="film-room"],
+html[data-theme-dark="film-room"] .dark {
   --background: oklch(0.232 0.004 286.1);
   --foreground: oklch(0.932 0.003 286.3);
   --card: oklch(0.266 0.006 286);
@@ -53,7 +63,8 @@ html[data-theme="film-room"] {
 }
 
 /* Aubergine — Slack-style plum chrome, Slack-green accent */
-html[data-theme="aubergine"] {
+html[data-theme="aubergine"],
+html[data-theme-dark="aubergine"] .dark {
   --background: oklch(0.223 0.027 326.4);
   --foreground: oklch(0.935 0.015 325.7);
   --card: oklch(0.259 0.034 324.3);
@@ -88,7 +99,8 @@ html[data-theme="aubergine"] {
 }
 
 /* Mocha — Catppuccin Mocha (blue primary, peach accent) */
-html[data-theme="mocha"] {
+html[data-theme="mocha"],
+html[data-theme-dark="mocha"] .dark {
   --background: oklch(0.243 0.03 283.9);
   --foreground: oklch(0.879 0.043 272.3);
   --card: oklch(0.273 0.033 284);
@@ -123,7 +135,8 @@ html[data-theme="mocha"] {
 }
 
 /* Nord — arctic blue-greys, frost primary, aurora yellow accent */
-html[data-theme="nord"] {
+html[data-theme="nord"],
+html[data-theme-dark="nord"] .dark {
   --background: oklch(0.324 0.023 264.2);
   --foreground: oklch(0.951 0.007 260.7);
   --card: oklch(0.379 0.029 266.5);
