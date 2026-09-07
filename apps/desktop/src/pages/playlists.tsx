@@ -1897,6 +1897,20 @@ export function PlaylistsPage() {
       setOnboardingHighlight(state.highlight);
       highlightTimer = window.setTimeout(() => setOnboardingHighlight(null), 6000);
     }
+    // Switching org must close the open playlist COMPLETELY. The stale
+    // `selected` object belongs to the previous org: its clips can't resolve
+    // against the new org's matches (they render as vanished), yet the header
+    // and Add Clips still target it — so an add silently writes clips into
+    // the OLD org's playlist. Same reasoning for an in-progress sidebar
+    // rename: committing it after the switch would create the playlist in
+    // the NEW org. (The `restore` branch below re-selects within this run,
+    // so navigation-driven selection still works.)
+    setSelected(null);
+    setSelectedClipIds(new Set());
+    setShowClipBrowser(false);
+    setPendingNewPlaylistId(null);
+    setEditingPlaylistId(null);
+    setEditPlaylistName("");
     // Matches take the same includeUnscoped treatment as playlists/folders:
     // a legacy unscoped playlist otherwise references matches this page
     // can't see, so its clips silently vanish from every list.
