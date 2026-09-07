@@ -55,7 +55,7 @@ export function LeadersPopover({
         <div className="border-b border-border px-3 py-2">
           <p className="text-sm font-medium text-foreground">Game leaders</p>
           <p className="text-xs text-muted-foreground">
-            From this game&apos;s play-by-play — pick players to filter by.
+            Pick this game&apos;s top performers to filter by.
           </p>
         </div>
 
