@@ -21,7 +21,7 @@ import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Loader2 } fr
 import Link from "next/link";
 
 // Query params must precede the fragment or the browser drops them.
-const PRICING_URL_BASE = "https://scoutable.se/";
+const PRICING_URL_BASE = "https://scoutable.se/pricing";
 
 type SubStatus = {
   isActive: boolean;
@@ -178,12 +178,12 @@ export default function ProfilePage() {
     trackEvent("upgrade_clicked", { source: "profile", has_subscription: false });
     const email = user?.email;
     // ph_did links the pricing page's anonymous PostHog person back to this
-    // account; params must precede the #pricing fragment.
+    // account.
     const params = new URLSearchParams();
     if (email) params.set("email", email);
     if (posthog.__loaded) params.set("ph_did", posthog.get_distinct_id());
     const qs = params.toString();
-    const url = qs ? `${PRICING_URL_BASE}?${qs}#pricing` : `${PRICING_URL_BASE}#pricing`;
+    const url = qs ? `${PRICING_URL_BASE}?${qs}` : PRICING_URL_BASE;
     window.open(url, "_blank");
     // Checkout runs in the new tab while this one stays mounted (unlike the
     // portal path, which navigates away and remounts fresh on return) — so

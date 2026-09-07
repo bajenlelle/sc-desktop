@@ -2,7 +2,7 @@ import posthog from "posthog-js";
 import { getSubscriptionStatus } from "@/lib/profile-db";
 import { trackEvent } from "@/lib/analytics";
 
-const PRICING_URL_BASE = "https://scoutable.se/";
+const PRICING_URL_BASE = "https://scoutable.se/pricing";
 
 /**
  * Opens the Stripe billing portal for the signed-in user (cookie auth).
@@ -47,12 +47,12 @@ export async function openUpgradeFlow(
   if (hasActiveSub) return openBillingPortal();
 
   // ph_did links the pricing page's anonymous PostHog person back to this
-  // account; params must precede the #pricing fragment.
+  // account.
   const params = new URLSearchParams();
   if (email) params.set("email", email);
   if (posthog.__loaded) params.set("ph_did", posthog.get_distinct_id());
   const qs = params.toString();
-  const url = qs ? `${PRICING_URL_BASE}?${qs}#pricing` : `${PRICING_URL_BASE}#pricing`;
+  const url = qs ? `${PRICING_URL_BASE}?${qs}` : PRICING_URL_BASE;
   window.open(url, "_blank");
   return null;
 }

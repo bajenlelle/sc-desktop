@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { getSubscriptionStatus } from "@/lib/profile-db";
 import { trackEvent } from "@/lib/analytics";
 
-const PRICING_URL = "https://scoutable.se/";
+const PRICING_URL = "https://scoutable.se/pricing";
 const BILLING_PORTAL_URL = "https://app.scoutable.se/api/billing-portal";
 
 /**
@@ -49,7 +49,6 @@ export async function openBillingPortal(): Promise<string | null> {
  * to a Supabase user by email, so a typo there means a paid subscription
  * that never applies.
  *
- * Query params go before the fragment or the browser drops them.
  */
 export async function openPricingPage(email?: string | null): Promise<void> {
   const params = new URLSearchParams();
@@ -58,7 +57,7 @@ export async function openPricingPage(email?: string | null): Promise<void> {
   // anonymous visit to the desktop user's analytics identity.
   if (posthog.__loaded) params.set("ph_did", posthog.get_distinct_id());
   const query = params.toString();
-  const url = query ? `${PRICING_URL}?${query}#pricing` : `${PRICING_URL}#pricing`;
+  const url = query ? `${PRICING_URL}?${query}` : PRICING_URL;
   await openUrl(url);
 }
 
