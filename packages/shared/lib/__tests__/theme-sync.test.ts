@@ -7,6 +7,7 @@ import {
   planWrite,
   prefsFromRow,
   REALTIME_REPORT_GRACE_MS,
+  realtimeReportVerdict,
   unappliedSlotsFor,
 } from "../theme-sync";
 import type { MobileThemeTokens } from "../themes";
@@ -336,5 +337,32 @@ describe("isTransientRealtimeFailure", () => {
     // Guards against someone trimming this to a value shorter than supabase-js
     // takes to retry, which would put the noise straight back.
     expect(REALTIME_REPORT_GRACE_MS).toBeGreaterThanOrEqual(10_000);
+  });
+});
+
+describe("realtimeReportVerdict", () => {
+  const G = REALTIME_REPORT_GRACE_MS;
+
+  it("stays quiet once the channel is joined, however late the timer ran", () => {
+    expect(realtimeReportVerdict({ joined: true, elapsedMs: G, rearmed: false })).toBe("quiet");
+    expect(realtimeReportVerdict({ joined: true, elapsedMs: G * 1000, rearmed: true })).toBe("quiet");
+  });
+
+  it("reports a channel still dead after a normally-elapsed window", () => {
+    expect(realtimeReportVerdict({ joined: false, elapsedMs: G, rearmed: false })).toBe("report");
+  });
+
+  it("re-arms instead of reporting when the timer fired suspiciously late", () => {
+    // A suspended device freezes timers; on wake this fires immediately with a
+    // huge wall-clock gap, long before any rejoin could land.
+    expect(realtimeReportVerdict({ joined: false, elapsedMs: G * 120, rearmed: false })).toBe("rearm");
+  });
+
+  it("re-arms at most once, so a stuck channel still reports", () => {
+    expect(realtimeReportVerdict({ joined: false, elapsedMs: G * 120, rearmed: true })).toBe("report");
+  });
+
+  it("does not re-arm for ordinary timer jitter just over the window", () => {
+    expect(realtimeReportVerdict({ joined: false, elapsedMs: G * 2, rearmed: false })).toBe("report");
   });
 });

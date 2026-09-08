@@ -22,6 +22,7 @@ import {
   planWrite,
   prefsFromRow,
   REALTIME_REPORT_GRACE_MS,
+  realtimeReportVerdict,
   unappliedSlotsFor,
   type UnappliedSlots,
   type ThemePrefs,
@@ -100,6 +101,28 @@ export function ThemeSync() {
     if (!userId) return;
     let reported = false;
     let reportTimer: ReturnType<typeof setTimeout> | null = null;
+    let rearmed = false;
+    // Self-re-arming so a timer that only fired because the device was
+    // suspended gets a real window instead of filing on wake.
+    const armReportTimer = (message: string) => {
+      const armedAt = Date.now();
+      reportTimer = setTimeout(() => {
+        reportTimer = null;
+        const verdict = realtimeReportVerdict({
+          joined: channel.state === "joined",
+          elapsedMs: Date.now() - armedAt,
+          rearmed,
+        });
+        if (verdict === "quiet") return;
+        if (verdict === "rearm") {
+          rearmed = true;
+          armReportTimer(message);
+          return;
+        }
+        reported = true;
+        reportDbError("themeRealtimeSubscribe", { message });
+      }, REALTIME_REPORT_GRACE_MS);
+    };
     const channel = supabase
       .channel(`profile-theme-${userId}`)
       .on(
@@ -121,14 +144,7 @@ export function ThemeSync() {
           return;
         }
         if (!isTransientRealtimeFailure(status) || reported || reportTimer) return;
-        const message = err?.message ?? status;
-        reportTimer = setTimeout(() => {
-          reportTimer = null;
-          // Rejoined without re-firing this callback — nothing to report.
-          if (channel.state === "joined") return;
-          reported = true;
-          reportDbError("themeRealtimeSubscribe", { message });
-        }, REALTIME_REPORT_GRACE_MS);
+        armReportTimer(err?.message ?? status);
       });
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active" && channel.state !== "joined") {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAuth } from "@/lib/auth-context";
 import { trackEvent } from "@/lib/analytics";
+import { Sentry } from "@/lib/sentry";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowDown,
@@ -1573,6 +1574,7 @@ function AddToDropdown({
       await onAddToPlaylist(pl);
     } catch (err) {
       console.error("[playlists] Failed to add clips to playlist:", err);
+      Sentry.captureException(err);
       toast.error("Couldn't add the clips");
     } finally {
       // On success the handler closes the dropdown and this unmounts, so the
@@ -3366,6 +3368,9 @@ export function PlaylistsPage() {
         .then(() => queuePendingShip(dropTarget))
         .catch((err) => {
           console.error("[playlists] Failed to add dropped clip to queue:", err);
+          // Catching it here is what keeps the toast honest, but it also stops
+          // the rejection reaching Sentry on its own — so report it.
+          Sentry.captureException(err);
           toast.error("Couldn't add the clip");
         });
       trackEvent("clip_added_to_playlist", { playlist_id: targetId, match_id: matchId });
@@ -3429,6 +3434,7 @@ export function PlaylistsPage() {
       await addClips(targetPlaylistId, [sourceClip], target.items.length);
     } catch (err) {
       console.error("[playlists] Failed to add dropped clip to playlist:", err);
+      Sentry.captureException(err);
       toast.error("Couldn't add the clip");
       return;
     } finally {
@@ -4806,6 +4812,10 @@ export function PlaylistsPage() {
       const fresh = toAdd.filter((c) => !present.has(`${c.matchId}:${c.eventId}`));
       return fresh.length > 0 ? { ...p, items: [...p.items, ...fresh] } : p;
     }));
+    // Clips added into an already-shared playlist must ship like any other
+    // add — the sibling add paths all do this and this one was missed, so
+    // recipients got rows with no uploaded media.
+    queuePendingShip(target);
     setSelectedClipIds(new Set());
     setShowAddToDropdown(false);
     setAddToSearch("");
