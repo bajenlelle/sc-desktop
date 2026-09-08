@@ -17,9 +17,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import {
   filterUnappliedSlots,
+  isTransientRealtimeFailure,
   planAdoption,
   planWrite,
   prefsFromRow,
+  REALTIME_REPORT_GRACE_MS,
   unappliedSlotsFor,
   type UnappliedSlots,
   type ThemePrefs,
@@ -97,6 +99,7 @@ export function ThemeSync() {
   useEffect(() => {
     if (!userId) return;
     let reported = false;
+    let reportTimer: ReturnType<typeof setTimeout> | null = null;
     const channel = supabase
       .channel(`profile-theme-${userId}`)
       .on(
@@ -105,14 +108,27 @@ export function ThemeSync() {
         (payload) => adoptRef.current(prefsFromRow(payload.new as Record<string, unknown>)),
       )
       .subscribe((status, err) => {
-        // One report per subscription: retries after socket loss re-fire
-        // this callback and would otherwise spam Sentry from sleeping
-        // devices.
-        // Degrade silently: the AppState profile reload still catches up.
-        if ((status === "CHANNEL_ERROR" || status === "TIMED_OUT") && !reported) {
-          reported = true;
-          reportDbError("themeRealtimeSubscribe", { message: err?.message ?? status });
+        // Realtime's cold join routinely fails once before supabase-js's own
+        // rejoin succeeds, and a suspended device always drops its socket, so
+        // a single failure says nothing: start a grace timer and report only a
+        // channel that never comes back. One report per subscription either
+        // way. Degrade silently: the AppState profile reload still catches up.
+        if (status === "SUBSCRIBED") {
+          if (reportTimer) {
+            clearTimeout(reportTimer);
+            reportTimer = null;
+          }
+          return;
         }
+        if (!isTransientRealtimeFailure(status) || reported || reportTimer) return;
+        const message = err?.message ?? status;
+        reportTimer = setTimeout(() => {
+          reportTimer = null;
+          // Rejoined without re-firing this callback — nothing to report.
+          if (channel.state === "joined") return;
+          reported = true;
+          reportDbError("themeRealtimeSubscribe", { message });
+        }, REALTIME_REPORT_GRACE_MS);
       });
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active" && channel.state !== "joined") {
@@ -121,6 +137,7 @@ export function ThemeSync() {
     });
     return () => {
       sub.remove();
+      if (reportTimer) clearTimeout(reportTimer);
       void supabase.removeChannel(channel);
     };
   }, [userId, retick]);
