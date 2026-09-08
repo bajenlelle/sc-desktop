@@ -63,6 +63,25 @@ export function isTransientRealtimeFailure(status: string): boolean {
   return status === "CHANNEL_ERROR" || status === "TIMED_OUT";
 }
 
+/**
+ * What a fired grace timer should do. Timers don't advance while a device is
+ * suspended, so one armed before sleep fires the instant the app wakes — with
+ * a wall-clock gap far larger than the grace, and before any rejoin could
+ * possibly have landed. Reporting there would file exactly the sleeping-device
+ * noise the grace window exists to suppress, so a suspiciously late timer
+ * earns one more window instead. A genuinely stuck channel still reports on
+ * the second pass.
+ */
+export function realtimeReportVerdict(state: {
+  joined: boolean;
+  elapsedMs: number;
+  rearmed: boolean;
+}): "quiet" | "rearm" | "report" {
+  if (state.joined) return "quiet";
+  if (!state.rearmed && state.elapsedMs > REALTIME_REPORT_GRACE_MS * 2) return "rearm";
+  return "report";
+}
+
 /** Snake_case profiles row / realtime payload.new -> ThemePrefs. Invalid or missing values become null. */
 export function prefsFromRow(row: Record<string, unknown>): ThemePrefs {
   const str = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
