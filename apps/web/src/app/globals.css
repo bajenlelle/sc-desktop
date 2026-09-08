@@ -4,6 +4,7 @@
 @import "@fontsource/barlow-condensed/600.css";
 @import "@fontsource/barlow-condensed/700.css";
 @import "@fontsource/barlow-condensed/800.css";
+@import "./themes.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -52,6 +53,7 @@
 }
 
 :root {
+  color-scheme: light; /* native scrollbars/form controls follow the mode */
   --radius: 0.375rem;
   --background: oklch(0.99 0 0);
   --foreground: oklch(0.1 0.01 240);
@@ -87,6 +89,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.18 0.02 240);
   --foreground: oklch(0.9 0.01 240);
   --card: oklch(0.22 0.02 240);

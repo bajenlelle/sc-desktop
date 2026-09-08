@@ -17,6 +17,7 @@ import { orgPlanColors, orgPlanLabel, type ImportQuota } from "@scoutable/shared
 import { toast } from "sonner";
 import { DeleteAccountDialog } from "@/components/delete-account-dialog";
 import { DevicesCard } from "@/components/devices-card";
+import { ThemePicker } from "@/components/theme-picker";
 import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Loader2 } from "lucide-react";
 import Link from "next/link";
 
@@ -439,6 +440,21 @@ export default function ProfilePage() {
           <Button variant="outline" size="sm" onClick={handleChangePassword}>
             Change password
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* ── Appearance ── */}
+      <Card>
+        <CardContent className="p-6 space-y-4">
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">Appearance</h2>
+            <p className="text-sm text-muted-foreground">
+              Choose how Scoutable looks. Picking a theme applies it right away, switching
+              between dark and light if needed. Your choice follows you to the desktop and
+              mobile apps.
+            </p>
+          </div>
+          <ThemePicker />
         </CardContent>
       </Card>
 

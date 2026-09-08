@@ -4,6 +4,7 @@ import { Navbar } from "@/components/navbar";
 import { LicenseBanner } from "@/components/license-banner";
 import { FeedbackFab } from "@/components/feedback-fab";
 import { AuthProvider } from "@/components/auth-context";
+import { ThemeSync } from "@/components/theme-sync";
 import { DeviceGate } from "@/components/device-gate";
 import { UpgradeCelebration } from "@/components/upgrade-celebration";
 import type { UserProfile } from "@scoutable/shared/types/org";
@@ -43,6 +44,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <AuthProvider>
+      <ThemeSync />
       <UpgradeCelebration />
       <div className="min-h-screen flex flex-col">
         <Navbar profile={profile} />

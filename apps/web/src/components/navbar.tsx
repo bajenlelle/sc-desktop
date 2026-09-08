@@ -27,13 +27,15 @@ import { openUpgradeFlow } from "@/lib/billing";
 import { toast } from "sonner";
 
 function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
+  // Flip on resolvedTheme (not theme): under "system" the first click should
+  // move AWAY from the current look, matching the desktop sidebar toggle.
+  const { resolvedTheme, setTheme } = useTheme();
   return (
     <Button
       variant="ghost"
       size="icon"
       className="h-8 w-8"
-      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+      onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
       aria-label="Toggle theme"
     >
       <Sun className="h-4 w-4 rotate-0 scale-100 transition-transform dark:-rotate-90 dark:scale-0" />
