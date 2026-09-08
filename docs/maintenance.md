@@ -62,8 +62,10 @@ the way. Set up 2026-08 — see `.github/workflows/claude-*.yml`, the
    close stale `needs-info`.
 3. **/admin/feedback**: reconcile statuses; a resolved issue should mean a
    resolved report.
-4. **Actions usage** (Settings → Billing): private-repo minutes, macOS
-   bills 10× — a desktop release costs ~350–500 billed minutes.
+4. **Actions usage** (Settings → Billing): nothing to watch while this repo
+   is public — public repos get unlimited free minutes, so the macOS 10×
+   multiplier costs nothing. If it ever goes private, a desktop release
+   becomes ~350–500 billed minutes.
 5. Monthly: `npm audit` pass.
 
 ## Secrets map
