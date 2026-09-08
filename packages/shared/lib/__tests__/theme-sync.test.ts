@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ThemePrefs } from "../theme-sync";
-import { planAdoption, planWrite, prefsFromRow } from "../theme-sync";
+import { filterUnappliedSlots, planAdoption, planWrite, prefsFromRow, unappliedSlotsFor } from "../theme-sync";
 import type { MobileThemeTokens } from "../themes";
 import { COLOR_THEMES, DEFAULT_THEME, getTheme, hexToRgbTriplet, THEME_TOKENS } from "../themes";
 
@@ -245,5 +245,68 @@ describe("hexToRgbTriplet", () => {
   it("accepts uppercase hex too", () => {
     expect(hexToRgbTriplet("#09131A")).toBe("9 19 26");
     expect(hexToRgbTriplet("#FFFFFF")).toBe("255 255 255");
+  });
+});
+
+describe("unapplied-slot guard (unknown ids from newer clients)", () => {
+  const local: ThemePrefs = {
+    themeDark: "scoutable-dark",
+    themeLight: "scoutable-light",
+    themeMode: "dark",
+  };
+
+  it("flags slots whose server id this registry cannot render", () => {
+    expect(unappliedSlotsFor({ themeDark: "neon", themeLight: "daylight", themeMode: "dark" })).toEqual(
+      { themeDark: true, themeLight: false },
+    );
+    // A known id filed under the wrong mode is also unappliable.
+    expect(unappliedSlotsFor({ themeDark: "daylight", themeLight: null, themeMode: null })).toEqual({
+      themeDark: true,
+      themeLight: false,
+    });
+    expect(unappliedSlotsFor({ themeDark: null, themeLight: null, themeMode: null })).toEqual({
+      themeDark: false,
+      themeLight: false,
+    });
+  });
+
+  it("strips a masked slot from the write so the fallback never clobbers the newer pick", () => {
+    // Server holds "neon" (unknown here); local still shows the fallback and
+    // a mode toggle fires T3 — themeDark must NOT be written.
+    const ref: ThemePrefs = { themeDark: "neon", themeLight: "scoutable-light", themeMode: "dark" };
+    const after = { ...local, themeMode: "light" as const };
+    const { diff, unapplied } = filterUnappliedSlots(
+      planWrite(after, ref),
+      { themeDark: true, themeLight: false },
+      local,
+      after,
+    );
+    expect(diff).toEqual({ themeMode: "light" });
+    expect(unapplied.themeDark).toBe(true);
+  });
+
+  it("reclaims a masked slot when the user actually picks it on this device", () => {
+    const ref: ThemePrefs = { themeDark: "neon", themeLight: "scoutable-light", themeMode: "dark" };
+    const picked = { ...local, themeDark: "mocha" };
+    const { diff, unapplied } = filterUnappliedSlots(
+      planWrite(picked, ref),
+      { themeDark: true, themeLight: false },
+      local, // previous evaluation: fallback still shown
+      picked,
+    );
+    expect(diff).toEqual({ themeDark: "mocha" });
+    expect(unapplied.themeDark).toBe(false);
+  });
+
+  it("keeps the mask with no previous evaluation (first run after adoption)", () => {
+    const ref: ThemePrefs = { themeDark: "neon", themeLight: "scoutable-light", themeMode: "dark" };
+    const { diff, unapplied } = filterUnappliedSlots(
+      planWrite(local, ref),
+      { themeDark: true, themeLight: false },
+      null,
+      local,
+    );
+    expect(diff).toEqual({});
+    expect(unapplied.themeDark).toBe(true);
   });
 });

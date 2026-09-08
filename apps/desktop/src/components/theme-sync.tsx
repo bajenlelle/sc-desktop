@@ -22,9 +22,12 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useTheme } from "next-themes";
 import {
+  filterUnappliedSlots,
   planAdoption,
   planWrite,
   prefsFromRow,
+  unappliedSlotsFor,
+  type UnappliedSlots,
   type ThemeModeSetting,
   type ThemePrefs,
 } from "@scoutable/shared/lib/theme-sync";
@@ -46,6 +49,10 @@ export function ThemeSync() {
 
   /** Raw server values last observed or optimistically written; null until the first snapshot for this user. */
   const lastServerRef = useRef<ThemePrefs | null>(null);
+  /** Slot fields the last adoption could not render (unknown id from a newer client) — excluded from writes until a real local pick reclaims them. */
+  const unappliedRef = useRef<UnappliedSlots>({ themeDark: false, themeLight: false });
+  /** Local values at the previous T3 evaluation, to tell user picks from unapplied fallbacks. */
+  const prevLocalRef = useRef<ThemePrefs | null>(null);
 
   // Current local state, readable from stable callbacks without stale
   // closures. Mirrored in an effect (never during render): this effect is
@@ -61,12 +68,15 @@ export function ThemeSync() {
 
   useEffect(() => {
     lastServerRef.current = null;
+    unappliedRef.current = { themeDark: false, themeLight: false };
+    prevLocalRef.current = null;
   }, [userId]);
 
   const adopt = useCallback(
     (server: ThemePrefs) => {
       // Ref BEFORE apply: the local-watcher effect below then diffs to {}.
       lastServerRef.current = server;
+      unappliedRef.current = unappliedSlotsFor(server);
       const apply = planAdoption(server, localRef.current);
       if (apply.themeDark !== undefined || apply.themeLight !== undefined) {
         adoptColorThemes({
@@ -96,6 +106,7 @@ export function ThemeSync() {
   // T2 — realtime push from the user's own profiles row.
   useEffect(() => {
     if (!userId) return;
+    let reported = false;
     const supabase = createClient();
     const channel = supabase
       .channel(`profile-theme-${userId}`)
@@ -105,8 +116,12 @@ export function ThemeSync() {
         (payload) => adoptRef.current(prefsFromRow(payload.new as Record<string, unknown>)),
       )
       .subscribe((status, err) => {
+        // One report per subscription: retries after socket loss re-fire
+        // this callback and would otherwise spam Sentry from sleeping
+        // devices.
         // Degrade silently: focus reloads still deliver changes eventually.
-        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        if ((status === "CHANNEL_ERROR" || status === "TIMED_OUT") && !reported) {
+          reported = true;
           reportDbError("themeRealtimeSubscribe", { message: err?.message ?? status });
         }
       });
@@ -117,8 +132,18 @@ export function ThemeSync() {
 
   // T3 — local changes (a pick in the picker, any mode toggle surface).
   useEffect(() => {
+    const local = localRef.current;
+    const prevLocal = prevLocalRef.current;
+    prevLocalRef.current = local;
     if (!userId) return;
-    const diff = planWrite(localRef.current, lastServerRef.current);
+    const filtered = filterUnappliedSlots(
+      planWrite(local, lastServerRef.current),
+      unappliedRef.current,
+      prevLocal,
+      local,
+    );
+    unappliedRef.current = filtered.unapplied;
+    const diff = filtered.diff;
     if (Object.keys(diff).length === 0) return;
     const prior = { ...(lastServerRef.current as ThemePrefs) };
     lastServerRef.current = { ...(lastServerRef.current as ThemePrefs), ...diff };

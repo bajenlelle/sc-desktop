@@ -19,7 +19,19 @@
  *   write reverts the ref fields so the next snapshot self-heals and a
  *   re-pick retries.
  * - NULL server fields mean "never synced" and are never applied.
+ * - Unknown-id guard: when adoption cannot apply a slot (a theme id from a
+ *   newer client), the field is marked "unapplied" and excluded from writes
+ *   until the user actually picks that slot on this device — otherwise any
+ *   later write would clobber the newer client's pick with this device's
+ *   fallback (see unappliedSlotsFor/filterUnappliedSlots).
+ *
+ * Invariant the watchers rely on: auth contexts deliver `profile` only
+ * asynchronously after `user` (all three do today). If a context ever seeded
+ * profile synchronously at mount, T1's adoption and T3 would run in the same
+ * commit with pre-adoption local values and push them to the server.
  */
+
+import { getTheme } from "./themes";
 
 export type ThemeModeSetting = "light" | "dark" | "system";
 
@@ -81,4 +93,44 @@ export function planWrite(local: ThemePrefs, ref: ThemePrefs | null): Partial<Th
     out.themeMode = local.themeMode;
   }
   return out;
+}
+
+/** Which slot fields of a server snapshot this client cannot render (theme id unknown to its registry, or filed under the wrong mode). */
+export interface UnappliedSlots {
+  themeDark: boolean;
+  themeLight: boolean;
+}
+
+export function unappliedSlotsFor(server: ThemePrefs): UnappliedSlots {
+  return {
+    themeDark: server.themeDark !== null && getTheme(server.themeDark)?.mode !== "dark",
+    themeLight: server.themeLight !== null && getTheme(server.themeLight)?.mode !== "light",
+  };
+}
+
+/**
+ * Strip unapplied slot fields from a pending write: those fields still hold
+ * this device's fallback, not a user choice, and writing them would clobber
+ * a newer client's pick. A field is reclaimed (written, unmasked) only when
+ * its local value changed since the previous evaluation — i.e. the user
+ * actually picked that slot on this device. Returns the filtered diff and
+ * the updated mask.
+ */
+export function filterUnappliedSlots(
+  diff: Partial<ThemePrefs>,
+  unapplied: UnappliedSlots,
+  prevLocal: ThemePrefs | null,
+  local: ThemePrefs,
+): { diff: Partial<ThemePrefs>; unapplied: UnappliedSlots } {
+  const outDiff = { ...diff };
+  const outMask = { ...unapplied };
+  for (const field of ["themeDark", "themeLight"] as const) {
+    if (outDiff[field] === undefined || !outMask[field]) continue;
+    if (prevLocal !== null && prevLocal[field] !== local[field]) {
+      outMask[field] = false;
+    } else {
+      delete outDiff[field];
+    }
+  }
+  return { diff: outDiff, unapplied: outMask };
 }

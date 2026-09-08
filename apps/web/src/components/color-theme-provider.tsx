@@ -49,12 +49,19 @@ function slotFor(mode: ThemeMode): string {
 
 export function ColorThemeProvider({ children }: { children: ReactNode }) {
   const { resolvedTheme, setTheme } = useTheme();
-  // Lazy init reads localStorage — fine on the client; during SSR this
-  // component renders children only, and the boot script owns first paint.
-  const [slots, setSlots] = useState<Record<ThemeMode, string>>(() => ({
-    dark: typeof window === "undefined" ? DEFAULT_THEME.dark : slotFor("dark"),
-    light: typeof window === "undefined" ? DEFAULT_THEME.light : slotFor("light"),
-  }));
+  // Server render AND first client render both use the defaults, so hydration
+  // never mismatches (the picker renders aria-checked/rings from slots).
+  // Stored slots load in a mount effect; the page itself never flashes
+  // because the boot script sets data-theme pre-paint and the dataset effect
+  // below is gated on resolvedTheme, which next-themes only resolves
+  // post-mount — by then the stored slots are in.
+  const [slots, setSlots] = useState<Record<ThemeMode, string>>({
+    dark: DEFAULT_THEME.dark,
+    light: DEFAULT_THEME.light,
+  });
+  useEffect(() => {
+    setSlots({ dark: slotFor("dark"), light: slotFor("light") });
+  }, []);
 
   const mode: ThemeMode | undefined =
     resolvedTheme === "dark" || resolvedTheme === "light" ? resolvedTheme : undefined;

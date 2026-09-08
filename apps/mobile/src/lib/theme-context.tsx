@@ -25,6 +25,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -78,6 +79,12 @@ export function MobileThemeProvider({ children }: { children: ReactNode }) {
   });
   const [modeSetting, setModeSettingState] = useState<ThemeModeSetting>("system");
 
+  // Fields changed by a setter/adoption since mount. AsyncStorage hydration
+  // resolves asynchronously and must never override a value that a sync
+  // adoption (or an eager user pick) already applied — otherwise the stale
+  // stored value would win AND get pushed back to the server by ThemeSync.
+  const dirtyRef = useRef({ dark: false, light: false, mode: false });
+
   // Hydrate persisted prefs. One default-palette frame on cold start is
   // accepted (the splash mostly covers it); storage failures fall through
   // to defaults, matching the app's AsyncStorage conventions.
@@ -85,10 +92,14 @@ export function MobileThemeProvider({ children }: { children: ReactNode }) {
     AsyncStorage.multiGet([KEYS.dark, KEYS.light, KEYS.mode])
       .then(([[, dark], [, light], [, mode]]) => {
         setSlots((prev) => ({
-          dark: getTheme(dark)?.mode === "dark" ? (dark as string) : prev.dark,
-          light: getTheme(light)?.mode === "light" ? (light as string) : prev.light,
+          dark:
+            !dirtyRef.current.dark && getTheme(dark)?.mode === "dark" ? (dark as string) : prev.dark,
+          light:
+            !dirtyRef.current.light && getTheme(light)?.mode === "light"
+              ? (light as string)
+              : prev.light,
         }));
-        if (isModeSetting(mode)) setModeSettingState(mode);
+        if (!dirtyRef.current.mode && isModeSetting(mode)) setModeSettingState(mode);
       })
       .catch(() => {});
   }, []);
@@ -126,6 +137,7 @@ export function MobileThemeProvider({ children }: { children: ReactNode }) {
   );
 
   const setModeSetting = useCallback((mode: ThemeModeSetting) => {
+    dirtyRef.current.mode = true;
     setModeSettingState(mode);
     AsyncStorage.setItem(KEYS.mode, mode).catch(() => {});
   }, []);
@@ -134,6 +146,7 @@ export function MobileThemeProvider({ children }: { children: ReactNode }) {
     (id: string) => {
       const theme = getTheme(id);
       if (!theme) return;
+      dirtyRef.current[theme.mode] = true;
       setSlots((prev) => ({ ...prev, [theme.mode]: id }));
       AsyncStorage.setItem(KEYS[theme.mode], id).catch(() => {});
       if (resolved !== theme.mode) setModeSetting(theme.mode);
@@ -151,8 +164,10 @@ export function MobileThemeProvider({ children }: { children: ReactNode }) {
           ["light", prefs.themeLight],
         ] as const) {
           // Unknown/mode-mismatched ids (e.g. from a newer client) are
-          // skipped; ThemeSync's raw ref ensures we never clobber them back.
+          // skipped; ThemeSync's unapplied mask ensures we never clobber
+          // them back.
           if (!id || getTheme(id)?.mode !== slotMode || prev[slotMode] === id) continue;
+          dirtyRef.current[slotMode] = true;
           AsyncStorage.setItem(KEYS[slotMode], id).catch(() => {});
           if (next === prev) next = { ...prev };
           next[slotMode] = id;
