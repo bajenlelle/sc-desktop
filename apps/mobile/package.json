@@ -47,7 +47,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit",
-    "ota": "expo export --dump-sourcemap && eas update --channel production --auto && sentry-expo-upload-sourcemaps dist"
+    "ota": "expo export --platform ios --platform android --dump-sourcemap && eas update --channel production --auto && sentry-expo-upload-sourcemaps dist"
   },
   "private": true
 }
