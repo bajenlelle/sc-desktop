@@ -11,7 +11,7 @@
 import { useRef, useState } from "react";
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { COLOR_THEMES, type ColorTheme } from "@/lib/themes";
+import { COLOR_THEMES, type ColorTheme } from "@scoutable/shared/lib/themes";
 import { useColorTheme } from "@/components/color-theme-provider";
 
 function ThemeRow({

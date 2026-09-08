@@ -28,6 +28,7 @@ import { MenuHandler } from "@/components/menu-handler";
 import { UpgradeCelebration } from "@/components/upgrade-celebration";
 import { Toaster } from "sonner";
 import { ColorThemeProvider } from "@/components/color-theme-provider";
+import { ThemeSync } from "@/components/theme-sync";
 
 function ThemedToaster() {
   // Token-driven unconditionally so toasts follow every color theme —
@@ -135,6 +136,7 @@ export default function App() {
     <AuthProvider>
       <ThemeProvider>
         <ColorThemeProvider>
+        <ThemeSync />
         <UpdateChecker />
         <UpgradeCelebration />
         <ThemedToaster />

@@ -5,6 +5,13 @@
  * source of truth for the mode itself — picking a theme of the other mode
  * flips the mode rather than fighting it.
  *
+ * Two ways slots change:
+ * - setColorTheme: a user pick — flips mode if needed, fires analytics. The
+ *   ThemeSync watcher sees the slot change and persists it to the profile.
+ * - adoptColorThemes: another device's synced pick arriving — apply + local
+ *   persist ONLY (no mode flip, no analytics, no server write; the watcher
+ *   recognizes adoptions via its server ref and stays silent).
+ *
  * Before hydration (resolvedTheme undefined) the inline boot script in
  * index.html owns the attribute, so this deliberately does nothing then —
  * touching it early would flash the default theme over the stored one.
@@ -19,14 +26,18 @@ import {
 } from "react";
 import { useTheme } from "next-themes";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { DEFAULT_THEME, getTheme, type ThemeMode } from "@/lib/themes";
+import { DEFAULT_THEME, getTheme, type ThemeMode } from "@scoutable/shared/lib/themes";
 import { getColorThemeSlot, setColorThemeSlot } from "@/lib/prefs";
 import { trackEvent } from "@/lib/analytics";
 
 interface ColorThemeContextValue {
   /** Theme id currently applied (the slot for the resolved mode). */
   activeThemeId: string;
+  /** The remembered theme per mode — what ThemeSync watches and syncs. */
+  slots: Record<ThemeMode, string>;
   setColorTheme: (id: string) => void;
+  /** Sync adoption: apply + persist locally, nothing else. */
+  adoptColorThemes: (prefs: { themeDark?: string; themeLight?: string }) => void;
 }
 
 const ColorThemeContext = createContext<ColorThemeContextValue | null>(null);
@@ -76,8 +87,30 @@ export function ColorThemeProvider({ children }: { children: ReactNode }) {
     [mode, setTheme],
   );
 
+  const adoptColorThemes = useCallback(
+    (prefs: { themeDark?: string; themeLight?: string }) => {
+      setSlots((prev) => {
+        let next = prev;
+        for (const [slotMode, id] of [
+          ["dark", prefs.themeDark],
+          ["light", prefs.themeLight],
+        ] as const) {
+          // Unknown or mode-mismatched ids (e.g. from a newer client) are
+          // skipped: the default palette keeps showing, and the watcher's
+          // raw ref ensures we never clobber the value back.
+          if (!id || getTheme(id)?.mode !== slotMode || prev[slotMode] === id) continue;
+          setColorThemeSlot(slotMode, id);
+          if (next === prev) next = { ...prev };
+          next[slotMode] = id;
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
   return (
-    <ColorThemeContext.Provider value={{ activeThemeId, setColorTheme }}>
+    <ColorThemeContext.Provider value={{ activeThemeId, slots, setColorTheme, adoptColorThemes }}>
       {children}
     </ColorThemeContext.Provider>
   );
