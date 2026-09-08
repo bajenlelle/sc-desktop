@@ -1547,10 +1547,11 @@ function AddToDropdown({
   activePlaylistId: string | null;
   addToSearch: string;
   setAddToSearch: (v: string) => void;
-  onAddToPlaylist: (playlist: Playlist) => void;
+  onAddToPlaylist: (playlist: Playlist) => Promise<void>;
   onCreatePlaylist: (name: string) => Promise<void>;
 }) {
   const [creating, setCreating] = useState(false);
+  const [addingId, setAddingId] = useState<string | null>(null);
   const trimmed = addToSearch.trim();
   const q = trimmed.toLowerCase();
   const candidates = playlists.filter(
@@ -1561,6 +1562,24 @@ function AddToDropdown({
   // doubles as the name field; an exact name match hides the create row.
   const exactMatch = candidates.some((pl) => pl.name.toLowerCase() === q);
   const showCreateRow = trimmed.length > 0 && !exactMatch;
+
+  // The rows stay mounted until the add resolves (the handler closes the
+  // dropdown on success), so without this guard a double-click fires two
+  // overlapping adds of the same clips.
+  async function handleAdd(pl: Playlist) {
+    if (addingId) return;
+    setAddingId(pl.id);
+    try {
+      await onAddToPlaylist(pl);
+    } catch (err) {
+      console.error("[playlists] Failed to add clips to playlist:", err);
+      toast.error("Couldn't add the clips");
+    } finally {
+      // On success the handler closes the dropdown and this unmounts, so the
+      // reset only matters on failure — where the rows must be usable again.
+      setAddingId(null);
+    }
+  }
 
   async function handleCreate() {
     if (!showCreateRow || creating) return;
@@ -1597,9 +1616,13 @@ function AddToDropdown({
           {options.map((pl) => (
             <button
               key={pl.id}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
-              onClick={() => onAddToPlaylist(pl)}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-50"
+              onClick={() => void handleAdd(pl)}
+              disabled={addingId !== null}
             >
+              {addingId === pl.id && (
+                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+              )}
               <span className="flex-1 truncate">{pl.name}</span>
               <span className="text-xs text-muted-foreground">{pl.items.length}</span>
             </button>
@@ -1654,6 +1677,9 @@ export function PlaylistsPage() {
   // any game, so it asks for the rest on demand via ensureEventsFor.
   const loadedEventMatchIdsRef = useRef<Set<string>>(new Set());
   const eventFetchInFlightRef = useRef<Set<string>>(new Set());
+  // `playlistId:clipKey` pairs with an addClips call in flight — the drop
+  // handlers' membership checks read state that lags the network call.
+  const clipAddInFlightRef = useRef<Set<string>>(new Set());
   const [selected, setSelected] = useState<Playlist | null>(null);
   const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
   const [activeEventId, setActiveEventId] = useState<number | null>(null);
@@ -3336,7 +3362,12 @@ export function PlaylistsPage() {
       const targetId = selected.id;
       const dropTarget = selected;
       // Arm after the rows exist so updateClipR2Url has something to patch.
-      void addClips(targetId, [newClip], itemsInsertIndex).then(() => queuePendingShip(dropTarget));
+      void addClips(targetId, [newClip], itemsInsertIndex)
+        .then(() => queuePendingShip(dropTarget))
+        .catch((err) => {
+          console.error("[playlists] Failed to add dropped clip to queue:", err);
+          toast.error("Couldn't add the clip");
+        });
       trackEvent("clip_added_to_playlist", { playlist_id: targetId, match_id: matchId });
       setPlaylists((prev) => prev.map((p) => p.id === targetId ? { ...p, items: newItems } : p));
       setSelected((prev) => prev ? { ...prev, items: newItems } : prev);
@@ -3385,15 +3416,33 @@ export function PlaylistsPage() {
     // Copies never carry group membership into the target playlist.
     const { groupId: _g, ...cleanClip } = found ?? { type: 'clip' as const, matchId, eventId };
     const sourceClip = cleanClip as PlaylistClipItem;
-    const newItems = [...target.items, sourceClip];
+    // The membership check above reads state that only updates once the await
+    // below resolves, so two quick drops of the same clip both pass it.
+    const inFlightKey = `${targetPlaylistId}:${clipKey}`;
+    if (clipAddInFlightRef.current.has(inFlightKey)) { handleClipDragEnd(); return; }
+    clipAddInFlightRef.current.add(inFlightKey);
     // Synchronously end the drag bookkeeping before the await — guarantees the
     // RAF/window listener can't keep firing while we await the network call,
     // even if dragend never reaches the (possibly unmounted) source row.
     handleClipDragEnd();
-    await addClips(targetPlaylistId, [sourceClip], target.items.length);
+    try {
+      await addClips(targetPlaylistId, [sourceClip], target.items.length);
+    } catch (err) {
+      console.error("[playlists] Failed to add dropped clip to playlist:", err);
+      toast.error("Couldn't add the clip");
+      return;
+    } finally {
+      clipAddInFlightRef.current.delete(inFlightKey);
+    }
     trackEvent('clip_added_to_playlist', { playlist_id: targetPlaylistId, match_id: matchId })
-    setPlaylists((prev) => prev.map((p) => p.id === targetPlaylistId ? { ...p, items: newItems } : p));
-    if (selected?.id === targetPlaylistId) setSelected((prev) => prev ? { ...prev, items: newItems } : prev);
+    // Derived from prev, not a pre-await snapshot: a concurrent add to the same
+    // playlist would otherwise be dropped from optimistic state.
+    const appendClip = (items: PlaylistItem[]): PlaylistItem[] =>
+      items.filter(isClipItem).some((c) => c.matchId === matchId && c.eventId === eventId)
+        ? items
+        : [...items, sourceClip];
+    setPlaylists((prev) => prev.map((p) => p.id === targetPlaylistId ? { ...p, items: appendClip(p.items) } : p));
+    if (selected?.id === targetPlaylistId) setSelected((prev) => prev ? { ...prev, items: appendClip(prev.items) } : prev);
     // A clip dragged into an already-shared playlist must ship like any other add.
     queuePendingShip(target);
   }
@@ -4139,7 +4188,7 @@ export function PlaylistsPage() {
               const key = e.dataTransfer.getData("text/clip");
               if (!key) return;
               e.preventDefault();
-              handleClipDropOnPlaylist(pl.id, key);
+              void handleClipDropOnPlaylist(pl.id, key);
             }}
             style={{ paddingLeft: indentPx }}
             className={`group flex w-full cursor-pointer items-center justify-between border-l-2 pr-3 py-1.5 text-left transition-colors hover:bg-muted/50 ${
@@ -4744,12 +4793,19 @@ export function PlaylistsPage() {
         const { groupId: _g, ...clean } = found;
         return clean as PlaylistClipItem;
       });
-    const newItems = [...target.items, ...toAdd];
     await addClips(target.id, toAdd, target.items.length);
     toAdd.forEach((clip) => {
       trackEvent('clip_added_to_playlist', { playlist_id: target.id, match_id: clip.matchId })
     })
-    setPlaylists((prev) => prev.map((p) => p.id === target.id ? { ...p, items: newItems } : p));
+    // Append onto whatever the row holds now rather than a pre-await snapshot,
+    // and skip clips a concurrent add already landed — mirrors the insert's
+    // own on-conflict-do-nothing so optimistic state can't drift from the DB.
+    setPlaylists((prev) => prev.map((p) => {
+      if (p.id !== target.id) return p;
+      const present = new Set(p.items.filter(isClipItem).map((c) => `${c.matchId}:${c.eventId}`));
+      const fresh = toAdd.filter((c) => !present.has(`${c.matchId}:${c.eventId}`));
+      return fresh.length > 0 ? { ...p, items: [...p.items, ...fresh] } : p;
+    }));
     setSelectedClipIds(new Set());
     setShowAddToDropdown(false);
     setAddToSearch("");

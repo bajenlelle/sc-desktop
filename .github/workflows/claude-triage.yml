@@ -26,6 +26,11 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Sentry files the issues this workflow exists to triage, and the
+          # action refuses bot actors unless they're named here. Named
+          # explicitly, never '*' — this repo is public, so any other bot
+          # could otherwise spend the Claude token.
+          allowed_bots: "sentry"
           prompt: |
             Triage issue #${{ github.event.issue.number }} in ${{ github.repository }}.
 

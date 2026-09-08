@@ -314,18 +314,35 @@ export async function addClips(
   startPosition: number
 ): Promise<void> {
   if (clips.length === 0) return;
-  const rows = clips.map((clip, i) => ({
-    playlist_id: playlistId,
-    item_type: 'clip',
-    match_id: clip.matchId,
-    event_id: clip.eventId,
-    position: startPosition + i,
-    pre_roll_offset: clip.preRollOffset ?? 0,
-    post_roll_offset: clip.postRollOffset ?? 0,
-    note: clip.note ?? null,
-    crop_keyframes: clip.cropKeyframes ?? null,
-  }));
-  const { error } = await supabase.from("playlist_clips").insert(rows);
+  // One row per (match, event): a caller's stale membership snapshot, or a
+  // duplicate match row, can hand the same clip to a single batch twice.
+  const seen = new Set<string>();
+  const rows = clips
+    .filter((clip) => {
+      const key = `${clip.matchId}:${clip.eventId}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map((clip, i) => ({
+      playlist_id: playlistId,
+      item_type: 'clip',
+      match_id: clip.matchId,
+      event_id: clip.eventId,
+      position: startPosition + i,
+      pre_roll_offset: clip.preRollOffset ?? 0,
+      post_roll_offset: clip.postRollOffset ?? 0,
+      note: clip.note ?? null,
+      crop_keyframes: clip.cropKeyframes ?? null,
+    }));
+  // A clip already in the playlist is a no-op, not an error: every caller
+  // dedupes against optimistic React state, which can never be atomic with
+  // the insert, so two overlapping adds used to raise uq_playlist_clip at the
+  // user. ignoreDuplicates keeps the existing row's position and offsets;
+  // reorderItems reconciles order afterwards.
+  const { error } = await supabase
+    .from("playlist_clips")
+    .upsert(rows, { onConflict: "playlist_id,match_id,event_id", ignoreDuplicates: true });
   if (error) throw new Error(`Failed to add clips: ${error.message}`);
 }
 

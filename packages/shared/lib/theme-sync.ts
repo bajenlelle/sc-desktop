@@ -43,6 +43,26 @@ export interface ThemePrefs {
 
 const MODES: ReadonlyArray<string> = ["light", "dark", "system"];
 
+/**
+ * How long a failed Realtime join may keep failing before it's worth a
+ * Sentry event. Realtime's cold join routinely reports CHANNEL_ERROR or
+ * TIMED_OUT once before supabase-js's own rejoin succeeds (in production the
+ * first theme change lands late and every later one is instant), and a
+ * suspended device closes its socket with 1006 as a matter of course.
+ * Reporting the first failure filed six duplicate issues in the hour after
+ * theme sync shipped; only a failure still unresolved after this window says
+ * anything actionable.
+ */
+export const REALTIME_REPORT_GRACE_MS = 30_000;
+
+/**
+ * Whether a `subscribe` status means the join failed, as opposed to ordinary
+ * lifecycle churn (SUBSCRIBED / CLOSED) the watchers ignore.
+ */
+export function isTransientRealtimeFailure(status: string): boolean {
+  return status === "CHANNEL_ERROR" || status === "TIMED_OUT";
+}
+
 /** Snake_case profiles row / realtime payload.new -> ThemePrefs. Invalid or missing values become null. */
 export function prefsFromRow(row: Record<string, unknown>): ThemePrefs {
   const str = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);

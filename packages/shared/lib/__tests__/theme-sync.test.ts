@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { ThemePrefs } from "../theme-sync";
-import { filterUnappliedSlots, planAdoption, planWrite, prefsFromRow, unappliedSlotsFor } from "../theme-sync";
+import {
+  filterUnappliedSlots,
+  isTransientRealtimeFailure,
+  planAdoption,
+  planWrite,
+  prefsFromRow,
+  REALTIME_REPORT_GRACE_MS,
+  unappliedSlotsFor,
+} from "../theme-sync";
 import type { MobileThemeTokens } from "../themes";
 import { COLOR_THEMES, DEFAULT_THEME, getTheme, hexToRgbTriplet, THEME_TOKENS } from "../themes";
 
@@ -308,5 +316,25 @@ describe("unapplied-slot guard (unknown ids from newer clients)", () => {
     );
     expect(diff).toEqual({});
     expect(unapplied.themeDark).toBe(true);
+  });
+});
+
+describe("isTransientRealtimeFailure", () => {
+  it("flags the two statuses that mean the join failed", () => {
+    expect(isTransientRealtimeFailure("CHANNEL_ERROR")).toBe(true);
+    expect(isTransientRealtimeFailure("TIMED_OUT")).toBe(true);
+  });
+
+  it("ignores ordinary lifecycle statuses, so a cold join files nothing", () => {
+    expect(isTransientRealtimeFailure("SUBSCRIBED")).toBe(false);
+    expect(isTransientRealtimeFailure("CLOSED")).toBe(false);
+    expect(isTransientRealtimeFailure("")).toBe(false);
+    expect(isTransientRealtimeFailure("SOMETHING_NEW")).toBe(false);
+  });
+
+  it("gives the rejoin real time to land before anything is reported", () => {
+    // Guards against someone trimming this to a value shorter than supabase-js
+    // takes to retry, which would put the noise straight back.
+    expect(REALTIME_REPORT_GRACE_MS).toBeGreaterThanOrEqual(10_000);
   });
 });
