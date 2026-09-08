@@ -33,6 +33,9 @@ interface ProfileRow {
   onboarding_checklist_dismissed_at?: string | null;
   welcome_dismissed_at?: string | null;
   declared_role?: string | null;
+  theme_dark?: string | null;
+  theme_light?: string | null;
+  theme_mode?: string | null;
 }
 
 interface OrgMemberRow {
@@ -87,6 +90,9 @@ function rowToProfile(r: ProfileRow): UserProfile {
     onboardingChecklistDismissedAt: r.onboarding_checklist_dismissed_at ?? null,
     welcomeDismissedAt: r.welcome_dismissed_at ?? null,
     declaredRole: (r.declared_role as "coach" | "player" | null | undefined) ?? null,
+    themeDark: r.theme_dark ?? null,
+    themeLight: r.theme_light ?? null,
+    themeMode: (r.theme_mode as "light" | "dark" | "system" | null | undefined) ?? null,
   };
 }
 
@@ -132,7 +138,7 @@ export async function getMyProfile(supabase: SupabaseClient, userId: string): Pr
   const { data, error } = await supabase
     .from("profiles")
     .select(
-      "id, full_name, avatar_url, role, org_id, created_at, is_platform_admin, celebrated_plan_tier, onboarding_checklist_dismissed_at, welcome_dismissed_at, declared_role"
+      "id, full_name, avatar_url, role, org_id, created_at, is_platform_admin, celebrated_plan_tier, onboarding_checklist_dismissed_at, welcome_dismissed_at, declared_role, theme_dark, theme_light, theme_mode"
     )
     .eq("id", userId)
     .single();

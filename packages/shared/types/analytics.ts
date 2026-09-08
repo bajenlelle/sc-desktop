@@ -84,5 +84,5 @@ export type AnalyticsEvent =
   | "member_removed"
   | "member_promoted"
   | "watermark_toggled"
-  | "color_theme_changed" // desktop Appearance card; props: theme, mode
+  | "color_theme_changed" // desktop/web/mobile Appearance surfaces; props: theme, mode
   | "account_delete_requested";

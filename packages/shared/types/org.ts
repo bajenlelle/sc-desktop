@@ -31,6 +31,14 @@ export interface UserProfile {
    * analytics only — never permissions. null = not captured yet.
    */
   declaredRole?: 'coach' | 'player' | null;
+  /**
+   * Synced color-theme prefs (Slack-style cross-device). One theme id per
+   * light/dark slot plus the selected appearance mode. null = never synced:
+   * clients keep their device defaults and never write without a user pick.
+   */
+  themeDark?: string | null;
+  themeLight?: string | null;
+  themeMode?: 'light' | 'dark' | 'system' | null;
 }
 
 export interface Organization {
