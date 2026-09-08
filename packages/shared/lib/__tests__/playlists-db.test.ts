@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  addClips,
   createPlaylist,
   getMySharedPlaylists,
   getMyTeamPlaylists,
@@ -397,5 +398,93 @@ describe("getMySharedPlaylists org scoping", () => {
     const out = await getMySharedPlaylists(client, "orgA");
     expect(calls.eq).toContainEqual(["org_id", "orgA"]);
     expect(out.map((p) => p.id)).toEqual(["shared"]);
+  });
+});
+
+/**
+ * Captures the upsert payload + options. addClips is the only write here, so a
+ * bare table double is enough — no chaining beyond `.from().upsert()`.
+ */
+function mockUpsertClient(error: { message: string } | null = null) {
+  const calls: { rows?: Array<Record<string, unknown>>; opts?: Record<string, unknown>; count: number } = { count: 0 };
+  const client = {
+    from: () => ({
+      upsert: async (rows: Array<Record<string, unknown>>, opts: Record<string, unknown>) => {
+        calls.count += 1;
+        calls.rows = rows;
+        calls.opts = opts;
+        return { error };
+      },
+    }),
+  } as unknown as SupabaseClient;
+  return { client, calls };
+}
+
+describe("addClips", () => {
+  it("upserts on uq_playlist_clip and ignores duplicates, so a re-add is a no-op", async () => {
+    const { client, calls } = mockUpsertClient();
+    await addClips(client, "pl1", [{ type: "clip", matchId: "m1", eventId: 7 }], 0);
+    expect(calls.opts).toEqual({
+      onConflict: "playlist_id,match_id,event_id",
+      ignoreDuplicates: true,
+    });
+  });
+
+  it("collapses a clip repeated within one batch to a single row", async () => {
+    const { client, calls } = mockUpsertClient();
+    await addClips(
+      client,
+      "pl1",
+      [
+        { type: "clip", matchId: "m1", eventId: 7 },
+        { type: "clip", matchId: "m1", eventId: 7 },
+        { type: "clip", matchId: "m1", eventId: 8 },
+      ],
+      0,
+    );
+    expect(calls.rows).toHaveLength(2);
+    expect(calls.rows?.map((r) => r["event_id"])).toEqual([7, 8]);
+  });
+
+  it("numbers positions over the deduped rows so no position is skipped", async () => {
+    const { client, calls } = mockUpsertClient();
+    await addClips(
+      client,
+      "pl1",
+      [
+        { type: "clip", matchId: "m1", eventId: 7 },
+        { type: "clip", matchId: "m1", eventId: 7 },
+        { type: "clip", matchId: "m2", eventId: 9 },
+      ],
+      5,
+    );
+    expect(calls.rows?.map((r) => r["position"])).toEqual([5, 6]);
+  });
+
+  it("keeps distinct events on the same match, and same event ids across matches", async () => {
+    const { client, calls } = mockUpsertClient();
+    await addClips(
+      client,
+      "pl1",
+      [
+        { type: "clip", matchId: "m1", eventId: 7 },
+        { type: "clip", matchId: "m2", eventId: 7 },
+      ],
+      0,
+    );
+    expect(calls.rows).toHaveLength(2);
+  });
+
+  it("does not touch the network for an empty batch", async () => {
+    const { client, calls } = mockUpsertClient();
+    await addClips(client, "pl1", [], 0);
+    expect(calls.count).toBe(0);
+  });
+
+  it("still throws on a real write failure", async () => {
+    const { client } = mockUpsertClient({ message: "permission denied" });
+    await expect(
+      addClips(client, "pl1", [{ type: "clip", matchId: "m1", eventId: 7 }], 0),
+    ).rejects.toThrow("Failed to add clips: permission denied");
   });
 });
