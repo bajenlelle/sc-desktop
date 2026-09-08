@@ -58,6 +58,15 @@ export function useClipQueue({
   const textCardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textCardDeadlineRef = useRef<number | null>(null);
   const textCardRemainingRef = useRef<number | null>(null);
+  // AppState's listener and pending replaceAsync() calls outlive the
+  // player's own event listeners — this guards against touching the player
+  // after its native shared object has been released on unmount.
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     playlistIdRef.current = playlistId;
@@ -95,6 +104,7 @@ export function useClipQueue({
       try {
         pendingPlayRef.current = true;
         await player.replaceAsync(clip.r2Url);
+        if (!isMountedRef.current) return;
         // Rate is a player-level property — re-apply after every source swap.
         player.playbackRate = speedRef.current;
         // If the source is already ready this starts playback; otherwise the
@@ -251,6 +261,7 @@ export function useClipQueue({
   // remaining time.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
+      if (!isMountedRef.current) return;
       if (state !== "active") {
         player.pause();
         if (textCardTimerRef.current && textCardDeadlineRef.current) {
