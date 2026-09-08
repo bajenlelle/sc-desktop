@@ -58,6 +58,19 @@ export function useClipQueue({
   const textCardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textCardDeadlineRef = useRef<number | null>(null);
   const textCardRemainingRef = useRef<number | null>(null);
+  // Native-dispatched callbacks (AppState, the player's own events) and
+  // pending replaceAsync() continuations can all run after useVideoPlayer has
+  // released the native player on unmount. Touching it then throws
+  // NotFoundException, so every such path checks this first. Set on mount as
+  // well as cleared on cleanup: the ref outlives a mount/unmount/mount cycle,
+  // and leaving it false would silently disable playback for good.
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     playlistIdRef.current = playlistId;
@@ -95,6 +108,7 @@ export function useClipQueue({
       try {
         pendingPlayRef.current = true;
         await player.replaceAsync(clip.r2Url);
+        if (!isMountedRef.current) return;
         // Rate is a player-level property — re-apply after every source swap.
         player.playbackRate = speedRef.current;
         // If the source is already ready this starts playback; otherwise the
@@ -135,6 +149,10 @@ export function useClipQueue({
 
   const advance = useCallback(
     (fromIdx: number) => {
+      // Reached from startClip's catch, the statusChange error branch and the
+      // text-card timer — all of which can fire after the player is gone, and
+      // all of which lead to player.pause() via startTextCard.
+      if (!isMountedRef.current) return;
       const queue = queueRef.current;
       const nextIdx = fromIdx + 1;
       if (nextIdx >= queue.length) {
@@ -228,6 +246,9 @@ export function useClipQueue({
   });
 
   useEventListener(player, "statusChange", ({ status, error }) => {
+    // Same exposure as the AppState handler below: the listener is removed on
+    // unmount, but an event already dispatched from native still arrives.
+    if (!isMountedRef.current) return;
     if (status === "readyToPlay") {
       // The new source is loaded — any straggler events from the previous
       // clip were delivered before this point, so arming is safe. (Also
@@ -251,6 +272,7 @@ export function useClipQueue({
   // remaining time.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
+      if (!isMountedRef.current) return;
       if (state !== "active") {
         player.pause();
         if (textCardTimerRef.current && textCardDeadlineRef.current) {
