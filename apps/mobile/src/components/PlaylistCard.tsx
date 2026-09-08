@@ -28,18 +28,18 @@ export function PlaylistCard({
     <Pressable
       accessibilityRole="button"
       onPress={onOpen}
-      className={`flex-col gap-3 rounded-xl border bg-card dark:bg-card-dark p-4 active:bg-muted dark:active:bg-muted-dark ${
+      className={`flex-col gap-3 rounded-xl border bg-card p-4 active:bg-muted ${
         isNew
-          ? "border-primary/40 dark:border-primary-dark/40"
-          : "border-border dark:border-border-dark"
+          ? "border-primary/40"
+          : "border-border"
       }`}
     >
       <View className="gap-2">
         {isNew && (
           <View className="flex-row">
             <View className="flex-row items-center gap-1.5 rounded-full bg-primary/10 px-2 py-0.5">
-              <View className="h-1.5 w-1.5 rounded-full bg-primary dark:bg-primary-dark" />
-              <Text className="text-[10px] font-semibold uppercase tracking-wider text-primary dark:text-primary-dark">
+              <View className="h-1.5 w-1.5 rounded-full bg-primary" />
+              <Text className="text-[10px] font-semibold uppercase tracking-wider text-primary">
                 New
               </Text>
             </View>
@@ -47,12 +47,12 @@ export function PlaylistCard({
         )}
         <Text
           numberOfLines={2}
-          className="text-base font-semibold text-foreground dark:text-foreground-dark"
+          className="text-base font-semibold text-foreground"
         >
           {name}
           {teamNames && teamNames.length > 0 && (
             // Which team this came through — muted so the title stays the headline.
-            <Text className="text-xs font-normal text-muted-foreground dark:text-muted-foreground-dark">
+            <Text className="text-xs font-normal text-muted-foreground">
               {" "}· {teamNames.join(", ")}
             </Text>
           )}
@@ -61,7 +61,7 @@ export function PlaylistCard({
           <Avatar name={sharerName} url={sharerAvatarUrl} size={20} />
           <Text
             numberOfLines={1}
-            className="flex-1 text-xs text-muted-foreground dark:text-muted-foreground-dark"
+            className="flex-1 text-xs text-muted-foreground"
           >
             {sharerName ?? "A coach"}
             {when ? ` · ${when}` : ""}
@@ -73,14 +73,14 @@ export function PlaylistCard({
       {!isNew && !isComplete && (
         <View className="gap-1.5">
           <ProgressBar value={pct} />
-          <Text className="text-xs text-muted-foreground dark:text-muted-foreground-dark">
+          <Text className="text-xs text-muted-foreground">
             {watchedCount} of {clipCount} watched
           </Text>
         </View>
       )}
 
       <View className="flex-row items-center justify-between gap-2">
-        <Text className="text-xs text-muted-foreground dark:text-muted-foreground-dark">
+        <Text className="text-xs text-muted-foreground">
           {isComplete
             ? `${clipCount} clips · watched`
             : `${clipCount} clip${clipCount === 1 ? "" : "s"}`}
@@ -89,14 +89,14 @@ export function PlaylistCard({
           <Pressable
             accessibilityRole="button"
             onPress={onResume}
-            className="min-h-[36px] flex-row items-center justify-center gap-1 rounded-md bg-primary dark:bg-primary-dark px-3 active:opacity-80"
+            className="min-h-[36px] flex-row items-center justify-center gap-1 rounded-md bg-primary px-3 active:opacity-80"
           >
-            <Text className="text-xs font-medium text-primary-foreground dark:text-primary-foreground-dark">
+            <Text className="text-xs font-medium text-primary-foreground">
               ▶ Resume
             </Text>
           </Pressable>
         ) : (
-          <Text className="text-xs font-medium text-muted-foreground dark:text-muted-foreground-dark">
+          <Text className="text-xs font-medium text-muted-foreground">
             {isNew ? "Watch ›" : "Open ›"}
           </Text>
         )}

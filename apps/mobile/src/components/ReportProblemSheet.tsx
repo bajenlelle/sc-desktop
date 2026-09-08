@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, Text, TextInput, View } from "react-native";
+import { useAppTheme } from "@/lib/theme-context";
 import Constants from "expo-constants";
 import * as Sentry from "@sentry/react-native";
 import { usePathname } from "expo-router";
@@ -22,6 +23,7 @@ export function ReportProblemSheet({
   const { activeOrgId } = useAuth();
   const pathname = usePathname();
   const [description, setDescription] = useState("");
+  const { varsStyle } = useAppTheme();
   const [submitting, setSubmitting] = useState(false);
 
   function handleClose() {
@@ -58,17 +60,17 @@ export function ReportProblemSheet({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
-      <Pressable className="flex-1 justify-end bg-black/40" onPress={handleClose}>
+      <Pressable className="flex-1 justify-end bg-black/40" style={varsStyle} onPress={handleClose}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <Pressable
-            className="rounded-t-2xl bg-card dark:bg-card-dark px-5 pb-10 pt-2"
+            className="rounded-t-2xl bg-card px-5 pb-10 pt-2"
             onPress={(e) => e.stopPropagation()}
           >
-            <View className="mx-auto my-2 h-1 w-10 rounded-full bg-border dark:bg-border-dark" />
-            <Text className="text-lg font-semibold text-foreground dark:text-foreground-dark">
+            <View className="mx-auto my-2 h-1 w-10 rounded-full bg-border" />
+            <Text className="text-lg font-semibold text-foreground">
               Send feedback
             </Text>
-            <Text className="mt-2 text-sm text-muted-foreground dark:text-muted-foreground-dark">
+            <Text className="mt-2 text-sm text-muted-foreground">
               Found a bug, got an idea, or something confusing? Tell us — your app version and
               current screen are attached automatically.
             </Text>
@@ -81,7 +83,7 @@ export function ReportProblemSheet({
               placeholder="e.g. The video keeps buffering on the second clip…"
               placeholderTextColor="#9ca3af"
               textAlignVertical="top"
-              className="mt-4 min-h-[110px] rounded-xl border border-border dark:border-border-dark px-3 py-2.5 text-base text-foreground dark:text-foreground-dark"
+              className="mt-4 min-h-[110px] rounded-xl border border-border px-3 py-2.5 text-base text-foreground"
             />
             <View className="mt-4 gap-2">
               <Button

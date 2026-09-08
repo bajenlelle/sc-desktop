@@ -10,9 +10,8 @@ import {
   Text,
   TextInput,
   View,
-  useColorScheme,
 } from "react-native";
-import { themeColors } from "@/lib/theme";
+import { useThemeColors } from "@/lib/theme-context";
 import { relativeTime } from "@/lib/format";
 import { Button } from "./Button";
 import { PlaylistCard, type PlaylistCardData } from "./PlaylistCard";
@@ -47,7 +46,7 @@ function Section({
   return (
     <View className="gap-3">
       {title && (
-        <Text className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground dark:text-muted-foreground-dark">
+        <Text className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           {title} <Text className="font-normal opacity-60">{playlists.length}</Text>
         </Text>
       )}
@@ -87,7 +86,7 @@ export function PlaylistFeed({
   const [source, setSource] = useState("all");
   const [sharer, setSharer] = useState("all");
   const [query, setQuery] = useState("");
-  const scheme = useColorScheme();
+  const colors = useThemeColors();
 
   // Filtering, counts, and the hero CTA all live in
   // @scoutable/shared/lib/playlist-feed (tested there).
@@ -118,7 +117,7 @@ export function PlaylistFeed({
   return (
     <View className="flex-1">
       {hasAnything && (
-        <View className="border-b border-border dark:border-border-dark">
+        <View className="border-b border-border">
           {(sharerOptions.length > 0 || sourceOptions.length > 1) && (
             <View className="flex-row items-center justify-end gap-2 px-4 pt-1 pb-2">
               {sharerOptions.length > 0 && (
@@ -135,9 +134,9 @@ export function PlaylistFeed({
                 value={query}
                 onChangeText={setQuery}
                 placeholder="Search playlists…"
-                placeholderTextColor={themeColors(scheme).mutedForeground}
+                placeholderTextColor={colors.mutedForeground}
                 autoCorrect={false}
-                className="min-h-[40px] flex-1 rounded-lg border border-input dark:border-input-dark bg-background dark:bg-card-dark px-3 text-sm text-foreground dark:text-foreground-dark"
+                className="min-h-[40px] flex-1 rounded-lg border border-input bg-background dark:bg-card px-3 text-sm text-foreground"
               />
               {query.length > 0 && (
                 <Pressable
@@ -146,7 +145,7 @@ export function PlaylistFeed({
                   onPress={() => setQuery("")}
                   className="min-h-[40px] min-w-[40px] items-center justify-center"
                 >
-                  <Text className="text-base text-muted-foreground dark:text-muted-foreground-dark">
+                  <Text className="text-base text-muted-foreground">
                     ✕
                   </Text>
                 </Pressable>
@@ -166,14 +165,14 @@ export function PlaylistFeed({
                   accessibilityRole="button"
                   onPress={() => setWatch(c.key)}
                   className={`min-h-[36px] flex-row items-center gap-1.5 rounded-full px-3 ${
-                    active ? "bg-primary dark:bg-primary-dark" : "bg-muted dark:bg-muted-dark"
+                    active ? "bg-primary" : "bg-muted"
                   }`}
                 >
                   <Text
                     className={`text-xs font-medium ${
                       active
-                        ? "text-primary-foreground dark:text-primary-foreground-dark"
-                        : "text-muted-foreground dark:text-muted-foreground-dark"
+                        ? "text-primary-foreground"
+                        : "text-muted-foreground"
                     }`}
                   >
                     {c.label} {counts[c.key]}
@@ -192,16 +191,16 @@ export function PlaylistFeed({
       >
         {!hasAnything ? (
           <View className="flex-1 items-center justify-center gap-3 px-6 py-16">
-            <Text className="text-sm font-medium text-foreground dark:text-foreground-dark">
+            <Text className="text-sm font-medium text-foreground">
               No playlists yet
             </Text>
-            <Text className="max-w-xs text-center text-sm text-muted-foreground dark:text-muted-foreground-dark">
+            <Text className="max-w-xs text-center text-sm text-muted-foreground">
               {emptyCopy ?? "When your coach shares clips with you, they'll show up here."}
             </Text>
           </View>
         ) : visible.length === 0 ? (
           <View className="items-center gap-2 px-6 py-16">
-            <Text className="text-sm text-muted-foreground dark:text-muted-foreground-dark">
+            <Text className="text-sm text-muted-foreground">
               Nothing here right now.
             </Text>
             <Pressable
@@ -214,7 +213,7 @@ export function PlaylistFeed({
               }}
               className="min-h-[36px] justify-center"
             >
-              <Text className="text-sm font-medium text-primary dark:text-primary-dark">
+              <Text className="text-sm font-medium text-primary">
                 Clear filters
               </Text>
             </Pressable>
@@ -224,9 +223,9 @@ export function PlaylistFeed({
           <View className="gap-8 px-4 py-5">
             {/* Hero CTA — hidden while searching (the user is already navigating). */}
             {hero && hero.kind !== "done" && query.trim().length === 0 && (
-              <View className="gap-3 rounded-xl border border-primary/30 dark:border-primary-dark/30 bg-primary/5 p-4">
+              <View className="gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4">
                 <View>
-                  <Text className="text-xs font-semibold uppercase tracking-wider text-primary dark:text-primary-dark">
+                  <Text className="text-xs font-semibold uppercase tracking-wider text-primary">
                     {hero.kind === "continue"
                       ? "Pick up where you left off"
                       : hero.count === 1
@@ -235,16 +234,16 @@ export function PlaylistFeed({
                   </Text>
                   <Text
                     numberOfLines={1}
-                    className="mt-1 text-base font-semibold text-foreground dark:text-foreground-dark"
+                    className="mt-1 text-base font-semibold text-foreground"
                   >
                     {hero.playlist.name}
                     {hero.playlist.teamNames && hero.playlist.teamNames.length > 0 && (
-                      <Text className="text-xs font-normal text-muted-foreground dark:text-muted-foreground-dark">
+                      <Text className="text-xs font-normal text-muted-foreground">
                         {" "}· {hero.playlist.teamNames.join(", ")}
                       </Text>
                     )}
                   </Text>
-                  <Text className="mt-0.5 text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                  <Text className="mt-0.5 text-xs text-muted-foreground">
                     {hero.kind === "continue"
                       ? `${hero.playlist.watchedCount} of ${hero.playlist.clipCount} watched`
                       : [hero.playlist.sharerName, relativeTime(hero.playlist.sharedAt)]
@@ -259,7 +258,7 @@ export function PlaylistFeed({
               </View>
             )}
             {hero?.kind === "done" && query.trim().length === 0 && (
-              <Text className="text-sm text-muted-foreground dark:text-muted-foreground-dark">
+              <Text className="text-sm text-muted-foreground">
                 ✓ All caught up — you&apos;ve watched everything.
               </Text>
             )}

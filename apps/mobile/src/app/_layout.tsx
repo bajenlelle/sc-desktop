@@ -19,6 +19,8 @@ import {
   BarlowCondensed_700Bold,
 } from "@expo-google-fonts/barlow-condensed";
 import { AuthProvider } from "@/lib/auth-context";
+import { MobileThemeProvider, useThemeColors } from "@/lib/theme-context";
+import { ThemeSync } from "@/components/ThemeSync";
 import { themeColors } from "@/lib/theme";
 
 // DSNs are public identifiers, not secrets. Dev builds stay offline unless
@@ -109,10 +111,28 @@ function PageTracker() {
   return null;
 }
 
-function RootLayout() {
-  const scheme = useColorScheme();
-  const colors = themeColors(scheme);
+/**
+ * Inside MobileThemeProvider so navigator chrome follows the active theme;
+ * StatusBar style="auto" tracks Appearance, which the provider's
+ * colorScheme.set drives.
+ */
+function ThemedShell() {
+  const colors = useThemeColors();
+  return (
+    <>
+      <PageTracker />
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: colors.background },
+        }}
+      />
+      <StatusBar style="auto" />
+    </>
+  );
+}
 
+function RootLayout() {
   useEffect(() => {
     trackEvent("app_started");
   }, []);
@@ -129,14 +149,10 @@ function RootLayout() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
-        <PageTracker />
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: colors.background },
-          }}
-        />
-        <StatusBar style="auto" />
+        <MobileThemeProvider>
+          <ThemeSync />
+          <ThemedShell />
+        </MobileThemeProvider>
       </AuthProvider>
     </SafeAreaProvider>
   );

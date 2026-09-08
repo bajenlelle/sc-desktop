@@ -1,7 +1,9 @@
 /**
- * Palette constants for surfaces NativeWind classes can't reach (navigator
- * backgrounds, ActivityIndicator colors, StatusBar). Values mirror
- * tailwind.config.js, which mirrors apps/web/src/app/globals.css.
+ * STATIC default-palette fallback — only for surfaces that render outside
+ * MobileThemeProvider (the root ErrorBoundary). Everything else uses
+ * useThemeColors() from lib/theme-context, which follows the active color
+ * theme. Values equal THEME_TOKENS' default themes in
+ * @scoutable/shared/lib/themes (change together).
  */
 export const palette = {
   light: {

@@ -1,19 +1,19 @@
 import { Redirect, Stack } from "expo-router";
-import { ActivityIndicator, View, useColorScheme } from "react-native";
+import { ActivityIndicator, View } from "react-native";
 import { useAuth } from "@/lib/auth-context";
 import { PlaylistsProvider } from "@/lib/playlists-store";
 import { DeviceGateScreen } from "@/components/DeviceGateScreen";
 import { NotificationsBridge } from "@/components/NotificationsBridge";
-import { themeColors } from "@/lib/theme";
+import { useThemeColors } from "@/lib/theme-context";
 
 export default function AppLayout() {
   const { user, loading, deviceBlocked } = useAuth();
-  const scheme = useColorScheme();
+  const colors = useThemeColors();
 
   if (loading) {
     return (
-      <View className="flex-1 items-center justify-center bg-background dark:bg-background-dark">
-        <ActivityIndicator size="large" color={themeColors(scheme).primary} />
+      <View className="flex-1 items-center justify-center bg-background">
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }

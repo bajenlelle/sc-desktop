@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { KeyboardAvoidingView, Modal, Platform, Pressable, Text, View } from "react-native";
+import { useAppTheme } from "@/lib/theme-context";
 import { supabase } from "@/lib/supabase";
 import { deleteAccount, mapDeleteAccountError } from "@/lib/account";
 import { Button } from "./Button";
@@ -20,6 +21,7 @@ export function DeleteAccountSheet({
   onClose: () => void;
 }) {
   const [confirmText, setConfirmText] = useState("");
+  const { varsStyle } = useAppTheme();
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,19 +52,19 @@ export function DeleteAccountSheet({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
-      <Pressable className="flex-1 justify-end bg-black/40" onPress={handleClose}>
+      <Pressable className="flex-1 justify-end bg-black/40" style={varsStyle} onPress={handleClose}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <Pressable
-            className="rounded-t-2xl bg-card dark:bg-card-dark px-5 pb-10 pt-2"
+            className="rounded-t-2xl bg-card px-5 pb-10 pt-2"
             onPress={(e) => e.stopPropagation()}
           >
-            <View className="mx-auto my-2 h-1 w-10 rounded-full bg-border dark:bg-border-dark" />
-            <Text className="text-lg font-semibold text-foreground dark:text-foreground-dark">
+            <View className="mx-auto my-2 h-1 w-10 rounded-full bg-border" />
+            <Text className="text-lg font-semibold text-foreground">
               Delete account?
             </Text>
-            <Text className="mt-2 text-sm text-muted-foreground dark:text-muted-foreground-dark">
+            <Text className="mt-2 text-sm text-muted-foreground">
               This permanently deletes the account{" "}
-              <Text className="font-semibold text-foreground dark:text-foreground-dark">
+              <Text className="font-semibold text-foreground">
                 {email}
               </Text>{" "}
               — including your games, playlists, shared links and watch history. Any active

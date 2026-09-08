@@ -10,12 +10,12 @@ import { Button } from "@/components/Button";
  */
 export default function NoOrg() {
   return (
-    <SafeAreaView className="flex-1 bg-background dark:bg-background-dark">
+    <SafeAreaView className="flex-1 bg-background">
       <View className="flex-1 justify-center px-6">
-        <Text className="font-heading text-4xl text-foreground dark:text-foreground-dark">
+        <Text className="font-heading text-4xl text-foreground">
           Almost there
         </Text>
-        <Text className="mt-2 text-base text-muted-foreground dark:text-muted-foreground-dark">
+        <Text className="mt-2 text-base text-muted-foreground">
           Scoutable for players works through your club. Ask your coach for an invite code — once
           you join, the playlists they share will show up here.
         </Text>

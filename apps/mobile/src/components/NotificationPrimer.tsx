@@ -65,10 +65,10 @@ export function NotificationPrimer() {
 
   return (
     <View className="mx-4 mb-2 rounded-xl border border-primary/30 bg-primary/5 p-4">
-      <Text className="text-sm font-semibold text-foreground dark:text-foreground-dark">
+      <Text className="text-sm font-semibold text-foreground">
         Know when new clips land
       </Text>
-      <Text className="mt-1 text-sm text-muted-foreground dark:text-muted-foreground-dark">
+      <Text className="mt-1 text-sm text-muted-foreground">
         {isCoachOrAdmin
           ? "Get a notification when someone shares a playlist with you."
           : "Get a notification when your coach shares a playlist with you."}
@@ -77,18 +77,18 @@ export function NotificationPrimer() {
         <Pressable
           accessibilityRole="button"
           onPress={enable}
-          className="min-h-[44px] items-center justify-center rounded-lg bg-primary dark:bg-primary-dark px-4 active:opacity-80"
+          className="min-h-[44px] items-center justify-center rounded-lg bg-primary px-4 active:opacity-80"
         >
-          <Text className="text-sm font-semibold text-primary-foreground dark:text-primary-foreground-dark">
+          <Text className="text-sm font-semibold text-primary-foreground">
             Turn on notifications
           </Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
           onPress={dismiss}
-          className="min-h-[44px] items-center justify-center rounded-lg px-4 active:bg-muted dark:active:bg-muted-dark"
+          className="min-h-[44px] items-center justify-center rounded-lg px-4 active:bg-muted"
         >
-          <Text className="text-sm font-medium text-muted-foreground dark:text-muted-foreground-dark">
+          <Text className="text-sm font-medium text-muted-foreground">
             Not now
           </Text>
         </Pressable>

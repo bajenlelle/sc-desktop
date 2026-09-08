@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, Text, View, useColorScheme } from "react-native";
+import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Constants from "expo-constants";
 import * as WebBrowser from "expo-web-browser";
@@ -7,9 +7,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth-context";
-import { themeColors } from "@/lib/theme";
+import { useThemeColors } from "@/lib/theme-context";
 import { signOutAndCleanup } from "@/lib/notifications";
 import { usePlaylists } from "@/lib/playlists-store";
+import { AppearanceSection } from "@/components/AppearanceSection";
 import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/Button";
 import { DeleteAccountSheet } from "@/components/DeleteAccountSheet";
@@ -25,7 +26,7 @@ export default function ProfileScreen() {
   const { user, profile, myOrgs, activeOrg, activeOrgId, isPlayerOnly, setActiveOrg, reloadProfile } =
     useAuth();
   const { teamMap, clubTeams } = usePlaylists();
-  const colors = themeColors(useColorScheme());
+  const colors = useThemeColors();
   const [resetting, setResetting] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
@@ -63,10 +64,10 @@ export default function ProfileScreen() {
   }
 
   return (
-    <SafeAreaView edges={["top"]} className="flex-1 bg-background dark:bg-background-dark">
+    <SafeAreaView edges={["top"]} className="flex-1 bg-background">
       {/* Tab root — no back affordance. */}
       <View className="flex-row items-center px-4 pb-1 pt-3">
-        <Text className="font-heading text-2xl text-foreground dark:text-foreground-dark">
+        <Text className="font-heading text-2xl text-foreground">
           Profile
         </Text>
       </View>
@@ -79,13 +80,13 @@ export default function ProfileScreen() {
           <View className="min-w-0 flex-1">
             <Text
               numberOfLines={1}
-              className="text-lg font-semibold text-foreground dark:text-foreground-dark"
+              className="text-lg font-semibold text-foreground"
             >
               {profile?.fullName ?? "—"}
             </Text>
             <Text
               numberOfLines={1}
-              className="text-sm text-muted-foreground dark:text-muted-foreground-dark"
+              className="text-sm text-muted-foreground"
             >
               {user?.email}
             </Text>
@@ -96,17 +97,17 @@ export default function ProfileScreen() {
           // Player-only users have no active-space concept — their feed
           // aggregates every club. Read-only membership list, raw team names
           // (teamMap values carry club prefixes in the multi-club feed).
-          <View className="gap-3 rounded-xl border border-border dark:border-border-dark p-4">
-            <Text className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground dark:text-muted-foreground-dark">
+          <View className="gap-3 rounded-xl border border-border p-4">
+            <Text className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               {clubTeams.length > 1 ? "My clubs" : "My club"}
             </Text>
             {clubTeams.map((c) => (
               <View key={c.orgId}>
-                <Text className="text-base text-foreground dark:text-foreground-dark">
+                <Text className="text-base text-foreground">
                   {c.orgName}
                 </Text>
                 {c.teamNames.length > 0 && (
-                  <Text className="text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                  <Text className="text-sm text-muted-foreground">
                     {c.teamNames.join(" · ")}
                   </Text>
                 )}
@@ -114,9 +115,9 @@ export default function ProfileScreen() {
             ))}
           </View>
         ) : (
-          <View className="gap-2 rounded-xl border border-border dark:border-border-dark p-4">
+          <View className="gap-2 rounded-xl border border-border p-4">
             <View className="flex-row items-center justify-between">
-              <Text className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground dark:text-muted-foreground-dark">
+              <Text className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Club
               </Text>
               {canManageOrg && (
@@ -125,7 +126,7 @@ export default function ProfileScreen() {
                   onPress={handleManageOnWeb}
                   className="min-h-[32px] flex-row items-center gap-1 active:opacity-60"
                 >
-                  <Text className="text-xs font-medium text-muted-foreground dark:text-muted-foreground-dark">
+                  <Text className="text-xs font-medium text-muted-foreground">
                     Manage on web
                   </Text>
                   <Ionicons name="open-outline" size={13} color={colors.mutedForeground} />
@@ -142,17 +143,19 @@ export default function ProfileScreen() {
                 }}
               />
             ) : (
-              <Text className="text-base text-foreground dark:text-foreground-dark">
+              <Text className="text-base text-foreground">
                 {activeOrg?.orgName ?? "—"}
               </Text>
             )}
             {teamNames.length > 0 && (
-              <Text className="text-sm text-muted-foreground dark:text-muted-foreground-dark">
+              <Text className="text-sm text-muted-foreground">
                 {teamNames.join(" · ")}
               </Text>
             )}
           </View>
         )}
+
+        <AppearanceSection />
 
         <DevicesSection />
 
@@ -180,7 +183,7 @@ export default function ProfileScreen() {
           />
         </View>
 
-        <Text className="text-center text-xs text-muted-foreground dark:text-muted-foreground-dark">
+        <Text className="text-center text-xs text-muted-foreground">
           Scoutable {Constants.expoConfig?.version ?? ""}
         </Text>
       </ScrollView>

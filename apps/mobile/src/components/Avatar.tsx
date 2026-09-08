@@ -23,11 +23,11 @@ export function Avatar({
   return (
     <View
       style={{ width: size, height: size, borderRadius: size / 2 }}
-      className="items-center justify-center bg-muted dark:bg-muted-dark"
+      className="items-center justify-center bg-muted"
     >
       <Text
         style={{ fontSize: Math.max(8, size * 0.4) }}
-        className="font-semibold text-muted-foreground dark:text-muted-foreground-dark"
+        className="font-semibold text-muted-foreground"
       >
         {initials(name)}
       </Text>

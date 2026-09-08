@@ -60,7 +60,7 @@ export function ClipRow({
     <Pressable
       accessibilityRole="button"
       onPress={onSelect}
-      className={`min-h-[56px] flex-row items-stretch active:bg-muted dark:active:bg-muted-dark ${
+      className={`min-h-[56px] flex-row items-stretch active:bg-muted ${
         active ? "bg-primary/10" : ""
       }`}
     >
@@ -72,7 +72,7 @@ export function ClipRow({
           {watched ? (
             <Text
               accessibilityLabel="Watched"
-              className="w-4 text-xs text-muted-foreground dark:text-muted-foreground-dark"
+              className="w-4 text-xs text-muted-foreground"
             >
               ✓
             </Text>
@@ -84,7 +84,7 @@ export function ClipRow({
           </View>
           <Text
             numberOfLines={1}
-            className="flex-1 text-sm text-foreground dark:text-foreground-dark"
+            className="flex-1 text-sm text-foreground"
           >
             {playerName(event)}
           </Text>
@@ -93,7 +93,7 @@ export function ClipRow({
         {context ? (
           <Text
             numberOfLines={1}
-            className="pl-6 text-xs text-muted-foreground dark:text-muted-foreground-dark"
+            className="pl-6 text-xs text-muted-foreground"
           >
             {context}
           </Text>
@@ -101,10 +101,10 @@ export function ClipRow({
 
         {note ? (
           <View className="flex-row items-start gap-1.5 pl-6">
-            <Text className="text-xs text-primary dark:text-primary-dark">💬</Text>
+            <Text className="text-xs text-primary">💬</Text>
             <Text
               numberOfLines={2}
-              className="flex-1 text-xs text-foreground/80 dark:text-foreground-dark/80"
+              className="flex-1 text-xs text-foreground/80"
             >
               {note}
             </Text>

@@ -1,12 +1,12 @@
 import { useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, Text, View, useColorScheme } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { clipViewKey } from "@scoutable/shared/lib/clip-views-db";
 import { useAuth } from "@/lib/auth-context";
 import { trackEvent } from "@/lib/analytics";
 import { playableClips, usePlaylists } from "@/lib/playlists-store";
-import { themeColors } from "@/lib/theme";
+import { useThemeColors } from "@/lib/theme-context";
 import { Avatar } from "@/components/Avatar";
 import { PlaylistFeed } from "@/components/PlaylistFeed";
 import { ReportProblemSheet } from "@/components/ReportProblemSheet";
@@ -27,7 +27,7 @@ export default function PlaylistsScreen() {
     clipViews,
     refresh,
   } = usePlaylists();
-  const scheme = useColorScheme();
+  const colors = useThemeColors();
   const [refreshing, setRefreshing] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [coachTab, setCoachTab] = useState<"by-me" | "with-me">("by-me");
@@ -83,9 +83,9 @@ export default function PlaylistsScreen() {
   }, [refresh]);
 
   return (
-    <SafeAreaView edges={["top"]} className="flex-1 bg-background dark:bg-background-dark">
+    <SafeAreaView edges={["top"]} className="flex-1 bg-background">
       <View className="flex-row items-center justify-between px-4 pb-1 pt-3">
-        <Text className="font-heading text-2xl text-foreground dark:text-foreground-dark">
+        <Text className="font-heading text-2xl text-foreground">
           {isCoachOrAdmin ? "Shared Playlists" : "My Playlists"}
         </Text>
         <View className="flex-row items-center gap-1">
@@ -93,9 +93,9 @@ export default function PlaylistsScreen() {
             accessibilityRole="button"
             accessibilityLabel="Send feedback"
             onPress={() => setFeedbackOpen(true)}
-            className="min-h-[44px] items-center justify-center rounded-full border border-border dark:border-border-dark px-3"
+            className="min-h-[44px] items-center justify-center rounded-full border border-border px-3"
           >
-            <Text className="text-xs font-medium text-muted-foreground dark:text-muted-foreground-dark">
+            <Text className="text-xs font-medium text-muted-foreground">
               Feedback
             </Text>
           </Pressable>
@@ -113,7 +113,7 @@ export default function PlaylistsScreen() {
       {/* Coaches get two views: their outbound dashboard and the normal
           inbound feed — same split as web/desktop. */}
       {isCoachOrAdmin && (
-        <View className="flex-row gap-1 border-b border-border dark:border-border-dark px-4 pb-2">
+        <View className="flex-row gap-1 border-b border-border px-4 pb-2">
           {(
             [
               ["by-me", "Shared by me"],
@@ -125,14 +125,14 @@ export default function PlaylistsScreen() {
               accessibilityRole="button"
               onPress={() => setCoachTab(key)}
               className={`min-h-[36px] justify-center rounded-md px-3 ${
-                coachTab === key ? "bg-primary/10 dark:bg-primary-dark/10" : ""
+                coachTab === key ? "bg-primary/10" : ""
               }`}
             >
               <Text
                 className={`text-sm font-medium ${
                   coachTab === key
-                    ? "text-primary dark:text-primary-dark"
-                    : "text-muted-foreground dark:text-muted-foreground-dark"
+                    ? "text-primary"
+                    : "text-muted-foreground"
                 }`}
               >
                 {label}
@@ -148,7 +148,7 @@ export default function PlaylistsScreen() {
 
       {loading ? (
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color={themeColors(scheme).primary} />
+          <ActivityIndicator size="large" color={colors.primary} />
         </View>
       ) : isCoachOrAdmin && coachTab === "by-me" ? (
         <SharedByMeDashboard />

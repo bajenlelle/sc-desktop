@@ -48,7 +48,7 @@ export default function SignIn() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-background dark:bg-background-dark">
+    <SafeAreaView className="flex-1 bg-background">
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         className="flex-1"
@@ -57,10 +57,10 @@ export default function SignIn() {
           contentContainerClassName="flex-grow justify-center px-6 py-8"
           keyboardShouldPersistTaps="handled"
         >
-          <Text className="font-heading text-4xl text-foreground dark:text-foreground-dark">
+          <Text className="font-heading text-4xl text-foreground">
             Welcome back
           </Text>
-          <Text className="mt-1 text-base text-muted-foreground dark:text-muted-foreground-dark">
+          <Text className="mt-1 text-base text-muted-foreground">
             Sign in to watch your playlists
           </Text>
 
@@ -86,7 +86,7 @@ export default function SignIn() {
               onSubmitEditing={handleSignIn}
             />
             {error ? (
-              <Text className="text-sm text-destructive dark:text-destructive-dark">{error}</Text>
+              <Text className="text-sm text-destructive">{error}</Text>
             ) : null}
             <Button
               title="Sign in"
@@ -95,18 +95,18 @@ export default function SignIn() {
               disabled={!email.trim() || !password}
             />
             <Link href="/forgot-password" asChild>
-              <Text className="text-center text-sm text-primary dark:text-primary-dark">
+              <Text className="text-center text-sm text-primary">
                 Forgot your password?
               </Text>
             </Link>
           </View>
 
           <View className="my-6 flex-row items-center gap-3">
-            <View className="h-px flex-1 bg-border dark:bg-border-dark" />
-            <Text className="text-xs uppercase text-muted-foreground dark:text-muted-foreground-dark">
+            <View className="h-px flex-1 bg-border" />
+            <Text className="text-xs uppercase text-muted-foreground">
               or
             </Text>
-            <View className="h-px flex-1 bg-border dark:bg-border-dark" />
+            <View className="h-px flex-1 bg-border" />
           </View>
 
           <View className="gap-3">
@@ -125,11 +125,11 @@ export default function SignIn() {
           </View>
 
           <View className="mt-8 flex-row justify-center gap-1">
-            <Text className="text-sm text-muted-foreground dark:text-muted-foreground-dark">
+            <Text className="text-sm text-muted-foreground">
               New to Scoutable?
             </Text>
             <Link href="/sign-up" asChild>
-              <Text className="text-sm font-semibold text-primary dark:text-primary-dark">
+              <Text className="text-sm font-semibold text-primary">
                 Create an account
               </Text>
             </Link>

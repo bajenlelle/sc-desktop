@@ -46,7 +46,7 @@ export default function Onboarding() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-background dark:bg-background-dark">
+    <SafeAreaView className="flex-1 bg-background">
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         className="flex-1"
@@ -55,10 +55,10 @@ export default function Onboarding() {
           contentContainerClassName="flex-grow justify-center px-6 py-8"
           keyboardShouldPersistTaps="handled"
         >
-          <Text className="font-heading text-4xl text-foreground dark:text-foreground-dark">
+          <Text className="font-heading text-4xl text-foreground">
             Join your club
           </Text>
-          <Text className="mt-2 text-base text-muted-foreground dark:text-muted-foreground-dark">
+          <Text className="mt-2 text-base text-muted-foreground">
             Enter the invite code from your coach, or paste the invite link.
           </Text>
 
@@ -72,7 +72,7 @@ export default function Onboarding() {
               onSubmitEditing={handleJoin}
             />
             {error ? (
-              <Text className="text-sm text-destructive dark:text-destructive-dark">{error}</Text>
+              <Text className="text-sm text-destructive">{error}</Text>
             ) : null}
             <Button title="Join" onPress={handleJoin} loading={submitting} disabled={!input.trim()} />
             <Button title="Sign out" variant="ghost" onPress={handleSignOut} />

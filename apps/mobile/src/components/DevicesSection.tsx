@@ -97,15 +97,15 @@ export function DevicesSection() {
   const renderRow = (d: UserDevice, dimmed: boolean) => (
     <View key={d.deviceId} className={`flex-row items-center gap-3 ${dimmed ? "opacity-50" : ""}`}>
       <View className="min-w-0 flex-1">
-        <Text numberOfLines={1} className="text-base text-foreground dark:text-foreground-dark">
+        <Text numberOfLines={1} className="text-base text-foreground">
           {d.deviceName ?? d.platform ?? "Unknown device"}
         </Text>
-        <Text className="text-sm text-muted-foreground dark:text-muted-foreground-dark">
+        <Text className="text-sm text-muted-foreground">
           {appKindLabel(d.app)} · Last active {lastActive(d.lastSeen)}
         </Text>
       </View>
       {d.deviceId === ownDeviceId ? (
-        <Text className="text-xs font-medium text-primary dark:text-primary-dark">
+        <Text className="text-xs font-medium text-primary">
           This device
         </Text>
       ) : (
@@ -115,7 +115,7 @@ export function DevicesSection() {
           onPress={() => confirmRemove(d)}
           className="min-h-[32px] justify-center px-2 active:opacity-60"
         >
-          <Text className="text-sm font-medium text-destructive dark:text-destructive-dark">
+          <Text className="text-sm font-medium text-destructive">
             {removingId === d.deviceId ? "Removing…" : "Remove"}
           </Text>
         </Pressable>
@@ -124,18 +124,18 @@ export function DevicesSection() {
   );
 
   return (
-    <View className="gap-3 rounded-xl border border-border dark:border-border-dark p-4">
-      <Text className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground dark:text-muted-foreground-dark">
+    <View className="gap-3 rounded-xl border border-border p-4">
+      <Text className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
         Devices
       </Text>
       {active.map((d) => renderRow(d, false))}
       {inactive.length > 0 && (
         <>
           <View className="mt-1">
-            <Text className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground dark:text-muted-foreground-dark">
+            <Text className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Inactive
             </Text>
-            <Text className="mt-1 text-sm text-muted-foreground dark:text-muted-foreground-dark">
+            <Text className="mt-1 text-sm text-muted-foreground">
               Not used in the last 30 days — these don't count toward your device limit.
             </Text>
           </View>

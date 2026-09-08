@@ -4,7 +4,7 @@
  * /join/[code] page: preview → join → land in the feed.
  */
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Text, View, useColorScheme } from "react-native";
+import { ActivityIndicator, Text, View } from "react-native";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getInvitePreview, joinByCode } from "@scoutable/shared/lib/profile-db";
@@ -13,7 +13,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { trackEvent } from "@/lib/analytics";
 import { setPendingJoinCode } from "@/lib/pending-join";
-import { themeColors } from "@/lib/theme";
+import { useThemeColors } from "@/lib/theme-context";
 import { Button } from "@/components/Button";
 
 const INVALID_COPY: Record<InviteInvalidReason, string> = {
@@ -30,7 +30,7 @@ const INVALID_COPY: Record<InviteInvalidReason, string> = {
 export default function JoinScreen() {
   const { code } = useLocalSearchParams<{ code: string }>();
   const { user, loading, setActiveOrg, reloadProfile } = useAuth();
-  const scheme = useColorScheme();
+  const colors = useThemeColors();
   const [error, setError] = useState<string | null>(null);
   const [orgName, setOrgName] = useState<string | null>(null);
 
@@ -71,22 +71,22 @@ export default function JoinScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-background dark:bg-background-dark">
+    <SafeAreaView className="flex-1 bg-background">
       <View className="flex-1 items-center justify-center gap-4 px-6">
         {error ? (
           <>
-            <Text className="text-center font-heading text-3xl text-foreground dark:text-foreground-dark">
+            <Text className="text-center font-heading text-3xl text-foreground">
               Can&apos;t join
             </Text>
-            <Text className="text-center text-base text-muted-foreground dark:text-muted-foreground-dark">
+            <Text className="text-center text-base text-muted-foreground">
               {error}
             </Text>
             <Button title="Go to my playlists" onPress={() => router.replace("/playlists")} />
           </>
         ) : (
           <>
-            <ActivityIndicator size="large" color={themeColors(scheme).primary} />
-            <Text className="text-base text-muted-foreground dark:text-muted-foreground-dark">
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text className="text-base text-muted-foreground">
               {orgName ? `Joining ${orgName}…` : "Checking your invite…"}
             </Text>
           </>

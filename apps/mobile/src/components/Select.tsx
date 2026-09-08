@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Modal, Pressable, ScrollView, Text, View } from "react-native";
+import { useAppTheme } from "@/lib/theme-context";
 
 export interface SelectOption {
   value: string;
@@ -23,36 +24,37 @@ export function Select({
   onChange: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const { varsStyle } = useAppTheme();
   const activeLabel = options.find((o) => o.value === value)?.label ?? options[0]?.label ?? "";
 
   return (
     <View className="flex-row items-center gap-1.5">
       {prefix ? (
-        <Text className="text-xs text-muted-foreground dark:text-muted-foreground-dark">
+        <Text className="text-xs text-muted-foreground">
           {prefix}
         </Text>
       ) : null}
       <Pressable
         accessibilityRole="button"
         onPress={() => setOpen(true)}
-        className="min-h-[36px] flex-row items-center gap-1 rounded-md border border-border dark:border-border-dark px-2.5 active:bg-muted dark:active:bg-muted-dark"
+        className="min-h-[36px] flex-row items-center gap-1 rounded-md border border-border px-2.5 active:bg-muted"
       >
         <Text
           numberOfLines={1}
-          className="max-w-[9rem] text-xs font-medium text-foreground dark:text-foreground-dark"
+          className="max-w-[9rem] text-xs font-medium text-foreground"
         >
           {activeLabel}
         </Text>
-        <Text className="text-xs text-muted-foreground dark:text-muted-foreground-dark">▾</Text>
+        <Text className="text-xs text-muted-foreground">▾</Text>
       </Pressable>
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <Pressable className="flex-1 justify-end bg-black/40" onPress={() => setOpen(false)}>
+        <Pressable className="flex-1 justify-end bg-black/40" style={varsStyle} onPress={() => setOpen(false)}>
           <Pressable
-            className="max-h-[60%] rounded-t-2xl bg-card dark:bg-card-dark pb-8 pt-2"
+            className="max-h-[60%] rounded-t-2xl bg-card pb-8 pt-2"
             onPress={(e) => e.stopPropagation()}
           >
-            <View className="mx-auto my-2 h-1 w-10 rounded-full bg-border dark:bg-border-dark" />
+            <View className="mx-auto my-2 h-1 w-10 rounded-full bg-border" />
             <ScrollView>
               {options.map((o) => (
                 <Pressable
@@ -62,19 +64,19 @@ export function Select({
                     onChange(o.value);
                     setOpen(false);
                   }}
-                  className="min-h-[48px] flex-row items-center justify-between px-5 active:bg-muted dark:active:bg-muted-dark"
+                  className="min-h-[48px] flex-row items-center justify-between px-5 active:bg-muted"
                 >
                   <Text
                     className={`text-base ${
                       o.value === value
-                        ? "font-semibold text-primary dark:text-primary-dark"
-                        : "text-foreground dark:text-foreground-dark"
+                        ? "font-semibold text-primary"
+                        : "text-foreground"
                     }`}
                   >
                     {o.label}
                   </Text>
                   {o.value === value ? (
-                    <Text className="text-primary dark:text-primary-dark">✓</Text>
+                    <Text className="text-primary">✓</Text>
                   ) : null}
                 </Pressable>
               ))}

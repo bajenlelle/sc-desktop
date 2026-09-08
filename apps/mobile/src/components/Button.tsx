@@ -1,6 +1,5 @@
 import { ActivityIndicator, Pressable, Text, type PressableProps } from "react-native";
-import { useColorScheme } from "react-native";
-import { themeColors } from "@/lib/theme";
+import { useThemeColors } from "@/lib/theme-context";
 
 type Variant = "primary" | "secondary" | "outline" | "ghost" | "destructive";
 
@@ -13,19 +12,19 @@ interface ButtonProps extends Omit<PressableProps, "children"> {
 }
 
 const container: Record<Variant, string> = {
-  primary: "bg-primary dark:bg-primary-dark active:opacity-80",
-  secondary: "bg-secondary dark:bg-secondary-dark active:opacity-70",
+  primary: "bg-primary active:opacity-80",
+  secondary: "bg-secondary active:opacity-70",
   outline:
-    "border border-border dark:border-border-dark bg-transparent active:bg-muted dark:active:bg-muted-dark",
-  ghost: "bg-transparent active:bg-muted dark:active:bg-muted-dark",
-  destructive: "bg-destructive dark:bg-destructive-dark active:opacity-80",
+    "border border-border bg-transparent active:bg-muted",
+  ghost: "bg-transparent active:bg-muted",
+  destructive: "bg-destructive active:opacity-80",
 };
 
 const label: Record<Variant, string> = {
-  primary: "text-primary-foreground dark:text-primary-foreground-dark",
-  secondary: "text-foreground dark:text-foreground-dark",
-  outline: "text-foreground dark:text-foreground-dark",
-  ghost: "text-foreground dark:text-foreground-dark",
+  primary: "text-primary-foreground",
+  secondary: "text-foreground",
+  outline: "text-foreground",
+  ghost: "text-foreground",
   destructive: "text-white",
 };
 
@@ -37,8 +36,7 @@ export function Button({
   className = "",
   ...props
 }: ButtonProps) {
-  const scheme = useColorScheme();
-  const colors = themeColors(scheme);
+  const colors = useThemeColors();
   const isDisabled = disabled || loading;
   return (
     <Pressable

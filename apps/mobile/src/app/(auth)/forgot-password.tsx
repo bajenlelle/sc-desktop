@@ -26,7 +26,7 @@ export default function ForgotPassword() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-background dark:bg-background-dark">
+    <SafeAreaView className="flex-1 bg-background">
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         className="flex-1"
@@ -35,17 +35,17 @@ export default function ForgotPassword() {
           contentContainerClassName="flex-grow justify-center px-6 py-8"
           keyboardShouldPersistTaps="handled"
         >
-          <Text className="font-heading text-4xl text-foreground dark:text-foreground-dark">
+          <Text className="font-heading text-4xl text-foreground">
             Reset password
           </Text>
           {sent ? (
             <>
-              <Text className="mt-2 text-base text-muted-foreground dark:text-muted-foreground-dark">
+              <Text className="mt-2 text-base text-muted-foreground">
                 If an account exists for {email.trim()}, a reset link is on its way. Open it to set
                 a new password, then sign in here.
               </Text>
               <Link href="/sign-in" asChild>
-                <Text className="mt-6 text-base font-semibold text-primary dark:text-primary-dark">
+                <Text className="mt-6 text-base font-semibold text-primary">
                   Back to sign in
                 </Text>
               </Link>
@@ -63,7 +63,7 @@ export default function ForgotPassword() {
                 placeholder="you@example.com"
               />
               {error ? (
-                <Text className="text-sm text-destructive dark:text-destructive-dark">{error}</Text>
+                <Text className="text-sm text-destructive">{error}</Text>
               ) : null}
               <Button
                 title="Send reset link"
@@ -72,7 +72,7 @@ export default function ForgotPassword() {
                 disabled={!email.trim()}
               />
               <Link href="/sign-in" asChild>
-                <Text className="text-center text-sm text-primary dark:text-primary-dark">
+                <Text className="text-center text-sm text-primary">
                   Back to sign in
                 </Text>
               </Link>

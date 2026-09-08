@@ -1,6 +1,6 @@
 import { forwardRef } from "react";
-import { Text, TextInput, View, useColorScheme, type TextInputProps } from "react-native";
-import { themeColors } from "@/lib/theme";
+import { Text, TextInput, View, type TextInputProps } from "react-native";
+import { useThemeColors } from "@/lib/theme-context";
 
 interface InputProps extends TextInputProps {
   label?: string;
@@ -11,25 +11,24 @@ export const Input = forwardRef<TextInput, InputProps>(function Input(
   { label, error, className = "", ...props },
   ref
 ) {
-  const scheme = useColorScheme();
-  const colors = themeColors(scheme);
+  const colors = useThemeColors();
   return (
     <View className="w-full">
       {label ? (
-        <Text className="mb-1.5 text-sm font-medium text-foreground dark:text-foreground-dark">
+        <Text className="mb-1.5 text-sm font-medium text-foreground">
           {label}
         </Text>
       ) : null}
       <TextInput
         ref={ref}
         placeholderTextColor={colors.mutedForeground}
-        className={`min-h-[48px] w-full rounded-lg border border-input dark:border-input-dark bg-background dark:bg-card-dark px-3 text-base text-foreground dark:text-foreground-dark ${
-          error ? "border-destructive dark:border-destructive-dark" : ""
+        className={`min-h-[48px] w-full rounded-lg border border-input bg-background dark:bg-card px-3 text-base text-foreground ${
+          error ? "border-destructive" : ""
         } ${className}`}
         {...props}
       />
       {error ? (
-        <Text className="mt-1 text-sm text-destructive dark:text-destructive-dark">{error}</Text>
+        <Text className="mt-1 text-sm text-destructive">{error}</Text>
       ) : null}
     </View>
   );

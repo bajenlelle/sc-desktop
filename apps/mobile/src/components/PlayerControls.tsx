@@ -5,6 +5,7 @@
  */
 import { useState } from "react";
 import { Modal, Pressable, Text, View } from "react-native";
+import { useAppTheme } from "@/lib/theme-context";
 import { SPEEDS } from "@/hooks/use-clip-queue";
 
 function ControlButton({
@@ -28,15 +29,15 @@ function ControlButton({
       disabled={disabled}
       className={`items-center justify-center rounded-full ${
         size === "lg"
-          ? "h-14 w-14 bg-primary dark:bg-primary-dark active:opacity-80"
-          : "h-11 w-11 active:bg-muted dark:active:bg-muted-dark"
+          ? "h-14 w-14 bg-primary active:opacity-80"
+          : "h-11 w-11 active:bg-muted"
       } ${disabled ? "opacity-40" : ""}`}
     >
       <Text
         className={
           size === "lg"
-            ? "text-xl text-primary-foreground dark:text-primary-foreground-dark"
-            : "text-lg text-foreground dark:text-foreground-dark"
+            ? "text-xl text-primary-foreground"
+            : "text-lg text-foreground"
         }
       >
         {glyph}
@@ -71,6 +72,7 @@ export function PlayerControls({
   onSpeedChange: (s: number) => void;
 }) {
   const [speedOpen, setSpeedOpen] = useState(false);
+  const { varsStyle } = useAppTheme();
 
   return (
     <View className="flex-row items-center justify-between px-4 py-2">
@@ -78,9 +80,9 @@ export function PlayerControls({
         accessibilityRole="button"
         accessibilityLabel="Playback speed"
         onPress={() => setSpeedOpen(true)}
-        className="min-h-[44px] min-w-[44px] items-center justify-center rounded-md active:bg-muted dark:active:bg-muted-dark"
+        className="min-h-[44px] min-w-[44px] items-center justify-center rounded-md active:bg-muted"
       >
-        <Text className="text-xs font-semibold text-muted-foreground dark:text-muted-foreground-dark">
+        <Text className="text-xs font-semibold text-muted-foreground">
           {speed}×
         </Text>
       </Pressable>
@@ -107,13 +109,13 @@ export function PlayerControls({
         animationType="fade"
         onRequestClose={() => setSpeedOpen(false)}
       >
-        <Pressable className="flex-1 justify-end bg-black/40" onPress={() => setSpeedOpen(false)}>
+        <Pressable className="flex-1 justify-end bg-black/40" style={varsStyle} onPress={() => setSpeedOpen(false)}>
           <Pressable
-            className="rounded-t-2xl bg-card dark:bg-card-dark pb-8 pt-2"
+            className="rounded-t-2xl bg-card pb-8 pt-2"
             onPress={(e) => e.stopPropagation()}
           >
-            <View className="mx-auto my-2 h-1 w-10 rounded-full bg-border dark:bg-border-dark" />
-            <Text className="px-5 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground dark:text-muted-foreground-dark">
+            <View className="mx-auto my-2 h-1 w-10 rounded-full bg-border" />
+            <Text className="px-5 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Playback speed
             </Text>
             {SPEEDS.map((s) => (
@@ -124,18 +126,18 @@ export function PlayerControls({
                   onSpeedChange(s);
                   setSpeedOpen(false);
                 }}
-                className="min-h-[48px] flex-row items-center justify-between px-5 active:bg-muted dark:active:bg-muted-dark"
+                className="min-h-[48px] flex-row items-center justify-between px-5 active:bg-muted"
               >
                 <Text
                   className={`text-base ${
                     s === speed
-                      ? "font-semibold text-primary dark:text-primary-dark"
-                      : "text-foreground dark:text-foreground-dark"
+                      ? "font-semibold text-primary"
+                      : "text-foreground"
                   }`}
                 >
                   {s}×
                 </Text>
-                {s === speed ? <Text className="text-primary dark:text-primary-dark">✓</Text> : null}
+                {s === speed ? <Text className="text-primary">✓</Text> : null}
               </Pressable>
             ))}
           </Pressable>

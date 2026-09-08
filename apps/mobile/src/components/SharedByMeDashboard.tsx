@@ -7,7 +7,6 @@ import {
   Text,
   TextInput,
   View,
-  useColorScheme,
 } from "react-native";
 import { router } from "expo-router";
 import { getMySharedPlaylists, type SharedPlaylist } from "@scoutable/shared/lib/playlists-db";
@@ -32,7 +31,7 @@ import { trackEvent } from "@/lib/analytics";
 import { Button } from "@/components/Button";
 import { usePlaylists } from "@/lib/playlists-store";
 import { relativeTime } from "@/lib/format";
-import { themeColors } from "@/lib/theme";
+import { useThemeColors } from "@/lib/theme-context";
 import { Avatar } from "@/components/Avatar";
 import { ProgressBar } from "@/components/ProgressBar";
 import { Select } from "@/components/Select";
@@ -60,11 +59,11 @@ function SegmentedProgress({
   const progressPct = total > 0 ? (inProgress / total) * 100 : 0;
   return (
     <View
-      className={`h-1.5 flex-row overflow-hidden rounded-full bg-muted dark:bg-muted-dark ${className}`}
+      className={`h-1.5 flex-row overflow-hidden rounded-full bg-muted ${className}`}
     >
-      <View className="h-full bg-primary dark:bg-primary-dark" style={{ width: `${donePct}%` }} />
+      <View className="h-full bg-primary" style={{ width: `${donePct}%` }} />
       <View
-        className="h-full bg-primary/40 dark:bg-primary-dark/40"
+        className="h-full bg-primary/40"
         style={{ width: `${progressPct}%` }}
       />
     </View>
@@ -76,7 +75,7 @@ function StatusPill({ done, started }: { done: boolean; started: boolean }) {
     ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
     : started
       ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
-      : "bg-muted dark:bg-muted-dark text-muted-foreground dark:text-muted-foreground-dark";
+      : "bg-muted text-muted-foreground";
   return (
     <Text className={`rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>
       {done ? "Done" : started ? "In progress" : "Not started"}
@@ -90,8 +89,7 @@ function StatusPill({ done, started }: { done: boolean; started: boolean }) {
  * recipient rows, and reminder nudges.
  */
 export function SharedByMeDashboard() {
-  const scheme = useColorScheme();
-  const colors = themeColors(scheme);
+  const colors = useThemeColors();
   const { teamMap, memberMap } = usePlaylists();
   const { user, activeOrg, activeOrgId } = useAuth();
   const currentUserId = user?.id ?? null;
@@ -229,7 +227,7 @@ export function SharedByMeDashboard() {
     const state = remindState.get(`${playlistId}:${recipient.userId}`);
     if (state === "sent") {
       return (
-        <Text className="text-xs text-muted-foreground dark:text-muted-foreground-dark">
+        <Text className="text-xs text-muted-foreground">
           Reminded ✓
         </Text>
       );
@@ -239,12 +237,12 @@ export function SharedByMeDashboard() {
         accessibilityRole="button"
         onPress={() => handleRemind(playlistId, recipient)}
         disabled={state === "sending"}
-        className="min-h-[32px] flex-row items-center justify-center rounded-md border border-border dark:border-border-dark px-2.5 active:bg-muted dark:active:bg-muted-dark"
+        className="min-h-[32px] flex-row items-center justify-center rounded-md border border-border px-2.5 active:bg-muted"
       >
         {state === "sending" ? (
           <ActivityIndicator size="small" color={colors.mutedForeground} />
         ) : (
-          <Text className="text-xs font-medium text-muted-foreground dark:text-muted-foreground-dark">
+          <Text className="text-xs font-medium text-muted-foreground">
             Remind
           </Text>
         )}
@@ -267,16 +265,16 @@ export function SharedByMeDashboard() {
       !!activeOrg && !activeOrg.isPersonal && (activeOrg.role === "coach" || activeOrg.role === "admin");
     return (
       <View className="flex-1 items-center justify-center gap-3 px-6 py-16">
-        <Text className="text-sm font-medium text-foreground dark:text-foreground-dark">
+        <Text className="text-sm font-medium text-foreground">
           You haven&apos;t shared any playlists yet
         </Text>
-        <Text className="max-w-xs text-center text-sm text-muted-foreground dark:text-muted-foreground-dark">
+        <Text className="max-w-xs text-center text-sm text-muted-foreground">
           Share one from the desktop playlist editor and you&apos;ll see here who has watched
           what.
         </Text>
         {canManageOrg && (
           <>
-            <Text className="max-w-xs text-center text-sm text-muted-foreground dark:text-muted-foreground-dark">
+            <Text className="max-w-xs text-center text-sm text-muted-foreground">
               New club? Create teams and invite coaches and players from the web.
             </Text>
             <Button
@@ -304,19 +302,19 @@ export function SharedByMeDashboard() {
       {/* Roll-up strip — "who's behind?" answered before any expanding.
           The behind tile doubles as a filter. */}
       <View className="flex-row items-stretch gap-2">
-        <View className="flex-1 justify-center rounded-lg border border-border dark:border-border-dark px-3 py-2">
-          <Text className="text-lg font-semibold tabular-nums text-foreground dark:text-foreground-dark">
+        <View className="flex-1 justify-center rounded-lg border border-border px-3 py-2">
+          <Text className="text-lg font-semibold tabular-nums text-foreground">
             {summary.playlists}
           </Text>
-          <Text className="text-xs text-muted-foreground dark:text-muted-foreground-dark">
+          <Text className="text-xs text-muted-foreground">
             playlists shared
           </Text>
         </View>
-        <View className="flex-1 justify-center rounded-lg border border-border dark:border-border-dark px-3 py-2">
-          <Text className="text-lg font-semibold tabular-nums text-foreground dark:text-foreground-dark">
+        <View className="flex-1 justify-center rounded-lg border border-border px-3 py-2">
+          <Text className="text-lg font-semibold tabular-nums text-foreground">
             {summary.recipients}
           </Text>
-          <Text className="text-xs text-muted-foreground dark:text-muted-foreground-dark">
+          <Text className="text-xs text-muted-foreground">
             players reached
           </Text>
         </View>
@@ -326,19 +324,19 @@ export function SharedByMeDashboard() {
           className={`flex-1 justify-center rounded-lg border px-3 py-2 ${
             summary.behind > 0
               ? "border-amber-500/40 bg-amber-500/5"
-              : "border-border dark:border-border-dark"
+              : "border-border"
           }`}
         >
           <Text
             className={`text-lg font-semibold tabular-nums ${
               summary.behind > 0
                 ? "text-amber-600 dark:text-amber-400"
-                : "text-foreground dark:text-foreground-dark"
+                : "text-foreground"
             }`}
           >
             {summary.behind}
           </Text>
-          <Text className="text-xs text-muted-foreground dark:text-muted-foreground-dark">
+          <Text className="text-xs text-muted-foreground">
             {summary.behind === 1 ? "player hasn't finished" : "players haven't finished"}
           </Text>
         </Pressable>
@@ -368,7 +366,7 @@ export function SharedByMeDashboard() {
             onChangeText={setQuery}
             placeholder="Search playlists…"
             placeholderTextColor={colors.mutedForeground}
-            className="min-h-[36px] flex-1 rounded-md border border-border dark:border-border-dark px-3 text-sm text-foreground dark:text-foreground-dark"
+            className="min-h-[36px] flex-1 rounded-md border border-border px-3 text-sm text-foreground"
           />
           {query.length > 0 && (
             <Pressable
@@ -377,7 +375,7 @@ export function SharedByMeDashboard() {
               onPress={() => setQuery("")}
               className="min-h-[36px] min-w-[36px] items-center justify-center"
             >
-              <Text className="text-base text-muted-foreground dark:text-muted-foreground-dark">
+              <Text className="text-base text-muted-foreground">
                 ✕
               </Text>
             </Pressable>
@@ -395,14 +393,14 @@ export function SharedByMeDashboard() {
               accessibilityRole="button"
               onPress={() => setStatusFilter(c.key)}
               className={`min-h-[32px] flex-row items-center gap-1.5 rounded-full px-3 ${
-                active ? "bg-primary dark:bg-primary-dark" : "bg-muted dark:bg-muted-dark"
+                active ? "bg-primary" : "bg-muted"
               }`}
             >
               <Text
                 className={`text-xs font-medium ${
                   active
-                    ? "text-primary-foreground dark:text-primary-foreground-dark"
-                    : "text-muted-foreground dark:text-muted-foreground-dark"
+                    ? "text-primary-foreground"
+                    : "text-muted-foreground"
                 }`}
               >
                 {c.label} {counts[c.key]}
@@ -419,7 +417,7 @@ export function SharedByMeDashboard() {
 
       {visibleRows.length === 0 && (
         <View className="items-center gap-2 px-6 py-16">
-          <Text className="text-sm text-muted-foreground dark:text-muted-foreground-dark">
+          <Text className="text-sm text-muted-foreground">
             Nothing matches these filters.
           </Text>
           <Pressable
@@ -431,7 +429,7 @@ export function SharedByMeDashboard() {
             }}
             className="min-h-[36px] justify-center"
           >
-            <Text className="text-sm font-medium text-primary dark:text-primary-dark">
+            <Text className="text-sm font-medium text-primary">
               Clear filters
             </Text>
           </Pressable>
@@ -454,7 +452,7 @@ export function SharedByMeDashboard() {
         return (
           <View
             key={row.playlist.id}
-            className="rounded-xl border border-border dark:border-border-dark"
+            className="rounded-xl border border-border"
           >
             <Pressable
               accessibilityRole="button"
@@ -462,7 +460,7 @@ export function SharedByMeDashboard() {
               className="gap-3 p-4"
             >
               <View className="flex-row items-start gap-2">
-                <Text className="mt-0.5 w-4 text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                <Text className="mt-0.5 w-4 text-xs text-muted-foreground">
                   {expanded ? "▾" : "▸"}
                 </Text>
                 <View className="min-w-0 flex-1">
@@ -472,14 +470,14 @@ export function SharedByMeDashboard() {
                   >
                     <Text
                       numberOfLines={2}
-                      className="text-sm font-semibold text-foreground dark:text-foreground-dark"
+                      className="text-sm font-semibold text-foreground"
                     >
                       {row.playlist.name}
                     </Text>
                   </Pressable>
                   <Text
                     numberOfLines={1}
-                    className="mt-0.5 text-xs text-muted-foreground dark:text-muted-foreground-dark"
+                    className="mt-0.5 text-xs text-muted-foreground"
                   >
                     {reach || "No recipients"}
                     {when ? ` · shared ${when}` : ""}
@@ -501,7 +499,7 @@ export function SharedByMeDashboard() {
                   total={total}
                   className="flex-1"
                 />
-                <Text className="shrink-0 text-xs tabular-nums text-muted-foreground dark:text-muted-foreground-dark">
+                <Text className="shrink-0 text-xs tabular-nums text-muted-foreground">
                   {total > 0 ? `${row.completedCount} done of ${total}` : "No recipients"}
                 </Text>
                 {behindCount > 0 && (
@@ -524,7 +522,7 @@ export function SharedByMeDashboard() {
             </Pressable>
 
             {expanded && (
-              <View className="border-t border-border dark:border-border-dark">
+              <View className="border-t border-border">
                 {row.recipients.map((r) => {
                   const done = row.playableCount > 0 && r.watched >= row.playableCount;
                   const started = r.watched > 0;
@@ -534,14 +532,14 @@ export function SharedByMeDashboard() {
                   return (
                     <View
                       key={r.userId}
-                      className="gap-2 border-b border-border/60 dark:border-border-dark/60 px-4 py-3"
+                      className="gap-2 border-b border-border/60 px-4 py-3"
                     >
                       <View className="flex-row items-center justify-between gap-2">
                         <View className="min-w-0 flex-1 flex-row items-center gap-2">
                           <Avatar name={r.name} url={r.avatarUrl ?? undefined} size={24} />
                           <Text
                             numberOfLines={1}
-                            className="flex-1 text-sm text-foreground dark:text-foreground-dark"
+                            className="flex-1 text-sm text-foreground"
                           >
                             {r.name}
                           </Text>
@@ -550,12 +548,12 @@ export function SharedByMeDashboard() {
                       </View>
                       <View className="flex-row items-center gap-2">
                         <ProgressBar value={rpct} className="flex-1" />
-                        <Text className="text-xs tabular-nums text-muted-foreground dark:text-muted-foreground-dark">
+                        <Text className="text-xs tabular-nums text-muted-foreground">
                           {r.watched}/{row.playableCount}
                         </Text>
                       </View>
                       <View className="flex-row items-center justify-between gap-2">
-                        <Text className="text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                        <Text className="text-xs text-muted-foreground">
                           {active ? `Active ${active}` : "No activity"}
                         </Text>
                         {!done && <RemindButton playlistId={row.playlist.id} recipient={r} />}
@@ -564,7 +562,7 @@ export function SharedByMeDashboard() {
                   );
                 })}
                 {row.recipients.length === 0 && (
-                  <Text className="px-4 py-4 text-center text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                  <Text className="px-4 py-4 text-center text-sm text-muted-foreground">
                     No recipients yet — share this playlist with a team or player.
                   </Text>
                 )}

@@ -1,12 +1,11 @@
 import { useEffect, useMemo } from "react";
 import { Tabs } from "expo-router";
-import { useColorScheme } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { feedCounts } from "@scoutable/shared/lib/playlist-feed";
 import { useAuth } from "@/lib/auth-context";
 import { usePlaylists } from "@/lib/playlists-store";
 import { syncAppBadge } from "@/lib/notifications";
-import { themeColors } from "@/lib/theme";
+import { useThemeColors } from "@/lib/theme-context";
 
 /**
  * Bottom tabs: Playlists + Profile for everyone; My Highlights (the personal
@@ -18,8 +17,7 @@ export default function TabsLayout() {
   const { isPlayerOnly, activeOrgRole } = useAuth();
   const { feedItems, loading } = usePlaylists();
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
-  const scheme = useColorScheme();
-  const colors = themeColors(scheme);
+  const colors = useThemeColors();
 
   // Fully-unwatched playlists — same semantics as the feed's "New" chip
   // (guaranteed: both derive from the store's shared feedItems).

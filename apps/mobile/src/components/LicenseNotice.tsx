@@ -37,7 +37,7 @@ export function LicenseNotice({ className = "" }: { className?: string }) {
             <Text className="text-sm font-semibold text-red-600 dark:text-red-400">
               {o.orgName}&apos;s license has expired
             </Text>
-            <Text className="text-xs text-muted-foreground dark:text-muted-foreground-dark">
+            <Text className="text-xs text-muted-foreground">
               {state === "grace"
                 ? `New shares pause on ${graceEnd} unless it's renewed. `
                 : "New shares are paused — existing playlists stay watchable. "}

@@ -1,8 +1,8 @@
 import { Redirect } from "expo-router";
-import { ActivityIndicator, View, useColorScheme } from "react-native";
+import { ActivityIndicator, View } from "react-native";
 import { useAuth } from "@/lib/auth-context";
 import { consumePendingJoinCode } from "@/lib/pending-join";
-import { themeColors } from "@/lib/theme";
+import { useThemeColors } from "@/lib/theme-context";
 
 /**
  * Route dispatcher — the mobile equivalent of web's proxy.ts middleware:
@@ -11,12 +11,12 @@ import { themeColors } from "@/lib/theme";
  */
 export default function Index() {
   const { user, loading, profileLoading, needsOnboarding, myOrgs } = useAuth();
-  const scheme = useColorScheme();
+  const colors = useThemeColors();
 
   if (loading || (user && profileLoading)) {
     return (
-      <View className="flex-1 items-center justify-center bg-background dark:bg-background-dark">
-        <ActivityIndicator size="large" color={themeColors(scheme).primary} />
+      <View className="flex-1 items-center justify-center bg-background">
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }

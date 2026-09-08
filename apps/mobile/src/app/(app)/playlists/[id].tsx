@@ -120,7 +120,7 @@ export default function WatchScreen() {
 
   if (!playlist && (loading || retrying)) {
     return (
-      <SafeAreaView className="flex-1 items-center justify-center bg-background dark:bg-background-dark">
+      <SafeAreaView className="flex-1 items-center justify-center bg-background">
         <ActivityIndicator size="large" />
       </SafeAreaView>
     );
@@ -128,8 +128,8 @@ export default function WatchScreen() {
 
   if (!playlist) {
     return (
-      <SafeAreaView className="flex-1 items-center justify-center bg-background dark:bg-background-dark px-6">
-        <Text className="text-base text-muted-foreground dark:text-muted-foreground-dark">
+      <SafeAreaView className="flex-1 items-center justify-center bg-background px-6">
+        <Text className="text-base text-muted-foreground">
           This playlist isn&apos;t available.
         </Text>
         <Pressable
@@ -137,7 +137,7 @@ export default function WatchScreen() {
           onPress={() => router.back()}
           className="mt-4 min-h-[44px] justify-center"
         >
-          <Text className="text-base font-semibold text-primary dark:text-primary-dark">
+          <Text className="text-base font-semibold text-primary">
             Back to playlists
           </Text>
         </Pressable>
@@ -146,7 +146,7 @@ export default function WatchScreen() {
   }
 
   return (
-    <SafeAreaView edges={["top"]} className="flex-1 bg-background dark:bg-background-dark">
+    <SafeAreaView edges={["top"]} className="flex-1 bg-background">
       {/* Header */}
       <View className="flex-row items-center gap-2 px-2 pb-2 pt-1">
         <Pressable
@@ -155,11 +155,11 @@ export default function WatchScreen() {
           onPress={() => router.back()}
           className="min-h-[44px] min-w-[44px] items-center justify-center"
         >
-          <Text className="text-2xl text-foreground dark:text-foreground-dark">‹</Text>
+          <Text className="text-2xl text-foreground">‹</Text>
         </Pressable>
         <Text
           numberOfLines={1}
-          className="flex-1 text-base font-semibold text-foreground dark:text-foreground-dark"
+          className="flex-1 text-base font-semibold text-foreground"
         >
           {playlist.name}
         </Text>
@@ -167,9 +167,9 @@ export default function WatchScreen() {
           accessibilityRole="button"
           accessibilityLabel="Send feedback"
           onPress={() => setFeedbackOpen(true)}
-          className="min-h-[44px] items-center justify-center rounded-full border border-border dark:border-border-dark px-3"
+          className="min-h-[44px] items-center justify-center rounded-full border border-border px-3"
         >
-          <Text className="text-xs font-medium text-muted-foreground dark:text-muted-foreground-dark">
+          <Text className="text-xs font-medium text-muted-foreground">
             Feedback
           </Text>
         </Pressable>
@@ -215,7 +215,7 @@ export default function WatchScreen() {
       {progress.total > 0 && (
         <View className="flex-row items-center gap-2 px-4 pb-2">
           <ProgressBar value={(progress.watched / progress.total) * 100} className="flex-1" />
-          <Text className="text-xs tabular-nums text-muted-foreground dark:text-muted-foreground-dark">
+          <Text className="text-xs tabular-nums text-muted-foreground">
             {progress.watched}/{progress.total}
           </Text>
         </View>
@@ -241,9 +241,9 @@ export default function WatchScreen() {
             });
           }, 250);
         }}
-        className="flex-1 border-t border-border dark:border-border-dark"
+        className="flex-1 border-t border-border"
         ItemSeparatorComponent={() => (
-          <View className="h-px bg-border/60 dark:bg-border-dark/60" />
+          <View className="h-px bg-border/60" />
         )}
         renderItem={({ item, index }) => {
           if (isTextCard(item)) {
@@ -251,16 +251,16 @@ export default function WatchScreen() {
               <Pressable
                 accessibilityRole="button"
                 onPress={() => queue.playItem(item)}
-                className={`min-h-[48px] flex-row items-center gap-3 px-4 py-2.5 active:bg-muted dark:active:bg-muted-dark ${
+                className={`min-h-[48px] flex-row items-center gap-3 px-4 py-2.5 active:bg-muted ${
                   queue.activeKey === itemKey(item) ? "bg-primary/10" : ""
                 }`}
               >
-                <Text className="w-5 text-right text-xs tabular-nums text-muted-foreground dark:text-muted-foreground-dark">
+                <Text className="w-5 text-right text-xs tabular-nums text-muted-foreground">
                   {index + 1}
                 </Text>
                 <Text
                   numberOfLines={2}
-                  className="flex-1 text-sm italic text-muted-foreground dark:text-muted-foreground-dark"
+                  className="flex-1 text-sm italic text-muted-foreground"
                 >
                   {item.text}
                 </Text>
@@ -282,7 +282,7 @@ export default function WatchScreen() {
         }}
         ListEmptyComponent={
           <View className="items-center px-6 py-16">
-            <Text className="text-center text-sm text-muted-foreground dark:text-muted-foreground-dark">
+            <Text className="text-center text-sm text-muted-foreground">
               {isCoachOrAdmin
                 ? "No clips to watch yet."
                 : "No clips to watch yet. Your coach may still be uploading."}

@@ -58,16 +58,16 @@ export default function SignUp() {
 
   if (done) {
     return (
-      <SafeAreaView className="flex-1 items-center justify-center bg-background dark:bg-background-dark px-6">
-        <Text className="font-heading text-3xl text-foreground dark:text-foreground-dark">
+      <SafeAreaView className="flex-1 items-center justify-center bg-background px-6">
+        <Text className="font-heading text-3xl text-foreground">
           Check your email
         </Text>
-        <Text className="mt-2 text-center text-base text-muted-foreground dark:text-muted-foreground-dark">
+        <Text className="mt-2 text-center text-base text-muted-foreground">
           We sent a confirmation link to {email.trim()}. Confirm your address, then come back and
           sign in.
         </Text>
         <Link href="/sign-in" asChild>
-          <Text className="mt-6 text-base font-semibold text-primary dark:text-primary-dark">
+          <Text className="mt-6 text-base font-semibold text-primary">
             Back to sign in
           </Text>
         </Link>
@@ -76,7 +76,7 @@ export default function SignUp() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-background dark:bg-background-dark">
+    <SafeAreaView className="flex-1 bg-background">
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         className="flex-1"
@@ -85,7 +85,7 @@ export default function SignUp() {
           contentContainerClassName="flex-grow justify-center px-6 py-8"
           keyboardShouldPersistTaps="handled"
         >
-          <Text className="font-heading text-4xl text-foreground dark:text-foreground-dark">
+          <Text className="font-heading text-4xl text-foreground">
             Create account
           </Text>
 
@@ -100,7 +100,7 @@ export default function SignUp() {
             </View>
 
             <View>
-              <Text className="mb-1.5 text-sm font-medium text-foreground dark:text-foreground-dark">
+              <Text className="mb-1.5 text-sm font-medium text-foreground">
                 I&apos;m a…
               </Text>
               <View className="flex-row gap-3">
@@ -112,15 +112,15 @@ export default function SignUp() {
                     onPress={() => setRole(r)}
                     className={`min-h-[48px] flex-1 items-center justify-center rounded-lg border ${
                       role === r
-                        ? "border-primary dark:border-primary-dark bg-primary/10"
-                        : "border-border dark:border-border-dark"
+                        ? "border-primary bg-primary/10"
+                        : "border-border"
                     }`}
                   >
                     <Text
                       className={`text-base font-semibold ${
                         role === r
-                          ? "text-primary dark:text-primary-dark"
-                          : "text-foreground dark:text-foreground-dark"
+                          ? "text-primary"
+                          : "text-foreground"
                       }`}
                     >
                       {r === "player" ? "Player" : "Coach"}
@@ -155,7 +155,7 @@ export default function SignUp() {
               autoComplete="new-password"
             />
             {error ? (
-              <Text className="text-sm text-destructive dark:text-destructive-dark">{error}</Text>
+              <Text className="text-sm text-destructive">{error}</Text>
             ) : null}
             <Button
               title="Create account"
@@ -166,11 +166,11 @@ export default function SignUp() {
           </View>
 
           <View className="mt-8 flex-row justify-center gap-1">
-            <Text className="text-sm text-muted-foreground dark:text-muted-foreground-dark">
+            <Text className="text-sm text-muted-foreground">
               Already have an account?
             </Text>
             <Link href="/sign-in" asChild>
-              <Text className="text-sm font-semibold text-primary dark:text-primary-dark">
+              <Text className="text-sm font-semibold text-primary">
                 Sign in
               </Text>
             </Link>
