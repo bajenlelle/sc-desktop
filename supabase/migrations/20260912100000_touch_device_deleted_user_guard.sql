@@ -16,12 +16,12 @@
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION touch_device(
-  p_device_id          uuid DEFAULT NULL,
+  p_device_id          uuid DEFAULT NULL,  -- web / legacy clients
   p_app                text DEFAULT NULL,
   p_platform           text DEFAULT NULL,
   p_device_name        text DEFAULT NULL,
-  p_hardware_id        text DEFAULT NULL,
-  p_replaces_device_id uuid DEFAULT NULL
+  p_hardware_id        text DEFAULT NULL,  -- "dt:<sha256hex>" | "ios:<idfv>" | "and:<ssaid>"; never stored raw
+  p_replaces_device_id uuid DEFAULT NULL   -- pre-hardware random-uuid row to collapse into this one
 )
 RETURNS jsonb
 LANGUAGE plpgsql
