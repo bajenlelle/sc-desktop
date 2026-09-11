@@ -24,11 +24,15 @@ export async function saveThemePrefs(
   if (Object.keys(row).length === 0) return true;
 
   try {
+    // getSession (local) over getUser (a network round trip): RLS already
+    // scopes the update to the caller's own row, so the id is only a filter —
+    // and an extra network hop here turns flaky wifi into a silently
+    // unpersisted pick (write "fails", caller reverts its optimistic ref).
     const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return false;
-    const { error } = await supabase.from("profiles").update(row).eq("id", user.id);
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session) return false;
+    const { error } = await supabase.from("profiles").update(row).eq("id", session.user.id);
     if (error) {
       reportDbError("saveThemePrefs", error);
       return false;

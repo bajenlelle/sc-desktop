@@ -15,6 +15,11 @@ export function createClient(): SupabaseClient {
           detectSessionInUrl: false,
           flowType: "implicit",
         },
+        // Realtime heartbeats from a Web Worker, not the main thread — the
+        // webview throttles background-window timers just like a browser tab,
+        // which starves the 25s heartbeat and kills the socket ("heartbeat
+        // timeout" churn; see issue #24).
+        realtime: { worker: true },
       }
     );
   }

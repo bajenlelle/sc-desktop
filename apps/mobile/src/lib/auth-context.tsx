@@ -175,7 +175,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         // Silent and permission-gated (never prompts); the upsert also
         // reassigns a shared device's token to this user.
-        registerForPush(supabase);
+        void registerForPush(supabase);
         void touchThisDevice(supabase).then((v) => {
           if (v?.status === "blocked") {
             setDeviceBlocked(true);

@@ -16,13 +16,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import {
+  createRealtimeReporter,
   filterUnappliedSlots,
-  isTransientRealtimeFailure,
   planAdoption,
   planWrite,
   prefsFromRow,
-  REALTIME_REPORT_GRACE_MS,
-  realtimeReportVerdict,
   unappliedSlotsFor,
   type UnappliedSlots,
   type ThemePrefs,
@@ -32,6 +30,16 @@ import { reportDbError } from "@scoutable/shared/lib/report";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { useAppTheme } from "@/lib/theme-context";
+
+/**
+ * How long a foregrounded app gets to rejoin on its own before the channel is
+ * rebuilt. The resume path is a race: the supabase module's startAutoRefresh
+ * kicks off an async token refresh, and phoenix schedules its own socket
+ * reconnect + rejoin — rebuilding the channel immediately (as this watcher
+ * used to) subscribes with the still-expired token and guarantees one failed
+ * join per resume.
+ */
+const FOREGROUND_REJOIN_GRACE_MS = 8_000;
 
 export function ThemeSync() {
   const { user, profile } = useAuth();
@@ -57,7 +65,10 @@ export function ThemeSync() {
     };
   });
 
+  /** Who the refs currently belong to — guards async callbacks that outlive an account switch. */
+  const activeUserIdRef = useRef<string | null>(null);
   useEffect(() => {
+    activeUserIdRef.current = userId;
     lastServerRef.current = null;
     unappliedRef.current = { themeDark: false, themeLight: false };
     prevLocalRef.current = null;
@@ -95,34 +106,20 @@ export function ThemeSync() {
   }, [userId, hasProfile, profileDark, profileLight, profileMode]);
 
   // T2 — realtime push from the user's own profiles row. `retick` re-runs
-  // the effect when the app returns to the foreground with a dead socket.
+  // the effect when the app returns to the foreground with a dead socket
+  // that didn't recover on its own.
   const [retick, setRetick] = useState(0);
   useEffect(() => {
     if (!userId) return;
-    let reported = false;
-    let reportTimer: ReturnType<typeof setTimeout> | null = null;
-    let rearmed = false;
-    // Self-re-arming so a timer that only fired because the device was
-    // suspended gets a real window instead of filing on wake.
-    const armReportTimer = (message: string) => {
-      const armedAt = Date.now();
-      reportTimer = setTimeout(() => {
-        reportTimer = null;
-        const verdict = realtimeReportVerdict({
-          joined: channel.state === "joined",
-          elapsedMs: Date.now() - armedAt,
-          rearmed,
-        });
-        if (verdict === "quiet") return;
-        if (verdict === "rearm") {
-          rearmed = true;
-          armReportTimer(message);
-          return;
-        }
-        reported = true;
-        reportDbError("themeRealtimeSubscribe", { message });
-      }, REALTIME_REPORT_GRACE_MS);
-    };
+    // Sustained-failure detector (full semantics on createRealtimeReporter):
+    // cold-join churn, suspends, and background throttling never report; a
+    // channel still dead after a clean, foregrounded grace window reports
+    // once. Degrade silently: the AppState profile reload still catches up.
+    const reporter = createRealtimeReporter({
+      isJoined: () => channel.state === "joined",
+      isHidden: () => AppState.currentState !== "active",
+      report: (message, details) => reportDbError("themeRealtimeSubscribe", { message, details }),
+    });
     const channel = supabase
       .channel(`profile-theme-${userId}`)
       .on(
@@ -130,30 +127,29 @@ export function ThemeSync() {
         { event: "UPDATE", schema: "public", table: "profiles", filter: `id=eq.${userId}` },
         (payload) => adoptRef.current(prefsFromRow(payload.new as Record<string, unknown>)),
       )
-      .subscribe((status, err) => {
-        // Realtime's cold join routinely fails once before supabase-js's own
-        // rejoin succeeds, and a suspended device always drops its socket, so
-        // a single failure says nothing: start a grace timer and report only a
-        // channel that never comes back. One report per subscription either
-        // way. Degrade silently: the AppState profile reload still catches up.
-        if (status === "SUBSCRIBED") {
-          if (reportTimer) {
-            clearTimeout(reportTimer);
-            reportTimer = null;
-          }
-          return;
-        }
-        if (!isTransientRealtimeFailure(status) || reported || reportTimer) return;
-        armReportTimer(err?.message ?? status);
-      });
+      .subscribe((status, err) => reporter.onStatus(status, err?.message));
+    // On foreground, give the resumed socket its own shot first (see
+    // FOREGROUND_REJOIN_GRACE_MS): rebuild the channel only if it hasn't
+    // recovered by itself within the grace.
+    let foregroundCheck: ReturnType<typeof setTimeout> | null = null;
     const sub = AppState.addEventListener("change", (state) => {
-      if (state === "active" && channel.state !== "joined") {
-        setRetick((n) => n + 1);
+      if (state !== "active") {
+        if (foregroundCheck) {
+          clearTimeout(foregroundCheck);
+          foregroundCheck = null;
+        }
+        return;
       }
+      if (channel.state === "joined" || foregroundCheck) return;
+      foregroundCheck = setTimeout(() => {
+        foregroundCheck = null;
+        if (channel.state !== "joined") setRetick((n) => n + 1);
+      }, FOREGROUND_REJOIN_GRACE_MS);
     });
     return () => {
       sub.remove();
-      if (reportTimer) clearTimeout(reportTimer);
+      if (foregroundCheck) clearTimeout(foregroundCheck);
+      reporter.dispose();
       void supabase.removeChannel(channel);
     };
   }, [userId, retick]);
@@ -176,7 +172,9 @@ export function ThemeSync() {
     const prior = { ...(lastServerRef.current as ThemePrefs) };
     lastServerRef.current = { ...(lastServerRef.current as ThemePrefs), ...diff };
     void saveThemePrefs(supabase, diff).then((ok) => {
-      if (ok || !lastServerRef.current) return;
+      // The user guard matters after an account switch: a stale failure from
+      // user A must not revert fields in user B's fresh ref.
+      if (ok || activeUserIdRef.current !== userId || !lastServerRef.current) return;
       // Revert only fields still holding our optimistic value (a newer
       // adoption or pick may have moved them since).
       for (const key of Object.keys(diff) as Array<keyof ThemePrefs>) {

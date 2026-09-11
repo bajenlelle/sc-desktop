@@ -74,6 +74,16 @@ export async function registerForPush(client: SupabaseClient = supabase): Promis
     const projectId = Constants.expoConfig?.extra?.eas?.projectId as string | undefined;
     const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
     cachedToken = token;
+    // Last-moment session check: the Expo token fetch above is a network
+    // round-trip, and the session that triggered this call can be gone by now
+    // (expired + failed refresh — offline, or backgrounded with auto-refresh
+    // stopped). Without it, supabase-js falls back to the anon key and the
+    // RPC lands as `anon` -> `not_authenticated`. The next sign-in or primer
+    // retry re-registers; skipping silently here is the correct degrade.
+    const {
+      data: { session },
+    } = await client.auth.getSession();
+    if (!session) return;
     await registerPushToken(client, token, Platform.OS === "ios" ? "ios" : "android", Device.deviceName);
   } catch {
     // Push registration must never break sign-in.

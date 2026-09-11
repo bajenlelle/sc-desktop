@@ -64,22 +64,127 @@ export function isTransientRealtimeFailure(status: string): boolean {
 }
 
 /**
- * What a fired grace timer should do. Timers don't advance while a device is
- * suspended, so one armed before sleep fires the instant the app wakes — with
- * a wall-clock gap far larger than the grace, and before any rejoin could
- * possibly have landed. Reporting there would file exactly the sleeping-device
- * noise the grace window exists to suppress, so a suspiciously late timer
- * earns one more window instead. A genuinely stuck channel still reports on
- * the second pass.
+ * Second look before reporting: a fired grace timer that finds the channel
+ * mid-rejoin (phoenix backoff peaks at 10s + a 10s join timeout) would report
+ * a connection that is seconds from healthy, so the first clean window earns
+ * one short confirmation window instead of a report.
  */
-export function realtimeReportVerdict(state: {
-  joined: boolean;
-  elapsedMs: number;
-  rearmed: boolean;
-}): "quiet" | "rearm" | "report" {
-  if (state.joined) return "quiet";
-  if (!state.rearmed && state.elapsedMs > REALTIME_REPORT_GRACE_MS * 2) return "rearm";
-  return "report";
+export const REALTIME_CONFIRM_MS = 10_000;
+
+export interface RealtimeReporterOptions {
+  /** Live probe, sampled when a timer fires: is the channel joined right now? */
+  isJoined: () => boolean;
+  /**
+   * Whether the app/tab is currently hidden or backgrounded. Hidden contexts
+   * never report: their timers are throttled (Chrome backgrounds ~1/min) and
+   * their sockets are expectedly degraded, so nothing sampled there is
+   * evidence of a real outage.
+   */
+  isHidden?: () => boolean;
+  /** Sink for the single report. `message` is a stable per-status string (bounded Sentry cardinality); `detail` carries the raw library message. */
+  report: (message: string, detail?: string) => void;
+  /** Injectable clock/timers for tests. */
+  now?: () => number;
+  setTimer?: (fn: () => void, ms: number) => unknown;
+  clearTimer?: (handle: unknown) => void;
+}
+
+export interface RealtimeReporter {
+  /** Feed every `subscribe` status callback through here. */
+  onStatus: (status: string, errMessage?: string) => void;
+  /** Call from the effect cleanup — cancels timers and makes late statuses no-ops. */
+  dispose: () => void;
+}
+
+/**
+ * The sustained-failure detector behind `themeRealtimeSubscribe` reports.
+ * One per subscription. A report fires only for a channel that stayed
+ * unjoined through a full grace window measured while the app was visible
+ * and awake, plus a short confirmation window:
+ *
+ * - SUBSCRIBED / CLOSED cancel any pending window (a recovered or
+ *   deliberately-torn-down channel is never an outage).
+ * - A window that fired while hidden, or whose wall-clock elapsed far
+ *   exceeds its length (the device was suspended — frozen timers fire
+ *   immediately on wake, before any rejoin could land), restarts the grace
+ *   window instead of reporting, as many times as it takes: suspension is
+ *   not evidence.
+ * - The reported message is the status token, not the raw socket message —
+ *   raw messages (`socket closed: 1006 (…)`) vary per event and would mint a
+ *   new Sentry issue (and a triage cycle) per variant. The latest raw
+ *   message rides along as `detail`, and later failures update it, so the
+ *   report never misattributes an old cause.
+ * - At most one report per subscription, ever (`reported` is sticky) — the
+ *   watchers degrade silently and profile reloads remain the catch-up path.
+ */
+export function createRealtimeReporter(opts: RealtimeReporterOptions): RealtimeReporter {
+  const now = opts.now ?? Date.now;
+  const setTimer = opts.setTimer ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
+  const clearTimer =
+    opts.clearTimer ?? ((handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>));
+
+  let disposed = false;
+  let reported = false;
+  let confirming = false;
+  let lastStatus: string | null = null;
+  let lastDetail: string | undefined;
+  let timer: unknown = null;
+  let armedAt = 0;
+  let armedFor = 0;
+
+  const clear = () => {
+    if (timer !== null) {
+      clearTimer(timer);
+      timer = null;
+    }
+    confirming = false;
+  };
+
+  const arm = (ms: number) => {
+    armedAt = now();
+    armedFor = ms;
+    timer = setTimer(fire, ms);
+  };
+
+  const fire = () => {
+    timer = null;
+    if (disposed || reported) return;
+    if (opts.isJoined()) {
+      confirming = false;
+      return;
+    }
+    if (opts.isHidden?.() || now() - armedAt > armedFor * 2) {
+      confirming = false;
+      arm(REALTIME_REPORT_GRACE_MS);
+      return;
+    }
+    if (!confirming) {
+      confirming = true;
+      arm(REALTIME_CONFIRM_MS);
+      return;
+    }
+    confirming = false;
+    reported = true;
+    opts.report(`sustained realtime failure: ${lastStatus ?? "unknown"}`, lastDetail);
+  };
+
+  return {
+    onStatus(status, errMessage) {
+      if (disposed) return;
+      if (status === "SUBSCRIBED" || status === "CLOSED") {
+        clear();
+        return;
+      }
+      if (!isTransientRealtimeFailure(status)) return;
+      lastStatus = status;
+      lastDetail = errMessage ?? lastDetail;
+      if (!reported && timer === null) arm(REALTIME_REPORT_GRACE_MS);
+    },
+    dispose() {
+      disposed = true;
+      clear();
+    },
+  };
 }
 
 /** Snake_case profiles row / realtime payload.new -> ThemePrefs. Invalid or missing values become null. */

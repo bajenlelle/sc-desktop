@@ -41,7 +41,8 @@ jobs:
                `gh issue list --state all --limit 50 --search "<keywords>"` to look
                for duplicates.
             2. If it duplicates an existing issue: add the `duplicate` label, comment
-               with a link to the original, and stop.
+               with a link to the original, close it with
+               `gh issue close <n> --reason "not planned"`, and stop.
             3. Otherwise add exactly one `app:*` label if determinable (desktop/web/
                mobile — user reports and Sentry issues state it), and one `severity:*`
                label: critical = data loss, crash on launch, auth or payments broken;
@@ -54,4 +55,4 @@ jobs:
                this looks safe for an automated fix. Do not modify any code. Do not
                open pull requests.
           claude_args: |
-            --allowedTools "Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh issue edit:*),Bash(gh issue comment:*),Read,Grep,Glob"
+            --allowedTools "Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh issue edit:*),Bash(gh issue comment:*),Bash(gh issue close:*),Read,Grep,Glob"

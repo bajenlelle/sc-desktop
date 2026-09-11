@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { ThemePrefs } from "../theme-sync";
+import type { RealtimeReporter, ThemePrefs } from "../theme-sync";
 import {
+  createRealtimeReporter,
   filterUnappliedSlots,
   isTransientRealtimeFailure,
   planAdoption,
   planWrite,
   prefsFromRow,
+  REALTIME_CONFIRM_MS,
   REALTIME_REPORT_GRACE_MS,
-  realtimeReportVerdict,
   unappliedSlotsFor,
 } from "../theme-sync";
 import type { MobileThemeTokens } from "../themes";
@@ -340,29 +341,207 @@ describe("isTransientRealtimeFailure", () => {
   });
 });
 
-describe("realtimeReportVerdict", () => {
+describe("createRealtimeReporter", () => {
   const G = REALTIME_REPORT_GRACE_MS;
+  const C = REALTIME_CONFIRM_MS;
+  const HOURS_8 = 8 * 60 * 60 * 1000;
 
-  it("stays quiet once the channel is joined, however late the timer ran", () => {
-    expect(realtimeReportVerdict({ joined: true, elapsedMs: G, rearmed: false })).toBe("quiet");
-    expect(realtimeReportVerdict({ joined: true, elapsedMs: G * 1000, rearmed: true })).toBe("quiet");
+  interface Harness {
+    reporter: RealtimeReporter;
+    reports: Array<{ message: string; detail?: string }>;
+    setJoined: (v: boolean) => void;
+    setHidden: (v: boolean) => void;
+    /** Advance the wall clock WITHOUT firing timers — a device suspend. */
+    sleep: (ms: number) => void;
+    /** Advance the wall clock, firing due timers at their scheduled times. */
+    tick: (ms: number) => void;
+    pendingTimers: () => number;
+  }
+
+  // Manual clock + timer table instead of vi.useFakeTimers, because the whole
+  // point of the machine is distinguishing timers that fired on schedule from
+  // timers that fired late after a suspend — sleep() and tick() make that
+  // difference explicit.
+  function harness(): Harness {
+    let now = 0;
+    let joined = false;
+    let hidden = false;
+    let nextId = 1;
+    const timers = new Map<number, { fn: () => void; at: number }>();
+    const reports: Array<{ message: string; detail?: string }> = [];
+    const reporter = createRealtimeReporter({
+      isJoined: () => joined,
+      isHidden: () => hidden,
+      report: (message, detail) => reports.push({ message, detail }),
+      now: () => now,
+      setTimer: (fn, ms) => {
+        const id = nextId++;
+        timers.set(id, { fn, at: now + ms });
+        return id;
+      },
+      clearTimer: (id) => void timers.delete(id as number),
+    });
+    return {
+      reporter,
+      reports,
+      setJoined: (v) => (joined = v),
+      setHidden: (v) => (hidden = v),
+      sleep: (ms) => {
+        now += ms;
+      },
+      tick: (ms) => {
+        const target = now + ms;
+        for (;;) {
+          const due = [...timers.entries()]
+            .filter(([, t]) => t.at <= target)
+            .sort((a, b) => a[1].at - b[1].at)[0];
+          if (!due) break;
+          timers.delete(due[0]);
+          // A timer never fires before its schedule, but after a sleep() it
+          // fires late — at the already-advanced wall clock.
+          now = Math.max(now, due[1].at);
+          due[1].fn();
+        }
+        now = target;
+      },
+      pendingTimers: () => timers.size,
+    };
+  }
+
+  it("cold-join churn that recovers files nothing and leaves no timers", () => {
+    const h = harness();
+    h.reporter.onStatus("CHANNEL_ERROR", "transport failure");
+    h.tick(2_000);
+    h.setJoined(true);
+    h.reporter.onStatus("SUBSCRIBED");
+    h.tick(G * 10);
+    expect(h.reports).toEqual([]);
+    expect(h.pendingTimers()).toBe(0);
   });
 
-  it("reports a channel still dead after a normally-elapsed window", () => {
-    expect(realtimeReportVerdict({ joined: false, elapsedMs: G, rearmed: false })).toBe("report");
+  it("a genuinely stuck channel reports once, after grace + confirmation", () => {
+    const h = harness();
+    h.reporter.onStatus("CHANNEL_ERROR", "transport failure");
+    h.tick(G);
+    expect(h.reports).toEqual([]); // clean window over -> confirmation, not report
+    h.tick(C);
+    expect(h.reports).toEqual([
+      { message: "sustained realtime failure: CHANNEL_ERROR", detail: "transport failure" },
+    ]);
+    // Sticky: the same subscription never reports twice.
+    h.reporter.onStatus("CHANNEL_ERROR", "transport failure");
+    h.tick((G + C) * 3);
+    expect(h.reports).toHaveLength(1);
+    expect(h.pendingTimers()).toBe(0);
   });
 
-  it("re-arms instead of reporting when the timer fired suspiciously late", () => {
-    // A suspended device freezes timers; on wake this fires immediately with a
-    // huge wall-clock gap, long before any rejoin could land.
-    expect(realtimeReportVerdict({ joined: false, elapsedMs: G * 120, rearmed: false })).toBe("rearm");
+  it("a rejoin landing during the confirmation window stays quiet", () => {
+    const h = harness();
+    h.reporter.onStatus("TIMED_OUT", "heartbeat timeout");
+    h.tick(G);
+    h.setJoined(true); // rejoin lands mid-confirmation
+    h.tick(C);
+    expect(h.reports).toEqual([]);
   });
 
-  it("re-arms at most once, so a stuck channel still reports", () => {
-    expect(realtimeReportVerdict({ joined: false, elapsedMs: G * 120, rearmed: true })).toBe("report");
+  it("suspends never report, no matter how many or how late (regression: rearm was one-shot and sticky)", () => {
+    const h = harness();
+    // First failure + overnight sleep: rearm, not report.
+    h.reporter.onStatus("CHANNEL_ERROR");
+    h.sleep(HOURS_8);
+    h.tick(0);
+    expect(h.reports).toEqual([]);
+    // Recovery. The old machine kept `rearmed` set here — its suspend
+    // protection was consumed for the lifetime of the subscription.
+    h.setJoined(true);
+    h.reporter.onStatus("SUBSCRIBED");
+    h.tick(1_000);
+    // Second failure + another overnight sleep: still no report.
+    h.setJoined(false);
+    h.reporter.onStatus("CHANNEL_ERROR", "socket closed: 1006");
+    h.sleep(HOURS_8);
+    h.tick(0);
+    expect(h.reports).toEqual([]);
+    // Even a suspend during the confirmation window restarts the full grace.
+    h.tick(G); // clean window -> confirming
+    h.sleep(HOURS_8);
+    h.tick(0);
+    expect(h.reports).toEqual([]);
+    // Only a clean, awake window (plus confirmation) finally reports.
+    h.tick(G);
+    h.tick(C);
+    expect(h.reports).toEqual([
+      { message: "sustained realtime failure: CHANNEL_ERROR", detail: "socket closed: 1006" },
+    ]);
   });
 
-  it("does not re-arm for ordinary timer jitter just over the window", () => {
-    expect(realtimeReportVerdict({ joined: false, elapsedMs: G * 2, rearmed: false })).toBe("report");
+  it("hidden contexts re-arm forever and report only once visible", () => {
+    const h = harness();
+    h.setHidden(true);
+    h.reporter.onStatus("TIMED_OUT", "heartbeat timeout");
+    h.tick(G * 5); // several windows elapse hidden
+    expect(h.reports).toEqual([]);
+    h.setHidden(false);
+    h.tick(G + C);
+    expect(h.reports).toEqual([
+      { message: "sustained realtime failure: TIMED_OUT", detail: "heartbeat timeout" },
+    ]);
+  });
+
+  it("CLOSED cancels a pending window (teardown is not an outage)", () => {
+    const h = harness();
+    h.reporter.onStatus("CHANNEL_ERROR");
+    h.reporter.onStatus("CLOSED");
+    h.tick(G * 10);
+    expect(h.reports).toEqual([]);
+    expect(h.pendingTimers()).toBe(0);
+    // A failure after CLOSED starts a fresh window as usual.
+    h.reporter.onStatus("CHANNEL_ERROR");
+    h.tick(G + C);
+    expect(h.reports).toHaveLength(1);
+  });
+
+  it("reports the LATEST failure, not the one that armed the window", () => {
+    const h = harness();
+    h.reporter.onStatus("CHANNEL_ERROR", "socket closed: 1006");
+    h.tick(5_000);
+    h.reporter.onStatus("TIMED_OUT", "heartbeat timeout");
+    h.tick(G + C);
+    expect(h.reports).toEqual([
+      { message: "sustained realtime failure: TIMED_OUT", detail: "heartbeat timeout" },
+    ]);
+  });
+
+  it("keeps the last known detail when a later failure carries none", () => {
+    const h = harness();
+    h.reporter.onStatus("CHANNEL_ERROR", "transport failure");
+    h.reporter.onStatus("CHANNEL_ERROR");
+    h.tick(G + C);
+    expect(h.reports[0]?.detail).toBe("transport failure");
+  });
+
+  it("ignores unknown statuses entirely", () => {
+    const h = harness();
+    h.reporter.onStatus("SOMETHING_NEW");
+    h.tick(G * 10);
+    expect(h.reports).toEqual([]);
+    expect(h.pendingTimers()).toBe(0);
+  });
+
+  it("dispose cancels everything and makes late statuses no-ops", () => {
+    const h = harness();
+    h.reporter.onStatus("CHANNEL_ERROR");
+    h.reporter.dispose();
+    expect(h.pendingTimers()).toBe(0);
+    h.reporter.onStatus("CHANNEL_ERROR"); // e.g. a status racing the cleanup
+    h.tick(G * 10);
+    expect(h.reports).toEqual([]);
+    expect(h.pendingTimers()).toBe(0);
+  });
+
+  it("keeps the confirmation window shorter than the grace window", () => {
+    // The confirmation exists to let an in-flight rejoin land, not to double
+    // the wait — guard against the constants drifting past each other.
+    expect(REALTIME_CONFIRM_MS).toBeLessThan(REALTIME_REPORT_GRACE_MS);
   });
 });
