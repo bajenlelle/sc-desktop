@@ -23,7 +23,13 @@ export async function registerPushToken(
     p_platform: platform,
     p_device_name: deviceName ?? null,
   });
-  if (error) reportDbError("registerPushToken", error);
+  // not_authenticated is an expected race, not a defect: the session can
+  // legitimately expire between the auth event that triggered registration
+  // and this RPC (the caller re-registers on the next sign-in/primer). Every
+  // other error still reports.
+  if (error && !error.message.includes("not_authenticated")) {
+    reportDbError("registerPushToken", error);
+  }
 }
 
 export async function deletePushToken(supabase: SupabaseClient, token: string): Promise<void> {
