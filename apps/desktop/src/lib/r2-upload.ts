@@ -27,14 +27,34 @@ export async function uploadToR2(
 
   const body = new Uint8Array(await invoke<ArrayBuffer>("read_file", { path: localPath }));
 
-  const res = await tauriFetch(presign.data.uploadUrl, {
-    method: "PUT",
-    // Must equal the contentType we presigned — it's in the signed headers.
-    headers: { "Content-Type": contentType },
-    body,
-    signal,
-  });
-  if (!res.ok) throw new Error(`Upload failed (${res.status})`);
+  // Per-call signal bridge: the plugin-http fetch shim registers abort
+  // listeners it never removes, and its Rust-side resource ids die when the
+  // request completes. Callers (Clip & Ship) reuse ONE signal across a whole
+  // run, so a Cancel pressed after N uploads finished used to fan out N stale
+  // cleanup invokes -> "The resource id X is invalid" unhandled rejections
+  // (issue #25). The inner controller scopes each fetch's listeners to that
+  // fetch; mid-upload cancellation behaves exactly as before.
+  const perCall = new AbortController();
+  const onAbort = () => perCall.abort();
+  if (signal?.aborted) perCall.abort();
+  signal?.addEventListener("abort", onAbort, { once: true });
+  try {
+    const res = await tauriFetch(presign.data.uploadUrl, {
+      method: "PUT",
+      // Must equal the contentType we presigned — it's in the signed headers.
+      headers: { "Content-Type": contentType },
+      body,
+      signal: perCall.signal,
+    });
+    if (!res.ok) throw new Error(`Upload failed (${res.status})`);
+    // Drain the (empty) response so the plugin releases the Rust-side
+    // response resource now instead of holding it for the window's lifetime.
+    // Safe only with the per-call signal above — with a shared signal this
+    // close is exactly the double-free the bridge exists to prevent.
+    await res.body?.cancel();
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+  }
 
   return presign.data.publicUrl;
 }

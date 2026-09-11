@@ -20,6 +20,11 @@ Sentry.init({
     /Load failed/i,
     "AbortError",
     /ResizeObserver loop/,
+    // tauri-plugin-http's fetch shim fires internal fire-and-forget cleanup
+    // invokes that reject as bare strings when their Rust resource is already
+    // gone (a benign teardown race; the "AbortError" entry above can't match
+    // a non-Error reason). Root cause fixed in r2-upload.ts; this is the net.
+    /resource id \d+ is invalid/i,
   ],
 });
 
