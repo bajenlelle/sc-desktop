@@ -14,7 +14,10 @@ playlists, and share them with teams; players watch on web/mobile.
   API routes use Stripe + the Supabase service role.
 - `apps/mobile` — Expo SDK 57, expo-router (`src/app`), NativeWind v4,
   expo-video. Built with EAS; OTA fixes via `npm run ota` (EAS Update,
-  fingerprint runtime policy).
+  fingerprint runtime policy). After every OTA publish, verify the published
+  runtime version equals the latest store build's (`eas build:list`) — a
+  drifted fingerprint publishes an update no installed app receives (see
+  `apps/mobile/fingerprint.config.js`).
 - `packages/shared` — isomorphic raw TypeScript consumed by all three apps
   via the exports map (no build step). All DB helpers take a `SupabaseClient`
   as the first argument. Never import app-specific or platform code here;
