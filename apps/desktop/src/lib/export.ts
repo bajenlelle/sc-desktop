@@ -77,7 +77,7 @@ async function assertVideosPresent(segments: ExportSegment[]): Promise<void> {
   const gone = paths.find((_, i) => results[i].status !== "ok");
   if (gone) {
     throw new Error(
-      `The video file for "${videoBasename(gone)}" isn't on this computer — open the game in the Library and locate it.`,
+      `The video file for "${videoBasename(gone)}" can't be found — open the game in the Library and locate it.`,
     );
   }
 }

@@ -18,18 +18,24 @@ export interface VideoProbeResult {
 }
 
 export async function probeVideoPath(path: string): Promise<VideoProbeResult> {
-  try {
-    const res = await fetch(streamFileSrc(path), {
-      headers: { Range: "bytes=0-0" },
-    });
-    if (res.status === 404) return { status: "missing" };
-    if (res.status === 403) return { status: "unreadable" };
-    const range = res.headers.get("Content-Range");
-    const total = range?.match(/\/(\d+)$/)?.[1];
-    return { status: "ok", ...(total ? { size: Number(total) } : {}) };
-  } catch {
-    // WKWebView surfaces some protocol failures as network errors.
-    return { status: "missing" };
+  // A 404/403 RESPONSE is authoritative — the stream:// handler answered.
+  // A THROWN fetch is not: WKWebView surfaces some transient protocol
+  // failures as network errors, and "missing" gates export/share until the
+  // next re-probe, so one hiccup must not read as a deleted file. Retry once.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(streamFileSrc(path), {
+        headers: { Range: "bytes=0-0" },
+      });
+      if (res.status === 404) return { status: "missing" };
+      if (res.status === 403) return { status: "unreadable" };
+      const range = res.headers.get("Content-Range");
+      const total = range?.match(/\/(\d+)$/)?.[1];
+      return { status: "ok", ...(total ? { size: Number(total) } : {}) };
+    } catch {
+      if (attempt > 0) return { status: "missing" };
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
   }
 }
 

@@ -9,6 +9,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { currentUserId } from "./current-user";
 import { applyOrgScope, type OrgScopeOpts } from "./playlists-db";
+import { reportDbError } from "./report";
 import type { PlaylistFolder, PlayByPlayEvent, StoredMatch, SyncPoint } from "../types/match";
 
 // ---------------------------------------------------------------------------
@@ -346,11 +347,19 @@ export async function updateVideoUrl(
   matchId: string,
   videoUrl: string,
 ): Promise<void> {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("matches")
     .update({ video_url: videoUrl })
-    .eq("id", matchId);
+    .eq("id", matchId)
+    .select("id");
   if (error) throw new Error(`Failed to update video URL: ${error.message}`);
+  // Zero rows means RLS filtered the update away (not this user's match, or a
+  // stale id) — without this check a relink LOOKS successful (optimistic UI,
+  // working playback) but the DB row never changed, so the missing-video gate
+  // comes back on the next probe and even a restart doesn't fix it.
+  if (!data || data.length === 0) {
+    throw new Error("The video link wasn't saved — this game may belong to another account.");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -494,6 +503,10 @@ export async function listMatchesLight(
     query = query.eq("user_id", uid);
   }
   const { data, error } = await query;
+  // Graceful degrade, but never silently: an empty result from a FAILED query
+  // looks identical to an empty library to callers (the playlists page keeps
+  // stale match state, gates flip to wrong reasons), so make it visible.
+  if (error) reportDbError("listMatchesLight", error);
   if (error || !data) return [];
   return (data as MatchRow[]).map((row) => rowToStoredMatch(row, []));
 }
