@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { save } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { toast } from "sonner";
@@ -6,7 +7,46 @@ import { isLocalPath } from "@/lib/stream";
 import { probeVideoDuration, probeVideoPath, videoBasename } from "@/lib/video-probe";
 import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { toSegmentKeyframes, type CropKeyframe } from "@scoutable/shared/lib/crop-path";
+import type { ExportProgress } from "@scoutable/shared/lib/export-progress";
 import type { PlayByPlayEvent, SyncPoint } from "@/types/match";
+
+export type { ExportProgress };
+
+export interface ExportOptions {
+  /** Per-segment render progress, then one "stitching" notification for the final concat pass. */
+  onProgress?: (progress: ExportProgress) => void;
+}
+
+/**
+ * The one door to the Rust export command. With a progress callback, a nonce
+ * keys this invocation's "export-progress" events so a listener never
+ * consumes another export's stream (a save-export and a send-to-phone render
+ * can overlap).
+ */
+async function invokeExportPlaylist(
+  rustSegments: RustSegment[],
+  outputPath: string,
+  watermark: boolean,
+  vertical: boolean,
+  onProgress?: (progress: ExportProgress) => void,
+): Promise<void> {
+  const args = { segments: rustSegments, outputPath, watermark, vertical };
+  if (!onProgress) {
+    await invoke<void>("export_playlist", args);
+    return;
+  }
+  const progressId = crypto.randomUUID();
+  const unlisten = await listen<ExportProgress & { id: string }>("export-progress", (event) => {
+    if (event.payload.id !== progressId) return;
+    const { phase, done, total } = event.payload;
+    onProgress({ phase, done, total });
+  });
+  try {
+    await invoke<void>("export_playlist", { ...args, progressId });
+  } finally {
+    unlisten();
+  }
+}
 
 export type ExportSegment =
   | { kind: 'clip'; videoPath: string; matchId: string; event: PlayByPlayEvent; syncPoint: SyncPoint; preRollOffset?: number; postRollOffset?: number; cropKeyframes?: CropKeyframe[] }
@@ -197,11 +237,12 @@ export async function exportPlaylistToPath(
   outputPath: string,
   watermark: boolean,
   vertical = false,
+  opts?: ExportOptions,
 ): Promise<void> {
   await assertVideosPresent(segments);
   const rustSegments = buildRustSegments(segments, preRoll, postRoll, vertical);
   await assertClipsWithinVideos(rustSegments);
-  await invoke<void>("export_playlist", { segments: rustSegments, outputPath, watermark, vertical });
+  await invokeExportPlaylist(rustSegments, outputPath, watermark, vertical, opts?.onProgress);
 }
 
 /**
@@ -215,6 +256,7 @@ export async function exportPlaylist(
   playlistName: string,
   watermark: boolean,
   vertical = false,
+  opts?: ExportOptions,
 ): Promise<string | null> {
   await assertVideosPresent(segments);
   // Partial recordings are legitimate (first half only) — export what the
@@ -236,7 +278,7 @@ export async function exportPlaylist(
   });
   if (!outputPath) return null; // user cancelled
 
-  await invoke<void>("export_playlist", { segments: rustSegments, outputPath, watermark, vertical });
+  await invokeExportPlaylist(rustSegments, outputPath, watermark, vertical, opts?.onProgress);
   return outputPath;
 }
 

@@ -5,7 +5,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { createClient } from "@/lib/supabase/client";
-import { exportPlaylistToPath, type ExportSegment } from "@/lib/export";
+import { exportPlaylistToPath, type ExportProgress, type ExportSegment } from "@/lib/export";
 import { uploadToR2 } from "@/lib/r2-upload";
 import { createHighlightShare } from "@/lib/highlight-shares-db";
 import { highlightContentKey, highlightShareKeys } from "@scoutable/shared/lib/highlight-shares-db";
@@ -21,6 +21,7 @@ export async function sendHighlightToPhone(
   postRoll: number,
   onStage?: (stage: SendToPhoneStage) => void,
   vertical = false,
+  onExportProgress?: (progress: ExportProgress) => void,
 ): Promise<string> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -36,7 +37,9 @@ export async function sendHighlightToPhone(
   onStage?.("rendering");
   // Watermark always on: send-to-phone clips land on Instagram/TikTok —
   // this surface is public distribution regardless of the sender's plan.
-  await exportPlaylistToPath(segments, preRoll, postRoll, tempPath, true, vertical);
+  await exportPlaylistToPath(segments, preRoll, postRoll, tempPath, true, vertical, {
+    onProgress: onExportProgress,
+  });
 
   try {
     onStage?.("uploading");

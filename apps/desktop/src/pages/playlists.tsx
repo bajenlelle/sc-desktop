@@ -114,6 +114,12 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { exportPlaylist, notifyExportSuccess, type ExportSegment } from "@/lib/export";
+import {
+  exportProgressLabel,
+  exportProgressPercent,
+  type ExportProgress,
+} from "@scoutable/shared/lib/export-progress";
+import { ProgressBar } from "@/components/ui/progress-bar";
 import { getExportWatermarkDisabled, setHasExported } from "@/lib/prefs";
 import { clipAndShip } from "@/lib/clip-and-ship";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -1725,6 +1731,7 @@ export function PlaylistsPage() {
   const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
   const [isShipping, setIsShipping] = useState(false);
   const [shipProgress, setShipProgress] = useState<{ done: number; total: number } | null>(null);
   const [userTeams, setUserTeams] = useState<OrgTeam[]>([]);
@@ -3543,6 +3550,7 @@ export function PlaylistsPage() {
     }
     setIsExporting(true);
     setExportError(null);
+    setExportProgress(null);
     let segmentCount = 0;
     try {
       const segments = buildExportSegments();
@@ -3551,7 +3559,9 @@ export function PlaylistsPage() {
       // the growth loop); pro/franchise may disable it in Settings.
       const canDisableWatermark = activeOrgPlan === 'pro' || activeOrgPlan === 'franchise';
       const watermark = !(canDisableWatermark && getExportWatermarkDisabled());
-      const exportedPath = await exportPlaylist(segments, preRoll, postRoll, selected!.name, watermark, vertical);
+      const exportedPath = await exportPlaylist(segments, preRoll, postRoll, selected!.name, watermark, vertical, {
+        onProgress: setExportProgress,
+      });
       if (exportedPath) {
         notifyExportSuccess(exportedPath);
         trackEvent('video_exported', { playlist_id: selected!.id, clip_count: segmentCount, status: 'success', selection_only: selectedClipIds.size > 0, ...(vertical ? { aspect: '9:16' } : {}) });
@@ -3565,6 +3575,7 @@ export function PlaylistsPage() {
       trackEvent('video_exported', { playlist_id: selected!.id, clip_count: segmentCount, status: 'error', error: (e instanceof Error ? e.message : String(e)).slice(0, 200) });
     } finally {
       setIsExporting(false);
+      setExportProgress(null);
     }
   }
 
@@ -5304,7 +5315,12 @@ export function PlaylistsPage() {
           {isExporting ? (
             <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Exporting…
+              <span className="tabular-nums">
+                {exportProgress ? exportProgressLabel(exportProgress) : "Exporting…"}
+              </span>
+              {exportProgress && (
+                <ProgressBar percent={exportProgressPercent(exportProgress)} className="w-16" />
+              )}
             </Button>
           ) : (
             <DropdownMenu>
@@ -5349,7 +5365,9 @@ export function PlaylistsPage() {
           isShipping ? (
             <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {shipProgress ? `${shipProgress.done} / ${shipProgress.total}` : "Uploading…"}
+              <span className="tabular-nums">
+                {shipProgress ? `${shipProgress.done} of ${shipProgress.total}` : "Uploading…"}
+              </span>
             </Button>
           ) : (() => {
             const teamCount = selected?.teamIds?.length ?? 0;
@@ -6169,17 +6187,14 @@ export function PlaylistsPage() {
                   <p className="text-sm text-muted-foreground">
                     Recipients are notified once every clip is watchable.
                   </p>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-primary transition-all"
-                      style={{
-                        width: shipProgress && shipProgress.total > 0
-                          ? `${Math.round((shipProgress.done / shipProgress.total) * 100)}%`
-                          : "5%",
-                      }}
-                    />
-                  </div>
-                  <p className="text-xs text-muted-foreground">
+                  <ProgressBar
+                    percent={
+                      shipProgress && shipProgress.total > 0
+                        ? Math.round((shipProgress.done / shipProgress.total) * 100)
+                        : null
+                    }
+                  />
+                  <p className="text-xs tabular-nums text-muted-foreground">
                     {shipProgress
                       ? `Uploading clip ${Math.min(shipProgress.done + 1, shipProgress.total)} of ${shipProgress.total}`
                       : "Preparing clips…"}

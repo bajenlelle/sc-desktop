@@ -113,6 +113,34 @@ fn assert_rendered_output(path: &std::path::Path, what: &str) -> Result<(), Stri
     Ok(())
 }
 
+/// Progress notification for the export UI. `id` echoes the caller's nonce so
+/// a listener never consumes another export's events — a save-export and a
+/// send-to-phone render can run concurrently, both through this command.
+#[derive(Clone, serde::Serialize)]
+struct ExportProgressEvent<'a> {
+    id: &'a str,
+    /// "clips" while segments render one by one, then "stitching" for the
+    /// final whole-timeline concat re-encode.
+    phase: &'a str,
+    done: usize,
+    total: usize,
+}
+
+/// Best-effort: progress must never fail an export, so emit errors only log.
+fn emit_export_progress(
+    app: &tauri::AppHandle,
+    id: &Option<String>,
+    phase: &'static str,
+    done: usize,
+    total: usize,
+) {
+    use tauri::Emitter;
+    let Some(id) = id else { return };
+    if let Err(e) = app.emit_to("main", "export-progress", ExportProgressEvent { id, phase, done, total }) {
+        eprintln!("[export] failed to emit progress ({phase} {done}/{total}): {e}");
+    }
+}
+
 #[tauri::command]
 async fn export_playlist(
     app: tauri::AppHandle,
@@ -120,6 +148,7 @@ async fn export_playlist(
     output_path: String,
     watermark: bool,
     vertical: Option<bool>,
+    progress_id: Option<String>,
 ) -> Result<(), String> {
     use tauri_plugin_shell::ShellExt;
 
@@ -137,6 +166,8 @@ async fn export_playlist(
         .as_millis();
 
     let mut temp_files: Vec<std::path::PathBuf> = Vec::new();
+
+    emit_export_progress(&app, &progress_id, "clips", 0, segments.len());
 
     // Encode each segment to a temp MP4 with fade-in/fade-out.
     for (i, segment) in segments.iter().enumerate() {
@@ -305,7 +336,10 @@ async fn export_playlist(
         }
 
         temp_files.push(temp_path);
+        emit_export_progress(&app, &progress_id, "clips", i + 1, segments.len());
     }
+
+    emit_export_progress(&app, &progress_id, "stitching", segments.len(), segments.len());
 
     // Final concat using the concat filter, which normalises timestamps
     // across all segments and avoids A/V sync drift from input-side seeking.
