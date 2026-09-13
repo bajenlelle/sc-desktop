@@ -125,6 +125,10 @@ export async function clipAndShip(
     }
   }
 
+  // `done` counts RESOLVED clips (shipped, skipped, or terminally failed) —
+  // not attempts. A first-pass failure isn't resolved until its retry below
+  // settles it, so the bar keeps moving through the retry pass instead of
+  // parking at 100% while retries run.
   const firstPassFailures: Array<{ seg: ClipSegment; failure: ClipShipFailure }> = [];
   for (const seg of clipSegments) {
     if (opts?.signal?.aborted) {
@@ -132,9 +136,12 @@ export async function clipAndShip(
       return result;
     }
     const failure = await shipOne(seg);
-    if (failure) firstPassFailures.push({ seg, failure });
-    done++;
-    opts?.onProgress?.(done, total);
+    if (failure) {
+      firstPassFailures.push({ seg, failure });
+    } else {
+      done++;
+      opts?.onProgress?.(done, total);
+    }
   }
 
   // One automatic retry over the failures — transient network/disk hiccups
@@ -147,6 +154,8 @@ export async function clipAndShip(
     }
     const retryFailure = await shipOne(seg);
     if (retryFailure) result.failures.push(retryFailure);
+    done++;
+    opts?.onProgress?.(done, total);
   }
 
   if (opts?.signal?.aborted) result.aborted = true;
