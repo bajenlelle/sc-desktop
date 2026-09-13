@@ -9,9 +9,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { ProgressBar } from "@/components/ui/progress-bar";
 import { sendHighlightToPhone, type SendToPhoneStage } from "@/lib/highlight-share";
 import { getMyShareForPlaylist } from "@/lib/highlight-shares-db";
 import { highlightContentKey } from "@scoutable/shared/lib/highlight-shares-db";
+import {
+  exportProgressLabel,
+  exportProgressPercent,
+  type ExportProgress,
+} from "@scoutable/shared/lib/export-progress";
 import { trackEvent } from "@/lib/analytics";
 import { dropClipsOutsideVideos, type ExportSegment } from "@/lib/export";
 
@@ -59,6 +65,7 @@ export function SendToPhoneDialog({
   vertical?: boolean;
 }) {
   const [stage, setStage] = useState<SendToPhoneStage | null>(null);
+  const [renderProgress, setRenderProgress] = useState<ExportProgress | null>(null);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [reusedFrom, setReusedFrom] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -78,8 +85,9 @@ export function SendToPhoneDialog({
     setError(null);
     setShareUrl(null);
     setReusedFrom(null);
+    setRenderProgress(null);
     const kept = keptRef.current;
-    sendHighlightToPhone(pl, kept, preRoll, postRoll, setStage, vertical)
+    sendHighlightToPhone(pl, kept, preRoll, postRoll, setStage, vertical, setRenderProgress)
       .then((url) => {
         setShareUrl(url);
         trackEvent("highlight_sent_to_phone", {
@@ -93,6 +101,7 @@ export function SendToPhoneDialog({
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => {
         setStage(null);
+        setRenderProgress(null);
         runningRef.current = false;
       });
   }
@@ -226,6 +235,14 @@ export function SendToPhoneDialog({
             <p className="text-sm text-muted-foreground">
               {stage ? STAGE_LABEL[stage] : "Starting…"}
             </p>
+            {stage === "rendering" && renderProgress && (
+              <div className="flex w-56 flex-col items-center gap-1.5">
+                <ProgressBar percent={exportProgressPercent(renderProgress)} className="w-full" />
+                <p className="text-xs tabular-nums text-muted-foreground">
+                  {exportProgressLabel(renderProgress)}
+                </p>
+              </div>
+            )}
             <p className="text-xs text-muted-foreground/70">
               Long playlists can take a few minutes.
             </p>

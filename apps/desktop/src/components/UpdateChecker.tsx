@@ -8,6 +8,7 @@ import {
   INITIAL_DOWNLOAD_PROGRESS,
   type DownloadProgress,
 } from "@scoutable/shared/lib/update-progress";
+import { ProgressBar } from "@/components/ui/progress-bar";
 import { Sentry } from "@/lib/sentry";
 import { silentUpdateCheck, UPDATE_FOUND_EVENT } from "@/lib/updates";
 
@@ -115,14 +116,11 @@ export function UpdateChecker() {
         )}
       </div>
       {status === "downloading" && (
-        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-primary-foreground/25">
-          <div
-            className="h-full rounded-full bg-primary-foreground transition-all"
-            // Indeterminate (no Content-Length): hold a small sliver, the
-            // byte counter above still shows movement.
-            style={{ width: percent !== null ? `${percent}%` : "5%" }}
-          />
-        </div>
+        <ProgressBar
+          percent={percent}
+          className="mt-1.5 bg-primary-foreground/25"
+          fillClassName="bg-primary-foreground"
+        />
       )}
     </div>
   );
