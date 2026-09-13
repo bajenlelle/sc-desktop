@@ -160,7 +160,7 @@ export function RelinkVideosDialog({
           <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border py-8">
             <p className="max-w-sm text-center text-sm text-muted-foreground">
               {missing.length} game{missing.length !== 1 ? "s" : ""} point
-              {missing.length === 1 ? "s" : ""} at a video that isn't on this computer.
+              {missing.length === 1 ? "s" : ""} at a video file that can't be found.
             </p>
             <Button onClick={handlePickFolder} disabled={scanning} className="gap-2">
               <FolderSearch className="h-4 w-4" />

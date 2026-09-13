@@ -460,13 +460,13 @@ export function MatchDetailPage() {
               <div className="flex items-center gap-2">
                 <VideoOff className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
                 <span className="text-sm font-medium text-foreground">
-                  This video isn't on this computer
+                  This game's video file can't be found
                 </span>
               </div>
               <p className="text-xs text-muted-foreground">
                 {videoStatus === "unreadable"
                   ? "Scoutable doesn't have permission to read the file — pick it again to grant access."
-                  : "Games reference the video file on the machine that imported them — nothing is uploaded. Point Scoutable at the file on this computer to keep working."}
+                  : "It may have been moved or renamed, or it's on another computer — games reference the file in place, nothing is uploaded. Point Scoutable at the file to keep working."}
               </p>
               <div className="flex items-center gap-3">
                 <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">

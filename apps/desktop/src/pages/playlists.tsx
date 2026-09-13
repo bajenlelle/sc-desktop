@@ -1503,11 +1503,11 @@ function ClipBrowserPanel({
                     <div className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-2 bg-black/85 px-6 text-center">
                       <VideoOff className="h-6 w-6 text-amber-400" />
                       <p className="text-sm font-medium text-white">
-                        This game's video is on another computer
+                        This game's video file can't be found
                       </p>
                       <p className="max-w-xs text-xs text-white/70">
-                        Open the game in the Library and use Locate file to point at it on
-                        this computer.
+                        It may have been moved or renamed, or it's on another computer.
+                        Open the game in the Library and use Locate file to point at it.
                       </p>
                     </div>
                   )}
@@ -4928,14 +4928,40 @@ export function PlaylistsPage() {
   // Probed per loaded match; gates export/share and swaps the silent black
   // player for an explanation + Locate action.
   const [videoStatusByMatch, setVideoStatusByMatch] = useState<Map<string, VideoFileStatus>>(new Map());
+  // Re-probe on window focus (throttled): the user may have moved the file
+  // back, or a transient probe hiccup recorded a false "missing" — either way
+  // the gate self-heals when they return, without an app restart.
+  const [probeTick, setProbeTick] = useState(0);
+  const lastProbeAtRef = useRef(0);
+  useEffect(() => {
+    const onFocus = () => {
+      if (Date.now() - lastProbeAtRef.current < 30_000) return;
+      setProbeTick((n) => n + 1);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
+  // Keyed on the PATHS (id:videoUrl), never on the matches array identity: an
+  // event merge or a failed refresh re-running the probe against stale paths
+  // used to overwrite a fresh relink's optimistic "ok" with "missing", leaving
+  // export/share disabled while playback (which reads paths live) kept
+  // working. Paths unchanged ⇒ no re-probe; `matches` in the closure is
+  // captured on the same render the signature changed, so it's never staler
+  // than the signature.
+  const videoPathSignature = useMemo(
+    () => matches.map((m) => `${m.id}:${m.videoUrl ?? ""}`).join("\n"),
+    [matches],
+  );
   useEffect(() => {
     if (matches.length === 0) return;
     let cancelled = false;
+    lastProbeAtRef.current = Date.now();
     probeMatches(matches).then((map) => {
       if (!cancelled) setVideoStatusByMatch(map);
     });
     return () => { cancelled = true; };
-  }, [matches]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- matches is fully represented by videoPathSignature for probing purposes
+  }, [videoPathSignature, probeTick]);
 
   /** Relink the ACTIVE game's video from the player overlay. */
   async function handleLocateActiveVideo() {
@@ -4995,7 +5021,7 @@ export function PlaylistsPage() {
       if (!m?.videoUrl || !isLocalPath(m.videoUrl))
         return "All games need a local video file for export";
       if (videoStatusByMatch.get(mId) === "missing" || videoStatusByMatch.get(mId) === "unreadable")
-        return "A game's video file isn't on this computer — open it in the Library to locate it";
+        return "A game's video file can't be found — open the game in the Library to locate it";
       if (!m.syncPoint)
         return "All games need a sync point for export";
     }
@@ -5074,12 +5100,12 @@ export function PlaylistsPage() {
             <div className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-3 bg-black/85 px-6 text-center">
               <VideoOff className="h-8 w-8 text-amber-400" />
               <p className="text-sm font-medium text-white">
-                This game's video is on another computer
+                This game's video file can't be found
               </p>
               <p className="max-w-sm text-xs text-white/70">
-                Games reference the video file on the machine that imported them —
-                nothing is uploaded. Point Scoutable at the file on this computer
-                to keep working.
+                It may have been moved or renamed, or it's on another computer —
+                games reference the file in place, nothing is uploaded. Point
+                Scoutable at the file to keep working.
               </p>
               <Button size="sm" onClick={handleLocateActiveVideo}>
                 Locate file…

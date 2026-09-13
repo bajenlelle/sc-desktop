@@ -60,18 +60,18 @@ export function MatchRow({
         {match.events.length} clips
       </span>
 
-      {/* Video-on-another-computer indicator (machine switch / moved file) */}
+      {/* Missing-video indicator (moved/renamed file, or a machine switch) */}
       {videoStatus && videoStatus !== "ok" && (
         <span
           className="flex shrink-0 items-center gap-1 text-xs text-amber-600 dark:text-amber-400"
           title={
             videoStatus === "unreadable"
               ? "Scoutable doesn't have permission to read this video — pick it again to grant access"
-              : "The video file isn't on this computer — open the game to locate it"
+              : "The video file may have been moved or renamed, or it's on another computer — open the game to locate it"
           }
         >
           <VideoOff className="h-3.5 w-3.5" />
-          Video not on this computer
+          Video file not found
         </span>
       )}
 
