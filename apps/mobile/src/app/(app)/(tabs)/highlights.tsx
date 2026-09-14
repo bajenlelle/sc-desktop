@@ -2,15 +2,18 @@
  * My Highlights — the player's own space as a first-class destination.
  * Port of apps/web .../my-highlights/page.tsx.
  *
- * Personal orgs exist so players acquired through club orgs can upgrade to
- * Rookie/Pro and cut their own tapes. Free tier sees a value-first pitch
- * whose only ask is the FREE desktop download — activation before
- * monetization: the free tier (3 imports) is the trial, and the upsell
- * happens inside the desktop app at the quota/watermark gates, where intent
- * is highest. No price or purchase link here, which also keeps iOS clear of
- * App Store 3.1.1. Upgraded players see their own playlists (built in the
- * desktop app, listed here for reference — watching stays via send-to-phone
- * or desktop).
+ * Players with no tapes yet see a value-first pitch whose only ask is the FREE
+ * desktop download — activation before monetization: the free tier (3 imports)
+ * is the trial, and the upsell happens inside the desktop app at the
+ * quota/watermark gates, where intent is highest.
+ *
+ * App Store 3.1.1: this screen must never unlock anything on the strength of a
+ * purchase made on the web, and must never point at one. So the split below is
+ * driven by whether the player HAS playlists, never by plan tier (the app reads
+ * no plan tier at all), and the download link goes to scoutable.se/download —
+ * a page with no prices, plans or trial CTAs — not the marketing page, which
+ * sells Rookie and Pro. Both are load-bearing for the 3.1.3(f) exemption; build
+ * 3 was rejected for the second one.
  */
 import { useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, View } from "react-native";
@@ -26,7 +29,9 @@ import { trackEvent } from "@/lib/analytics";
 import { useThemeColors } from "@/lib/theme-context";
 import { Button } from "@/components/Button";
 
-const DESKTOP_APP_URL = "https://scoutable.se/#download";
+// Purchase-free by design — see the 3.1.1 note above. Don't point this at the
+// marketing page or any anchor on it.
+const DESKTOP_APP_URL = "https://scoutable.se/download";
 // The landing site's /players hero poster — the editor mid vertical-crop.
 // (The old screenshot.png 404'd after the landing redesign; it only looked
 // alive on devices where expo-image had cached it.) A still, not the video:
@@ -104,39 +109,13 @@ function PitchPage() {
           onPress={handleDownload}
           className="self-stretch"
         />
-        <Text className="text-sm text-muted-foreground">
-          No card needed.
-        </Text>
       </View>
     </ScrollView>
   );
 }
 
-function OwnPlaylists() {
-  const colors = useThemeColors();
-  const { myOrgs } = useAuth();
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  const [loading, setLoading] = useState(true);
-  // My Highlights = the player's own reels, which live in the personal
-  // space. Coach-org content reaches them via My Playlists → Shared with me.
-  const personalOrgId = myOrgs.find((o) => o.isPersonal)?.orgId;
-
-  useEffect(() => {
-    if (!personalOrgId) return;
-    listPlaylists(supabase, personalOrgId, { includeUnscoped: true })
-      .then(setPlaylists)
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [personalOrgId]);
-
-  if (loading) {
-    return (
-      <View className="flex-1 items-center justify-center">
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
-    );
-  }
-
+/** Only rendered with at least one playlist — the empty case is the pitch. */
+function OwnPlaylists({ playlists }: { playlists: Playlist[] }) {
   return (
     <ScrollView contentContainerClassName="gap-4 px-4 py-4">
       <Text className="text-sm text-muted-foreground">
@@ -144,40 +123,24 @@ function OwnPlaylists() {
         watch and share anywhere.
       </Text>
 
-      {playlists.length === 0 ? (
-        <View className="items-center gap-2 py-12">
-          <Ionicons
-            name="list-outline"
-            size={32}
-            color={colors.mutedForeground}
-          />
-          <Text className="text-base font-semibold text-foreground">
-            No tapes yet
-          </Text>
-          <Text className="max-w-[280px] text-center text-sm text-muted-foreground">
-            Import a game in the desktop app and your playlists show up here.
-          </Text>
-        </View>
-      ) : (
-        <View className="gap-2">
-          {playlists.map((pl) => (
-            <View
-              key={pl.id}
-              className="flex-row items-center justify-between rounded-xl border border-border bg-card px-4 py-3"
+      <View className="gap-2">
+        {playlists.map((pl) => (
+          <View
+            key={pl.id}
+            className="flex-row items-center justify-between rounded-xl border border-border bg-card px-4 py-3"
+          >
+            <Text
+              numberOfLines={1}
+              className="flex-1 text-sm font-medium text-foreground"
             >
-              <Text
-                numberOfLines={1}
-                className="flex-1 text-sm font-medium text-foreground"
-              >
-                {pl.name}
-              </Text>
-              <Text className="ml-2 text-xs text-muted-foreground">
-                {pl.items.filter(isClipItem).length} clips
-              </Text>
-            </View>
-          ))}
-        </View>
-      )}
+              {pl.name}
+            </Text>
+            <Text className="ml-2 text-xs text-muted-foreground">
+              {pl.items.filter(isClipItem).length} clips
+            </Text>
+          </View>
+        ))}
+      </View>
     </ScrollView>
   );
 }
@@ -185,9 +148,36 @@ function OwnPlaylists() {
 export default function HighlightsScreen() {
   const { myOrgs, profileLoading } = useAuth();
   const colors = useThemeColors();
+  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const personalOrg = myOrgs.find((o) => o.isPersonal) ?? null;
-  const upgraded = personalOrg != null && personalOrg.planTier !== "free";
+  // My Highlights = the player's own reels, which live in the personal
+  // space. Coach-org content reaches them via My Playlists → Shared with me.
+  const personalOrgId = myOrgs.find((o) => o.isPersonal)?.orgId;
+
+  useEffect(() => {
+    if (profileLoading) return;
+    if (!personalOrgId) {
+      setLoading(false);
+      return;
+    }
+    let active = true;
+    listPlaylists(supabase, personalOrgId, { includeUnscoped: true })
+      .then((rows) => {
+        if (active) setPlaylists(rows);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [personalOrgId, profileLoading]);
+
+  // Have tapes → show them; none → pitch the (free) desktop app that makes
+  // them. Deliberately not keyed on plan tier — see the 3.1.1 note up top.
+  const hasPlaylists = playlists.length > 0;
 
   return (
     <SafeAreaView edges={["top"]} className="flex-1 bg-background">
@@ -196,12 +186,12 @@ export default function HighlightsScreen() {
           My Highlights
         </Text>
       </View>
-      {profileLoading ? (
+      {profileLoading || loading ? (
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
-      ) : upgraded ? (
-        <OwnPlaylists />
+      ) : hasPlaylists ? (
+        <OwnPlaylists playlists={playlists} />
       ) : (
         <PitchPage />
       )}
