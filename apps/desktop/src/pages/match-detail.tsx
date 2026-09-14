@@ -28,6 +28,23 @@ interface RosterEntry {
   playerName: string;
 }
 
+/**
+ * A sync change re-cuts every clip of this game, so already-shipped uploads
+ * were invalidated (their r2_url cleared) — recipients can't see those clips
+ * again until the coach re-uploads them with the new sync.
+ */
+function notifyClearedShippedClips(count: number) {
+  if (count === 0) return;
+  toast.info(
+    `${count} shared clip${count === 1 ? "" : "s"} from this game will re-render with the new sync point`,
+    {
+      description:
+        "They're hidden from recipients until re-uploaded — open the playlist's Shared by me and use Upload missing clips.",
+      duration: 10000,
+    },
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Colour palette (copied from edit-match-dialog)
 // ---------------------------------------------------------------------------
@@ -529,10 +546,11 @@ export function MatchDetailPage() {
                   syncRealWorldTime: storedMatch.syncPoint?.syncRealWorldTime ?? "",
                 };
                 try {
-                  await updateSyncPoint(matchId, sp);
+                  const { clearedShippedClips } = await updateSyncPoint(matchId, sp);
                   setStoredMatch((m) => m ? { ...m, syncPoint: sp } : m);
                   setSaveIndicator("Saved");
                   setTimeout(() => setSaveIndicator(null), 1500);
+                  notifyClearedShippedClips(clearedShippedClips);
                 } catch {
                   setSaveIndicator("Error saving");
                   setTimeout(() => setSaveIndicator(null), 2000);
@@ -565,9 +583,10 @@ export function MatchDetailPage() {
                       : null;
                     if (sp) {
                       updateSyncPoint(matchId, sp)
-                        .then(() => {
+                        .then(({ clearedShippedClips }) => {
                           setSaveIndicator("Saved");
                           setTimeout(() => setSaveIndicator(null), 1500);
+                          notifyClearedShippedClips(clearedShippedClips);
                         })
                         .catch(() => {});
                     }

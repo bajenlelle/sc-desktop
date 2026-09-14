@@ -53,15 +53,25 @@ describe("clipBounds", () => {
 
 describe("clipShipKey", () => {
   // GOLDEN: this exact string addresses already-uploaded R2 objects — if it
-  // changes, every previously shipped clip is orphaned. Never change these.
-  it("formats the R2 object key with one-decimal rolls", () => {
-    expect(clipShipKey("m1", 42, 5, 3)).toBe("clips/m1/42_pre5.0_post3.0.mp4");
+  // changes, every previously shipped clip is orphaned. The format changed
+  // ONCE, deliberately, when sync-point invalidation shipped: the computed
+  // start second joined the key (`_s`) so a re-synced game mints fresh URLs
+  // that no browser/CDN cache can satisfy with the old cut. The presign edge
+  // function's CLIP_KEY allowlist accepts BOTH formats (older desktop builds
+  // still mint the _s-less shape). Never change this again without the same
+  // treatment.
+  it("formats the R2 object key with one-decimal rolls and start", () => {
+    expect(clipShipKey("m1", 42, 5, 3, 754.2)).toBe("clips/m1/42_pre5.0_post3.0_s754.2.mp4");
   });
 
   it("rounds fractions with toFixed(1) semantics", () => {
     // (5.25).toFixed(1) === "5.3" (tie rounds up); (3.05).toFixed(1) === "3.0"
     // (3.05 is stored below the tie in binary) — both pinned as-is.
-    expect(clipShipKey("m1", 7, 5.25, 3.05)).toBe("clips/m1/7_pre5.3_post3.0.mp4");
+    expect(clipShipKey("m1", 7, 5.25, 3.05, 0)).toBe("clips/m1/7_pre5.3_post3.0_s0.0.mp4");
+  });
+
+  it("a sync-point change (different start) yields a different key", () => {
+    expect(clipShipKey("m1", 42, 5, 3, 754.2)).not.toBe(clipShipKey("m1", 42, 5, 3, 751.2));
   });
 });
 

@@ -5,13 +5,16 @@
  * app.
  */
 
-import type { PlayByPlayEvent, SyncPoint } from "../types/match";
+import type { SyncPoint } from "../types/match";
 
 /**
  * Seconds into the video for an event, derived from the match's realtime
  * sync point. Null when either timestamp is missing or unparseable.
  */
-export function computeVideoTime(event: PlayByPlayEvent, sync: SyncPoint): number | null {
+export function computeVideoTime(
+  event: { realWorldTime?: string | null },
+  sync: SyncPoint,
+): number | null {
   if (!event.realWorldTime || !sync.syncRealWorldTime) return null;
   const eventMs = new Date(event.realWorldTime).getTime();
   const syncMs = new Date(sync.syncRealWorldTime).getTime();
@@ -35,12 +38,22 @@ export function clipBounds(
 
 /**
  * R2 object key for a shipped clip. pre/post are the EFFECTIVE totals
- * (base roll + per-clip offset). Already-uploaded clips are addressed by this
- * exact string — changing the format orphans every previously shipped clip,
- * which is why its golden test exists.
+ * (base roll + per-clip offset); start is the computed in-video start second,
+ * which depends on the match's sync point — so a re-synced game mints NEW
+ * keys, and recipients' browser/CDN caches of the old URL can never serve the
+ * old cut. Already-uploaded clips are addressed by this exact string — the
+ * golden test pins the format, and the presign-upload edge function's
+ * CLIP_KEY allowlist must accept every format ever shipped (keys without the
+ * _s segment stay valid: older desktop builds still mint them).
  */
-export function clipShipKey(matchId: string, eventId: number, pre: number, post: number): string {
-  return `clips/${matchId}/${eventId}_pre${pre.toFixed(1)}_post${post.toFixed(1)}.mp4`;
+export function clipShipKey(
+  matchId: string,
+  eventId: number,
+  pre: number,
+  post: number,
+  start: number,
+): string {
+  return `clips/${matchId}/${eventId}_pre${pre.toFixed(1)}_post${post.toFixed(1)}_s${start.toFixed(1)}.mp4`;
 }
 
 /** Post-roll padding baked into shipped clips (desktop authoring default). */

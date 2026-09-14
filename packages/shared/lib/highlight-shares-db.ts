@@ -4,6 +4,8 @@
  * platform Supabase client.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { computeVideoTime } from "./clip-timing";
+import type { SyncPoint } from "../types/match";
 
 export interface HighlightShare {
   id: string;
@@ -35,7 +37,9 @@ export type HighlightContentSegment =
   | {
       kind: "clip";
       matchId: string;
-      event: { eventId: number };
+      event: { eventId: number; realWorldTime?: string };
+      /** The match's sync point at key time — it positions the cut, so it's part of the content. */
+      syncPoint?: SyncPoint;
       preRollOffset?: number;
       postRollOffset?: number;
       cropKeyframes?: { t: number; cx: number }[];
@@ -58,12 +62,14 @@ function cyrb53(str: string, seed = 0): string {
 
 /**
  * Fingerprint of exactly what a send-to-phone render contains: clip
- * identities IN ORDER, roll settings, text cards — and, for 9:16 only, the
- * crop-pan keyframes (pans don't shape a widescreen render, so a pan edit
- * must not invalidate a 16:9 link). Reuse requires an identical key, so any
- * relevant edit between sends re-renders instead of serving a stale link.
- * Watermark is deliberately outside the key — this surface is always
- * watermarked.
+ * identities IN ORDER, each clip's computed in-video time (sync-dependent —
+ * a re-synced game re-cuts every clip, so a sync edit must invalidate the
+ * link; that gap was the v1→v2 bump), roll settings, text cards — and, for
+ * 9:16 only, the crop-pan keyframes (pans don't shape a widescreen render,
+ * so a pan edit must not invalidate a 16:9 link). Reuse requires an
+ * identical key, so any relevant edit between sends re-renders instead of
+ * serving a stale link. Watermark is deliberately outside the key — this
+ * surface is always watermarked.
  */
 export function highlightContentKey(
   segments: HighlightContentSegment[],
@@ -71,18 +77,20 @@ export function highlightContentKey(
   postRoll: number,
   aspect: HighlightAspect
 ): string {
-  const parts = segments.map((s) =>
-    s.kind === "text"
-      ? `t|${s.durationSeconds}|${s.text}`
-      : `c|${s.matchId}|${s.event.eventId}|${s.preRollOffset ?? 0}|${s.postRollOffset ?? 0}|${
-          aspect === "9:16"
-            ? (s.cropKeyframes ?? [])
-                .map((k) => `${k.t.toFixed(3)}:${k.cx.toFixed(4)}`)
-                .join(",")
-            : ""
-        }`
-  );
-  return cyrb53(`v1|${preRoll}|${postRoll}|${parts.join(";")}`);
+  const parts = segments.map((s) => {
+    if (s.kind === "text") return `t|${s.durationSeconds}|${s.text}`;
+    const videoTime = s.syncPoint ? computeVideoTime(s.event, s.syncPoint) : null;
+    return `c|${s.matchId}|${s.event.eventId}|${videoTime?.toFixed(1) ?? "x"}|${
+      s.preRollOffset ?? 0
+    }|${s.postRollOffset ?? 0}|${
+      aspect === "9:16"
+        ? (s.cropKeyframes ?? [])
+            .map((k) => `${k.t.toFixed(3)}:${k.cx.toFixed(4)}`)
+            .join(",")
+        : ""
+    }`;
+  });
+  return cyrb53(`v2|${preRoll}|${postRoll}|${parts.join(";")}`);
 }
 
 /**

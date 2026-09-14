@@ -77,22 +77,31 @@ describe("presignUpload", () => {
 // function validates every submitted key against these before signing. They
 // must stay in sync with the key builders below (clipShipKey /
 // highlightShareKeys); if either side changes, this suite is the tripwire.
-const CLIP_KEY = /^clips\/([A-Za-z0-9-]{1,64})\/\d{1,12}_pre\d{1,4}\.\d_post\d{1,4}\.\d\.mp4$/;
+// The `_s<start>` segment is OPTIONAL on purpose: desktop builds released
+// before sync-point invalidation still mint keys without it.
+const CLIP_KEY =
+  /^clips\/([A-Za-z0-9-]{1,64})\/\d{1,12}_pre\d{1,4}\.\d_post\d{1,4}\.\d(?:_s\d{1,6}\.\d)?\.mp4$/;
 const UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
 const HIGHLIGHT_KEY = new RegExp(`^highlights/(${UUID})/${UUID}\\.(mp4|jpg)$`);
 
 describe("edge-function key regexes accept what the shared builders produce", () => {
   it("CLIP_KEY matches every clipShipKey shape in the wild", () => {
-    // Legacy short id, Genius numeric id, demo id, big rolls, eventId 0.
-    expect(clipShipKey("m1", 42, 5, 3)).toMatch(CLIP_KEY);
-    expect(clipShipKey("2537281", 118, 5, 3)).toMatch(CLIP_KEY);
-    expect(clipShipKey("demo-123e4567-e89b-12d3-a456-426614174000", 7, 5, 3)).toMatch(CLIP_KEY);
-    expect(clipShipKey("m1", 7, 999, 12.5)).toMatch(CLIP_KEY); // → pre999.0_post12.5
-    expect(clipShipKey("m1", 0, 5, 3)).toMatch(CLIP_KEY);
+    // Legacy short id, Genius numeric id, demo id, big rolls, eventId 0,
+    // long-game start times.
+    expect(clipShipKey("m1", 42, 5, 3, 754.2)).toMatch(CLIP_KEY);
+    expect(clipShipKey("2537281", 118, 5, 3, 0)).toMatch(CLIP_KEY);
+    expect(clipShipKey("demo-123e4567-e89b-12d3-a456-426614174000", 7, 5, 3, 12.5)).toMatch(CLIP_KEY);
+    expect(clipShipKey("m1", 7, 999, 12.5, 9999.9)).toMatch(CLIP_KEY); // → pre999.0_post12.5
+    expect(clipShipKey("m1", 0, 5, 3, 0.4)).toMatch(CLIP_KEY);
+  });
+
+  it("CLIP_KEY still accepts the pre-invalidation format (older desktop builds)", () => {
+    expect("clips/m1/42_pre5.0_post3.0.mp4").toMatch(CLIP_KEY);
+    expect("clips/2537281/118_pre5.0_post3.0.mp4").toMatch(CLIP_KEY);
   });
 
   it("CLIP_KEY captures the matchId for the authorization lookup", () => {
-    const m = CLIP_KEY.exec(clipShipKey("demo-123e4567-e89b-12d3-a456-426614174000", 7, 5, 3));
+    const m = CLIP_KEY.exec(clipShipKey("demo-123e4567-e89b-12d3-a456-426614174000", 7, 5, 3, 60));
     expect(m?.[1]).toBe("demo-123e4567-e89b-12d3-a456-426614174000");
   });
 
