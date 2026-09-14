@@ -10,6 +10,7 @@
     "ios": {
       "bundleIdentifier": "se.scoutable.app",
       "supportsTablet": false,
+      "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -29,6 +30,7 @@
       "expo-router",
       "expo-video",
       "expo-web-browser",
+      "expo-apple-authentication",
       [
         "expo-notifications",
         {

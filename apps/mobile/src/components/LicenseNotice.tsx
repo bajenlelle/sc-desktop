@@ -37,13 +37,14 @@ export function LicenseNotice({ className = "" }: { className?: string }) {
             <Text className="text-sm font-semibold text-red-600 dark:text-red-400">
               {o.orgName}&apos;s license has expired
             </Text>
+            {/* Status only, no renewal call to action: App Store 3.1.3(f)
+                keeps this app exempt from in-app purchase as long as it
+                never points at a purchase outside it. Web and desktop still
+                carry the renewal path. */}
             <Text className="text-xs text-muted-foreground">
               {state === "grace"
-                ? `New shares pause on ${graceEnd} unless it's renewed. `
-                : "New shares are paused — existing playlists stay watchable. "}
-              {o.role === "admin"
-                ? "Request a renewal from the web app."
-                : "Ask your organization admin about renewal."}
+                ? `New shares pause on ${graceEnd}. Existing playlists stay watchable.`
+                : "New shares are paused. Existing playlists stay watchable."}
             </Text>
           </View>
         );

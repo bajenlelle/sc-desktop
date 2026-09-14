@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -8,8 +8,14 @@ import {
 } from "react-native";
 import { Link } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
+import * as AppleAuthentication from "expo-apple-authentication";
+import { useColorScheme } from "nativewind";
 import { supabase } from "@/lib/supabase";
-import { signInWithProvider } from "@/lib/oauth";
+import {
+  isNativeAppleAvailable,
+  signInWithAppleNative,
+  signInWithProvider,
+} from "@/lib/oauth";
 import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
 
@@ -19,6 +25,20 @@ export default function SignIn() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<"google" | "apple" | null>(null);
+  // Apple's own button on iOS (HIG requires its styling); the generic outline
+  // button stays the Android path, where sign-in still goes through the browser.
+  const [nativeApple, setNativeApple] = useState(false);
+  const { colorScheme } = useColorScheme();
+
+  useEffect(() => {
+    let active = true;
+    void isNativeAppleAvailable().then((ok) => {
+      if (active) setNativeApple(ok);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function handleSignIn() {
     setError(null);
@@ -39,9 +59,15 @@ export default function SignIn() {
     setError(null);
     setOauthLoading(provider);
     try {
-      await signInWithProvider(provider);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Sign-in failed");
+      if (provider === "apple" && nativeApple) await signInWithAppleNative();
+      else await signInWithProvider(provider);
+      // Success: the auth listener flips state and (auth)/_layout redirects.
+    } catch {
+      // Provider errors ("invalid_client", "Unacceptable audience") tell the
+      // player nothing they can act on — name the way back in instead.
+      setError(
+        `Couldn't sign in with ${provider === "apple" ? "Apple" : "Google"}. Try again, or sign in with your email and password.`
+      );
     } finally {
       setOauthLoading(null);
     }
@@ -116,12 +142,26 @@ export default function SignIn() {
               onPress={() => handleOAuth("google")}
               loading={oauthLoading === "google"}
             />
-            <Button
-              title="Continue with Apple"
-              variant="outline"
-              onPress={() => handleOAuth("apple")}
-              loading={oauthLoading === "apple"}
-            />
+            {nativeApple ? (
+              <AppleAuthentication.AppleAuthenticationButton
+                buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+                buttonStyle={
+                  colorScheme === "dark"
+                    ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE
+                    : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
+                }
+                cornerRadius={8}
+                style={{ height: 48 }}
+                onPress={() => handleOAuth("apple")}
+              />
+            ) : (
+              <Button
+                title="Continue with Apple"
+                variant="outline"
+                onPress={() => handleOAuth("apple")}
+                loading={oauthLoading === "apple"}
+              />
+            )}
           </View>
 
           <View className="mt-8 flex-row justify-center gap-1">

@@ -20,9 +20,10 @@ const INVALID_COPY: Record<InviteInvalidReason, string> = {
   not_found: "This invite link doesn't exist. Double-check the link or ask your coach for a new one.",
   expired_invite: "This invite has expired. Ask your coach for a new link.",
   exhausted: "This invite has already been used the maximum number of times.",
-  // Same guidance as web: renewal goes through the org, not the player.
+  // No renewal call to action on iOS — see the note in LicenseNotice.tsx.
+  // The player can't act on it anyway; their coach handles it on the web.
   expired_license:
-    "This organization's license has expired. The organization can request a renewal from Scoutable.",
+    "This organization's license has expired. Ask your coach to get in touch with us.",
   seat_limit_reached:
     "This organization has used all its seats for this role. The organization admin has been notified — ask them to free a seat or add more.",
 };
