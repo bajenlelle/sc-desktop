@@ -73,4 +73,36 @@ describe("highlightContentKey", () => {
       highlightContentKey(panned, 10, 3, "9:16"),
     );
   });
+
+  it("changes when a sync-point change moves a clip's computed video time", () => {
+    // A re-synced game re-cuts every clip — reusing the old render would
+    // serve the old cut. This was the v1→v2 gap.
+    const synced = (syncVideoTime: number): HighlightContentSegment[] => [
+      clip(1, {
+        event: { eventId: 1, realWorldTime: "2026-09-14T18:00:30.000Z" },
+        syncPoint: { syncVideoTime, syncRealWorldTime: "2026-09-14T18:00:00.000Z" },
+      }),
+      BASE[1],
+      BASE[2],
+    ];
+    expect(highlightContentKey(synced(35), 10, 3, "16:9")).not.toBe(
+      highlightContentKey(synced(38), 10, 3, "16:9"),
+    );
+    // …and is stable when the sync is unchanged.
+    expect(highlightContentKey(synced(35), 10, 3, "16:9")).toBe(
+      highlightContentKey(synced(35), 10, 3, "16:9"),
+    );
+  });
+
+  it("treats a missing sync point as unknown, distinct from any real time", () => {
+    const withSync: HighlightContentSegment[] = [
+      clip(1, {
+        event: { eventId: 1, realWorldTime: "2026-09-14T18:00:30.000Z" },
+        syncPoint: { syncVideoTime: 35, syncRealWorldTime: "2026-09-14T18:00:00.000Z" },
+      }),
+    ];
+    expect(highlightContentKey([clip(1)], 10, 3, "16:9")).not.toBe(
+      highlightContentKey(withSync, 10, 3, "16:9"),
+    );
+  });
 });

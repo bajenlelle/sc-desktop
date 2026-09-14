@@ -44,12 +44,15 @@ const EXPIRES_SECONDS = 900;
 // Key shapes are pinned by golden tests in packages/shared — keep in sync,
 // never loosen:
 //   clipShipKey        → lib/__tests__/clip-timing.test.ts
-//                        ("clips/m1/42_pre5.0_post3.0.mp4")
+//                        ("clips/m1/42_pre5.0_post3.0_s754.2.mp4")
 //   highlightShareKeys → lib/__tests__/highlight-shares-db.test.ts
 // matchId is matches.id: a Genius numeric string, a legacy gameUuid, or
 // "demo-<uuid>". eventId is a number; pre/post are toFixed(1) of totals the
-// desktop UI clamps >= 0.
-const CLIP_KEY = /^clips\/([A-Za-z0-9-]{1,64})\/\d{1,12}_pre\d{1,4}\.\d_post\d{1,4}\.\d\.mp4$/;
+// desktop UI clamps >= 0. The `_s<start>` segment (computed in-video start,
+// sync-dependent) is OPTIONAL: desktop builds released before sync-point
+// invalidation still mint keys without it — accept both, forever.
+const CLIP_KEY =
+  /^clips\/([A-Za-z0-9-]{1,64})\/\d{1,12}_pre\d{1,4}\.\d_post\d{1,4}\.\d(?:_s\d{1,6}\.\d)?\.mp4$/;
 const UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
 const HIGHLIGHT_KEY = new RegExp(`^highlights/(${UUID})/${UUID}\\.(mp4|jpg)$`);
 

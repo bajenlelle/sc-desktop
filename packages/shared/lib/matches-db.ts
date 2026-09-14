@@ -8,7 +8,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { currentUserId } from "./current-user";
-import { applyOrgScope, type OrgScopeOpts } from "./playlists-db";
+import { applyOrgScope, clearShippedClipsForMatch, type OrgScopeOpts } from "./playlists-db";
 import { reportDbError } from "./report";
 import type { PlaylistFolder, PlayByPlayEvent, StoredMatch, SyncPoint } from "../types/match";
 
@@ -330,12 +330,33 @@ export async function updateSyncPoint(
   supabase: SupabaseClient,
   matchId: string,
   syncPoint: SyncPoint | null
-): Promise<void> {
+): Promise<{ clearedShippedClips: number }> {
   const { error } = await supabase
     .from("matches")
     .update({ sync_point: syncPoint })
     .eq("id", matchId);
   if (error) throw new Error(`Failed to update sync point: ${error.message}`);
+  return { clearedShippedClips: await invalidateShippedClips(supabase, matchId) };
+}
+
+/**
+ * A sync change re-cuts every clip of the match, so uploads made with the old
+ * sync must stop being served (see clearShippedClipsForMatch). Best-effort:
+ * a failed invalidation must never fail the sync save itself — report it and
+ * move on (the stale clips are then no worse than before this existed).
+ */
+async function invalidateShippedClips(
+  supabase: SupabaseClient,
+  matchId: string,
+): Promise<number> {
+  try {
+    return await clearShippedClipsForMatch(supabase, matchId);
+  } catch (e) {
+    reportDbError("clearShippedClipsForMatch", {
+      message: e instanceof Error ? e.message : String(e),
+    });
+    return 0;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -389,6 +410,9 @@ export async function updateMatchMeta(
   if ("syncPoint" in updates) row.sync_point = updates.syncPoint ?? null;
   const { error } = await supabase.from("matches").update(row).eq("id", matchId);
   if (error) throw new Error(`Failed to update match: ${error.message}`);
+  // Same invalidation as updateSyncPoint: uploads cut with the old sync must
+  // not survive a sync change through this path either.
+  if ("syncPoint" in updates) await invalidateShippedClips(supabase, matchId);
 }
 
 // ---------------------------------------------------------------------------

@@ -25,7 +25,9 @@ type ClipSegment = Extract<ExportSegment, { kind: "clip" }>;
  * user-driven "try again" idempotent.
  *
  * Idempotent: clips that already have r2Url on their PlaylistClipItem are
- * skipped. Aborting via opts.signal stops between clips (an in-flight ffmpeg
+ * skipped — safe because anything that invalidates an upload's CONTENT clears
+ * the r2Url first (a sync-point save nulls it for the whole match via
+ * clearShippedClipsForMatch). Aborting via opts.signal stops between clips (an in-flight ffmpeg
  * export can't be cancelled; the R2 upload can) and reports aborted — never
  * a failure.
  */
@@ -96,13 +98,16 @@ export async function clipAndShip(
         outputPath: tempPath,
       });
 
-      // Effective totals (base roll + per-clip offset) — the key format is
-      // pinned by a golden test in shared; existing uploads are addressed by it.
+      // Effective totals (base roll + per-clip offset) plus the computed
+      // start — the key format is pinned by a golden test in shared, and the
+      // start makes a re-synced game upload to a FRESH url (no cache can
+      // serve the old cut).
       const key = clipShipKey(
         seg.matchId,
         event.eventId,
         preRoll + (seg.preRollOffset ?? 0),
         postRoll + (seg.postRollOffset ?? 0),
+        start,
       );
       const r2Url = await uploadToR2(tempPath, key, undefined, opts?.signal);
 

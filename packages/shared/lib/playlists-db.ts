@@ -502,6 +502,31 @@ export async function updateClipR2Url(
   if (error) throw new Error(`Failed to save R2 URL: ${error.message}`);
 }
 
+/**
+ * Null the shipped-clip URLs for every playlist clip of a match — called when
+ * its sync point changes. The uploaded MP4s were cut with the OLD sync, and
+ * recipients play r2_url directly (their players have no sync logic), so
+ * leaving the URLs would serve mis-cut clips forever: clipAndShip's
+ * idempotency skips any clip that still carries an r2_url. Clearing makes the
+ * clips temporarily missing for recipients until the coach re-uploads
+ * (SharedByMe's "Upload missing clips" renders exactly the cleared set, with
+ * the new sync). RLS scopes the update to the caller's own playlists.
+ * Returns how many clips were cleared.
+ */
+export async function clearShippedClipsForMatch(
+  supabase: SupabaseClient,
+  matchId: string,
+): Promise<number> {
+  const { data, error } = await supabase
+    .from("playlist_clips")
+    .update({ r2_url: null })
+    .eq("match_id", matchId)
+    .not("r2_url", "is", null)
+    .select("id");
+  if (error) throw new Error(`Failed to clear shipped clips: ${error.message}`);
+  return data?.length ?? 0;
+}
+
 // ---------------------------------------------------------------------------
 // Assign (or unassign) a playlist to a team (legacy single-team — kept for
 // backward compat; prefer setPlaylistTeams for new code)
