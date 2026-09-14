@@ -2037,6 +2037,14 @@ export function PlaylistsPage() {
       listMatchesLight(activeOrgId ?? undefined, { ownOnly: true, includeUnscoped: activeOrgIsPersonal })
         .then((shells) => {
           setMatches((prev) => {
+            // listMatchesLight returns [] on a FAILED query too (it reports,
+            // but can't throw). Blanking `matches` here empties eventByKey and
+            // silently drops every clip card from the open playlist — a
+            // relink (which fires matches-changed) must never do that. Keep
+            // the previous rows; the only way to lose a match mid-session
+            // would be a delete from another device, which self-corrects on
+            // the next successful refresh or remount.
+            if (shells.length === 0 && prev.length > 0) return prev;
             const prevById = new Map(prev.map((m) => [m.id, m]));
             return shells.map((s) => {
               const known = prevById.get(s.id);
@@ -2112,6 +2120,19 @@ export function PlaylistsPage() {
     () => selectedClipKeys.map((c) => `${c.matchId}:${c.eventId}`).join(","),
     [selectedClipKeys],
   );
+
+  // Self-heal the open queue: displayItems silently drops any clip whose
+  // event isn't loaded, so a playlist referencing matches the mount fetch
+  // missed (it failed, or the playlist arrived after mount) rendered its
+  // clips invisible until the clip browser happened to fetch that game.
+  // ensureEventsFor skips loaded/in-flight ids, so this is free when healthy.
+  useEffect(() => {
+    const missing = [
+      ...new Set(selectedClipKeys.map((c) => c.matchId)),
+    ].filter((id) => !loadedEventMatchIdsRef.current.has(id));
+    if (missing.length > 0) void ensureEventsFor(missing);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedClipKeys is fully represented by selectedClipKeysKey
+  }, [selectedClipKeysKey, ensureEventsFor]);
 
   /**
    * Clip lookup by `matchId:eventId`.
