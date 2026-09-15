@@ -2,29 +2,30 @@
  * My Highlights — the player's own space as a first-class destination.
  * Port of apps/web .../my-highlights/page.tsx.
  *
- * Players with no tapes yet see a value-first pitch whose only ask is the FREE
- * desktop download — activation before monetization: the free tier (3 imports)
- * is the trial, and the upsell happens inside the desktop app at the
- * quota/watermark gates, where intent is highest.
+ * One static pitch for everyone, whose only ask is the FREE desktop download —
+ * activation before monetization: the free tier (3 imports) is the trial, and
+ * the upsell happens inside the desktop app at the quota/watermark gates, where
+ * intent is highest.
  *
- * App Store 3.1.1: this screen must never unlock anything on the strength of a
- * purchase made on the web, and must never point at one. So the split below is
- * driven by whether the player HAS playlists, never by plan tier (the app reads
- * no plan tier at all), and the download link goes to scoutable.se/download —
- * a page with no prices, plans or trial CTAs — not the marketing page, which
- * sells Rookie and Pro. Both are load-bearing for the 3.1.3(f) exemption; build
- * 3 was rejected for the second one.
+ * This screen used to list the player's own personal-space playlists instead,
+ * for players it considered "upgraded". That list was inert — rows didn't open,
+ * and personal playlists never get an r2Url, so nothing here could ever play
+ * (the route to watching your own tape on a phone is send-to-phone from the
+ * desktop app, which serves a rendered MP4 at /h/{id}). It was also gated on
+ * plan tier, i.e. the app unlocked a screen on the strength of a purchase made
+ * on the web — the literal wording of App Store 3.1.1, and half of why build 3
+ * was rejected. The other half was this CTA pointing at the marketing page,
+ * which sells Rookie and Pro.
+ *
+ * So: no branch, no user data read, nothing unlocked, and the link goes to
+ * scoutable.se/download — a page with no prices, plans or trial CTAs. Keep it
+ * that way; the 3.1.3(f) exemption depends on it.
  */
-import { useEffect, useState } from "react";
-import { ActivityIndicator, ScrollView, Text, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import * as WebBrowser from "expo-web-browser";
 import { Ionicons } from "@expo/vector-icons";
-import { listPlaylists } from "@scoutable/shared/lib/playlists-db";
-import { isClipItem, type Playlist } from "@scoutable/shared/types/match";
-import { useAuth } from "@/lib/auth-context";
-import { supabase } from "@/lib/supabase";
 import { trackEvent } from "@/lib/analytics";
 import { useThemeColors } from "@/lib/theme-context";
 import { Button } from "@/components/Button";
@@ -114,71 +115,7 @@ function PitchPage() {
   );
 }
 
-/** Only rendered with at least one playlist — the empty case is the pitch. */
-function OwnPlaylists({ playlists }: { playlists: Playlist[] }) {
-  return (
-    <ScrollView contentContainerClassName="gap-4 px-4 py-4">
-      <Text className="text-sm text-muted-foreground">
-        Your own playlists, built in the desktop app. Send them to your phone from there to
-        watch and share anywhere.
-      </Text>
-
-      <View className="gap-2">
-        {playlists.map((pl) => (
-          <View
-            key={pl.id}
-            className="flex-row items-center justify-between rounded-xl border border-border bg-card px-4 py-3"
-          >
-            <Text
-              numberOfLines={1}
-              className="flex-1 text-sm font-medium text-foreground"
-            >
-              {pl.name}
-            </Text>
-            <Text className="ml-2 text-xs text-muted-foreground">
-              {pl.items.filter(isClipItem).length} clips
-            </Text>
-          </View>
-        ))}
-      </View>
-    </ScrollView>
-  );
-}
-
 export default function HighlightsScreen() {
-  const { myOrgs, profileLoading } = useAuth();
-  const colors = useThemeColors();
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  // My Highlights = the player's own reels, which live in the personal
-  // space. Coach-org content reaches them via My Playlists → Shared with me.
-  const personalOrgId = myOrgs.find((o) => o.isPersonal)?.orgId;
-
-  useEffect(() => {
-    if (profileLoading) return;
-    if (!personalOrgId) {
-      setLoading(false);
-      return;
-    }
-    let active = true;
-    listPlaylists(supabase, personalOrgId, { includeUnscoped: true })
-      .then((rows) => {
-        if (active) setPlaylists(rows);
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [personalOrgId, profileLoading]);
-
-  // Have tapes → show them; none → pitch the (free) desktop app that makes
-  // them. Deliberately not keyed on plan tier — see the 3.1.1 note up top.
-  const hasPlaylists = playlists.length > 0;
-
   return (
     <SafeAreaView edges={["top"]} className="flex-1 bg-background">
       <View className="flex-row items-center px-4 pb-1 pt-3">
@@ -186,15 +123,7 @@ export default function HighlightsScreen() {
           My Highlights
         </Text>
       </View>
-      {profileLoading || loading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
-      ) : hasPlaylists ? (
-        <OwnPlaylists playlists={playlists} />
-      ) : (
-        <PitchPage />
-      )}
+      <PitchPage />
     </SafeAreaView>
   );
 }
