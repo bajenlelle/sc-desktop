@@ -362,46 +362,59 @@ export function ProfilePage() {
            profile. Answers "what am I part of?" (the one question players
            had on the org page); staff additionally get a Manage shortcut
            per club — it switches the active space like the space menu's
-           Manage action, since the org page manages the active org. */}
-      {myClubs.length > 0 && (
-        <Card>
-          <CardContent className="p-6 space-y-3">
-            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-              <Users className="h-4 w-4 text-muted-foreground" />
-              {myClubs.length > 1 ? "My clubs" : "My club"}
-            </h2>
-            {myClubs.map((club) => (
-              <div key={club.orgId} className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-foreground">{club.orgName}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground capitalize">{club.role}</span>
-                    {club.isNtOrg && <span className="text-xs text-muted-foreground">NT</span>}
-                    {(club.role === "coach" || club.role === "admin") && (
-                      <button
-                        type="button"
-                        className="text-xs text-primary underline-offset-2 hover:underline"
-                        title={`Teams, members and invites for ${club.orgName}`}
-                        onClick={() => {
-                          // The org page manages the ACTIVE space — switch
-                          // first, same as the space menu's Manage action.
-                          setActiveOrg(club.orgId);
-                          navigate("/organization");
-                        }}
-                      >
-                        Manage
-                      </button>
-                    )}
-                  </div>
+           Manage action, since the org page manages the active org.
+           Always rendered: this is the only entry point to joining a club on
+           desktop, and the people who need it most are exactly the ones with
+           no club yet. */}
+      <Card>
+        <CardContent className="p-6 space-y-3">
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Users className="h-4 w-4 text-muted-foreground" />
+            {myClubs.length === 1 ? "My club" : "My clubs"}
+          </h2>
+          {myClubs.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              You&rsquo;re not in a club yet. Your personal space is yours either way.
+            </p>
+          )}
+          {myClubs.map((club) => (
+            <div key={club.orgId} className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-foreground">{club.orgName}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground capitalize">{club.role}</span>
+                  {club.isNtOrg && <span className="text-xs text-muted-foreground">NT</span>}
+                  {(club.role === "coach" || club.role === "admin") && (
+                    <button
+                      type="button"
+                      className="text-xs text-primary underline-offset-2 hover:underline"
+                      title={`Teams, members and invites for ${club.orgName}`}
+                      onClick={() => {
+                        // The org page manages the ACTIVE space — switch
+                        // first, same as the space menu's Manage action.
+                        setActiveOrg(club.orgId);
+                        navigate("/organization");
+                      }}
+                    >
+                      Manage
+                    </button>
+                  )}
                 </div>
-                {club.teamNames.length > 0 && (
-                  <p className="text-xs text-muted-foreground">{club.teamNames.join(" · ")}</p>
-                )}
               </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
+              {club.teamNames.length > 0 && (
+                <p className="text-xs text-muted-foreground">{club.teamNames.join(" · ")}</p>
+              )}
+            </div>
+          ))}
+          <button
+            type="button"
+            className="text-xs text-primary underline-offset-2 hover:underline"
+            onClick={() => navigate("/onboarding")}
+          >
+            Join a club with an invite code
+          </button>
+        </CardContent>
+      </Card>
 
       {/* ── Personal Info ── */}
       <Card>
