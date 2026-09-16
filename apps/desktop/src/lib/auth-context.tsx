@@ -2,9 +2,10 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { identifyUser, resetUser, trackEvent } from "@/lib/analytics";
-import { getMyProfile, getMyOrgs } from "@/lib/profile-db";
+import { getMyProfile, getMyOrgs, ensurePersonalOrg } from "@/lib/profile-db";
 import { sortOrgsClubFirst } from "@scoutable/shared/lib/orgs";
 import { touchThisDevice } from "@/lib/device-registry";
+import { Sentry } from "@/lib/sentry";
 import { seedDemoMatch } from "@/lib/matches-db";
 import type { UserProfile, OrgMembership, OrgPlanTier } from "@/types/org";
 
@@ -22,6 +23,13 @@ interface AuthContextValue {
   profile: UserProfile | null;
   profileLoading: boolean;
   myOrgs: OrgMembership[];
+  /**
+   * An org read has SUCCEEDED at least once this session. `myOrgs` is `[]`
+   * both before the first load and when a read fails, so this is the only way
+   * to tell "we don't know yet" from "belongs to nothing" — conflating them is
+   * what used to strand users on the invite-code page.
+   */
+  orgsLoaded: boolean;
   /** @deprecated Use myOrgs */
   secondaryOrgs: OrgMembership[];
   activeOrgId: string | null;
@@ -57,6 +65,7 @@ const AuthContext = createContext<AuthContextValue>({
   profile: null,
   profileLoading: true,
   myOrgs: [],
+  orgsLoaded: false,
   secondaryOrgs: [],
   activeOrgId: null,
   activeOrg: null,
@@ -77,6 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [myOrgs, setMyOrgs] = useState<OrgMembership[]>([]);
+  const [orgsLoaded, setOrgsLoaded] = useState(false);
   const [activeOrgId, setActiveOrgIdState] = useState<string | null>(null);
   const [deviceBlocked, setDeviceBlocked] = useState(false);
 
@@ -86,6 +96,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const lastLoadedAtRef = useRef(0);
   /** User whose profile boot already ran — dedupes focus-triggered SIGNED_IN re-emits. */
   const bootedUserIdRef = useRef<string | null>(null);
+  /** Mirrors orgsLoaded for the auth listener, whose effect never re-runs. */
+  const orgsLoadedRef = useRef(false);
+  /** One repair attempt per app start — see loadProfile. */
+  const personalOrgRepairedRef = useRef(false);
   const planPollRef = useRef<number | null>(null);
   const activeOrgSnapshotRef = useRef<{ orgId: string; planTier: OrgPlanTier } | null>(null);
 
@@ -113,9 +127,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const [p, rawOrgs] = await Promise.all([getMyProfile(userId), getMyOrgs()]);
       // Belt-and-braces over the RPC's ORDER BY (see shared/lib/orgs.ts):
       // the orgs[0] fallback must land on a club, not the personal org.
-      const orgs = sortOrgsClubFirst(rawOrgs);
+      let orgs = sortOrgsClubFirst(rawOrgs);
+      // Every account is created with a personal org inside the signup
+      // transaction, so an empty list means that row went missing. Restore it
+      // rather than handing back a space-less app. Once per start: if the
+      // repair itself is failing, retrying on every focus refresh won't help.
+      if (orgs.length === 0 && !personalOrgRepairedRef.current) {
+        personalOrgRepairedRef.current = true;
+        await ensurePersonalOrg();
+        orgs = sortOrgsClubFirst(await getMyOrgs());
+      }
       setProfile(p);
       setMyOrgs(orgs);
+      setOrgsLoaded(true);
+      orgsLoadedRef.current = true;
       setActiveOrgIdState(resolveActiveOrg(orgs));
       if (!opts?.silent) {
         maybeSeedDemo(userId, orgs);
@@ -128,9 +153,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return orgs;
     } catch (err) {
       console.error("[auth] loadProfile failed:", err);
+      // This now drives a user-visible blocking screen, so it must not stay a
+      // console line — a silent org-read failure is exactly what stranded
+      // people on the invite-code wall unnoticed.
+      Sentry.captureException(err);
       if (!opts?.silent) {
         setProfile(null);
         setMyOrgs([]);
+        setOrgsLoaded(false);
+        orgsLoadedRef.current = false;
         setActiveOrgIdState(null);
       }
       return null;
@@ -230,7 +261,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // page behind ProtectedRoute and wipes in-page state (open playlist,
         // playback, fullscreen). Boot once per user; the throttled focus
         // listener above already owns silent freshness after that.
-        if (bootedUserIdRef.current === session.user.id) {
+        // ...but only once the boot actually SUCCEEDED. Deduping a failed
+        // boot would leave the retry screen up until the next throttled focus
+        // refresh happened to work.
+        if (bootedUserIdRef.current === session.user.id && orgsLoadedRef.current) {
           setLoading(false);
           return;
         }
@@ -258,6 +292,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         stopPlanPoll();
         setProfile(null);
         setMyOrgs([]);
+        setOrgsLoaded(false);
+        orgsLoadedRef.current = false;
+        personalOrgRepairedRef.current = false;
         setActiveOrgIdState(null);
         setDeviceBlocked(false);
         setProfileLoading(false);
@@ -312,7 +349,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(
     () => ({
       user, loading, profile, profileLoading,
-      myOrgs, secondaryOrgs: myOrgs,
+      myOrgs, orgsLoaded, secondaryOrgs: myOrgs,
       activeOrgId, activeOrg, activeOrgRole, activeOrgPlan, activeOrgIsPersonal,
       activeOrgCanManage, setActiveOrg,
       reloadProfile,
@@ -321,7 +358,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       retryDeviceGate,
     }),
     [
-      user, loading, profile, profileLoading, myOrgs,
+      user, loading, profile, profileLoading, myOrgs, orgsLoaded,
       activeOrgId, activeOrg, activeOrgRole, activeOrgPlan, activeOrgIsPersonal,
       activeOrgCanManage, setActiveOrg, reloadProfile, expectPlanChange,
       deviceBlocked, retryDeviceGate,

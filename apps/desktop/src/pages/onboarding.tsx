@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { LogoMark } from "@/components/logo";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -7,8 +8,14 @@ import { useAuth } from "@/lib/auth-context";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 
+/**
+ * Joining a club by invite code. Reached deliberately (space menu → Join a
+ * club), never forced: a user who belongs to no club still has their personal
+ * space and belongs in the app, not behind this.
+ */
 export function OnboardingPage() {
-  const { reloadProfile } = useAuth();
+  const { reloadProfile, setActiveOrg, myOrgs } = useAuth();
+  const navigate = useNavigate();
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,10 +25,14 @@ export function OnboardingPage() {
     setLoading(true);
     setError(null);
     try {
-      await joinByCode(code);
+      const res = await joinByCode(code);
       toast.success("You've joined successfully!");
+      // Activate the joined space BEFORE reloading — resolveActiveOrg
+      // validates the stored id against the fresh list, so without this a
+      // user with a stale-but-valid stored org joins club B and lands in A.
+      setActiveOrg(res.orgId);
       await reloadProfile();
-      // ProtectedRoute redirects away from /onboarding once needsOnboarding is false
+      navigate("/");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -71,12 +82,23 @@ export function OnboardingPage() {
           Ask your coach or admin for an invite code.
         </p>
 
-        <button
-          onClick={() => createClient().auth.signOut()}
-          className="mx-auto block text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-        >
-          Sign out
-        </button>
+        {/* Someone who already has a space came here on purpose and needs a
+            way back; a brand-new account has only sign-out. */}
+        {myOrgs.length > 0 ? (
+          <button
+            onClick={() => navigate(-1)}
+            className="mx-auto block text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+          >
+            Cancel
+          </button>
+        ) : (
+          <button
+            onClick={() => createClient().auth.signOut()}
+            className="mx-auto block text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+          >
+            Sign out
+          </button>
+        )}
       </div>
     </div>
   );

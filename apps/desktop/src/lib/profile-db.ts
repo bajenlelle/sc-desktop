@@ -338,13 +338,18 @@ export async function getOrgContext(): Promise<OrgContext> {
 
 export async function getOrgMembers(orgId: string): Promise<UserProfile[]> {
   const supabase = createClient();
-  const { data } = await supabase.rpc("get_org_members", { p_org_id: orgId });
+  const { data, error } = await supabase.rpc("get_org_members", { p_org_id: orgId });
+  if (error) throw new Error(`Failed to load org members: ${error.message}`);
   return data ? (data as OrgMemberRow[]).map(rowToOrgMember) : [];
 }
 
 export async function getMyOrgs(): Promise<OrgMembership[]> {
   const supabase = createClient();
-  const { data } = await supabase.rpc("get_my_orgs");
+  const { data, error } = await supabase.rpc("get_my_orgs");
+  // Must throw, never degrade to []. An empty array is how the app spells
+  // "this user belongs to nowhere", so swallowing the error here used to put
+  // a perfectly healthy signed-in user on the invite-code wall.
+  if (error) throw new Error(`Failed to load orgs: ${error.message}`);
   return (data ?? []).map((r: { org_id: string; org_name: string; role: string; is_nt_org: boolean; plan_tier: string; is_personal: boolean; expires_at?: string | null }) => ({
     orgId: r.org_id,
     orgName: r.org_name,
@@ -354,6 +359,19 @@ export async function getMyOrgs(): Promise<OrgMembership[]> {
     isPersonal: r.is_personal ?? false,
     expiresAt: r.expires_at ?? null,
   }));
+}
+
+/**
+ * Idempotent repair for an account that somehow has no personal org. Returns
+ * the existing one when present, so it is safe to call speculatively.
+ * handle_new_user creates it in the signup transaction, so this only fires if
+ * the membership row was later deleted.
+ */
+export async function ensurePersonalOrg(): Promise<string> {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("ensure_personal_org");
+  if (error) throw new Error(`Failed to restore personal space: ${error.message}`);
+  return data as string;
 }
 
 /** @deprecated Use getMyOrgs */
