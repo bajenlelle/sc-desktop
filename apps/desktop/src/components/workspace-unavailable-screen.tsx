@@ -35,11 +35,11 @@ export function WorkspaceUnavailableScreen() {
 
         <div>
           <h1 className="text-xl font-bold tracking-tight text-foreground">
-            Couldn&rsquo;t load your workspace
+            Unable to load your workspace
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            You&rsquo;re still signed in. This is usually a connection problem, so
-            it&rsquo;s worth another try.
+            Your session is still valid and this is usually temporary. Try again,
+            or sign out and back in.
           </p>
         </div>
 

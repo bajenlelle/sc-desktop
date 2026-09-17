@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isPlayerOnly, resolveGateState, sortOrgsClubFirst } from "../orgs";
+import { isPlayerOnly, parseInviteInput, resolveGateState, sortOrgsClubFirst } from "../orgs";
 import type { GateSnapshot } from "../orgs";
 import type { OrgMembership } from "../../types/org";
 
@@ -164,5 +164,41 @@ describe("resolveGateState", () => {
         }
       }
     }
+  });
+});
+
+describe("parseInviteInput", () => {
+  it("takes a bare code, however it was typed", () => {
+    expect(parseInviteInput("ABC123")).toBe("ABC123");
+    expect(parseInviteInput("abc123")).toBe("ABC123");
+    expect(parseInviteInput("  ABC123  ")).toBe("ABC123");
+  });
+
+  it("takes the join link people are actually given", () => {
+    // The invite modal copies exactly this shape; the email links to it.
+    expect(parseInviteInput("https://app.scoutable.se/join/ABC123")).toBe("ABC123");
+    expect(parseInviteInput("app.scoutable.se/join/abc123")).toBe("ABC123");
+    expect(parseInviteInput("http://localhost:3000/join/ABC123")).toBe("ABC123");
+  });
+
+  it("survives the debris that rides along with a copied URL", () => {
+    expect(parseInviteInput("https://app.scoutable.se/join/ABC123/")).toBe("ABC123");
+    expect(parseInviteInput("https://app.scoutable.se/join/ABC123?utm_source=email")).toBe("ABC123");
+    expect(parseInviteInput("https://app.scoutable.se/join/ABC123#top")).toBe("ABC123");
+    expect(parseInviteInput("  https://app.scoutable.se/join/ABC123  ")).toBe("ABC123");
+  });
+
+  it("returns null when there is nothing code-shaped to send", () => {
+    expect(parseInviteInput("")).toBeNull();
+    expect(parseInviteInput("   ")).toBeNull();
+    expect(parseInviteInput("ABC12")).toBeNull();      // too short
+    expect(parseInviteInput("ABC1234")).toBeNull();    // too long
+    expect(parseInviteInput("ABC-12")).toBeNull();     // not alphanumeric
+    expect(parseInviteInput("https://app.scoutable.se/")).toBeNull();
+    expect(parseInviteInput("https://app.scoutable.se/join/")).toBeNull();
+  });
+
+  it("does not mistake a longer path segment for a code", () => {
+    expect(parseInviteInput("https://app.scoutable.se/join/ABC123EXTRA")).toBeNull();
   });
 });
