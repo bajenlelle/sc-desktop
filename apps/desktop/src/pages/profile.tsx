@@ -374,7 +374,7 @@ export function ProfilePage() {
           </h2>
           {myClubs.length === 0 && (
             <p className="text-sm text-muted-foreground">
-              You&rsquo;re not in a club yet. Your personal space is yours either way.
+              No clubs yet. Your personal space works without one.
             </p>
           )}
           {myClubs.map((club) => (
@@ -411,7 +411,7 @@ export function ProfilePage() {
             className="text-xs text-primary underline-offset-2 hover:underline"
             onClick={() => navigate("/onboarding")}
           >
-            Join a club with an invite code
+            Join a club
           </button>
         </CardContent>
       </Card>

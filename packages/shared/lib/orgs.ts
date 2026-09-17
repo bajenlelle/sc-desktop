@@ -71,3 +71,29 @@ export function resolveGateState(s: GateSnapshot): GateState {
   // (ensure_personal_org) and must never gate the app.
   return 'app';
 }
+
+/**
+ * The invite code inside whatever the user pasted — a bare code or a join
+ * link.
+ *
+ * Invites are only ever handed out as links: the invite modal copies
+ * `<app>/join/<code>` and the invite email sends that same URL behind a
+ * button. Nothing in the product shows the six characters on their own, so a
+ * link is what people actually hold — and a code-only field made the one
+ * thing they can paste the one thing guaranteed to fail.
+ *
+ * Returns null when there is no code-shaped token to find. Validity is still
+ * the server's call (join_by_code raises invalid_code); this only decides
+ * whether there is anything worth sending.
+ */
+export function parseInviteInput(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  // From a link, take the segment after /join/ — ignoring any query string,
+  // hash or trailing slash that came along with the copy.
+  const fromUrl = trimmed.match(/\/join\/([^/?#\s]+)/i);
+  const candidate = (fromUrl ? fromUrl[1] : trimmed).toUpperCase();
+  // Codes are 6 uppercase hex chars today; accept any alphanumeric 6 so a
+  // change to generation doesn't silently reject valid invites here.
+  return /^[A-Z0-9]{6}$/.test(candidate) ? candidate : null;
+}

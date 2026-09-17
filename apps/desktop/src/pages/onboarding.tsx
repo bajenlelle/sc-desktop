@@ -4,6 +4,7 @@ import { LogoMark } from "@/components/logo";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { joinByCode } from "@/lib/profile-db";
+import { parseInviteInput } from "@scoutable/shared/lib/orgs";
 import { useAuth } from "@/lib/auth-context";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
@@ -16,12 +17,16 @@ import { toast } from "sonner";
 export function OnboardingPage() {
   const { reloadProfile, setActiveOrg, myOrgs } = useAuth();
   const navigate = useNavigate();
-  const [code, setCode] = useState("");
+  const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Invites are handed out as links, so a pasted URL has to work here — see
+  // parseInviteInput. Null means there is nothing worth sending yet.
+  const code = parseInviteInput(input);
+
   async function handleJoin() {
-    if (code.length !== 6) return;
+    if (!code) return;
     setLoading(true);
     setError(null);
     try {
@@ -47,9 +52,9 @@ export function OnboardingPage() {
         <div className="flex flex-col items-center gap-3">
           <LogoMark className="h-14 w-14 rounded-xl" />
           <div className="text-center">
-            <h1 className="text-xl font-bold tracking-tight text-foreground">Welcome to Scoutable</h1>
+            <h1 className="text-xl font-bold tracking-tight text-foreground">Join a club</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Enter your invite code to get started.
+              Paste your invite link, or enter the code.
             </p>
           </div>
         </div>
@@ -57,21 +62,26 @@ export function OnboardingPage() {
         {/* Code input */}
         <div className="space-y-3">
           <Input
-            placeholder="ABC123"
-            value={code}
+            placeholder="ABC123 or invite link"
+            value={input}
             onChange={(e) => {
-              setCode(e.target.value.toUpperCase().slice(0, 6));
+              setInput(e.target.value);
               setError(null);
             }}
             onKeyDown={(e) => e.key === "Enter" && handleJoin()}
-            className="font-mono text-center text-lg tracking-widest h-12"
-            maxLength={6}
+            // A pasted link is long, so only style it like a code field while
+            // it still looks like one.
+            className={
+              input.length <= 6
+                ? "font-mono text-center text-lg tracking-widest h-12"
+                : "text-center text-sm h-12"
+            }
             autoFocus
           />
           {error && <p className="text-sm text-red-500 text-center">{error}</p>}
           <Button
             className="w-full"
-            disabled={loading || code.length !== 6}
+            disabled={loading || !code}
             onClick={handleJoin}
           >
             {loading ? "Joining…" : "Join"}
@@ -79,7 +89,7 @@ export function OnboardingPage() {
         </div>
 
         <p className="text-center text-xs text-muted-foreground">
-          Ask your coach or admin for an invite code.
+          Ask your coach or admin for an invite link.
         </p>
 
         {/* Someone who already has a space came here on purpose and needs a
