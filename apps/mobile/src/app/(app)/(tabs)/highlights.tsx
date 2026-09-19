@@ -17,22 +17,19 @@
  * was rejected. The other half was this CTA pointing at the marketing page,
  * which sells Rookie and Pro.
  *
- * So: no branch, no user data read, nothing unlocked, and the link goes to
- * scoutable.se/download — a page with no prices, plans or trial CTAs. Keep it
- * that way; the 3.1.3(f) exemption depends on it.
+ * So: no branch, no user data read, nothing unlocked, and — since a .dmg or
+ * .exe is useless on the device holding this screen — no outbound link either.
+ * The close is an instruction to act on later, from a computer. Don't turn it
+ * back into a button: a link to anywhere on scoutable.se is two taps from the
+ * price list, and "no calls to action for purchase outside of the app" is the
+ * condition the 3.1.3(f) exemption rests on.
  */
 import { ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
-import * as WebBrowser from "expo-web-browser";
 import { Ionicons } from "@expo/vector-icons";
-import { trackEvent } from "@/lib/analytics";
 import { useThemeColors } from "@/lib/theme-context";
-import { Button } from "@/components/Button";
 
-// Purchase-free by design — see the 3.1.1 note above. Don't point this at the
-// marketing page or any anchor on it.
-const DESKTOP_APP_URL = "https://scoutable.se/download";
 // The landing site's /players hero poster — the editor mid vertical-crop.
 // (The old screenshot.png 404'd after the landing redesign; it only looked
 // alive on devices where expo-image had cached it.) A still, not the video:
@@ -59,11 +56,6 @@ const BULLETS = [
 
 function PitchPage() {
   const colors = useThemeColors();
-
-  function handleDownload() {
-    trackEvent("download_clicked", { source: "my_highlights" });
-    WebBrowser.openBrowserAsync(DESKTOP_APP_URL).catch(() => {});
-  }
 
   return (
     <ScrollView contentContainerClassName="gap-6 px-4 py-6">
@@ -104,12 +96,14 @@ function PitchPage() {
         ))}
       </View>
 
-      <View className="items-center gap-3">
-        <Button
-          title="Get the desktop app — free"
-          onPress={handleDownload}
-          className="self-stretch"
-        />
+      <View className="items-center gap-2 rounded-xl border border-border bg-card px-4 py-5">
+        <Text className="text-center text-base font-semibold text-foreground">
+          Get it on your computer
+        </Text>
+        <Text className="max-w-[300px] text-center text-sm text-muted-foreground">
+          The Scoutable editor runs on Mac and Windows. Open scoutable.se on your computer
+          to download it — it&apos;s free.
+        </Text>
       </View>
     </ScrollView>
   );
