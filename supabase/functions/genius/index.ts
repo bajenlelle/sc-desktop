@@ -32,8 +32,8 @@ const COMPETITIONS = new Set<number>([
   48974, // SBL Herr 2026-27
   49288, // SBL Dam 2026-27
   49176, // Superettan Herr 2026-27
-  // Basketettan 2026-27 didn't exist upstream as of 2026-09-06 — discover the
-  // ids with the `competitions` action once SBF creates them.
+  50039, // Basketettan Herr 2026-27
+  50038, // Basketettan Dam 2026-27
   41539, // SBL Herr 2025-26
   42013, // SBL Dam 2025-26
   42132, // Superettan Herr 2025-26
