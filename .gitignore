@@ -44,3 +44,7 @@ lerna-debug.log*
 *.njsproj
 *.sln
 *.sw?
+
+# Operator credentials — never commit
+secrets/
+*.p8
