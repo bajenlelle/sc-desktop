@@ -38,7 +38,11 @@ function PitchPage() {
   const [videoFailed, setVideoFailed] = useState(false);
 
   function handleDownload() {
-    trackEvent("download_clicked", { source: "my_highlights" });
+    // `placement`, not `source`: the landing site emits this same event keyed
+    // on placement, and all three apps report into one PostHog project — a
+    // second property shape just lands every click here in the "None" bucket
+    // of any placement breakdown.
+    trackEvent("download_clicked", { placement: "web_my_highlights" });
     window.open(DESKTOP_APP_URL, "_blank", "noreferrer");
   }
 
