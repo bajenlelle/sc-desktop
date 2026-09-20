@@ -77,7 +77,10 @@ export type AnalyticsEvent =
   | "subscription_started" // server-side (Stripe webhook)
   | "subscription_canceled" // server-side (Stripe webhook)
   | "checkout_started" // landing page
-  | "download_clicked" // landing page
+  | "download_clicked" // landing page + web My Highlights — always key it on
+                       // `placement`; a second property shape (it was `source`
+                       // here) lands every click in the "None" bucket of any
+                       // placement breakdown, since all apps share one project
   // Org management & account
   | "manage_org_web_clicked" // mobile Club card → app.scoutable.se/organization
   | "team_created"
