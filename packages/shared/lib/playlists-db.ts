@@ -615,7 +615,15 @@ export async function setPlaylistUsers(
     const { error: upsertError } = await supabase
       .from("playlist_user_shares")
       .upsert(rows, { onConflict: "playlist_id,user_id" });
-    if (upsertError) throw new Error(`Failed to upsert user shares: ${upsertError.message}`);
+    if (upsertError) {
+      // The licence lock covers direct shares too (20260929100000), not just
+      // team shares — same wording as setPlaylistTeams.
+      if (upsertError.message.includes("license_locked"))
+        throw new Error(
+          "This organization's license has expired — sharing is paused until it's renewed."
+        );
+      throw new Error(`Failed to upsert user shares: ${upsertError.message}`);
+    }
   }
 }
 

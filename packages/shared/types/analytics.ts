@@ -82,7 +82,6 @@ export type AnalyticsEvent =
                        // here) lands every click in the "None" bucket of any
                        // placement breakdown, since all apps share one project
   // Org management & account
-  | "manage_org_web_clicked" // mobile Club card → app.scoutable.se/organization
   | "team_created"
   | "member_removed"
   | "member_promoted"

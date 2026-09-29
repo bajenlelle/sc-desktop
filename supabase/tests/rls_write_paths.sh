@@ -60,19 +60,35 @@ for k, v in r.items():
 eval "$FIX"
 echo "$FIX" | sed 's/^/#   /'
 
+# Optional: RLS_PREFLIGHT=<migration.sql> applies an UNPUSHED migration inside
+# every probe's transaction. DDL is transactional in Postgres, so a policy or
+# trigger change is proven against real prod data before `db push` — and, like
+# everything else here, rolled back.
+PREFLIGHT=""
+if [[ -n "${RLS_PREFLIGHT:-}" ]]; then
+  PREFLIGHT="$(cat "$RLS_PREFLIGHT")"$'\n;'
+  echo "# Preflight: $RLS_PREFLIGHT applied inside every probe (rolled back)"
+fi
+
 FAILED=0
-run() {  # $1=label  $2=expected(ALLOWED|DENIED)  $3=sql body
+run() {  # $1=label  $2=expected  $3=sql as the actor  [$4=privileged setup sql, ending in ;]
+  # expected: ALLOWED | DENIED (RLS) | RAISES:<token> (guard) | BLOCKED (either)
   local out got st
-  out=$("$BIN" db query --linked "BEGIN; SELECT set_config(\$\$request.jwt.claims\$\$, \$\${\"sub\":\"$U\",\"role\":\"authenticated\"}\$\$, true); SET LOCAL ROLE authenticated; $3; ROLLBACK;" </dev/null 2>&1 || true)
+  out=$("$BIN" db query --linked "BEGIN; $PREFLIGHT ${4:-} SELECT set_config(\$\$request.jwt.claims\$\$, \$\${\"sub\":\"$U\",\"role\":\"authenticated\"}\$\$, true); SET LOCAL ROLE authenticated; $3; ROLLBACK;" </dev/null 2>&1 || true)
   if grep -q "42501\|violates row-level security" <<<"$out"; then
     got="DENIED"
+  elif grep -qE 'P0001: [a-z_]+' <<<"$out"; then
+    got="RAISES:$(grep -oE 'P0001: [a-z_]+' <<<"$out" | head -1 | sed 's/P0001: //')"
   elif grep -q '"_tag":"Error"' <<<"$out"; then
     got="ERR:$(grep -o 'ERROR: *[0-9A-Z]*' <<<"$out" | head -1)"
   else
     got="ALLOWED rows=$(grep -o '"n": *[0-9]*' <<<"$out" | head -1 | grep -o '[0-9]*' || echo '?')"
   fi
-  case "$got" in "$2"*) st="PASS";; *) st="FAIL"; FAILED=1;; esac
-  printf "  %-52s expect=%-8s got=%-24s %s\n" "$1" "$2" "$got" "$st"
+  case "$2:$got" in
+    BLOCKED:DENIED*|BLOCKED:RAISES:*) st="PASS";;
+    *) case "$got" in "$2"*) st="PASS";; *) st="FAIL"; FAILED=1;; esac;;
+  esac
+  printf "  %-60s expect=%-32s got=%-34s %s\n" "$1" "$2" "$got" "$st"
 }
 
 echo ""
@@ -100,6 +116,95 @@ run "DELETE events of own match" ALLOWED \
   "WITH d AS (DELETE FROM play_by_play_events WHERE match_id=\$\$$owned_match\$\$ RETURNING 1) SELECT count(*) AS n FROM d"
 run "DELETE events of foreign match (0 rows)" ALLOWED \
   "WITH d AS (DELETE FROM play_by_play_events WHERE match_id=\$\$$foreign_match\$\$ RETURNING 1) SELECT count(*) AS n FROM d"
+
+# --- Share scope (20260929100000_enforce_share_scope) ----------------------
+# Sharing is club-shaped: owner-only, from a club playlist, to members/teams of
+# that same club. Run once with RLS_PREFLIGHT pointing at the migration before
+# pushing it; without it (or before it is applied) the "blocked" probes show
+# the holes it closes. All writes roll back, and pg_net is transactional, so no
+# share notification is ever sent.
+echo ""
+echo "# Resolving share fixtures for $U ..."
+SFIX="$("$BIN" db query --linked "
+WITH club AS (
+  SELECT p.org_id FROM playlists p JOIN organizations o ON o.id=p.org_id
+   WHERE p.user_id=\$\$$U\$\$ AND NOT o.is_personal
+     AND EXISTS (SELECT 1 FROM teams t WHERE t.org_id=p.org_id)
+   GROUP BY p.org_id ORDER BY count(*) DESC LIMIT 1),
+cp AS (
+  SELECT p.id FROM playlists p, club
+   WHERE p.user_id=\$\$$U\$\$ AND p.org_id=club.org_id
+   ORDER BY p.created_at DESC LIMIT 1)
+SELECT
+  (SELECT org_id::text FROM club) AS club_org,
+  (SELECT id::text FROM cp) AS club_playlist,
+  (SELECT t.id::text FROM teams t, club, cp WHERE t.org_id=club.org_id
+    ORDER BY EXISTS (SELECT 1 FROM playlist_shares s WHERE s.playlist_id=cp.id AND s.team_id=t.id) LIMIT 1) AS own_team,
+  (SELECT om.user_id::text FROM org_memberships om, club, cp
+    WHERE om.org_id=club.org_id AND om.user_id<>\$\$$U\$\$
+      AND NOT EXISTS (SELECT 1 FROM playlist_user_shares s WHERE s.playlist_id=cp.id AND s.user_id=om.user_id) LIMIT 1) AS member_r,
+  (SELECT u.id::text FROM auth.users u, club
+    WHERE NOT EXISTS (SELECT 1 FROM org_memberships om WHERE om.org_id=club.org_id AND om.user_id=u.id) LIMIT 1) AS outsider_x,
+  -- An UNLOCKED org's team: a locked one trips trg_enforce_license_on_share first
+  -- and would hide the cross-org hole this probe exists to show.
+  (SELECT t.id::text FROM teams t, club WHERE t.org_id<>club.org_id
+    ORDER BY (org_license_state(t.org_id) = 'locked') LIMIT 1) AS other_team,
+  (SELECT p.id::text FROM playlists p, club
+    WHERE p.user_id<>\$\$$U\$\$ AND p.org_id IS DISTINCT FROM club.org_id
+      AND NOT EXISTS (SELECT 1 FROM playlist_user_shares s WHERE s.playlist_id=p.id AND s.user_id=\$\$$U\$\$) LIMIT 1) AS other_club_playlist,
+  (SELECT p.id::text FROM playlists p, club
+    WHERE p.user_id<>\$\$$U\$\$ AND p.org_id=club.org_id
+      AND NOT EXISTS (SELECT 1 FROM playlist_user_shares s WHERE s.playlist_id=p.id AND s.user_id=\$\$$U\$\$) LIMIT 1) AS colleague_playlist,
+  (SELECT o.id::text FROM org_memberships om JOIN organizations o ON o.id=om.org_id
+    WHERE om.user_id=\$\$$U\$\$ AND o.is_personal LIMIT 1) AS personal_org" </dev/null 2>/dev/null \
+ | python3 -c '
+import sys, json
+s = sys.stdin.read()
+r = json.loads(s[s.index("{"):s.rindex("}") + 1])["rows"][0]
+optional = {"colleague_playlist"}
+missing = [k for k, v in r.items() if not v and k not in optional]
+if missing:
+    sys.stderr.write(f"missing share fixtures: {missing}\n"); sys.exit(1)
+for k, v in r.items():
+    print(k + "=" + (v or ""))
+')"
+eval "$SFIX"
+echo "$SFIX" | sed 's/^/#   /'
+TMP_PL="$(uuidgen | tr 'A-Z' 'a-z')"
+
+ushare() {  # $1=playlist $2=recipient -> count of inserted rows
+  echo "WITH i AS (INSERT INTO playlist_user_shares (playlist_id, user_id, shared_by) VALUES (\$\$$1\$\$, \$\$$2\$\$, \$\$$U\$\$) RETURNING 1) SELECT count(*) AS n FROM i"
+}
+
+echo ""
+echo "=== direct shares (owner-only, club-only, recipients in the club) ==="
+run "new share: own club playlist -> club member" ALLOWED "$(ushare "$club_playlist" "$member_r")"
+run "self-grant: another club's playlist -> me" BLOCKED "$(ushare "$other_club_playlist" "$U")"
+if [[ -n "${colleague_playlist:-}" ]]; then
+  run "self-grant: club colleague's playlist -> me" DENIED "$(ushare "$colleague_playlist" "$U")"
+else
+  echo "  (skip) self-grant of a colleague's playlist — no other owner's playlist in the club"
+fi
+run "new share: own personal playlist -> club member" RAISES:playlist_not_in_club \
+  "INSERT INTO playlists (id, user_id, name, org_id) VALUES (\$\$$TMP_PL\$\$, \$\$$U\$\$, \$\$rls probe\$\$, \$\$$personal_org\$\$); $(ushare "$TMP_PL" "$member_r")"
+run "new share: own club playlist -> outsider" RAISES:recipient_not_in_org "$(ushare "$club_playlist" "$outsider_x")"
+run "re-sync: recipient has since left the club" ALLOWED \
+  "WITH i AS (INSERT INTO playlist_user_shares (playlist_id, user_id, shared_by) VALUES (\$\$$club_playlist\$\$, \$\$$member_r\$\$, \$\$$U\$\$) ON CONFLICT (playlist_id, user_id) DO UPDATE SET shared_by = EXCLUDED.shared_by RETURNING 1) SELECT count(*) AS n FROM i" \
+  "INSERT INTO playlist_user_shares (playlist_id, user_id, shared_by) VALUES (\$\$$club_playlist\$\$, \$\$$member_r\$\$, \$\$$U\$\$); DELETE FROM org_memberships WHERE org_id=\$\$$club_org\$\$ AND user_id=\$\$$member_r\$\$;"
+run "new share while the club's licence is locked" RAISES:license_locked \
+  "$(ushare "$club_playlist" "$member_r")" \
+  "UPDATE organizations SET expires_at = now() - interval '60 days' WHERE id=\$\$$club_org\$\$;"
+
+echo ""
+echo "=== team shares and the legacy playlists.team_id channel (same club only) ==="
+run "team share: own club playlist -> own club's team" ALLOWED \
+  "WITH i AS (INSERT INTO playlist_shares (playlist_id, team_id) VALUES (\$\$$club_playlist\$\$, \$\$$own_team\$\$) ON CONFLICT (playlist_id, team_id) DO NOTHING RETURNING 1) SELECT count(*) AS n FROM i"
+run "team share: own club playlist -> another org's team" RAISES:team_not_in_playlist_org \
+  "WITH i AS (INSERT INTO playlist_shares (playlist_id, team_id) VALUES (\$\$$club_playlist\$\$, \$\$$other_team\$\$) RETURNING 1) SELECT count(*) AS n FROM i"
+run "team_id: own club playlist -> own club's team" ALLOWED \
+  "WITH u AS (UPDATE playlists SET team_id=\$\$$own_team\$\$ WHERE id=\$\$$club_playlist\$\$ RETURNING 1) SELECT count(*) AS n FROM u"
+run "team_id: own club playlist -> another org's team" RAISES:team_not_in_playlist_org \
+  "WITH u AS (UPDATE playlists SET team_id=\$\$$other_team\$\$ WHERE id=\$\$$club_playlist\$\$ RETURNING 1) SELECT count(*) AS n FROM u"
 
 echo ""
 if [[ "$FAILED" -eq 0 ]]; then
