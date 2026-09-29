@@ -20,6 +20,10 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const GENIUS_API_KEY = Deno.env.get("GENIUS_API_KEY") ?? "";
+// Weekly season audit (cron-only, shared-secret auth — see runSeasonAudit).
+const AUDIT_SECRET = Deno.env.get("SEASON_AUDIT_SECRET") ?? "";
+const GITHUB_ISSUES_TOKEN = Deno.env.get("GITHUB_ISSUES_TOKEN") ?? "";
+const GITHUB_REPO = Deno.env.get("GITHUB_ISSUES_REPO") ?? "bajenlelle/sc-desktop";
 
 const GENIUS_BASE = "https://api.wh.geniussports.com/v1/basketball";
 const FIXTURES_TTL_MS = 6 * 60 * 60 * 1000;
@@ -109,7 +113,7 @@ const COMPETITION_FREE_ACTIONS = new Set(["competitions", "leagues"]);
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "content-type, authorization, x-client-info, apikey",
+  "Access-Control-Allow-Headers": "content-type, authorization, x-client-info, apikey, x-audit-secret",
 };
 
 function err(status: number, token: string): Response {
@@ -148,6 +152,140 @@ async function geniusAll(path: string): Promise<Json[]> {
     all.push(...page);
     if (page.length < PAGE_LIMIT) return all;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Weekly season audit
+//
+// Rolling a league to the next season is manual, and SBF publishes the new
+// competitions at unpredictable times — Basketettan 2026/27 appeared weeks
+// after the SBL and Superettan ones. Until someone noticed, that league simply
+// showed no games. This turns "nobody looked" into a GitHub issue.
+// ---------------------------------------------------------------------------
+
+/**
+ * Strip the gendered prefix SBF puts on competition names and normalise the
+ * rest, so the same league matches across seasons.
+ */
+function normaliseCompetitionName(name: string): string {
+  return name
+    .replace(/^\s*(herrar|damer)\s*-\s*/i, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * File one issue for the findings, or none if an unresolved one is already
+ * open. Without the dedupe this would open a fresh issue every Monday until
+ * someone got round to it.
+ */
+async function fileAuditIssue(findings: string[]): Promise<string> {
+  if (!GITHUB_ISSUES_TOKEN) return "skipped_no_token";
+
+  const gh = (path: string, init?: RequestInit) =>
+    fetch(`https://api.github.com${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${GITHUB_ISSUES_TOKEN}`,
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
+      },
+    });
+
+  const openRes = await gh(
+    `/repos/${GITHUB_REPO}/issues?state=open&labels=season-audit&per_page=1`,
+  );
+  if (openRes.ok) {
+    const open = await openRes.json();
+    if (Array.isArray(open) && open.length > 0) return `deduped_#${open[0].number}`;
+  }
+
+  const body = [
+    "The weekly league-catalogue audit found something that needs a human.",
+    "",
+    ...findings,
+    "",
+    "---",
+    "Fix by editing `CATALOG` in `supabase/functions/genius/index.ts` and deploying",
+    "the function (`npx supabase functions deploy genius`). Clients read the",
+    "catalogue from there, so no desktop release is needed.",
+    "",
+    "Find new competition ids with the platform-admin `competitions` action.",
+  ].join("\n");
+
+  const res = await gh(`/repos/${GITHUB_REPO}/issues`, {
+    method: "POST",
+    body: JSON.stringify({
+      title: "League catalogue is out of date",
+      body,
+      labels: ["bug", "season-audit"],
+    }),
+  });
+  if (!res.ok) {
+    console.error("[genius] audit issue failed:", res.status, await res.text());
+    return `file_failed_${res.status}`;
+  }
+  return `filed_#${(await res.json()).number}`;
+}
+
+/** Compare the catalogue against upstream; file an issue if it has drifted. */
+async function runSeasonAudit(): Promise<Json> {
+  const upstream = (await geniusAll("/competitions")) as Json[];
+  const byId = new Map<number, Json>();
+  for (const c of upstream) {
+    const id = Number(c.competitionId);
+    if (Number.isFinite(id)) byId.set(id, c);
+  }
+
+  const findings: string[] = [];
+
+  for (const league of CATALOG) {
+    const current = league.seasons[0];
+
+    // Anchor on what upstream calls an id we already hold, never on our own
+    // display name: SBF renamed this same league between seasons
+    // ("Basketettan Herr" → "Herrar - Basketettan Herr"), so matching on our
+    // name would quietly stop finding it — the exact miss this audit exists
+    // to catch.
+    const anchor = byId.get(current.competitionId);
+    if (!anchor) {
+      findings.push(
+        `- **${league.name}**: configured competition \`${current.competitionId}\` ` +
+          `(${current.label}) is not in the upstream competition list at all.`,
+      );
+      continue;
+    }
+
+    const key = normaliseCompetitionName(String(anchor.competitionName ?? ""));
+    const configured = new Set(league.seasons.map((s) => s.competitionId));
+    for (const c of upstream) {
+      const id = Number(c.competitionId);
+      if (configured.has(id)) continue;
+      if (normaliseCompetitionName(String(c.competitionName ?? "")) !== key) continue;
+      // Season strings are "2026-2027", so they order lexicographically.
+      if (String(c.season ?? "") <= String(anchor.season ?? "")) continue;
+      findings.push(
+        `- **${league.name}**: upstream has season \`${c.season}\` as competition ` +
+          `\`${id}\`, which we don't carry. Newest configured is ${current.label} ` +
+          `(\`${current.competitionId}\`).`,
+      );
+    }
+
+    // An empty current season means a wrong id, or upstream pulled the data.
+    const fixtures = (await geniusAll(
+      `/competitions/${current.competitionId}/matches`,
+    )) as Json[];
+    if (fixtures.length === 0) {
+      findings.push(
+        `- **${league.name}** ${current.label}: competition ` +
+          `\`${current.competitionId}\` returns no fixtures.`,
+      );
+    }
+  }
+
+  if (findings.length === 0) return { status: "ok", findings: [] };
+  return { status: "findings", findings, issue: await fileAuditIssue(findings) };
 }
 
 /** Raw fixture → the trimmed shape clients receive (~10× smaller). */
@@ -220,6 +358,19 @@ Deno.serve(async (req) => {
   if (!GENIUS_API_KEY) {
     console.error("[genius] GENIUS_API_KEY is not configured — refusing all requests");
     return err(500, "server_misconfigured");
+  }
+
+  // Cron carries a shared secret, not a user session — pg_cron has no JWT to
+  // offer. Handled before the auth check below, which it could never pass.
+  const auditSecret = req.headers.get("x-audit-secret");
+  if (auditSecret !== null) {
+    if (!AUDIT_SECRET || auditSecret !== AUDIT_SECRET) return err(401, "bad_audit_secret");
+    try {
+      return ok(await runSeasonAudit());
+    } catch (e) {
+      console.error("[genius] season audit failed:", e instanceof Error ? e.message : String(e));
+      return err(502, "upstream_failed");
+    }
   }
 
   const jwt = req.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
