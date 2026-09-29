@@ -20,41 +20,10 @@ import {
   type ScheduleGame,
 } from "@scoutable/shared/lib/genius";
 import type { PlayByPlayEvent } from "@/types/match";
+import { PLAYOFF, REGULAR, type League, type Season, type Stage } from "@scoutable/shared/types/league";
 
 export type { ScheduleGame };
-
-/** A phase within a season — regular season or playoffs. */
-export interface Stage {
-  id: string;
-  label: string;
-  /** Genius matchType this stage maps to; undefined = no filter (all games). */
-  matchType?: "REGULAR" | "FINALS";
-}
-
-/**
- * One season of a league. A season carries its Genius competitionId, so
- * adding next season is a single array entry (mirror the id in
- * supabase/functions/genius COMPETITIONS).
- */
-export interface Season {
-  id: string;
-  label: string;
-  competitionId?: number;
-  stages: Stage[];
-}
-
-export interface League {
-  id: string;
-  name: string;
-  /** ISO 3166-1 alpha-2 — drives grouping and the flag in the picker. */
-  country: string;
-  gender?: "men" | "women";
-  /** Ordered newest-first; seasons[0] is treated as the current season. */
-  seasons: Season[];
-}
-
-const REGULAR: Stage = { id: "regular", label: "Regular season", matchType: "REGULAR" };
-const PLAYOFF: Stage = { id: "playoff", label: "Playoffs", matchType: "FINALS" };
+export type { League, Season, Stage };
 
 const season = (id: string, label: string, competitionId: number): Season => ({
   id,
@@ -63,13 +32,16 @@ const season = (id: string, label: string, competitionId: number): Season => ({
   stages: [REGULAR, PLAYOFF],
 });
 
-// Competition ids come from Genius (a competition IS a league-season); find a
-// new season's ids with the genius edge function's platform-admin-only
-// `competitions` action, and mirror every id in its COMPETITIONS allowlist.
-// SBF publishes them at different times: the 2026/27 Basketettan competitions
-// only appeared after the SBL and Superettan ones, so a missing league here
-// usually means upstream hasn't created it yet rather than a fetch failure.
-export const LEAGUES: League[] = [
+/**
+ * Fallback catalogue, NOT the source of truth — that lives in the `genius`
+ * edge function and arrives via useLeagues(). This copy is what the picker
+ * shows before the first successful fetch, and whenever one fails: an empty
+ * league list would be a worse outcome than a slightly stale one.
+ *
+ * It only needs refreshing when it drifts far enough to be misleading; a new
+ * season reaches users through a function deploy, with no desktop release.
+ */
+export const BUNDLED_LEAGUES: League[] = [
   {
     id: "sbl-herr",
     name: "SBL Herr",

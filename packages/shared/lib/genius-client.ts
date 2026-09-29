@@ -8,6 +8,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { GeniusAction, GeniusFixture, GeniusPlayer } from "./genius";
+import type { CatalogLeague } from "../types/league";
 
 export interface GeniusMatchData {
   fixture: GeniusFixture;
@@ -66,4 +67,16 @@ export function getGeniusCompetitions(
   supabase: SupabaseClient,
 ): Promise<GeniusResult<{ competitions: Array<Record<string, unknown>> }>> {
   return invokeGenius(supabase, { action: "competitions" });
+}
+
+/**
+ * The league catalogue the function serves — the same structure it derives its
+ * competition allowlist from, so a season the client can select is always one
+ * the function will fetch. Clients keep a bundled copy as a fallback; see
+ * parseLeagueCatalog before trusting a response or a cached blob.
+ */
+export function getGeniusLeagues(
+  supabase: SupabaseClient,
+): Promise<GeniusResult<{ leagues: CatalogLeague[] }>> {
+  return invokeGenius(supabase, { action: "leagues" });
 }
