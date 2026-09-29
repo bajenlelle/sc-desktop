@@ -385,6 +385,14 @@ verify_jwt = false
 [functions.send-push]
 verify_jwt = false
 
+# The weekly season audit is invoked by pg_cron, which has no session to put in
+# an Authorization header — without this the gateway 401s it before the function
+# runs. Safe because genius enforces its own auth in code: every client action
+# still requires a valid user JWT (admin.auth.getUser), and the audit branch is
+# gated on a shared secret. Same reasoning as send-email and send-push above.
+[functions.genius]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327
