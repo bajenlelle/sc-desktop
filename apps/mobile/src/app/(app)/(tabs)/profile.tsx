@@ -23,8 +23,9 @@ export default function ProfileScreen() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
 
+  // Clubs only: a personal space is never selectable here (see resolveActiveOrg).
   const orgOptions = useMemo(
-    () => myOrgs.map((o) => ({ value: o.orgId, label: o.orgName })),
+    () => myOrgs.filter((o) => !o.isPersonal).map((o) => ({ value: o.orgId, label: o.orgName })),
     [myOrgs]
   );
 
@@ -105,7 +106,7 @@ export default function ProfileScreen() {
                   and App Review rejected build 5 for exactly that path (3.1.1 /
                   3.1.3(c)). Clubs are managed from desktop or web directly. */}
             </View>
-            {myOrgs.length > 1 ? (
+            {orgOptions.length > 1 ? (
               <Select
                 options={orgOptions}
                 value={activeOrgId ?? ""}

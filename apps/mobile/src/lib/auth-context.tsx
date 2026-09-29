@@ -85,9 +85,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function resolveActiveOrg(orgs: OrgMembership[]): Promise<string | null> {
     if (orgs.length === 0) return null;
+    // A personal space is never active while the user has a club. This app
+    // shows club content only (App Review 3.1.3(c)), and a personal space
+    // here is an empty feed. It also drops a personal-space choice stored
+    // before this rule. orgs is club-first, so orgs[0] is a club if one exists.
+    const eligible = orgs[0].isPersonal ? orgs : orgs.filter((o) => !o.isPersonal);
     const stored = await AsyncStorage.getItem(ACTIVE_ORG_KEY).catch(() => null);
-    if (stored && orgs.some((o) => o.orgId === stored)) return stored;
-    return orgs[0].orgId;
+    if (stored && eligible.some((o) => o.orgId === stored)) return stored;
+    return eligible[0].orgId;
   }
 
   // Only reachable from the gate screen (rendered while blocked), so an ok
