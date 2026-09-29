@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { trackEvent } from "@/lib/analytics";
 import { Film, X, Loader2, Search, ChevronRight } from "lucide-react";
 import { GeneratingSession } from "@/components/generating-session";
@@ -14,7 +14,9 @@ import type { OrgMembership } from "@/types/org";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
 import { ImportSuccessDialog, type ImportSummary } from "@/components/import-success-dialog";
 import { NT_LEAGUE_IDS } from "@scoutable/shared/lib/plan-tier";
-import { fetchGameData, getLeagueSchedule, LEAGUES, NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
+import { fetchGameData, getLeagueSchedule, NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
+import { useLeagues } from "@/lib/use-leagues";
+import { Sentry } from "@/lib/sentry";
 import type { ScheduleGame, League, Season, Stage } from "@/lib/basketball-api";
 import { LeaguePicker } from "@/components/league-picker";
 import { SingleSelectDropdown } from "@/components/ui/multi-select-dropdown";
@@ -127,25 +129,42 @@ export function UploadZone({
   const { activeOrgId, activeOrgPlan } = useAuth();
 
   const hasNtAccess = ntMemberships.length > 0;
-  const leagueList = [
-    ...(hasClubAccess ? LEAGUES : []),
-    ...(hasNtAccess ? NATIONAL_TEAM_LEAGUES : []),
-  ];
+  // Club leagues come from the edge function (see use-leagues); national teams
+  // stay bundled — no competitionId, no data source decided.
+  const clubLeagues = useLeagues();
+  // Memoised so the selection effect below fires when the catalogue actually
+  // changes, not on every render.
+  const leagueList = useMemo(
+    () => [
+      ...(hasClubAccess ? clubLeagues : []),
+      ...(hasNtAccess ? NATIONAL_TEAM_LEAGUES : []),
+    ],
+    [clubLeagues, hasClubAccess, hasNtAccess],
+  );
 
   // League + season + stage picker state
   const [selectedLeague, setSelectedLeague] = useState<League | null>(null);
   const [selectedSeason, setSelectedSeason] = useState<Season | null>(null);
   const [selectedStage, setSelectedStage] = useState<Stage | null>(null);
 
-  // Auto-select first league once leagueList is populated (props load async)
+  // Select the first league once the list arrives (access props load async),
+  // and re-resolve the current selection by id when the served catalogue
+  // replaces the bundled one — otherwise selectedSeason keeps pointing at the
+  // old object, and at whatever competitionId it carried.
   useEffect(() => {
-    if (leagueList.length > 0 && selectedLeague === null) {
-      const first = leagueList[0];
-      setSelectedLeague(first);
-      setSelectedSeason(first.seasons[0] ?? null);
-      setSelectedStage(first.seasons[0]?.stages[0] ?? null);
-    }
-  }, [leagueList.length]);
+    if (leagueList.length === 0) return;
+    const league =
+      (selectedLeague && leagueList.find((l) => l.id === selectedLeague.id)) ?? leagueList[0];
+    const season =
+      (selectedSeason && league.seasons.find((s) => s.id === selectedSeason.id)) ??
+      league.seasons[0];
+    const stage =
+      (selectedStage && season?.stages.find((s) => s.id === selectedStage.id)) ??
+      season?.stages[0];
+    setSelectedLeague(league);
+    setSelectedSeason(season ?? null);
+    setSelectedStage(stage ?? null);
+  }, [leagueList]);
   const [scheduleGames, setScheduleGames] = useState<ScheduleGame[]>([]);
   const [scheduleStatus, setScheduleStatus] = useState<"loading" | "idle" | "error">("loading");
   const [searchQuery, setSearchQuery] = useState("");
@@ -198,11 +217,28 @@ export function UploadZone({
 
   useEffect(() => {
     if (!selectedLeague || !selectedSeason || !selectedStage) return;
+    // Guarded like the duplicate-detection effect below: without it a fast
+    // league switch can land the previous league's schedule.
+    let cancelled = false;
     setScheduleStatus("loading");
     setScheduleGames([]);
     getLeagueSchedule(selectedLeague, selectedSeason, selectedStage)
-      .then((games) => { setScheduleGames(games); setScheduleStatus("idle"); })
-      .catch(() => setScheduleStatus("error"));
+      .then((games) => {
+        if (cancelled) return;
+        setScheduleGames(games);
+        setScheduleStatus("idle");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // The user sees "Failed to load schedule"; without this we'd never
+        // know it happened, which is how a whole league sat empty unnoticed.
+        console.error("[schedule]", err);
+        Sentry.captureException(err);
+        setScheduleStatus("error");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [selectedLeague, selectedSeason, selectedStage]);
 
   // Duplicate detection: same fixture (stable league uuid) in this space.

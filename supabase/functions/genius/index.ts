@@ -25,21 +25,86 @@ const GENIUS_BASE = "https://api.wh.geniussports.com/v1/basketball";
 const FIXTURES_TTL_MS = 6 * 60 * 60 * 1000;
 const PAGE_LIMIT = 500; // Warehouse max per page
 
-// Competitions the function will fetch — mirrors LEAGUES in
-// apps/desktop/src/lib/basketball-api.ts. A Genius competition IS a
-// league-season, so next season is one id added here + one in LEAGUES.
-const COMPETITIONS = new Set<number>([
-  48974, // SBL Herr 2026-27
-  49288, // SBL Dam 2026-27
-  49176, // Superettan Herr 2026-27
-  50039, // Basketettan Herr 2026-27
-  50038, // Basketettan Dam 2026-27
-  41539, // SBL Herr 2025-26
-  42013, // SBL Dam 2025-26
-  42132, // Superettan Herr 2025-26
-  42251, // Basketettan Herr 2025-26
-  42250, // Basketettan Dam 2025-26
-]);
+// The league catalogue, and the single source of what this function will
+// fetch. Clients read it through the `leagues` action instead of bundling
+// their own copy, so adding next season is one record here plus a deploy —
+// no desktop release, and no window where a client offers a season the
+// allowlist rejects.
+//
+// SBF publishes the new competitions at different times (the 2026/27
+// Basketettan ids only appeared weeks after the SBL and Superettan ones), so
+// a league stuck on an old season here usually means upstream hasn't created
+// it yet. Find new ids with the platform-admin `competitions` action.
+type CatalogSeason = { id: string; label: string; competitionId: number };
+type CatalogLeague = {
+  id: string;
+  name: string;
+  country: string;
+  gender: "men" | "women";
+  /** Newest first — seasons[0] is the current season. */
+  seasons: CatalogSeason[];
+};
+
+const CATALOG: CatalogLeague[] = [
+  {
+    id: "sbl-herr",
+    name: "SBL Herr",
+    country: "SE",
+    gender: "men",
+    seasons: [
+      { id: "2026-27", label: "2026/27", competitionId: 48974 },
+      { id: "2025-26", label: "2025/26", competitionId: 41539 },
+    ],
+  },
+  {
+    id: "sbl-dam",
+    name: "SBL Dam",
+    country: "SE",
+    gender: "women",
+    seasons: [
+      { id: "2026-27", label: "2026/27", competitionId: 49288 },
+      { id: "2025-26", label: "2025/26", competitionId: 42013 },
+    ],
+  },
+  {
+    id: "superettan-herr",
+    name: "Superettan Herr",
+    country: "SE",
+    gender: "men",
+    seasons: [
+      { id: "2026-27", label: "2026/27", competitionId: 49176 },
+      { id: "2025-26", label: "2025/26", competitionId: 42132 },
+    ],
+  },
+  {
+    id: "basketettan-herr",
+    name: "Basketettan Herr",
+    country: "SE",
+    gender: "men",
+    seasons: [
+      { id: "2026-27", label: "2026/27", competitionId: 50039 },
+      { id: "2025-26", label: "2025/26", competitionId: 42251 },
+    ],
+  },
+  {
+    id: "basketettan-dam",
+    name: "Basketettan Dam",
+    country: "SE",
+    gender: "women",
+    seasons: [
+      { id: "2026-27", label: "2026/27", competitionId: 50038 },
+      { id: "2025-26", label: "2025/26", competitionId: 42250 },
+    ],
+  },
+];
+
+// Derived, never hand-maintained: the two can't drift apart.
+const COMPETITIONS = new Set<number>(
+  CATALOG.flatMap((l) => l.seasons.map((s) => s.competitionId)),
+);
+
+/** Actions that address no single competition, so they skip the id guard. */
+const COMPETITION_FREE_ACTIONS = new Set(["competitions", "leagues"]);
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -171,7 +236,7 @@ Deno.serve(async (req) => {
   }
 
   const competitionId = Number(payload.competitionId);
-  if (payload.action !== "competitions" && !COMPETITIONS.has(competitionId)) {
+  if (!COMPETITION_FREE_ACTIONS.has(payload.action ?? "") && !COMPETITIONS.has(competitionId)) {
     return err(400, "unknown_competition");
   }
 
@@ -189,6 +254,13 @@ Deno.serve(async (req) => {
       if (!prof?.is_platform_admin) return err(403, "not_platform_admin");
       const competitions = await geniusAll("/competitions");
       return ok({ competitions });
+    }
+
+    // The catalogue clients render their picker from. Cheap and static: no
+    // upstream call, so it costs no Genius quota and can't fail because the
+    // Warehouse is down.
+    if (payload.action === "leagues") {
+      return ok({ leagues: CATALOG });
     }
 
     if (payload.action === "fixtures") {
