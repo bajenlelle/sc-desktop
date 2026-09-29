@@ -73,8 +73,10 @@ fi
 FAILED=0
 run() {  # $1=label  $2=expected  $3=sql as the actor  [$4=privileged setup sql, ending in ;]
   # expected: ALLOWED | DENIED (RLS) | RAISES:<token> (guard) | BLOCKED (either)
-  local out got st
-  out=$("$BIN" db query --linked "BEGIN; $PREFLIGHT ${4:-} SELECT set_config(\$\$request.jwt.claims\$\$, \$\${\"sub\":\"$U\",\"role\":\"authenticated\"}\$\$, true); SET LOCAL ROLE authenticated; $3; ROLLBACK;" </dev/null 2>&1 || true)
+  # The actor is $U unless ACTOR is set (the escalation section needs a user
+  # who is not a platform admin).
+  local out got st actor="${ACTOR:-$U}"
+  out=$("$BIN" db query --linked "BEGIN; $PREFLIGHT ${4:-} SELECT set_config(\$\$request.jwt.claims\$\$, \$\${\"sub\":\"$actor\",\"role\":\"authenticated\"}\$\$, true); SET LOCAL ROLE authenticated; $3; ROLLBACK;" </dev/null 2>&1 || true)
   if grep -q "42501\|violates row-level security" <<<"$out"; then
     got="DENIED"
   elif grep -qE 'P0001: [a-z_]+' <<<"$out"; then
@@ -205,6 +207,74 @@ run "team_id: own club playlist -> own club's team" ALLOWED \
   "WITH u AS (UPDATE playlists SET team_id=\$\$$own_team\$\$ WHERE id=\$\$$club_playlist\$\$ RETURNING 1) SELECT count(*) AS n FROM u"
 run "team_id: own club playlist -> another org's team" RAISES:team_not_in_playlist_org \
   "WITH u AS (UPDATE playlists SET team_id=\$\$$other_team\$\$ WHERE id=\$\$$club_playlist\$\$ RETURNING 1) SELECT count(*) AS n FROM u"
+
+# --- Self-escalation (20260929120000_close_self_escalation) ----------------
+# A client must not write the rows its privileges come from. The actor is an
+# ordinary user: no platform admin, no club, no team. Before that migration the
+# DENIED probes here come back ALLOWED rows=1, which is the hole.
+echo ""
+echo "# Resolving escalation fixtures ..."
+EFIX="$("$BIN" db query --linked "
+WITH p AS (
+  SELECT pr.id FROM profiles pr
+   WHERE NOT pr.is_platform_admin AND pr.org_id IS NULL
+     AND NOT EXISTS (SELECT 1 FROM org_memberships om JOIN organizations o ON o.id=om.org_id
+                      WHERE om.user_id=pr.id AND NOT o.is_personal)
+     AND NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.user_id=pr.id)
+   ORDER BY pr.created_at LIMIT 1),
+fc AS (
+  SELECT t.org_id, t.id AS team_id FROM teams t JOIN organizations o ON o.id=t.org_id
+   WHERE NOT o.is_personal
+   ORDER BY EXISTS (SELECT 1 FROM playlist_shares s WHERE s.team_id=t.id) DESC LIMIT 1)
+SELECT
+  (SELECT id::text FROM p) AS plain_user,
+  (SELECT org_id::text FROM fc) AS foreign_club,
+  (SELECT team_id::text FROM fc) AS foreign_team" </dev/null 2>/dev/null \
+ | python3 -c '
+import sys, json
+s = sys.stdin.read()
+r = json.loads(s[s.index("{"):s.rindex("}") + 1])["rows"][0]
+missing = [k for k, v in r.items() if not v]
+if missing:
+    sys.stderr.write(f"missing escalation fixtures: {missing}\n"); sys.exit(1)
+for k, v in r.items():
+    print(k + "=" + v)
+')"
+eval "$EFIX"
+echo "$EFIX" | sed 's/^/#   /'
+
+echo ""
+echo "=== self-escalation (profiles, memberships, orgs, teams) ==="
+ACTOR="$plain_user"
+run "profile prefs: name, avatar, theme, onboarding flags" "ALLOWED rows=1" \
+  "WITH u AS (UPDATE profiles SET full_name=full_name, avatar_url=avatar_url, declared_role=declared_role, celebrated_plan_tier=celebrated_plan_tier, onboarding_checklist_dismissed_at=onboarding_checklist_dismissed_at, welcome_dismissed_at=welcome_dismissed_at, theme_dark=theme_dark, theme_light=theme_light, theme_mode=theme_mode WHERE id=auth.uid() RETURNING 1) SELECT count(*) AS n FROM u"
+run "profile: self-promote to platform admin" DENIED \
+  "WITH u AS (UPDATE profiles SET is_platform_admin=true WHERE id=auth.uid() RETURNING 1) SELECT count(*) AS n FROM u"
+run "profile: claim admin of a foreign club (org_id + role)" DENIED \
+  "WITH u AS (UPDATE profiles SET org_id=\$\$$foreign_club\$\$, role=\$\$admin\$\$ WHERE id=auth.uid() RETURNING 1) SELECT count(*) AS n FROM u"
+run "team_members: join a foreign club's team directly" DENIED \
+  "WITH i AS (INSERT INTO team_members (team_id, user_id, role) VALUES (\$\$$foreign_team\$\$, auth.uid(), \$\$player\$\$) RETURNING 1) SELECT count(*) AS n FROM i"
+run "organizations: insert an org directly" DENIED \
+  "WITH i AS (INSERT INTO organizations (name) VALUES (\$\$rls probe\$\$) RETURNING 1) SELECT count(*) AS n FROM i"
+# As the club's primary admin (profiles.role = 'admin'), which the dropped
+# policies trusted. An UPDATE no policy covers matches 0 rows, not an error.
+PRIMARY_ADMIN="UPDATE profiles SET org_id=\$\$$foreign_club\$\$, role=\$\$admin\$\$ WHERE id=\$\$$plain_user\$\$;"
+run "organizations: primary admin rewrites its licence (0 rows)" "ALLOWED rows=0" \
+  "WITH u AS (UPDATE organizations SET expires_at=expires_at WHERE id=\$\$$foreign_club\$\$ RETURNING 1) SELECT count(*) AS n FROM u" \
+  "$PRIMARY_ADMIN"
+run "teams: primary admin inserts a team directly" DENIED \
+  "WITH i AS (INSERT INTO teams (org_id, name) VALUES (\$\$$foreign_club\$\$, \$\$rls probe\$\$) RETURNING 1) SELECT count(*) AS n FROM i" \
+  "$PRIMARY_ADMIN"
+run "rpc: create_org_for_user" DENIED \
+  "SELECT count(create_org_for_user(\$\$rls probe\$\$)) AS n"
+# The legitimate way in still works: join_by_code is SECURITY DEFINER, so it
+# writes team_members/org_memberships without the dropped policy. Setup gives
+# the club an invite (RLSPRB can't collide: real codes are hex) and room on
+# its licence, so a locked or full club can't turn this into a false failure.
+run "rpc: join a club's team by invite code" "ALLOWED rows=1" \
+  "SELECT count(join_by_code(\$\$RLSPRB\$\$)) AS n" \
+  "INSERT INTO team_invites (team_id, code, role, created_by) VALUES (\$\$$foreign_team\$\$, \$\$RLSPRB\$\$, \$\$player\$\$, \$\$$U\$\$); UPDATE organizations SET expires_at = now() + interval '1 year', player_seat_limit = NULL WHERE id=\$\$$foreign_club\$\$;"
+unset ACTOR
 
 echo ""
 if [[ "$FAILED" -eq 0 ]]; then
