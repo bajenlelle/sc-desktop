@@ -1,13 +1,9 @@
 import { useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Constants from "expo-constants";
-import * as WebBrowser from "expo-web-browser";
-import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
-import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth-context";
-import { useThemeColors } from "@/lib/theme-context";
 import { signOutAndCleanup } from "@/lib/notifications";
 import { usePlaylists } from "@/lib/playlists-store";
 import { AppearanceSection } from "@/components/AppearanceSection";
@@ -19,28 +15,13 @@ import { LicenseNotice } from "@/components/LicenseNotice";
 import { ReportProblemSheet } from "@/components/ReportProblemSheet";
 import { Select } from "@/components/Select";
 
-// Org management (teams, members, licenses) is web-only.
-const WEB_ORG_URL = "https://app.scoutable.se/organization";
-
 export default function ProfileScreen() {
   const { user, profile, myOrgs, activeOrg, activeOrgId, isPlayerOnly, setActiveOrg, reloadProfile } =
     useAuth();
   const { teamMap, clubTeams } = usePlaylists();
-  const colors = useThemeColors();
   const [resetting, setResetting] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
-
-  // Web parity: managing a club is staff-only; players never see the link.
-  const canManageOrg =
-    !!activeOrg &&
-    !activeOrg.isPersonal &&
-    (activeOrg.role === "coach" || activeOrg.role === "admin");
-
-  function handleManageOnWeb() {
-    trackEvent("manage_org_web_clicked");
-    WebBrowser.openBrowserAsync(WEB_ORG_URL).catch(() => {});
-  }
 
   const orgOptions = useMemo(
     () => myOrgs.map((o) => ({ value: o.orgId, label: o.orgName })),
@@ -120,18 +101,9 @@ export default function ProfileScreen() {
               <Text className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Club
               </Text>
-              {canManageOrg && (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={handleManageOnWeb}
-                  className="min-h-[32px] flex-row items-center gap-1 active:opacity-60"
-                >
-                  <Text className="text-xs font-medium text-muted-foreground">
-                    Manage on web
-                  </Text>
-                  <Ionicons name="open-outline" size={13} color={colors.mutedForeground} />
-                </Pressable>
-              )}
+              {/* No "Manage on web" link: the web app reaches the pricing page,
+                  and App Review rejected build 5 for exactly that path (3.1.1 /
+                  3.1.3(c)). Clubs are managed from desktop or web directly. */}
             </View>
             {myOrgs.length > 1 ? (
               <Select
