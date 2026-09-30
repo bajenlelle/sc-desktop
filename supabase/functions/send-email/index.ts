@@ -23,10 +23,33 @@ type TemplateId =
   | "promoted_to_admin"
   | "org_invite";
 
+// One email ({to, data}) or a batch of up to BATCH_MAX that share a template
+// ({batch}). A bulk invite sends one batch request instead of one request per
+// address, so a 30-player paste doesn't trip Resend's per-second rate limit.
 interface SendEmailRequest {
-  to: string;
+  to?: string;
   template: TemplateId;
-  data: Record<string, string>;
+  data?: Record<string, string>;
+  batch?: Array<{ to: string; data?: Record<string, string> }>;
+}
+
+const BATCH_MAX = 100; // Resend's /emails/batch limit
+
+// One retry on 429: Resend's limit is per second, so a short wait clears it.
+async function postToResend(path: string, payload: unknown): Promise<Response> {
+  const send = () =>
+    fetch(`https://api.resend.com${path}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+  const res = await send();
+  if (res.status !== 429) return res;
+  await new Promise((r) => setTimeout(r, 1100));
+  return send();
 }
 
 // ---------------------------------------------------------------------------
@@ -357,13 +380,24 @@ ${ctaButton(appUrl + "/organization", "Manage Organization")}`,
       const role = d("role", "coach");
       const inviteUrl = d("invite_url", appUrl + "/join");
       const roleLabel = role.charAt(0).toUpperCase() + role.slice(1);
+      // Optional: older callers send neither.
+      const teamName = d("team_name");
+      const inviterName = d("inviter_name");
+      const where = teamName
+        ? `<strong>${esc(orgName)}</strong> (${esc(teamName)})`
+        : `<strong>${esc(orgName)}</strong>`;
+      const lead = inviterName
+        ? `${esc(inviterName)} invited you to join ${where}`
+        : `You've been invited to join ${where}`;
       return {
-        subject: `You've been invited to join ${orgName} on Scoutable`,
+        subject: inviterName
+          ? `${inviterName} invited you to join ${orgName} on Scoutable`
+          : `You've been invited to join ${orgName} on Scoutable`,
         html: wrapEmail(
           `Join ${orgName} on Scoutable`,
           `<h1 style="margin:0 0 12px 0;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">You're invited to join ${esc(orgName)}</h1>
 <p style="margin:0 0 32px 0;font-size:14px;line-height:1.65;color:#6b7280;">
-  You've been invited to join <strong>${esc(orgName)}</strong> on Scoutable as a <strong>${esc(roleLabel)}</strong>. Click below to accept your invitation.
+  ${lead} on Scoutable as a <strong>${esc(roleLabel)}</strong>. Click below to accept your invitation.
 </p>
 ${ctaButton(inviteUrl, "Accept Invitation")}`,
           "This invitation expires in 7 days. If you weren't expecting this, you can ignore this email.",
@@ -416,50 +450,49 @@ Deno.serve(async (req) => {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const { to, template, data } = body;
-  if (!to || !template) {
-    return new Response(JSON.stringify({ error: "Missing required fields: to, template" }), {
-      status: 400,
+  const { to, template, data, batch } = body;
+  const json = (status: number, payload: unknown) =>
+    new Response(JSON.stringify(payload), {
+      status,
       headers: { "Content-Type": "application/json" },
     });
+
+  const messages = batch ?? (to ? [{ to, data }] : []);
+  if (!template || messages.length === 0 || messages.some((m) => !m?.to)) {
+    return json(400, { error: "Missing required fields: template and to (or batch[].to)" });
+  }
+  if (messages.length > BATCH_MAX) {
+    return json(400, { error: `A batch holds at most ${BATCH_MAX} emails` });
   }
 
   // Skip actual sending if no API key (local dev without Resend)
   if (!RESEND_API_KEY) {
-    console.log(`[send-email] No API key configured — skipping send to ${to} (template: ${template})`);
-    return new Response(JSON.stringify({ ok: true, skipped: true }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    console.log(
+      `[send-email] No API key configured — skipping ${messages.length} email(s) (template: ${template})`,
+    );
+    return json(200, { ok: true, skipped: true });
   }
 
-  let result: TemplateResult;
+  let emails: Array<{ from: string; to: string[]; subject: string; html: string }>;
   try {
-    result = renderTemplate(template as TemplateId, data ?? {}, APP_URL);
-  } catch (e) {
-    return new Response(JSON.stringify({ error: String(e) }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
+    emails = messages.map((m) => {
+      const result: TemplateResult = renderTemplate(template as TemplateId, m.data ?? {}, APP_URL);
+      return { from: FROM, to: [m.to], subject: result.subject, html: result.html };
     });
+  } catch (e) {
+    return json(400, { error: String(e) });
   }
 
-  const resendRes = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: FROM,
-      to: [to],
-      subject: result.subject,
-      html: result.html,
-    }),
-  });
+  const resendRes = batch
+    ? await postToResend("/emails/batch", emails)
+    : await postToResend("/emails", emails[0]);
 
   if (!resendRes.ok) {
     const errText = await resendRes.text();
-    console.error(`[send-email] Resend error for ${to}:`, errText);
+    console.error(
+      `[send-email] Resend error for ${batch ? `a batch of ${emails.length}` : to} (template: ${template}):`,
+      errText,
+    );
     return new Response(JSON.stringify({ error: errText }), {
       status: 502,
       headers: { "Content-Type": "application/json" },

@@ -314,6 +314,53 @@ run "staff: read own org's invite" "ALLOWED rows=1" \
 run "rpc: invite link for another org's team" RAISES:team_not_in_org \
   "SELECT count(generate_org_invite(\$\$$club_org\$\$, \$\$player\$\$, NULL, NULL, false, \$\$$other_team\$\$)) AS n"
 
+# --- Bulk email invites (20260930110000_bulk_invites) -----------------------
+# Addresses use the reserved .invalid TLD, and every probe rolls back, which
+# also drops the queued pg_net email requests.
+echo ""
+echo "=== bulk email invites (per-address results, caps, resend, revoke) ==="
+MEMBER_EMAIL="$("$BIN" db query --linked "SELECT email AS e FROM auth.users WHERE id=\$\$$member_r\$\$" </dev/null 2>/dev/null \
+  | python3 -c 'import sys,json; s=sys.stdin.read(); print(json.loads(s[s.index("{"):s.rindex("}")+1])["rows"][0]["e"])')"
+run "invite_by_email: sent and skipped, per address" "ALLOWED rows=1" \
+  "SELECT ((r->'sent') = '[\"rls-new@example.invalid\"]'::jsonb
+           AND (r->'skipped') @> '[{\"reason\":\"invalid\"},{\"reason\":\"already_member\"},{\"reason\":\"already_invited\"}]'::jsonb
+           AND jsonb_array_length(r->'skipped') = 3)::int AS n
+     FROM (SELECT invite_by_email(\$\$$club_org\$\$,
+             ARRAY[\$\$rls-new@example.invalid\$\$, \$\$ RLS-New@Example.invalid \$\$, \$\$not-an-email\$\$,
+                   \$\$$MEMBER_EMAIL\$\$, \$\$rls-invited@example.invalid\$\$, \$\$\$\$],
+             \$\$player\$\$, NULL) AS r) x" \
+  "INSERT INTO org_invites (org_id, code, role, email, created_by, max_uses, expires_at) VALUES (\$\$$club_org\$\$, \$\$RLSPRI\$\$, \$\$player\$\$, \$\$rls-invited@example.invalid\$\$, \$\$$U\$\$, 1, now() + interval '7 days');"
+run "invite_by_email: more than 200 addresses" RAISES:too_many_emails \
+  "SELECT count(invite_by_email(\$\$$club_org\$\$, array_fill(\$\$a@b.invalid\$\$::text, ARRAY[201]), \$\$player\$\$, NULL)) AS n"
+run "send_org_invite_emails: old entry point still returns a count" "ALLOWED rows=1" \
+  "SELECT send_org_invite_emails(\$\$$club_org\$\$, ARRAY[\$\$rls-old@example.invalid\$\$], \$\$player\$\$, NULL) AS n"
+COACH_OF_FC="INSERT INTO org_memberships (user_id, org_id, role) VALUES (\$\$$plain_user\$\$, \$\$$foreign_club\$\$, \$\$coach\$\$); $ROOM"
+sent_invite() {  # $1=code $2=role $3=expires_at expr -> privileged insert of an emailed invite into foreign_club
+  echo "INSERT INTO org_invites (org_id, code, role, email, created_by, max_uses, expires_at) VALUES (\$\$$foreign_club\$\$, \$\$$1\$\$, \$\$$2\$\$, \$\$rls-pending@example.invalid\$\$, \$\$$U\$\$, 1, $3);"
+}
+ACTOR="$plain_user"
+run "invite_by_email: coach invites an admin" RAISES:not_admin \
+  "SELECT count(invite_by_email(\$\$$foreign_club\$\$, ARRAY[\$\$rls-x@example.invalid\$\$], \$\$admin\$\$, NULL)) AS n" \
+  "$COACH_OF_FC"
+run "resend: coach resends a player invite" "ALLOWED rows=1" \
+  "SELECT count(*) AS n FROM (SELECT resend_org_invite(id) FROM org_invites WHERE code=\$\$RLSPRJ\$\$) x" \
+  "$COACH_OF_FC $(sent_invite RLSPRJ player "now() + interval '5 days'")"
+run "resend: again within the hour" RAISES:resent_recently \
+  "SELECT count(*) AS n FROM (SELECT resend_org_invite(id) FROM org_invites WHERE code=\$\$RLSPRK\$\$) x" \
+  "$COACH_OF_FC $(sent_invite RLSPRK player "now() + interval '7 days'")"
+run "resend: coach resends an admin invite" RAISES:not_admin \
+  "SELECT count(*) AS n FROM (SELECT resend_org_invite(id) FROM org_invites WHERE code=\$\$RLSPRL\$\$) x" \
+  "$COACH_OF_FC $(sent_invite RLSPRL admin "now() + interval '5 days'")"
+run "revoke: coach revokes a player invite" "ALLOWED rows=1" \
+  "SELECT count(*) AS n FROM (SELECT revoke_org_invite(id) FROM org_invites WHERE code=\$\$RLSPRM\$\$) x" \
+  "$COACH_OF_FC $(sent_invite RLSPRM player "now() + interval '5 days'")"
+# A non-member can't read the invite row, so its id reaches the call through a
+# transaction-local setting written by the (privileged) setup.
+run "revoke: a non-member revokes an invite" RAISES:not_admin \
+  "SELECT count(revoke_org_invite(current_setting(\$\$rls.invite_id\$\$)::uuid)) AS n" \
+  "$(sent_invite RLSPRN player "now() + interval '5 days'") SELECT set_config(\$\$rls.invite_id\$\$, (SELECT id::text FROM org_invites WHERE code=\$\$RLSPRN\$\$), true);"
+unset ACTOR
+
 echo ""
 if [[ "$FAILED" -eq 0 ]]; then
   echo "ALL WRITE-PATH CHECKS PASSED (nothing committed)"

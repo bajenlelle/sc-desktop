@@ -7,7 +7,9 @@ import { createClient } from "@/lib/supabase/client";
 import { currentUserId } from "@scoutable/shared/lib/current-user";
 import { type TeamDeleteImpact } from "@scoutable/shared/lib/team-delete";
 import type { OrgSetupInvite } from "@scoutable/shared/lib/org-setup";
+import { MAX_INVITES_PER_SEND } from "@scoutable/shared/lib/email-list";
 import type {
+  InviteSendResult,
   UserProfile,
   Organization,
   OrgTeam,
@@ -927,9 +929,14 @@ export async function updateOrgNameForPlatform(orgId: string, name: string): Pro
 }
 
 
-export async function sendEmailInvites(orgId: string, emails: string[], role: string, teamId?: string | null): Promise<number> {
+export async function sendEmailInvites(
+  orgId: string,
+  emails: string[],
+  role: string,
+  teamId?: string | null
+): Promise<InviteSendResult> {
   const supabase = createClient();
-  const { data, error } = await supabase.rpc("send_org_invite_emails", {
+  const { data, error } = await supabase.rpc("invite_by_email", {
     p_org_id: orgId,
     p_emails: emails,
     p_role: role,
@@ -938,20 +945,41 @@ export async function sendEmailInvites(orgId: string, emails: string[], role: st
   if (error) {
     if (error.message.includes("not_admin")) throw new Error("Only org admins and coaches can send invites.");
     if (error.message.includes("invalid_role")) throw new Error("Invalid role.");
+    if (error.message.includes("license_expired"))
+      throw new Error("This organization's license has expired. Invites are paused until it's renewed.");
+    if (error.message.includes("too_many_emails"))
+      throw new Error(`You can send up to ${MAX_INVITES_PER_SEND} invites at a time.`);
+    if (error.message.includes("daily_invite_limit"))
+      throw new Error("This organization has reached today's invite limit. Try again tomorrow.");
+    if (error.message.includes("team_not_in_org")) throw new Error("That team isn't part of this organization.");
     throw new Error(`Failed to send invites: ${error.message}`);
   }
-  return data as number;
+  return data as InviteSendResult;
 }
 
-export async function resendEmailInvite(
-  inviteId: string,
-  orgId: string,
-  email: string,
-  role: string,
-  teamId?: string | null
-): Promise<void> {
-  await deleteOrgInvite(inviteId);
-  await sendEmailInvites(orgId, [email], role, teamId);
+/** Same role and team as the original; a new code, and 7 more days. */
+export async function resendOrgInvite(inviteId: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.rpc("resend_org_invite", { p_invite_id: inviteId });
+  if (error) {
+    if (error.message.includes("not_admin")) throw new Error("Only org admins can resend admin invites.");
+    if (error.message.includes("invite_used")) throw new Error("This invite has already been accepted.");
+    if (error.message.includes("resent_recently")) throw new Error("This invite was just sent. You can resend it in an hour.");
+    if (error.message.includes("invite_not_found")) throw new Error("This invite no longer exists.");
+    if (error.message.includes("license_expired"))
+      throw new Error("This organization's license has expired. Invites are paused until it's renewed.");
+    throw new Error(`Failed to resend invite: ${error.message}`);
+  }
+}
+
+export async function revokeOrgInvite(inviteId: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.rpc("revoke_org_invite", { p_invite_id: inviteId });
+  if (error) {
+    if (error.message.includes("not_admin")) throw new Error("Only org admins can revoke admin invites.");
+    if (error.message.includes("invite_not_found")) throw new Error("This invite no longer exists.");
+    throw new Error(`Failed to revoke invite: ${error.message}`);
+  }
 }
 
 export async function getOrCreateLinkInvite(

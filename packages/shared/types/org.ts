@@ -100,6 +100,15 @@ export interface OrgInvite {
   email: string | null;
 }
 
+/** Why invite_by_email didn't send to an address. */
+export type InviteSkipReason = 'invalid' | 'already_member' | 'already_invited';
+
+/** invite_by_email's per-address result. */
+export interface InviteSendResult {
+  sent: string[];
+  skipped: { email: string; reason: InviteSkipReason }[];
+}
+
 export interface OrgWithCount {
   id: string;
   name: string;
