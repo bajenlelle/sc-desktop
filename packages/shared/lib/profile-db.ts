@@ -236,6 +236,8 @@ export async function joinByCode(
     if (error.message.includes("code_expired")) throw new Error("This invite code has expired.");
     if (error.message.includes("code_exhausted")) throw new Error("This invite code has reached its maximum uses.");
     if (error.message.includes("already_in_different_org")) throw new Error("You are already in a different organization.");
+    if (error.message.includes("invite_email_mismatch"))
+      throw new Error("This invite was sent to a different email address. Sign in with that address, or ask for a new invite.");
     if (error.message.includes("license_expired"))
       throw new Error("This organization's license has expired. The organization can request a renewal from Scoutable.");
     if (error.message.includes("coach_seat_limit_reached"))

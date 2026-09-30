@@ -108,6 +108,11 @@ export default function JoinPage() {
     userEmail !== undefined &&
     preview.email.toLowerCase() !== userEmail.toLowerCase();
 
+  // join_by_code binds emailed admin/coach invites to their address
+  // (invite_email_mismatch), so for those a mismatch can't be accepted anyway.
+  const mismatchBlocks =
+    emailMismatch && (preview?.role === "admin" || preview?.role === "coach");
+
   const isNewAccount =
     !!userCreatedAt &&
     Date.now() - new Date(userCreatedAt).getTime() < 5 * 60 * 1000;
@@ -216,13 +221,21 @@ export default function JoinPage() {
                 You&apos;re signed in as{" "}
                 <span className="font-medium text-foreground">{userEmail}</span>.
               </p>
+              {mismatchBlocks && (
+                <p className="text-sm text-muted-foreground">
+                  {preview.role === "admin" ? "Admin" : "Coach"} invites only work for the address
+                  they were sent to.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
-              <Button className="w-full" size="sm" onClick={() => setMismatchConfirmed(true)}>
-                Accept as {userEmail}
-              </Button>
+              {!mismatchBlocks && (
+                <Button className="w-full" size="sm" onClick={() => setMismatchConfirmed(true)}>
+                  Accept as {userEmail}
+                </Button>
+              )}
               <Button
-                variant="outline"
+                variant={mismatchBlocks ? "default" : "outline"}
                 className="w-full"
                 size="sm"
                 onClick={() => signOutAndRedirect(`/login?next=/join/${code}`)}
