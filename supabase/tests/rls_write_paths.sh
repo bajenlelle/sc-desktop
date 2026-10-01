@@ -361,6 +361,29 @@ run "revoke: a non-member revokes an invite" RAISES:not_admin \
   "$(sent_invite RLSPRN player "now() + interval '5 days'") SELECT set_config(\$\$rls.invite_id\$\$, (SELECT id::text FROM org_invites WHERE code=\$\$RLSPRN\$\$), true);"
 unset ACTOR
 
+# --- Org and team reads (20261001100000_scope_org_and_team_reads) -----------
+# Members read their own orgs and those orgs' teams; platform admins read all;
+# nobody else, anon included, reads any.
+echo ""
+echo "=== org and team reads (members and platform admins only) ==="
+ACTOR="$plain_user"
+run "organizations: non-member reads another club (0 rows)" "ALLOWED rows=0" \
+  "SELECT count(*) AS n FROM organizations WHERE id=\$\$$foreign_club\$\$"
+run "teams: non-member reads another club's teams (0 rows)" "ALLOWED rows=0" \
+  "SELECT count(*) AS n FROM teams WHERE org_id=\$\$$foreign_club\$\$"
+run "organizations: personal spaces, only my own" "ALLOWED rows=1" \
+  "SELECT count(*) AS n FROM organizations WHERE is_personal"
+unset ACTOR
+ANON="SELECT set_config(\$\$request.jwt.claims\$\$, \$\${\"role\":\"anon\"}\$\$, true); SET LOCAL ROLE anon;"
+run "organizations: anon (0 rows)" "ALLOWED rows=0" "$ANON SELECT count(*) AS n FROM organizations"
+run "teams: anon (0 rows)" "ALLOWED rows=0" "$ANON SELECT count(*) AS n FROM teams"
+run "organizations: member reads own club" "ALLOWED rows=1" \
+  "SELECT count(*) AS n FROM organizations WHERE id=\$\$$club_org\$\$"
+run "teams: member reads own club's teams" "ALLOWED rows=1" \
+  "SELECT (count(*) > 0)::int AS n FROM teams WHERE org_id=\$\$$club_org\$\$"
+run "organizations: platform admin reads another club" "ALLOWED rows=1" \
+  "SELECT count(*) AS n FROM organizations WHERE id=\$\$$foreign_club\$\$"
+
 echo ""
 if [[ "$FAILED" -eq 0 ]]; then
   echo "ALL WRITE-PATH CHECKS PASSED (nothing committed)"
