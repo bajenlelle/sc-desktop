@@ -3,7 +3,7 @@ use std::io::{Read, Seek, SeekFrom};
 
 use http_range::HttpRange;
 use percent_encoding::percent_decode_str;
-use tauri::http::{Response, StatusCode};
+use tauri::http::{Method, Response, StatusCode};
 
 mod device_identity;
 mod menu;
@@ -672,12 +672,16 @@ pub fn run() {
         // Tauri's built-in asset:// handler buffers the entire file for non-Range GET
         // requests, which causes OOM errors for 7–8 GB files. This protocol caps every
         // response at CHUNK_SIZE and always returns 206 with a Content-Range header so
-        // WKWebView knows the total file size and makes proper range requests.
+        // the webview knows the total file size and makes proper range requests.
+        // On Windows the webview reaches this as http://stream.localhost — a different
+        // origin from the page — so every response carries CORS headers (see `cors`).
         .register_asynchronous_uri_scheme_protocol("stream", |_ctx, request, responder| {
-            // Decode the path from the URI (e.g. stream://localhost/Users/foo/bar.mp4)
-            let path = percent_decode_str(request.uri().path())
-                .decode_utf8_lossy()
-                .to_string();
+            if request.method() == Method::OPTIONS {
+                responder.respond(preflight_response());
+                return;
+            }
+
+            let path = stream_path_from_uri(request.uri().path());
 
             // Capture Range header before moving request into the thread
             let range_header = request
@@ -696,9 +700,7 @@ pub fn run() {
                             StatusCode::FORBIDDEN
                         };
                         responder.respond(
-                            Response::builder()
-                                .status(status)
-                                .header("Access-Control-Allow-Origin", "*")
+                            cors(Response::builder().status(status))
                                 .body(vec![])
                                 .unwrap(),
                         );
@@ -710,9 +712,7 @@ pub fn run() {
                     Ok(s) => s,
                     Err(_) => {
                         responder.respond(
-                            Response::builder()
-                                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                                .header("Access-Control-Allow-Origin", "*")
+                            cors(Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR))
                                 .body(vec![])
                                 .unwrap(),
                         );
@@ -722,9 +722,7 @@ pub fn run() {
 
                 if file_size == 0 {
                     responder.respond(
-                        Response::builder()
-                            .status(StatusCode::NO_CONTENT)
-                            .header("Access-Control-Allow-Origin", "*")
+                        cors(Response::builder().status(StatusCode::NO_CONTENT))
                             .body(vec![])
                             .unwrap(),
                     );
@@ -752,13 +750,11 @@ pub fn run() {
                             _ => {
                                 // Malformed or unsatisfiable range
                                 responder.respond(
-                                    Response::builder()
-                                        .status(StatusCode::RANGE_NOT_SATISFIABLE)
+                                    cors(Response::builder().status(StatusCode::RANGE_NOT_SATISFIABLE))
                                         .header(
                                             "Content-Range",
                                             format!("bytes */{file_size}"),
                                         )
-                                        .header("Access-Control-Allow-Origin", "*")
                                         .body(vec![])
                                         .unwrap(),
                                 );
@@ -790,8 +786,7 @@ pub fn run() {
                     return;
                 }
 
-                let response = Response::builder()
-                    .status(StatusCode::PARTIAL_CONTENT)
+                let response = cors(Response::builder().status(StatusCode::PARTIAL_CONTENT))
                     .header("Content-Type", mime)
                     .header("Content-Length", chunk_len.to_string())
                     .header(
@@ -799,7 +794,6 @@ pub fn run() {
                         format!("bytes {start}-{end}/{file_size}"),
                     )
                     .header("Accept-Ranges", "bytes")
-                    .header("Access-Control-Allow-Origin", "*")
                     .body(buf)
                     .unwrap();
 
@@ -820,6 +814,42 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Filesystem path from the path component of a `stream://` URI.
+///
+/// `convertFileSrc` percent-encodes the whole path and puts it after a single
+/// separator "/", so the handler sees `/%2FUsers%2F…` on macOS and
+/// `/C%3A%5CUsers%5C…` on Windows (wry has already undone its
+/// `http://stream.localhost` rewrite by then). Drop that separator before
+/// decoding — as Tauri's own asset protocol does — or Windows opens `/C:\…`.
+fn stream_path_from_uri(uri_path: &str) -> String {
+    let encoded = uri_path.strip_prefix('/').unwrap_or(uri_path);
+    percent_decode_str(encoded).decode_utf8_lossy().into_owned()
+}
+
+/// CORS headers for every stream response. On Windows the page
+/// (http://tauri.localhost) and the video (http://stream.localhost) are
+/// different origins: without Allow-Origin the probe's fetch() throws and a
+/// CORS-mode <video> refuses to play; without Expose-Headers the probe can't
+/// read Content-Range, so it never learns the file size.
+fn cors(b: tauri::http::response::Builder) -> tauri::http::response::Builder {
+    b.header("Access-Control-Allow-Origin", "*").header(
+        "Access-Control-Expose-Headers",
+        "Content-Range, Accept-Ranges, Content-Length",
+    )
+}
+
+/// Answer to a CORS preflight. Chromium doesn't preflight what we actually
+/// send (a single-range `Range` header is safelisted), but if one ever
+/// arrives it must not fall through to the file-reading path.
+fn preflight_response() -> Response<Vec<u8>> {
+    cors(Response::builder().status(StatusCode::NO_CONTENT))
+        .header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+        .header("Access-Control-Allow-Headers", "Range")
+        .header("Access-Control-Max-Age", "86400")
+        .body(vec![])
+        .unwrap()
 }
 
 fn mime_for_path(path: &str) -> &'static str {
@@ -992,6 +1022,85 @@ mod tests {
         let missing = sandbox.join("nope.txt");
         assert!(resolve_within(missing.to_str().unwrap(), &sandbox).is_err());
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // ── stream:// path decoding ──────────────────────────────────────────────
+    // `convertFileSrc` percent-encodes the whole filesystem path, so the URI
+    // path is "/" + encoded path on every OS; that leading "/" is a separator,
+    // not part of the file path. Getting this wrong on Windows means opening
+    // "/C:\…" and a 404 for every video.
+
+    #[test]
+    fn stream_path_decodes_macos_path() {
+        assert_eq!(
+            stream_path_from_uri("/%2FUsers%2Fx%2FGame%20vs%20Y.mp4"),
+            "/Users/x/Game vs Y.mp4"
+        );
+    }
+
+    #[test]
+    fn stream_path_decodes_windows_drive_path() {
+        assert_eq!(
+            stream_path_from_uri("/C%3A%5CUsers%5Cx%5Cgame.mp4"),
+            r"C:\Users\x\game.mp4"
+        );
+    }
+
+    #[test]
+    fn stream_path_decodes_windows_unc_path() {
+        assert_eq!(
+            stream_path_from_uri("/%5C%5Cnas%5Cshare%5Cgame.mp4"),
+            r"\\nas\share\game.mp4"
+        );
+    }
+
+    #[test]
+    fn stream_path_decodes_utf8_filename() {
+        assert_eq!(
+            stream_path_from_uri("/%2FUsers%2Fx%2Fm%C3%A4tch.mp4"),
+            "/Users/x/mätch.mp4"
+        );
+    }
+
+    #[test]
+    fn stream_path_of_bare_root_is_empty_not_a_panic() {
+        assert_eq!(stream_path_from_uri("/"), "");
+    }
+
+    #[test]
+    fn stream_uri_survives_http_uri_parsing() {
+        // What the handler actually receives: wry has already rewritten
+        // http://stream.localhost/… back to stream://localhost/…. The http
+        // crate must hand us the percent-encoding untouched.
+        let uri: tauri::http::Uri = "stream://localhost/C%3A%5CUsers%5Cx%5Cgame.mp4"
+            .parse()
+            .unwrap();
+        assert_eq!(uri.path(), "/C%3A%5CUsers%5Cx%5Cgame.mp4");
+        assert_eq!(stream_path_from_uri(uri.path()), r"C:\Users\x\game.mp4");
+    }
+
+    // On Windows the page (http://tauri.localhost) and the video
+    // (http://stream.localhost) are different origins, so stream responses
+    // are read under CORS rules there.
+
+    #[test]
+    fn cors_exposes_content_range_to_cross_origin_readers() {
+        let res = cors(Response::builder()).body(Vec::<u8>::new()).unwrap();
+        let h = res.headers();
+        assert_eq!(h["Access-Control-Allow-Origin"].to_str().unwrap(), "*");
+        let exposed = h["Access-Control-Expose-Headers"].to_str().unwrap();
+        assert!(exposed.contains("Content-Range"), "got {exposed}");
+    }
+
+    #[test]
+    fn preflight_response_is_an_empty_204_that_allows_range() {
+        let res = preflight_response();
+        assert_eq!(res.status(), StatusCode::NO_CONTENT);
+        assert!(res.body().is_empty());
+        let h = res.headers();
+        assert_eq!(h["Access-Control-Allow-Origin"].to_str().unwrap(), "*");
+        let allowed = h["Access-Control-Allow-Headers"].to_str().unwrap();
+        assert!(allowed.contains("Range"), "got {allowed}");
     }
 
     #[test]

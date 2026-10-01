@@ -6,6 +6,7 @@ import { VideoPlayer } from "@/components/video-player";
 import { Button } from "@/components/ui/button";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { trackEvent } from "@/lib/analytics";
+import { Sentry } from "@/lib/sentry";
 import { cn } from "@/lib/utils";
 
 export interface SyncPointPickerProps {
@@ -39,9 +40,17 @@ export function SyncPointPicker({
   const [duration, setDuration] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [confirmedTime, setConfirmedTime] = useState<number | null>(initialSeconds ?? null);
-  // Load failure (file gone/unreadable): confirming would silently persist
-  // 0:00 over a possibly-correct sync point — block it and say why.
-  const [videoFailed, setVideoFailed] = useState(false);
+  // MediaError code of a failed load, null while the video is fine. Confirming
+  // on a dead element would silently persist 0:00 over a possibly-correct
+  // sync point — block it and say why, in a way that tells the user what to do.
+  const [loadError, setLoadError] = useState<number | null>(null);
+  const videoFailed = loadError !== null;
+  const failureMessage =
+    loadError === null
+      ? undefined
+      : loadError === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
+        ? "Unsupported video format. Convert it to MP4 (H.264) and choose the file again."
+        : "Can't load this video. Check that the file still exists, then choose it again.";
 
   // The sample game's video is a remote R2 URL, not a local file.
   const src = isLocalPath(videoPath) ? streamFileSrc(videoPath) : videoPath;
@@ -67,8 +76,22 @@ export function SyncPointPicker({
 
     function onPlay() { setPlaying(true); }
     function onPause() { setPlaying(false); }
-    function onError() { setVideoFailed(true); }
-    function onLoadStart() { setVideoFailed(false); }
+    function onError() {
+      const code = video?.error?.code ?? 0;
+      setLoadError(code);
+      // Deliberate, tagged report — the unhandled play() rejection this
+      // replaces arrived with no stack and no hint of which file format
+      // people actually bring. Once per failed load.
+      Sentry.captureMessage("sync-point video failed to load", {
+        level: "warning",
+        tags: {
+          media_error_code: String(code),
+          ext: videoPath.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() ?? "none",
+          remote: String(!isLocalPath(videoPath)),
+        },
+      });
+    }
+    function onLoadStart() { setLoadError(null); }
 
     video.addEventListener("loadedmetadata", onLoadedMetadata);
     video.addEventListener("timeupdate", onTimeUpdate);
@@ -94,12 +117,15 @@ export function SyncPointPicker({
       video.removeEventListener("error", onError);
       video.removeEventListener("loadstart", onLoadStart);
     };
-  }, [initialSeconds]);
+  }, [initialSeconds, videoPath]);
 
+  // play() rejects when the element has no playable source. The `error`
+  // event above already carries that signal; the rejection is a stackless
+  // duplicate, so it's swallowed here and in handleScrubberRelease.
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
-    if (video.paused) { video.play(); } else { video.pause(); }
+    if (video.paused) { video.play().catch(() => {}); } else { video.pause(); }
   }, []);
 
   const seekBy = useCallback((delta: number) => {
@@ -163,7 +189,7 @@ export function SyncPointPicker({
   function handleScrubberRelease() {
     isDraggingRef.current = false;
     if (wasPlayingRef.current) {
-      videoRef.current?.play();
+      videoRef.current?.play().catch(() => {});
     }
   }
 
@@ -180,6 +206,14 @@ export function SyncPointPicker({
 
       {/* Video */}
       <VideoPlayer src={src} videoRef={videoRef} />
+      {failureMessage && (
+        <p
+          role="alert"
+          className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-600 dark:bg-red-950 dark:text-red-400"
+        >
+          {failureMessage}
+        </p>
+      )}
 
       {/* Scrubber */}
       <div className="flex items-center gap-2">
@@ -266,7 +300,7 @@ export function SyncPointPicker({
           )}
           variant={confirmedTime !== null ? "outline" : "default"}
           disabled={videoFailed}
-          title={videoFailed ? "The video couldn't be loaded on this computer" : undefined}
+          title={failureMessage}
           onClick={() => {
             setConfirmedTime(currentTime);
             onConfirm(currentTime);

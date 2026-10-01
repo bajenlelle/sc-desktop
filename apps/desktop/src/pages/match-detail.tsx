@@ -15,7 +15,7 @@ import { listPlaylists } from "@/lib/playlists-db";
 import { useAuth } from "@/lib/auth-context";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
-import { probeVideoPath, type VideoFileStatus } from "@/lib/video-probe";
+import { probeVideoPath, videoBasename, type VideoFileStatus } from "@/lib/video-probe";
 import { cn } from "@/lib/utils";
 import type { StoredMatch, SyncPoint } from "@/types/match";
 
@@ -298,9 +298,9 @@ export function MatchDetailPage() {
   // Render
   // ---------------------------------------------------------------------------
 
-  const videoFileName = storedMatch.videoUrl
-    ? storedMatch.videoUrl.split("/").pop() ?? storedMatch.videoUrl
-    : null;
+  // videoBasename splits on both separators — a Windows path shows its file
+  // name here, not the whole C:\… string.
+  const videoFileName = storedMatch.videoUrl ? videoBasename(storedMatch.videoUrl) : null;
 
   const syncHint = storedMatch.syncPoint?.syncRealWorldTime
     ? (() => {
