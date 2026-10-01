@@ -422,7 +422,7 @@ used_up() {  # $1 = days ago
           FROM org_memberships m JOIN organizations o ON o.id = m.org_id, generate_series(1, 3) g
          WHERE m.user_id = \$\$$plain_user\$\$ AND o.is_personal;"
 }
-SETTINGS="UPDATE free_refill_settings SET amount = 2, wait_days = 30, expires_days = 60, cooldown_days = 90;"
+SETTINGS="UPDATE free_refill_settings SET amount = 2, wait_days = 30, expires_days = 60, cooldown_days = 90, email_requires_consent = false;"
 run "refill: free imports left (not eligible)" RAISES:not_eligible \
   "SELECT count(refill_free_imports(\$\$$plain_user\$\$::uuid)) AS n" "$SETTINGS"
 run "refill: used up 40 days ago grants the amount" "ALLOWED rows=2" \
@@ -434,12 +434,18 @@ run "refill: too soon, forced" "ALLOWED rows=2" \
 run "refill: refilled 10 days ago (cooldown)" RAISES:refilled_recently \
   "SELECT count(refill_free_imports(\$\$$plain_user\$\$::uuid)) AS n" \
   "$SETTINGS $(used_up 40) INSERT INTO free_refills (user_id, amount, expires_at, refilled_at) VALUES (\$\$$plain_user\$\$, 2, now() - interval '1 day', now() - interval '10 days');"
-run "refill: emails only with consent" "ALLOWED rows=1" \
-  "SELECT (refill_free_imports(\$\$$plain_user\$\$::uuid) ->> 'emailed')::boolean::int AS n" \
-  "$SETTINGS $(used_up 40) UPDATE email_preferences SET marketing_consent_at = now() WHERE user_id=\$\$$plain_user\$\$;"
-run "refill: no email without consent" "ALLOWED rows=0" \
-  "SELECT (refill_free_imports(\$\$$plain_user\$\$::uuid) ->> 'emailed')::boolean::int AS n" \
-  "$SETTINGS $(used_up 40) UPDATE email_preferences SET marketing_consent_at = NULL WHERE user_id=\$\$$plain_user\$\$;"
+EMAILED="SELECT (refill_free_imports(\$\$$plain_user\$\$::uuid) ->> 'emailed')::boolean::int AS n"
+prefs() {  # $1 = consent expr, $2 = unsubscribed expr
+  echo "UPDATE email_preferences SET marketing_consent_at = $1, unsubscribed_at = $2 WHERE user_id=\$\$$plain_user\$\$;"
+}
+run "refill: emails everyone not unsubscribed (no opt-in)" "ALLOWED rows=1" "$EMAILED" \
+  "$SETTINGS $(used_up 40) $(prefs NULL NULL)"
+run "refill: never emails after an unsubscribe" "ALLOWED rows=0" "$EMAILED" \
+  "$SETTINGS $(used_up 40) $(prefs NULL 'now()')"
+run "refill: opt-in required, not opted in (no email)" "ALLOWED rows=0" "$EMAILED" \
+  "$SETTINGS UPDATE free_refill_settings SET email_requires_consent = true; $(used_up 40) $(prefs NULL NULL)"
+run "refill: opt-in required, opted in (email)" "ALLOWED rows=1" "$EMAILED" \
+  "$SETTINGS UPDATE free_refill_settings SET email_requires_consent = true; $(used_up 40) $(prefs 'now()' NULL)"
 
 echo ""
 if [[ "$FAILED" -eq 0 ]]; then

@@ -11,9 +11,10 @@
 -- never stack onto a later Rookie month. When volume justifies it, a cron
 -- job can loop free_refill_candidates() with the same refill function.
 --
--- The refill email carries an upgrade offer, which makes it marketing: it
--- goes only to users with marketing consent (20261001110000). Everyone else
--- still gets the imports, and the app's quota chip shows them.
+-- The refill email carries an upgrade offer, which makes it marketing. For
+-- now it goes to everyone who hasn't unsubscribed (20261001110000);
+-- email_requires_consent switches it to explicit opt-ins only. Anyone not
+-- emailed still gets the imports, and the app's quota chip shows them.
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -26,6 +27,7 @@ CREATE TABLE IF NOT EXISTS free_refill_settings (
   wait_days     integer NOT NULL CHECK (wait_days >= 0),      -- after the last free import
   expires_days  integer NOT NULL CHECK (expires_days >= 1),   -- the grant lapses after this
   cooldown_days integer NOT NULL CHECK (cooldown_days >= 0),  -- minimum gap between refills
+  email_requires_consent boolean NOT NULL DEFAULT false,      -- false: everyone not unsubscribed
   updated_at    timestamptz NOT NULL DEFAULT now(),
   updated_by    uuid
 );
@@ -70,7 +72,8 @@ END;
 $$;
 
 CREATE OR REPLACE FUNCTION update_free_refill_settings(
-  p_amount integer, p_wait_days integer, p_expires_days integer, p_cooldown_days integer
+  p_amount integer, p_wait_days integer, p_expires_days integer, p_cooldown_days integer,
+  p_email_requires_consent boolean DEFAULT false
 ) RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -80,7 +83,8 @@ BEGIN
   IF NOT is_platform_admin() THEN RAISE EXCEPTION 'not_admin'; END IF;
   UPDATE free_refill_settings
      SET amount = p_amount, wait_days = p_wait_days, expires_days = p_expires_days,
-         cooldown_days = p_cooldown_days, updated_at = now(), updated_by = auth.uid()
+         cooldown_days = p_cooldown_days, email_requires_consent = p_email_requires_consent,
+         updated_at = now(), updated_by = auth.uid()
    WHERE id;
 END;
 $$;
@@ -104,6 +108,7 @@ RETURNS TABLE (
   in_club          boolean,
   had_subscription boolean,
   email_consent    boolean,
+  will_email       boolean,
   last_refill_at   timestamptz,
   eligible_at      timestamptz
 )
@@ -146,6 +151,9 @@ AS $$
                   WHERE m.user_id = r.user_id AND NOT o.is_personal),
          EXISTS (SELECT 1 FROM stripe_customers sc WHERE lower(sc.email) = lower(u.email)),
          COALESCE(ep.marketing_consent_at IS NOT NULL, false),
+         -- Same rule as _marketing_unsubscribe_url, which the refill uses.
+         COALESCE(ep.user_id IS NOT NULL AND ep.unsubscribed_at IS NULL
+                  AND (NOT s.email_requires_consent OR ep.marketing_consent_at IS NOT NULL), false),
          r.last_refill_at,
          GREATEST(r.last_import_at + make_interval(days => s.wait_days),
                   r.last_refill_at + make_interval(days => s.cooldown_days))
@@ -172,6 +180,7 @@ RETURNS TABLE (
   in_club          boolean,
   had_subscription boolean,
   email_consent    boolean,
+  will_email       boolean,
   last_refill_at   timestamptz,
   eligible_at      timestamptz,
   eligible_now     boolean
@@ -238,8 +247,9 @@ BEGIN
   INSERT INTO free_refills (user_id, grant_id, amount, expires_at, refilled_by)
   VALUES (p_user_id, v_grant_id, v_set.amount, v_expires, v_uid);
 
-  -- Marketing email only with consent; the helper returns NULL otherwise.
-  v_unsub := _marketing_unsubscribe_url(p_user_id);
+  -- Marketing email: never after an unsubscribe, and only to opt-ins when the
+  -- setting asks for consent. The helper returns NULL when not to send.
+  v_unsub := _marketing_unsubscribe_url(p_user_id, v_set.email_requires_consent);
   IF v_unsub IS NOT NULL THEN
     SELECT value INTO v_app_url FROM app_config WHERE key = 'app_url';
     PERFORM _send_notification_email(
@@ -264,10 +274,10 @@ END;
 $$;
 
 REVOKE EXECUTE ON FUNCTION get_free_refill_settings() FROM PUBLIC, anon;
-REVOKE EXECUTE ON FUNCTION update_free_refill_settings(integer, integer, integer, integer) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION update_free_refill_settings(integer, integer, integer, integer, boolean) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION free_refill_candidates() FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION refill_free_imports(uuid, boolean) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION get_free_refill_settings() TO authenticated;
-GRANT EXECUTE ON FUNCTION update_free_refill_settings(integer, integer, integer, integer) TO authenticated;
+GRANT EXECUTE ON FUNCTION update_free_refill_settings(integer, integer, integer, integer, boolean) TO authenticated;
 GRANT EXECUTE ON FUNCTION free_refill_candidates() TO authenticated;
 GRANT EXECUTE ON FUNCTION refill_free_imports(uuid, boolean) TO authenticated;

@@ -1,11 +1,14 @@
 -- =============================================================================
--- Marketing email consent and unsubscribe
+-- Marketing email preferences and unsubscribe
 --
--- The privacy policy promises no marketing email without consent, and an
--- unsubscribe link in every one. Until now every email was transactional and
--- nothing recorded consent. The free-import refill email (20261001120000)
--- carries an upgrade offer, so it is marketing and goes only to users here
--- with marketing_consent_at set.
+-- Until now every email was transactional. The free-import refill email
+-- (20261001120000) carries an upgrade offer, so it is marketing: every one
+-- has an unsubscribe link, and nobody who unsubscribed gets another.
+--
+-- For now (Leonard, 2026-10-01) it goes to every account that hasn't
+-- unsubscribed, opted in or not; free_refill_settings.email_requires_consent
+-- switches it to opt-in only. Explicit consent is still recorded
+-- (marketing_consent_at), so that switch needs no backfill.
 --
 -- Kept out of profiles on purpose: profiles rows are readable by org peers
 -- (profiles_select_own_or_same_org), and the unsubscribe token must not be.
@@ -27,9 +30,9 @@ CREATE POLICY email_preferences_select_own ON email_preferences FOR SELECT
   USING (user_id = (SELECT auth.uid()));
 
 -- ---------------------------------------------------------------------------
--- 1. Sign-up: the email forms send marketing_consent in the auth metadata
---    (an unticked checkbox). A separate trigger, so handle_new_user and the
---    account it creates never depend on this.
+-- 1. Every new account gets a row. A marketing_consent flag in the auth
+--    metadata (no form sends one right now) records an explicit opt-in. A
+--    separate trigger, so handle_new_user and the account never depend on it.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION handle_new_user_email_preferences()
 RETURNS trigger
@@ -57,7 +60,7 @@ CREATE TRIGGER on_auth_user_created_email_preferences
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION handle_new_user_email_preferences();
 
--- Existing users: a row each, no consent.
+-- Existing users: a row each (not unsubscribed, no explicit opt-in).
 INSERT INTO email_preferences (user_id)
 SELECT id FROM auth.users
 ON CONFLICT (user_id) DO NOTHING;
@@ -122,9 +125,11 @@ GRANT EXECUTE ON FUNCTION unsubscribe_marketing(uuid) TO anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 4. For marketing templates: the user's unsubscribe link, or NULL when they
---    haven't consented (callers then don't send). Internal helper.
+--    mustn't be emailed (callers then don't send). Never after an
+--    unsubscribe; with p_require_consent, only after an explicit opt-in.
+--    Internal helper.
 -- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION _marketing_unsubscribe_url(p_user uuid)
+CREATE OR REPLACE FUNCTION _marketing_unsubscribe_url(p_user uuid, p_require_consent boolean DEFAULT false)
 RETURNS text
 LANGUAGE sql
 STABLE
@@ -134,8 +139,10 @@ AS $$
   SELECT COALESCE((SELECT value FROM app_config WHERE key = 'app_url'), 'https://app.scoutable.se')
          || '/unsubscribe?t=' || ep.unsubscribe_token::text
     FROM email_preferences ep
-   WHERE ep.user_id = p_user AND ep.marketing_consent_at IS NOT NULL;
+   WHERE ep.user_id = p_user
+     AND ep.unsubscribed_at IS NULL
+     AND (NOT p_require_consent OR ep.marketing_consent_at IS NOT NULL);
 $$;
 
-REVOKE EXECUTE ON FUNCTION _marketing_unsubscribe_url(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION _marketing_unsubscribe_url(uuid, boolean) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION handle_new_user_email_preferences() FROM PUBLIC, anon, authenticated;

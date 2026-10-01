@@ -15,7 +15,10 @@ export interface FreeRefillCandidate {
   last_sign_in_at: string | null;
   in_club: boolean;
   had_subscription: boolean;
+  /** Explicitly opted in. */
   email_consent: boolean;
+  /** A refill now would email them: not unsubscribed, and opted in if the setting requires it. */
+  will_email: boolean;
   last_refill_at: string | null;
   eligible_at: string | null;
   eligible_now: boolean;
@@ -32,6 +35,7 @@ const CSV_COLUMNS: (keyof FreeRefillCandidate)[] = [
   "in_club",
   "had_subscription",
   "email_consent",
+  "will_email",
   "last_refill_at",
   "eligible_at",
   "eligible_now",

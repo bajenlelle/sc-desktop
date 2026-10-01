@@ -1,22 +1,23 @@
 /**
- * Marketing email consent (email_preferences, 20261001110000). Shared by the
- * web and desktop profile toggles. The consent time is set by the server, so
- * clients only say yes or no.
+ * Marketing email preferences (email_preferences, 20261001110000), shared by
+ * the web and desktop profile toggles. For now marketing email (tips, offers,
+ * free-import top-ups) goes to every account that hasn't unsubscribed, so the
+ * toggle shows "on" until someone turns it off or unsubscribes. Turning it on
+ * also records an explicit opt-in. The server sets every timestamp.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-/** The caller's consent time, or null for no marketing email. */
-export async function getMarketingConsent(supabase: SupabaseClient): Promise<string | null> {
+/** Whether the caller receives marketing email: on unless they unsubscribed. */
+export async function getMarketingEmailsOn(supabase: SupabaseClient): Promise<boolean> {
   const { data, error } = await supabase
     .from("email_preferences")
-    .select("marketing_consent_at")
+    .select("unsubscribed_at")
     .maybeSingle();
   if (error) throw new Error(`Failed to load email preferences: ${error.message}`);
-  return (data?.marketing_consent_at as string | null | undefined) ?? null;
+  return !data?.unsubscribed_at;
 }
 
-export async function setMarketingConsent(supabase: SupabaseClient, consent: boolean): Promise<string | null> {
-  const { data, error } = await supabase.rpc("set_marketing_consent", { p_consent: consent });
+export async function setMarketingEmailsOn(supabase: SupabaseClient, on: boolean): Promise<void> {
+  const { error } = await supabase.rpc("set_marketing_consent", { p_consent: on });
   if (error) throw new Error(`Failed to save email preferences: ${error.message}`);
-  return (data as string | null) ?? null;
 }

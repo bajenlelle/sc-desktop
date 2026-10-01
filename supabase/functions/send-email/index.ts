@@ -24,10 +24,10 @@ type TemplateId =
   | "org_invite"
   | "free_refill";
 
-// Marketing templates (an offer, not a service notice) go only to users who
-// have consented (email_preferences, 20261001110000). They must carry an
-// unsubscribe_url, come from a replyable address, and send List-Unsubscribe
-// headers (RFC 8058 one-click), or they aren't sent at all.
+// Marketing templates (an offer, not a service notice) never go to anyone
+// who unsubscribed (email_preferences, 20261001110000; the SQL caller checks).
+// They must carry an unsubscribe_url, come from a replyable address, and send
+// List-Unsubscribe headers (RFC 8058 one-click), or they aren't sent at all.
 const MARKETING_TEMPLATES = new Set<TemplateId>(["free_refill"]);
 const FROM_MARKETING = "Scoutable <hello@scoutable.se>";
 
@@ -439,7 +439,7 @@ ${ctaButton(inviteUrl, "Accept Invitation")}`,
   Want to stop counting games? Rookie gives you 10 imports every month plus MP4 export, and Pro has no limit at all.
 </p>
 ${ctaButton(pricingUrl, "See plans")}`,
-          "You received this because you asked for tips and offers from Scoutable.",
+          "You received this because you have a Scoutable account.",
           d("unsubscribe_url"),
         ),
       };

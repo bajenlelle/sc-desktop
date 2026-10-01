@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
-import { getMarketingConsent, setMarketingConsent } from "@scoutable/shared/lib/email-preferences";
+import { getMarketingEmailsOn, setMarketingEmailsOn } from "@scoutable/shared/lib/email-preferences";
 
 /**
- * Opt in or out of marketing email (tips, offers, the free-refill email).
+ * Turn marketing email (tips, offers, free-import top-ups) off or back on.
+ * On by default for now, until the user turns it off or unsubscribes.
  * Account emails, such as shared playlists, aren't affected.
  */
 export function MarketingEmailToggle() {
@@ -14,16 +15,16 @@ export function MarketingEmailToggle() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    getMarketingConsent(createClient())
-      .then((at) => setConsent(at !== null))
-      .catch(() => setConsent(false));
+    getMarketingEmailsOn(createClient())
+      .then(setConsent)
+      .catch(() => setConsent(null));
   }, []);
 
   async function toggle(next: boolean) {
     setSaving(true);
     setConsent(next);
     try {
-      await setMarketingConsent(createClient(), next);
+      await setMarketingEmailsOn(createClient(), next);
     } catch (e) {
       setConsent(!next);
       toast.error((e as Error).message);
@@ -44,7 +45,7 @@ export function MarketingEmailToggle() {
       <span>
         <span className="text-foreground">Email me tips and offers</span>
         <span className="block text-xs text-muted-foreground">
-          Account emails, such as playlists shared with you, still arrive either way.
+          Product tips, offers and free-import top-ups. Account emails, such as playlists shared with you, arrive either way.
         </span>
       </span>
     </label>

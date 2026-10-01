@@ -19,7 +19,10 @@ interface Settings {
   wait_days: number;
   expires_days: number;
   cooldown_days: number;
+  email_requires_consent: boolean;
 }
+
+type NumberSetting = Exclude<keyof Settings, "email_requires_consent">;
 
 const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("sv-SE") : "—");
 
@@ -30,9 +33,10 @@ const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("sv-
  */
 export function FreeRefillsCard() {
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [draft, setDraft] = useState<Record<keyof Settings, string>>({
+  const [draft, setDraft] = useState<Record<NumberSetting, string>>({
     amount: "", wait_days: "", expires_days: "", cooldown_days: "",
   });
+  const [requireConsent, setRequireConsent] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [rows, setRows] = useState<FreeRefillCandidate[] | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -52,6 +56,7 @@ export function FreeRefillsCard() {
         expires_days: String(v.expires_days),
         cooldown_days: String(v.cooldown_days),
       });
+      setRequireConsent(v.email_requires_consent);
     }
     setRows(c.error ? [] : ((c.data ?? []) as FreeRefillCandidate[]));
   }
@@ -59,7 +64,7 @@ export function FreeRefillsCard() {
   useEffect(() => { load(); }, []);
 
   async function saveSettings() {
-    const n = (k: keyof Settings) => parseInt(draft[k], 10);
+    const n = (k: NumberSetting) => parseInt(draft[k], 10);
     if ([n("amount"), n("expires_days")].some((v) => !v || v < 1) || [n("wait_days"), n("cooldown_days")].some((v) => isNaN(v) || v < 0)) {
       toast.error("Amount and expiry must be at least 1; wait and cooldown at least 0.");
       return;
@@ -71,6 +76,7 @@ export function FreeRefillsCard() {
         p_wait_days: n("wait_days"),
         p_expires_days: n("expires_days"),
         p_cooldown_days: n("cooldown_days"),
+        p_email_requires_consent: requireConsent,
       });
       if (error) { toast.error(`Failed to save: ${error.message}`); return; }
       toast.success("Refill settings saved");
@@ -83,7 +89,9 @@ export function FreeRefillsCard() {
   async function refill(row: FreeRefillCandidate) {
     const force = !row.eligible_now;
     const what = `${settings?.amount ?? "?"} free imports to ${row.email}`;
-    const mail = row.email_consent ? "They'll get the refill email." : "No email: they haven't opted in to tips and offers.";
+    const mail = row.will_email
+      ? "They'll get the refill email."
+      : "No email: they've unsubscribed, or haven't opted in while opt-in is required.";
     const ask = force
       ? `${row.email} isn't due until ${day(row.eligible_at)}. Refill now anyway?\n\nGives ${what}. ${mail}`
       : `Give ${what}?\n\n${mail}`;
@@ -114,7 +122,7 @@ export function FreeRefillsCard() {
     URL.revokeObjectURL(a.href);
   }
 
-  const field = (k: keyof Settings, label: string) => (
+  const field = (k: NumberSetting, label: string) => (
     <div className="space-y-1">
       <label className="text-xs text-muted-foreground">{label}</label>
       <Input
@@ -134,7 +142,7 @@ export function FreeRefillsCard() {
           <h2 className="text-sm font-semibold text-foreground">Free refills</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
             Users who used every free import and haven&apos;t upgraded. A refill is an import grant that
-            expires; users who opted in to tips and offers also get an email with an upgrade offer.
+            expires, and the user gets an email with an upgrade offer unless they&apos;ve unsubscribed.
           </p>
         </div>
 
@@ -143,6 +151,15 @@ export function FreeRefillsCard() {
           {field("wait_days", "Wait (days)")}
           {field("expires_days", "Expires after (days)")}
           {field("cooldown_days", "Cooldown (days)")}
+          <label className="flex h-9 items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-primary"
+              checked={requireConsent}
+              onChange={(e) => setRequireConsent(e.target.checked)}
+            />
+            Only email users who opted in
+          </label>
           <Button onClick={saveSettings} disabled={savingSettings || !settings} variant="outline" className="h-9">
             {savingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
           </Button>
@@ -194,7 +211,7 @@ export function FreeRefillsCard() {
                       <td className="px-2 py-2 text-muted-foreground">{day(r.last_import_at)}</td>
                       <td className="px-2 py-2 text-muted-foreground">{day(r.last_refill_at)}</td>
                       <td className="px-2 py-2">{r.eligible_now ? "Now" : day(r.eligible_at)}</td>
-                      <td className="px-2 py-2 text-muted-foreground">{r.email_consent ? "Opted in" : "No consent"}</td>
+                      <td className="px-2 py-2 text-muted-foreground">{r.will_email ? "Will email" : "No email"}</td>
                       <td className="px-2 py-2 text-right">
                         <Button
                           size="sm"

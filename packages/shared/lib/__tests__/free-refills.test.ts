@@ -13,6 +13,7 @@ const row = (partial: Partial<FreeRefillCandidate>): FreeRefillCandidate => ({
   in_club: false,
   had_subscription: false,
   email_consent: true,
+  will_email: true,
   last_refill_at: null,
   eligible_at: "2026-10-01T10:00:00Z",
   eligible_now: true,
@@ -24,7 +25,7 @@ describe("refillCandidatesCsv", () => {
     const csv = refillCandidatesCsv([row({})]);
     const [header, line] = csv.split("\n");
     expect(header.split(",")[0]).toBe("email");
-    expect(line).toBe("anna@x.se,Anna Svensson,coach,3,3,2026-09-01T10:00:00Z,,false,false,true,,2026-10-01T10:00:00Z,true");
+    expect(line).toBe("anna@x.se,Anna Svensson,coach,3,3,2026-09-01T10:00:00Z,,false,false,true,true,,2026-10-01T10:00:00Z,true");
   });
 
   it("quotes commas and quotes, and keeps formulas as text", () => {
