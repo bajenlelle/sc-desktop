@@ -476,8 +476,8 @@ export function UploadZone({
       analyticsSource="import_limit_dialog"
       featureName={activeOrgPlan === "rookie" ? "Monthly import limit reached" : "Free import limit reached"}
       description={activeOrgPlan === "rookie"
-        ? `You've used all ${importLimitInfo?.limit ?? 10} Rookie imports for this month — they reset on the 1st. Upgrade to Pro and never count imports again.`
-        : `That was the last of your ${importLimitInfo?.limit ?? 3} free games. Keep importing with Rookie — 10 games every month plus MP4 export. Cancel anytime.`}
+        ? `You've used all ${importLimitInfo?.limit ?? 6} Rookie imports for this month — they reset on the 1st. Upgrade to Pro and never count imports again.`
+        : `That was the last of your ${importLimitInfo?.limit ?? 3} free games. Keep importing with Rookie — 6 games every month plus MP4 export. Cancel anytime.`}
     />
     <div className="mx-auto max-w-2xl space-y-8">
       {/* Page header */}

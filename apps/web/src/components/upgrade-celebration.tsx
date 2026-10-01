@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 const TIER_RANK: Record<string, number> = { free: 0, rookie: 1, pro: 2 };
 
 const TIER_PERKS: Record<"rookie" | "pro", string[]> = {
-  rookie: ["Export playlists as MP4", "10 game imports per month"],
+  rookie: ["Export playlists as MP4", "6 game imports per month"],
   pro: ["Unlimited game imports", "Export playlists as MP4"],
 };
 

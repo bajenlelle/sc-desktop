@@ -35,9 +35,9 @@ playlists, and share them with teams; players watch on web/mobile.
   (`not_owner`, `import_limit_reached`), and end with `GRANT EXECUTE ... TO
   authenticated`. Tables get RLS; client-written tables get explicit
   policies, server-written tables get none (service role bypasses).
-- **Import quota**: `_import_allowance` in
-  `supabase/migrations/20260826200000_import_grants_and_quota.sql` is the
-  single source of truth (free = 3 lifetime, rookie = 10/month, paid =
+- **Import quota**: `_import_allowance` (latest definition in
+  `supabase/migrations/20261001130000_rookie_six_imports.sql`) is the
+  single source of truth (free = 3 lifetime, rookie = 6/month, paid =
   unlimited). `packages/shared/lib/plan-tier.ts` mirrors it for display only
   — change both together.
 - **Errors**: Sentry on all three apps (org `scoutable`, EU). DSNs are

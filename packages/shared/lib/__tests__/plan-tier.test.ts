@@ -11,9 +11,9 @@ import {
 // Display fallbacks for the `_import_allowance` SQL function — if these
 // change, the migration must change with them (see plan-tier.ts docs).
 describe("getOrgImportLimit", () => {
-  it("caps free at 3 and rookie at 10", () => {
+  it("caps free at 3 and rookie at 6", () => {
     expect(getOrgImportLimit("free")).toBe(3);
-    expect(getOrgImportLimit("rookie")).toBe(10);
+    expect(getOrgImportLimit("rookie")).toBe(6);
   });
 
   it("leaves paid club tiers unlimited", () => {
