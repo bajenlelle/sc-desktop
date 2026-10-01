@@ -384,6 +384,63 @@ run "teams: member reads own club's teams" "ALLOWED rows=1" \
 run "organizations: platform admin reads another club" "ALLOWED rows=1" \
   "SELECT count(*) AS n FROM organizations WHERE id=\$\$$foreign_club\$\$"
 
+# --- Marketing consent (20261001110000) and free refills (20261001120000) ---
+# The actor's own row only; consent changes only through the RPC; an
+# unsubscribe token can only withdraw consent. Refills are platform-admin
+# only, gated on the free tier being used up, the wait and the cooldown.
+echo ""
+echo "=== marketing consent ==="
+ACTOR="$plain_user"
+run "email_preferences: read only my own row" "ALLOWED rows=1" \
+  "SELECT count(*) AS n FROM email_preferences"
+run "email_preferences: direct update (0 rows)" "ALLOWED rows=0" \
+  "WITH u AS (UPDATE email_preferences SET marketing_consent_at = now() RETURNING 1) SELECT count(*) AS n FROM u"
+run "set_marketing_consent: opt in" "ALLOWED rows=1" \
+  "SELECT (set_marketing_consent(true) IS NOT NULL)::int AS n"
+run "unsubscribe_marketing: unknown token (no match)" "ALLOWED rows=0" \
+  "SELECT unsubscribe_marketing(\$\$00000000-0000-0000-0000-000000000000\$\$::uuid)::int AS n"
+# Two statements: a check in the same statement would see the pre-update snapshot.
+run "unsubscribe_marketing: my token clears consent" "ALLOWED rows=1" \
+  "SELECT unsubscribe_marketing(unsubscribe_token) FROM email_preferences WHERE user_id = auth.uid();
+   SELECT (marketing_consent_at IS NULL)::int AS n FROM email_preferences WHERE user_id = auth.uid()" \
+  "UPDATE email_preferences SET marketing_consent_at = now() WHERE user_id=\$\$$plain_user\$\$;"
+
+echo ""
+echo "=== free refills (platform admin, used-up free tier, wait, cooldown) ==="
+run "free_refill_candidates: non-admin" RAISES:not_admin \
+  "SELECT count(*) AS n FROM free_refill_candidates()"
+run "refill_free_imports: non-admin" RAISES:not_admin \
+  "SELECT count(refill_free_imports(\$\$$plain_user\$\$::uuid)) AS n"
+unset ACTOR
+# Use up the plain user's 3 free imports N days ago, in their (free) personal space.
+used_up() {  # $1 = days ago
+  echo "UPDATE organizations SET plan_tier = 'free', plan_tier_locked_at = NULL
+          WHERE id IN (SELECT o.id FROM org_memberships m JOIN organizations o ON o.id = m.org_id
+                        WHERE m.user_id = \$\$$plain_user\$\$ AND o.is_personal);
+        INSERT INTO import_log (user_id, org_id, match_id, league_id, game_key, created_at)
+        SELECT \$\$$plain_user\$\$, o.id, 'rls-probe-' || g, 'basketettan', 'rls-probe-' || g, now() - interval '$1 days'
+          FROM org_memberships m JOIN organizations o ON o.id = m.org_id, generate_series(1, 3) g
+         WHERE m.user_id = \$\$$plain_user\$\$ AND o.is_personal;"
+}
+SETTINGS="UPDATE free_refill_settings SET amount = 2, wait_days = 30, expires_days = 60, cooldown_days = 90;"
+run "refill: free imports left (not eligible)" RAISES:not_eligible \
+  "SELECT count(refill_free_imports(\$\$$plain_user\$\$::uuid)) AS n" "$SETTINGS"
+run "refill: used up 40 days ago grants the amount" "ALLOWED rows=2" \
+  "SELECT (refill_free_imports(\$\$$plain_user\$\$::uuid) ->> 'granted')::int AS n" "$SETTINGS $(used_up 40)"
+run "refill: used up 5 days ago (too soon)" RAISES:too_soon \
+  "SELECT count(refill_free_imports(\$\$$plain_user\$\$::uuid)) AS n" "$SETTINGS $(used_up 5)"
+run "refill: too soon, forced" "ALLOWED rows=2" \
+  "SELECT (refill_free_imports(\$\$$plain_user\$\$::uuid, true) ->> 'granted')::int AS n" "$SETTINGS $(used_up 5)"
+run "refill: refilled 10 days ago (cooldown)" RAISES:refilled_recently \
+  "SELECT count(refill_free_imports(\$\$$plain_user\$\$::uuid)) AS n" \
+  "$SETTINGS $(used_up 40) INSERT INTO free_refills (user_id, amount, expires_at, refilled_at) VALUES (\$\$$plain_user\$\$, 2, now() - interval '1 day', now() - interval '10 days');"
+run "refill: emails only with consent" "ALLOWED rows=1" \
+  "SELECT (refill_free_imports(\$\$$plain_user\$\$::uuid) ->> 'emailed')::boolean::int AS n" \
+  "$SETTINGS $(used_up 40) UPDATE email_preferences SET marketing_consent_at = now() WHERE user_id=\$\$$plain_user\$\$;"
+run "refill: no email without consent" "ALLOWED rows=0" \
+  "SELECT (refill_free_imports(\$\$$plain_user\$\$::uuid) ->> 'emailed')::boolean::int AS n" \
+  "$SETTINGS $(used_up 40) UPDATE email_preferences SET marketing_consent_at = NULL WHERE user_id=\$\$$plain_user\$\$;"
+
 echo ""
 if [[ "$FAILED" -eq 0 ]]; then
   echo "ALL WRITE-PATH CHECKS PASSED (nothing committed)"

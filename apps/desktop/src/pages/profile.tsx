@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { LogOut, Zap, Users, Building2, ArrowUpRight, Loader2 } from "lucide-react";
 import { orgPlanColors, orgPlanLabel, type ImportQuota } from "@scoutable/shared/lib/plan-tier";
 import { DevicesCard } from "@/components/devices-card";
+import { MarketingEmailToggle } from "@/components/marketing-email-toggle";
 
 
 type SubStatus = {
@@ -447,6 +448,7 @@ export function ProfilePage() {
           <Button variant="outline" size="sm" onClick={handleChangePassword}>
             Change password
           </Button>
+          <MarketingEmailToggle />
         </CardContent>
       </Card>
 

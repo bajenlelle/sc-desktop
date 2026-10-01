@@ -21,7 +21,15 @@ type TemplateId =
   | "user_joined_org"
   | "removed_from_org"
   | "promoted_to_admin"
-  | "org_invite";
+  | "org_invite"
+  | "free_refill";
+
+// Marketing templates (an offer, not a service notice) go only to users who
+// have consented (email_preferences, 20261001110000). They must carry an
+// unsubscribe_url, come from a replyable address, and send List-Unsubscribe
+// headers (RFC 8058 one-click), or they aren't sent at all.
+const MARKETING_TEMPLATES = new Set<TemplateId>(["free_refill"]);
+const FROM_MARKETING = "Scoutable <hello@scoutable.se>";
 
 // One email ({to, data}) or a batch of up to BATCH_MAX that share a template
 // ({batch}). A bulk invite sends one batch request instead of one request per
@@ -74,7 +82,7 @@ function ctaButton(href: string, label: string): string {
 </table>`;
 }
 
-function wrapEmail(title: string, bodyHtml: string, footerNote: string): string {
+function wrapEmail(title: string, bodyHtml: string, footerNote: string, unsubscribeUrl?: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -111,7 +119,11 @@ function wrapEmail(title: string, bodyHtml: string, footerNote: string): string 
           <!-- Footer -->
           <tr>
             <td style="background-color:#f9fafb;padding:20px 40px;border-top:1px solid #f3f4f6;text-align:center;">
-              <p style="margin:0;font-size:11px;line-height:1.5;color:#9ca3af;">${esc(footerNote)}</p>
+              <p style="margin:0;font-size:11px;line-height:1.5;color:#9ca3af;">${esc(footerNote)}</p>${
+                unsubscribeUrl
+                  ? `\n              <p style="margin:8px 0 0 0;font-size:11px;line-height:1.5;color:#9ca3af;"><a href="${esc(unsubscribeUrl)}" style="color:#6b7280;text-decoration:underline;">Unsubscribe from tips and offers</a></p>`
+                  : ""
+              }
             </td>
           </tr>
 
@@ -405,6 +417,34 @@ ${ctaButton(inviteUrl, "Accept Invitation")}`,
       };
     }
 
+    case "free_refill": {
+      const name = d("name");
+      const amount = d("amount", "2");
+      const expiresOn = d("expires_on");
+      const pricingUrl = d("pricing_url", "https://scoutable.se/pricing");
+      const games = amount === "1" ? "1 free game" : `${amount} free games`;
+      return {
+        subject: `We've added ${games} to your Scoutable account`,
+        html: wrapEmail(
+          `${games} added`,
+          `<h1 style="margin:0 0 12px 0;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">${
+            name ? `${esc(name)}, you` : "You"
+          } have ${esc(games)} to import</h1>
+<p style="margin:0 0 16px 0;font-size:14px;line-height:1.65;color:#6b7280;">
+  You used all your free game imports, so we've topped you up. Open the Scoutable desktop app and import your next game${
+    expiresOn ? `. They're yours until <strong>${esc(expiresOn)}</strong>` : ""
+  }.
+</p>
+<p style="margin:0 0 32px 0;font-size:14px;line-height:1.65;color:#6b7280;">
+  Want to stop counting games? Rookie gives you 10 imports every month plus MP4 export, and Pro has no limit at all.
+</p>
+${ctaButton(pricingUrl, "See plans")}`,
+          "You received this because you asked for tips and offers from Scoutable.",
+          d("unsubscribe_url"),
+        ),
+      };
+    }
+
     default:
       throw new Error(`Unknown template: ${template}`);
   }
@@ -473,11 +513,34 @@ Deno.serve(async (req) => {
     return json(200, { ok: true, skipped: true });
   }
 
-  let emails: Array<{ from: string; to: string[]; subject: string; html: string }>;
+  const marketing = MARKETING_TEMPLATES.has(template as TemplateId);
+  if (marketing && messages.some((m) => !m.data?.unsubscribe_url)) {
+    return json(400, { error: "Marketing emails need data.unsubscribe_url" });
+  }
+
+  let emails: Array<{
+    from: string;
+    to: string[];
+    subject: string;
+    html: string;
+    headers?: Record<string, string>;
+  }>;
   try {
     emails = messages.map((m) => {
       const result: TemplateResult = renderTemplate(template as TemplateId, m.data ?? {}, APP_URL);
-      return { from: FROM, to: [m.to], subject: result.subject, html: result.html };
+      if (!marketing) return { from: FROM, to: [m.to], subject: result.subject, html: result.html };
+      // One-click unsubscribe posts to the API route next to the page link.
+      const oneClick = m.data!.unsubscribe_url.replace("/unsubscribe?", "/api/unsubscribe?");
+      return {
+        from: FROM_MARKETING,
+        to: [m.to],
+        subject: result.subject,
+        html: result.html,
+        headers: {
+          "List-Unsubscribe": `<${oneClick}>, <mailto:hello@scoutable.se?subject=unsubscribe>`,
+          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        },
+      };
     });
   } catch (e) {
     return json(400, { error: String(e) });

@@ -28,6 +28,7 @@ import { useAuth } from "@/components/auth-context";
 import { toast } from "sonner";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { getOrgContext } from "@/lib/profile-db";
+import { FreeRefillsCard } from "@/components/free-refills-card";
 
 type LicenseFilter = "all" | "expiring" | "expired" | "over_cap";
 
@@ -291,6 +292,7 @@ export default function AdminPage() {
       </Card>
 
       <ImportGrantsCard />
+      <FreeRefillsCard />
 
       <CreateOrgDialog open={dialogOpen} onOpenChange={setDialogOpen} onCreated={loadOrgs} />
     </div>

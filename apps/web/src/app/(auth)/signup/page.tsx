@@ -64,6 +64,8 @@ export default function SignupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  // Unticked by default: marketing email needs an active yes (privacy policy).
+  const [marketingConsent, setMarketingConsent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [socialError, setSocialError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -98,6 +100,7 @@ export default function SignupPage() {
         data: {
           full_name: `${firstName.trim()} ${lastName.trim()}`,
           declared_role: declaredRole,
+          marketing_consent: marketingConsent,
         },
         emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
       },
@@ -234,6 +237,15 @@ export default function SignupPage() {
                     onChange={(e) => setConfirm(e.target.value)}
                   />
                 </div>
+                <label className="flex items-start gap-2 text-sm text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                    checked={marketingConsent}
+                    onChange={(e) => setMarketingConsent(e.target.checked)}
+                  />
+                  <span>Email me tips and offers from Scoutable. Unsubscribe anytime.</span>
+                </label>
               </CardContent>
               <CardFooter className="flex flex-col gap-3 pt-6">
                 <Button type="submit" className="w-full" disabled={loading}>
