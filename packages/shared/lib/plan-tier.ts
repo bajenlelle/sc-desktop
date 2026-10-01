@@ -23,7 +23,7 @@ export const NT_LEAGUE_IDS: string[] = [
  */
 export function getOrgImportLimit(tier: OrgPlanTier): number | null {
   if (tier === "free") return 3;
-  if (tier === "rookie") return 10;
+  if (tier === "rookie") return 6;
   return null;
 }
 

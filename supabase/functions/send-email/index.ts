@@ -436,7 +436,7 @@ ${ctaButton(inviteUrl, "Accept Invitation")}`,
   }.
 </p>
 <p style="margin:0 0 32px 0;font-size:14px;line-height:1.65;color:#6b7280;">
-  Want to stop counting games? Rookie gives you 10 imports every month plus MP4 export, and Pro has no limit at all.
+  Want to stop counting games? Rookie gives you 6 imports every month plus MP4 export, and Pro has no limit at all.
 </p>
 ${ctaButton(pricingUrl, "See plans")}`,
           "You received this because you have a Scoutable account.",
