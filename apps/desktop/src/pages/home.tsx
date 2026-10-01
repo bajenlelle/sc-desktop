@@ -244,7 +244,7 @@ function CoachHomePage() {
                 variant="outline"
                 size="sm"
                 className="gap-2"
-                onClick={() => navigate("/organization", { state: { invite: true } })}
+                onClick={() => navigate("/organization", { state: { invite: true, inviteRole: "player" } })}
               >
                 <UserPlus className="h-4 w-4" />
                 Invite players

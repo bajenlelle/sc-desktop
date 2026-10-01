@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -10,8 +10,18 @@ import {
 import { Button } from "@/components/ui/button";
 import { Check, ChevronLeft, Link2, Loader2, Settings2, X } from "lucide-react";
 import {
+  classifyInviteEmails,
+  inviteSummary,
+  isValidEmail,
+  MAX_INVITES_PER_SEND,
+  parseEmailList,
+  skippedSummary,
+  type InviteEntry,
+} from "@scoutable/shared/lib/email-list";
+import { seatsLeftLabel } from "@scoutable/shared/lib/license-state";
+import {
   sendEmailInvites,
-  resendEmailInvite,
+  resendOrgInvite,
   listOrgInvites,
   getOrCreateLinkInvite,
   updateOrgInviteExpiry,
@@ -40,6 +50,9 @@ interface InviteModalProps {
   /** Preselect a role (e.g. the admin setup checklist's invite steps). */
   initialRole?: Role;
   licenseExpired?: boolean;
+  /** For the "more invites than seats" warning; omitted or null = no limit. */
+  coachSeatLimit?: number | null;
+  playerSeatLimit?: number | null;
 }
 
 const EXPIRY_OPTIONS: { label: string; hours: number | null }[] = [
@@ -48,8 +61,12 @@ const EXPIRY_OPTIONS: { label: string; hours: number | null }[] = [
   { label: "Never", hours: null },
 ];
 
-function isValidEmail(email: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+/** Not expired and not used up: the invite still blocks a second one. */
+function isLiveInvite(i: OrgInvite, now = Date.now()): boolean {
+  return (
+    (i.expiresAt === null || new Date(i.expiresAt).getTime() > now) &&
+    (i.maxUses === null || i.usedCount < i.maxUses)
+  );
 }
 
 const APP_URL =
@@ -72,6 +89,8 @@ export function InviteModal({
   initialTeamId,
   initialRole,
   licenseExpired,
+  coachSeatLimit,
+  playerSeatLimit,
 }: InviteModalProps) {
   const [selectedRole, setSelectedRole] = useState<Role>(initialRole ?? "coach");
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(initialTeamId ?? null);
@@ -94,12 +113,15 @@ export function InviteModal({
   const [deactivating, setDeactivating] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  // Whether this send used a paste, for analytics.
+  const pastedRef = useRef(false);
 
   // Reset on open + load pending email invites for duplicate detection
   useEffect(() => {
     if (open) {
       setEmails([]);
       setEmailInput("");
+      pastedRef.current = false;
       setShowSettings(false);
       setSelectedRole(initialRole ?? "coach");
       setSelectedTeamId(initialTeamId ?? null);
@@ -138,67 +160,71 @@ export function InviteModal({
   }
 
   function findPendingInvite(email: string): OrgInvite | null {
-    const now = Date.now();
-    return (
-      pendingInvites.find(
-        (i) =>
-          i.email?.toLowerCase() === email &&
-          (i.expiresAt === null || new Date(i.expiresAt).getTime() > now) &&
-          (i.maxUses === null || i.usedCount < i.maxUses)
-      ) ?? null
-    );
+    return pendingInvites.find((i) => i.email?.toLowerCase() === email && isLiveInvite(i)) ?? null;
   }
 
-  function addEmail(raw: string) {
-    const email = raw.trim().toLowerCase();
-    if (!email) return;
+  // Status per chip, derived so it stays right if the invite list loads late.
+  const liveInviteEmails = useMemo(
+    () => pendingInvites.flatMap((i) => (i.email && isLiveInvite(i) ? [i.email] : [])),
+    [pendingInvites]
+  );
+  const entries: InviteEntry[] = useMemo(
+    () =>
+      classifyInviteEmails(emails, {
+        memberEmails: orgMembers.flatMap((m) => (m.email ? [m.email] : [])),
+        invitedEmails: liveInviteEmails,
+      }),
+    [emails, orgMembers, liveInviteEmails]
+  );
+  const toInvite = entries.filter((e) => e.status === "new").map((e) => e.email);
+  const invalidCount = entries.filter((e) => e.status === "invalid").length;
+  const overCap = toInvite.length > MAX_INVITES_PER_SEND;
 
-    if (orgMembers.some((m) => m.email?.toLowerCase() === email)) {
-      toast.error(`${email} is already a member of this organization.`);
-      return;
-    }
+  // Seats are taken when people join, not when they're invited, so this only
+  // warns. Coach seats cover admins too (join_by_code counts them together).
+  const seatRole = selectedRole === "player" ? "player" : "coach";
+  const seatLimit = seatRole === "player" ? playerSeatLimit : coachSeatLimit;
+  const seatsUsed = orgMembers.filter((m) =>
+    seatRole === "player" ? m.role === "player" : m.role !== "player"
+  ).length;
+  const seatsLeft = seatLimit == null ? null : Math.max(0, seatLimit - seatsUsed);
+  const overSeats = seatsLeft !== null && toInvite.length > seatsLeft;
 
-    const existing = findPendingInvite(email);
-    if (existing) {
-      toast.error(`${email} already has a pending invite.`, {
-        description: "They haven't accepted yet.",
-        action: {
-          label: "Resend invite",
-          onClick: async () => {
-            try {
-              await resendEmailInvite(existing.id, orgId, email, selectedRole, selectedTeamId);
-              setPendingInvites((prev) => prev.filter((i) => i.id !== existing.id));
-              toast.success(`Invite resent to ${email}`);
-            } catch (e) {
-              toast.error((e as Error).message);
-            }
-          },
-        },
-      });
-      return;
-    }
-
-    if (!isValidEmail(email)) {
-      toast.error(`"${email}" is not a valid email address`);
-      return;
-    }
-    if (emails.includes(email)) return;
-    setEmails((prev) => [...prev, email]);
+  /** Adds every address in text; a typed word without "@" becomes a red chip. */
+  function addFromText(text: string) {
+    const parsed = parseEmailList(text);
+    const found = [...parsed.emails, ...parsed.invalid];
+    const added = found.length > 0 ? found : text.trim() ? [text.trim().toLowerCase()] : [];
+    if (added.length === 0) return;
+    setEmails((prev) => {
+      const seen = new Set(prev);
+      return [...prev, ...added.filter((e) => !seen.has(e))];
+    });
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter" || e.key === ",") {
+    if (e.key === "Enter" || e.key === "," || e.key === ";") {
       e.preventDefault();
-      addEmail(emailInput);
+      addFromText(emailInput);
       setEmailInput("");
     } else if (e.key === "Backspace" && !emailInput && emails.length > 0) {
       setEmails((prev) => prev.slice(0, -1));
     }
   }
 
+  function handlePaste(e: React.ClipboardEvent<HTMLInputElement>) {
+    const text = e.clipboardData.getData("text");
+    // One plain address pastes as text, so it can still be edited before Enter.
+    if (!/[,;\s]/.test(text.trim())) return;
+    e.preventDefault();
+    pastedRef.current = true;
+    addFromText(`${emailInput} ${text}`);
+    setEmailInput("");
+  }
+
   function handleBlur() {
     if (emailInput.trim()) {
-      addEmail(emailInput);
+      addFromText(emailInput);
       setEmailInput("");
     }
   }
@@ -207,16 +233,52 @@ export function InviteModal({
     setEmails((prev) => prev.filter((e) => e !== email));
   }
 
+  /** Invalid chip → back into the input for fixing. */
+  function editEmail(email: string) {
+    removeEmail(email);
+    setEmailInput(email);
+    inputRef.current?.focus();
+  }
+
+  async function handleResend(email: string) {
+    const invite = findPendingInvite(email);
+    if (!invite) return;
+    try {
+      await resendOrgInvite(invite.id);
+      removeEmail(email);
+      window.dispatchEvent(new CustomEvent("org-setup-changed"));
+      toast.success(`Invite resent to ${email}`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
   async function handleSend() {
-    if (emails.length === 0) return;
+    if (toInvite.length === 0 || overCap) return;
     setSending(true);
     try {
-      const count = await sendEmailInvites(orgId, emails, selectedRole, selectedTeamId);
-      trackEvent("invite_emails_sent", { count, role: selectedRole });
+      const result = await sendEmailInvites(orgId, toInvite, selectedRole, selectedTeamId);
+      const sent = result.sent.length;
+      const skipped = (reason: string) => result.skipped.filter((x) => x.reason === reason).length;
+      trackEvent("invite_emails_sent", {
+        count: sent,
+        submitted: toInvite.length,
+        skipped_member: entries.filter((x) => x.status === "member").length + skipped("already_member"),
+        skipped_invited: entries.filter((x) => x.status === "invited").length + skipped("already_invited"),
+        invalid: invalidCount + skipped("invalid"),
+        role: selectedRole,
+        has_team: !!selectedTeamId,
+        pasted: pastedRef.current,
+      });
       window.dispatchEvent(new CustomEvent("org-setup-changed"));
-      toast.success(`Invitation${count !== 1 ? "s" : ""} sent to ${count} address${count !== 1 ? "es" : ""}`);
-      setEmails([]);
-      onClose();
+      const description = skippedSummary(result.skipped) ?? undefined;
+      if (sent > 0) {
+        toast.success(`${sent} invite${sent === 1 ? "" : "s"} sent`, { description });
+        setEmails([]);
+        onClose();
+      } else {
+        toast.error("No invites sent", { description });
+      }
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -413,41 +475,87 @@ export function InviteModal({
             send every invite.
           </p>
 
-          {/* Email chip input */}
+          {/* Email chip input: type, or paste a whole list */}
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">Email addresses</label>
+            <div className="flex items-baseline justify-between">
+              <label className="text-sm font-medium">
+                Email addresses
+                {emails.length > 0 && (
+                  <span className="font-normal text-muted-foreground"> ({emails.length})</span>
+                )}
+              </label>
+              {emails.length > 0 && (
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => setEmails([])}
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
             <div
-              className="min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 flex flex-wrap gap-1.5 cursor-text"
+              className="min-h-[80px] max-h-40 overflow-y-auto w-full rounded-md border border-input bg-background px-3 py-2 flex flex-wrap content-start gap-1.5 cursor-text"
               onClick={() => inputRef.current?.focus()}
             >
-              {emails.map((email) => (
-                <span
-                  key={email}
-                  className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary text-xs px-2.5 py-1 font-medium"
-                >
-                  {email}
-                  <button
-                    type="button"
-                    className="hover:text-primary/60 transition-colors"
-                    onClick={(e) => { e.stopPropagation(); removeEmail(email); }}
-                    aria-label={`Remove ${email}`}
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
+              {entries.map((entry) => (
+                <EmailChip
+                  key={entry.email}
+                  entry={entry}
+                  onRemove={() => removeEmail(entry.email)}
+                  onEdit={() => editEmail(entry.email)}
+                  onResend={() => handleResend(entry.email)}
+                />
               ))}
               <input
                 ref={inputRef}
-                type="email"
+                type="text"
+                inputMode="email"
+                autoComplete="off"
+                autoCapitalize="off"
+                spellCheck={false}
                 value={emailInput}
                 onChange={(e) => setEmailInput(e.target.value)}
                 onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
                 onBlur={handleBlur}
-                placeholder={emails.length === 0 ? "Type email and press Enter…" : ""}
+                placeholder={emails.length === 0 ? "Paste a list or type an email…" : ""}
                 className="flex-1 min-w-[160px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
               />
             </div>
-            <p className="text-xs text-muted-foreground">Press Enter or comma to add each address.</p>
+            {entries.length > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                {inviteSummary(entries)}
+                {invalidCount > 0 && (
+                  <>
+                    {" · "}
+                    <button
+                      type="button"
+                      className="underline underline-offset-2 hover:text-foreground"
+                      onClick={() => setEmails((prev) => prev.filter(isValidEmail))}
+                    >
+                      Remove not valid
+                    </button>
+                  </>
+                )}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Paste a list from a spreadsheet, an email or a file, or type addresses and press Enter.
+              </p>
+            )}
+            {overCap && (
+              <p className="text-xs text-destructive">
+                You can send up to {MAX_INVITES_PER_SEND} invites at a time. Remove some, or send the rest
+                afterwards.
+              </p>
+            )}
+            {!overCap && overSeats && (
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground">
+                {toInvite.length} {seatRole} invites, {seatsLeftLabel(seatsUsed, seatLimit, seatRole)}.
+                Invites past the limit can&apos;t be accepted until seats free up.
+              </div>
+            )}
           </div>
 
           {/* Divider */}
@@ -498,14 +606,89 @@ export function InviteModal({
           <Button
             size="sm"
             onClick={handleSend}
-            disabled={emails.length === 0 || sending || licenseExpired}
+            disabled={toInvite.length === 0 || overCap || sending || licenseExpired}
             title={licenseExpired ? "License expired — inviting is paused" : undefined}
           >
             {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
-            {sending ? "Sending…" : `Send${emails.length > 0 ? ` (${emails.length})` : ""}`}
+            {sending
+              ? "Sending…"
+              : toInvite.length > 0
+                ? `Send ${toInvite.length} invite${toInvite.length === 1 ? "" : "s"}`
+                : "Send"}
           </Button>
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// EmailChip — one address in the input, styled by what will happen to it
+// ---------------------------------------------------------------------------
+
+function EmailChip({
+  entry,
+  onRemove,
+  onEdit,
+  onResend,
+}: {
+  entry: InviteEntry;
+  onRemove: () => void;
+  onEdit: () => void;
+  onResend: () => void;
+}) {
+  const tone =
+    entry.status === "new"
+      ? "bg-primary/10 text-primary"
+      : entry.status === "invalid"
+        ? "bg-destructive/10 text-destructive ring-1 ring-inset ring-destructive/30"
+        : "bg-muted text-muted-foreground";
+  const title =
+    entry.status === "invalid"
+      ? "Not a valid email address. Click to edit."
+      : entry.status === "member"
+        ? "Already a member of this organization"
+        : entry.status === "invited"
+          ? "Already has a pending invite"
+          : undefined;
+
+  return (
+    <span
+      title={title}
+      className={`inline-flex max-w-full items-center gap-1 rounded-full text-xs px-2.5 py-1 font-medium ${tone}`}
+    >
+      {entry.status === "invalid" ? (
+        <button
+          type="button"
+          className="truncate"
+          onClick={(e) => { e.stopPropagation(); onEdit(); }}
+        >
+          {entry.email}
+        </button>
+      ) : (
+        <span className="truncate">{entry.email}</span>
+      )}
+      {entry.status === "member" && <span className="font-normal">· member</span>}
+      {entry.status === "invited" && (
+        <>
+          <span className="font-normal">· invited</span>
+          <button
+            type="button"
+            className="font-normal underline underline-offset-2 hover:text-foreground"
+            onClick={(e) => { e.stopPropagation(); onResend(); }}
+          >
+            Resend
+          </button>
+        </>
+      )}
+      <button
+        type="button"
+        className="opacity-70 hover:opacity-100 transition-opacity"
+        onClick={(e) => { e.stopPropagation(); onRemove(); }}
+        aria-label={`Remove ${entry.email}`}
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </span>
   );
 }

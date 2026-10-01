@@ -24,6 +24,7 @@ import {
   getTeamDeleteImpact,
 } from "@/lib/profile-db";
 import { InviteModal } from "@/components/invite-modal";
+import { PendingInvites } from "@/components/pending-invites";
 import { OrgLicenseCard } from "@/components/org-license-card";
 import { AddMembersToTeamModal } from "@/components/add-members-to-team-modal";
 import { CreateTeamDialog } from "@/components/create-team-dialog";
@@ -288,6 +289,8 @@ function TeamCard({
   onContextReload,
   onDelete,
   licenseExpired,
+  coachSeatLimit,
+  playerSeatLimit,
 }: {
   team: OrgTeam;
   memberCount: number;
@@ -301,6 +304,8 @@ function TeamCard({
   onContextReload: () => void;
   onDelete: (team: OrgTeam) => void;
   licenseExpired?: boolean;
+  coachSeatLimit?: number | null;
+  playerSeatLimit?: number | null;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -378,6 +383,8 @@ function TeamCard({
         isAdmin={isAdmin}
         initialTeamId={team.id}
         licenseExpired={licenseExpired}
+        coachSeatLimit={coachSeatLimit}
+        playerSeatLimit={playerSeatLimit}
       />
 
       <AddMembersToTeamModal
@@ -736,6 +743,8 @@ export function OrganizationPage() {
                     onContextReload={() => load(activeOrgId ?? undefined)}
                     onDelete={requestDeleteTeam}
                     licenseExpired={licenseExpired}
+                    coachSeatLimit={org.coachSeatLimit}
+                    playerSeatLimit={org.playerSeatLimit}
                   />
                 ))}
               </div>
@@ -833,6 +842,8 @@ export function OrganizationPage() {
               })}
             </div>
           )}
+
+          <PendingInvites orgId={org.id} orgTeams={ctx.allOrgTeams} isAdmin={isAdmin} />
         </TabsContent>
         )}
       </Tabs>
@@ -847,6 +858,8 @@ export function OrganizationPage() {
         orgMembers={ctx.orgMembers}
         isAdmin={isAdmin}
         licenseExpired={licenseExpired}
+        coachSeatLimit={org.coachSeatLimit}
+        playerSeatLimit={org.playerSeatLimit}
       />
 
       <CreateTeamDialog
