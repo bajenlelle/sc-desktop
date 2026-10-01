@@ -70,9 +70,11 @@ export function VideoPlayer({ src, videoRef }: VideoPlayerProps) {
       <video
         ref={videoRef}
         src={src}
-        // CORS mode for remote (R2) sources so the pause freeze-frame canvas
-        // isn't tainted — R2 serves Access-Control-Allow-Origin: *. Local
-        // stream:// playback stays in no-cors mode, untouched.
+        // CORS mode for anything served over http — remote R2 sources, and on
+        // Windows local playback too, since Tauri routes the stream protocol
+        // through http://stream.localhost there. Both answer
+        // Access-Control-Allow-Origin: *, so the pause freeze-frame canvas
+        // isn't tainted. macOS stream:// playback stays in no-cors mode.
         crossOrigin={src.startsWith("http") ? "anonymous" : undefined}
         className="h-full w-full"
         playsInline
