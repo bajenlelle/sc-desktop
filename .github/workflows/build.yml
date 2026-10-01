@@ -2,6 +2,19 @@ name: build
 on:
   push:
     branches: [staging]
+  # On-demand build for testing an installer that can't be verified on the
+  # dev Mac — Windows above all, which has no CI test and no local VM. The
+  # production option bakes in the real Supabase project because sc-staging
+  # has no edge functions deployed, so a staging build can't load schedules.
+  # Artifacts only: nothing here touches scoutable-releases or the updater,
+  # unlike any v* tag.
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Backend to bake into the build
+        type: choice
+        options: [staging, production]
+        default: staging
 
 jobs:
   build:
@@ -82,12 +95,14 @@ jobs:
           APPLE_PASSWORD: ${{ matrix.platform == 'macos-14' && secrets.APPLE_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ matrix.platform == 'macos-14' && secrets.APPLE_TEAM_ID || '' }}
           APPLE_SIGNING_IDENTITY: "Developer ID Application: Leonard Halling (3DJ5YZKR49)"
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL_STAGING }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY_STAGING }}
+          # `inputs` is empty on push events, so the staging push keeps its
+          # old behaviour; only an explicit production dispatch flips these.
+          VITE_SUPABASE_URL: ${{ inputs.environment == 'production' && secrets.VITE_SUPABASE_URL || secrets.VITE_SUPABASE_URL_STAGING }}
+          VITE_SUPABASE_ANON_KEY: ${{ inputs.environment == 'production' && secrets.VITE_SUPABASE_ANON_KEY || secrets.VITE_SUPABASE_ANON_KEY_STAGING }}
           VITE_POSTHOG_KEY: ${{ secrets.VITE_POSTHOG_KEY }}
           VITE_POSTHOG_HOST: ${{ secrets.VITE_POSTHOG_HOST }}
-          VITE_ENV: staging
-          SCOUTABLE_ENV: staging
+          VITE_ENV: ${{ inputs.environment || 'staging' }}
+          SCOUTABLE_ENV: ${{ inputs.environment || 'staging' }}
         with:
           projectPath: apps/desktop
           args: ${{ matrix.args }}
