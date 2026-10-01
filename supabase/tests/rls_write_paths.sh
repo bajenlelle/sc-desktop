@@ -276,6 +276,44 @@ run "rpc: join a club's team by invite code" "ALLOWED rows=1" \
   "INSERT INTO team_invites (team_id, code, role, created_by) VALUES (\$\$$foreign_team\$\$, \$\$RLSPRB\$\$, \$\$player\$\$, \$\$$U\$\$); UPDATE organizations SET expires_at = now() + interval '1 year', player_seat_limit = NULL WHERE id=\$\$$foreign_club\$\$;"
 unset ACTOR
 
+# --- Invite codes (20260930100000_lock_down_invites) ------------------------
+# Staff read their own org's invites; everyone else reads none. Invites are
+# created only through the RPCs. An emailed admin/coach invite works only for
+# its address; a link without an email stays shareable. Probe codes contain
+# non-hex letters, so they can't collide with real ones.
+echo ""
+echo "=== invite codes (reads, direct writes, email binding, team scope) ==="
+ROOM="UPDATE organizations SET expires_at = now() + interval '1 year', coach_seat_limit = NULL, player_seat_limit = NULL WHERE id=\$\$$foreign_club\$\$;"
+invite() {  # $1=code $2=role $3=email-or-NULL -> privileged insert of an org invite into foreign_club
+  echo "INSERT INTO org_invites (org_id, code, role, email, created_by, max_uses, expires_at) VALUES (\$\$$foreign_club\$\$, \$\$$1\$\$, \$\$$2\$\$, $3, \$\$$U\$\$, 1, now() + interval '7 days');"
+}
+ACTOR="$plain_user"
+run "org_invites: read as a non-member (0 rows)" "ALLOWED rows=0" \
+  "SELECT count(*) AS n FROM org_invites"
+run "team_invites: read others' as a non-member (0 rows)" "ALLOWED rows=0" \
+  "SELECT count(*) AS n FROM team_invites WHERE created_by <> auth.uid()"
+run "org_invites: coach inserts an admin invite directly" DENIED \
+  "WITH i AS (INSERT INTO org_invites (org_id, code, role, created_by) VALUES (\$\$$foreign_club\$\$, \$\$RLSPRC\$\$, \$\$admin\$\$, auth.uid()) RETURNING 1) SELECT count(*) AS n FROM i" \
+  "INSERT INTO org_memberships (user_id, org_id, role) VALUES (\$\$$plain_user\$\$, \$\$$foreign_club\$\$, \$\$coach\$\$);"
+run "team_invites: team member inserts an invite directly" DENIED \
+  "WITH i AS (INSERT INTO team_invites (team_id, code, role, created_by) VALUES (\$\$$foreign_team\$\$, \$\$RLSPRD\$\$, \$\$coach\$\$, auth.uid()) RETURNING 1) SELECT count(*) AS n FROM i" \
+  "INSERT INTO team_members (team_id, user_id, role) VALUES (\$\$$foreign_team\$\$, \$\$$plain_user\$\$, \$\$player\$\$);"
+run "join: emailed coach invite sent to another address" RAISES:invite_email_mismatch \
+  "SELECT count(join_by_code(\$\$RLSPRE\$\$)) AS n" \
+  "$(invite RLSPRE coach "\$\$rls-probe@example.invalid\$\$") $ROOM"
+run "join: emailed player invite sent to another address" "ALLOWED rows=1" \
+  "SELECT count(join_by_code(\$\$RLSPRF\$\$)) AS n" \
+  "$(invite RLSPRF player "\$\$rls-probe@example.invalid\$\$") $ROOM"
+run "join: coach link without an email" "ALLOWED rows=1" \
+  "SELECT count(join_by_code(\$\$RLSPRG\$\$)) AS n" \
+  "$(invite RLSPRG coach NULL) $ROOM"
+unset ACTOR
+run "staff: read own org's invite" "ALLOWED rows=1" \
+  "SELECT count(*) AS n FROM org_invites WHERE code=\$\$RLSPRH\$\$" \
+  "INSERT INTO org_invites (org_id, code, role, created_by) VALUES (\$\$$club_org\$\$, \$\$RLSPRH\$\$, \$\$player\$\$, \$\$$U\$\$);"
+run "rpc: invite link for another org's team" RAISES:team_not_in_org \
+  "SELECT count(generate_org_invite(\$\$$club_org\$\$, \$\$player\$\$, NULL, NULL, false, \$\$$other_team\$\$)) AS n"
+
 echo ""
 if [[ "$FAILED" -eq 0 ]]; then
   echo "ALL WRITE-PATH CHECKS PASSED (nothing committed)"
