@@ -20,6 +20,7 @@ import { DevicesCard } from "@/components/devices-card";
 import { ThemePicker } from "@/components/theme-picker";
 import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Loader2 } from "lucide-react";
 import Link from "next/link";
+import { MarketingEmailToggle } from "@/components/marketing-email-toggle";
 
 // Query params must precede the fragment or the browser drops them.
 const PRICING_URL_BASE = "https://scoutable.se/pricing";
@@ -440,6 +441,7 @@ export default function ProfilePage() {
           <Button variant="outline" size="sm" onClick={handleChangePassword}>
             Change password
           </Button>
+          <MarketingEmailToggle />
         </CardContent>
       </Card>
 

@@ -86,5 +86,6 @@ export type AnalyticsEvent =
   | "member_removed"
   | "member_promoted"
   | "watermark_toggled"
+  | "free_refill_granted" // /admin Free refills card; props: amount, emailed, forced
   | "color_theme_changed" // desktop/web/mobile Appearance surfaces; props: theme, mode
   | "account_delete_requested";
