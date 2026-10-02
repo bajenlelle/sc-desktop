@@ -25,7 +25,9 @@ playlists, and share them with teams; players watch on web/mobile.
   `lib/report.ts`.
 - `supabase/` — migrations and edge functions (`send-email`, `send-push`,
   `report-issue`, `genius` — the Genius Sports proxy/cache; holds
-  `GENIUS_API_KEY`, all match imports go through it).
+  `GENIUS_API_KEY`, all SBF match imports go through it; `profixio` — the
+  district-basketball provider: public pages today, documented API once
+  `PROFIXIO_API_SECRET` exists, four cache tables).
   Remote project `nbmrujmazvdoaldirpyx`; apply with `npx supabase db push`.
 
 ## Conventions
