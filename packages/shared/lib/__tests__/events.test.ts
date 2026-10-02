@@ -127,3 +127,23 @@ describe("parseGameClock", () => {
     expect(parseGameClock(formatGameClock("09:41:30"))).toBe(581);
   });
 });
+
+describe("Profixio vocabulary", () => {
+  it("labels timeouts and the FIBA foul variants", () => {
+    expect(eventLabel(ev({ type: "timeout" }))).toBe("Timeout");
+    expect(eventLabel(ev({ type: "foul", subType: "unsportsmanlike" }))).toBe("Unsportsmanlike");
+    expect(eventLabel(ev({ type: "foul", subType: "disqualifying" }))).toBe("Disqualifying");
+    expect(eventLabel(ev({ type: "foul", subType: "flagrant" }))).toBe("Flagrant");
+    expect(eventLabel(ev({ type: "foul", subType: "disruptive" }))).toBe("Flagrant");
+    expect(eventLabel(ev({ type: "foul", subType: "coachTechnical" }))).toBe("Technical");
+    expect(eventLabel(ev({ type: "foul", subType: "personal" }))).toBe("Foul");
+    expect(eventLabel(ev({ type: "foul", subType: "other" }))).toBe("Foul");
+  });
+
+  it("gives timeouts a neutral colour distinct from the unknown-type fallback", () => {
+    const timeout = eventColors(ev({ type: "timeout" }));
+    const unknown = eventColors(ev({ type: "jumpball" as PlayByPlayEvent["type"] }));
+    expect(timeout.strip).toBe("bg-slate-500");
+    expect(timeout.strip).not.toBe(unknown.strip);
+  });
+});
