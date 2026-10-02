@@ -18,7 +18,7 @@ import { fetchGameData, getLeagueSchedule, getSeasonStages, NATIONAL_TEAM_LEAGUE
 import { seasonProvider } from "@scoutable/shared/lib/provider";
 import { useLeagues } from "@/lib/use-leagues";
 import { Sentry } from "@/lib/sentry";
-import type { ScheduleGame, League, Season, Stage } from "@/lib/basketball-api";
+import type { GameData, ScheduleGame, League, Season, Stage } from "@/lib/basketball-api";
 import { LeaguePicker } from "@/components/league-picker";
 import { SingleSelectDropdown } from "@/components/ui/multi-select-dropdown";
 import type { StoredMatch, SyncPoint, PlayByPlayEvent } from "@/types/match";
@@ -234,6 +234,8 @@ export function UploadZone({
 
   const [playByPlayEvents, setPlayByPlayEvents] = useState<PlayByPlayEvent[]>([]);
   const [tipoffRealWorldTime, setTipoffRealWorldTime] = useState<string | null>(null);
+  // Set when the reference moment is not the tip-off (Profixio: first basket).
+  const [syncAnchor, setSyncAnchor] = useState<GameData["syncAnchor"]>(undefined);
   // Events arrived but no tip-off marker did (a Profixio protocol without a
   // "Start period 1") — importing still works, timing won't.
   const [tipoffMissing, setTipoffMissing] = useState(false);
@@ -357,6 +359,7 @@ export function UploadZone({
     setFetchStatus("loading");
     setFetchError(null);
     setTipoffMissing(false);
+    setSyncAnchor(undefined);
 
     // Seed names and date from schedule data immediately so the match is always
     // populated even if the game-data call fails or the user submits quickly.
@@ -385,6 +388,7 @@ export function UploadZone({
 
       setPlayByPlayEvents(data.events);
       setTipoffRealWorldTime(data.tipoffRealWorldTime);
+      setSyncAnchor(data.syncAnchor);
       setTipoffMissing(data.events.length > 0 && !data.tipoffRealWorldTime);
 
       // Schedule filtering hides PBP-less games, so this is belt-and-braces —
@@ -446,6 +450,7 @@ export function UploadZone({
       syncPoint = {
         syncVideoTime: syncSeconds,
         syncRealWorldTime: tipoffRealWorldTime ?? "",
+        ...(syncAnchor ? { anchor: syncAnchor } : {}),
       };
     }
 
@@ -692,7 +697,7 @@ export function UploadZone({
             )}
             {tipoffMissing && (
               <p className="text-xs text-amber-600 dark:text-amber-400">
-                No tip-off time was recorded for this game, so clips may not line up with the video.
+                No reference time (tip-off or first basket) was recorded for this game, so clips may not line up with the video.
               </p>
             )}
           </CardContent>
@@ -778,6 +783,10 @@ export function UploadZone({
                 <SyncPointPicker
                   videoPath={videoPath}
                   tipoffHint={tipoffLocalHint ?? undefined}
+                  anchorKind={syncAnchor?.kind === "first_basket" ? "first_basket" : "tipoff"}
+                  anchorDetail={
+                    syncAnchor ? `${syncAnchor.label}${tipoffLocalHint ? `, ${tipoffLocalHint}` : ""}` : undefined
+                  }
                   onConfirm={(secs) => setSyncSeconds(secs)}
                 />
               </div>
@@ -805,7 +814,7 @@ export function UploadZone({
       {videoPath && syncSeconds === null && (
         <p className="flex items-center gap-2 rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-400">
           <span>⚠</span>
-          Set the tip-off point above to enable import.
+          Set the {syncAnchor?.kind === "first_basket" ? "first basket" : "tip-off point"} above to enable import.
         </p>
       )}
 

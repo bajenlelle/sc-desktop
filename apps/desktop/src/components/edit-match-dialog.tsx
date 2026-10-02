@@ -238,7 +238,7 @@ export function EditMatchDialog({ match, onSave }: EditMatchDialogProps) {
     if (syncInput && match.syncPoint) {
       const secs = parseMMSS(syncInput);
       if (secs !== null) {
-        syncPoint = { syncVideoTime: secs, syncRealWorldTime: match.syncPoint.syncRealWorldTime };
+        syncPoint = { ...match.syncPoint, syncVideoTime: secs };
       }
     }
 
@@ -336,8 +336,9 @@ export function EditMatchDialog({ match, onSave }: EditMatchDialogProps) {
             <h3 className="text-sm font-semibold text-foreground/80">Video Sync</h3>
             {syncHint ? (
               <p className="text-xs text-primary">
-                Tip-off real-world time was <strong>{syncHint}</strong> — enter the video
-                timestamp for that moment.
+                {match.syncPoint?.anchor
+                  ? <>Reference moment: {match.syncPoint.anchor.label} at <strong>{syncHint}</strong> — enter the video timestamp for that moment.</>
+                  : <>Tip-off real-world time was <strong>{syncHint}</strong> — enter the video timestamp for that moment.</>}
               </p>
             ) : (
               <p className="text-xs text-muted-foreground/60">
@@ -346,7 +347,9 @@ export function EditMatchDialog({ match, onSave }: EditMatchDialogProps) {
             )}
             <div className="flex items-center gap-3">
               <div className="space-y-1">
-                <Label htmlFor="edit-sync">Video time at tip-off</Label>
+                <Label htmlFor="edit-sync">
+                  Video time at {match.syncPoint?.anchor?.kind === "first_basket" ? "the first basket" : "tip-off"}
+                </Label>
                 <Input
                   id="edit-sync"
                   placeholder="0:35"

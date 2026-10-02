@@ -9,13 +9,41 @@ import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { trackEvent } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 
+export type SyncAnchorKind = "tipoff" | "first_basket";
+
 export interface SyncPointPickerProps {
   videoPath: string;
   tipoffHint?: string;
+  /**
+   * Which moment the coach is asked to find. Genius games anchor on the
+   * tip-off; Profixio games on the first made basket, because the table's
+   * "Start period 1" is pressed minutes before the jump ball.
+   */
+  anchorKind?: SyncAnchorKind;
+  /** Where to look, in words: "Örebro's first basket (2–0), 16:30". */
+  anchorDetail?: string;
   initialSeconds?: number;
   onConfirm: (seconds: number) => void;
   onSkip?: () => void;
 }
+
+const ANCHOR_COPY: Record<
+  SyncAnchorKind,
+  { title: string; instruction: string; button: string; confirmed: string }
+> = {
+  tipoff: {
+    title: "Set the tip-off point",
+    instruction: "Scrub to the exact frame when the ball is tipped, then click",
+    button: "Set tip-off here",
+    confirmed: "Tip-off set",
+  },
+  first_basket: {
+    title: "Set the first basket",
+    instruction: "Scrub to the frame where the ball goes through the net on the first basket, then click",
+    button: "Set first basket here",
+    confirmed: "First basket set",
+  },
+};
 
 function formatMSSd(secs: number): string {
   const m = Math.floor(secs / 60);
@@ -27,10 +55,13 @@ function formatMSSd(secs: number): string {
 export function SyncPointPicker({
   videoPath,
   tipoffHint,
+  anchorKind = "tipoff",
+  anchorDetail,
   initialSeconds,
   onConfirm,
   onSkip,
 }: SyncPointPickerProps) {
+  const copy = ANCHOR_COPY[anchorKind];
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef(false);
@@ -172,11 +203,18 @@ export function SyncPointPicker({
     <div ref={containerRef} className="space-y-3 outline-none" tabIndex={-1}>
       {/* Prompt */}
       <div className="space-y-0.5">
-        <p className="text-sm font-medium text-foreground">Set the tip-off point</p>
+        <p className="text-sm font-medium text-foreground">{copy.title}</p>
         <p className="text-xs text-muted-foreground">
-          Scrub to the exact frame when the ball is tipped, then click{" "}
-          <span className="text-foreground font-medium">Set tip-off here</span>.
+          {copy.instruction}{" "}
+          <span className="text-foreground font-medium">{copy.button}</span>.
+          {anchorDetail && <> Look for {anchorDetail}.</>}
         </p>
+        {anchorKind === "first_basket" && (
+          <p className="text-xs text-muted-foreground">
+            Profixio's table marks the start of play a few minutes before the jump ball, so the first basket is the
+            reliable reference.
+          </p>
+        )}
       </div>
 
       {/* Video */}
@@ -276,10 +314,10 @@ export function SyncPointPicker({
           {confirmedTime !== null ? (
             <>
               <Check className="mr-1.5 h-4 w-4" />
-              Tip-off set — {formatMSSd(confirmedTime)}
+              {copy.confirmed} — {formatMSSd(confirmedTime)}
             </>
           ) : (
-            "Set tip-off here"
+            copy.button
           )}
         </Button>
         {onSkip && (

@@ -8,6 +8,7 @@ import {
   categoriesToStages,
   categoryLabel,
   classifyEvent,
+  findProfixioSyncAnchor,
   findProfixioTipoff,
   normalizeProfixioEvents,
   parseProfixioSourceGameId,
@@ -212,6 +213,29 @@ describe("normalizeProfixioEvents", () => {
   it("skips duplicate event ids", () => {
     const dup = normalizeProfixioEvents(match({ events: [...wireEvents, wireEvents[0]] }), ctx);
     expect(dup.length).toBe(normalized.length);
+  });
+});
+
+describe("findProfixioSyncAnchor", () => {
+  it("anchors on the first made basket, named so a coach can find it in the video", () => {
+    const anchor = findProfixioSyncAnchor(match(), ctx)!;
+    const firstGoal = sortProfixioEvents(wireEvents).find((e) => e.goals != null)!;
+    expect(anchor).toEqual({
+      realWorldTime: firstGoal.startedAt,
+      kind: "first_basket",
+      label: `${firstGoal.scoreHome! > 0 ? "Hemma BK" : "Borta BK"}'s first basket (${firstGoal.scoreHome}–${firstGoal.scoreAway})`,
+    });
+    expect(anchor.realWorldTime > "2026-02-15T13:57:56Z").toBe(true); // later than the start marker
+  });
+
+  it("falls back to the start marker, and says so, when nobody scored", () => {
+    const noGoals = wireEvents.filter((e) => e.goals == null);
+    expect(findProfixioSyncAnchor(match({ events: noGoals }), ctx)).toEqual({
+      realWorldTime: "2026-02-15T13:57:56Z",
+      kind: "match_start",
+      label: "the start of period 1 as logged by the table",
+    });
+    expect(findProfixioSyncAnchor(match({ events: [] }), ctx)).toBeNull();
   });
 });
 

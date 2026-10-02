@@ -240,11 +240,58 @@ export function normalizeProfixioEvents(
   return out;
 }
 
+export interface ProfixioSyncAnchor {
+  /** ISO UTC of the reference event. */
+  realWorldTime: string;
+  kind: "first_basket" | "match_start";
+  /** Short phrase a coach can find in the video, e.g. "Örebro's first basket (2–0)". */
+  label: string;
+}
+
 /**
- * Q1 tip-off wall-clock for the video sync hint: the `startsMatch` marker,
- * else a regulation period-1 start. Null when the protocol has neither —
- * never fabricated from the first score, which would shift every clip by an
- * unknown amount while looking like a working import.
+ * The reference moment for video sync. NOT the "Start period 1" marker: the
+ * table presses it when it opens the protocol, 3–4 minutes before the jump
+ * ball (measured on three games), which would land every clip minutes late.
+ * The first made basket is unambiguous on video and is stamped within the
+ * table's usual 5–20 s entry lag, which the 20 s pre-roll covers. Falls back
+ * to the start marker (with a label that says so) when nobody scored.
+ */
+export function findProfixioSyncAnchor(
+  m: Pick<ProfixioMatchResponse, "homeWebId" | "awayWebId" | "events" | "lineup">,
+  ctx: NormalizeContext,
+): ProfixioSyncAnchor | null {
+  const sorted = sortEvents(m.events);
+  const sides = resolveSides(m);
+  let prev = { home: 0, away: 0 };
+  for (const e of sorted) {
+    const home = e.scoreHome ?? prev.home;
+    const away = e.scoreAway ?? prev.away;
+    if (e.goals != null && GOAL_TYPE_BY_POINTS[e.goals] && e.startedAt) {
+      const homeScored = home > prev.home;
+      const awayScored = away > prev.away;
+      const side: 1 | 2 =
+        homeScored !== awayScored
+          ? homeScored ? 1 : 2
+          : e.teamId === sides.awayWebId ? 2 : 1;
+      const team = (side === 1 ? ctx.homeName : ctx.awayName).trim();
+      return {
+        realWorldTime: e.startedAt,
+        kind: "first_basket",
+        label: `${team}'s first basket (${home}–${away})`,
+      };
+    }
+    prev = { home, away };
+  }
+  const start = findProfixioTipoff(m.events);
+  return start
+    ? { realWorldTime: start, kind: "match_start", label: "the start of period 1 as logged by the table" }
+    : null;
+}
+
+/**
+ * Q1 "Start period 1" wall-clock: the `startsMatch` marker, else a regulation
+ * period-1 start. Null when the protocol has neither. Only a fallback for
+ * sync — see findProfixioSyncAnchor for why.
  */
 export function findProfixioTipoff(events: ProfixioEvent[]): string | null {
   const sorted = sortEvents(events);

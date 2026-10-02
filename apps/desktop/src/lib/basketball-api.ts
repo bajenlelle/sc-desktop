@@ -25,7 +25,7 @@ import { getProfixioCategories, getProfixioMatch, getProfixioSchedule } from "@s
 import {
   buildProfixioRosters,
   categoriesToStages,
-  findProfixioTipoff,
+  findProfixioSyncAnchor,
   normalizeProfixioEvents,
   parseProfixioSourceGameId,
   profixioRowToScheduleGame,
@@ -200,7 +200,14 @@ export interface GameData {
   homeRoster: Array<{ jerseyNumber: string; playerName: string }>;
   awayRoster: Array<{ jerseyNumber: string; playerName: string }>;
   events: PlayByPlayEvent[];
+  /** Wall-clock of the sync reference event: the tip-off for Genius, see `syncAnchor` otherwise. */
   tipoffRealWorldTime: string | null;
+  /**
+   * What `tipoffRealWorldTime` refers to when it isn't the tip-off. Profixio
+   * games anchor on the first made basket (the table's "Start period 1" is
+   * pressed minutes early); `label` is what the coach should look for.
+   */
+  syncAnchor?: { kind: "first_basket" | "match_start"; label: string };
   /** "empty" = the match exists but carries no play-by-play upstream. */
   pbpStatus: "ok" | "empty";
 }
@@ -228,8 +235,10 @@ export async function fetchGameData(
     const m = res.data;
     const homeName = game.homeTeamInfo.names.long;
     const awayName = game.awayTeamInfo.names.long;
+    const ctx = { homeName, awayName };
     const rosters = buildProfixioRosters(m.lineup, resolveSides(m));
-    const events = normalizeProfixioEvents(m, { homeName, awayName });
+    const events = normalizeProfixioEvents(m, ctx);
+    const anchor = findProfixioSyncAnchor(m, ctx);
     return {
       homeName,
       awayName,
@@ -237,7 +246,8 @@ export async function fetchGameData(
       homeRoster: rosters.home,
       awayRoster: rosters.away,
       events,
-      tipoffRealWorldTime: findProfixioTipoff(m.events),
+      tipoffRealWorldTime: anchor?.realWorldTime ?? null,
+      syncAnchor: anchor ? { kind: anchor.kind, label: anchor.label } : undefined,
       pbpStatus: events.length > 0 ? "ok" : "empty",
     };
   }
