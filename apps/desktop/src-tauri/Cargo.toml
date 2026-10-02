@@ -1,6 +1,6 @@
 [package]
 name = "scoutable"
-version = "0.6.15"
+version = "0.6.16"
 description = "Scoutable desktop"
 authors = ["Scoutable"]
 edition = "2021"
