@@ -646,6 +646,18 @@ pub fn run() {
     let sentry_client = sentry::init((dsn, sentry_options));
 
     tauri::Builder::default()
+        // Must be the first plugin. On Windows (and Linux) a scoutable:// link,
+        // or a second launch, starts a new process; this hands it to the running
+        // instance — with the `deep-link` feature the URL is re-emitted there as
+        // `deep-link://new-url` — and brings the window forward. macOS delivers
+        // URLs to the running app itself, so it is a no-op there.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            use tauri::Manager;
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         // Native menu bar (macOS only). Built before the webview loads so the
         // default menu never flashes; custom items reach the webview via a
         // single "menu" event (see menu.rs / components/menu-handler.tsx).

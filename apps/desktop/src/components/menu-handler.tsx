@@ -5,8 +5,10 @@
  * via DOM CustomEvents, cross-cutting utilities via shared libs. Also keeps
  * menu item enablement and the Appearance checkmarks in sync with app state.
  *
- * Keep the id list in sync with menu.rs. On Windows no menu exists — the
- * "menu" event never fires and the sync invokes hit no-op commands.
+ * Keep the id list in sync with menu.rs. Where there is no native menu
+ * (Windows) the same accelerators are recognised here from keydown instead —
+ * without that, zoom and every shortcut simply didn't exist on that platform —
+ * and the sync invokes hit no-op commands.
  */
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -15,6 +17,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useTheme } from "next-themes";
+import { isBrowserShortcut, menuIdForChord } from "@scoutable/shared/lib/menu-shortcuts";
 import { useAuth } from "@/lib/auth-context";
 import { createClient } from "@/lib/supabase/client";
 import { interactiveUpdateCheck } from "@/lib/updates";
@@ -24,8 +27,18 @@ const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 2;
 const ZOOM_STEP = 0.1;
 
+/**
+ * macOS owns the accelerators through the native menu; a keydown listener
+ * there would run every action twice. The UA is the one platform signal the
+ * webview has without a round-trip, and WKWebView always carries "Macintosh".
+ */
+const HAS_NATIVE_MENU = navigator.userAgent.includes("Macintosh");
+
 /** Items only coaches/admins can use (mirrors app-sidebar gating). */
 const COACH_ADMIN_IDS = ["new-playlist", "add-game", "go-home", "go-playlists", "go-library"];
+
+/** Mirror of each item's native enablement, consulted by the keyboard fallback. */
+const enabledIds = new Map<string, boolean>();
 
 function storedZoom(): number {
   const raw = Number(localStorage.getItem(ZOOM_KEY));
@@ -33,6 +46,7 @@ function storedZoom(): number {
 }
 
 function setEnabled(id: string, enabled: boolean) {
+  enabledIds.set(id, enabled);
   invoke("menu_set_enabled", { id, enabled }).catch(() => {});
 }
 
@@ -64,9 +78,8 @@ export function MenuHandler() {
       navigate("/auth/login");
     }
 
-    let unlisten: (() => void) | undefined;
-    listen<string>("menu", (event) => {
-      switch (event.payload) {
+    function runMenuAction(id: string) {
+      switch (id) {
         case "settings":
           navigate("/settings");
           break;
@@ -134,11 +147,32 @@ export function MenuHandler() {
         default:
           break; // ids handled natively or added in a newer release
       }
-    }).then((fn) => {
+    }
+
+    // Keyboard fallback for platforms without the native menu.
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.defaultPrevented) return;
+      // WebView2's own F5 / Ctrl+R / Ctrl+P would reload or print the app.
+      if (isBrowserShortcut(e)) {
+        e.preventDefault();
+        return;
+      }
+      const id = menuIdForChord(e);
+      // Unknown ids are enabled, like a fresh native item; export-playlist is
+      // gated by the playlists page's own listener instead.
+      if (!id || enabledIds.get(id) === false) return;
+      e.preventDefault();
+      runMenuAction(id);
+    }
+
+    let unlisten: (() => void) | undefined;
+    listen<string>("menu", (event) => runMenuAction(event.payload)).then((fn) => {
       unlisten = fn;
     });
+    if (!HAS_NATIVE_MENU) window.addEventListener("keydown", onKeyDown);
     return () => {
       unlisten?.();
+      window.removeEventListener("keydown", onKeyDown);
     };
   }, [navigate, setTheme]);
 
@@ -157,8 +191,10 @@ export function MenuHandler() {
     setEnabled("toggle-playlist-browser", pathname === "/playlists");
     setEnabled("fullscreen-player", pathname === "/playlists");
     // Export is enabled by pages/playlists.tsx while a playlist is open;
-    // everywhere else it must be off.
+    // everywhere else it must be off. On the page itself the mirror must not
+    // keep a stale "off" — the page decides, through its own listener.
     if (pathname !== "/playlists") setEnabled("export-playlist", false);
+    else enabledIds.delete("export-playlist");
   }, [pathname]);
 
   useEffect(() => {
