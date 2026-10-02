@@ -17,6 +17,7 @@
     "core:window:allow-set-fullscreen",
     "core:window:allow-set-theme",
     "dialog:default",
+    "deep-link:default",
     "opener:default",
     "updater:default",
     "process:allow-restart",

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { BrowserRouter, Routes, Route, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { getVersion } from "@tauri-apps/api/app";
 import { Sentry } from "@/lib/sentry";
@@ -21,7 +21,7 @@ import { SignupPage } from "@/pages/auth/signup";
 import { ForgotPasswordPage } from "@/pages/auth/forgot-password";
 import { ResetPasswordPage } from "@/pages/auth/reset-password";
 import { OnboardingPage } from "@/pages/onboarding";
-import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
+import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { createClient } from "@/lib/supabase/client";
 import { UpdateChecker } from "@/components/UpdateChecker";
 import { MenuHandler } from "@/components/menu-handler";
@@ -60,13 +60,18 @@ function PageTracker() {
 
 function DeepLinkHandler() {
   const navigate = useNavigate();
+  // getCurrent() and the new-url event can both report the launch URL; a
+  // session must be set from a link exactly once.
+  const handledRef = useRef(new Set<string>());
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let cancelled = false;
 
-    onOpenUrl((urls) => {
+    function handle(urls: string[]) {
       const url = urls[0];
-      if (!url) return;
+      if (!url || handledRef.current.has(url)) return;
+      handledRef.current.add(url);
 
       // Parse hash fragment: scoutable://auth/callback#access_token=...&refresh_token=...&type=...
       const hashIndex = url.indexOf("#");
@@ -88,11 +93,26 @@ function DeepLinkHandler() {
           navigate("/");
         }
       });
-    }).then((fn) => {
-      unlisten = fn;
+    }
+
+    // The URL the app was launched with. The plugin emits `new-url` for it
+    // during startup, before any page is listening, so a link clicked while
+    // the app was closed only ever arrives through getCurrent(). (A link
+    // clicked while it is running reaches the event below — on Windows via
+    // the single-instance plugin in lib.rs.)
+    getCurrent()
+      .then((urls) => {
+        if (!cancelled && urls) handle(urls);
+      })
+      .catch(() => {});
+
+    onOpenUrl(handle).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
     });
 
     return () => {
+      cancelled = true;
       unlisten?.();
     };
   }, [navigate]);

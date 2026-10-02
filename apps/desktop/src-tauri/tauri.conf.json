@@ -14,7 +14,10 @@
       {
         "title": "Scoutable",
         "width": 1280,
-        "height": 800,
+        "height": 720,
+        "minWidth": 1024,
+        "minHeight": 640,
+        "center": true,
         "dragDropEnabled": false
       }
     ],

@@ -1,16 +1,32 @@
 "use client";
 
-import { RefObject, useEffect, useRef } from "react";
+import { RefObject, useEffect, useRef, useState } from "react";
+import {
+  classifyMediaError,
+  mediaFailureMessage,
+  type MediaFailure,
+} from "@scoutable/shared/lib/media-failure";
 import { useAuth } from "@/lib/auth-context";
+import { Sentry } from "@/lib/sentry";
 import { Wordmark } from "@/components/logo";
 
 interface VideoPlayerProps {
   src: string;
   videoRef: RefObject<HTMLVideoElement | null>;
+  /** The source can't be shown (null again once a new source starts loading). */
+  onLoadFailure?: (failure: MediaFailure | null) => void;
 }
 
-export function VideoPlayer({ src, videoRef }: VideoPlayerProps) {
+/** Local footage comes over the stream protocol — stream:// on macOS, http://stream.localhost on Windows. */
+function isLocalSource(src: string): boolean {
+  return src.startsWith("stream://") || src.includes("stream.localhost");
+}
+
+export function VideoPlayer({ src, videoRef, onLoadFailure }: VideoPlayerProps) {
   const imgRef = useRef<HTMLImageElement>(null);
+  const [failure, setFailure] = useState<MediaFailure | null>(null);
+  const onLoadFailureRef = useRef(onLoadFailure);
+  onLoadFailureRef.current = onLoadFailure;
   // Free-tier corner mark: free users can't export, and this closes the
   // screen-record workaround. Rendered only once the plan is known so it
   // never flashes for paying users.
@@ -49,18 +65,77 @@ export function VideoPlayer({ src, videoRef }: VideoPlayerProps) {
       if (img) img.style.display = "none";
     }
 
+    // A paused seek repaints the <video> underneath but not the overlay. On
+    // Windows, where the canvas isn't tainted and the overlay really shows,
+    // that left users picking a tip-off or crop keyframe on a stale picture.
+    function onSeeked() {
+      if (video?.paused) captureFrame();
+    }
+
     video.addEventListener("pause", captureFrame);
     // Hide as soon as play() is called so we don't sit on a stale frame
     // while the video advances to the new clip position.
     video.addEventListener("play", hideFrame);
     video.addEventListener("emptied", hideFrame);
+    video.addEventListener("seeking", hideFrame);
+    video.addEventListener("seeked", onSeeked);
 
     return () => {
       video.removeEventListener("pause", captureFrame);
       video.removeEventListener("play", hideFrame);
       video.removeEventListener("emptied", hideFrame);
+      video.removeEventListener("seeking", hideFrame);
+      video.removeEventListener("seeked", onSeeked);
     };
   }, [videoRef]);
+
+  // Why the box is black, when it is. Every player used to go silently dark —
+  // the sync picker disabled its button with a tooltip, the others said
+  // "playing" over nothing — and the only report was an unhandled play()
+  // rejection with no stack.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    function report(kind: MediaFailure | null) {
+      setFailure(kind);
+      onLoadFailureRef.current?.(kind);
+      if (!kind) return;
+      Sentry.captureMessage("video failed to load", {
+        level: "warning",
+        tags: {
+          kind,
+          media_error_code: String(video?.error?.code ?? 0),
+          ext: src.match(/\.([a-z0-9]{1,5})(?:[?#]|$)/i)?.[1]?.toLowerCase() ?? "none",
+          local: String(isLocalSource(src)),
+        },
+      });
+    }
+
+    function onError() {
+      report(classifyMediaError(video?.error?.code));
+    }
+    // Audio decodes but the video codec doesn't (iPhone HEVC on Windows):
+    // no error event at all, just a picture-less element.
+    function onLoadedMetadata() {
+      if (video && video.videoWidth === 0) report("no_picture");
+    }
+    function onLoadStart() {
+      report(null);
+    }
+
+    video.addEventListener("error", onError);
+    video.addEventListener("loadedmetadata", onLoadedMetadata);
+    video.addEventListener("loadstart", onLoadStart);
+    // Failed before this effect attached (a synchronous source rejection).
+    if (video.error) onError();
+
+    return () => {
+      video.removeEventListener("error", onError);
+      video.removeEventListener("loadedmetadata", onLoadedMetadata);
+      video.removeEventListener("loadstart", onLoadStart);
+    };
+  }, [videoRef, src]);
 
   return (
     <div
@@ -87,6 +162,16 @@ export function VideoPlayer({ src, videoRef }: VideoPlayerProps) {
         className="absolute inset-0 h-full w-full pointer-events-none"
         style={{ display: "none", objectFit: "contain" }}
       />
+      {failure && (
+        <div
+          role="alert"
+          className="absolute inset-0 z-10 flex items-center justify-center bg-black/80 p-6 text-center text-sm text-white"
+        >
+          <p className="max-w-sm">
+            {mediaFailureMessage(failure, { remote: !isLocalSource(src) })}
+          </p>
+        </div>
+      )}
       {showWatermark && (
         // Bare letterforms + cyan dot (no box). The `dark` wrapper forces the
         // light fill regardless of app theme — footage is the background.

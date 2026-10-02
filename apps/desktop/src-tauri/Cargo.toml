@@ -20,6 +20,10 @@ tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+# `deep-link` feature: forwards a scoutable:// URL from a second launch to the
+# running instance's deep-link plugin — without it every auth link on Windows
+# starts a new app that drops the URL.
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-deep-link = "2"
 tauri-plugin-sentry = "0.6"
 sentry = "0.49"

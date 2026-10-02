@@ -4,9 +4,9 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Play, Pause, Check } from "lucide-react";
 import { VideoPlayer } from "@/components/video-player";
 import { Button } from "@/components/ui/button";
+import { mediaFailureMessage, type MediaFailure } from "@scoutable/shared/lib/media-failure";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { trackEvent } from "@/lib/analytics";
-import { Sentry } from "@/lib/sentry";
 import { cn } from "@/lib/utils";
 
 export interface SyncPointPickerProps {
@@ -40,17 +40,12 @@ export function SyncPointPicker({
   const [duration, setDuration] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [confirmedTime, setConfirmedTime] = useState<number | null>(initialSeconds ?? null);
-  // MediaError code of a failed load, null while the video is fine. Confirming
-  // on a dead element would silently persist 0:00 over a possibly-correct
-  // sync point — block it and say why, in a way that tells the user what to do.
-  const [loadError, setLoadError] = useState<number | null>(null);
-  const videoFailed = loadError !== null;
-  const failureMessage =
-    loadError === null
-      ? undefined
-      : loadError === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
-        ? "Unsupported video format. Convert it to MP4 (H.264) and choose the file again."
-        : "Can't load this video. Check that the file still exists, then choose it again.";
+  // Reported by VideoPlayer, which also shows the user why. Confirming on a
+  // dead element would silently persist 0:00 over a possibly-correct sync
+  // point — block it.
+  const [loadFailure, setLoadFailure] = useState<MediaFailure | null>(null);
+  const videoFailed = loadFailure !== null;
+  const failureMessage = loadFailure ? mediaFailureMessage(loadFailure) : undefined;
 
   // The sample game's video is a remote R2 URL, not a local file.
   const src = isLocalPath(videoPath) ? streamFileSrc(videoPath) : videoPath;
@@ -76,29 +71,11 @@ export function SyncPointPicker({
 
     function onPlay() { setPlaying(true); }
     function onPause() { setPlaying(false); }
-    function onError() {
-      const code = video?.error?.code ?? 0;
-      setLoadError(code);
-      // Deliberate, tagged report — the unhandled play() rejection this
-      // replaces arrived with no stack and no hint of which file format
-      // people actually bring. Once per failed load.
-      Sentry.captureMessage("sync-point video failed to load", {
-        level: "warning",
-        tags: {
-          media_error_code: String(code),
-          ext: videoPath.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() ?? "none",
-          remote: String(!isLocalPath(videoPath)),
-        },
-      });
-    }
-    function onLoadStart() { setLoadError(null); }
 
     video.addEventListener("loadedmetadata", onLoadedMetadata);
     video.addEventListener("timeupdate", onTimeUpdate);
     video.addEventListener("play", onPlay);
     video.addEventListener("pause", onPause);
-    video.addEventListener("error", onError);
-    video.addEventListener("loadstart", onLoadStart);
 
     // Already loaded
     if (video.readyState >= 1) {
@@ -114,10 +91,8 @@ export function SyncPointPicker({
       video.removeEventListener("timeupdate", onTimeUpdate);
       video.removeEventListener("play", onPlay);
       video.removeEventListener("pause", onPause);
-      video.removeEventListener("error", onError);
-      video.removeEventListener("loadstart", onLoadStart);
     };
-  }, [initialSeconds, videoPath]);
+  }, [initialSeconds]);
 
   // play() rejects when the element has no playable source. The `error`
   // event above already carries that signal; the rejection is a stackless
@@ -205,15 +180,7 @@ export function SyncPointPicker({
       </div>
 
       {/* Video */}
-      <VideoPlayer src={src} videoRef={videoRef} />
-      {failureMessage && (
-        <p
-          role="alert"
-          className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-600 dark:bg-red-950 dark:text-red-400"
-        >
-          {failureMessage}
-        </p>
-      )}
+      <VideoPlayer src={src} videoRef={videoRef} onLoadFailure={setLoadFailure} />
 
       {/* Scrubber */}
       <div className="flex items-center gap-2">
