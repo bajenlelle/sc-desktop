@@ -165,12 +165,19 @@ export function MenuHandler() {
       runMenuAction(id);
     }
 
+    // listen() resolves asynchronously. If the effect is torn down first
+    // (StrictMode's dev double-mount, or a dependency change) there is nothing
+    // to unlisten yet, so the first listener leaks and every menu action —
+    // zoom most visibly — runs twice.
+    let cancelled = false;
     let unlisten: (() => void) | undefined;
     listen<string>("menu", (event) => runMenuAction(event.payload)).then((fn) => {
-      unlisten = fn;
+      if (cancelled) fn();
+      else unlisten = fn;
     });
     if (!HAS_NATIVE_MENU) window.addEventListener("keydown", onKeyDown);
     return () => {
+      cancelled = true;
       unlisten?.();
       window.removeEventListener("keydown", onKeyDown);
     };
