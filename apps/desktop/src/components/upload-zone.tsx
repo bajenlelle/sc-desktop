@@ -14,7 +14,8 @@ import type { OrgMembership } from "@/types/org";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
 import { ImportSuccessDialog, type ImportSummary } from "@/components/import-success-dialog";
 import { NT_LEAGUE_IDS } from "@scoutable/shared/lib/plan-tier";
-import { fetchGameData, getLeagueSchedule, NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
+import { fetchGameData, getLeagueSchedule, getSeasonStages, NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
+import { seasonProvider } from "@scoutable/shared/lib/provider";
 import { useLeagues } from "@/lib/use-leagues";
 import { Sentry } from "@/lib/sentry";
 import type { ScheduleGame, League, Season, Stage } from "@/lib/basketball-api";
@@ -146,6 +147,12 @@ export function UploadZone({
   const [selectedLeague, setSelectedLeague] = useState<League | null>(null);
   const [selectedSeason, setSelectedSeason] = useState<Season | null>(null);
   const [selectedStage, setSelectedStage] = useState<Stage | null>(null);
+  // The stage list is static for Genius seasons (regular season / playoffs)
+  // and fetched for Profixio seasons (the league's categories), so it is
+  // state of its own with a loading status.
+  const [stages, setStages] = useState<Stage[]>([]);
+  const [stageStatus, setStageStatus] = useState<"idle" | "loading" | "error">("idle");
+  const isProfixioSeason = !!selectedSeason && seasonProvider(selectedSeason) === "profixio";
 
   // Select the first league once the list arrives (access props load async),
   // and re-resolve the current selection by id when the served catalogue
@@ -158,13 +165,48 @@ export function UploadZone({
     const season =
       (selectedSeason && league.seasons.find((s) => s.id === selectedSeason.id)) ??
       league.seasons[0];
-    const stage =
-      (selectedStage && season?.stages.find((s) => s.id === selectedStage.id)) ??
-      season?.stages[0];
     setSelectedLeague(league);
     setSelectedSeason(season ?? null);
-    setSelectedStage(stage ?? null);
   }, [leagueList]);
+
+  // Resolve the stages whenever the league/season changes, keeping the chosen
+  // stage by id across catalogue refreshes. Genius sets them synchronously so
+  // that path gains no async tick; Profixio awaits the league's categories.
+  useEffect(() => {
+    if (!selectedLeague || !selectedSeason) {
+      setStages([]);
+      setSelectedStage(null);
+      return;
+    }
+    const pick = (list: Stage[]) =>
+      setSelectedStage((prev) => list.find((s) => s.id === prev?.id) ?? list[0] ?? null);
+    if (seasonProvider(selectedSeason) !== "profixio") {
+      setStages(selectedSeason.stages);
+      pick(selectedSeason.stages);
+      setStageStatus("idle");
+      return;
+    }
+    let cancelled = false;
+    setStageStatus("loading");
+    setStages([]);
+    setSelectedStage(null);
+    getSeasonStages(selectedLeague, selectedSeason)
+      .then((list) => {
+        if (cancelled) return;
+        setStages(list);
+        pick(list);
+        setStageStatus("idle");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("[stages]", err);
+        Sentry.captureException(err);
+        setStageStatus("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedLeague, selectedSeason]);
   const [scheduleGames, setScheduleGames] = useState<ScheduleGame[]>([]);
   const [scheduleStatus, setScheduleStatus] = useState<"loading" | "idle" | "error">("loading");
   const [searchQuery, setSearchQuery] = useState("");
@@ -192,6 +234,9 @@ export function UploadZone({
 
   const [playByPlayEvents, setPlayByPlayEvents] = useState<PlayByPlayEvent[]>([]);
   const [tipoffRealWorldTime, setTipoffRealWorldTime] = useState<string | null>(null);
+  // Events arrived but no tip-off marker did (a Profixio protocol without a
+  // "Start period 1") — importing still works, timing won't.
+  const [tipoffMissing, setTipoffMissing] = useState(false);
 
   // Video state
   const [videoPath, setVideoPath] = useState<string | null>(null);
@@ -216,7 +261,14 @@ export function UploadZone({
 
 
   useEffect(() => {
-    if (!selectedLeague || !selectedSeason || !selectedStage) return;
+    if (!selectedLeague || !selectedSeason) return;
+    if (!selectedStage) {
+      // No stage yet (Profixio categories still loading, or none): never
+      // leave the previous league's schedule on screen.
+      setScheduleGames([]);
+      if (stageStatus !== "loading") setScheduleStatus("idle");
+      return;
+    }
     // Guarded like the duplicate-detection effect below: without it a fast
     // league switch can land the previous league's schedule.
     let cancelled = false;
@@ -239,7 +291,7 @@ export function UploadZone({
     return () => {
       cancelled = true;
     };
-  }, [selectedLeague, selectedSeason, selectedStage]);
+  }, [selectedLeague, selectedSeason, selectedStage, stageStatus]);
 
   // Duplicate detection: same fixture (stable league uuid) in this space.
   useEffect(() => {
@@ -277,7 +329,7 @@ export function UploadZone({
     if (selectedLeague && league.id === selectedLeague.id) return;
     setSelectedLeague(league);
     setSelectedSeason(league.seasons[0] ?? null);
-    setSelectedStage(league.seasons[0]?.stages[0] ?? null);
+    setSelectedStage(null); // the stage effect fills it
     setSelectedGame(null);
     setSearchQuery("");
   }
@@ -286,13 +338,13 @@ export function UploadZone({
     const season = selectedLeague?.seasons.find((s) => s.id === seasonId);
     if (!season || season.id === selectedSeason?.id) return;
     setSelectedSeason(season);
-    setSelectedStage(season.stages[0] ?? null);
+    setSelectedStage(null); // the stage effect fills it
     setSelectedGame(null);
     setSearchQuery("");
   }
 
   function handleStageChange(stageId: string | null) {
-    const stage = selectedSeason?.stages.find((s) => s.id === stageId);
+    const stage = stages.find((s) => s.id === stageId);
     if (!stage || stage.id === selectedStage?.id) return;
     setSelectedStage(stage);
     setSelectedGame(null);
@@ -304,6 +356,7 @@ export function UploadZone({
     setSelectedGame(game);
     setFetchStatus("loading");
     setFetchError(null);
+    setTipoffMissing(false);
 
     // Seed names and date from schedule data immediately so the match is always
     // populated even if the game-data call fails or the user submits quickly.
@@ -318,7 +371,7 @@ export function UploadZone({
     }
 
     try {
-      const data = await fetchGameData(selectedSeason, game);
+      const data = await fetchGameData(selectedSeason, game, selectedStage);
 
       const home = data.homeName || fallbackHome;
       const away = data.awayName || fallbackAway;
@@ -332,6 +385,7 @@ export function UploadZone({
 
       setPlayByPlayEvents(data.events);
       setTipoffRealWorldTime(data.tipoffRealWorldTime);
+      setTipoffMissing(data.events.length > 0 && !data.tipoffRealWorldTime);
 
       // Schedule filtering hides PBP-less games, so this is belt-and-braces —
       // but if it ever happens, say so instead of showing an empty timeline.
@@ -427,6 +481,7 @@ export function UploadZone({
         has_play_by_play: playByPlayEvents.length > 0,
         event_count: playByPlayEvents.length,
         reimport: !!existingMatch,
+        provider: selectedSeason ? seasonProvider(selectedSeason) : "genius",
       })
     } catch (err) {
       setSubmitStatus("error");
@@ -511,18 +566,35 @@ export function UploadZone({
                   required
                 />
               )}
-              {(selectedSeason?.stages.length ?? 0) > 1 && (
+              {stages.length > 1 && (
                 <SingleSelectDropdown
-                  options={(selectedSeason?.stages ?? []).map((s) => ({ value: s.id, label: s.label }))}
+                  options={stages.map((s) => ({ value: s.id, label: s.label }))}
                   value={selectedStage?.id ?? null}
                   onChange={handleStageChange}
-                  placeholder="Stage"
+                  placeholder={isProfixioSeason ? "Category" : "Stage"}
                   required
                 />
               )}
+              {stageStatus === "loading" && (
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-label="Loading categories" />
+              )}
             </div>
+            {isProfixioSeason && (
+              <p className="text-xs text-muted-foreground">
+                This league records points, fouls and timeouts only.
+              </p>
+            )}
 
-            {selectedGame ? (
+            {stageStatus === "loading" && !selectedGame ? (
+              <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm">Loading categories…</span>
+              </div>
+            ) : stageStatus === "error" && !selectedGame ? (
+              <p className="py-4 text-center text-sm text-red-500">
+                Failed to load categories. Check your connection.
+              </p>
+            ) : selectedGame ? (
               <div className="flex items-center justify-between gap-3 rounded-lg bg-primary/10 px-3 py-2.5">
                 <div className="flex flex-1 items-center gap-2 min-w-0">
                   {selectedGame.homeTeamInfo.icon && (
@@ -585,9 +657,11 @@ export function UploadZone({
                       // An empty schedule (early in a season, before any game
                       // is COMPLETE) reads differently from a search miss.
                       <p className="py-6 text-center text-sm text-muted-foreground">
-                        {scheduleGames.length === 0 && (selectedLeague?.seasons.length ?? 0) > 1
-                          ? `No completed games in ${selectedSeason?.label ?? "this season"} yet — switch season above to import earlier games.`
-                          : "No games found."}
+                        {scheduleGames.length === 0 && isProfixioSeason && selectedStage && stages.length > 1
+                          ? `No played games in ${selectedStage.label} yet — pick another category above.`
+                          : scheduleGames.length === 0 && (selectedLeague?.seasons.length ?? 0) > 1
+                            ? `No completed games in ${selectedSeason?.label ?? "this season"} yet — switch season above to import earlier games.`
+                            : "No games found."}
                       </p>
                     ) : (
                       filteredGames.map((game: ScheduleGame) => (
@@ -614,6 +688,11 @@ export function UploadZone({
             {playByPlayEvents.length > 0 && (
               <p className="text-xs text-emerald-600 dark:text-emerald-400">
                 Game imported — {playByPlayEvents.length} clips ready.
+              </p>
+            )}
+            {tipoffMissing && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                No tip-off time was recorded for this game, so clips may not line up with the video.
               </p>
             )}
           </CardContent>

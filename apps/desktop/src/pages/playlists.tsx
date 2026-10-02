@@ -60,7 +60,8 @@ import { listLabels, createLabel as apiCreateLabel, updateLabel as apiUpdateLabe
 import { LabelChip } from "@/components/labels/LabelChip";
 import { LabelPickerPopover, type LabelTriState } from "@/components/labels/LabelPickerPopover";
 import type { Label, LabelColor, ClipKey } from "@scoutable/shared/types/labels";
-import { eventColors, eventLabel, formatGameClock, isBookkeepingEvent, parseGameClock, playerName } from "@scoutable/shared/lib/events";
+import { eventColors, eventLabel, formatGameClock, isBookkeepingEvent, parseGameClock, periodLabel, playerName } from "@scoutable/shared/lib/events";
+import { DEFAULT_POST_ROLL, defaultPreRoll, defaultPreRollForMatches } from "@scoutable/shared/lib/provider";
 import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import type { CropKeyframe } from "@scoutable/shared/lib/crop-path";
 import { ClipTimeline, CropEditorBar, CropOverlay, upsertKeyframe } from "@/components/crop-editor";
@@ -168,6 +169,7 @@ const EVENT_TYPE_OPTIONS = [
   { value: "assist", label: "Assist" },
   { value: "foul", label: "Foul" },
   { value: "block", label: "Block" },
+  { value: "timeout", label: "Timeout" },
 ];
 
 const SHOT_TYPE_OPTIONS = [
@@ -354,7 +356,7 @@ function DraggableRow({
               className="h-3.5 w-3.5 rounded border-border accent-primary"
             />
           </td>
-          <td className="px-4 py-2.5 text-muted-foreground">Q{event.period}</td>
+          <td className="px-4 py-2.5 text-muted-foreground">{periodLabel(event.period)}</td>
           <td className="px-4 py-2.5 font-mono text-muted-foreground">
             {formatGameClock(event.gameClockTime)}
           </td>
@@ -755,8 +757,19 @@ function ClipBrowserPanel({
   const [filterTeams, setFilterTeams] = useState<Set<string>>(new Set());
   const [filterPlayers, setFilterPlayers] = useState<Set<string>>(new Set());
   const [filterLabelIds, setFilterLabelIds] = useState<Set<string>>(new Set());
-  const [preRoll, setPreRoll] = useState(10);
-  const [postRoll, setPostRoll] = useState(3);
+  // Pre-roll follows the game shown (20 s for Profixio games, whose scorer's
+  // table logs 10–20 s after the play) until the coach edits the field.
+  const [preRoll, setPreRoll] = useState(() =>
+    defaultPreRoll(filterMatchId ? matchLookup.get(filterMatchId) : null),
+  );
+  const [postRoll, setPostRoll] = useState(DEFAULT_POST_ROLL);
+  const preRollTouchedRef = useRef(false);
+  useEffect(() => {
+    if (preRollTouchedRef.current) return;
+    setPreRoll(
+      filterMatchId ? defaultPreRoll(matchLookup.get(filterMatchId)) : defaultPreRollForMatches(matches),
+    );
+  }, [filterMatchId, matchLookup, matches]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set()); // "matchId:eventId"
   // Local assignment state for the visible match.
   const [clipAssignments, setClipAssignments] = useState<Map<string, Set<string>>>(new Map());
@@ -1319,7 +1332,7 @@ function ClipBrowserPanel({
             max={30}
             className="h-9 w-20"
             value={preRoll}
-            onChange={(e) => setPreRoll(Number(e.target.value))}
+            onChange={(e) => { preRollTouchedRef.current = true; setPreRoll(Number(e.target.value)); }}
           />
         </div>
 
@@ -1415,7 +1428,7 @@ function ClipBrowserPanel({
                             className="h-3.5 w-3.5 rounded border-border accent-primary"
                           />
                         </td>
-                        <td className="px-4 py-2.5 text-muted-foreground">Q{event.period}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground">{periodLabel(event.period)}</td>
                         <td className="px-4 py-2.5 font-mono text-muted-foreground">{formatGameClock(event.gameClockTime)}</td>
                         {isMultiMatch && (
                           <td className="px-4 py-2.5 text-xs text-muted-foreground truncate max-w-[120px]">{matchTitle}</td>
@@ -1692,8 +1705,11 @@ export function PlaylistsPage() {
   const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
   const [activeEventId, setActiveEventId] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  // Pre-roll default per provider (20 s when the playlist holds a Profixio
+  // game); applied when the playlist changes, until the coach edits the field.
   const [preRoll, setPreRoll] = useState(10);
-  const [postRoll, setPostRoll] = useState(3);
+  const [postRoll, setPostRoll] = useState(DEFAULT_POST_ROLL);
+  const preRollTouchedRef = useRef(false);
   const [folders, setFolders] = useState<PlaylistFolder[]>([]);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => {
     const saved = sessionStorage.getItem("expandedFolders");
@@ -2336,6 +2352,15 @@ export function PlaylistsPage() {
   );
   const matchLookupRef = useRef(matchLookup);
   useEffect(() => { matchLookupRef.current = matchLookup; }, [matchLookup]);
+  useEffect(() => { preRollTouchedRef.current = false; }, [selected?.id]);
+  useEffect(() => {
+    if (preRollTouchedRef.current || !selected) return;
+    const games = selected.items
+      .filter(isClipItem)
+      .map((c) => matchLookup.get(c.matchId))
+      .filter((m): m is StoredMatch => !!m);
+    setPreRoll(defaultPreRollForMatches(games));
+  }, [selected, matchLookup]);
 
   /**
    * Event lookup by `matchId:eventId`, built once per matches change.
@@ -2545,6 +2570,11 @@ export function PlaylistsPage() {
         return clockSort === "asc" ? aEv.period - bEv.period : bEv.period - aEv.period;
       const aT = parseGameClock(formatGameClock(aEv.gameClockTime));
       const bT = parseGameClock(formatGameClock(bEv.gameClockTime));
+      if (aT === bT) {
+        // Clock-less games (Profixio) sort by wall-clock instead of tying.
+        const d = (Date.parse(aEv.realWorldTime) || 0) - (Date.parse(bEv.realWorldTime) || 0);
+        return clockSort === "asc" ? d : -d;
+      }
       return clockSort === "asc" ? bT - aT : aT - bT;
     });
   }, [displayItems, clockSort, clockSortLocked]);
@@ -5291,7 +5321,7 @@ export function PlaylistsPage() {
             max={30}
             className="h-7 w-16 text-xs"
             value={preRoll}
-            onChange={(e) => setPreRoll(Number(e.target.value))}
+            onChange={(e) => { preRollTouchedRef.current = true; setPreRoll(Number(e.target.value)); }}
           />
           <label className="text-xs text-muted-foreground">Post</label>
           <Input
