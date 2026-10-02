@@ -197,7 +197,13 @@ jobs:
           $exeDir = "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis"
           $exe = Get-ChildItem $exeDir -Filter "*.exe" | Select-Object -First 1
           $zipPath = Join-Path $exeDir ($exe.BaseName + ".nsis.zip")
-          Compress-Archive -Path $exe.FullName -DestinationPath $zipPath
+          # Stored, not Deflate: tauri-plugin-updater builds its Windows `zip`
+          # dependency with default-features = false and no features, so the
+          # only method it can read is Stored. A Deflate zip fails on every
+          # client with "Compression method not supported" (#70) — no Windows
+          # self-update ever succeeded. Nothing is lost: the NSIS installer is
+          # already LZMA-compressed, and Deflate was saving 0 %.
+          Compress-Archive -Path $exe.FullName -DestinationPath $zipPath -CompressionLevel NoCompression
           npx tauri signer sign -k "$env:TAURI_SIGNING_PRIVATE_KEY" -p "$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD" $zipPath
 
       - name: Upload artifacts
