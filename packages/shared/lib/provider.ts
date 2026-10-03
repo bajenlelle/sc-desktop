@@ -25,27 +25,42 @@ export function matchProvider(
   return "genius";
 }
 
+export const DEFAULT_PRE_ROLL = 10;
 export const DEFAULT_POST_ROLL = 3;
 
 /**
- * Seconds of video before an event's wall-clock time. Genius actions are
- * stamped by a clock operator at the play; Profixio events are typed in by
- * the scorer's table 10–20 s after it, so the clip has to start earlier to
- * contain the play at all.
+ * Seconds of video before an event's wall-clock time. The same for both
+ * providers: Profixio stamps are typed in a few seconds after the play, but
+ * the sync anchor (the first made basket) is stamped with the same lag, so
+ * it cancels — measured on a real game, other events land within −3…+4 s of
+ * the computed time.
  */
 export function defaultPreRoll(
-  match?: Pick<StoredMatch, "sourceGameId" | "leagueId"> | null,
+  _match?: Pick<StoredMatch, "sourceGameId" | "leagueId"> | null,
 ): number {
-  return match && matchProvider(match) === "profixio" ? 20 : 10;
+  return DEFAULT_PRE_ROLL;
 }
 
-/**
- * Pre-roll for a playlist spanning several games: the longest default wins.
- * A long pre-roll only lengthens a Genius clip; a short one cuts the play
- * out of a Profixio clip.
- */
 export function defaultPreRollForMatches(
   matches: Array<Pick<StoredMatch, "sourceGameId" | "leagueId">>,
 ): number {
-  return matches.reduce((max, m) => Math.max(max, defaultPreRoll(m)), 10);
+  return matches.reduce((max, m) => Math.max(max, defaultPreRoll(m)), DEFAULT_PRE_ROLL);
+}
+
+/**
+ * Seconds of video after an event's wall-clock time. Profixio events can
+ * fall up to ~4 s after the computed time (see above), so the clip gets a
+ * longer tail there or it could end with the ball still in the air.
+ */
+export function defaultPostRoll(
+  match?: Pick<StoredMatch, "sourceGameId" | "leagueId"> | null,
+): number {
+  return match && matchProvider(match) === "profixio" ? 6 : DEFAULT_POST_ROLL;
+}
+
+/** Post-roll for a playlist spanning several games: the longest default wins. */
+export function defaultPostRollForMatches(
+  matches: Array<Pick<StoredMatch, "sourceGameId" | "leagueId">>,
+): number {
+  return matches.reduce((max, m) => Math.max(max, defaultPostRoll(m)), DEFAULT_POST_ROLL);
 }

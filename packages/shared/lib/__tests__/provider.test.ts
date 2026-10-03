@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_POST_ROLL,
+  DEFAULT_PRE_ROLL,
+  defaultPostRoll,
+  defaultPostRollForMatches,
   defaultPreRoll,
   defaultPreRollForMatches,
   matchProvider,
@@ -35,24 +38,25 @@ describe("matchProvider", () => {
   });
 });
 
-describe("defaultPreRoll", () => {
-  it("gives Profixio games a longer lead-in — the scorer's table logs 10–20 s after the play", () => {
-    expect(defaultPreRoll({ sourceGameId: "profixio:1" })).toBe(20);
-  });
-
-  it("keeps the 10 s default for Genius games and when no match is loaded", () => {
-    expect(defaultPreRoll({ sourceGameId: "2668882" })).toBe(10);
+describe("pre- and post-roll defaults", () => {
+  it("uses the same pre-roll for both providers — the first-basket anchor cancels Profixio's entry lag", () => {
+    expect(defaultPreRoll({ sourceGameId: "profixio:1" })).toBe(DEFAULT_PRE_ROLL);
+    expect(defaultPreRoll({ sourceGameId: "2668882" })).toBe(DEFAULT_PRE_ROLL);
     expect(defaultPreRoll(null)).toBe(10);
-    expect(defaultPreRoll(undefined)).toBe(10);
-  });
-
-  it("takes the longest default across a mixed playlist (a long pre-roll only lengthens a Genius clip)", () => {
-    expect(defaultPreRollForMatches([{ sourceGameId: "1" }, { sourceGameId: "profixio:2" }])).toBe(20);
-    expect(defaultPreRollForMatches([{ sourceGameId: "1" }])).toBe(10);
+    expect(defaultPreRollForMatches([{ sourceGameId: "1" }, { sourceGameId: "profixio:2" }])).toBe(10);
     expect(defaultPreRollForMatches([])).toBe(10);
   });
 
-  it("exports the shared post-roll default", () => {
-    expect(DEFAULT_POST_ROLL).toBe(3);
+  it("gives Profixio games a longer tail — events land up to ~4 s after the computed time", () => {
+    expect(defaultPostRoll({ sourceGameId: "profixio:1" })).toBe(6);
+    expect(defaultPostRoll({ leagueId: "profixio-749-herrar-u19" })).toBe(6);
+    expect(defaultPostRoll({ sourceGameId: "2668882" })).toBe(DEFAULT_POST_ROLL);
+    expect(defaultPostRoll(null)).toBe(3);
+  });
+
+  it("takes the longest post-roll across a mixed playlist", () => {
+    expect(defaultPostRollForMatches([{ sourceGameId: "1" }, { sourceGameId: "profixio:2" }])).toBe(6);
+    expect(defaultPostRollForMatches([{ sourceGameId: "1" }])).toBe(3);
+    expect(defaultPostRollForMatches([])).toBe(3);
   });
 });

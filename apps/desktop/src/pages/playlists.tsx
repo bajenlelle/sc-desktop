@@ -61,7 +61,7 @@ import { LabelChip } from "@/components/labels/LabelChip";
 import { LabelPickerPopover, type LabelTriState } from "@/components/labels/LabelPickerPopover";
 import type { Label, LabelColor, ClipKey } from "@scoutable/shared/types/labels";
 import { eventColors, eventLabel, formatGameClock, isBookkeepingEvent, parseGameClock, periodLabel, playerName } from "@scoutable/shared/lib/events";
-import { DEFAULT_POST_ROLL, defaultPreRoll, defaultPreRollForMatches } from "@scoutable/shared/lib/provider";
+import { defaultPostRoll, defaultPostRollForMatches, defaultPreRoll, defaultPreRollForMatches } from "@scoutable/shared/lib/provider";
 import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import type { CropKeyframe } from "@scoutable/shared/lib/crop-path";
 import { ClipTimeline, CropEditorBar, CropOverlay, upsertKeyframe } from "@/components/crop-editor";
@@ -757,18 +757,24 @@ function ClipBrowserPanel({
   const [filterTeams, setFilterTeams] = useState<Set<string>>(new Set());
   const [filterPlayers, setFilterPlayers] = useState<Set<string>>(new Set());
   const [filterLabelIds, setFilterLabelIds] = useState<Set<string>>(new Set());
-  // Pre-roll follows the game shown (20 s for Profixio games, whose scorer's
-  // table logs 10–20 s after the play) until the coach edits the field.
+  // Pre/post-roll follow the game shown (Profixio games get a longer tail,
+  // see provider.ts) until the coach edits the field.
   const [preRoll, setPreRoll] = useState(() =>
     defaultPreRoll(filterMatchId ? matchLookup.get(filterMatchId) : null),
   );
-  const [postRoll, setPostRoll] = useState(DEFAULT_POST_ROLL);
+  const [postRoll, setPostRoll] = useState(() =>
+    defaultPostRoll(filterMatchId ? matchLookup.get(filterMatchId) : null),
+  );
   const preRollTouchedRef = useRef(false);
+  const postRollTouchedRef = useRef(false);
   useEffect(() => {
-    if (preRollTouchedRef.current) return;
-    setPreRoll(
-      filterMatchId ? defaultPreRoll(matchLookup.get(filterMatchId)) : defaultPreRollForMatches(matches),
-    );
+    const shown = filterMatchId ? matchLookup.get(filterMatchId) : null;
+    if (!preRollTouchedRef.current) {
+      setPreRoll(filterMatchId ? defaultPreRoll(shown) : defaultPreRollForMatches(matches));
+    }
+    if (!postRollTouchedRef.current) {
+      setPostRoll(filterMatchId ? defaultPostRoll(shown) : defaultPostRollForMatches(matches));
+    }
   }, [filterMatchId, matchLookup, matches]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set()); // "matchId:eventId"
   // Local assignment state for the visible match.
@@ -1344,7 +1350,7 @@ function ClipBrowserPanel({
             max={60}
             className="h-9 w-20"
             value={postRoll}
-            onChange={(e) => setPostRoll(Number(e.target.value))}
+            onChange={(e) => { postRollTouchedRef.current = true; setPostRoll(Number(e.target.value)); }}
           />
         </div>
 
@@ -1705,11 +1711,12 @@ export function PlaylistsPage() {
   const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
   const [activeEventId, setActiveEventId] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  // Pre-roll default per provider (20 s when the playlist holds a Profixio
-  // game); applied when the playlist changes, until the coach edits the field.
-  const [preRoll, setPreRoll] = useState(10);
-  const [postRoll, setPostRoll] = useState(DEFAULT_POST_ROLL);
+  // Pre/post-roll defaults per provider (Profixio games get a longer tail);
+  // applied when the playlist changes, until the coach edits the field.
+  const [preRoll, setPreRoll] = useState(defaultPreRoll(null));
+  const [postRoll, setPostRoll] = useState(defaultPostRoll(null));
   const preRollTouchedRef = useRef(false);
+  const postRollTouchedRef = useRef(false);
   const [folders, setFolders] = useState<PlaylistFolder[]>([]);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => {
     const saved = sessionStorage.getItem("expandedFolders");
@@ -2352,14 +2359,15 @@ export function PlaylistsPage() {
   );
   const matchLookupRef = useRef(matchLookup);
   useEffect(() => { matchLookupRef.current = matchLookup; }, [matchLookup]);
-  useEffect(() => { preRollTouchedRef.current = false; }, [selected?.id]);
+  useEffect(() => { preRollTouchedRef.current = false; postRollTouchedRef.current = false; }, [selected?.id]);
   useEffect(() => {
-    if (preRollTouchedRef.current || !selected) return;
+    if (!selected) return;
     const games = selected.items
       .filter(isClipItem)
       .map((c) => matchLookup.get(c.matchId))
       .filter((m): m is StoredMatch => !!m);
-    setPreRoll(defaultPreRollForMatches(games));
+    if (!preRollTouchedRef.current) setPreRoll(defaultPreRollForMatches(games));
+    if (!postRollTouchedRef.current) setPostRoll(defaultPostRollForMatches(games));
   }, [selected, matchLookup]);
 
   /**
@@ -5330,7 +5338,7 @@ export function PlaylistsPage() {
             max={60}
             className="h-7 w-16 text-xs"
             value={postRoll}
-            onChange={(e) => setPostRoll(Number(e.target.value))}
+            onChange={(e) => { postRollTouchedRef.current = true; setPostRoll(Number(e.target.value)); }}
           />
         </div>
         <div className="flex items-center gap-2">
