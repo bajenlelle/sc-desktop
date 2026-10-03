@@ -2660,8 +2660,18 @@ export function PlaylistsPage() {
     setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updatedPlaylist : p));
     updateClip(selected.id, matchId, activeEventId, { preRollOffset: newPre, postRollOffset: newPost }).catch(() => {});
     const curQueueItem = queueRef.current[queueIdxRef.current];
-    if (curQueueItem && !isTextCard(curQueueItem)) {
+    if (!curQueueItem || isTextCard(curQueueItem)) return;
+    if (preDelta !== 0) {
+      // A new start is worth seeing from the top.
       seekToItem(curQueueItem as QueueItem, newPre, newPost);
+      return;
+    }
+    // Only the end moved: shorten or extend the running clip in place. A
+    // restart here would make trimming the tail a stop-start exercise.
+    const sp = matchLookupRef.current.get(curQueueItem.matchId)?.syncPoint;
+    const videoTime = sp ? computeVideoTime((curQueueItem as QueueItem).event, sp) : null;
+    if (videoTime !== null && clipEndRef.current !== undefined) {
+      clipEndRef.current = Math.max(videoTime, videoTime + postRollRef.current + newPost);
     }
   }
 
