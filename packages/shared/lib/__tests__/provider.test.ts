@@ -39,11 +39,15 @@ describe("matchProvider", () => {
 });
 
 describe("pre- and post-roll defaults", () => {
-  it("uses the same pre-roll for both providers — the first-basket anchor cancels Profixio's entry lag", () => {
-    expect(defaultPreRoll({ sourceGameId: "profixio:1" })).toBe(DEFAULT_PRE_ROLL);
+  it("gives Profixio games a 20 s lead-in — measured entry lag varies up to 12 s past the anchor's", () => {
+    expect(defaultPreRoll({ sourceGameId: "profixio:1" })).toBe(20);
     expect(defaultPreRoll({ sourceGameId: "2668882" })).toBe(DEFAULT_PRE_ROLL);
     expect(defaultPreRoll(null)).toBe(10);
-    expect(defaultPreRollForMatches([{ sourceGameId: "1" }, { sourceGameId: "profixio:2" }])).toBe(10);
+  });
+
+  it("takes the longest pre-roll across a mixed playlist (a long lead-in only lengthens a Genius clip)", () => {
+    expect(defaultPreRollForMatches([{ sourceGameId: "1" }, { sourceGameId: "profixio:2" }])).toBe(20);
+    expect(defaultPreRollForMatches([{ sourceGameId: "1" }])).toBe(10);
     expect(defaultPreRollForMatches([])).toBe(10);
   });
 

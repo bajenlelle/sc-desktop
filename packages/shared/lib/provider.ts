@@ -29,16 +29,21 @@ export const DEFAULT_PRE_ROLL = 10;
 export const DEFAULT_POST_ROLL = 3;
 
 /**
- * Seconds of video before an event's wall-clock time. The same for both
- * providers: Profixio stamps are typed in a few seconds after the play, but
- * the sync anchor (the first made basket) is stamped with the same lag, so
- * it cancels — measured on a real game, other events land within −3…+4 s of
- * the computed time.
+ * Seconds of video before an event's wall-clock time.
+ *
+ * Genius actions are stamped by a clock operator at the play. Profixio events
+ * are typed in by the table a few seconds after it; the sync anchor (the
+ * first made basket) carries the same lag, so the common part cancels — but
+ * the lag varies with how busy the table is. Measured on a real game (five
+ * marked events plus the final buzzer): other events landed between 12 s
+ * before and 4 s after the computed time. A 20 s pre-roll keeps ~8 s of play
+ * ahead of the shot even in the slow-entry case; 10 s would start that clip
+ * after the ball had left the shooter's hands.
  */
 export function defaultPreRoll(
-  _match?: Pick<StoredMatch, "sourceGameId" | "leagueId"> | null,
+  match?: Pick<StoredMatch, "sourceGameId" | "leagueId"> | null,
 ): number {
-  return DEFAULT_PRE_ROLL;
+  return match && matchProvider(match) === "profixio" ? 20 : DEFAULT_PRE_ROLL;
 }
 
 export function defaultPreRollForMatches(
@@ -48,7 +53,7 @@ export function defaultPreRollForMatches(
 }
 
 /**
- * Seconds of video after an event's wall-clock time. Profixio events can
+ * Seconds of video after an event's wall-clock time. Profixio events can also
  * fall up to ~4 s after the computed time (see above), so the clip gets a
  * longer tail there or it could end with the ball still in the air.
  */
