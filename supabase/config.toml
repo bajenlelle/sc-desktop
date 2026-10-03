@@ -393,6 +393,12 @@ verify_jwt = false
 [functions.genius]
 verify_jwt = false
 
+# Same reasoning as genius above: profixio authenticates every request itself
+# (admin.auth.getUser), and leaving gateway verification off keeps the door
+# open for a cron warm-up of its catalogue cache that has no JWT to send.
+[functions.profixio]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

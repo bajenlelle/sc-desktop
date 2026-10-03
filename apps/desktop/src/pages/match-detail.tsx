@@ -310,6 +310,14 @@ export function MatchDetailPage() {
           : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       })()
     : null;
+  // Profixio games anchor on the first made basket, not the tip-off.
+  const syncAnchor = storedMatch.syncPoint?.anchor;
+  const anchorNoun = syncAnchor?.kind === "first_basket" ? "the first basket" : "tip-off";
+  const anchorSentence = syncHint
+    ? syncAnchor
+      ? `Reference moment: ${syncAnchor.label} at ${syncHint} — enter the video timestamp for that moment.`
+      : `Tip-off real-world time was ${syncHint} — enter the video timestamp for that moment.`
+    : null;
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
@@ -539,9 +547,13 @@ export function MatchDetailPage() {
             <SyncPointPicker
               videoPath={storedMatch.videoUrl}
               tipoffHint={syncHint ?? undefined}
+              anchorKind={syncAnchor?.kind === "first_basket" ? "first_basket" : "tipoff"}
+              anchorDetail={syncAnchor ? `${syncAnchor.label}${syncHint ? `, ${syncHint}` : ""}` : undefined}
               initialSeconds={storedMatch.syncPoint?.syncVideoTime}
               onConfirm={async (secs) => {
+                // Spread keeps the anchor (which moment the time refers to).
                 const sp: SyncPoint = {
+                  ...storedMatch.syncPoint,
                   syncVideoTime: secs,
                   syncRealWorldTime: storedMatch.syncPoint?.syncRealWorldTime ?? "",
                 };
@@ -560,13 +572,9 @@ export function MatchDetailPage() {
           ) : (
             <div className="space-y-1.5">
               <Label htmlFor="sync-point" className="text-xs text-muted-foreground">
-                Video time at tip-off (MM:SS)
+                Video time at {anchorNoun} (MM:SS)
               </Label>
-              {syncHint && (
-                <p className="text-xs text-primary">
-                  Tip-off real-world time was <strong>{syncHint}</strong> — enter the video timestamp for that moment.
-                </p>
-              )}
+              {anchorSentence && <p className="text-xs text-primary">{anchorSentence}</p>}
               <div className="flex items-center gap-3">
                 <Input
                   id="sync-point"
@@ -579,7 +587,7 @@ export function MatchDetailPage() {
                     const secs = parseMMSS(syncInput);
                     if (secs === null) return;
                     const sp: SyncPoint | null = storedMatch.syncPoint
-                      ? { syncVideoTime: secs, syncRealWorldTime: storedMatch.syncPoint.syncRealWorldTime }
+                      ? { ...storedMatch.syncPoint, syncVideoTime: secs }
                       : null;
                     if (sp) {
                       updateSyncPoint(matchId, sp)
