@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { trackEvent } from "@/lib/analytics";
 import { Film, X, Loader2, Search, ChevronRight } from "lucide-react";
 import { GeneratingSession } from "@/components/generating-session";
@@ -231,10 +231,15 @@ export function UploadZone({
   // and re-resolve the current selection by id when the served catalogue
   // replaces the bundled one — otherwise selectedSeason keeps pointing at the
   // old object, and at whatever competitionId it carried.
+  // "My recorded games" is in the list before the club catalogue arrives, so
+  // it must never win the default by being first; it is only kept as the
+  // selection when the user chose it.
+  const leaguePickedByUser = useRef(false);
   useEffect(() => {
     if (leagueList.length === 0) return;
-    const league =
-      (selectedLeague && leagueList.find((l) => l.id === selectedLeague.id)) ?? leagueList[0];
+    const kept = selectedLeague ? leagueList.find((l) => l.id === selectedLeague.id) : undefined;
+    const firstReal = leagueList.find((l) => l.id !== VOICE_LEAGUE.id) ?? leagueList[0];
+    const league = kept && (leaguePickedByUser.current || kept.id !== VOICE_LEAGUE.id) ? kept : firstReal;
     const season =
       (selectedSeason && league.seasons.find((s) => s.id === selectedSeason.id)) ??
       league.seasons[0];
@@ -414,6 +419,7 @@ export function UploadZone({
 
   function handleLeagueChange(league: League) {
     if (selectedLeague && league.id === selectedLeague.id) return;
+    leaguePickedByUser.current = true;
     setSelectedLeague(league);
     setSelectedSeason(league.seasons[0] ?? null);
     setSelectedStage(null); // the stage effect fills it
