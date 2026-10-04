@@ -10,7 +10,7 @@ const c = () => createClient();
 
 // Import and delete both move the monthly quota — announce them so the
 // always-mounted plan badge (use-import-quota) can re-count.
-export const saveMatch = async (match: StoredMatch, opts?: { refreshEvents?: boolean }) => {
+export const saveMatch = async (match: StoredMatch, opts?: { refreshEvents?: boolean; replaceEvents?: boolean }) => {
   await db.saveMatch(c(), match, opts);
   window.dispatchEvent(new CustomEvent("matches-changed"));
 };

@@ -129,6 +129,14 @@ export async function saveMatch(
      * (match_id, event_id) keys, so playlist clips are unaffected.
      */
     refreshEvents?: boolean;
+    /**
+     * Delete the match's existing events first. Only for a change of
+     * play-by-play source (league feed ↔ a stat keeper's session, or one
+     * keeper to another): their event ids overlap but mean different plays,
+     * so an upsert would leave a mix. Clips keyed on the old ids go stale and
+     * shipped copies are invalidated, exactly as a re-sync does.
+     */
+    replaceEvents?: boolean;
   }
 ): Promise<void> {
   const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -176,6 +184,12 @@ export async function saveMatch(
         "This organization's license has expired — importing is paused until it's renewed."
       );
     throw new Error(`Failed to save match: ${matchError.message}`);
+  }
+
+  if (opts?.replaceEvents) {
+    const { error: deleteError } = await supabase.from("play_by_play_events").delete().eq("match_id", match.id);
+    if (deleteError) throw new Error(`Failed to replace events: ${deleteError.message}`);
+    await invalidateShippedClips(supabase, match.id);
   }
 
   if (match.events.length > 0) {
@@ -230,13 +244,13 @@ export async function findMatchBySourceGame(
   supabase: SupabaseClient,
   sourceGameId: string,
   orgId?: string
-): Promise<{ id: string; title: string; videoUrl?: string; syncPoint?: SyncPoint } | null> {
+): Promise<{ id: string; title: string; videoUrl?: string; syncPoint?: SyncPoint; statsSessionId: string | null } | null> {
   const uid = await currentUserId(supabase);
   if (!uid) return null;
 
   let query = supabase
     .from("matches")
-    .select("id, title, video_url, sync_point")
+    .select("id, title, video_url, sync_point, stats_session_id")
     .eq("user_id", uid)
     .eq("source_game_id", sourceGameId);
   if (orgId) query = query.eq("org_id", orgId);
@@ -245,12 +259,19 @@ export async function findMatchBySourceGame(
     .order("created_at", { ascending: false })
     .limit(1);
   if (error || !data || data.length === 0) return null;
-  const row = data[0] as { id: string; title: string; video_url: string | null; sync_point: SyncPoint | null };
+  const row = data[0] as {
+    id: string;
+    title: string;
+    video_url: string | null;
+    sync_point: SyncPoint | null;
+    stats_session_id?: string | null;
+  };
   return {
     id: row.id,
     title: row.title,
     videoUrl: row.video_url ?? undefined,
     syncPoint: row.sync_point ?? undefined,
+    statsSessionId: row.stats_session_id ?? null,
   };
 }
 

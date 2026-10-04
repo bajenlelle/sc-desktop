@@ -294,7 +294,7 @@ export function UploadZone({
   const [fetchError, setFetchError] = useState<string | null>(null);
   // The same fixture already imported into this space — re-importing updates
   // that row in place instead of creating an identically-named duplicate.
-  const [existingMatch, setExistingMatch] = useState<{ id: string; title: string } | null>(null);
+  const [existingMatch, setExistingMatch] = useState<{ id: string; title: string; statsSessionId: string | null } | null>(null);
   // Finalised stat-keeper sessions per schedule row ("Stats available"), and
   // which one — if any — the events are taken from. null = the league feed.
   const [statsByGame, setStatsByGame] = useState<Map<string, StatSessionSummary[]>>(new Map());
@@ -396,7 +396,7 @@ export function UploadZone({
     let cancelled = false;
     findMatchBySourceGame(uuid, activeOrgId ?? undefined)
       .then((m) => {
-        if (!cancelled) setExistingMatch(m ? { id: m.id, title: m.title } : null);
+        if (!cancelled) setExistingMatch(m ? { id: m.id, title: m.title, statsSessionId: m.statsSessionId } : null);
       })
       .catch(() => {
         if (!cancelled) setExistingMatch(null);
@@ -588,14 +588,18 @@ export function UploadZone({
       seasonId: selectedSeason?.id,
       stageId: selectedStage?.id,
       orgId: activeOrgId ?? undefined,
-      // Which keeper's session the events came from (undefined = league feed),
-      // and its revision so the game can show "stats updated since import".
-      statsSessionId: statsSessionId ?? undefined,
+      // Which keeper's session the events came from (null = league feed; an
+      // explicit null clears a previous session on re-import), and its
+      // revision so the game can show "stats updated since import".
+      statsSessionId: statsSessionId ?? (existingMatch ? null : undefined),
       sourceRevision: statsSessionRevision ?? undefined,
     };
+    // Switching source (feed ↔ keeper, or keeper ↔ keeper) replaces the
+    // events: the ids overlap but describe different plays.
+    const sourceChanged = !!existingMatch && existingMatch.statsSessionId !== statsSessionId;
 
     try {
-      await saveMatch(storedMatch, { refreshEvents: !!existingMatch });
+      await saveMatch(storedMatch, { refreshEvents: !!existingMatch, replaceEvents: sourceChanged });
       trackEvent('game_synced', {
         game_id: matchId,
         has_video: !!videoPath,

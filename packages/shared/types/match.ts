@@ -245,7 +245,7 @@ export interface StoredMatch {
    * the league feed; the game identity (`sourceGameId`) stays official so
    * quota and dedupe are unaffected. Drives provider-specific defaults.
    */
-  statsSessionId?: string;
+  statsSessionId?: string | null;
   /** The session's revision at import time; a newer revision means "stats updated since import". */
   sourceRevision?: number;
 }
