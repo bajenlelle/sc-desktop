@@ -21,6 +21,22 @@ Voice needs a real iPhone (iOS 17+, Swedish dictation downloaded); the simulator
 no on-device recognition. The tap pad works everywhere. `MockRecognizer`
 (`src/features/stat-keeper/recognizer/mock.ts`) drives the live screen without a mic.
 
+### Toolchain
+
+Expo SDK 57 requires **Xcode 26.4 or newer** (Swift 6.3). Older Xcode 26.x fails while
+compiling `expo-modules-jsi` from source (`'weak' must be a mutable variable` and
+`SWIFT_RETURNS_RETAINED ... not a SWIFT_SHARED_REFERENCE type`). Upgrade Xcode; EAS
+builds are unaffected. Stopgap for a local dev-client build on Xcode 26.0–26.3, re-run
+after every `npm install` (it edits `node_modules` only):
+
+```bash
+cd ../..   # repo root
+grep -rl 'weak let runtime' node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI \
+  | xargs perl -pi -e 's/^(\s*)((?:private|internal|public) )?weak let runtime/$1$2nonisolated(unsafe) weak var runtime/'
+perl -pi -e 's/^(\s*)SWIFT_RETURNS_RETAINED RuntimeScheduler\(/$1RuntimeScheduler(/' \
+  node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI-Cxx/include/RuntimeScheduler.h
+```
+
 ## One-time setup before the first TestFlight build
 
 1. `eas init` in this folder (new EAS project; `extra.eas.projectId` + `updates.url` land in app.json).
@@ -32,6 +48,5 @@ no on-device recognition. The tap pad works everywhere. `MockRecognizer`
 
 ## Not yet built (see plan, phase 1 → 2)
 
-Linking a game to the Profixio schedule from the phone (today games are unlinked and
-appear under "My recorded games" on the desktop), the post-game re-process pass,
+Genius (national league) schedules in the game picker, the post-game re-process pass,
 audio upload, Android.
