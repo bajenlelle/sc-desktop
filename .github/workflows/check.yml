@@ -74,6 +74,10 @@ jobs:
         working-directory: apps/mobile
         run: npm run typecheck
 
+      - name: Type-check stats
+        working-directory: apps/stats
+        run: npm run typecheck
+
   shared:
     runs-on: ubuntu-latest
     steps:
