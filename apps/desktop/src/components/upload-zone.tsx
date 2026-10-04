@@ -952,11 +952,19 @@ export function UploadZone({
         </p>
       )}
 
-      {existingMatch && (
+      {existingMatch && existingMatch.statsSessionId === statsSessionId && (
         <p className="rounded-md bg-primary/5 border border-primary/20 px-4 py-3 text-sm text-foreground">
           Already in your library as{" "}
           <span className="font-semibold">{existingMatch.title}</span>. Importing again
           updates that game — events and rosters refresh, and your playlists keep working.
+        </p>
+      )}
+      {existingMatch && existingMatch.statsSessionId !== statsSessionId && (
+        <p className="rounded-md bg-amber-500/10 border border-amber-500/30 px-4 py-3 text-sm text-foreground">
+          Already in your library as{" "}
+          <span className="font-semibold">{existingMatch.title}</span> with a different
+          play-by-play source. Importing again replaces its events with this source, so
+          playlist clips cut from the previous events will no longer match.
         </p>
       )}
 
