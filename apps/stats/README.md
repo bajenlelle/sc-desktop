@@ -37,6 +37,20 @@ perl -pi -e 's/^(\s*)SWIFT_RETURNS_RETAINED RuntimeScheduler\(/$1RuntimeSchedule
   node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI-Cxx/include/RuntimeScheduler.h
 ```
 
+An iPhone running a newer iOS than that Xcode supports (no Developer Disk Image) cannot
+be targeted by `expo run:ios --device` or `devicectl`. Build for a generic device and
+install over USB instead (Wi‑Fi pairing is not enough; answer the keychain prompt for the
+Apple Development key with "Always allow"):
+
+```bash
+xcodebuild -workspace ios/ScoutableStats.xcworkspace -scheme ScoutableStats \
+  -configuration Debug -destination 'generic/platform=iOS' -allowProvisioningUpdates build
+brew install ios-deploy   # once
+ios-deploy --bundle ~/Library/Developer/Xcode/DerivedData/ScoutableStats-*/Build/Products/Debug-iphoneos/ScoutableStats.app
+```
+
+Then open the app on the phone and point it at the Metro server (`npx expo start --dev-client`).
+
 ## One-time setup before the first TestFlight build
 
 1. `eas init` in this folder (new EAS project; `extra.eas.projectId` + `updates.url` land in app.json).
