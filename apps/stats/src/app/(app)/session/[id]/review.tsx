@@ -66,7 +66,7 @@ export default function Review() {
         <Pressable onPress={() => (isFinal ? router.replace("/games" as never) : router.back())}>
           <Text className="text-sm text-muted-foreground">‹ {isFinal ? "Games" : "Live"}</Text>
         </Pressable>
-        <Text className="font-sans-bold text-base text-foreground" numberOfLines={1}>
+        <Text className="mx-3 flex-1 text-center font-sans-bold text-base text-foreground" numberOfLines={1}>
           {s.homeName} – {s.awayName}
         </Text>
         <Pressable onPress={confirmDelete}>
@@ -83,7 +83,9 @@ export default function Review() {
             {s.tipoffAt ? "Tip-off marked." : "Tip-off not marked — publish needs it or at least one made basket of yours."}
             {" "}
             {isFinal
-              ? `Revision ${s.revision}. On your computer, open Scoutable → Import game → “My recorded games”.`
+              ? s.sourceGameId
+                ? `Revision ${s.revision}. On your computer, import this game from its league in Scoutable — it now shows “Stats available”.`
+                : `Revision ${s.revision}. On your computer, open Scoutable → Import game → “My recorded games”.`
               : "Publishing makes the stats available to everyone for this game."}
           </Text>
           {local.lastUploadError && <Text className="text-xs text-destructive">{local.lastUploadError}</Text>}
