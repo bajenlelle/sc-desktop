@@ -33,6 +33,8 @@ interface MatchRow {
   org_id: string | null;
   is_demo?: boolean;
   source_game_id?: string | null;
+  stats_session_id?: string | null;
+  source_revision?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -107,6 +109,8 @@ function rowToStoredMatch(row: MatchRow, events: EventRow[]): StoredMatch {
     orgId: row.org_id ?? undefined,
     isDemo: row.is_demo ?? false,
     sourceGameId: row.source_game_id ?? undefined,
+    statsSessionId: row.stats_session_id ?? undefined,
+    sourceRevision: row.source_revision ?? undefined,
     events: events.map(rowToEvent),
   };
 }
@@ -158,6 +162,12 @@ export async function saveMatch(
   }
   if (match.sourceGameId !== undefined) {
     matchData.source_game_id = match.sourceGameId;
+  }
+  if (match.statsSessionId !== undefined) {
+    matchData.stats_session_id = match.statsSessionId;
+  }
+  if (match.sourceRevision !== undefined) {
+    matchData.source_revision = match.sourceRevision;
   }
   const { error: matchError } = await supabase.from("matches").upsert(matchData, { onConflict: "id" });
   if (matchError) {
