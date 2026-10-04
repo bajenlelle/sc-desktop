@@ -8,6 +8,8 @@ import {
   defaultPreRollForMatches,
   matchProvider,
   seasonProvider,
+  VOICE_LEAGUE_ID,
+  VOICE_SOURCE_PREFIX,
 } from "../provider";
 
 describe("seasonProvider", () => {
@@ -35,6 +37,29 @@ describe("matchProvider", () => {
     expect(matchProvider({ sourceGameId: "2668882", leagueId: "sbl-herr" })).toBe("genius");
     expect(matchProvider({})).toBe("genius");
     expect(matchProvider({ sourceGameId: undefined, leagueId: undefined })).toBe("genius");
+  });
+
+  it("recognises an unlinked stat-keeper game by its voice: source id or league id", () => {
+    expect(matchProvider({ sourceGameId: `${VOICE_SOURCE_PREFIX}3f2a` })).toBe("voice");
+    expect(matchProvider({ leagueId: VOICE_LEAGUE_ID })).toBe("voice");
+  });
+
+  it("treats an official game imported with a keeper's session as voice (the events are the keeper's)", () => {
+    expect(matchProvider({ sourceGameId: "profixio:32578145", statsSessionId: "3f2a" })).toBe("voice");
+    expect(matchProvider({ sourceGameId: "2668882", statsSessionId: "3f2a" })).toBe("voice");
+    expect(matchProvider({ sourceGameId: "profixio:32578145", statsSessionId: undefined })).toBe("profixio");
+  });
+});
+
+describe("voice roll defaults", () => {
+  it("gives keeper-stamped games 12 s before and 4 s after — reaction time, not table lag", () => {
+    expect(defaultPreRoll({ sourceGameId: "profixio:1", statsSessionId: "s" })).toBe(12);
+    expect(defaultPostRoll({ sourceGameId: "voice:1" })).toBe(4);
+  });
+
+  it("still lets a Profixio game in the same playlist set the longer window", () => {
+    expect(defaultPreRollForMatches([{ sourceGameId: "voice:1" }, { sourceGameId: "profixio:2" }])).toBe(20);
+    expect(defaultPostRollForMatches([{ sourceGameId: "voice:1" }, { sourceGameId: "2" }])).toBe(4);
   });
 });
 

@@ -19,7 +19,12 @@
  *    wire shape by attaching stages client-side.
  */
 
-export type LeagueProvider = "genius" | "profixio";
+/**
+ * Where a match's play-by-play came from. "voice" = a stat keeper's phone
+ * session (lib/stat-session.ts); it is a match identity only, never a
+ * catalogue league served over the wire.
+ */
+export type LeagueProvider = "genius" | "profixio" | "voice";
 
 /** What the `profixio` function needs to address one league-season. */
 export interface ProfixioSeasonHandle {

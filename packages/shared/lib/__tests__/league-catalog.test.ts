@@ -187,6 +187,13 @@ describe("parseLeagueCatalog — Profixio seasons", () => {
     ).toBeNull();
   });
 
+  it("rejects 'voice' on the wire — stat-keeper games are never served as a catalogue league", () => {
+    expect(
+      parseLeagueCatalog([{ ...catalogLeague(), seasons: [{ id: "x", label: "x", provider: "voice" }] }]),
+    ).toBeNull();
+    expect(parseLeagueCatalog([{ ...catalogLeague(), provider: "voice" }])).toBeNull();
+  });
+
   it("still rejects a provider-less season without competitionId", () => {
     // Guards against a server accidentally dropping competitionId for Genius.
     expect(

@@ -240,6 +240,14 @@ export interface StoredMatch {
   isDemo?: boolean;
   /** The league API's stable game uuid — dedupes re-imports in the quota log. */
   sourceGameId?: string;
+  /**
+   * Set when the events came from a stat keeper's phone session rather than
+   * the league feed; the game identity (`sourceGameId`) stays official so
+   * quota and dedupe are unaffected. Drives provider-specific defaults.
+   */
+  statsSessionId?: string;
+  /** The session's revision at import time; a newer revision means "stats updated since import". */
+  sourceRevision?: number;
 }
 
 // --- Match -------------------------------------------------------------------
