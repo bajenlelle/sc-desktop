@@ -44,3 +44,7 @@ example
 
 .env
 /ios.local-backup
+
+# Continuous Native Generation: ios/ and android/ are produced by `expo run` / EAS
+ios/
+android/
