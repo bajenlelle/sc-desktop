@@ -176,11 +176,11 @@ export function GamePicker({
   }
 
   const header = (
-    <View className="flex-row items-center justify-between">
-      <Text className="font-sans-bold text-base text-foreground">
+    <View className="flex-row items-start justify-between gap-3">
+      <Text className="flex-1 font-sans-bold text-base text-foreground">
         {step === "league" ? "Which league?" : step === "category" ? `${league?.name} — which group?` : `${league?.name} · ${category?.name}`}
       </Text>
-      <Pressable onPress={step === "league" ? onCancel : () => { setStep(step === "game" ? "category" : "league"); setQuery(""); }}>
+      <Pressable className="shrink-0 pt-0.5" onPress={step === "league" ? onCancel : () => { setStep(step === "game" ? "category" : "league"); setQuery(""); }}>
         <Text className="text-sm text-muted-foreground">{step === "league" ? "Not listed" : "‹ Back"}</Text>
       </Pressable>
     </View>
@@ -243,6 +243,7 @@ export function GamePicker({
                 {c.matchCount != null && <Text className="text-xs text-muted-foreground">{c.matchCount} games</Text>}
               </Pressable>
             ))}
+            {categories.length === 0 && <Text className="py-2 text-sm text-muted-foreground">No groups with games in this season. Try another season or league.</Text>}
           </ScrollView>
         </View>
       )}
