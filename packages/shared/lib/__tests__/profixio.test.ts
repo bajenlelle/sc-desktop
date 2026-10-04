@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { eventLabel } from "../events";
-import { mapEventType, mapPublicEvent, mapPublicLineup, type ProfixioMatchResponse } from "../profixio-wire";
+import { mapEventType, mapPublicEvent, mapPublicLineup, type ProfixioMatchResponse, type ProfixioScheduleRow } from "../profixio-wire";
 import {
   FOUL_SUBTYPE_BY_TYPE_ID,
   assignGlobalPeriods,
@@ -10,6 +10,7 @@ import {
   classifyEvent,
   findProfixioSyncAnchor,
   findProfixioTipoff,
+  importableScheduleRows,
   normalizeProfixioEvents,
   parseProfixioSourceGameId,
   profixioRowToScheduleGame,
@@ -17,6 +18,7 @@ import {
   resolveSides,
   sortProfixioEvents,
   splitName,
+  unplayedGameIds,
 } from "../profixio";
 import sample from "./fixtures/profixio-sample.json";
 
@@ -296,5 +298,38 @@ describe("schedule rows and categories", () => {
       { id: "1172071", label: "Nivå 2A", categoryId: 1172071 },
       { id: "1172076", label: "Nivå 1", categoryId: 1172076 },
     ]);
+  });
+});
+
+describe("importableScheduleRows", () => {
+  const row = (matchId: number, hasResult: boolean): ProfixioScheduleRow => ({
+    matchId,
+    kickoff: "2026-11-22T12:30:00Z",
+    homeName: "Hammarö Basket P09/10",
+    awayName: "KFUM Karlskoga",
+    homeScore: hasResult ? 50 : null,
+    awayScore: hasResult ? 40 : null,
+    hasResult,
+    hasLivescore: false,
+    winner: hasResult ? "H" : null,
+    venue: "",
+    matchUrl: "",
+    homeLogo: "",
+    awayLogo: "",
+  });
+
+  it("keeps played rows and unplayed rows that have published stats, in that order of input", () => {
+    const rows = [row(1, true), row(2, false), row(3, false)];
+    const withStats = new Set([profixioSourceGameId(3)]);
+    expect(importableScheduleRows(rows, withStats).map((r) => r.matchId)).toEqual([1, 3]);
+  });
+
+  it("drops every unplayed row when nobody kept stats", () => {
+    expect(importableScheduleRows([row(2, false)], new Set())).toEqual([]);
+  });
+
+  it("asks only about the unplayed rows", () => {
+    const rows = [row(1, true), row(2, false)];
+    expect(unplayedGameIds(rows)).toEqual([profixioSourceGameId(2)]);
   });
 });

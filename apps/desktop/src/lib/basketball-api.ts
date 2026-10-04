@@ -28,8 +28,10 @@ import {
   findProfixioSyncAnchor,
   normalizeProfixioEvents,
   parseProfixioSourceGameId,
+  importableScheduleRows,
   profixioRowToScheduleGame,
   resolveSides,
+  unplayedGameIds,
 } from "@scoutable/shared/lib/profixio";
 import { seasonProvider, VOICE_LEAGUE_ID, VOICE_SOURCE_PREFIX } from "@scoutable/shared/lib/provider";
 import { statSessionToScheduleGame, voiceSessionToGameData } from "@scoutable/shared/lib/stat-session";
@@ -204,9 +206,11 @@ export async function getLeagueSchedule(
     if (!season.profixio || stage.categoryId == null) return [];
     const res = await getProfixioSchedule(createClient(), season.profixio.leagueId, stage.categoryId);
     if (!res.ok) throw new Error(`Failed to fetch schedule: ${res.error}`);
-    // Only played games: the protocol fills in during the game, so an
-    // unplayed row can't become clips yet.
-    return res.data.rows.filter((r) => r.hasResult).map(profixioRowToScheduleGame).sort(byNewest);
+    // Played games, plus unplayed rows someone already published stats for
+    // (a keeper usually publishes before the table closes the protocol).
+    const pending = unplayedGameIds(res.data.rows);
+    const withStats = pending.length > 0 ? await listStatSessionsForGames(createClient(), pending).catch(() => new Map()) : new Map();
+    return importableScheduleRows(res.data.rows, new Set(withStats.keys())).map(profixioRowToScheduleGame).sort(byNewest);
   }
 
   if (!season.competitionId) return [];

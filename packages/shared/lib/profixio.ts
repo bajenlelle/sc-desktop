@@ -329,6 +329,21 @@ export function buildProfixioRosters(
 // ---------------------------------------------------------------------------
 
 /** Wire schedule row → the schedule row the import UI renders. */
+/** Game ids (`profixio:<matchId>`) of the rows Profixio has no result for yet. */
+export function unplayedGameIds(rows: ProfixioScheduleRow[]): string[] {
+  return rows.filter((r) => !r.hasResult).map((r) => profixioSourceGameId(r.matchId));
+}
+
+/**
+ * The rows the import page can offer: played games (the protocol fills in
+ * during the game) plus unplayed rows for which someone has already published
+ * stat sessions — a keeper often publishes before the table closes the
+ * protocol, and some tables never do. Input order is kept.
+ */
+export function importableScheduleRows(rows: ProfixioScheduleRow[], gameIdsWithStats: ReadonlySet<string>): ProfixioScheduleRow[] {
+  return rows.filter((r) => r.hasResult || gameIdsWithStats.has(profixioSourceGameId(r.matchId)));
+}
+
 export function profixioRowToScheduleGame(row: ProfixioScheduleRow): ScheduleGame {
   const status = row.hasResult ? "COMPLETE" : "SCHEDULED";
   return {
