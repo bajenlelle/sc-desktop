@@ -6,6 +6,7 @@ import type { RosterEntry } from "@scoutable/shared/types/stat-session";
 import { useAuth } from "@/lib/auth-context";
 import { useSessions } from "@/features/stat-keeper/store";
 import { RosterEditor } from "@/features/stat-keeper/components";
+import { GamePicker, type GameLink } from "@/features/stat-keeper/game-picker";
 import { ExpoSpeechRecognizer } from "@/features/stat-keeper/recognizer/expo-speech";
 import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
@@ -13,13 +14,15 @@ import { Input } from "@/components/Input";
 const today = () => new Date().toISOString().slice(0, 10);
 
 /**
- * Game setup. Linking to the league schedule (Profixio) comes next; for now
- * the keeper types the teams, and the desktop lists the game under
- * "My recorded games".
+ * Game setup. Linked to an official Profixio game when the keeper picks one
+ * (it then shows as "Stats available" on that game in the desktop import);
+ * otherwise a friendly, listed under "My recorded games".
  */
 export default function NewGame() {
   const { create, recallRoster, rememberRoster } = useSessions();
   const { keeperLabel } = useAuth();
+  const [link, setLink] = useState<GameLink | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(true);
   const [ourName, setOurName] = useState("");
   const [oppName, setOppName] = useState("");
   const [ourSide, setOurSide] = useState<1 | 2>(1);
@@ -66,9 +69,11 @@ export default function NewGame() {
     try {
       await rememberRoster(ourName, cleanRoster);
       const id = await create({
-        sourceGameId: null,
-        homeName: ourSide === 1 ? ourName.trim() : oppName.trim(),
-        awayName: ourSide === 1 ? oppName.trim() : ourName.trim(),
+        sourceGameId: link?.sourceGameId ?? null,
+        leagueId: link?.leagueId ?? null,
+        stageId: link?.stageId ?? null,
+        homeName: link ? link.homeName : ourSide === 1 ? ourName.trim() : oppName.trim(),
+        awayName: link ? link.awayName : ourSide === 1 ? oppName.trim() : ourName.trim(),
         ourSide,
         trackingMode: trackBoth ? "both" : "ours",
         homeRoster: ourSide === 1 ? cleanRoster : [],
@@ -96,20 +101,67 @@ export default function NewGame() {
             </Pressable>
           </View>
 
+          {pickerOpen ? (
+            <GamePicker
+              onPick={(l, ours) => {
+                setLink(l);
+                setPickerOpen(false);
+                setGameDate(l.gameDate);
+                if (ours === l.homeName) {
+                  setOurSide(1);
+                  setOurName(l.homeName);
+                  setOppName(l.awayName);
+                } else if (ours === l.awayName) {
+                  setOurSide(2);
+                  setOurName(l.awayName);
+                  setOppName(l.homeName);
+                }
+              }}
+              onCancel={() => setPickerOpen(false)}
+            />
+          ) : (
+            <View className="rounded-xl bg-card p-3">
+              {link ? (
+                <>
+                  <Text className="text-xs text-muted-foreground">League game</Text>
+                  <Text className="font-sans-bold text-base text-foreground">
+                    {link.homeName} – {link.awayName}
+                  </Text>
+                  <Text className="text-xs text-muted-foreground">
+                    {new Date(link.kickoff).toLocaleString("sv-SE", { dateStyle: "medium", timeStyle: "short" })} · shows as “Stats available” on this game when you publish
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text className="font-sans-bold text-base text-foreground">Friendly / not in a league</Text>
+                  <Text className="text-xs text-muted-foreground">Appears under “My recorded games” on your computer.</Text>
+                </>
+              )}
+              <Pressable onPress={() => setPickerOpen(true)} className="mt-2 self-start">
+                <Text className="text-sm text-primary">{link ? "Change game" : "Link to a league game"}</Text>
+              </Pressable>
+            </View>
+          )}
+
           <View className="gap-3">
-            <Input label="Your team" value={ourName} onChangeText={setOurName} placeholder="Fryshuset Svart" />
-            <Input label="Opponent" value={oppName} onChangeText={setOppName} placeholder="Örebro" />
+            <Input label="Your team" value={ourName} onChangeText={setOurName} placeholder="Fryshuset Svart" editable={!link} />
+            <Input label="Opponent" value={oppName} onChangeText={setOppName} placeholder="Örebro" editable={!link} />
             <View>
               <Text className="mb-1 text-xs text-muted-foreground">Your team plays</Text>
               <View className="flex-row gap-2">
                 {([1, 2] as const).map((s) => (
-                  <Pressable key={s} onPress={() => setOurSide(s)} className={`rounded-full px-4 py-2 ${ourSide === s ? "bg-primary" : "bg-muted"}`}>
+                  <Pressable
+                    key={s}
+                    disabled={!!link}
+                    onPress={() => setOurSide(s)}
+                    className={`rounded-full px-4 py-2 ${ourSide === s ? "bg-primary" : "bg-muted"} ${link ? "opacity-60" : ""}`}
+                  >
                     <Text className={ourSide === s ? "text-primary-foreground" : "text-foreground"}>{s === 1 ? "Home" : "Away"}</Text>
                   </Pressable>
                 ))}
               </View>
             </View>
-            <Input label="Date" value={gameDate} onChangeText={setGameDate} placeholder="YYYY-MM-DD" autoCapitalize="none" />
+            <Input label="Date" value={gameDate} onChangeText={setGameDate} placeholder="YYYY-MM-DD" autoCapitalize="none" editable={!link} />
           </View>
 
           <View className="gap-2">
