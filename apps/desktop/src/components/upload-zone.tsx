@@ -14,7 +14,16 @@ import type { OrgMembership } from "@/types/org";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
 import { ImportSuccessDialog, type ImportSummary } from "@/components/import-success-dialog";
 import { NT_LEAGUE_IDS } from "@scoutable/shared/lib/plan-tier";
-import { fetchGameData, getLeagueSchedule, getSeasonStages, NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
+import {
+  fetchGameData,
+  getLeagueSchedule,
+  getSeasonStages,
+  getStatsAvailability,
+  NATIONAL_TEAM_LEAGUES,
+  VOICE_LEAGUE,
+  type StatSessionSummary,
+} from "@/lib/basketball-api";
+import { matchProvider, VOICE_SOURCE_PREFIX } from "@scoutable/shared/lib/provider";
 import { seasonProvider } from "@scoutable/shared/lib/provider";
 import { useLeagues } from "@/lib/use-leagues";
 import { Sentry } from "@/lib/sentry";
@@ -61,16 +70,72 @@ function basename(path: string): string {
 }
 
 
+/** Which play-by-play to import for a game somebody recorded in the Stats app. */
+function SourceStep({
+  sessions,
+  activeId,
+  disabled,
+  onPick,
+}: {
+  sessions: StatSessionSummary[];
+  activeId: string | null;
+  disabled: boolean;
+  onPick: (sessionId: string | null) => void;
+}) {
+  const option = (key: string, active: boolean, title: string, detail: string, pick: () => void) => (
+    <button
+      key={key}
+      type="button"
+      disabled={disabled}
+      onClick={pick}
+      className={cn(
+        "flex w-full flex-col items-start rounded-md border px-3 py-2 text-left transition-colors",
+        active ? "border-primary bg-primary/10" : "border-border hover:bg-muted",
+      )}
+    >
+      <span className="text-sm font-medium text-foreground">{title}</span>
+      <span className="text-xs text-muted-foreground">{detail}</span>
+    </button>
+  );
+  return (
+    <div className="space-y-2 rounded-lg border border-border p-3">
+      <p className="text-xs font-medium text-foreground">Play-by-play source</p>
+      <p className="text-xs text-muted-foreground">
+        Someone recorded this game in the Scoutable Stats app. Their events include misses, rebounds and
+        assists; the official scoresheet has points, fouls and timeouts only.
+      </p>
+      <div className="grid gap-1.5">
+        {option("official", activeId === null, "Official scoresheet", "Points, fouls and timeouts from the league", () =>
+          onPick(null),
+        )}
+        {sessions.map((s) => {
+          const scope = s.trackingMode === "both" ? "both teams" : `${s.ourSide === 1 ? s.homeName : s.awayName} only`;
+          const when = s.finalizedAt
+            ? new Date(s.finalizedAt).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" })
+            : "";
+          const detail = [scope, `${s.eventCount} events`, s.hasTipoff ? "tip-off marked" : null, when]
+            .filter(Boolean)
+            .join(" · ");
+          return option(s.id, activeId === s.id, s.keeperLabel, detail, () => onPick(s.id));
+        })}
+      </div>
+    </div>
+  );
+}
+
 function GameRow({
   game,
   selected,
   loading,
   onClick,
+  statsCount = 0,
 }: {
   game: ScheduleGame;
   selected: boolean;
   loading: boolean;
   onClick: () => void;
+  /** Finalised stat-keeper sessions for this game — shows the "Stats available" pill. */
+  statsCount?: number;
 }) {
   const date = new Date(game.rawStartDateTime).toLocaleDateString("sv-SE", {
     day: "numeric",
@@ -91,6 +156,11 @@ function GameRow({
       )}
     >
       <div className="min-w-[80px] text-xs text-muted-foreground shrink-0">{date}</div>
+      {statsCount > 0 && (
+        <span className="shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+          Stats available{statsCount > 1 ? ` (${statsCount})` : ""}
+        </span>
+      )}
       <div className="flex flex-1 items-center gap-2 min-w-0">
         {game.homeTeamInfo.icon && (
           <img src={game.homeTeamInfo.icon} alt="" className="h-5 w-5 shrink-0 object-contain" />
@@ -138,6 +208,8 @@ export function UploadZone({
   const leagueList = useMemo(
     () => [
       ...(hasClubAccess ? clubLeagues : []),
+      // Anyone can have recorded a game on their phone — personal spaces too.
+      VOICE_LEAGUE,
       ...(hasNtAccess ? NATIONAL_TEAM_LEAGUES : []),
     ],
     [clubLeagues, hasClubAccess, hasNtAccess],
@@ -153,6 +225,7 @@ export function UploadZone({
   const [stages, setStages] = useState<Stage[]>([]);
   const [stageStatus, setStageStatus] = useState<"idle" | "loading" | "error">("idle");
   const isProfixioSeason = !!selectedSeason && seasonProvider(selectedSeason) === "profixio";
+  const isVoiceSeason = !!selectedSeason && seasonProvider(selectedSeason) === "voice";
 
   // Select the first league once the list arrives (access props load async),
   // and re-resolve the current selection by id when the served catalogue
@@ -216,6 +289,11 @@ export function UploadZone({
   // The same fixture already imported into this space — re-importing updates
   // that row in place instead of creating an identically-named duplicate.
   const [existingMatch, setExistingMatch] = useState<{ id: string; title: string } | null>(null);
+  // Finalised stat-keeper sessions per schedule row ("Stats available"), and
+  // which one — if any — the events are taken from. null = the league feed.
+  const [statsByGame, setStatsByGame] = useState<Map<string, StatSessionSummary[]>>(new Map());
+  const [statsSessionId, setStatsSessionId] = useState<string | null>(null);
+  const [statsSessionRevision, setStatsSessionRevision] = useState<number | null>(null);
 
   // Match data state
   const [matchTitle, setMatchTitle] = useState("");
@@ -276,11 +354,18 @@ export function UploadZone({
     let cancelled = false;
     setScheduleStatus("loading");
     setScheduleGames([]);
+    setStatsByGame(new Map());
     getLeagueSchedule(selectedLeague, selectedSeason, selectedStage)
       .then((games) => {
         if (cancelled) return;
         setScheduleGames(games);
         setScheduleStatus("idle");
+        // The badge is a bonus: a failure here must never hide the schedule.
+        getStatsAvailability(games.map((g) => g.uuid))
+          .then((m) => {
+            if (!cancelled) setStatsByGame(m);
+          })
+          .catch((err) => console.warn("[stats availability]", err));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -353,8 +438,23 @@ export function UploadZone({
     setSearchQuery("");
   }
 
-  async function handleSelectGame(game: ScheduleGame) {
+  /**
+   * `source` picks the play-by-play: undefined = default (a keeper's session
+   * when one exists for a Profixio game, which has no misses/rebounds in its
+   * official feed; the league feed otherwise), "official", or a session id.
+   */
+  async function handleSelectGame(game: ScheduleGame, source?: "official" | string) {
     if (!selectedLeague || !selectedSeason) return;
+    const sessions = statsByGame.get(game.uuid) ?? [];
+    const isUnlinked = game.uuid.startsWith(VOICE_SOURCE_PREFIX);
+    let sessionId: string | null;
+    if (source === "official") sessionId = null;
+    else if (source !== undefined) sessionId = source;
+    else if (!isUnlinked && isProfixioSeason && sessions.length > 0) {
+      sessionId = [...sessions].sort((a, b) => b.eventCount - a.eventCount)[0].id;
+    } else sessionId = null;
+    setStatsSessionId(sessionId);
+    setStatsSessionRevision(null);
     setSelectedGame(game);
     setFetchStatus("loading");
     setFetchError(null);
@@ -374,7 +474,13 @@ export function UploadZone({
     }
 
     try {
-      const data = await fetchGameData(selectedSeason, game, selectedStage);
+      const data = await fetchGameData(selectedSeason, game, selectedStage, {
+        statsSessionId: sessionId ?? undefined,
+      });
+      if (data.statsSession) {
+        setStatsSessionId(data.statsSession.id);
+        setStatsSessionRevision(data.statsSession.revision);
+      }
 
       const home = data.homeName || fallbackHome;
       const away = data.awayName || fallbackAway;
@@ -475,6 +581,10 @@ export function UploadZone({
       seasonId: selectedSeason?.id,
       stageId: selectedStage?.id,
       orgId: activeOrgId ?? undefined,
+      // Which keeper's session the events came from (undefined = league feed),
+      // and its revision so the game can show "stats updated since import".
+      statsSessionId: statsSessionId ?? undefined,
+      sourceRevision: statsSessionRevision ?? undefined,
     };
 
     try {
@@ -486,7 +596,7 @@ export function UploadZone({
         has_play_by_play: playByPlayEvents.length > 0,
         event_count: playByPlayEvents.length,
         reimport: !!existingMatch,
-        provider: selectedSeason ? seasonProvider(selectedSeason) : "genius",
+        provider: matchProvider(storedMatch),
       })
     } catch (err) {
       setSubmitStatus("error");
@@ -600,6 +710,7 @@ export function UploadZone({
                 Failed to load categories. Check your connection.
               </p>
             ) : selectedGame ? (
+              <div className="space-y-2">
               <div className="flex items-center justify-between gap-3 rounded-lg bg-primary/10 px-3 py-2.5">
                 <div className="flex flex-1 items-center gap-2 min-w-0">
                   {selectedGame.homeTeamInfo.icon && (
@@ -630,6 +741,15 @@ export function UploadZone({
                 >
                   Change
                 </Button>
+              </div>
+              {(statsByGame.get(selectedGame.uuid)?.length ?? 0) > 0 && (
+                <SourceStep
+                  sessions={statsByGame.get(selectedGame.uuid) ?? []}
+                  activeId={statsSessionId}
+                  disabled={fetchStatus === "loading"}
+                  onPick={(id) => handleSelectGame(selectedGame, id ?? "official")}
+                />
+              )}
               </div>
             ) : (
               <>
@@ -662,7 +782,9 @@ export function UploadZone({
                       // An empty schedule (early in a season, before any game
                       // is COMPLETE) reads differently from a search miss.
                       <p className="py-6 text-center text-sm text-muted-foreground">
-                        {scheduleGames.length === 0 && isProfixioSeason && selectedStage && stages.length > 1
+                        {scheduleGames.length === 0 && isVoiceSeason
+                          ? "No recorded games yet — finish a game in the Scoutable Stats app and it appears here. Games linked to a league show up on that league's schedule instead."
+                          : scheduleGames.length === 0 && isProfixioSeason && selectedStage && stages.length > 1
                           ? `No played games in ${selectedStage.label} yet — pick another category above.`
                           : scheduleGames.length === 0 && (selectedLeague?.seasons.length ?? 0) > 1
                             ? `No completed games in ${selectedSeason?.label ?? "this season"} yet — switch season above to import earlier games.`
@@ -676,6 +798,7 @@ export function UploadZone({
                           selected={false}
                           loading={false}
                           onClick={() => handleSelectGame(game)}
+                          statsCount={statsByGame.get(game.uuid)?.length ?? 0}
                         />
                       ))
                     )}

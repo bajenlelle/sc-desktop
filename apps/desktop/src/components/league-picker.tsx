@@ -8,20 +8,24 @@ import {
   type League,
 } from "@/lib/basketball-api";
 import { cn } from "@/lib/utils";
+import { VOICE_LEAGUE_ID } from "@scoutable/shared/lib/provider";
 
 const NT_GROUP = "National teams";
+const VOICE_GROUP = "Your games";
 
 const NT_LEAGUE_IDS = new Set(NATIONAL_TEAM_LEAGUES.map((l) => l.id));
 
 function groupNameFor(league: League): string {
+  if (league.id === VOICE_LEAGUE_ID) return VOICE_GROUP;
   if (NT_LEAGUE_IDS.has(league.id)) return NT_GROUP;
   // District leagues (Profixio) group by district — "Herrar U19" exists in
   // every one of them — national leagues by country.
   return league.region ?? COUNTRY_NAMES[league.country] ?? league.country;
 }
 
-/** Countries first, then districts alphabetically, national teams last. */
+/** Your own recordings first, then countries, districts alphabetically, national teams last. */
 function groupRank(groupName: string, leagues: League[]): number {
+  if (groupName === VOICE_GROUP) return -1;
   if (groupName === NT_GROUP) return 2;
   return leagues.every((l) => l.region) ? 1 : 0;
 }

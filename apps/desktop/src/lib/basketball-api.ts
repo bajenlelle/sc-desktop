@@ -31,11 +31,18 @@ import {
   profixioRowToScheduleGame,
   resolveSides,
 } from "@scoutable/shared/lib/profixio";
-import { seasonProvider } from "@scoutable/shared/lib/provider";
+import { seasonProvider, VOICE_LEAGUE_ID, VOICE_SOURCE_PREFIX } from "@scoutable/shared/lib/provider";
+import { statSessionToScheduleGame, voiceSessionToGameData } from "@scoutable/shared/lib/stat-session";
+import {
+  getStatSession,
+  listMyStatSessions,
+  listStatSessionsForGames,
+  type StatSessionSummary,
+} from "@scoutable/shared/lib/stat-sessions-db";
 import type { PlayByPlayEvent } from "@/types/match";
 import { PLAYOFF, REGULAR, type League, type Season, type Stage } from "@scoutable/shared/types/league";
 
-export type { ScheduleGame };
+export type { ScheduleGame, StatSessionSummary };
 export type { League, Season, Stage };
 
 const season = (id: string, label: string, competitionId: number): Season => ({
@@ -118,6 +125,20 @@ export const NATIONAL_TEAM_LEAGUES: League[] = [
   },
 ];
 
+/**
+ * Games the signed-in user recorded with the Scoutable Stats app but could
+ * not link to an official fixture (friendlies, tournaments). Linked sessions
+ * surface on their league's schedule instead ("Stats available"). Never
+ * served by a catalogue; appended client-side like the national teams.
+ */
+export const VOICE_LEAGUE: League = {
+  id: VOICE_LEAGUE_ID,
+  name: "My recorded games",
+  country: "SE",
+  provider: "voice",
+  seasons: [{ id: "all", label: "All games", provider: "voice", stages: [{ id: "sessions", label: "Sessions" }] }],
+};
+
 /** Display names for the country codes used above. Drives picker grouping. */
 export const COUNTRY_NAMES: Record<string, string> = {
   SE: "Sweden",
@@ -168,6 +189,17 @@ export async function getLeagueSchedule(
   season: Season,
   stage: Stage,
 ): Promise<ScheduleGame[]> {
+  if (seasonProvider(season) === "voice") {
+    // Only finished sessions: a live one has no anchor guarantee yet. Scores
+    // need the events, which this list doesn't load — rows show 0–0 until the
+    // game is selected.
+    const sessions = await listMyStatSessions(createClient());
+    return sessions
+      .filter((s) => s.status === "final" && !s.sourceGameId)
+      .map((s) => statSessionToScheduleGame(s, []))
+      .sort(byNewest);
+  }
+
   if (seasonProvider(season) === "profixio") {
     if (!season.profixio || stage.categoryId == null) return [];
     const res = await getProfixioSchedule(createClient(), season.profixio.leagueId, stage.categoryId);
@@ -210,17 +242,64 @@ export interface GameData {
   syncAnchor?: { kind: "first_basket" | "match_start"; label: string };
   /** "empty" = the match exists but carries no play-by-play upstream. */
   pbpStatus: "ok" | "empty";
+  /** Set when the events came from a stat keeper's session rather than the league feed. */
+  statsSession?: { id: string; revision: number };
 }
 
 /** @deprecated name kept for one release; use GameData. */
 export type GeniusGameData = GameData;
 
 /**
+ * Finalised stat-keeper sessions for a page of schedule rows, keyed by the
+ * game's uuid. Empty map when nobody recorded anything (or on error — the
+ * badge is a bonus, never a blocker).
+ */
+export async function getStatsAvailability(gameUuids: string[]): Promise<Map<string, StatSessionSummary[]>> {
+  return listStatSessionsForGames(createClient(), gameUuids);
+}
+
+/**
  * Everything the import flow needs for one game: names, date, rosters,
  * normalized events and the Q1 tipoff wall-clock for the sync hint.
  * One edge-function call; cached server-side, so re-imports are free.
+ *
+ * With `statsSessionId`, the events, anchor and rosters come from that
+ * keeper's session; the official feed is still fetched (best effort) for
+ * lineup names, which the keeper may not have typed.
  */
 export async function fetchGameData(
+  season: Season,
+  game: ScheduleGame,
+  stage?: Stage | null,
+  opts: { statsSessionId?: string } = {},
+): Promise<GameData> {
+  const unlinkedId = game.uuid.startsWith(VOICE_SOURCE_PREFIX) ? game.uuid.slice(VOICE_SOURCE_PREFIX.length) : null;
+  const sessionId = unlinkedId ?? opts.statsSessionId ?? null;
+  if (sessionId) {
+    const loaded = await getStatSession(createClient(), sessionId);
+    if (!loaded) throw new Error("That recorded game is no longer available.");
+    let lineups: { home: GameData["homeRoster"]; away: GameData["awayRoster"] } | undefined;
+    let names: { homeName: string; awayName: string } | undefined;
+    if (!unlinkedId) {
+      try {
+        const official = await fetchOfficialGameData(season, game, stage);
+        lineups = { home: official.homeRoster, away: official.awayRoster };
+        names = { homeName: official.homeName, awayName: official.awayName };
+      } catch {
+        // Keeper data stands on its own; names fall back to the session's.
+      }
+    }
+    const data = voiceSessionToGameData(loaded.session, loaded.events, { lineups });
+    return {
+      ...data,
+      ...(names ?? {}),
+      statsSession: { id: loaded.session.id, revision: loaded.session.revision },
+    };
+  }
+  return fetchOfficialGameData(season, game, stage);
+}
+
+async function fetchOfficialGameData(
   season: Season,
   game: ScheduleGame,
   stage?: Stage | null,
