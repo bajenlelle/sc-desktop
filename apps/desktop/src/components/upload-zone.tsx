@@ -207,9 +207,10 @@ export function UploadZone({
   // changes, not on every render.
   const leagueList = useMemo(
     () => [
-      ...(hasClubAccess ? clubLeagues : []),
-      // Anyone can have recorded a game on their phone — personal spaces too.
-      VOICE_LEAGUE,
+      // "My recorded games" rides on the same access flag as the catalogue
+      // (personal spaces included): listing it alone before access resolves
+      // would make it the default league on every cold start.
+      ...(hasClubAccess ? [...clubLeagues, VOICE_LEAGUE] : []),
       ...(hasNtAccess ? NATIONAL_TEAM_LEAGUES : []),
     ],
     [clubLeagues, hasClubAccess, hasNtAccess],
