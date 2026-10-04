@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "Scoutable Stats",
+    "slug": "scoutable-stats",
+    "version": "0.1.0",
+    "scheme": "scoutable-stats",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "se.scoutable.stats",
+      "supportsTablet": false,
+      "usesAppleSignIn": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "se.scoutable.stats",
+      "adaptiveIcon": {
+        "backgroundColor": "#161B24",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-router",
+      "expo-web-browser",
+      "expo-apple-authentication",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Scoutable Stats listens for your voice to record game statistics (\"two points number nine\").",
+          "speechRecognitionPermission": "Speech is recognised on your phone to turn what you say into statistics.",
+          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#ffffff",
+          "image": "./assets/splash-icon.png",
+          "resizeMode": "contain"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {}
+    },
+    "owner": "bajenlelle",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    }
+  }
+}

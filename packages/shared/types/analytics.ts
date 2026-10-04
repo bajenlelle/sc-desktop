@@ -22,6 +22,17 @@ export type AnalyticsEvent =
   | "game_sync_failed"
   | "sync_point_skipped"
   | "demo_game_seeded"
+  // Stat keeper (phone app)
+  | "stat_session_created"
+  | "stat_listening_toggled"
+  | "stat_event_recorded"
+  | "stat_utterance_unparsed"
+  | "stat_event_undone"
+  | "stat_tipoff_marked"
+  | "stat_recognizer_restarted"
+  | "stat_session_uploaded"
+  | "stat_session_upload_failed"
+  | "stat_session_published"
   // Playlist production (desktop)
   | "playlist_created"
   | "clip_added_to_playlist"
