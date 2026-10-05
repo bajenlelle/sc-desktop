@@ -216,11 +216,15 @@ fn encode_base64(bytes: &[u8]) -> String {
 
 async fn run_ffmpeg(app: &tauri::AppHandle, args: &[String]) -> Result<(Vec<u8>, String, bool), String> {
     use tauri_plugin_shell::ShellExt;
+    // Raw stdout: the shell plugin otherwise splits output into lines and
+    // appends a newline to each, which corrupts binary frames (a 9×8 grey
+    // thumbnail came back as 73 bytes instead of 72).
     let out = app
         .shell()
         .sidecar("ffmpeg")
         .map_err(|e| e.to_string())?
         .args(args)
+        .set_raw_out(true)
         .output()
         .await
         .map_err(|e| e.to_string())?;

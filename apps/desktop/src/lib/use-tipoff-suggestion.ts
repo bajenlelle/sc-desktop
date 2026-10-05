@@ -28,8 +28,8 @@ export type TipoffSuggestionState =
   | { kind: "not_found" }
   | { kind: "failed"; error: string }
   | { kind: "rejected" }
-  /** Kill switch, rate limit or no fingerprint: nothing to show. */
-  | { kind: "unavailable" };
+  /** Kill switch, rate limit or no fingerprint: nothing to show (the reason is surfaced in dev builds). */
+  | { kind: "unavailable"; reason: string };
 
 export type SuggestionSource = "hint" | "auto" | "none";
 
@@ -90,7 +90,8 @@ export function useTipoffSuggestion(videoPath: string | null, sourceGameId?: str
       } catch (err) {
         if (!active) return;
         Sentry.captureException(err, { tags: { feature: "tipoff_detect", step: "fingerprint" } });
-        setState({ kind: "unavailable" });
+        console.warn("[tipoff] fingerprint failed:", err);
+        setState({ kind: "unavailable", reason: `fingerprint: ${err instanceof Error ? err.message : String(err)}` });
         return;
       }
       if (!active) return;
@@ -159,7 +160,7 @@ export function useTipoffSuggestion(videoPath: string | null, sourceGameId?: str
         if (!active) return;
         const token = err instanceof DetectError ? err.token : String(err instanceof Error ? err.message : err).slice(0, 120);
         if (err instanceof DetectError && SILENT_DETECT_ERRORS.has(err.token)) {
-          setState({ kind: "unavailable" });
+          setState({ kind: "unavailable", reason: err.token });
           return;
         }
         trackEvent("tipoff_detect_failed", { error: token });
