@@ -4975,6 +4975,7 @@ name = "scoutable"
 version = "0.6.16"
 dependencies = [
  "ab_glyph",
+ "base64 0.22.1",
  "hostname",
  "http-range",
  "image",
