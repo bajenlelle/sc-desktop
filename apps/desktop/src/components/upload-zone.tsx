@@ -3,6 +3,8 @@ import { trackEvent } from "@/lib/analytics";
 import { Film, X, Loader2, Search, ChevronRight } from "lucide-react";
 import { GeneratingSession } from "@/components/generating-session";
 import { SyncPointPicker } from "@/components/sync-point-picker";
+import { TipoffSuggestionStrip } from "@/components/tipoff-suggestion-strip";
+import { useTipoffSuggestion } from "@/lib/use-tipoff-suggestion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -196,6 +198,8 @@ export function UploadZone({
   // Video state
   const [videoPath, setVideoPath] = useState<string | null>(null);
   const [syncSeconds, setSyncSeconds] = useState<number | null>(null);
+  // Shared hint lookup, then automatic detection, for the linked recording.
+  const tipoffSuggestion = useTipoffSuggestion(videoPath, selectedGame?.uuid);
   const [submitStatus, setSubmitStatus] = useState<"idle" | "saving" | "error">("idle");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [importLimitDialogOpen, setImportLimitDialogOpen] = useState(false);
@@ -427,7 +431,13 @@ export function UploadZone({
         has_play_by_play: playByPlayEvents.length > 0,
         event_count: playByPlayEvents.length,
         reimport: !!existingMatch,
+        tipoff_suggestion: tipoffSuggestion.source,
       })
+      if (syncPoint) {
+        // The confirmed offset becomes this recording's shared hint; never blocks the import.
+        tipoffSuggestion.recordResolved(syncPoint.syncVideoTime);
+        void tipoffSuggestion.saveConfirmed(syncPoint.syncVideoTime);
+      }
     } catch (err) {
       setSubmitStatus("error");
       setGeneratingVisible(false);
@@ -666,7 +676,7 @@ export function UploadZone({
                       Choose a video file
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      MP4, MOV, AVI, MKV — plays locally, nothing is uploaded
+                      MP4, MOV, AVI, MKV — plays locally; a few stills from the first minutes go to Scoutable to find the tip-off
                     </p>
                     <Button
                       type="button"
@@ -700,6 +710,16 @@ export function UploadZone({
                   videoPath={videoPath}
                   tipoffHint={tipoffLocalHint ?? undefined}
                   onConfirm={(secs) => setSyncSeconds(secs)}
+                  seekRequest={tipoffSuggestion.seekRequest}
+                  onUserAction={tipoffSuggestion.noteUserAction}
+                  suggestionSlot={
+                    <TipoffSuggestionStrip
+                      state={tipoffSuggestion.state}
+                      onAccept={tipoffSuggestion.accept}
+                      onReject={tipoffSuggestion.reject}
+                      onCancel={tipoffSuggestion.cancel}
+                    />
+                  }
                 />
               </div>
             )}

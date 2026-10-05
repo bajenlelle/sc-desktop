@@ -6,6 +6,7 @@ use percent_encoding::percent_decode_str;
 use tauri::http::{Method, Response, StatusCode};
 
 mod device_identity;
+mod video_frames;
 mod menu;
 
 // ---------------------------------------------------------------------------
@@ -820,6 +821,8 @@ pub fn run() {
             read_file,
             export_clip_for_ship,
             extract_poster_frame,
+            video_frames::probe_video,
+            video_frames::grab_frames,
             device_identity::get_device_identity,
             menu::menu_set_enabled,
             menu::menu_sync_theme

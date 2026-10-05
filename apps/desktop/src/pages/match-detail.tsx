@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 import { DeleteMatchDialog } from "@/components/delete-match-dialog";
 import { SyncPointPicker } from "@/components/sync-point-picker";
+import { TipoffSuggestionStrip } from "@/components/tipoff-suggestion-strip";
+import { useTipoffSuggestion } from "@/lib/use-tipoff-suggestion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -194,6 +196,12 @@ export function MatchDetailPage() {
 
   // Machine-switch detection: is the referenced local file actually here?
   const [videoStatus, setVideoStatus] = useState<VideoFileStatus | null>(null);
+  // Shared hint lookup for the linked recording; the detector only runs while the game has no sync point.
+  const tipoffSuggestion = useTipoffSuggestion(
+    storedMatch?.videoUrl && isLocalPath(storedMatch.videoUrl) && videoStatus === "ok" ? storedMatch.videoUrl : null,
+    storedMatch?.sourceGameId,
+    { autoDetect: !storedMatch?.syncPoint, existingSeconds: storedMatch?.syncPoint?.syncVideoTime },
+  );
   useEffect(() => {
     const url = storedMatch?.videoUrl;
     if (!url || !isLocalPath(url)) {
@@ -519,7 +527,7 @@ export function MatchDetailPage() {
                   Choose a video file
                 </p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Your video stays on your machine — nothing is uploaded
+                  Your video stays on your machine — only a few stills go to Scoutable to find the tip-off
                 </p>
               </div>
               <button
@@ -540,6 +548,16 @@ export function MatchDetailPage() {
               videoPath={storedMatch.videoUrl}
               tipoffHint={syncHint ?? undefined}
               initialSeconds={storedMatch.syncPoint?.syncVideoTime}
+              seekRequest={tipoffSuggestion.seekRequest}
+              onUserAction={tipoffSuggestion.noteUserAction}
+              suggestionSlot={
+                <TipoffSuggestionStrip
+                  state={tipoffSuggestion.state}
+                  onAccept={tipoffSuggestion.accept}
+                  onReject={tipoffSuggestion.reject}
+                  onCancel={tipoffSuggestion.cancel}
+                />
+              }
               onConfirm={async (secs) => {
                 const sp: SyncPoint = {
                   syncVideoTime: secs,
@@ -551,6 +569,8 @@ export function MatchDetailPage() {
                   setSaveIndicator("Saved");
                   setTimeout(() => setSaveIndicator(null), 1500);
                   notifyClearedShippedClips(clearedShippedClips);
+                  tipoffSuggestion.recordResolved(secs);
+                  void tipoffSuggestion.saveConfirmed(secs);
                 } catch {
                   setSaveIndicator("Error saving");
                   setTimeout(() => setSaveIndicator(null), 2000);
