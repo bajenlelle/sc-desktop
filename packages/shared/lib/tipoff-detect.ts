@@ -5,11 +5,16 @@
  * `tipoff-detect` edge function) are injected through `DetectDeps`, so the
  * whole pipeline is testable with fakes and every network call stays small.
  *
- * Signal: a broadcast scoreboard shows the game clock stalled at 10:00 before
- * the jump ball and counting down after it. Warm-up countdowns also pass 10:00,
- * but at wall-clock rate and without a stall, so they are rejected. Recordings
- * that start after the tip-off (clock already below 10:00 in the first frames)
- * are reported as such with a negative offset estimate.
+ * Signals, in order of trust (all measured on real recordings, 2026-10-05):
+ * 1. A broadcast scoreboard whose game clock stalls at 10:00 and then counts
+ *    down — read from a crop of the scoreboard at native resolution. Pre-game
+ *    countdowns also pass 10:00, so a drop only counts when no period-1 clock
+ *    shows 10:00 again later.
+ * 2. Some productions draw a scoreboard whose clock never runs ("frozen"); the
+ *    crop then says nothing and the pipeline re-samples whole frames and uses
+ *    the state of play (lineup at the centre circle → live) and the jump ball.
+ * 3. Recordings that start after the tip-off (clock already below 10:00 in the
+ *    first frames, never back at 10:00) are reported with a negative estimate.
  */
 
 export interface FrameReading {
@@ -84,6 +89,10 @@ function clockOf(r: TimedReading): number | null {
   return r.clockVisible ? parseClock(r.clock) : null;
 }
 
+const isPeriodOne = (r: TimedReading) => r.period == null || r.period === 1;
+const isLive = (st: TimedReading["state"]) => st === "in_play" || st === "stoppage";
+const isPre = (st: TimedReading["state"]) => st === "pregame" || st === "lineup";
+
 /** A pre-game countdown falls at wall-clock rate and reaches above 10:00; a game clock stalls at 10:00 first. */
 export function isWarmupCountdown(readings: TimedReading[], periodLengthS: number = DETECT.periodLengthS): boolean {
   const pts = readings.map((r) => ({ t: r.t, c: clockOf(r) })).filter((p): p is { t: number; c: number } => p.c != null);
@@ -101,56 +110,82 @@ export function isWarmupCountdown(readings: TimedReading[], periodLengthS: numbe
 export type CoarseVerdict =
   | { kind: "window"; startS: number; endS: number; basis: "clock" | "visual" }
   | { kind: "starts_after_tipoff"; firstClock: string | null; firstClockS: number | null; estimateS: number | null }
+  /** The scoreboard crop shows a clock that never leaves 10:00: sample whole frames instead. */
+  | { kind: "frozen_clock" }
   | { kind: "extend"; fromS: number }
   | { kind: "not_found" };
 
+export interface InterpretOptions {
+  periodLengthS?: number;
+  sampledToS?: number;
+  /** Which frames produced the readings; a frozen clock only triggers the whole-frame fallback from a crop. */
+  view?: FrameView;
+  /** Ignore the clock and use the state of play only. */
+  visualOnly?: boolean;
+}
+
 /**
  * Decide from the coarse readings (any order) what to do next: run the fine pass
- * in a window, report a recording that starts after the tip-off, sample further,
- * or give up.
+ * in a window, report a recording that starts after the tip-off, re-sample whole
+ * frames, sample further, or give up.
  */
-export function interpretCoarse(
-  readings: TimedReading[],
-  durationS: number,
-  opts: { periodLengthS?: number; sampledToS?: number } = {},
-): CoarseVerdict {
+export function interpretCoarse(readings: TimedReading[], durationS: number, opts: InterpretOptions = {}): CoarseVerdict {
   const periodLengthS = opts.periodLengthS ?? DETECT.periodLengthS;
   const sampledToS = opts.sampledToS ?? DETECT.coarseWindowS;
   const rs = [...readings].sort((a, b) => a.t - b.t);
+  const atFull = (r: TimedReading) => {
+    const c = clockOf(r);
+    return c != null && Math.abs(c - periodLengthS) < 0.5;
+  };
 
-  const first = rs.find((r) => r.t <= 5.5 && clockOf(r) != null);
-  if (first) {
-    const c = clockOf(first) as number;
-    if (first.period != null && first.period >= 2) {
-      return { kind: "starts_after_tipoff", firstClock: first.clock, firstClockS: c, estimateS: null };
+  if (!opts.visualOnly) {
+    // Clock already running at the very start — unless a period-1 clock shows 10:00
+    // again later, which makes the early readings a pre-game countdown.
+    const first = rs.find((r) => r.t <= 5.5 && clockOf(r) != null);
+    const laterFull = rs.some((r) => r.t > 5.5 && isPeriodOne(r) && atFull(r));
+    if (first && !laterFull) {
+      const c = clockOf(first) as number;
+      if (first.period != null && first.period >= 2) {
+        return { kind: "starts_after_tipoff", firstClock: first.clock, firstClockS: c, estimateS: null };
+      }
+      if (c < periodLengthS - 0.5 && isPeriodOne(first)) {
+        return { kind: "starts_after_tipoff", firstClock: first.clock, firstClockS: c, estimateS: first.t - (periodLengthS - c) };
+      }
     }
-    if (c < periodLengthS - 0.5 && (first.period == null || first.period === 1)) {
-      return { kind: "starts_after_tipoff", firstClock: first.clock, firstClockS: c, estimateS: first.t - (periodLengthS - c) };
+
+    // First sample where the period-1 clock has left 10:00 after a stall or a quiet start.
+    for (let k = 0; k < rs.length; k++) {
+      const c = clockOf(rs[k]);
+      if (c == null || c >= periodLengthS - 0.5 || c <= 0) continue;
+      if (!isPeriodOne(rs[k])) continue;
+      const before = rs.slice(0, k);
+      const stallSamples = before.filter(atFull).length;
+      const quiet = before.length > 0 && before.every((r) => clockOf(r) == null || (clockOf(r) as number) >= periodLengthS - 0.5);
+      const resetLater = rs.slice(k + 1).some((r) => isPeriodOne(r) && atFull(r));
+      if (resetLater) continue;
+      if (stallSamples < 2 && isWarmupCountdown([...before, rs[k]], periodLengthS)) continue;
+      if (!(stallSamples > 0 || quiet)) continue;
+      const prevT = k > 0 ? rs[k - 1].t : 0;
+      return { kind: "window", startS: Math.max(0, prevT - DETECT.finePadS), endS: rs[k].t + DETECT.finePadS, basis: "clock" };
     }
   }
 
-  for (let k = 0; k < rs.length; k++) {
-    const c = clockOf(rs[k]);
-    if (c == null || c >= periodLengthS - 0.5 || c <= 0) continue;
-    if (rs[k].period != null && rs[k].period !== 1) continue;
-    const before = rs.slice(0, k);
-    const stallSamples = before.filter((r) => {
-      const b = clockOf(r);
-      return b != null && Math.abs(b - periodLengthS) < 0.5;
-    }).length;
-    const quiet = before.length > 0 && before.every((r) => clockOf(r) == null || (clockOf(r) as number) >= periodLengthS - 0.5);
-    if (stallSamples < 2 && isWarmupCountdown([...before, rs[k]], periodLengthS)) continue;
-    if (!(stallSamples > 0 || quiet)) continue;
-    const prevT = k > 0 ? rs[k - 1].t : 0;
-    return { kind: "window", startS: Math.max(0, prevT - DETECT.finePadS), endS: rs[k].t + DETECT.finePadS, basis: "clock" };
-  }
+  // A clock that never leaves 10:00 across the samples is a static graphic.
+  const clocks = rs.filter((r) => clockOf(r) != null);
+  const frozen = clocks.length >= Math.max(3, rs.length * 0.6) && clocks.every(atFull);
+  if (frozen && !opts.visualOnly && opts.view !== "whole") return { kind: "frozen_clock" };
 
-  if (!rs.some((r) => clockOf(r) != null)) {
+  // No usable clock: sustained play after a pregame/lineup sample.
+  if (clocks.length === 0 || frozen || opts.visualOnly) {
     for (let k = 1; k < rs.length; k++) {
-      const prev = rs[k - 1].state;
-      const cur = rs[k].state;
-      if ((prev === "pregame" || prev === "lineup") && (cur === "in_play" || cur === "stoppage")) {
-        return { kind: "window", startS: Math.max(0, rs[k - 1].t - DETECT.finePadS), endS: rs[k].t + DETECT.finePadS, basis: "visual" };
+      if (!isLive(rs[k].state)) continue;
+      const next = rs[k + 1];
+      const after = rs[k + 2];
+      const sustained = next == null || isLive(next.state) || (after != null && isLive(after.state));
+      const before = rs.slice(Math.max(0, k - 3), k);
+      const lastPre = [...before].reverse().find((r) => isPre(r.state));
+      if (sustained && lastPre) {
+        return { kind: "window", startS: Math.max(0, lastPre.t - DETECT.finePadS), endS: rs[k].t + DETECT.finePadS, basis: "visual" };
       }
     }
   }
@@ -168,7 +203,7 @@ export function fineSchedule(w: { startS: number; endS: number }, fps: number = 
 export interface TipoffEstimate {
   seconds: number;
   confidence: number;
-  basis: "clock_transition" | "first_running_clock" | "visual_play_start";
+  basis: "clock_transition" | "first_running_clock" | "visual_jump_ball" | "visual_play_start";
 }
 
 /** Fine readings (1 fps, any order) → the second the game clock started. */
@@ -178,28 +213,33 @@ export function estimateTipoff(
 ): TipoffEstimate | null {
   const periodLengthS = opts.periodLengthS ?? DETECT.periodLengthS;
   const rs = [...fine].sort((a, b) => a.t - b.t);
-  for (let k = 0; k < rs.length; k++) {
-    const c = clockOf(rs[k]);
-    if (c == null || c >= periodLengthS - 0.05 || c <= 0) continue;
-    // The display truncates to whole seconds: the clock left 10:00 within the
-    // second before this reading's elapsed time, so take the middle of it.
-    const seconds = rs[k].t - (periodLengthS - c) - 0.5;
-    let prevFull: number | null = null;
-    for (let j = k - 1; j >= 0; j--) {
-      const b = clockOf(rs[j]);
-      if (b != null && Math.abs(b - periodLengthS) < 0.05) {
-        prevFull = rs[j].t;
-        break;
+  if (opts.basisHint !== "visual") {
+    for (let k = 0; k < rs.length; k++) {
+      const c = clockOf(rs[k]);
+      if (c == null || c >= periodLengthS - 0.05 || c <= 0) continue;
+      // The display truncates to whole seconds: the clock left 10:00 within the
+      // second before this reading's elapsed time, so take the middle of it.
+      const seconds = rs[k].t - (periodLengthS - c) - 0.5;
+      let prevFull: number | null = null;
+      for (let j = k - 1; j >= 0; j--) {
+        const b = clockOf(rs[j]);
+        if (b != null && Math.abs(b - periodLengthS) < 0.05) {
+          prevFull = rs[j].t;
+          break;
+        }
       }
+      const gap = prevFull == null ? Infinity : rs[k].t - prevFull;
+      const confidence = gap <= 2.1 ? 0.92 : gap <= 5 ? 0.75 : 0.55;
+      return { seconds: Number(seconds.toFixed(2)), confidence, basis: prevFull == null ? "first_running_clock" : "clock_transition" };
     }
-    const gap = prevFull == null ? Infinity : rs[k].t - prevFull;
-    const confidence = gap <= 2.1 ? 0.92 : gap <= 5 ? 0.75 : 0.55;
-    return { seconds: Number(seconds.toFixed(2)), confidence, basis: prevFull == null ? "first_running_clock" : "clock_transition" };
   }
   if (opts.basisHint === "visual") {
+    const jumps = rs.filter((r) => r.jumpBall === true);
+    if (jumps.length > 0) {
+      return { seconds: Number((jumps[jumps.length - 1].t + 0.5).toFixed(2)), confidence: 0.6, basis: "visual_jump_ball" };
+    }
     for (let k = 1; k < rs.length; k++) {
-      const prev = rs[k - 1].state;
-      if ((prev === "pregame" || prev === "lineup") && rs[k].state === "in_play") {
+      if (isPre(rs[k - 1].state) && rs[k].state === "in_play") {
         return { seconds: rs[k].t, confidence: 0.4, basis: "visual_play_start" };
       }
     }
@@ -303,7 +343,7 @@ export async function runTipoffDetection(
       }
     }
   }
-  const view: FrameView = crop ? "overlay" : "whole";
+  let view: FrameView = crop ? "overlay" : "whole";
 
   // 2. Coarse pass, extended while nothing has happened yet.
   let sampledTo = Math.min(DETECT.coarseWindowS, durationS);
@@ -316,14 +356,26 @@ export async function runTipoffDetection(
     const rd = await readAll(frames, view);
     if (rd == null) return finish({ outcome: "cancelled" as const });
     readings = [...readings, ...rd];
-    const verdict = interpretCoarse(readings, durationS, { sampledToS: sampledTo });
+    let verdict = interpretCoarse(readings, durationS, { sampledToS: sampledTo, view });
     log(`coarse ${times.length} frames → ${verdict.kind}`);
+    if (verdict.kind === "frozen_clock") {
+      // The graphic never updates; look at the court instead for every sample so far.
+      const allTimes = readings.map((r) => r.t);
+      const whole = await deps.grab(allTimes, { view: "whole" });
+      const wrd = await readAll(whole, "whole");
+      if (wrd == null) return finish({ outcome: "cancelled" as const });
+      readings = wrd;
+      view = "whole";
+      crop = null;
+      verdict = interpretCoarse(readings, durationS, { sampledToS: sampledTo, view, visualOnly: true });
+      log(`frozen clock → whole frames ${whole.length} → ${verdict.kind}`);
+    }
     if (verdict.kind === "extend") {
       fromS = sampledTo;
       sampledTo = Math.min(sampledTo + DETECT.coarseExtendS, durationS);
       continue;
     }
-    if (verdict.kind === "not_found") return finish({ outcome: "not_found" as const, view, readings });
+    if (verdict.kind === "not_found" || verdict.kind === "frozen_clock") return finish({ outcome: "not_found" as const, view, readings });
     if (verdict.kind === "starts_after_tipoff") {
       return finish({ outcome: "starts_after_tipoff" as const, estimateS: verdict.estimateS, firstClock: verdict.firstClock, view, readings });
     }

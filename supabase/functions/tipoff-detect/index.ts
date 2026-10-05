@@ -184,9 +184,11 @@ Deno.serve(async (req) => {
       });
       if (res.stop_reason === "refusal") { await logRun("model_refused", res.usage); return err(502, "model_refused"); }
       if (res.stop_reason === "max_tokens") { await logRun("model_truncated", res.usage); return err(502, "model_truncated"); }
-      const readings = res.parsed_output?.readings;
-      if (!readings || readings.length !== frames.length) { await logRun("parse_failed", res.usage); return err(502, "parse_failed"); }
-      const ordered = [...readings].sort((a, b) => a.index - b.index).map((r, i) => ({ ...r, index: i, clockRunning: null }));
+      // Models occasionally repeat or add a reading: keep the first per index and require full coverage.
+      const byIndex = new Map<number, z.infer<typeof Reading>>();
+      for (const rd of res.parsed_output?.readings ?? []) if (!byIndex.has(rd.index)) byIndex.set(rd.index, rd);
+      const ordered = frames.map((_, i) => byIndex.get(i)).map((rd, i) => (rd ? { ...rd, index: i, clockRunning: null } : null));
+      if (ordered.some((rd) => rd === null)) { await logRun("parse_failed", res.usage); return err(502, "parse_failed"); }
       await logRun("ok", res.usage);
       return ok({
         readings: ordered,
