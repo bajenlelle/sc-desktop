@@ -28,6 +28,9 @@ export type TipoffSuggestionState =
   | { kind: "not_found" }
   | { kind: "failed"; error: string }
   | { kind: "rejected" }
+  /** The user took the offer; the picker now shows the confirmed time. */
+  | { kind: "accepted"; seconds: number }
+  | { kind: "cancelled" }
   /** Kill switch, rate limit or no fingerprint: nothing to show (the reason is surfaced in dev builds). */
   | { kind: "unavailable"; reason: string };
 
@@ -130,7 +133,7 @@ export function useTipoffSuggestion(videoPath: string | null, sourceGameId?: str
         if (!active) return;
         if (result.outcome === "cancelled") {
           trackEvent("tipoff_detect_cancelled", { elapsed_ms: result.stats.elapsedMs });
-          setState({ kind: "not_found" });
+          setState({ kind: "cancelled" });
           return;
         }
         trackEvent("tipoff_detect_completed", {
@@ -177,14 +180,18 @@ export function useTipoffSuggestion(videoPath: string | null, sourceGameId?: str
 
   const accept = useCallback(() => {
     const s = state;
+    let seconds: number | null = null;
     if (s.kind === "hint_found") {
       trackEvent("tipoff_hint_used", { method: s.method, agreement: s.agreement });
-      seek(s.seconds, true);
+      seconds = s.seconds;
     } else if (s.kind === "suggested") {
-      seek(s.seconds, true);
+      seconds = s.seconds;
     } else if (s.kind === "starts_after_tipoff" && s.estimateS != null) {
-      seek(s.estimateS, true);
+      seconds = s.estimateS;
     }
+    if (seconds == null) return;
+    seek(seconds, true);
+    setState({ kind: "accepted", seconds });
   }, [state, seek]);
 
   const reject = useCallback(() => {
@@ -194,7 +201,7 @@ export function useTipoffSuggestion(videoPath: string | null, sourceGameId?: str
 
   const cancel = useCallback(() => {
     abortRef.current?.abort();
-    setState((s) => (s.kind === "detecting" ? { kind: "not_found" } : s));
+    setState((s) => (s.kind === "detecting" ? { kind: "cancelled" } : s));
   }, []);
 
   const recordResolved = useCallback((confirmedSeconds: number) => {

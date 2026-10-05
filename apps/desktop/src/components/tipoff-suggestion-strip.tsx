@@ -30,7 +30,8 @@ export function TipoffSuggestionStrip({ state, onAccept, onReject, onCancel }: P
   if (state.kind === "unavailable") {
     return import.meta.env.DEV ? <p className="text-xs text-muted-foreground">Tip-off suggestion unavailable: {state.reason}</p> : null;
   }
-  if (state.kind === "idle" || state.kind === "rejected") return null;
+  // Nothing to say once the user has decided: the picker shows the confirmed time after an accept.
+  if (state.kind === "idle" || state.kind === "rejected" || state.kind === "accepted" || state.kind === "cancelled") return null;
 
   const shell = (children: React.ReactNode) => (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
