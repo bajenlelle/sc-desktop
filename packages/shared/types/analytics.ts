@@ -23,14 +23,16 @@ export type AnalyticsEvent =
   | "sync_point_skipped"
   | "demo_game_seeded"
   // Automatic tip-off detection (desktop import). Props in comments.
-  | "tipoff_hint_lookup" // hit, agreement, method, near_miss
-  | "tipoff_hint_used"
-  | "tipoff_hint_rejected"
-  | "tipoff_detect_started" // trigger
-  | "tipoff_detect_completed" // outcome, basis, confidence, seconds, elapsed_ms, api_calls, frames, view
+  // Tip-off flow (desktop). Every event carries surface (import | game_page). A suggestion's
+  // source is a hint (stored by an earlier import of the recording) or auto (a fresh search).
+  | "tipoff_hint_lookup" // hit, agreement, method, candidates
+  | "tipoff_detect_started" // trigger, duration_s
+  | "tipoff_detect_completed" // outcome, basis, confidence, seconds, elapsed_ms, api_calls, frames, view, user_activity (none = waited | seeked)
   | "tipoff_detect_failed" // error
-  | "tipoff_detect_cancelled" // elapsed_ms, reason (cancel_button | set_manually)
-  | "tipoff_suggestion_resolved" // source, suggested_seconds, confirmed_seconds, delta_seconds
+  | "tipoff_detect_cancelled" // elapsed_ms, stage, reason (cancel_button | set_manually | left)
+  | "tipoff_suggestion_accepted" // source, kind, seconds, method, agreement (was tipoff_hint_used in 0.6.17, hints only)
+  | "tipoff_suggestion_dismissed" // source, kind, method, agreement (was tipoff_hint_rejected in 0.6.17, hints only)
+  | "tipoff_suggestion_resolved" // path (lib/tipoff-analytics.ts), source, suggested_seconds, confirmed_seconds, delta_seconds, ms_since_link
   | "tipoff_hint_saved" // method
   // Playlist production (desktop)
   | "playlist_created"

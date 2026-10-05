@@ -200,7 +200,7 @@ export function MatchDetailPage() {
   const tipoffSuggestion = useTipoffSuggestion(
     storedMatch?.videoUrl && isLocalPath(storedMatch.videoUrl) && videoStatus === "ok" ? storedMatch.videoUrl : null,
     storedMatch?.sourceGameId,
-    { autoDetect: !storedMatch?.syncPoint, existingSeconds: storedMatch?.syncPoint?.syncVideoTime },
+    { surface: "game_page", autoDetect: !storedMatch?.syncPoint, existingSeconds: storedMatch?.syncPoint?.syncVideoTime },
   );
   useEffect(() => {
     const url = storedMatch?.videoUrl;
