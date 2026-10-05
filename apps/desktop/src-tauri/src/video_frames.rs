@@ -215,20 +215,32 @@ fn encode_base64(bytes: &[u8]) -> String {
 }
 
 async fn run_ffmpeg(app: &tauri::AppHandle, args: &[String]) -> Result<(Vec<u8>, String, bool), String> {
+    use tauri_plugin_shell::process::CommandEvent;
     use tauri_plugin_shell::ShellExt;
-    // Raw stdout: the shell plugin otherwise splits output into lines and
-    // appends a newline to each, which corrupts binary frames (a 9×8 grey
-    // thumbnail came back as 73 bytes instead of 72).
-    let out = app
+    // `Command::output()` appends a newline after every stdout chunk (it is
+    // built for text), which corrupts binary frames. Spawn with raw stdout and
+    // concatenate the chunks ourselves.
+    let (mut rx, _child) = app
         .shell()
         .sidecar("ffmpeg")
         .map_err(|e| e.to_string())?
         .args(args)
         .set_raw_out(true)
-        .output()
-        .await
+        .spawn()
         .map_err(|e| e.to_string())?;
-    Ok((out.stdout, String::from_utf8_lossy(&out.stderr).to_string(), out.status.success()))
+    let mut stdout: Vec<u8> = Vec::new();
+    let mut stderr: Vec<u8> = Vec::new();
+    let mut success = false;
+    while let Some(event) = rx.recv().await {
+        match event {
+            CommandEvent::Stdout(chunk) => stdout.extend(chunk),
+            CommandEvent::Stderr(chunk) => stderr.extend(chunk),
+            CommandEvent::Terminated(payload) => success = payload.code == Some(0),
+            CommandEvent::Error(e) => return Err(format!("ffmpeg: {e}")),
+            _ => {}
+        }
+    }
+    Ok((stdout, String::from_utf8_lossy(&stderr).to_string(), success))
 }
 
 #[tauri::command]
