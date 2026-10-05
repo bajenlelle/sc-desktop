@@ -50,7 +50,10 @@ jobs:
           # Build x264 from source as a static-only lib.
           # Homebrew's x264 package ships only a .dylib; using it would create
           # a dynamic dep on /opt/homebrew which end users don't have.
-          curl -sL "https://code.videolan.org/videolan/x264/-/archive/stable/x264-stable.tar.bz2" | tar -xj
+          # code.videolan.org answers archive downloads with a bot check (an HTML
+          # page instead of the tarball, seen 2026-10-05); git over HTTPS isn't
+          # challenged, so clone the stable branch instead.
+          git clone --depth 1 --branch stable https://code.videolan.org/videolan/x264.git x264-stable
           pushd x264-stable
           ./configure \
             --prefix="$PWD/out" \
@@ -71,7 +74,8 @@ jobs:
           pkg-config --modversion x264
 
           FFMPEG_VERSION=7.1.1
-          curl -sL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.gz" | tar -xz
+          # -f: an HTTP error fails here instead of as "Unrecognized archive format".
+          curl -fsSL --retry 3 "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.gz" | tar -xz
           cd "ffmpeg-${FFMPEG_VERSION}"
           ./configure \
             --prefix="$PWD/out" \
