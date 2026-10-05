@@ -23,7 +23,6 @@ function isLocalSource(src: string): boolean {
 }
 
 export function VideoPlayer({ src, videoRef, onLoadFailure }: VideoPlayerProps) {
-  const imgRef = useRef<HTMLImageElement>(null);
   const [failure, setFailure] = useState<MediaFailure | null>(null);
   const onLoadFailureRef = useRef(onLoadFailure);
   onLoadFailureRef.current = onLoadFailure;
@@ -32,62 +31,6 @@ export function VideoPlayer({ src, videoRef, onLoadFailure }: VideoPlayerProps) 
   // never flashes for paying users.
   const { activeOrgPlan, profileLoading } = useAuth();
   const showWatermark = !profileLoading && activeOrgPlan === "free";
-
-  useEffect(() => {
-    const video = videoRef.current;
-    const img = imgRef.current;
-    if (!video || !img) return;
-
-    // WKWebView releases the decoded frame buffer when paused, causing a black
-    // screen. On pause we snapshot the current frame into an off-screen canvas
-    // (never part of the DOM) and hand the JPEG data-URL to an <img> overlay.
-    // Using an <img> instead of an in-DOM <canvas> avoids the compositing-layer
-    // conflict that prevented video.play() from working after the first fix.
-    function captureFrame() {
-      if (!video || !img || video.videoWidth === 0) return;
-      const offscreen = document.createElement("canvas");
-      offscreen.width = video.videoWidth;
-      offscreen.height = video.videoHeight;
-      const ctx = offscreen.getContext("2d");
-      if (!ctx) return;
-      try {
-        ctx.drawImage(video, 0, 0);
-        img.src = offscreen.toDataURL("image/jpeg", 0.9);
-        img.style.display = "block";
-      } catch {
-        // A non-CORS-approved source taints the canvas and toDataURL throws
-        // SecurityError. Degrade to no freeze-frame (brief black on pause)
-        // rather than an uncaught error on every pause.
-      }
-    }
-
-    function hideFrame() {
-      if (img) img.style.display = "none";
-    }
-
-    // A paused seek repaints the <video> underneath but not the overlay. On
-    // Windows, where the canvas isn't tainted and the overlay really shows,
-    // that left users picking a tip-off or crop keyframe on a stale picture.
-    function onSeeked() {
-      if (video?.paused) captureFrame();
-    }
-
-    video.addEventListener("pause", captureFrame);
-    // Hide as soon as play() is called so we don't sit on a stale frame
-    // while the video advances to the new clip position.
-    video.addEventListener("play", hideFrame);
-    video.addEventListener("emptied", hideFrame);
-    video.addEventListener("seeking", hideFrame);
-    video.addEventListener("seeked", onSeeked);
-
-    return () => {
-      video.removeEventListener("pause", captureFrame);
-      video.removeEventListener("play", hideFrame);
-      video.removeEventListener("emptied", hideFrame);
-      video.removeEventListener("seeking", hideFrame);
-      video.removeEventListener("seeked", onSeeked);
-    };
-  }, [videoRef]);
 
   // Why the box is black, when it is. Every player used to go silently dark —
   // the sync picker disabled its button with a tooltip, the others said
@@ -142,26 +85,13 @@ export function VideoPlayer({ src, videoRef, onLoadFailure }: VideoPlayerProps) 
       className="relative w-full overflow-hidden rounded-lg bg-black"
       style={{ aspectRatio: "16/9" }}
     >
-      <video
-        ref={videoRef}
-        src={src}
-        // CORS mode for anything served over http — remote R2 sources, and on
-        // Windows local playback too, since Tauri routes the stream protocol
-        // through http://stream.localhost there. Both answer
-        // Access-Control-Allow-Origin: *, so the pause freeze-frame canvas
-        // isn't tainted. macOS stream:// playback stays in no-cors mode.
-        crossOrigin={src.startsWith("http") ? "anonymous" : undefined}
-        className="h-full w-full"
-        playsInline
-      />
-      {/* Frame-hold overlay — hidden while playing, shown on pause */}
-      <img
-        ref={imgRef}
-        aria-hidden
-        alt=""
-        className="absolute inset-0 h-full w-full pointer-events-none"
-        style={{ display: "none", objectFit: "contain" }}
-      />
+      {/*
+        A paused <video> keeps its last frame in both WKWebView and WebView2.
+        A JPEG "freeze-frame" overlay used to be snapshotted here on every
+        pause (and every clip change); it only added a 30 ms pop-in at JPEG
+        quality. Don't bring it back without reproducing a black frame first.
+      */}
+      <video ref={videoRef} src={src} className="h-full w-full" playsInline />
       {failure && (
         <div
           role="alert"
