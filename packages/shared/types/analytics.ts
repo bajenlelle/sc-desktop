@@ -29,7 +29,7 @@ export type AnalyticsEvent =
   | "tipoff_detect_started" // trigger
   | "tipoff_detect_completed" // outcome, basis, confidence, seconds, elapsed_ms, api_calls, frames, view
   | "tipoff_detect_failed" // error
-  | "tipoff_detect_cancelled" // stage
+  | "tipoff_detect_cancelled" // elapsed_ms, reason (cancel_button | set_manually)
   | "tipoff_suggestion_resolved" // source, suggested_seconds, confirmed_seconds, delta_seconds
   | "tipoff_hint_saved" // method
   // Playlist production (desktop)

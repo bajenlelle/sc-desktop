@@ -25,6 +25,8 @@ export interface SyncPointPickerProps {
   seekRequest?: SeekRequest | null;
   /** Rendered between the prompt and the video, e.g. the automatic tip-off suggestion. */
   suggestionSlot?: React.ReactNode;
+  /** The user moved the playhead or set the tip-off themselves (not through `seekRequest`). */
+  onUserAction?: (kind: "seek" | "confirm") => void;
 }
 
 /** m:ss.d; negative values (a recording that starts after the tip-off) keep their sign. */
@@ -45,6 +47,7 @@ export function SyncPointPicker({
   onSkip,
   seekRequest,
   suggestionSlot,
+  onUserAction,
 }: SyncPointPickerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -64,6 +67,12 @@ export function SyncPointPicker({
 
   // The sample game's video is a remote R2 URL, not a local file.
   const src = isLocalPath(videoPath) ? streamFileSrc(videoPath) : videoPath;
+
+  // Read from stable callbacks (seekBy, togglePlay, the window key handler).
+  const onUserActionRef = useRef(onUserAction);
+  useEffect(() => {
+    onUserActionRef.current = onUserAction;
+  }, [onUserAction]);
 
   // Wire up video events
   useEffect(() => {
@@ -142,6 +151,7 @@ export function SyncPointPicker({
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
+    onUserActionRef.current?.("seek");
     if (video.paused) { video.play().catch(() => {}); } else { video.pause(); }
   }, []);
 
@@ -152,6 +162,7 @@ export function SyncPointPicker({
     video.currentTime = next;
     setCurrentTime(next);
     setConfirmedTime(null);
+    onUserActionRef.current?.("seek");
   }, []);
 
   // Keyboard shortcuts (window-level so they work without focus tricks)
@@ -192,6 +203,7 @@ export function SyncPointPicker({
     const video = videoRef.current;
     if (video) video.currentTime = value;
     setCurrentTime(value);
+    onUserActionRef.current?.("seek");
   }
 
   function handleScrubberMouseDown() {
@@ -315,6 +327,7 @@ export function SyncPointPicker({
           onClick={() => {
             setConfirmedTime(currentTime);
             onConfirm(currentTime);
+            onUserActionRef.current?.("confirm");
           }}
         >
           {confirmedTime !== null ? (

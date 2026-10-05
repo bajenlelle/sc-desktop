@@ -711,6 +711,7 @@ export function UploadZone({
                   tipoffHint={tipoffLocalHint ?? undefined}
                   onConfirm={(secs) => setSyncSeconds(secs)}
                   seekRequest={tipoffSuggestion.seekRequest}
+                  onUserAction={tipoffSuggestion.noteUserAction}
                   suggestionSlot={
                     <TipoffSuggestionStrip
                       state={tipoffSuggestion.state}
