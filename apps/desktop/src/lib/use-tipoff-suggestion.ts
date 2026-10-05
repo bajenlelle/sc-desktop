@@ -9,7 +9,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DetectProgress } from "@scoutable/shared/lib/tipoff-detect";
 import type { VideoFingerprint } from "@scoutable/shared/lib/video-fingerprint";
-import { trackEvent } from "@/lib/analytics";
+import { trackEvent, type AnalyticsEvent } from "@/lib/analytics";
+import { tipoffResolutionPath } from "@scoutable/shared/lib/tipoff-analytics";
 import { Sentry } from "@/lib/sentry";
 import { computeVideoFingerprint } from "@/lib/video-fingerprint";
 import { findVideoSyncHints, pickBestHint, saveVideoSyncHint, type HintMethod } from "@/lib/video-sync-hints-db";
@@ -62,14 +63,19 @@ export interface TipoffSuggestion {
 
 const STAGE_TOTAL = 3;
 
+/** Which page runs the flow; sent with every tip-off analytics event. */
+export type TipoffSurface = "import" | "game_page";
+
+type OfferKind = "hint_found" | "suggested" | "starts_after_tipoff";
+
 export function useTipoffSuggestion(
   videoPath: string | null,
-  sourceGameId?: string,
+  sourceGameId: string | undefined,
   /**
    * Read once when a video is linked. `autoDetect: false` (the game already has a sync
    * point) only looks up hints; `existingSeconds` hides a hint that agrees with it.
    */
-  opts: { autoDetect?: boolean; existingSeconds?: number } = {},
+  opts: { surface: TipoffSurface; autoDetect?: boolean; existingSeconds?: number },
 ): TipoffSuggestion {
   const optsRef = useRef(opts);
   useEffect(() => {
@@ -85,6 +91,23 @@ export function useTipoffSuggestion(
   // What the user has done in the picker since this video was linked. An existing sync
   // point (autoDetect off) counts as positioned: a hint must not move it.
   const userRef = useRef<"none" | "seeked" | "confirmed">("none");
+  // Analytics state for this link: where the lookup/search stands, the last confirm in the
+  // picker, when the video was linked, and the running search (for "left mid-search").
+  const searchOutcomeRef = useRef<"pending" | "offered" | "nothing">("pending");
+  const lastConfirmRef = useRef<"accepted" | "manual" | null>(null);
+  const linkedAtRef = useRef(0);
+  const detectingRef = useRef<{ startedAt: number; stage: DetectProgress["stage"] } | null>(null);
+
+  const track = useCallback((event: AnalyticsEvent, props: Record<string, unknown> = {}) => {
+    trackEvent(event, { ...props, surface: optsRef.current.surface });
+  }, []);
+
+  /** A search that is still running stops counting as running; returns its elapsed time and stage. */
+  const endSearch = useCallback(() => {
+    const d = detectingRef.current;
+    detectingRef.current = null;
+    return d ? { elapsed_ms: Date.now() - d.startedAt, stage: d.stage } : null;
+  }, []);
 
   const seek = useCallback((seconds: number, confirm: boolean) => {
     nonceRef.current += 1;
@@ -97,6 +120,10 @@ export function useTipoffSuggestion(
     fpRef.current = null;
     offeredRef.current = { source: "none", seconds: null };
     resolvedRef.current = false;
+    searchOutcomeRef.current = "pending";
+    lastConfirmRef.current = null;
+    linkedAtRef.current = Date.now();
+    detectingRef.current = null;
     const autoDetect = optsRef.current.autoDetect ?? true;
     const existingSeconds = optsRef.current.existingSeconds;
     userRef.current = autoDetect ? "none" : "seeked";
@@ -109,8 +136,9 @@ export function useTipoffSuggestion(
     abortRef.current = ac;
     let active = true;
     const path = videoPath;
-    // The user set the tip-off themselves: show nothing more (noteUserAction already did).
-    const decided = () => userRef.current === "confirmed";
+    // The user set the tip-off themselves, or the search was stopped (Cancel, a manual set, the
+    // video changed): whoever stopped it already tracked that and set the state.
+    const decided = () => userRef.current === "confirmed" || ac.signal.aborted;
 
     (async () => {
       setState({ kind: "fingerprinting" });
@@ -122,6 +150,7 @@ export function useTipoffSuggestion(
         if (!active) return;
         Sentry.captureException(err, { tags: { feature: "tipoff_detect", step: "fingerprint" } });
         console.warn("[tipoff] fingerprint failed:", err);
+        searchOutcomeRef.current = "nothing";
         setState({ kind: "unavailable", reason: `fingerprint: ${err instanceof Error ? err.message : String(err)}` });
         return;
       }
@@ -135,14 +164,16 @@ export function useTipoffSuggestion(
         const cands = await findVideoSyncHints(fingerprinted.fp, sourceGameId);
         if (!active || decided()) return;
         const best = pickBestHint(cands, sourceGameId);
-        trackEvent("tipoff_hint_lookup", { hit: !!best, agreement: best?.agreement ?? 0, method: best?.hint.method ?? null, candidates: cands.length });
+        track("tipoff_hint_lookup", { hit: !!best, agreement: best?.agreement ?? 0, method: best?.hint.method ?? null, candidates: cands.length });
         if (best && existingSeconds != null && Math.abs(best.hint.tipoffVideoTime - existingSeconds) <= HINT_AGREEMENT_S) {
           // Nothing new: the game's sync point already agrees with what others found.
+          searchOutcomeRef.current = "nothing";
           setState({ kind: "idle" });
           return;
         }
         if (best) {
           offeredRef.current = { source: "hint", seconds: best.hint.tipoffVideoTime };
+          searchOutcomeRef.current = "offered";
           setState({ kind: "hint_found", seconds: best.hint.tipoffVideoTime, agreement: best.agreement, method: best.hint.method });
           if (userRef.current === "none") seek(best.hint.tipoffVideoTime, false);
           return;
@@ -155,26 +186,28 @@ export function useTipoffSuggestion(
 
       if (!autoDetect) {
         // Lookup only (the game already has a sync point): a miss is not news.
+        searchOutcomeRef.current = "nothing";
         setState({ kind: "idle" });
         return;
       }
       if (decided()) return;
       const startedAt = Date.now();
+      detectingRef.current = { startedAt, stage: "locate" };
       setState({ kind: "detecting", stage: "locate", startedAt });
-      trackEvent("tipoff_detect_started", { trigger: "auto", duration_s: Math.round(fingerprinted.probe.durationMs / 1000) });
+      track("tipoff_detect_started", { trigger: "auto", duration_s: Math.round(fingerprinted.probe.durationMs / 1000) });
       try {
         const result = await detectTipoff(path, fingerprinted.probe, {
           signal: ac.signal,
-          onProgress: (p) => { if (active) setState({ kind: "detecting", stage: p.stage, startedAt }); },
+          onProgress: (p) => {
+            if (!active || decided()) return;
+            if (detectingRef.current) detectingRef.current.stage = p.stage;
+            setState({ kind: "detecting", stage: p.stage, startedAt });
+          },
         });
-        // A manual confirm aborted the search and was tracked there.
-        if (!active || decided()) return;
-        if (result.outcome === "cancelled") {
-          trackEvent("tipoff_detect_cancelled", { elapsed_ms: result.stats.elapsedMs, reason: "cancel_button" });
-          setState({ kind: "cancelled" });
-          return;
-        }
-        trackEvent("tipoff_detect_completed", {
+        // Stopped by Cancel, a manual set or a video change: tracked where it was stopped.
+        if (!active || decided() || result.outcome === "cancelled") return;
+        endSearch();
+        track("tipoff_detect_completed", {
           outcome: result.outcome,
           basis: result.outcome === "found" ? result.estimate.basis : null,
           confidence: result.outcome === "found" ? result.estimate.confidence : null,
@@ -183,29 +216,36 @@ export function useTipoffSuggestion(
           api_calls: result.stats.apiCalls,
           frames: result.stats.frames,
           view: result.view,
+          // "none": the user waited for the result; "seeked": they scrubbed meanwhile.
+          user_activity: userRef.current,
         });
         if (result.outcome === "found") {
           offeredRef.current = { source: "auto", seconds: result.estimate.seconds };
+          searchOutcomeRef.current = "offered";
           const previewed = userRef.current === "none";
           setState({ kind: "suggested", seconds: result.estimate.seconds, confidence: result.estimate.confidence, basis: result.estimate.basis, previewed });
           if (previewed) seek(result.estimate.seconds, false);
           saveVideoSyncHint({ fp: fingerprinted.fp, sourceGameId, tipoffVideoTime: result.estimate.seconds, method: "auto", confidence: result.estimate.confidence })
-            .then(() => trackEvent("tipoff_hint_saved", { method: "auto" }))
+            .then(() => track("tipoff_hint_saved", { method: "auto" }))
             .catch((err) => Sentry.captureException(err, { tags: { feature: "tipoff_detect", step: "save_auto" } }));
         } else if (result.outcome === "starts_after_tipoff") {
           offeredRef.current = { source: "auto", seconds: result.estimateS };
+          searchOutcomeRef.current = "offered";
           setState({ kind: "starts_after_tipoff", estimateS: result.estimateS, firstClock: result.firstClock });
         } else {
+          searchOutcomeRef.current = "nothing";
           setState({ kind: "not_found" });
         }
       } catch (err) {
         if (!active || decided()) return;
+        endSearch();
+        searchOutcomeRef.current = "nothing";
         const token = err instanceof DetectError ? err.token : String(err instanceof Error ? err.message : err).slice(0, 120);
         if (err instanceof DetectError && SILENT_DETECT_ERRORS.has(err.token)) {
           setState({ kind: "unavailable", reason: err.token });
           return;
         }
-        trackEvent("tipoff_detect_failed", { error: token });
+        track("tipoff_detect_failed", { error: token });
         Sentry.captureException(err, { tags: { feature: "tipoff_detect", step: "detect" } });
         setState({ kind: "failed", error: token });
       }
@@ -214,34 +254,50 @@ export function useTipoffSuggestion(
     return () => {
       active = false;
       ac.abort();
+      // Page left, video removed or replaced, or a different game picked while searching.
+      const running = endSearch();
+      if (running) track("tipoff_detect_cancelled", { ...running, reason: "left" });
     };
-  }, [videoPath, sourceGameId, seek]);
+  }, [videoPath, sourceGameId, seek, track, endSearch]);
 
   const accept = useCallback(() => {
     const s = state;
     let seconds: number | null = null;
-    if (s.kind === "hint_found") {
-      trackEvent("tipoff_hint_used", { method: s.method, agreement: s.agreement });
-      seconds = s.seconds;
-    } else if (s.kind === "suggested") {
-      seconds = s.seconds;
-    } else if (s.kind === "starts_after_tipoff" && s.estimateS != null) {
-      seconds = s.estimateS;
-    }
+    if (s.kind === "hint_found") seconds = s.seconds;
+    else if (s.kind === "suggested") seconds = s.seconds;
+    else if (s.kind === "starts_after_tipoff") seconds = s.estimateS;
     if (seconds == null) return;
+    track("tipoff_suggestion_accepted", {
+      source: s.kind === "hint_found" ? "hint" : "auto",
+      kind: s.kind as OfferKind,
+      seconds,
+      ...(s.kind === "hint_found" ? { method: s.method, agreement: s.agreement } : {}),
+    });
+    lastConfirmRef.current = "accepted";
     seek(seconds, true);
     setState({ kind: "accepted", seconds });
-  }, [state, seek]);
+  }, [state, seek, track]);
 
   const reject = useCallback(() => {
-    if (state.kind === "hint_found") trackEvent("tipoff_hint_rejected", { method: state.method });
+    const s = state;
+    if (s.kind === "hint_found" || s.kind === "suggested" || s.kind === "starts_after_tipoff") {
+      track("tipoff_suggestion_dismissed", {
+        source: s.kind === "hint_found" ? "hint" : "auto",
+        kind: s.kind,
+        ...(s.kind === "hint_found" ? { method: s.method, agreement: s.agreement } : {}),
+      });
+    }
     setState({ kind: "rejected" });
-  }, [state]);
+  }, [state, track]);
 
   const cancel = useCallback(() => {
+    const running = endSearch();
+    if (!running) return;
     abortRef.current?.abort();
-    setState((s) => (s.kind === "detecting" ? { kind: "cancelled" } : s));
-  }, []);
+    searchOutcomeRef.current = "nothing";
+    track("tipoff_detect_cancelled", { ...running, reason: "cancel_button" });
+    setState({ kind: "cancelled" });
+  }, [endSearch, track]);
 
   const noteUserAction = useCallback((kind: "seek" | "confirm") => {
     if (kind === "seek") {
@@ -249,35 +305,40 @@ export function useTipoffSuggestion(
       return;
     }
     userRef.current = "confirmed";
-    if (state.kind === "detecting") {
+    lastConfirmRef.current = "manual";
+    const running = endSearch();
+    if (running) {
       abortRef.current?.abort();
-      trackEvent("tipoff_detect_cancelled", { elapsed_ms: Date.now() - state.startedAt, reason: "set_manually" });
+      track("tipoff_detect_cancelled", { ...running, reason: "set_manually" });
     }
     if (state.kind !== "idle" && state.kind !== "unavailable") setState({ kind: "manual" });
-  }, [state]);
+  }, [state, endSearch, track]);
 
   const recordResolved = useCallback((confirmedSeconds: number) => {
     if (resolvedRef.current) return;
     resolvedRef.current = true;
     const offered = offeredRef.current;
-    trackEvent("tipoff_suggestion_resolved", {
+    track("tipoff_suggestion_resolved", {
+      path: tipoffResolutionPath({ lastConfirm: lastConfirmRef.current, offeredSource: offered.source, searchOutcome: searchOutcomeRef.current }),
       source: offered.source,
       suggested_seconds: offered.seconds,
       confirmed_seconds: confirmedSeconds,
       delta_seconds: offered.seconds == null ? null : Number((confirmedSeconds - offered.seconds).toFixed(2)),
+      // From linking the video to importing it (import page) or confirming (game page).
+      ms_since_link: Date.now() - linkedAtRef.current,
     });
-  }, []);
+  }, [track]);
 
   const saveConfirmed = useCallback(async (seconds: number) => {
     const fp = fpRef.current;
     if (!fp) return;
     try {
       await saveVideoSyncHint({ fp: fp.fp, sourceGameId, tipoffVideoTime: seconds, method: "confirmed" });
-      trackEvent("tipoff_hint_saved", { method: "confirmed" });
+      track("tipoff_hint_saved", { method: "confirmed" });
     } catch (err) {
       Sentry.captureException(err, { tags: { feature: "tipoff_detect", step: "save_confirmed" } });
     }
-  }, [sourceGameId]);
+  }, [sourceGameId, track]);
 
   return { state, seekRequest, source: offeredRef.current.source, accept, reject, cancel, noteUserAction, recordResolved, saveConfirmed };
 }

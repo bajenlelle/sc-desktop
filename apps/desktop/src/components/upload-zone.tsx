@@ -199,7 +199,7 @@ export function UploadZone({
   const [videoPath, setVideoPath] = useState<string | null>(null);
   const [syncSeconds, setSyncSeconds] = useState<number | null>(null);
   // Shared hint lookup, then automatic detection, for the linked recording.
-  const tipoffSuggestion = useTipoffSuggestion(videoPath, selectedGame?.uuid);
+  const tipoffSuggestion = useTipoffSuggestion(videoPath, selectedGame?.uuid, { surface: "import" });
   const [submitStatus, setSubmitStatus] = useState<"idle" | "saving" | "error">("idle");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [importLimitDialogOpen, setImportLimitDialogOpen] = useState(false);
