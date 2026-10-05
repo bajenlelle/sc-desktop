@@ -76,6 +76,8 @@ the way. Set up 2026-08 — see `.github/workflows/claude-*.yml`, the
 | `SENTRY_API_TOKEN` (read scopes) | local `.env.local` | reading issues via API |
 | `GITHUB_ISSUES_TOKEN` (fine-grained PAT, Issues r/w) | Supabase function secrets | report-issue files issues |
 | `GENIUS_API_KEY` (20k calls/month, SBF scope) | Supabase function secrets | genius proxies + caches match data |
+| `ANTHROPIC_API_KEY` (Scoutable Console org; spend limit set there) | Supabase function secrets | tipoff-detect reads scoreboard clocks from stills |
+| `TIPOFF_DETECT_MODEL` (optional model id, default `claude-sonnet-5-5`) | Supabase function secrets | swap the detection model without a redeploy; kill switch is `app_config.tipoff_detect_enabled` |
 | `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) | GitHub Actions | triage + fix agents |
 | `R2_ENDPOINT` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` / `R2_PUBLIC_URL` (API token scoped to object r/w on the media bucket) | Supabase function secrets | presign-upload mints upload URLs; clients hold no R2 credentials |
 | `R2_*` (separate token: object list + delete) | Vercel | delete-account GDPR sweep of `clips/` + `highlights/` prefixes |
