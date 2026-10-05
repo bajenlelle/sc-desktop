@@ -22,6 +22,16 @@ export type AnalyticsEvent =
   | "game_sync_failed"
   | "sync_point_skipped"
   | "demo_game_seeded"
+  // Automatic tip-off detection (desktop import). Props in comments.
+  | "tipoff_hint_lookup" // hit, agreement, method, near_miss
+  | "tipoff_hint_used"
+  | "tipoff_hint_rejected"
+  | "tipoff_detect_started" // trigger
+  | "tipoff_detect_completed" // outcome, basis, confidence, seconds, elapsed_ms, api_calls, frames, view
+  | "tipoff_detect_failed" // error
+  | "tipoff_detect_cancelled" // stage
+  | "tipoff_suggestion_resolved" // source, suggested_seconds, confirmed_seconds, delta_seconds
+  | "tipoff_hint_saved" // method
   // Playlist production (desktop)
   | "playlist_created"
   | "clip_added_to_playlist"
