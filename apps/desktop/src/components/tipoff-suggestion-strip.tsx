@@ -61,14 +61,14 @@ export function TipoffSuggestionStrip({ state, onAccept, onReject, onCancel }: P
         <>
           <Sparkles className="h-4 w-4 shrink-0 text-primary" />
           <span>
-            Tip-off found from an earlier import of this recording{state.agreement > 1 ? ` (${state.agreement} users agree)` : ""} — check it.
+            Tip-off found from an earlier import of this recording{state.agreement > 1 ? ` (${state.agreement} users agree)` : ""}.
           </span>
           <span className="ml-auto flex gap-2">
             <Button type="button" size="sm" className="h-7" onClick={onAccept}>
               Use {formatMSSd(state.seconds)}
             </Button>
             <Button type="button" variant="ghost" size="sm" className="h-7" onClick={onReject}>
-              Not right
+              Set manually
             </Button>
           </span>
         </>,
@@ -80,10 +80,10 @@ export function TipoffSuggestionStrip({ state, onAccept, onReject, onCancel }: P
           <span>Is this the tip-off? The game clock starts at {formatMSSd(state.seconds)}.</span>
           <span className="ml-auto flex gap-2">
             <Button type="button" size="sm" className="h-7" onClick={onAccept}>
-              Yes, use it
+              Use {formatMSSd(state.seconds)}
             </Button>
             <Button type="button" variant="ghost" size="sm" className="h-7" onClick={onReject}>
-              Adjust manually
+              Set manually
             </Button>
           </span>
         </>,
@@ -93,7 +93,7 @@ export function TipoffSuggestionStrip({ state, onAccept, onReject, onCancel }: P
         <>
           <Sparkles className="h-4 w-4 shrink-0 text-primary" />
           <span>
-            The recording seems to start after the tip-off{state.firstClock ? ` — the game clock reads ${state.firstClock} at the start` : ""}.
+            The recording starts after the tip-off{state.firstClock ? `: the game clock already reads ${state.firstClock} in the first frame` : ""}.
           </span>
           <span className="ml-auto flex gap-2">
             {state.estimateS != null && (
@@ -109,7 +109,7 @@ export function TipoffSuggestionStrip({ state, onAccept, onReject, onCancel }: P
       );
     case "not_found":
     case "failed":
-      return shell(<span className="text-muted-foreground">Couldn't find the tip-off automatically — scrub to it below.</span>);
+      return shell(<span className="text-muted-foreground">No tip-off found automatically. Scrub to it below.</span>);
     default:
       return null;
   }
