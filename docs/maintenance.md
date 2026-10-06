@@ -78,6 +78,11 @@ the way. Set up 2026-08 — see `.github/workflows/claude-*.yml`, the
 | `GENIUS_API_KEY` (20k calls/month, SBF scope) | Supabase function secrets | genius proxies + caches match data |
 | `ANTHROPIC_API_KEY` (Scoutable Console org; spend limit set there) | Supabase function secrets | tipoff-detect reads scoreboard clocks from stills |
 | `TIPOFF_DETECT_MODEL` (optional model id, default `claude-sonnet-5-5`) | Supabase function secrets | swap the detection model without a redeploy; kill switch is `app_config.tipoff_detect_enabled` |
+| `BASKETTV_USERNAME` / `BASKETTV_PASSWORD` (Leonard's BasketTV subscriber account) | GitHub Actions secrets | `nightly-tipoff.yml` reads replay frames; masked in logs, never printed |
+| `TIPOFF_BOT_EMAIL` / `TIPOFF_BOT_PASSWORD` (Supabase user `tipoff-bot@scoutable.se`, password only in GitHub secrets; reset it in the Supabase dashboard) | GitHub Actions secrets | the job signs in as this user; `app_config.tipoff_bot_email` lifts its hourly detection limit and admits it to the `baskettv_tipoff_runs` RPCs |
+| `SUPABASE_URL` / `SUPABASE_ANON_KEY` (public values) | GitHub Actions secrets | the job's Supabase client |
+
+Manual tip-off runs: Actions → nightly-tipoff → Run workflow (channels, look-back hours, max games, specific game slugs, dry run), or locally `npm run nightly-tipoff -- --channels superettanherr --since-hours 24 --dry-run` with the same env vars.
 | `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) | GitHub Actions | triage + fix agents |
 | `R2_ENDPOINT` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` / `R2_PUBLIC_URL` (API token scoped to object r/w on the media bucket) | Supabase function secrets | presign-upload mints upload URLs; clients hold no R2 credentials |
 | `R2_*` (separate token: object list + delete) | Vercel | delete-account GDPR sweep of `clips/` + `highlights/` prefixes |

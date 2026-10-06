@@ -29,6 +29,12 @@ playlists, and share them with teams; players watch on web/mobile.
   scoreboard clocks from video stills with Claude for the automatic tip-off
   suggestion; `ANTHROPIC_API_KEY`, kill switch `app_config.tipoff_detect_enabled`).
   Remote project `nbmrujmazvdoaldirpyx`; apply with `npx supabase db push`.
+- `scripts/nightly-tipoff` — the nightly tip-off job (`nightly-tipoff.yml`,
+  02:00 Stockholm, pilot channel Superettan Herr; manual runs from the Actions
+  tab). Reads BasketTV replays through a range proxy, detects with the
+  `tipoff-detect` function as the bot user `tipoff-bot@scoutable.se`, and
+  writes `video_sync_hints`; bookkeeping in `baskettv_tipoff_runs`. Pure game
+  selection lives in `packages/shared/lib/baskettv.ts`.
 
 ## Conventions
 

@@ -134,16 +134,21 @@ Deno.serve(async (req) => {
   const action = body.action;
   if (action !== "read_frames" && action !== "locate_overlay") return err(400, "invalid_action");
 
-  // Kill switch and per-user rate limit, both without a desktop release.
-  const { data: cfg } = await admin.from("app_config").select("value").eq("key", "tipoff_detect_enabled").maybeSingle();
-  if (cfg?.value === "false") return err(503, "detection_disabled");
-  const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  const { count } = await admin
-    .from("video_sync_detect_runs")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", user.id)
-    .gte("created_at", hourAgo);
-  if ((count ?? 0) >= MAX_CALLS_PER_HOUR) return err(429, "too_many_requests");
+  // Kill switch and per-user rate limit, both without a desktop release. The
+  // nightly batch bot (app_config.tipoff_bot_email) is exempt from the limit only.
+  const { data: cfgRows } = await admin.from("app_config").select("key, value").in("key", ["tipoff_detect_enabled", "tipoff_bot_email"]);
+  const cfg = Object.fromEntries((cfgRows ?? []).map((r) => [r.key, r.value])) as Record<string, string | undefined>;
+  if (cfg.tipoff_detect_enabled === "false") return err(503, "detection_disabled");
+  const isBatchBot = !!cfg.tipoff_bot_email && (user.email ?? "").toLowerCase() === cfg.tipoff_bot_email.toLowerCase();
+  if (!isBatchBot) {
+    const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { count } = await admin
+      .from("video_sync_detect_runs")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .gte("created_at", hourAgo);
+    if ((count ?? 0) >= MAX_CALLS_PER_HOUR) return err(429, "too_many_requests");
+  }
 
   const validated = validateFrames(body.frames);
   if ("error" in validated) return err(400, validated.error);

@@ -1,0 +1,69 @@
+name: nightly-tipoff
+
+# Finds the Q1 tip-off of recent BasketTV replays and stores it as a shared sync
+# hint (scripts/nightly-tipoff). Scheduled for the pilot channel; run it by hand
+# from the Actions tab for other channels, a shorter window, or specific games.
+# Never triggered by pull requests: the secrets stay out of fork builds.
+
+on:
+  schedule:
+    - cron: "0 1 * * *" # 02:00 CET / 03:00 CEST, after the evening's replays are up
+  workflow_dispatch:
+    inputs:
+      channels:
+        description: "BasketTV league channels, comma-separated (superettanherr, basketettan-herr, basketettan-dam)"
+        type: string
+        default: "superettanherr"
+      since_hours:
+        description: "Look back this many hours for finished games"
+        type: string
+        default: "72"
+      max_games:
+        description: "At most this many games in one run"
+        type: string
+        default: "25"
+      games:
+        description: "Specific game slugs, comma-separated (forces reprocessing, ignores the window)"
+        type: string
+        default: ""
+      dry_run:
+        description: "Detect but write nothing"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-tipoff
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install -g npm@11
+      - run: npm ci
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg
+      - name: Detect tip-offs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          TIPOFF_BOT_EMAIL: ${{ secrets.TIPOFF_BOT_EMAIL }}
+          TIPOFF_BOT_PASSWORD: ${{ secrets.TIPOFF_BOT_PASSWORD }}
+          BASKETTV_USERNAME: ${{ secrets.BASKETTV_USERNAME }}
+          BASKETTV_PASSWORD: ${{ secrets.BASKETTV_PASSWORD }}
+          # Inputs reach the script as env vars (no shell interpolation of free text).
+          CHANNELS: ${{ inputs.channels || 'superettanherr' }}
+          SINCE_HOURS: ${{ inputs.since_hours || '72' }}
+          MAX_GAMES: ${{ inputs.max_games || '25' }}
+          GAMES: ${{ inputs.games }}
+          DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
+        run: npm run nightly-tipoff

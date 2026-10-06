@@ -130,3 +130,20 @@ jobs:
       - name: Test
         working-directory: apps/desktop/src-tauri
         run: cargo test
+
+  nightly-tipoff-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm install -g npm@11
+
+      - run: npm ci
+
+      - name: Type-check the nightly tip-off script
+        run: npx tsc -p scripts/nightly-tipoff

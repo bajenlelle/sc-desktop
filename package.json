@@ -4,5 +4,12 @@
   "workspaces": [
     "apps/*",
     "packages/*"
-  ]
+  ],
+  "scripts": {
+    "nightly-tipoff": "tsx scripts/nightly-tipoff/index.ts"
+  },
+  "devDependencies": {
+    "@supabase/supabase-js": "^2.112.4",
+    "tsx": "^4.23.15"
+  }
 }
