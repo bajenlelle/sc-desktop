@@ -110,7 +110,7 @@ export function isWarmupCountdown(readings: TimedReading[], periodLengthS: numbe
 export type CoarseVerdict =
   | { kind: "window"; startS: number; endS: number; basis: "clock" | "visual" }
   | { kind: "starts_after_tipoff"; firstClock: string | null; firstClockS: number | null; estimateS: number | null }
-  /** The scoreboard crop shows a clock that never leaves 10:00: sample whole frames instead. */
+  /** The scoreboard crop has no usable clock (stuck at 10:00, or none readable): sample whole frames instead. */
   | { kind: "frozen_clock" }
   | { kind: "extend"; fromS: number }
   | { kind: "not_found" };
@@ -129,10 +129,28 @@ export interface InterpretOptions {
  * in a window, report a recording that starts after the tip-off, re-sample whole
  * frames, sample further, or give up.
  */
+/**
+ * Some productions run a pre-game countdown ("Starting 05:54") in the clock field
+ * with no period label, and the overlay only switches to period 1 at the tip. Such
+ * a countdown can sit below 10:00 from the first frame, so it reads like a game
+ * clock that is already running. When the first three or more clock readings have
+ * no period and a period-1 reading follows, their clocks are dropped: what remains
+ * is then judged by the game clock (Alvik–Eskilstuna), the state of play (Alvik–AIK)
+ * or the frozen-clock rule (Huddinge–Fryshuset), as the 2026-10-06 spike showed.
+ */
+function withoutPregameCountdown(rs: TimedReading[]): TimedReading[] {
+  const flip = rs.findIndex((r) => r.period === 1);
+  if (flip < 0) return rs;
+  const lead = rs.slice(0, flip);
+  if (lead.some((r) => r.period != null)) return rs;
+  if (lead.filter((r) => clockOf(r) != null).length < 3) return rs;
+  return rs.map((r, i) => (i < flip ? { ...r, clockVisible: false, clock: null } : r));
+}
+
 export function interpretCoarse(readings: TimedReading[], durationS: number, opts: InterpretOptions = {}): CoarseVerdict {
   const periodLengthS = opts.periodLengthS ?? DETECT.periodLengthS;
   const sampledToS = opts.sampledToS ?? DETECT.coarseWindowS;
-  const rs = [...readings].sort((a, b) => a.t - b.t);
+  const rs = withoutPregameCountdown([...readings].sort((a, b) => a.t - b.t));
   const atFull = (r: TimedReading) => {
     const c = clockOf(r);
     return c != null && Math.abs(c - periodLengthS) < 0.5;
@@ -174,6 +192,9 @@ export function interpretCoarse(readings: TimedReading[], durationS: number, opt
   const clocks = rs.filter((r) => clockOf(r) != null);
   const frozen = clocks.length >= Math.max(3, rs.length * 0.6) && clocks.every(atFull);
   if (frozen && !opts.visualOnly && opts.view !== "whole") return { kind: "frozen_clock" };
+  // A scoreboard crop with no readable clock at all can't show the play either
+  // (its states are guesses), so the court has to be looked at instead.
+  if (clocks.length === 0 && opts.view === "overlay" && !opts.visualOnly) return { kind: "frozen_clock" };
 
   // No usable clock: sustained play after a pregame/lineup sample.
   if (clocks.length === 0 || frozen || opts.visualOnly) {
@@ -359,7 +380,7 @@ export async function runTipoffDetection(
     let verdict = interpretCoarse(readings, durationS, { sampledToS: sampledTo, view });
     log(`coarse ${times.length} frames → ${verdict.kind}`);
     if (verdict.kind === "frozen_clock") {
-      // The graphic never updates; look at the court instead for every sample so far.
+      // The crop's clock is frozen or unreadable; look at the court instead for every sample so far.
       const allTimes = readings.map((r) => r.t);
       const whole = await deps.grab(allTimes, { view: "whole" });
       const wrd = await readAll(whole, "whole");
@@ -368,7 +389,7 @@ export async function runTipoffDetection(
       view = "whole";
       crop = null;
       verdict = interpretCoarse(readings, durationS, { sampledToS: sampledTo, view, visualOnly: true });
-      log(`frozen clock → whole frames ${whole.length} → ${verdict.kind}`);
+      log(`no usable clock in the crop → whole frames ${whole.length} → ${verdict.kind}`);
     }
     if (verdict.kind === "extend") {
       fromS = sampledTo;
