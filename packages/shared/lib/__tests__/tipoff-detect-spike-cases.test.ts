@@ -213,3 +213,33 @@ describe("scoreboard crop with a countdown and then no readable clock at all (Al
     expect(res.view).toBe("whole");
   });
 });
+
+// ── 2026-10-06 first nightly runs ────────────────────────────────────────────
+describe("countdown whose tail gets a period-1 label (EOS–Ockelbo, tip at ~365)", () => {
+  // The overlay counts down from 05:57 with no period; the model labels its last
+  // minutes "1st". The clock then goes blank for the lineup and starts at the tip.
+  const readings = [
+    c(0, "05:57", null, "pregame"), c(5, "05:53", null, "pregame"), c(10, "05:48", null, "pregame"), c(20, "05:38", null, "pregame"),
+    c(30, "05:28", null, "pregame"), c(60, "04:58", null, "pregame"), c(90, "04:28", null, "pregame"), c(120, "03:58", null, "pregame"),
+    c(150, "03:28", null, "pregame"), c(180, "02:58", null, "pregame"), c(210, "02:28", null, "pregame"), c(240, "02:01", 1, "pregame"),
+    c(270, "01:32", 1, "pregame"), c(300, "01:02", 1, "pregame"), c(330, null, 1, "lineup"), c(360, null, 1, "lineup", true),
+    c(390, "09:58", 1, "in_play"), c(420, "09:40", 1, "in_play"), c(450, "09:10", 1, "in_play"), c(480, "08:40", 1, "in_play"),
+  ];
+
+  it("opens the fine window where the game clock starts, not inside the countdown", () => {
+    expect(interpretCoarse(readings, 9354, { view: "overlay" })).toEqual({ kind: "window", startS: 358, endS: 392, basis: "clock" });
+  });
+});
+
+describe("a clock that first appears far below 10:00 after a quiet start", () => {
+  // Nothing says when the period began, so guessing from the first running
+  // reading would put the tip-off minutes off (or before the recording).
+  const readings = [
+    c(0, null, null, "pregame"), c(5, null, null, "pregame"), c(10, "05:56", 1, "pregame"), c(20, "05:46", 1, "pregame"),
+    c(30, "05:36", 1, "pregame"), c(60, "05:06", 1, "pregame"), c(90, "04:36", 1, "pregame"), c(120, "04:06", 1, "pregame"),
+  ];
+
+  it("does not open a window there", () => {
+    expect(interpretCoarse(readings, 9354, { view: "overlay", sampledToS: 1500 })).toEqual({ kind: "extend", fromS: 1500 });
+  });
+});

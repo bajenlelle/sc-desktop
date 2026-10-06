@@ -144,8 +144,28 @@ function withoutPregameCountdown(rs: TimedReading[]): TimedReading[] {
   const lead = rs.slice(0, flip);
   if (lead.some((r) => r.period != null)) return rs;
   if (lead.filter((r) => clockOf(r) != null).length < 3) return rs;
-  return rs.map((r, i) => (i < flip ? { ...r, clockVisible: false, clock: null } : r));
+  // The label can flip to "1st" before the countdown ends (EOS–Ockelbo): keep
+  // dropping readings that continue it at wall-clock rate, stop at the first that doesn't.
+  let end = flip;
+  let prev = [...lead].reverse().find((r) => clockOf(r) != null) as TimedReading;
+  while (end < rs.length) {
+    const r = rs[end];
+    const c = clockOf(r);
+    if (c == null || !isPeriodOne(r)) break;
+    const dt = r.t - prev.t;
+    if (dt <= 0 || Math.abs((clockOf(prev) as number) - c - dt) > Math.max(3, dt * 0.1)) break;
+    prev = r;
+    end++;
+  }
+  return rs.map((r, i) => (i < end ? { ...r, clockVisible: false, clock: null } : r));
 }
+
+/**
+ * A quiet start (no 10:00 seen) only locates the tip-off if the first running
+ * clock is close to 10:00; one that is minutes in says nothing about when the
+ * period began, and guessing put a tip-off before the recording started.
+ */
+const QUIET_START_MAX_ELAPSED_S = 90;
 
 export function interpretCoarse(readings: TimedReading[], durationS: number, opts: InterpretOptions = {}): CoarseVerdict {
   const periodLengthS = opts.periodLengthS ?? DETECT.periodLengthS;
@@ -183,6 +203,7 @@ export function interpretCoarse(readings: TimedReading[], durationS: number, opt
       if (resetLater) continue;
       if (stallSamples < 2 && isWarmupCountdown([...before, rs[k]], periodLengthS)) continue;
       if (!(stallSamples > 0 || quiet)) continue;
+      if (stallSamples === 0 && c < periodLengthS - QUIET_START_MAX_ELAPSED_S) continue;
       const prevT = k > 0 ? rs[k - 1].t : 0;
       return { kind: "window", startS: Math.max(0, prevT - DETECT.finePadS), endS: rs[k].t + DETECT.finePadS, basis: "clock" };
     }
