@@ -102,3 +102,114 @@ describe("runTipoffDetection with a frozen overlay", () => {
     expect(views).toContain("whole");
   });
 });
+
+// ── 2026-10-06 BasketTV spike: pre-game countdowns without a period label ─────
+// The overlay runs a "Starting 05:54" countdown with no period, then flips to
+// period 1. Those early clocks must not pass for a running game clock.
+const c = (t: number, clock: string | null, period: number | null, state: TimedReading["state"], jumpBall: boolean | null = null) =>
+  r(t, clock, state, { period, jumpBall });
+
+describe("countdown with no period label, then a dead clock (Alvik–AIK, tip at ~370)", () => {
+  const readings = [
+    c(0, "05:54", null, "pregame"), c(5, "05:49", null, "pregame"), c(10, "05:44", null, "pregame"), c(20, "05:34", null, "pregame"),
+    c(30, "05:24", null, "pregame"), c(60, "04:54", null, "pregame"), c(90, "04:24", null, "pregame"), c(120, "03:54", null, "pregame"),
+    c(150, "03:24", null, "pregame"), c(180, "02:54", null, "pregame"), c(210, "02:24", null, "pregame"), c(240, null, null, "pregame"),
+    c(270, null, 1, "lineup"), c(300, null, 1, "lineup"), c(330, null, 1, "lineup"), c(360, null, 1, "lineup", true),
+    c(390, null, 1, "in_play"), c(420, null, 1, "in_play"), c(450, null, 1, "in_play"), c(480, null, 1, "in_play"),
+  ];
+
+  it("is not a recording that starts after the tip-off", () => {
+    expect(interpretCoarse(readings, 9354, { view: "whole" }).kind).not.toBe("starts_after_tipoff");
+  });
+
+  it("falls back to the state of play around the jump ball", () => {
+    expect(interpretCoarse(readings, 9354, { view: "whole" })).toEqual({ kind: "window", startS: 358, endS: 392, basis: "visual" });
+  });
+});
+
+describe("countdown, then an overlay clock stuck at 10:00 (Huddinge–Fryshuset, tip at ~639)", () => {
+  const countdown = [0, 5, 10, 20, ...Array.from({ length: 15 }, (_, i) => 30 + i * 30)].map((t) => {
+    const left = 589 - t;
+    return c(t, `${String(Math.floor(left / 60)).padStart(2, "0")}:${String(left % 60).padStart(2, "0")}`, null, "pregame");
+  });
+  const stuck = Array.from({ length: 35 }, (_, i) => c(480 + i * 30, "10:00", 1, "pregame"));
+
+  it("asks for whole frames instead of extending the scoreboard-crop pass", () => {
+    expect(interpretCoarse([...countdown, ...stuck], 9588, { view: "overlay", sampledToS: 1500 })).toEqual({ kind: "frozen_clock" });
+  });
+});
+
+describe("a recording that starts after the tip-off keeps that verdict", () => {
+  it("when the overlay never shows a period label", () => {
+    const readings = [
+      c(0, "09:45", null, "in_play"), c(5, "09:40", null, "in_play"), c(10, "09:35", null, "in_play"), c(20, "09:25", null, "in_play"),
+      c(30, "09:15", null, "stoppage"), c(60, "09:02", null, "in_play"), c(90, "08:41", null, "in_play"), c(120, "08:12", null, "in_play"),
+    ];
+    expect(interpretCoarse(readings, 8934)).toMatchObject({ kind: "starts_after_tipoff", estimateS: -15 });
+  });
+
+  it("when only the very first frame lost its period label", () => {
+    const readings = [
+      c(0, "09:45", null, "in_play"), c(5, "09:40", 1, "in_play"), c(10, "09:35", 1, "in_play"), c(20, "09:25", 1, "in_play"),
+      c(30, "09:15", 1, "stoppage"), c(60, "09:02", 1, "in_play"), c(90, "08:41", 1, "in_play"), c(120, "08:12", 1, "in_play"),
+    ];
+    expect(interpretCoarse(readings, 8934)).toMatchObject({ kind: "starts_after_tipoff", estimateS: -15 });
+  });
+});
+
+describe("scoreboard crop with a countdown and then no readable clock at all (Alvik–AIK, second run)", () => {
+  // Crop states are guesses (the strip shows no play), so they must not drive a visual window.
+  const crops = [
+    c(0, "05:54", null, "pregame"), c(5, "05:49", null, "pregame"), c(10, "05:44", null, "pregame"), c(20, "05:34", null, "pregame"),
+    c(30, "05:24", null, "pregame"), c(60, "04:54", null, "pregame"), c(90, "04:24", null, "pregame"), c(120, "03:54", null, "pregame"),
+    c(150, "03:24", null, "pregame"), c(180, "02:54", null, "pregame"), c(210, "02:24", null, "pregame"), c(240, null, null, "pregame"),
+    ...Array.from({ length: 42 }, (_, i) => c(270 + i * 30, null, 1, i < 5 ? "pregame" : "in_play")),
+  ];
+
+  it("asks for whole frames instead of guessing from the crop", () => {
+    expect(interpretCoarse(crops, 9354, { view: "overlay", sampledToS: 1500 })).toEqual({ kind: "frozen_clock" });
+  });
+
+  it("finds the tip visually once the orchestrator has whole frames", async () => {
+    const TIP = 370;
+    const frame = (t: number): Frame => ({ t, jpegBase64: "x", width: 640, height: 360 });
+    // The default-region check (frames at 375/750/1125 s) passes on one flaky
+    // reading, as in the real run; the coarse grid never samples 375 s.
+    const cropRead = async (frames: Frame[]): Promise<FrameReading[]> =>
+      frames.map((f, index) => ({
+        index,
+        clockVisible: f.t <= 210 || f.t === 375,
+        clock: f.t <= 210 ? "05:54" : f.t === 375 ? "10:00" : null,
+        clockRunning: null,
+        period: f.t <= 210 ? null : 1,
+        state: "unknown",
+        jumpBall: null,
+      }));
+    const views: string[] = [];
+    const wholeRead = async (frames: Frame[]): Promise<FrameReading[]> =>
+      frames.map((f, index) => ({
+        index,
+        clockVisible: false,
+        clock: null,
+        clockRunning: null,
+        period: f.t <= 240 ? null : 1,
+        state: f.t < TIP - 100 ? "pregame" : f.t < TIP ? "lineup" : "in_play",
+        jumpBall: f.t >= TIP - 1.5 && f.t < TIP ? true : null,
+      }));
+    const deps: DetectDeps = {
+      grab: async (times) => times.map(frame),
+      grabRange: async (startS, durationS, fps) => Array.from({ length: Math.floor(durationS * fps) + 1 }, (_, i) => frame(startS + i / fps)),
+      read: async (frames, view) => {
+        views.push(view);
+        return view === "overlay" ? cropRead(frames) : wholeRead(frames);
+      },
+    };
+    const res = await runTipoffDetection(9354, deps);
+    expect(views.slice(0, 2)).toEqual(["overlay", "overlay"]); // region check, then a crop coarse pass
+    expect(res.outcome).toBe("found");
+    if (res.outcome !== "found") return;
+    expect(Math.abs(res.estimate.seconds - TIP)).toBeLessThanOrEqual(1);
+    expect(res.estimate.basis).toBe("visual_jump_ball");
+    expect(res.view).toBe("whole");
+  });
+});
