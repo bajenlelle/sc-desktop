@@ -6,7 +6,7 @@
 // JWT verified by the platform (verify_jwt default) and again here.
 //
 //   POST { action: "read_frames", view: "whole"|"overlay", periodLengthS: 600, frames: [{ jpegBase64 }] }
-//     → { readings: [{ index, clockVisible, clock, clockRunning, period, state, jumpBall }], usage }
+//     → { readings: [{ index, clockVisible, clock, clockRunning, period, state, jumpBall, score }], usage }
 //   POST { action: "locate_overlay", frames: [{ jpegBase64 }] }
 //     → { found, box: { x, y, w, h } | null, confidence, elements, usage }
 //
@@ -57,6 +57,7 @@ const Reading = z.object({
   period: z.number().int().nullable(),
   state: z.enum(["pregame", "lineup", "in_play", "stoppage", "unknown"]),
   jumpBall: z.boolean().nullable(),
+  score: z.object({ home: z.number().int().nonnegative(), away: z.number().int().nonnegative() }).nullable(),
 });
 const Readings = z.object({ readings: z.array(Reading) });
 
@@ -75,6 +76,7 @@ Rules:
 - period: the period shown ("1st" -> 1, "2nd" -> 2, "Q3" -> 3, "OT" -> 5), or null when not shown.
 - state: pregame (warm-ups, shoot-around, empty court, lineups being announced), lineup (teams gathered at the centre circle or standing still right before the jump ball), in_play (live action), stoppage (free throws, timeout, huddle, dead ball), unknown.
 - jumpBall: true only if the referee is tossing or holding the ball between two players at centre court.
+- score: the two teams' point totals exactly as the scoreboard graphic shows them, { home, away } with the left/first team as home, or null when no score is readable. Never the shot clock, the period or a countdown. A score can be readable when the game clock is not.
 Return exactly one reading per image, in the same order, with index = the image number minus one.`;
 
 interface FrameIn {

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { formatMSSd } from "@/components/sync-point-picker";
 import type { TipoffSuggestionState } from "@/lib/use-tipoff-suggestion";
 
-const STAGE_LABEL: Record<string, string> = { locate: "step 1 of 3", coarse: "step 2 of 3", fine: "step 3 of 3" };
+const STAGE_LABEL: Record<string, string> = { locate: "step 1 of 3", coarse: "step 2 of 3", narrow: "step 2 of 3", fine: "step 3 of 3" };
 const SLOW_AFTER_MS = 45_000;
 
 interface Props {
