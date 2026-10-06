@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   estimateTipoff,
   interpretCoarse,
+  narrowVisualWindow,
   runTipoffDetection,
   type DetectDeps,
   type Frame,
@@ -241,5 +242,174 @@ describe("a clock that first appears far below 10:00 after a quiet start", () =>
 
   it("does not open a window there", () => {
     expect(interpretCoarse(readings, 9354, { view: "overlay", sampledToS: 1500 })).toEqual({ kind: "extend", fromS: 1500 });
+  });
+});
+
+// ── 2026-10-06 first nightly run: broadcasts without a usable clock ──────────
+// Two Superettan Herr games came back not_found: one overlay has no game clock at
+// all, one shows "1ST 0" for minutes after the tip-off. Both show the score.
+const sc = (t: number, clock: string | null, period: number | null, state: TimedReading["state"], score: [number, number] | null, jumpBall: boolean | null = null) =>
+  r(t, clock, state, { period, jumpBall, score: score ? { home: score[0], away: score[1] } : null });
+const grid = (from: number, to: number, step = 30) => Array.from({ length: Math.floor((to - from) / step) + 1 }, (_, i) => from + i * step);
+const early = (to: number) => [0, 5, 10, 20, ...grid(30, to)];
+
+describe("no clock in the overlay, an arena clock misread in whole frames (Norrort–Wetterbygden, tip at ~845)", () => {
+  // Whole-frame readings as the model returned them: the gym's wall clock shows up as
+  // sporadic game-clock readings, and at 1 fps it is read wrongly (4:35 at 868 s).
+  const whole = [
+    ...early(780).map((t) => sc(t, null, 1, "pregame", [0, 0])),
+    sc(810, null, 1, "lineup", [0, 0]), sc(840, null, 1, "lineup", [0, 0], true), sc(870, null, 1, "lineup", [0, 0], true),
+    sc(900, "9:34", 1, "in_play", [0, 2]), sc(930, "9:04", 1, "in_play", [2, 4]), sc(960, "8:34", 1, "in_play", [5, 6]), sc(990, "8:32", 1, "stoppage", [7, 6]),
+    ...grid(1020, 1500).map((t) => sc(t, null, 1, "in_play", [10, 9])),
+  ];
+  const fine = [
+    sc(868, "4:35", 1, "in_play", [0, 1]), sc(869, "4:34", 1, "in_play", [0, 2]), sc(870, "4:33", 1, "in_play", [0, 2]),
+    ...grid(871, 893, 1).map((t) => sc(t, null, 1, "in_play", [2, 2])),
+    ...grid(894, 901, 1).map((t) => sc(t, "4:56", 1, "in_play", [2, 4])),
+  ];
+
+  it("opens a window that reaches back to the first jump-ball sample", () => {
+    expect(interpretCoarse(whole, 7209, { view: "whole" })).toMatchObject({ kind: "window", startS: 838, endS: 902 });
+  });
+
+  it("rejects a fine-pass clock estimate that contradicts the window instead of reporting 542.5", () => {
+    expect(estimateTipoff(fine, { basisHint: "clock", window: { startS: 868, endS: 902 }, view: "whole" })).toBeNull();
+  });
+
+  it("prefers the jump ball over a stray running clock in whole frames", () => {
+    const fine2 = [
+      ...grid(838, 843, 1).map((t) => sc(t, null, 1, "lineup", [0, 0])),
+      sc(844, null, 1, "lineup", [0, 0], true), sc(845, null, 1, "lineup", [0, 0], true),
+      ...grid(846, 852, 1).map((t) => sc(t, t === 850 ? "4:35" : null, 1, "in_play", [0, 0])),
+    ];
+    expect(estimateTipoff(fine2, { basisHint: "clock", window: { startS: 838, endS: 852 }, view: "whole" })).toEqual({ seconds: 845.5, confidence: 0.6, basis: "visual_jump_ball" });
+  });
+
+  it("still accepts a first running clock from a scoreboard crop when it fits the window", () => {
+    const crops = [...grid(868, 880, 1).map((t) => c(t, null, 1, "unknown")), c(881, "9:58", 1, "unknown"), c(882, "9:57", 1, "unknown")];
+    expect(estimateTipoff(crops, { basisHint: "clock", window: { startS: 868, endS: 902 }, view: "overlay" })).toEqual({ seconds: 878.5, confidence: 0.55, basis: "first_running_clock" });
+    expect(estimateTipoff(crops, { basisHint: "clock", window: { startS: 1100, endS: 1134 }, view: "overlay" })).toBeNull();
+  });
+});
+
+describe("score moves while the clock slot is dead (Eskilstuna–Djurgården, tip at ~575)", () => {
+  // Whole frames: a pre-game countdown with no period, then "1ST 0" for minutes
+  // after the tip-off; the real clock only appears late in the period.
+  const p1 = (t: number, clock: string | null, state: TimedReading["state"], score: [number, number] | null, jumpBall: boolean | null = null) => sc(t, clock, 1, state, score, jumpBall);
+  const whole = [
+    sc(0, "05:59", null, "pregame", [0, 0]), sc(5, "05:55", null, "pregame", [0, 0]), sc(10, "05:51", null, "pregame", [0, 0]), sc(20, "05:43", null, "pregame", [0, 0]),
+    sc(30, "05:34", null, "pregame", [0, 0]), sc(60, "05:07", null, "pregame", [0, 0]), sc(90, "04:38", null, "pregame", [0, 0]), sc(120, "04:08", null, "pregame", [0, 0]),
+    sc(150, "03:39", null, "pregame", [0, 0]), sc(180, "03:09", null, "pregame", [0, 0]), sc(210, "02:38", null, "pregame", [0, 0]), sc(240, "02:09", null, "pregame", [0, 0]),
+    sc(270, null, null, "pregame", null),
+    p1(300, null, "pregame", [0, 0]), p1(330, null, "pregame", [0, 0]), p1(360, null, "pregame", [0, 0]), p1(390, "01:31", "pregame", [0, 0]), p1(420, "1", "pregame", [0, 0]),
+    p1(450, "0", "lineup", [0, 0]), p1(480, "0", "lineup", [0, 0]), p1(510, "0", "lineup", [0, 0]), p1(540, "0", "lineup", [0, 0]), p1(570, "0", "lineup", [0, 0], true),
+    p1(600, null, "in_play", [0, 0]), p1(630, null, "in_play", [0, 0]), p1(660, null, "in_play", [3, 0]), p1(690, null, "in_play", [3, 2]), p1(720, null, "in_play", [3, 3]),
+    ...grid(750, 1320).map((t) => p1(t, null, "in_play", [8, 8])),
+    p1(1350, "02:22", "in_play", [19, 19]), p1(1380, "01:52", "in_play", [19, 22]), p1(1410, "01:52", "stoppage", [19, 22]), p1(1440, "01:52", "stoppage", [19, 23]),
+    p1(1470, "01:44", "in_play", [19, 23]), p1(1500, "01:24", "stoppage", [21, 23]),
+  ];
+
+  it("opens the visual window around the jump ball although clocks turn up later", () => {
+    expect(interpretCoarse(whole, 8372, { view: "whole" })).toEqual({ kind: "window", startS: 568, endS: 602, basis: "visual" });
+  });
+
+  it("falls back to the first scored sample when the states are unreadable", () => {
+    const blind = whole.map((x) => (x.t >= 450 && x.t <= 720 ? { ...x, state: "unknown" as const, jumpBall: null } : x));
+    expect(interpretCoarse(blind, 8372, { view: "whole" })).toEqual({ kind: "window", startS: 480, endS: 662, basis: "visual" });
+  });
+});
+
+describe("scoreboard crop with a score but no clock at all", () => {
+  const crops = [
+    ...early(840).map((t) => sc(t, null, 1, "unknown", [0, 0])),
+    sc(870, null, 1, "unknown", [0, 2]), sc(900, null, 1, "unknown", [2, 4]),
+    ...grid(930, 1500).map((t) => sc(t, null, 1, "unknown", [14, 9])),
+  ];
+
+  it("opens a visual window below the first scored sample instead of asking for whole frames", () => {
+    expect(interpretCoarse(crops, 7209, { view: "overlay" })).toEqual({ kind: "window", startS: 690, endS: 872, basis: "visual" });
+  });
+
+  it("narrows a long visual window to the jump ball with 5-second whole frames", () => {
+    const every5 = grid(690, 872, 5).map((t) => sc(t, null, 1, t < 820 ? "pregame" : t < 850 ? "lineup" : "in_play", [0, 0], t === 840 || t === 845 ? true : null));
+    expect(narrowVisualWindow(every5, { startS: 690, endS: 872 })).toEqual({ startS: 838, endS: 852 });
+    const noJump = every5.map((x) => ({ ...x, jumpBall: null }));
+    expect(narrowVisualWindow(noJump, { startS: 690, endS: 872 })).toEqual({ startS: 843, endS: 852 });
+    const noPre = every5.map((x) => ({ ...x, jumpBall: null, state: x.t < 850 ? ("unknown" as const) : x.state }));
+    expect(narrowVisualWindow(noPre, { startS: 690, endS: 872 })).toEqual({ startS: 805, endS: 852 });
+    const nothing = every5.map((x) => ({ ...x, jumpBall: null, state: "unknown" as const }));
+    expect(narrowVisualWindow(nothing, { startS: 690, endS: 872 })).toEqual({ startS: 827, endS: 872 });
+  });
+});
+
+describe("score guards", () => {
+  const blank = (t: number, score: [number, number] | null) => sc(t, null, 1, "unknown", score);
+
+  it("ignores one stray non-zero reading", () => {
+    const rs = early(1500).map((t) => blank(t, t === 300 ? [0, 2] : [0, 0]));
+    expect(interpretCoarse(rs, 7209, { view: "whole", sampledToS: 1500 })).toEqual({ kind: "extend", fromS: 1500 });
+  });
+
+  it("reports a recording that starts after the first basket", () => {
+    const rs = early(1500).map((t) => sc(t, null, 1, "in_play", [12 + Math.floor(t / 100), 9]));
+    expect(interpretCoarse(rs, 7209, { view: "whole" })).toMatchObject({ kind: "starts_after_tipoff", estimateS: null });
+  });
+
+  it("opens a window at the very start when the first points come within the first minute", () => {
+    const rs = [blank(0, [0, 0]), blank(5, [0, 0]), blank(10, [0, 0]), blank(20, [0, 0]), blank(30, [2, 0]), blank(60, [2, 2]), ...grid(90, 1500).map((t) => blank(t, [5, 4]))];
+    expect(interpretCoarse(rs, 7209, { view: "whole" })).toEqual({ kind: "window", startS: 0, endS: 32, basis: "visual" });
+  });
+
+  it("leaves readings without a score alone", () => {
+    expect(interpretCoarse(early(1500).map((t) => c(t, null, 1, "unknown")), 7209, { view: "whole", sampledToS: 1500 })).toEqual({ kind: "extend", fromS: 1500 });
+  });
+});
+
+describe("runTipoffDetection keeps a scoreboard crop that shows a score but no clock", () => {
+  const TIP = 845;
+  const frame = (t: number): Frame => ({ t, jpegBase64: "x", width: 640, height: 360 });
+  const scoreAt = (t: number) => (t < 860 ? { home: 0, away: 0 } : t < 890 ? { home: 0, away: 2 } : { home: 2, away: 4 });
+  const cropRead = async (frames: Frame[]): Promise<FrameReading[]> =>
+    frames.map((f, index) => ({ index, clockVisible: false, clock: null, clockRunning: null, period: 1, state: "unknown", jumpBall: null, score: scoreAt(f.t) }));
+  const wholeRead = async (frames: Frame[]): Promise<FrameReading[]> =>
+    frames.map((f, index) => ({
+      index,
+      clockVisible: false,
+      clock: null,
+      clockRunning: null,
+      period: 1,
+      state: f.t < TIP - 30 ? "pregame" : f.t < TIP ? "lineup" : "in_play",
+      jumpBall: f.t >= TIP - 1.5 && f.t < TIP ? true : null,
+      score: scoreAt(f.t),
+    }));
+
+  it("reads the score from crops, then narrows with whole frames and finds the jump ball", async () => {
+    const reads: string[] = [];
+    const grabs: { view: string; n: number }[] = [];
+    const deps: DetectDeps = {
+      grab: async (times, o) => {
+        grabs.push({ view: o.view, n: times.length });
+        return times.map(frame);
+      },
+      grabRange: async (startS, durationS, fps, o) => {
+        const n = Math.floor(durationS * fps) + 1;
+        grabs.push({ view: o.view, n });
+        return Array.from({ length: n }, (_, i) => frame(startS + i / fps));
+      },
+      read: async (frames, view) => {
+        reads.push(view);
+        return view === "overlay" ? cropRead(frames) : wholeRead(frames);
+      },
+    };
+    const res = await runTipoffDetection(7209, deps);
+    expect(grabs.map((g) => g.view)).toEqual(["overlay", "overlay", "whole", "whole"]); // region check, crop coarse pass, narrowing, fine pass
+    expect(grabs[2].n).toBe(37);
+    expect(grabs[3].n).toBeLessThanOrEqual(40);
+    expect(reads.filter((v) => v === "whole")).toHaveLength(2);
+    expect(res.outcome).toBe("found");
+    if (res.outcome !== "found") return;
+    expect(Math.abs(res.estimate.seconds - TIP)).toBeLessThanOrEqual(1);
+    expect(res.estimate.basis).toBe("visual_jump_ball");
+    expect(res.view).toBe("whole");
   });
 });

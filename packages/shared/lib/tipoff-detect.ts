@@ -15,6 +15,11 @@
  *    the state of play (lineup at the centre circle → live) and the jump ball.
  * 3. Recordings that start after the tip-off (clock already below 10:00 in the
  *    first frames, never back at 10:00) are reported with a negative estimate.
+ * 4. The score (2026-10-06): overlays with no clock, or a clock stuck at 0 after
+ *    the countdown, still show the points. The first scored sample caps the
+ *    tip-off; whole frames every 5 s narrow the minutes before it to the jump
+ *    ball, and the 1 fps pass runs there. In whole frames a clock estimate that
+ *    contradicts its own window (an arena clock misread) is rejected.
  */
 
 export interface FrameReading {
@@ -27,6 +32,8 @@ export interface FrameReading {
   period: number | null;
   state: "pregame" | "lineup" | "in_play" | "stoppage" | "unknown";
   jumpBall: boolean | null;
+  /** Point totals as the scoreboard graphic shows them (home first); null when none is readable, absent in readings from before 2026-10-06. */
+  score?: { home: number; away: number } | null;
 }
 
 export interface TimedReading extends FrameReading {
@@ -63,6 +70,13 @@ export const DETECT = {
   periodLengthS: 600,
   maxFramesPerCall: 48,
   locateSamples: 3,
+  /** A visual window longer than this is narrowed with whole frames every `narrowStepS` before the fine pass. */
+  narrowMinSpanS: 45,
+  narrowStepS: 5,
+  /** The first basket can come minutes after the tip-off: how far a score-based window reaches back. */
+  scoreLookbackS: 180,
+  /** A jump-ball sample this close before the first live sample widens a window to include it. */
+  jumpLookbackS: 90,
 } as const;
 
 /** Where Solidsport and baskettv productions draw the scoreboard: bottom band, centred. */
@@ -92,6 +106,38 @@ function clockOf(r: TimedReading): number | null {
 const isPeriodOne = (r: TimedReading) => r.period == null || r.period === 1;
 const isLive = (st: TimedReading["state"]) => st === "in_play" || st === "stoppage";
 const isPre = (st: TimedReading["state"]) => st === "pregame" || st === "lineup";
+
+/** Points on the board, or null when the reading carries no score. */
+const scoreOf = (r: TimedReading): number | null => (r.score ? r.score.home + r.score.away : null);
+const hasPoints = (r: TimedReading) => (scoreOf(r) ?? 0) > 0;
+const isNilNil = (r: TimedReading) => scoreOf(r) === 0;
+
+/**
+ * Where a window ending at sample k should start when whole frames are being read:
+ * the previous sample, or earlier when a pre-game state or a jump-ball flag sits just before.
+ */
+function visualStartBefore(rs: TimedReading[], k: number): number {
+  const prevT = k > 0 ? rs[k - 1].t : 0;
+  const lastPre = [...rs.slice(Math.max(0, k - 3), k)].reverse().find((r) => isPre(r.state));
+  const firstJump = rs.slice(0, k).find((r) => r.jumpBall === true && r.t >= rs[k].t - DETECT.jumpLookbackS);
+  return Math.min(prevT, lastPre?.t ?? prevT, firstJump?.t ?? prevT);
+}
+
+/**
+ * Index of the first sample with points on the board that the next sample confirms,
+ * after a 0-0 reading; "starts_after" when the recording opens with points and
+ * never shows 0-0; null when the readings carry no usable score.
+ */
+function firstScoredSample(rs: TimedReading[]): number | "starts_after" | null {
+  if (!rs.some((r) => scoreOf(r) != null)) return null;
+  if (!rs.some(isNilNil)) return rs.length >= 2 && rs[0].t <= 5.5 && hasPoints(rs[0]) && hasPoints(rs[1]) ? "starts_after" : null;
+  for (let k = 0; k < rs.length - 1; k++) {
+    if (!hasPoints(rs[k]) || !hasPoints(rs[k + 1])) continue;
+    if (!rs.slice(0, k).some(isNilNil)) continue;
+    return k;
+  }
+  return null;
+}
 
 /** A pre-game countdown falls at wall-clock rate and reaches above 10:00; a game clock stalls at 10:00 first. */
 export function isWarmupCountdown(readings: TimedReading[], periodLengthS: number = DETECT.periodLengthS): boolean {
@@ -204,21 +250,38 @@ export function interpretCoarse(readings: TimedReading[], durationS: number, opt
       if (stallSamples < 2 && isWarmupCountdown([...before, rs[k]], periodLengthS)) continue;
       if (!(stallSamples > 0 || quiet)) continue;
       if (stallSamples === 0 && c < periodLengthS - QUIET_START_MAX_ELAPSED_S) continue;
-      const prevT = k > 0 ? rs[k - 1].t : 0;
-      return { kind: "window", startS: Math.max(0, prevT - DETECT.finePadS), endS: rs[k].t + DETECT.finePadS, basis: "clock" };
+      // Whole frames also show the court: let the window cover a jump ball or lineup seen just before.
+      const startAt = opts.view === "whole" ? visualStartBefore(rs, k) : k > 0 ? rs[k - 1].t : 0;
+      return { kind: "window", startS: Math.max(0, startAt - DETECT.finePadS), endS: rs[k].t + DETECT.finePadS, basis: "clock" };
     }
   }
+
+  // The score is the one thing every production shows, clock or not. A recording
+  // whose first frames already carry points started after the tip-off; otherwise
+  // the first sample with points (confirmed by the next) caps the tip-off from
+  // above, and the fine pass looks for the jump ball in the minutes before it.
+  const scoredAt = firstScoredSample(rs);
+  if (scoredAt === "starts_after") return { kind: "starts_after_tipoff", firstClock: null, firstClockS: null, estimateS: null };
+  const scoreWindow = (): CoarseVerdict | null =>
+    scoredAt == null ? null : { kind: "window", startS: Math.max(0, rs[scoredAt].t - DETECT.scoreLookbackS), endS: rs[scoredAt].t + DETECT.finePadS, basis: "visual" };
 
   // A clock that never leaves 10:00 across the samples is a static graphic.
   const clocks = rs.filter((r) => clockOf(r) != null);
   const frozen = clocks.length >= Math.max(3, rs.length * 0.6) && clocks.every(atFull);
+  // A scoreboard crop whose score moves says when the game was under way even if
+  // its clock is frozen, dead or missing; the court is sampled from there.
+  if (opts.view === "overlay" && !opts.visualOnly) {
+    const w = scoreWindow();
+    if (w) return w;
+  }
   if (frozen && !opts.visualOnly && opts.view !== "whole") return { kind: "frozen_clock" };
   // A scoreboard crop with no readable clock at all can't show the play either
   // (its states are guesses), so the court has to be looked at instead.
   if (clocks.length === 0 && opts.view === "overlay" && !opts.visualOnly) return { kind: "frozen_clock" };
 
-  // No usable clock: sustained play after a pregame/lineup sample.
-  if (clocks.length === 0 || frozen || opts.visualOnly) {
+  // No usable clock, or whole frames whose clock said nothing: sustained play
+  // after a pregame/lineup sample.
+  if (clocks.length === 0 || frozen || opts.visualOnly || opts.view === "whole") {
     for (let k = 1; k < rs.length; k++) {
       if (!isLive(rs[k].state)) continue;
       const next = rs[k + 1];
@@ -227,13 +290,41 @@ export function interpretCoarse(readings: TimedReading[], durationS: number, opt
       const before = rs.slice(Math.max(0, k - 3), k);
       const lastPre = [...before].reverse().find((r) => isPre(r.state));
       if (sustained && lastPre) {
-        return { kind: "window", startS: Math.max(0, lastPre.t - DETECT.finePadS), endS: rs[k].t + DETECT.finePadS, basis: "visual" };
+        return { kind: "window", startS: Math.max(0, visualStartBefore(rs, k) - DETECT.finePadS), endS: rs[k].t + DETECT.finePadS, basis: "visual" };
       }
     }
+  }
+  if (opts.view !== "overlay") {
+    const w = scoreWindow();
+    if (w) return w;
   }
 
   if (sampledToS < DETECT.coarseMaxS && sampledToS < durationS - 1) return { kind: "extend", fromS: sampledToS };
   return { kind: "not_found" };
+}
+
+/**
+ * Shrink a long visual window using whole frames read every few seconds: it ends
+ * at the first sample of sustained play and starts at the first jump-ball flag
+ * shortly before it, else at the last pre-game sample, else 45 s earlier.
+ */
+export function narrowVisualWindow(readings: TimedReading[], w: { startS: number; endS: number }): { startS: number; endS: number } {
+  const rs = [...readings].sort((a, b) => a.t - b.t);
+  const pad = DETECT.finePadS;
+  const span = DETECT.narrowMinSpanS;
+  const k = rs.findIndex((r, i) => isLive(r.state) && (i + 1 >= rs.length || isLive(rs[i + 1].state)));
+  if (k < 0) return { startS: Math.max(w.startS, w.endS - span), endS: w.endS };
+  const live = rs[k];
+  const firstJump = rs.slice(0, k + 1).find((r) => r.jumpBall === true && r.t >= live.t - 60);
+  const lastPre = [...rs.slice(0, k)].reverse().find((r) => isPre(r.state));
+  const startAt = firstJump ? firstJump.t - pad : lastPre ? lastPre.t - pad : live.t - span;
+  return { startS: Math.max(w.startS, 0, startAt), endS: Math.min(w.endS, live.t + pad) };
+}
+
+export function narrowSchedule(w: { startS: number; endS: number }, stepS: number = DETECT.narrowStepS): number[] {
+  const out: number[] = [];
+  for (let t = w.startS; t <= w.endS + 1e-9; t += stepS) out.push(Number(t.toFixed(3)));
+  return out;
 }
 
 export function fineSchedule(w: { startS: number; endS: number }, fps: number = DETECT.fineFps): number[] {
@@ -251,31 +342,39 @@ export interface TipoffEstimate {
 /** Fine readings (1 fps, any order) → the second the game clock started. */
 export function estimateTipoff(
   fine: TimedReading[],
-  opts: { periodLengthS?: number; basisHint?: "clock" | "visual" } = {},
+  opts: { periodLengthS?: number; basisHint?: "clock" | "visual"; window?: { startS: number; endS: number }; view?: FrameView } = {},
 ): TipoffEstimate | null {
   const periodLengthS = opts.periodLengthS ?? DETECT.periodLengthS;
   const rs = [...fine].sort((a, b) => a.t - b.t);
-  if (opts.basisHint !== "visual") {
-    for (let k = 0; k < rs.length; k++) {
-      const c = clockOf(rs[k]);
-      if (c == null || c >= periodLengthS - 0.05 || c <= 0) continue;
-      // The display truncates to whole seconds: the clock left 10:00 within the
-      // second before this reading's elapsed time, so take the middle of it.
-      const seconds = rs[k].t - (periodLengthS - c) - 0.5;
-      let prevFull: number | null = null;
-      for (let j = k - 1; j >= 0; j--) {
-        const b = clockOf(rs[j]);
-        if (b != null && Math.abs(b - periodLengthS) < 0.05) {
-          prevFull = rs[j].t;
-          break;
-        }
+  const whole = opts.view === "whole";
+  const visualHint = opts.basisHint === "visual";
+
+  let clock: TipoffEstimate | null = null;
+  for (let k = 0; k < rs.length && !clock; k++) {
+    const c = clockOf(rs[k]);
+    if (c == null || c >= periodLengthS - 0.05 || c <= 0) continue;
+    // The display truncates to whole seconds: the clock left 10:00 within the
+    // second before this reading's elapsed time, so take the middle of it.
+    const seconds = rs[k].t - (periodLengthS - c) - 0.5;
+    let prevFull: number | null = null;
+    for (let j = k - 1; j >= 0; j--) {
+      const b = clockOf(rs[j]);
+      if (b != null && Math.abs(b - periodLengthS) < 0.05) {
+        prevFull = rs[j].t;
+        break;
       }
-      const gap = prevFull == null ? Infinity : rs[k].t - prevFull;
-      const confidence = gap <= 2.1 ? 0.92 : gap <= 5 ? 0.75 : 0.55;
-      return { seconds: Number(seconds.toFixed(2)), confidence, basis: prevFull == null ? "first_running_clock" : "clock_transition" };
     }
+    const gap = prevFull == null ? Infinity : rs[k].t - prevFull;
+    const confidence = gap <= 2.1 ? 0.92 : gap <= 5 ? 0.75 : 0.55;
+    clock = { seconds: Number(seconds.toFixed(2)), confidence, basis: prevFull == null ? "first_running_clock" : "clock_transition" };
   }
-  if (opts.basisHint === "visual") {
+  // The window was opened because the clock left 10:00 inside it; a clock estimate
+  // far outside contradicts that and is a misread (in whole frames, the arena clock).
+  const fits = clock && (!opts.window || (clock.seconds >= opts.window.startS - 5 && clock.seconds <= opts.window.endS + 1)) ? clock : null;
+  if (fits && (fits.basis === "clock_transition" || (!whole && !visualHint))) return fits;
+
+  // Whole frames show the court: the jump ball, else the first live frame after a pre-game one.
+  if (whole || visualHint) {
     const jumps = rs.filter((r) => r.jumpBall === true);
     if (jumps.length > 0) {
       return { seconds: Number((jumps[jumps.length - 1].t + 0.5).toFixed(2)), confidence: 0.6, basis: "visual_jump_ball" };
@@ -286,7 +385,7 @@ export function estimateTipoff(
       }
     }
   }
-  return null;
+  return visualHint ? null : fits;
 }
 
 export function chunk<T>(items: T[], size: number): T[][] {
@@ -302,7 +401,7 @@ export function padBox(b: OverlayBox, f = 0.5): OverlayBox {
 }
 
 export interface DetectProgress {
-  stage: "locate" | "coarse" | "fine";
+  stage: "locate" | "coarse" | "narrow" | "fine";
   done: number;
   total: number;
 }
@@ -328,9 +427,9 @@ export interface DetectStats {
 }
 
 export type DetectResult =
-  | { outcome: "found"; estimate: TipoffEstimate; view: FrameView; stats: DetectStats; readings: TimedReading[]; fine: TimedReading[] }
+  | { outcome: "found"; estimate: TipoffEstimate; view: FrameView; stats: DetectStats; readings: TimedReading[]; narrow?: TimedReading[]; fine: TimedReading[] }
   | { outcome: "starts_after_tipoff"; estimateS: number | null; firstClock: string | null; view: FrameView; stats: DetectStats; readings: TimedReading[] }
-  | { outcome: "not_found"; view: FrameView; stats: DetectStats; readings: TimedReading[] }
+  | { outcome: "not_found"; view: FrameView; stats: DetectStats; readings: TimedReading[]; narrow?: TimedReading[]; fine?: TimedReading[] }
   | { outcome: "cancelled"; stats: DetectStats };
 
 export async function runTipoffDetection(
@@ -366,9 +465,11 @@ export async function runTipoffDetection(
     const crops = await deps.grab(probeTimes, { view: "overlay", crop: DEFAULT_OVERLAY_BOX });
     const rd = await readAll(crops, "overlay");
     if (rd == null) return finish({ outcome: "cancelled" as const });
-    const visible = rd.filter((r) => r.clockVisible).length;
-    log(`default region: clock visible in ${visible}/${rd.length}`);
-    if (visible >= 1) crop = DEFAULT_OVERLAY_BOX;
+    // A crop is worth reading if it shows a clock, or a score (overlays without a clock exist).
+    const usable = (rs: FrameReading[]) => ({ clock: rs.filter((r) => r.clockVisible).length, score: rs.filter((r) => r.score != null).length });
+    const u = usable(rd);
+    log(`default region: clock visible in ${u.clock}/${rd.length}, score in ${u.score}/${rd.length}`);
+    if (u.clock >= 1 || u.score >= 2) crop = DEFAULT_OVERLAY_BOX;
     if (!crop && deps.locate) {
       const whole = await deps.grab(probeTimes, { view: "whole" });
       const loc = await deps.locate(whole);
@@ -379,9 +480,9 @@ export async function runTipoffDetection(
         const crops2 = await deps.grab(probeTimes, { view: "overlay", crop: padded });
         const rd2 = await readAll(crops2, "overlay");
         if (rd2 == null) return finish({ outcome: "cancelled" as const });
-        const visible2 = rd2.filter((r) => r.clockVisible).length;
-        log(`model region ${JSON.stringify(loc.box)}: clock visible in ${visible2}/${rd2.length}`);
-        if (visible2 >= 1) crop = padded;
+        const u2 = usable(rd2);
+        log(`model region ${JSON.stringify(loc.box)}: clock visible in ${u2.clock}/${rd2.length}, score in ${u2.score}/${rd2.length}`);
+        if (u2.clock >= 1 || u2.score >= 2) crop = padded;
       }
     }
   }
@@ -422,15 +523,33 @@ export async function runTipoffDetection(
       return finish({ outcome: "starts_after_tipoff" as const, estimateS: verdict.estimateS, firstClock: verdict.firstClock, view, readings });
     }
 
-    // 3. Fine pass at 1 fps inside the window.
-    const dur = verdict.endS - verdict.startS;
+    // 3. A visual window needs the court, not the graphic; a long one is narrowed first.
+    let win = { startS: verdict.startS, endS: verdict.endS };
+    let narrow: TimedReading[] | undefined;
+    if (verdict.basis === "visual") {
+      view = "whole";
+      crop = null;
+      if (win.endS - win.startS > DETECT.narrowMinSpanS) {
+        const times = narrowSchedule(win);
+        deps.onProgress?.({ stage: "narrow", done: 0, total: times.length });
+        const frames = await deps.grab(times, { view: "whole" });
+        const rd = await readAll(frames, "whole");
+        if (rd == null) return finish({ outcome: "cancelled" as const });
+        narrow = rd;
+        win = narrowVisualWindow(rd, win);
+        log(`narrow ${times.length} frames → ${win.startS}–${win.endS} s`);
+      }
+    }
+
+    // 4. Fine pass at 1 fps inside the window.
+    const dur = win.endS - win.startS;
     deps.onProgress?.({ stage: "fine", done: 0, total: Math.ceil(dur * DETECT.fineFps) + 1 });
-    const fineFrames = await deps.grabRange(verdict.startS, dur, DETECT.fineFps, { view, crop });
+    const fineFrames = await deps.grabRange(win.startS, dur, DETECT.fineFps, { view, crop });
     const fine = await readAll(fineFrames, view);
     if (fine == null) return finish({ outcome: "cancelled" as const });
-    const estimate = estimateTipoff(fine, { basisHint: verdict.basis });
+    const estimate = estimateTipoff(fine, { basisHint: verdict.basis, window: win, view });
     log(`fine ${fineFrames.length} frames → ${estimate ? `${estimate.seconds} s (${estimate.basis}, ${estimate.confidence})` : "nothing"}`);
-    if (!estimate) return finish({ outcome: "not_found" as const, view, readings });
-    return finish({ outcome: "found" as const, estimate, view, readings, fine });
+    if (!estimate) return finish({ outcome: "not_found" as const, view, readings, narrow, fine });
+    return finish({ outcome: "found" as const, estimate, view, readings, narrow, fine });
   }
 }

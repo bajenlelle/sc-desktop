@@ -4,10 +4,11 @@
  * "Tip-off found from an earlier import of this recording" at once.
  *
  *   npm run nightly-tipoff -- [--channels superettanherr,basketettan-dam] [--since-hours 72]
- *                              [--max 25] [--games slug,slug] [--dry-run]
+ *                              [--max 25] [--games slug,slug] [--dry-run] [--dump dir]
  *
- * Flags fall back to the env vars CHANNELS, SINCE_HOURS, MAX_GAMES, GAMES, DRY_RUN
- * (the workflow sets those from its inputs). Required env: SUPABASE_URL,
+ * Flags fall back to the env vars CHANNELS, SINCE_HOURS, MAX_GAMES, GAMES, DRY_RUN,
+ * DUMP_DIR (the workflow sets the first five from its inputs). `--dump` writes every
+ * game's readings to `<dir>/<slug>.json` so a hard case can be turned into a test. Required env: SUPABASE_URL,
  * SUPABASE_ANON_KEY, TIPOFF_BOT_EMAIL, TIPOFF_BOT_PASSWORD, BASKETTV_USERNAME,
  * BASKETTV_PASSWORD. Optional: FFMPEG (binary path).
  *
@@ -16,7 +17,8 @@
  * `upsert_video_sync_hint`, exactly like the desktop app. Only the hourly rate limit
  * is lifted for it. Nothing here prints a token or a URL: this log is public.
  */
-import { appendFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   PILOT_CHANNELS,
@@ -56,6 +58,7 @@ const sinceHours = Number(flag("since-hours") ?? env("SINCE_HOURS") ?? 72);
 const maxGames = Number(flag("max") ?? env("MAX_GAMES") ?? 25);
 const only = list(flag("games") ?? env("GAMES"));
 const dryRun = has("dry-run") || env("DRY_RUN") === "true";
+const dumpDir = flag("dump") ?? env("DUMP_DIR");
 
 function required(name: string): string {
   const v = env(name);
@@ -218,6 +221,10 @@ async function main(): Promise<number> {
 
       const fp = await fingerprint(localUrl, p);
       const result = await runTipoffDetection(p.durationS, detectDeps(supabase, localUrl, p, log), { strategy: "crop" });
+      if (dumpDir) {
+        mkdirSync(dumpDir, { recursive: true });
+        writeFileSync(join(dumpDir, `${game.slug}.json`), JSON.stringify({ slug: game.slug, durationS: p.durationS, ...result }, null, 1));
+      }
       out.apiCalls = result.stats.apiCalls;
       out.frames = result.stats.frames;
       if (result.outcome === "found") {
