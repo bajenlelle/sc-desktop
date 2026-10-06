@@ -243,6 +243,15 @@ async fn run_ffmpeg(app: &tauri::AppHandle, args: &[String]) -> Result<(Vec<u8>,
     Ok((stdout, String::from_utf8_lossy(&stderr).to_string(), success))
 }
 
+/// Frame rate of an export source (local file or the sample game's URL); None
+/// when ffmpeg can't read one, so the export falls back to its default rate.
+pub(crate) async fn probe_fps(app: &tauri::AppHandle, path: &str) -> Option<f64> {
+    let (_, stderr, _) = run_ffmpeg(app, &["-hide_banner".into(), "-i".into(), path.to_string()])
+        .await
+        .ok()?;
+    parse_ffmpeg_probe(&stderr).map(|p| p.fps).filter(|fps| *fps > 0.0)
+}
+
 #[tauri::command]
 pub async fn probe_video(app: tauri::AppHandle, path: String) -> Result<VideoProbe, String> {
     let video = checked_video_path(&path)?;

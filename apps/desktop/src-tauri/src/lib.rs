@@ -114,6 +114,164 @@ fn assert_rendered_output(path: &std::path::Path, what: &str) -> Result<(), Stri
     Ok(())
 }
 
+// ── export_playlist argument builders ────────────────────────────────────────
+// Pure so the exact argv is unit-tested and the ignored end-to-end test can run
+// it against the bundled ffmpeg.
+
+/// The one constant frame rate (ffmpeg rate syntax) every segment of an export
+/// is rendered at, taken from the first clip's source so 25/50/60 fps footage
+/// keeps its motion. Mixing rates (text cards used to be a fixed 30 fps against
+/// 29.97 fps game footage) made the concat pass variable-rate, and x264 then
+/// signalled H.264 level 6.2, which iPhones refuse to play (GitHub #78).
+fn export_frame_rate(probed: Option<f64>) -> String {
+    let Some(fps) = probed.filter(|f| f.is_finite() && *f > 0.0) else {
+        return "30".to_string();
+    };
+    // NTSC-family rates are exact rationals; "29.97" printed by ffmpeg is not.
+    for (ntsc, exact) in [(23.976, "24000/1001"), (29.97, "30000/1001"), (59.94, "60000/1001")] {
+        if (fps - ntsc).abs() < 0.01 {
+            return exact.to_string();
+        }
+    }
+    // Above 60 fps (slow-motion sources) adds file size, not watchable motion.
+    format!("{}", fps.round().clamp(1.0, 60.0) as u32)
+}
+
+/// ffmpeg argv that renders one clip segment to `out`.
+fn clip_segment_args(
+    video_path: &str,
+    start: f64,
+    end: f64,
+    crop_keyframes: Option<&[CropKf]>,
+    vertical: bool,
+    rate: &str,
+    out: &str,
+) -> Vec<String> {
+    let duration = (end - start).max(0.001);
+    let fade_out_start = (duration - 0.25).max(0.0);
+    // fps= right after the timestamp reset: clips from sources with other rates
+    // (a second game, a phone recording) join the export's rate too.
+    let vf = if vertical {
+        // Crop first (at native resolution), scale second. Window width comes
+        // from expression vars (2*trunc(ih*9/32) = even-rounded ih*9/16), so no
+        // probing is needed; min(iw,..) keeps narrow sources valid. x is
+        // re-evaluated per frame — the whole pan is this one filter.
+        let x_expr = build_crop_x_expr(crop_keyframes.unwrap_or(&[]));
+        format!(
+            "setpts=PTS-STARTPTS,fps={rate},\
+             crop=w=min(iw\\,2*trunc(ih*9/32)):h=ih:x={x_expr}:y=0,\
+             scale=1080:1920:flags=lanczos,setsar=1,\
+             fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25"
+        )
+    } else {
+        format!(
+            "setpts=PTS-STARTPTS,fps={rate},\
+             scale=1280:720:force_original_aspect_ratio=decrease,\
+             pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black,\
+             fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25"
+        )
+    };
+    let mut args: Vec<String> = vec![
+        "-y".into(),
+        "-ss".into(), format!("{start:.3}"),
+        "-to".into(), format!("{end:.3}"),
+        "-i".into(), video_path.to_string(),
+        "-vf".into(), vf,
+        "-af".into(), "asetpts=PTS-STARTPTS".into(),
+        "-c:v".into(), "libx264".into(),
+        "-preset".into(), "fast".into(),
+        "-crf".into(), "23".into(),
+    ];
+    if vertical {
+        // Upscaled crop must stay 4:2:0 — social platforms reject exotic
+        // pixel formats. (16:9 path left byte-identical.)
+        args.extend(["-pix_fmt".into(), "yuv420p".into()]);
+    }
+    args.extend([
+        "-c:a".into(), "aac".into(),
+        "-b:a".into(), "128k".into(),
+        out.to_string(),
+    ]);
+    args
+}
+
+/// ffmpeg argv that turns a rendered text-card PNG into a segment with silent audio.
+fn text_card_args(png: &str, duration_seconds: f64, rate: &str, out: &str) -> Vec<String> {
+    let fade_out_start = (duration_seconds - 0.25).max(0.0);
+    [
+        "-y",
+        "-framerate", rate,
+        "-loop", "1",
+        "-i", png,
+        "-f", "lavfi",
+        "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-vf", &format!("fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25"),
+        "-af", "asetpts=PTS-STARTPTS",
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-crf", "23",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-t", &format!("{duration_seconds:.3}"),
+        out,
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+/// ffmpeg argv for the final pass: concat filter over every segment (it
+/// normalises timestamps and avoids A/V drift from input-side seeking), plus
+/// the optional watermark overlay.
+fn concat_args(
+    inputs: &[String],
+    watermark_png: Option<&str>,
+    vertical: bool,
+    rate: &str,
+    out: &str,
+) -> Vec<String> {
+    let n = inputs.len();
+    let mut args: Vec<String> = vec!["-y".to_string()];
+    for p in inputs {
+        args.push("-i".to_string());
+        args.push(p.clone());
+    }
+    if let Some(wm) = watermark_png {
+        args.push("-i".to_string());
+        args.push(wm.to_string());
+    }
+    let mut filter = String::new();
+    for i in 0..n {
+        filter.push_str(&format!("[{i}:v:0][{i}:a:0]"));
+    }
+    if watermark_png.is_some() {
+        // Vertical: bottom-center, lifted 700px — TikTok/Reels UI covers the
+        // bottom ~35% and the right edge, where the 16:9 position would hide.
+        let overlay_pos = if vertical { "(W-w)/2:H-h-700" } else { "W-w-24:H-h-48" };
+        filter.push_str(&format!(
+            "concat=n={n}:v=1:a=1[cv][outa];[cv][{n}:v]overlay={overlay_pos}[outv]"
+        ));
+    } else {
+        filter.push_str(&format!("concat=n={n}:v=1:a=1[outv][outa]"));
+    }
+    args.extend([
+        "-filter_complex".to_string(), filter,
+        "-map".to_string(), "[outv]".to_string(),
+        "-map".to_string(), "[outa]".to_string(),
+        "-c:v".to_string(), "libx264".to_string(),
+        "-preset".to_string(), "fast".to_string(),
+        "-crf".to_string(), "23".to_string(),
+        "-c:a".to_string(), "aac".to_string(),
+        "-b:a".to_string(), "128k".to_string(),
+        // Constant output rate even if a segment slipped through at another
+        // rate: the encoder's level follows from it (see export_frame_rate).
+        "-r".to_string(), rate.to_string(),
+        out.to_string(),
+    ]);
+    args
+}
+
 /// Progress notification for the export UI. `id` echoes the caller's nonce so
 /// a listener never consumes another export's events — a save-export and a
 /// send-to-phone render can run concurrently, both through this command.
@@ -160,6 +318,16 @@ async fn export_playlist(
     // resolution, then scale to 1080x1920. The concat filter requires every
     // segment to share one WxH, so the whole export is either 16:9 or 9:16.
     let vertical = vertical.unwrap_or(false);
+    // One constant rate for every segment, from the first clip's source.
+    let first_clip = segments.iter().find_map(|s| match s {
+        ExportSegment::Clip { video_path, .. } => Some(video_path.as_str()),
+        ExportSegment::Text { .. } => None,
+    });
+    let probed_fps = match first_clip {
+        Some(path) => video_frames::probe_fps(&app, path).await,
+        None => None,
+    };
+    let rate = export_frame_rate(probed_fps);
 
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -176,54 +344,15 @@ async fn export_playlist(
 
         let status = match segment {
             ExportSegment::Clip { video_path, start, end, crop_keyframes } => {
-                let duration = (end - start).max(0.001);
-                let fade_out_start = (duration - 0.25).max(0.0);
-
-                let vf = if vertical {
-                    // Crop first (at native resolution), scale second. Window
-                    // width comes from expression vars (2*trunc(ih*9/32) =
-                    // even-rounded ih*9/16), so no probing is needed; min(iw,..)
-                    // keeps narrow sources valid. x is re-evaluated per frame —
-                    // the whole pan is this one filter.
-                    let x_expr = build_crop_x_expr(
-                        crop_keyframes.as_deref().unwrap_or(&[]),
-                    );
-                    format!(
-                        "setpts=PTS-STARTPTS,\
-                         crop=w=min(iw\\,2*trunc(ih*9/32)):h=ih:x={x_expr}:y=0,\
-                         scale=1080:1920:flags=lanczos,setsar=1,\
-                         fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25"
-                    )
-                } else {
-                    format!(
-                        "setpts=PTS-STARTPTS,\
-                         scale=1280:720:force_original_aspect_ratio=decrease,\
-                         pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black,\
-                         fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25"
-                    )
-                };
-
-                let mut args: Vec<String> = vec![
-                    "-y".into(),
-                    "-ss".into(), format!("{start:.3}"),
-                    "-to".into(), format!("{end:.3}"),
-                    "-i".into(), video_path.clone(),
-                    "-vf".into(), vf,
-                    "-af".into(), "asetpts=PTS-STARTPTS".into(),
-                    "-c:v".into(), "libx264".into(),
-                    "-preset".into(), "fast".into(),
-                    "-crf".into(), "23".into(),
-                ];
-                if vertical {
-                    // Upscaled crop must stay 4:2:0 — social platforms reject
-                    // exotic pixel formats. (16:9 path left byte-identical.)
-                    args.extend(["-pix_fmt".into(), "yuv420p".into()]);
-                }
-                args.extend([
-                    "-c:a".into(), "aac".into(),
-                    "-b:a".into(), "128k".into(),
-                    temp_path.to_str().unwrap().to_string(),
-                ]);
+                let args = clip_segment_args(
+                    video_path,
+                    *start,
+                    *end,
+                    crop_keyframes.as_deref(),
+                    vertical,
+                    &rate,
+                    temp_path.to_str().unwrap(),
+                );
 
                 app.shell()
                     .sidecar("ffmpeg")
@@ -287,31 +416,17 @@ async fn export_playlist(
                 img.save(&png_path)
                     .map_err(|e| format!("Failed to save text frame: {e}"))?;
 
-                let fade_out_start = (duration_seconds - 0.25).max(0.0);
+                let args = text_card_args(
+                    png_path.to_str().unwrap(),
+                    *duration_seconds,
+                    &rate,
+                    temp_path.to_str().unwrap(),
+                );
 
                 let result = app.shell()
                     .sidecar("ffmpeg")
                     .map_err(|e| e.to_string())?
-                    .args([
-                        "-y",
-                        "-framerate", "30",
-                        "-loop", "1",
-                        "-i", png_path.to_str().unwrap(),
-                        "-f", "lavfi",
-                        "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
-                        "-vf", &format!(
-                            "fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25"
-                        ),
-                        "-af", "asetpts=PTS-STARTPTS",
-                        "-c:v", "libx264",
-                        "-preset", "fast",
-                        "-crf", "23",
-                        "-pix_fmt", "yuv420p",
-                        "-c:a", "aac",
-                        "-b:a", "128k",
-                        "-t", &format!("{duration_seconds:.3}"),
-                        temp_path.to_str().unwrap(),
-                    ])
+                    .args(&args)
                     .output()
                     .await
                     .map_err(|e| e.to_string())?;
@@ -342,49 +457,20 @@ async fn export_playlist(
 
     emit_export_progress(&app, &progress_id, "stitching", segments.len(), segments.len());
 
-    // Final concat using the concat filter, which normalises timestamps
-    // across all segments and avoids A/V sync drift from input-side seeking.
-    let n = temp_files.len();
-    let mut concat_args: Vec<String> = vec!["-y".to_string()];
-    for p in &temp_files {
-        concat_args.push("-i".to_string());
-        concat_args.push(p.to_str().unwrap().to_string());
-    }
     // Watermark rides as one extra input overlaid after the concat — every
     // segment is already normalized to 1280x720 there, so one steady mark
     // covers the whole timeline (and the poster frame inherits it).
     // Best-effort: a failed raster must never lose a finished render.
     let watermark_png = std::env::temp_dir().join(format!("sc_wm_{timestamp}.png"));
     let with_watermark = watermark && render_watermark_png(&watermark_png).is_ok();
-    if with_watermark {
-        concat_args.push("-i".to_string());
-        concat_args.push(watermark_png.to_str().unwrap().to_string());
-    }
-    let mut filter = String::new();
-    for i in 0..n {
-        filter.push_str(&format!("[{i}:v:0][{i}:a:0]"));
-    }
-    if with_watermark {
-        // Vertical: bottom-center, lifted 700px — TikTok/Reels UI covers the
-        // bottom ~35% and the right edge, where the 16:9 position would hide.
-        let overlay_pos = if vertical { "(W-w)/2:H-h-700" } else { "W-w-24:H-h-48" };
-        filter.push_str(&format!(
-            "concat=n={n}:v=1:a=1[cv][outa];[cv][{n}:v]overlay={overlay_pos}[outv]"
-        ));
-    } else {
-        filter.push_str(&format!("concat=n={n}:v=1:a=1[outv][outa]"));
-    }
-    concat_args.extend([
-        "-filter_complex".to_string(), filter,
-        "-map".to_string(), "[outv]".to_string(),
-        "-map".to_string(), "[outa]".to_string(),
-        "-c:v".to_string(), "libx264".to_string(),
-        "-preset".to_string(), "fast".to_string(),
-        "-crf".to_string(), "23".to_string(),
-        "-c:a".to_string(), "aac".to_string(),
-        "-b:a".to_string(), "128k".to_string(),
-        output_path.clone(),
-    ]);
+    let inputs: Vec<String> = temp_files.iter().map(|p| p.to_str().unwrap().to_string()).collect();
+    let concat_args = concat_args(
+        &inputs,
+        with_watermark.then(|| watermark_png.to_str().unwrap()),
+        vertical,
+        &rate,
+        &output_path,
+    );
     let result = app
         .shell()
         .sidecar("ffmpeg")
@@ -1128,5 +1214,161 @@ mod tests {
         assert_eq!(mime_for_path("/tmp/a.webm"), "video/webm");
         assert_eq!(mime_for_path("/tmp/a.txt"), "application/octet-stream");
         assert_eq!(mime_for_path("/tmp/noext"), "application/octet-stream");
+    }
+
+    // ── export frame rate (GitHub #78) ───────────────────────────────────────
+    // Text cards rendered at 30 fps joined with 29.97 fps clips made the concat
+    // pass variable-rate, and x264 then picked H.264 level 6.2, which iPhones
+    // refuse. Every segment and the final pass now share one constant rate.
+
+    #[test]
+    fn export_frame_rate_maps_probed_fps_to_ffmpeg_rates() {
+        let cases: [(Option<f64>, &str); 11] = [
+            (Some(29.97), "30000/1001"),
+            (Some(29.970_029_97), "30000/1001"),
+            (Some(30.0), "30"),
+            (Some(25.0), "25"),
+            (Some(50.0), "50"),
+            (Some(59.94), "60000/1001"),
+            (Some(23.976), "24000/1001"),
+            (Some(120.0), "60"),
+            (Some(0.0), "30"),
+            (Some(f64::NAN), "30"),
+            (None, "30"),
+        ];
+        for (probe, want) in cases {
+            assert_eq!(export_frame_rate(probe), want, "probe {probe:?}");
+        }
+    }
+
+    fn arg_after<'a>(args: &'a [String], flag: &str) -> &'a str {
+        let i = args.iter().position(|a| a == flag).unwrap_or_else(|| panic!("{flag} missing"));
+        &args[i + 1]
+    }
+
+    #[test]
+    fn clip_segment_16x9_resamples_to_the_export_rate() {
+        let args = clip_segment_args("/v/game.mp4", 10.0, 14.0, None, false, "30000/1001", "/tmp/seg.mp4");
+        assert_eq!(&args[..7], ["-y", "-ss", "10.000", "-to", "14.000", "-i", "/v/game.mp4"]);
+        assert_eq!(
+            arg_after(&args, "-vf"),
+            "setpts=PTS-STARTPTS,fps=30000/1001,\
+             scale=1280:720:force_original_aspect_ratio=decrease,\
+             pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black,\
+             fade=t=in:st=0:d=0.25,fade=t=out:st=3.750:d=0.25"
+        );
+        assert!(!args.iter().any(|a| a == "-pix_fmt"), "16:9 path keeps the source pixel format");
+        assert_eq!(args.last().unwrap(), "/tmp/seg.mp4");
+    }
+
+    #[test]
+    fn clip_segment_9x16_resamples_before_cropping() {
+        let args = clip_segment_args("/v/game.mp4", 0.0, 2.0, Some(&[]), true, "25", "/tmp/seg.mp4");
+        assert_eq!(
+            arg_after(&args, "-vf"),
+            "setpts=PTS-STARTPTS,fps=25,\
+             crop=w=min(iw\\,2*trunc(ih*9/32)):h=ih:x=2*trunc(clip(0.5*iw-ow/2\\,0\\,iw-ow)/2):y=0,\
+             scale=1080:1920:flags=lanczos,setsar=1,\
+             fade=t=in:st=0:d=0.25,fade=t=out:st=1.750:d=0.25"
+        );
+        assert_eq!(arg_after(&args, "-pix_fmt"), "yuv420p");
+    }
+
+    #[test]
+    fn text_card_is_rendered_at_the_export_rate() {
+        let args = text_card_args("/tmp/card.png", 3.0, "25", "/tmp/t.mp4");
+        assert_eq!(arg_after(&args, "-framerate"), "25");
+        assert!(!args.iter().any(|a| a == "30"), "no hard-coded 30 fps left: {args:?}");
+        assert_eq!(arg_after(&args, "-t"), "3.000");
+        assert_eq!(args.last().unwrap(), "/tmp/t.mp4");
+    }
+
+    #[test]
+    fn concat_pass_forces_a_constant_output_rate() {
+        let inputs = ["/tmp/a.mp4".to_string(), "/tmp/b.mp4".to_string()];
+        for watermark in [None, Some("/tmp/wm.png")] {
+            let args = concat_args(&inputs, watermark, false, "30000/1001", "/out.mp4");
+            let n = args.len();
+            assert_eq!(&args[n - 3..], ["-r", "30000/1001", "/out.mp4"], "watermark {watermark:?}");
+        }
+    }
+
+    /// The untracked ffmpeg sidecar for this machine, if present.
+    fn sidecar_ffmpeg() -> Option<PathBuf> {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries");
+        let names: &[&str] = if cfg!(target_arch = "aarch64") {
+            &["ffmpeg-aarch64-apple-darwin"]
+        } else if cfg!(windows) {
+            &["ffmpeg-x86_64-pc-windows-msvc.exe"]
+        } else {
+            &["ffmpeg-x86_64-apple-darwin"]
+        };
+        names.iter().map(|n| dir.join(n)).find(|p| p.exists())
+    }
+
+    fn run_ffmpeg_blocking(ffmpeg: &std::path::Path, args: &[String]) -> std::process::Output {
+        let out = std::process::Command::new(ffmpeg).arg("-hide_banner").args(args).output().unwrap();
+        assert!(out.status.success(), "ffmpeg {args:?} failed:\n{}", String::from_utf8_lossy(&out.stderr));
+        out
+    }
+
+    fn probe_blocking(ffmpeg: &std::path::Path, path: &std::path::Path) -> video_frames::VideoProbe {
+        let out = std::process::Command::new(ffmpeg)
+            .args(["-hide_banner", "-i", path.to_str().unwrap()])
+            .output()
+            .unwrap();
+        video_frames::parse_ffmpeg_probe(&String::from_utf8_lossy(&out.stderr)).expect("probe")
+    }
+
+    /// AVCLevelIndication from the MP4's avcC box (31 = level 3.1, 62 = 6.2).
+    fn avc_level(mp4: &[u8]) -> u8 {
+        let p = mp4.windows(4).position(|w| w == b"avcC").expect("no avcC box");
+        mp4[p + 4 + 3]
+    }
+
+    /// End to end with the bundled ffmpeg: a text card plus two clips, exactly as
+    /// export_playlist builds them. Before the fix a 29.97 fps source produced
+    /// level 6.2 and a variable rate. Run with `cargo test -- --ignored`; set
+    /// `SC_EXPORT_E2E_SOURCE=/path/game.mp4` to use a real recording (clips are
+    /// cut at 10 minutes in) instead of a generated 29.97 fps test pattern.
+    #[test]
+    #[ignore = "needs the untracked ffmpeg sidecar in src-tauri/binaries"]
+    fn export_with_text_card_stays_iphone_compatible() {
+        let ffmpeg = sidecar_ffmpeg().expect("bundled ffmpeg missing in src-tauri/binaries");
+        let dir = scratch("export_e2e");
+        let p = |name: &str| dir.join(name).to_str().unwrap().to_string();
+
+        let (src, base) = match std::env::var("SC_EXPORT_E2E_SOURCE") {
+            Ok(path) => (path, 600.0),
+            Err(_) => {
+                run_ffmpeg_blocking(&ffmpeg, &[
+                    "-y", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30000/1001",
+                    "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
+                    "-t", "12", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", &p("src.mp4"),
+                ].map(String::from));
+                (p("src.mp4"), 0.0)
+            }
+        };
+        image::RgbaImage::from_pixel(1280, 720, image::Rgba([0, 0, 0, 255]))
+            .save(dir.join("card.png"))
+            .unwrap();
+        render_watermark_png(&dir.join("wm.png")).unwrap();
+
+        let src_fps = probe_blocking(&ffmpeg, std::path::Path::new(&src)).fps;
+        let rate = export_frame_rate(Some(src_fps));
+        run_ffmpeg_blocking(&ffmpeg, &text_card_args(&p("card.png"), 2.0, &rate, &p("t1.mp4")));
+        run_ffmpeg_blocking(&ffmpeg, &clip_segment_args(&src, base + 2.0, base + 5.0, None, false, &rate, &p("c1.mp4")));
+        run_ffmpeg_blocking(&ffmpeg, &clip_segment_args(&src, base + 6.0, base + 9.0, None, false, &rate, &p("c2.mp4")));
+        let inputs = [p("t1.mp4"), p("c1.mp4"), p("c2.mp4")];
+        run_ffmpeg_blocking(&ffmpeg, &concat_args(&inputs, Some(&p("wm.png")), false, &rate, &p("out.mp4")));
+
+        let level = avc_level(&std::fs::read(dir.join("out.mp4")).unwrap());
+        assert!(level <= 42, "H.264 level {level} (iPhones refuse anything above 42 = 4.2)");
+        let fps = probe_blocking(&ffmpeg, &dir.join("out.mp4")).fps;
+        let want = src_fps.min(60.0);
+        assert!((fps - want).abs() < 0.01, "output rate {fps}, want the source's {want}");
+        eprintln!("source {src_fps} fps -> rate {rate}: output level {level}, {fps} fps");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
