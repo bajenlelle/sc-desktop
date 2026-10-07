@@ -17,15 +17,16 @@ export type AnalyticsEvent =
   | "login_provider_clicked"
   | "declared_role_selected"
   | "page_viewed"
-  // Your team (all apps). surface: step | profile
+  // Your team (all apps). surface: step | profile | import
   | "team_step_shown" // role
   | "team_selected" // surface, league_id, team_name, suggested, spaces, includes_personal
   | "team_step_skipped"
   | "team_unlisted" // surface, spaces
   // Import funnel (desktop)
-  | "game_synced"
+  | "game_synced" // …, picked_from (latest_card | team_list | all_list), team_game
   | "game_sync_failed"
   | "sync_point_skipped"
+  | "import_view_changed" // view (team | all)
   | "demo_game_seeded"
   // Automatic tip-off detection (desktop import). Props in comments.
   // Tip-off flow (desktop). Every event carries surface (import | game_page). A suggestion's

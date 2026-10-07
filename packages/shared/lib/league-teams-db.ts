@@ -6,6 +6,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { LeagueTeam, TeamChoice } from '../types/league-team';
+import type { TeamSource } from './team-games';
 import { currentUserId } from './current-user';
 
 const TEAM_COLUMNS = 'id, name, club_name, club_key, gender, league_id, league_name, season_id, logo_url';
@@ -84,4 +85,20 @@ export async function getSpaceTeamSuggestions(supabase: SupabaseClient, orgId: s
   const { data, error } = await supabase.rpc('get_space_team_suggestions', { p_org_id: orgId });
   if (error) throw new Error(`Failed to load your club's teams: ${error.message}`);
   return ((data ?? []) as TeamRow[]).map(rowToLeagueTeam);
+}
+
+/** Every season's source id for a team (league_team_sources), for matching schedules. */
+export async function getTeamSources(supabase: SupabaseClient, leagueTeamId: string): Promise<TeamSource[]> {
+  const { data, error } = await supabase
+    .from('league_team_sources')
+    .select('source, source_team_id, league_id, season_id')
+    .eq('league_team_id', leagueTeamId);
+  if (error) throw new Error(`Failed to load your team's seasons: ${error.message}`);
+  type Row = { source: string; source_team_id: string; league_id: string; season_id: string };
+  return ((data ?? []) as Row[]).map((r) => ({
+    source: r.source,
+    sourceTeamId: r.source_team_id,
+    leagueId: r.league_id,
+    seasonId: r.season_id,
+  }));
 }

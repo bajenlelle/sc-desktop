@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   getMyTeamChoices,
   getSpaceTeamSuggestions,
+  getTeamSources,
   listLeagueTeams,
   setMyTeam,
 } from "../league-teams-db";
@@ -113,5 +114,24 @@ describe("getSpaceTeamSuggestions", () => {
     const { client, rpc } = mockRpc({ data: [teamRow], error: null });
     expect(await getSpaceTeamSuggestions(client, "club")).toEqual([team]);
     expect(rpc).toHaveBeenCalledWith("get_space_team_suggestions", { p_org_id: "club" });
+  });
+});
+
+describe("getTeamSources", () => {
+  it("reads every season's source id for a team", async () => {
+    const { client, from, calls } = mockFrom({
+      data: [{ source: "genius", source_team_id: "199014", league_id: "sbl-herr", season_id: "2026-27" }],
+      error: null,
+    });
+    expect(await getTeamSources(client, "t1")).toEqual([
+      { source: "genius", sourceTeamId: "199014", leagueId: "sbl-herr", seasonId: "2026-27" },
+    ]);
+    expect(from).toHaveBeenCalledWith("league_team_sources");
+    expect(calls).toContainEqual({ method: "eq", args: ["league_team_id", "t1"] });
+  });
+
+  it("throws on an error", async () => {
+    const { client } = mockFrom({ data: null, error: { message: "boom" } });
+    await expect(getTeamSources(client, "t1")).rejects.toThrow(/boom/);
   });
 });
