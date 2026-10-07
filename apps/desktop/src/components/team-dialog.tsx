@@ -25,8 +25,10 @@ import type { TeamRole } from "@scoutable/shared/types/league-team";
 import type { OrgMembership } from "@/types/org";
 
 interface TeamDialogProps {
-  /** step: the once-per-space onboarding question. change: from Profile. */
+  /** step: the once-per-space onboarding question. change: from Profile or Import. */
   mode: "step" | "change";
+  /** Where it opened, for analytics; defaults to step or profile by mode. */
+  surface?: "step" | "profile" | "import";
   /** The space being answered for. */
   org: OrgMembership;
   /** Spaces offered as "Also use this team in …". */
@@ -40,7 +42,7 @@ interface TeamDialogProps {
   onDismiss: () => void;
 }
 
-export function TeamDialog({ mode, org, otherSpaces, defaultChecked, initialTeamId, role, onDone, onDismiss }: TeamDialogProps) {
+export function TeamDialog({ mode, surface: surfaceProp, org, otherSpaces, defaultChecked, initialTeamId, role, onDone, onDismiss }: TeamDialogProps) {
   const { save } = useMyTeam();
   const { teams, failed, retry } = useTeamCatalog();
   const suggestedIds = useSpaceSuggestions(org.orgId, org.isPersonal);
@@ -49,7 +51,7 @@ export function TeamDialog({ mode, org, otherSpaces, defaultChecked, initialTeam
   const [noteMode, setNoteMode] = useState(false);
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
-  const surface = mode === "step" ? "step" : "profile";
+  const surface = surfaceProp ?? (mode === "step" ? "step" : "profile");
 
   const orgIds = () => [org.orgId, ...otherSpaces.filter((o) => checked.has(o.orgId)).map((o) => o.orgId)];
   const canSave = noteMode ? note.trim().length > 0 : selectedId !== null;
