@@ -2,6 +2,7 @@ import { Redirect, Stack } from "expo-router";
 import { ActivityIndicator, View } from "react-native";
 import { useAuth } from "@/lib/auth-context";
 import { PlaylistsProvider } from "@/lib/playlists-store";
+import { MyTeamProvider } from "@/lib/my-team";
 import { DeviceGateScreen } from "@/components/DeviceGateScreen";
 import { NotificationsBridge } from "@/components/NotificationsBridge";
 import { useThemeColors } from "@/lib/theme-context";
@@ -20,9 +21,11 @@ export default function AppLayout() {
   if (!user) return <Redirect href="/sign-in" />;
   if (deviceBlocked) return <DeviceGateScreen />;
   return (
-    <PlaylistsProvider>
-      <NotificationsBridge />
-      <Stack screenOptions={{ headerShown: false }} />
-    </PlaylistsProvider>
+    <MyTeamProvider>
+      <PlaylistsProvider>
+        <NotificationsBridge />
+        <Stack screenOptions={{ headerShown: false }} />
+      </PlaylistsProvider>
+    </MyTeamProvider>
   );
 }

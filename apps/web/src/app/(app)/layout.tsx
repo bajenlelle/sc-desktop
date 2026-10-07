@@ -7,6 +7,8 @@ import { AuthProvider } from "@/components/auth-context";
 import { ThemeSync } from "@/components/theme-sync";
 import { DeviceGate } from "@/components/device-gate";
 import { UpgradeCelebration } from "@/components/upgrade-celebration";
+import { MyTeamProvider } from "@/lib/my-team";
+import { TeamStep } from "@/components/team-step";
 import type { UserProfile } from "@scoutable/shared/types/org";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -49,8 +51,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <AuthProvider>
+      <MyTeamProvider>
       <ThemeSync />
       <UpgradeCelebration />
+      <TeamStep />
       <div className="min-h-screen flex flex-col">
         <Navbar profile={profile} />
         <LicenseBanner />
@@ -59,6 +63,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </main>
         <FeedbackFab />
       </div>
+      </MyTeamProvider>
     </AuthProvider>
   );
 }

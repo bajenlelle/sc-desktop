@@ -25,7 +25,9 @@ playlists, and share them with teams; players watch on web/mobile.
   `lib/report.ts`.
 - `supabase/` — migrations and edge functions (`send-email`, `send-push`,
   `report-issue`, `genius` — the Genius Sports proxy/cache; holds
-  `GENIUS_API_KEY`, all match imports go through it; `tipoff-detect` — reads
+  `GENIUS_API_KEY`, all match imports go through it; it also keeps the
+  league team catalogue (`league_teams`, behind each user's "Your team") current
+  after fixture refreshes and in the weekly season audit; `tipoff-detect` — reads
   scoreboard clocks from video stills with Claude for the automatic tip-off
   suggestion; `ANTHROPIC_API_KEY`, kill switch `app_config.tipoff_detect_enabled`).
   Remote project `nbmrujmazvdoaldirpyx`; apply with `npx supabase db push`.

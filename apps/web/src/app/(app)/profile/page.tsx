@@ -21,6 +21,7 @@ import { ThemePicker } from "@/components/theme-picker";
 import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { MarketingEmailToggle } from "@/components/marketing-email-toggle";
+import { MyTeamCard } from "@/components/my-team-card";
 
 // Query params must precede the fragment or the browser drops them.
 const PRICING_URL_BASE = "https://scoutable.se/pricing";
@@ -374,6 +375,8 @@ export default function ProfilePage() {
           )}
         </CardContent>
       </Card>
+
+      <MyTeamCard />
 
       {/* ── Org & Teams ── */}
       {activeOrg && !activeOrg.isPersonal && (
