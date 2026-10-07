@@ -426,6 +426,12 @@ export function UploadZone({
       await saveMatch(storedMatch, { refreshEvents: !!existingMatch });
       trackEvent('game_synced', {
         game_id: matchId,
+        // Which fixture: team names and league are public, so they can live in analytics.
+        title: storedMatch.title,
+        league: selectedLeague.name,
+        season: selectedSeason?.label ?? null,
+        source_game_id: storedMatch.sourceGameId ?? null,
+        match_date: storedMatch.date,
         has_video: !!videoPath,
         has_sync_point: !!syncPoint,
         has_play_by_play: playByPlayEvents.length > 0,
