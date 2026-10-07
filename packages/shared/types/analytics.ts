@@ -17,6 +17,11 @@ export type AnalyticsEvent =
   | "login_provider_clicked"
   | "declared_role_selected"
   | "page_viewed"
+  // Your team (all apps). surface: step | profile
+  | "team_step_shown" // role
+  | "team_selected" // surface, league_id, team_name, suggested, spaces, includes_personal
+  | "team_step_skipped"
+  | "team_unlisted" // surface, spaces
   // Import funnel (desktop)
   | "game_synced"
   | "game_sync_failed"

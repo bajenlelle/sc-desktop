@@ -5,6 +5,7 @@ import { Sentry } from "@/lib/sentry";
 import { initAnalytics, trackEvent } from "@/lib/analytics";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/lib/auth-context";
+import { MyTeamProvider } from "@/lib/my-team";
 import { ProtectedRoute } from "@/components/protected-route";
 import { RootLayout } from "@/components/root-layout";
 import { HomePage } from "@/pages/home";
@@ -154,6 +155,7 @@ export default function App() {
 
   return (
     <AuthProvider>
+      <MyTeamProvider>
       <ThemeProvider>
         <ColorThemeProvider>
         <ThemeSync />
@@ -231,6 +233,7 @@ export default function App() {
         </Sentry.ErrorBoundary>
         </ColorThemeProvider>
       </ThemeProvider>
+      </MyTeamProvider>
     </AuthProvider>
   );
 }
