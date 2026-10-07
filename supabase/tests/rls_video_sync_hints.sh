@@ -89,6 +89,19 @@ run "upsert with an absurd time"                        "RAISES:invalid_tipoff_t
 run "auto never downgrades a confirmed hint"            "ALLOWED rows=1" "SELECT upsert_video_sync_hint(\$\$$KEY\$\$, 7112458, $H, NULL, 999, \$\$auto\$\$, 0.5); SELECT count(*) AS n FROM find_video_sync_hints(7112458, $H, NULL) f WHERE f.is_mine AND f.method = \$\$confirmed\$\$ AND f.tipoff_video_time = 1254" "$SEED"
 run "confirmed overwrites an earlier auto hint"         "ALLOWED rows=1" "SELECT upsert_video_sync_hint(\$\$$KEY\$\$, 7112458, $H, NULL, 999, \$\$auto\$\$, 0.5); SELECT upsert_video_sync_hint(\$\$$KEY\$\$, 7112458, $H, NULL, 1254, \$\$confirmed\$\$, NULL); SELECT count(*) AS n FROM find_video_sync_hints(7112458, $H, NULL) f WHERE f.is_mine AND f.method = \$\$confirmed\$\$ AND f.tipoff_video_time = 1254"
 
+echo "# Re-fingerprinting the same recording (20261008100000: a few hash bits differ between ffmpeg builds)"
+KEY2="$(printf 'b%.0s' {1..64})"
+SEED_AUTO="INSERT INTO video_sync_hints (fingerprint_key, duration_ms, frame_hashes, source_game_id, tipoff_video_time, method, confidence, detected_by)
+      VALUES (\$\$$KEY\$\$, 7112458, ARRAY[(\$\$x00ff00ff00ff00ff\$\$)::bit(64), (\$\$x0123456789abcdef\$\$)::bit(64), (\$\$xfedcba9876543210\$\$)::bit(64)], NULL, 1254, \$\$auto\$\$, 0.9, \$\$$U\$\$);"
+SEED_V_AUTO="INSERT INTO video_sync_hints (fingerprint_key, duration_ms, frame_hashes, source_game_id, tipoff_video_time, method, confidence, detected_by)
+      VALUES (\$\$$KEY\$\$, 7112458, ARRAY[(\$\$x00ff00ff00ff00ff\$\$)::bit(64), (\$\$x0123456789abcdef\$\$)::bit(64), (\$\$xfedcba9876543210\$\$)::bit(64)], NULL, 1254, \$\$auto\$\$, 0.9, \$\$$V\$\$);"
+UPSERT_NEAR="SELECT upsert_video_sync_hint(\$\$$KEY2\$\$, 7112558, $HNEAR, NULL, 999, \$\$auto\$\$, 0.7)"
+run "a near fingerprint updates the caller's own hint"   "ALLOWED rows=1" "$UPSERT_NEAR; SELECT count(*) AS n FROM find_video_sync_hints(7112458, $H, NULL) f WHERE f.is_mine AND f.tipoff_video_time = 999" "$SEED_AUTO"
+run "…and leaves the caller with a single hint"          "ALLOWED rows=1" "$UPSERT_NEAR; SELECT count(*) AS n FROM find_video_sync_hints(7112458, $H, NULL) f WHERE f.is_mine" "$SEED_AUTO"
+run "…without downgrading a confirmed one"               "ALLOWED rows=1" "$UPSERT_NEAR; SELECT count(*) AS n FROM find_video_sync_hints(7112458, $H, NULL) f WHERE f.is_mine AND f.method = \$\$confirmed\$\$ AND f.tipoff_video_time = 1254" "$SEED"
+run "an unrelated recording still gets its own row"      "ALLOWED rows=2" "SELECT upsert_video_sync_hint(\$\$$KEY2\$\$, 7112458, $HFAR, NULL, 999, \$\$auto\$\$, 0.7); SELECT (SELECT count(*) FROM find_video_sync_hints(7112458, $H, NULL) f WHERE f.is_mine) + (SELECT count(*) FROM find_video_sync_hints(7112458, $HFAR, NULL) f WHERE f.is_mine) AS n" "$SEED_AUTO"
+run "another user's hint is never touched"               "ALLOWED rows=2" "$UPSERT_NEAR; SELECT (SELECT count(*) FROM find_video_sync_hints(7112458, $H, NULL) f WHERE NOT f.is_mine AND f.tipoff_video_time = 1254) + (SELECT count(*) FROM find_video_sync_hints(7112458, $H, NULL) f WHERE f.is_mine AND f.tipoff_video_time = 999) AS n" "$SEED_V_AUTO"
+
 echo "# Reads"
 run "lookup with the same hashes (as U)"                "ALLOWED rows=1" "SELECT count(*) AS n FROM find_video_sync_hints(7112458, $H, NULL) f WHERE f.is_mine" "$SEED"
 ACTOR="$V" run "lookup with hashes 1 bit away (as V)"   "ALLOWED rows=1" "SELECT count(*) AS n FROM find_video_sync_hints(7112500, $HNEAR, \$\$profixio:32578145\$\$) f WHERE NOT f.is_mine AND f.distances[1] = 1 AND f.method = \$\$confirmed\$\$" "$SEED"
