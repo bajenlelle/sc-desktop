@@ -174,7 +174,9 @@ describe("runTipoffDetection", () => {
     if (r.outcome !== "found") return;
     expect(Math.abs(r.estimate.seconds - TIP)).toBeLessThanOrEqual(1);
     expect(d.calls.every((c) => c.n <= DETECT.maxFramesPerCall)).toBe(true);
-    expect(d.calls.every((c) => c.view === "overlay")).toBe(true);
+    expect(d.calls.slice(0, -1).every((c) => c.view === "overlay")).toBe(true);
+    expect(d.calls.at(-1)).toEqual({ view: "whole", n: 15 }); // the court check around the clock estimate
+    expect(r.estimate.basis).toBe("clock_transition"); // no toss seen on court: the clock stands
     expect(r.stats.apiCalls).toBe(d.calls.length);
   });
 

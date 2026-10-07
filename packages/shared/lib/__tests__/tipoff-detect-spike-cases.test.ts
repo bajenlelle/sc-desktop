@@ -8,6 +8,7 @@ import {
   estimateTipoff,
   interpretCoarse,
   narrowVisualWindow,
+  reconcileWithJumpBall,
   runTipoffDetection,
   type DetectDeps,
   type Frame,
@@ -411,5 +412,93 @@ describe("runTipoffDetection keeps a scoreboard crop that shows a score but no c
     expect(Math.abs(res.estimate.seconds - TIP)).toBeLessThanOrEqual(1);
     expect(res.estimate.basis).toBe("visual_jump_ball");
     expect(res.view).toBe("whole");
+  });
+});
+
+// ── 2026-10-07: the broadcast clock is a delayed feed (Alvik–Eskilstuna, toss at 373) ──
+// Scoutable syncs on wall clock, so the sync point must sit at the toss. The overlay
+// left 10:00 at 381.5 s, 8.5 s after the ball went up; the logged 09:33 layup is on
+// court at 373 + 30 s while the graphic still read 09:39 there.
+describe("a scoreboard clock that starts late (Alvik–Eskilstuna, toss at 373, graphic runs at 381.5)", () => {
+  const clock = { seconds: 381.5, confidence: 0.92, basis: "clock_transition" as const };
+  const court = (jumpsAt: number[]) =>
+    grid(369, 383, 1).map((t) => sc(t, null, 1, t < 374 ? "lineup" : "in_play", [0, 0], jumpsAt.includes(t) ? true : null));
+
+  it("moves a clock estimate back to the toss when the court shows it 2 s or more earlier", () => {
+    expect(reconcileWithJumpBall(clock, court([372, 373]))).toEqual({ seconds: 373.5, confidence: 0.7, basis: "visual_jump_ball" });
+  });
+
+  it("ignores a jump-ball flag after the clock already started", () => {
+    expect(reconcileWithJumpBall(clock, court([372, 373, 383]))).toEqual({ seconds: 373.5, confidence: 0.7, basis: "visual_jump_ball" });
+    expect(reconcileWithJumpBall(clock, court([383]))).toEqual(clock);
+  });
+
+  it("keeps the clock estimate when the toss is within 2 s of it, or not seen", () => {
+    expect(reconcileWithJumpBall(clock, court([380, 381]))).toEqual(clock);
+    expect(reconcileWithJumpBall(clock, court([]))).toEqual(clock);
+  });
+
+  it("leaves a visual estimate alone", () => {
+    const visual = { seconds: 373.5, confidence: 0.6, basis: "visual_jump_ball" as const };
+    expect(reconcileWithJumpBall(visual, court([372, 373]))).toEqual(visual);
+  });
+});
+
+describe("runTipoffDetection checks a clock estimate against the court", () => {
+  const frame = (t: number): Frame => ({ t, jpegBase64: "x", width: 640, height: 360 });
+  const CLOCK_START = 381; // the graphic leaves 10:00 here
+  const cropRead = async (frames: Frame[]): Promise<FrameReading[]> =>
+    frames.map((f, index) => {
+      const elapsed = Math.floor(f.t - CLOCK_START);
+      const clock = f.t < CLOCK_START ? "10:00" : `${9 - Math.floor(elapsed / 60)}:${String(59 - (elapsed % 60)).padStart(2, "0")}`;
+      return { index, clockVisible: true, clock, clockRunning: null, period: 1, state: "unknown", jumpBall: null, score: f.t < CLOCK_START + 30 ? { home: 0, away: 0 } : { home: 2, away: 0 } };
+    });
+  const wholeRead = (toss: number) => async (frames: Frame[]): Promise<FrameReading[]> =>
+    frames.map((f, index) => ({
+      index,
+      clockVisible: false,
+      clock: null,
+      clockRunning: null,
+      period: 1,
+      state: f.t < toss ? "lineup" : "in_play",
+      jumpBall: f.t >= toss - 1.5 && f.t < toss ? true : null,
+      score: null,
+    }));
+  const run = async (toss: number) => {
+    const grabs: string[] = [];
+    const deps: DetectDeps = {
+      grab: async (times, o) => {
+        grabs.push(`${o.view}:${times.length}`);
+        return times.map(frame);
+      },
+      grabRange: async (startS, durationS, fps, o) => {
+        const n = Math.floor(durationS * fps) + 1;
+        grabs.push(`${o.view}:${n}`);
+        return Array.from({ length: n }, (_, i) => frame(startS + i / fps));
+      },
+      read: async (frames, view) => (view === "overlay" ? cropRead(frames) : wholeRead(toss)(frames)),
+    };
+    return { res: await runTipoffDetection(6526, deps), grabs };
+  };
+
+  it("moves to the toss when the clock graphic ran late", async () => {
+    const { res, grabs } = await run(373);
+    expect(grabs.slice(0, 2)).toEqual(["overlay:3", "overlay:54"]);
+    expect(grabs[2]).toMatch(/^overlay:/); // the fine pass on crops
+    expect(grabs[3]).toBe("whole:15"); // 12 s before the clock estimate to 2 s after
+    expect(res.outcome).toBe("found");
+    if (res.outcome !== "found") return;
+    expect(res.estimate.basis).toBe("visual_jump_ball");
+    expect(res.estimate.confidence).toBe(0.7);
+    expect(Math.abs(res.estimate.seconds - 373)).toBeLessThanOrEqual(0.5);
+  });
+
+  it("keeps the clock when the court agrees", async () => {
+    const { res, grabs } = await run(381);
+    expect(grabs[3]).toBe("whole:15");
+    expect(res.outcome).toBe("found");
+    if (res.outcome !== "found") return;
+    expect(res.estimate.basis).toBe("clock_transition");
+    expect(Math.abs(res.estimate.seconds - 381)).toBeLessThanOrEqual(2);
   });
 });

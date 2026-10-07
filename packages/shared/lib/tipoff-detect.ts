@@ -9,7 +9,10 @@
  * 1. A broadcast scoreboard whose game clock stalls at 10:00 and then counts
  *    down — read from a crop of the scoreboard at native resolution. Pre-game
  *    countdowns also pass 10:00, so a drop only counts when no period-1 clock
- *    shows 10:00 again later.
+ *    shows 10:00 again later. The graphic is a delayed data feed (0–8 s behind
+ *    the picture, varying per game), and Scoutable syncs on wall clock, so a
+ *    clock-based estimate is checked against the toss in whole frames and moved
+ *    back to it when the court shows the ball up clearly earlier.
  * 2. Some productions draw a scoreboard whose clock never runs ("frozen"); the
  *    crop then says nothing and the pipeline re-samples whole frames and uses
  *    the state of play (lineup at the centre circle → live) and the jump ball.
@@ -77,6 +80,11 @@ export const DETECT = {
   scoreLookbackS: 180,
   /** A jump-ball sample this close before the first live sample widens a window to include it. */
   jumpLookbackS: 90,
+  /** Whole frames read around a clock-based estimate to check it against the toss. */
+  courtLookbackS: 12,
+  courtLookaheadS: 2,
+  /** A toss this much before the clock estimate means the clock graphic ran late. */
+  clockLagMinS: 2,
 } as const;
 
 /** Where Solidsport and baskettv productions draw the scoreboard: bottom band, centred. */
@@ -388,6 +396,22 @@ export function estimateTipoff(
   return visualHint ? null : fits;
 }
 
+/**
+ * The scoreboard graphic is a delayed data feed: it can leave 10:00 seconds after
+ * the ball went up, and the sync point must sit at the toss (Scoutable syncs on
+ * wall clock). Given whole-frame readings around a clock-based estimate, move it
+ * to the last jump-ball frame when that is clearly earlier; keep it otherwise.
+ */
+export function reconcileWithJumpBall(estimate: TipoffEstimate, court: TimedReading[]): TipoffEstimate {
+  if (estimate.basis !== "clock_transition" && estimate.basis !== "first_running_clock") return estimate;
+  // The clock cannot start before the toss: a flag after it is a misread.
+  const jumps = court.filter((r) => r.jumpBall === true && r.t <= estimate.seconds + 1).sort((a, b) => a.t - b.t);
+  if (jumps.length === 0) return estimate;
+  const toss = Number((jumps[jumps.length - 1].t + 0.5).toFixed(2));
+  if (estimate.seconds - toss < DETECT.clockLagMinS) return estimate;
+  return { seconds: toss, confidence: 0.7, basis: "visual_jump_ball" };
+}
+
 export function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
@@ -427,7 +451,7 @@ export interface DetectStats {
 }
 
 export type DetectResult =
-  | { outcome: "found"; estimate: TipoffEstimate; view: FrameView; stats: DetectStats; readings: TimedReading[]; narrow?: TimedReading[]; fine: TimedReading[] }
+  | { outcome: "found"; estimate: TipoffEstimate; view: FrameView; stats: DetectStats; readings: TimedReading[]; narrow?: TimedReading[]; fine: TimedReading[]; court?: TimedReading[] }
   | { outcome: "starts_after_tipoff"; estimateS: number | null; firstClock: string | null; view: FrameView; stats: DetectStats; readings: TimedReading[] }
   | { outcome: "not_found"; view: FrameView; stats: DetectStats; readings: TimedReading[]; narrow?: TimedReading[]; fine?: TimedReading[] }
   | { outcome: "cancelled"; stats: DetectStats };
@@ -547,9 +571,26 @@ export async function runTipoffDetection(
     const fineFrames = await deps.grabRange(win.startS, dur, DETECT.fineFps, { view, crop });
     const fine = await readAll(fineFrames, view);
     if (fine == null) return finish({ outcome: "cancelled" as const });
-    const estimate = estimateTipoff(fine, { basisHint: verdict.basis, window: win, view });
+    let estimate = estimateTipoff(fine, { basisHint: verdict.basis, window: win, view });
     log(`fine ${fineFrames.length} frames → ${estimate ? `${estimate.seconds} s (${estimate.basis}, ${estimate.confidence})` : "nothing"}`);
     if (!estimate) return finish({ outcome: "not_found" as const, view, readings, narrow, fine });
-    return finish({ outcome: "found" as const, estimate, view, readings, narrow, fine });
+
+    // 5. The clock graphic can run late: check a clock-based estimate against the toss on court.
+    let court: TimedReading[] | undefined;
+    if (estimate.basis === "clock_transition" || estimate.basis === "first_running_clock") {
+      const from = Math.max(0, estimate.seconds - DETECT.courtLookbackS);
+      const courtFrames = await deps.grabRange(from, estimate.seconds + DETECT.courtLookaheadS - from, DETECT.fineFps, { view: "whole" });
+      const rd = await readAll(courtFrames, "whole");
+      if (rd == null) return finish({ outcome: "cancelled" as const });
+      court = rd;
+      const checked = reconcileWithJumpBall(estimate, rd);
+      log(
+        checked === estimate
+          ? `court ${courtFrames.length} frames → agrees`
+          : `court ${courtFrames.length} frames → toss at ${checked.seconds} s, clock graphic ${(estimate.seconds - checked.seconds).toFixed(1)} s late`,
+      );
+      estimate = checked;
+    }
+    return finish({ outcome: "found" as const, estimate, view, readings, narrow, fine, court });
   }
 }
