@@ -1,6 +1,6 @@
 # Desktop design audit: Apple's fluid-interface principles applied to Scoutable
 
-Date: 2026-10-08. Branch: `design/apple-redesign` (cut from `main` at 0.7.0).
+Date: 2026-10-08 (audit), 2026-10-09 (redesign complete). Branch: `design/apple-redesign` (cut from `main` at 0.7.0).
 Audited build: Scoutable 0.7.0 (the released macOS app, identical to `main`), walked through at 1280×720 in the Courtside light theme and the default dark theme. Screenshots are kept outside the repository (they show real club and player names).
 
 The lens is the `apple-design` skill: Apple's *Designing Fluid Interfaces*, *The Details of UI Typography*, *Designing Audio-Haptic Experiences* and *Principles of Great Design*, translated for the web. The landing site's DESIGN.md (flat, hairline-only, condensed display face, icon rail) was set aside on purpose; section 4 lists what was dropped and why.
@@ -207,8 +207,57 @@ Kept from DESIGN.md: no eyebrow labels above headings (Apple agrees), league nam
 
 ## 6. What the redesign does
 
-Filled in at the end of the branch (M6): principle → change, with the file that carries it.
+Built on `design/apple-redesign` in six commits, one per milestone, plus fixes. Before/after captures of every screen above are kept outside the repository (`design-audit/desktop/` next to the checkout, with a gallery page), for the same reason as the audit's own screenshots.
+
+### 6.1 The ten summary findings, after
+
+| # | Finding | What changed | Where |
+|---|---|---|---|
+| 1 | Nothing moves like a physical object | Named springs (`snappy`, `standard`, `gentle`; `settle` with a little bounce only after a drag release). Menus, popovers and tooltips grow from their trigger and leave the same way; dialogs and sheets spring in and out; content that changes height (dialog phases, the tip-off strip, import steps) springs to its new height instead of jumping. | `src/lib/motion.ts`, `ui/dialog.tsx`, `ui/sheet.tsx`, `ui/auto-height.tsx`, `index.css` (`chrome-animate`) |
+| 2 | Nothing responds on press | Buttons, rows, chips and menu items press on pointer-down (a darker fill and a slight scale); transport controls act on pointer-down; a disabled button still explains itself in a tooltip. | `ui/button.tsx`, `editor/transport-bar.tsx`, `editor/editor-toolbar.tsx` |
+| 3 | Direct manipulation is simulated | A pointer drag engine replaces HTML5 drag-and-drop for clips: the row lifts under the pointer with its grab offset, neighbours slide aside as the gap moves, release carries its velocity into the landing (a flick lands at most one slot further), the list autoscrolls, sidebar playlists highlight and spring-load, Escape cancels, a failed save rolls back with Retry. Scrubbers track 1:1 with pointer capture, seek once per frame and rubber-band past the ends. | `editor/use-list-drag.ts`, `editor/drag-overlay.ts`, `editor/clip-scrubber.tsx`, `packages/shared/lib/list-reorder.ts` + tests |
+| 4 | The editor breaks at its minimum size | Two-line clip rows (event and player; period, clock and team) fit any width; one toolbar row whose controls never move; the rarely used controls sit one level deeper (clip length, sort, text card in ⋯). | `editor/clip-rows.tsx`, `editor/editor-toolbar.tsx` |
+| 5 | The video is recreated on a layout toggle | One `<video>` for the editor's life, hosted by `PlayerStage`; Split, Theater and full screen move it, so playback and auto-advance continue. | `editor/use-persistent-video.ts`, `editor/player-stage.tsx` |
+| 6 | Keys have several owners | Key scopes: only the topmost surface's keys fire (editor, Add Clips sheet, tip-off picker). F does nothing without footage. Backspace outside a text field no longer navigates back. | `src/lib/key-scope.ts`, `packages/shared/lib/player-keys.ts` + tests, `src/main.tsx` |
+| 7 | The chrome is a web page | Transparent window with the system's sidebar vibrancy, traffic lights inset in the sidebar, a labelled source-list sidebar with the space switcher at the top and the account at the bottom, toolbars that content scrolls under with a soft edge instead of a line, the update offer as a card in the sidebar. Windows keeps a standard window. | `src-tauri/tauri.macos.conf.json`, `components/shell/*`, `root-layout.tsx` |
+| 8 | One colour, three meanings | Hover and pressed states use neutral fills derived from each theme's text colour; selection uses the accent; amber is left to warnings. | `index.css` (derived tokens), the `hover:bg-accent` sweep |
+| 9 | Three typefaces | The system font with macOS text styles (size-specific tracking), tabular figures for every count and clock, no font fetched at runtime, no uppercase micro-labels. | `index.css`, `index.html` |
+| 10 | Reduced motion is ignored | `MotionConfig reducedMotion="user"`; CSS fallbacks turn menu motion into a fade and stop pulses; reduced transparency makes materials opaque; increased contrast strengthens separators; a light/dark switch no longer animates every colour. | `App.tsx`, `index.css`, `theme-provider.tsx` |
+
+### 6.2 Screen by screen
+
+- **Shell:** System / Light / Dark is a segmented control in Settings and follows macOS by default; the eight colour themes flow through the new materials, fills and selection.
+- **Home, Library, Settings, Profile:** grouped (inset) lists with two-line rows; one primary action per toolbar.
+- **Playlists editor:** the floating QuickTime-style bar (scrubber, transport, "3 of 28", speed, full screen) over the footage, hiding while it plays; a click on the footage plays and pauses with a brief glyph; a spinner while the decoder is behind; one highlight springs from row to row with playback; per-clip clip length as steppers under the player.
+- **Selection:** the actions float in a pill over the list instead of pushing it down; bulk remove can be undone; Escape clears.
+- **Playlist browser:** a source list in its own column that resizes 1:1, resists past its limits, collapses with a spring (⌘B, or a flick inward) and remembers its width.
+- **Add clips:** a sheet that drops from under the toolbar; event types as one row of chips; the preview on the same player stage; Return ticks the playing clip, ⌘↩ adds.
+- **Import:** numbered steps that become checks; the picked game as a chip; the video target is a button that becomes the file's card with its length; one status line beside the Import button; save progress that reflects the real save; the confirmation leaves before the page changes.
+- **Tip-off:** footage and controls as one object; steps of 10 s, 1 s and one frame at the file's own frame rate; J/K/L; a large readout; the suggestion's "Use" is the primary action while it is on offer; the confirmed tip-off stays visible.
+- **Export, send, share:** closing Send to phone cancels the upload, and a render still running is discarded; Share is one dialog whose phases cross-fade; the format choice is two pressable rows.
+- **Also fixed:** `<title>` and favicon; panel sizes in the right unit; the Add Clips outside-click guard; event badge colours defined in `packages/shared` are always generated; seven unused components and `@dnd-kit` removed.
 
 ## 7. Known gaps and next steps
 
-Filled in at the end of the branch (M6).
+**Verified:** typecheck, production build, shared tests, `cargo clippy` and `cargo test`; every screen above walked through on one Mac (macOS 15, Retina display) in Courtside, Scoutable Dark and Aubergine, at 1280×720 and 1728×1018. Exercised by hand: reorder (with cancel), sidebar hover and spring-loading, the selection pill, bulk remove and Undo, the Add Clips sheet with chips and Leaders, the tip-off picker's keys, picking a game for import, Send to phone up to rendering (then cancelled), the Share dialog.
+
+**Not verified:** a Windows build; macOS 26; the reduced motion, reduced transparency and increased contrast settings at runtime; the reorder rollback against a failing network; a complete import, share upload or export (nothing was saved or sent from the branch).
+
+**Planned but not built:**
+
+- Cancelling an export mid-render needs a Rust `cancel_export` (kill the ffmpeg child, clean up temp files). Until then Save to computer can't be stopped once rendering, and a cancelled Send to phone finishes its render in the background before discarding it.
+- A keyboard focus model for the clip list (roving focus, Shift+↑/↓ to extend, Enter to play).
+- Trim handles on the scrubber (clip length is steppers for now).
+- An animated reveal for the playlist filter bar.
+
+**Left from the audit:** `alert()` when creating a folder fails and `window.confirm` when deleting a label; playlist selection forgotten when navigating away; the two Share dialogs (editor and Shared playlists) still differ; window size and position are not remembered; many `title` tooltips remain. The player-facing pages (My playlists / Shared playlists), Organization, auth and onboarding received the foundations only; the player view still uses the old player and controls.
+
+**Next steps, in order of value:**
+
+1. Run the branch on Windows and on macOS 26 before anything ships; the transparent window and vibrancy are the parts most likely to differ.
+2. Bring the player view onto `PlayerStage` so players get the same player as coaches.
+3. `cancel_export`, then window-state persistence.
+4. Merge the playlist browser into the sidebar (Notes-style), so the editor gets the full width.
+5. Virtualise the clip list above about 1,000 items.
+
+**For release notes, if this ships:** the appearance follows macOS by default for anyone who never picked Light or Dark (a synced choice is kept); the window uses `macos-private-api`, which rules out the Mac App Store (accepted).
