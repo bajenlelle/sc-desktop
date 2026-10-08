@@ -1,5 +1,42 @@
-import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Check } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
+
+/**
+ * Filter pop-up buttons built on the menu primitive, so they are portaled,
+ * keyboard-navigable (arrows, type-ahead, Escape) and animate from their
+ * trigger. Same props as the hand-rolled originals.
+ */
+function TriggerButton({
+  label,
+  active,
+  className,
+  ...props
+}: React.ComponentProps<"button"> & { label: string; active: boolean }) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "flex h-9 min-w-[130px] items-center justify-between gap-2 rounded-md bg-card px-3 text-sm shadow-xs ring-1 ring-separator outline-none transition-[background-color,transform] duration-150 hover:bg-fill-1 active:scale-[0.98] active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection data-[state=open]:bg-fill-2",
+        active ? "text-foreground" : "text-muted-foreground",
+        className
+      )}
+      {...props}
+    >
+      <span className="truncate">{label}</span>
+      <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+    </button>
+  );
+}
 
 export function SingleSelectDropdown({
   options,
@@ -14,61 +51,33 @@ export function SingleSelectDropdown({
   placeholder?: string;
   required?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function onMouseDown(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", onMouseDown);
-    return () => document.removeEventListener("mousedown", onMouseDown);
-  }, []);
-
   const label = value
     ? (options.find((o) => o.value === value)?.label ?? placeholder)
     : placeholder;
 
   return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={`flex h-9 min-w-[130px] items-center justify-between gap-2 rounded-md border border-border bg-background px-3 text-sm hover:bg-muted/50 ${
-          value ? "text-foreground" : "text-muted-foreground"
-        }`}
-      >
-        <span className="truncate">{label}</span>
-        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-      </button>
-
-      {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 min-w-full rounded-md border border-border bg-popover shadow-md">
-          {value && !required && (
-            <button
-              type="button"
-              className="flex w-full items-center px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground border-b border-border"
-              onClick={() => { onChange(null); setOpen(false); }}
-            >
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <TriggerButton label={label} active={!!value} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-72 min-w-(--radix-dropdown-menu-trigger-width) overflow-y-auto">
+        {value && !required && (
+          <>
+            <DropdownMenuItem onSelect={() => onChange(null)} className="text-muted-foreground">
               Clear
-            </button>
-          )}
-          <div className="max-h-60 overflow-y-auto py-1">
-            {options.map((o) => (
-              <button
-                key={o.value}
-                type="button"
-                className="flex w-full cursor-pointer items-center gap-2.5 px-3 py-1.5 text-sm hover:bg-muted/50"
-                onClick={() => { onChange(o.value); setOpen(false); }}
-              >
-                <Check className={`h-3.5 w-3.5 shrink-0 ${o.value === value ? "text-primary" : "text-transparent"}`} />
-                {o.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
+        <DropdownMenuRadioGroup value={value ?? ""} onValueChange={(v) => onChange(v)}>
+          {options.map((o) => (
+            <DropdownMenuRadioItem key={o.value} value={o.value}>
+              {o.label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -83,23 +92,12 @@ export function MultiSelectDropdown({
   onChange: (next: Set<string>) => void;
   placeholder: string;
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function onMouseDown(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", onMouseDown);
-    return () => document.removeEventListener("mousedown", onMouseDown);
-  }, []);
-
   const label =
     selected.size === 0
       ? placeholder
       : selected.size === 1
-      ? (options.find((o) => selected.has(o.value))?.label ?? placeholder)
-      : `${selected.size} selected`;
+        ? (options.find((o) => selected.has(o.value))?.label ?? placeholder)
+        : `${selected.size} selected`;
 
   function toggle(value: string) {
     const next = new Set(selected);
@@ -109,47 +107,38 @@ export function MultiSelectDropdown({
   }
 
   return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={`flex h-9 min-w-[130px] items-center justify-between gap-2 rounded-md border border-border bg-background px-3 text-sm hover:bg-muted/50 ${
-          selected.size > 0 ? "text-foreground" : "text-muted-foreground"
-        }`}
-      >
-        <span className="truncate">{label}</span>
-        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-      </button>
-
-      {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 min-w-full rounded-md border border-border bg-popover shadow-md">
-          {selected.size > 0 && (
-            <button
-              type="button"
-              className="flex w-full items-center px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground border-b border-border"
-              onClick={() => onChange(new Set())}
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <TriggerButton label={label} active={selected.size > 0} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-72 min-w-(--radix-dropdown-menu-trigger-width) overflow-y-auto">
+        {selected.size > 0 && (
+          <>
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault();
+                onChange(new Set());
+              }}
+              className="text-muted-foreground"
             >
+              <Check className="invisible" />
               Clear all
-            </button>
-          )}
-          <div className="max-h-60 overflow-y-auto py-1">
-            {options.map((o) => (
-              <label
-                key={o.value}
-                className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-sm hover:bg-muted/50"
-              >
-                <input
-                  type="checkbox"
-                  checked={selected.has(o.value)}
-                  onChange={() => toggle(o.value)}
-                  className="h-3.5 w-3.5 accent-primary"
-                />
-                {o.label}
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
+        {options.map((o) => (
+          <DropdownMenuCheckboxItem
+            key={o.value}
+            checked={selected.has(o.value)}
+            // Keep the menu open while ticking several options.
+            onSelect={(e) => e.preventDefault()}
+            onCheckedChange={() => toggle(o.value)}
+          >
+            {o.label}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

@@ -16,6 +16,7 @@
     "core:webview:allow-set-webview-zoom",
     "core:window:allow-set-fullscreen",
     "core:window:allow-set-theme",
+    "core:window:allow-start-dragging",
     "dialog:default",
     "deep-link:default",
     "opener:default",

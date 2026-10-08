@@ -49,7 +49,7 @@ function slotFor(mode: ThemeMode): string {
 }
 
 export function ColorThemeProvider({ children }: { children: ReactNode }) {
-  const { resolvedTheme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme, theme } = useTheme();
   const [slots, setSlots] = useState<Record<ThemeMode, string>>(() => ({
     dark: slotFor("dark"),
     light: slotFor("light"),
@@ -68,12 +68,13 @@ export function ColorThemeProvider({ children }: { children: ReactNode }) {
     // lets themes.css restyle those subtrees with the user's dark theme in
     // BOTH modes — video chrome stays dark under light themes, by design.
     document.documentElement.dataset.themeDark = slots.dark;
-    // Keep the native titlebar on the same side as the content — without
-    // this, a light theme on a dark-mode Mac gets a dark titlebar.
+    // Keep the native window (title bar, vibrancy material) on the same side
+    // as the content: an explicit Light/Dark pins it, "System" hands it back
+    // to the OS (null) so the material follows later appearance changes.
     getCurrentWindow()
-      .setTheme(mode)
+      .setTheme(theme === "system" ? null : mode)
       .catch(() => {});
-  }, [mode, slots]);
+  }, [mode, slots, theme]);
 
   const setColorTheme = useCallback(
     (id: string) => {

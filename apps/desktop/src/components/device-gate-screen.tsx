@@ -81,7 +81,7 @@ export function DeviceGateScreen() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-6 px-6 py-12">
+    <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-6 py-12">
       <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
         <Lock className="h-5 w-5 text-muted-foreground" />
       </div>

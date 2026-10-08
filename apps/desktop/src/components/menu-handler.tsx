@@ -21,6 +21,7 @@ import { isBrowserShortcut, menuIdForChord } from "@scoutable/shared/lib/menu-sh
 import { useAuth } from "@/lib/auth-context";
 import { createClient } from "@/lib/supabase/client";
 import { interactiveUpdateCheck } from "@/lib/updates";
+import { IS_MACOS } from "@/lib/platform";
 
 const ZOOM_KEY = "scoutable_zoom";
 const ZOOM_MIN = 0.5;
@@ -29,10 +30,9 @@ const ZOOM_STEP = 0.1;
 
 /**
  * macOS owns the accelerators through the native menu; a keydown listener
- * there would run every action twice. The UA is the one platform signal the
- * webview has without a round-trip, and WKWebView always carries "Macintosh".
+ * there would run every action twice.
  */
-const HAS_NATIVE_MENU = navigator.userAgent.includes("Macintosh");
+const HAS_NATIVE_MENU = IS_MACOS;
 
 /** Items only coaches/admins can use (mirrors app-sidebar gating). */
 const COACH_ADMIN_IDS = ["new-playlist", "add-game", "go-home", "go-playlists", "go-library"];
@@ -205,7 +205,7 @@ export function MenuHandler() {
   }, [pathname]);
 
   useEffect(() => {
-    invoke("menu_sync_theme", { theme: theme ?? "dark" }).catch(() => {});
+    invoke("menu_sync_theme", { theme: theme ?? "system" }).catch(() => {});
   }, [theme]);
 
   return null;

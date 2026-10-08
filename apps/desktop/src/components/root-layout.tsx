@@ -13,9 +13,9 @@ export function RootLayout() {
   const importQuota = useImportQuota();
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background font-sans antialiased">
+    <div className="flex h-screen overflow-hidden font-sans antialiased">
       <AppSidebar />
-      <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
+      <main className="flex-1 flex flex-col min-h-0 overflow-hidden bg-background">
         {activeOrg && (
           <SpaceHeader
             org={activeOrg}

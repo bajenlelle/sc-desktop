@@ -29,7 +29,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (gate === "loading") {
     return (
-      <div className="py-24 flex flex-col items-center gap-2 text-sm text-muted-foreground">
+      <div className="flex min-h-full flex-col items-center gap-2 bg-background py-24 text-sm text-muted-foreground">
         <Loader2 className="h-5 w-5 animate-spin" />
         Loading…
       </div>

@@ -151,9 +151,10 @@ export function AppSidebar() {
 
   return (
     <aside className={cn(
-      "flex shrink-0 flex-row border-r border-sidebar-border bg-sidebar h-screen",
+      "relative flex h-screen shrink-0 flex-row bg-material-sidebar pt-[var(--titlebar-inset)]",
       showWorkspaceSwitcher ? "w-[104px]" : "w-14"
     )}>
+      <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-[var(--titlebar-inset)]" />
       {/* Workspace switcher column — visible when user has 2+ orgs */}
       {showWorkspaceSwitcher && (
         <div className="flex w-12 flex-col items-center border-r border-sidebar-border/40 py-3 gap-2">
