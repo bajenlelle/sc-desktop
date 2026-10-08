@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { GripVertical, Link2, MessageSquare, Play, Tag, Trash2, Type, X } from "lucide-react";
+import { Link2, MessageSquare, Play, Tag, Trash2, Type, X } from "lucide-react";
 import type { Label, LabelColor } from "@scoutable/shared/types/labels";
 import { eventColors, eventLabel, formatGameClock, playerName } from "@scoutable/shared/lib/events";
 import type { GroupRunInfo } from "@scoutable/shared/lib/clip-groups";
@@ -32,16 +32,15 @@ export interface LabelRowControls {
   scopeHint?: string;
 }
 
-/** Drag props shared by both row kinds (native drag until the pointer engine lands). */
+/**
+ * What a row needs to be lifted by the pointer engine (use-list-drag.ts):
+ * its key, written to the DOM so the engine can find and measure it, and
+ * the press that may become a drag. Shifts and the lifted card are the
+ * engine's, applied straight to the elements.
+ */
 export interface RowDragProps {
-  isDragTarget: boolean;
-  dragTargetPosition: "above" | "below";
-  isDragSource?: boolean;
-  onDragStart: (e: React.DragEvent) => void;
-  onDragOver: (e: React.DragEvent, index: number) => void;
-  onDragLeave: () => void;
-  onDrop: (e: React.DragEvent, index: number) => void;
-  onDragEnd: () => void;
+  rowKey: string;
+  onPointerDown: (e: React.PointerEvent) => void;
 }
 
 /**
@@ -122,37 +121,17 @@ function RowLead({
           showCheckbox || isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100",
         )}
       />
-      <GripVertical
-        className={cn(
-          "pointer-events-none absolute size-3.5 text-muted-foreground opacity-0 transition-opacity duration-100",
-          !showCheckbox && !isSelected && "group-hover:opacity-0",
-        )}
-      />
     </div>
   );
 }
 
+// The engine moves rows with transforms, so a row's own transition must
+// leave `transform` alone (colors only).
 const rowBase =
   "group relative flex min-h-11 cursor-default select-none items-stretch gap-1.5 pr-2 outline-none transition-colors duration-100";
 
-function rowClasses({
-  isSelected,
-  isDragSource,
-  isDragTarget,
-  dragTargetPosition,
-}: {
-  isSelected: boolean;
-  isDragSource?: boolean;
-  isDragTarget: boolean;
-  dragTargetPosition: "above" | "below";
-}) {
-  return cn(
-    rowBase,
-    isSelected ? "bg-selection text-selection-foreground" : "hover:bg-fill-1 active:bg-fill-2",
-    isDragSource && "opacity-40",
-    isDragTarget && dragTargetPosition === "above" && "shadow-[inset_0_2px_0_var(--primary)]",
-    isDragTarget && dragTargetPosition === "below" && "shadow-[inset_0_-2px_0_var(--primary)]",
-  );
+function rowClasses({ isSelected }: { isSelected: boolean }) {
+  return cn(rowBase, isSelected ? "bg-selection text-selection-foreground" : "hover:bg-fill-1 active:bg-fill-2");
 }
 
 export function ClipRow({
@@ -213,19 +192,16 @@ export function ClipRow({
       <ContextMenuTrigger asChild>
         <div
           role="row"
-          draggable
+          data-row-key={drag.rowKey}
+          data-row-index={index}
           data-event-id={event.eventId}
           aria-selected={isSelected}
-          className={rowClasses({ isSelected, isDragSource: drag.isDragSource, isDragTarget: drag.isDragTarget, dragTargetPosition: drag.dragTargetPosition })}
+          className={rowClasses({ isSelected })}
           onClick={onClick}
           onMouseDown={(e) => {
             if (e.shiftKey) e.preventDefault();
           }}
-          onDragStart={drag.onDragStart}
-          onDragOver={(e) => drag.onDragOver(e, index)}
-          onDragLeave={drag.onDragLeave}
-          onDrop={(e) => drag.onDrop(e, index)}
-          onDragEnd={drag.onDragEnd}
+          onPointerDown={drag.onPointerDown}
         >
           {isActive && !isSelected && <ActiveRowPill />}
           <div className={cn("relative z-10 w-[3px] shrink-0 self-stretch", colors.strip)} aria-hidden />
@@ -239,7 +215,7 @@ export function ClipRow({
               </span>
               <span className="truncate text-sm font-medium">{playerName(event)}</span>
               {visibleLabels.map((l) => (
-                <LabelChip key={l.id} label={l} />
+                <LabelChip key={l.id} label={l} className="shrink-0 whitespace-nowrap" />
               ))}
               {overflow.length > 0 && (
                 <Tooltip>
@@ -374,22 +350,16 @@ export function TextCardRow({
   return (
     <div
       role="row"
-      draggable
+      data-row-key={drag.rowKey}
+      data-row-index={index}
       data-text-card-id={card.id}
       aria-selected={isSelected}
-      className={cn(
-        rowClasses({ isSelected, isDragSource: drag.isDragSource, isDragTarget: drag.isDragTarget, dragTargetPosition: drag.dragTargetPosition }),
-        !isSelected && "bg-amber-500/6 hover:bg-amber-500/12",
-      )}
+      className={cn(rowClasses({ isSelected }), !isSelected && "bg-amber-500/6 hover:bg-amber-500/12")}
       onClick={onClick}
       onMouseDown={(e) => {
         if (e.shiftKey) e.preventDefault();
       }}
-      onDragStart={drag.onDragStart}
-      onDragOver={(e) => drag.onDragOver(e, index)}
-      onDragLeave={drag.onDragLeave}
-      onDrop={(e) => drag.onDrop(e, index)}
-      onDragEnd={drag.onDragEnd}
+      onPointerDown={drag.onPointerDown}
     >
       {isActive && !isSelected && <ActiveRowPill />}
       <div className="relative z-10 w-[3px] shrink-0 self-stretch bg-amber-400" aria-hidden />

@@ -163,7 +163,7 @@ export function AddMembersToTeamModal({
                     key={m.id}
                     type="button"
                     onClick={() => toggle(m.id)}
-                    className="w-full flex items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-accent transition-colors"
+                    className="w-full flex items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-fill-1 transition-colors"
                   >
                     {/* Checkbox indicator */}
                     <div

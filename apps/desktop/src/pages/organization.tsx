@@ -319,7 +319,7 @@ function TeamCard({
       <div className="flex items-center">
         <button
           type="button"
-          className="flex-1 flex items-center justify-between p-4 text-left hover:bg-accent/50 transition-colors rounded-lg"
+          className="flex-1 flex items-center justify-between p-4 text-left hover:bg-fill-1 transition-colors rounded-lg"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
         >

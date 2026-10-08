@@ -61,7 +61,7 @@ export function Toolbar({
       data-tauri-drag-region
       data-scrolled={scrolled ? "true" : undefined}
       className={cn(
-        "z-20 flex h-[var(--toolbar-height)] shrink-0 items-center gap-3 pr-4 transition-[background-color] duration-200",
+        "z-20 flex h-[var(--toolbar-height)] shrink-0 items-center gap-3 pr-4 transition-[background-color] duration-200 select-none",
         variant === "scroll" ? "absolute inset-x-0 top-0" : "relative border-b border-separator",
         material ? "bg-material-toolbar backdrop-blur-xl" : "bg-transparent",
         IS_MACOS && collapsed ? "pl-[calc(var(--traffic-lights-width)+0.75rem)]" : "pl-3",

@@ -3,52 +3,28 @@ import { invoke } from "@tauri-apps/api/core";
 import { useAuth } from "@/lib/auth-context";
 import { trackEvent } from "@/lib/analytics";
 import { Sentry } from "@/lib/sentry";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
-  ArrowDown,
-  ArrowUp,
   Check,
   ChevronDown,
   ChevronRight,
-  Columns2,
-  FileDown,
   Filter,
-  Smartphone,
+  Folder,
   FolderPlus,
-  Lock,
   Share2,
   Users,
-  User2,
-  GripVertical,
-  Link2,
   ListPlus,
   ListVideo,
-  MessageSquare,
-  Loader2,
   MoreHorizontal,
-  Pencil,
   Play,
   Plus,
-  Rows2,
   Search,
-  SkipForward,
-  Square,
-  Minimize2,
   Tag,
   VideoOff,
-  Trash2,
-  Type,
-  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { MultiSelectDropdown, SingleSelectDropdown } from "@/components/ui/multi-select-dropdown";
-import { LeadersPopover } from "@/components/leaders-popover";
-import { VideoPlayer } from "@/components/video-player";
 import { VideoPlaceholder } from "@/components/video-placeholder";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
-import { usePanelRef } from "react-resizable-panels";
-import { VideoClipControls } from "@/components/video-clip-controls";
 import { listMatchesLight, listEventsForMatches, listFolders, createFolder, updateFolder, deleteFolder, updateVideoUrl } from "@/lib/matches-db";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { probeMatches, type VideoFileStatus } from "@/lib/video-probe";
@@ -60,7 +36,7 @@ import { listLabels, createLabel as apiCreateLabel, updateLabel as apiUpdateLabe
 import { LabelChip } from "@/components/labels/LabelChip";
 import { LabelPickerPopover, type LabelTriState } from "@/components/labels/LabelPickerPopover";
 import type { Label, LabelColor, ClipKey } from "@scoutable/shared/types/labels";
-import { eventColors, eventLabel, formatGameClock, isBookkeepingEvent, parseGameClock, playerName } from "@scoutable/shared/lib/events";
+import { eventLabel, formatGameClock, parseGameClock, playerName } from "@scoutable/shared/lib/events";
 import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import type { CropKeyframe } from "@scoutable/shared/lib/crop-path";
 import { CropEditorBar, CropOverlay, upsertKeyframe } from "@/components/crop-editor";
@@ -114,17 +90,12 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { exportPlaylist, notifyExportSuccess, type ExportSegment } from "@/lib/export";
-import {
-  exportProgressLabel,
-  exportProgressPercent,
-  type ExportProgress,
-} from "@scoutable/shared/lib/export-progress";
+import type { ExportProgress } from "@scoutable/shared/lib/export-progress";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { getExportWatermarkDisabled, setHasExported } from "@/lib/prefs";
 import { clipAndShip } from "@/lib/clip-and-ship";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import type { Playlist, PlaylistFolder, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
+import type { Playlist, PlaylistFolder, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch } from "@/types/match";
 import { isClipItem } from "@/types/match";
 import { toast } from "sonner";
 import { Page } from "@/components/shell/page";
@@ -132,10 +103,20 @@ import { Toolbar } from "@/components/shell/toolbar";
 import { EditorToolbar } from "@/components/editor/editor-toolbar";
 import { PlayerStage } from "@/components/editor/player-stage";
 import { usePersistentVideo } from "@/components/editor/use-persistent-video";
-import { ClipRow, TextCardRow, type LabelRowControls } from "@/components/editor/clip-rows";
+import { ClipRow, TextCardRow } from "@/components/editor/clip-rows";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
 import { clamp } from "@scoutable/shared/lib/motion-math";
+import { dragBlockKeys, isSameOrder, itemsIndexForGap } from "@scoutable/shared/lib/list-reorder";
+import { useReducedMotionSafe } from "@/lib/motion";
+import { EmptyState } from "@/components/empty-state";
+import { SearchField } from "@/components/ui/search-field";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { AddToPopover } from "@/components/editor/add-to-popover";
+import { BROWSER_WIDTH, BrowserColumn } from "@/components/editor/browser-column";
+import { ClipBrowserPanel } from "@/components/editor/clip-browser-panel";
+import { PILL_LABEL, PillButton, SelectionBar } from "@/components/editor/selection-bar";
+import { useListDrag, type DragTarget } from "@/components/editor/use-list-drag";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -160,1064 +141,11 @@ function playlistItemKey(i: PlaylistItem): string {
 }
 
 // ---------------------------------------------------------------------------
-// Event type filter options (for clip browser)
+// The playlist browser column remembers its width and whether it is shown.
 // ---------------------------------------------------------------------------
 
-const EVENT_TYPE_OPTIONS = [
-  { value: "2pt-made", label: "2PT Made" },
-  { value: "2pt-miss", label: "2PT Miss" },
-  { value: "3pt-made", label: "3PT Made" },
-  { value: "3pt-miss", label: "3PT Miss" },
-  { value: "freethrow-made", label: "FT Made" },
-  { value: "freethrow-miss", label: "FT Miss" },
-  { value: "rebound-off", label: "Off Rebound" },
-  { value: "rebound-def", label: "Def Rebound" },
-  { value: "turnover", label: "Turnover" },
-  { value: "steal", label: "Steal" },
-  { value: "assist", label: "Assist" },
-  { value: "foul", label: "Foul" },
-  { value: "block", label: "Block" },
-];
-
-const SHOT_TYPE_OPTIONS = [
-  { value: "subtype:layup", label: "Layup" },
-  { value: "subtype:floater", label: "Floater" },
-  { value: "subtype:jumpshot", label: "Jump Shot" },
-  { value: "subtype:dunk", label: "Dunk / Alley-oop" },
-  { value: "subtype:tipin", label: "Tip-in" },
-];
-
-const SITUATION_OPTIONS = [
-  { value: "qual:fastbreak", label: "Fast Break" },
-  { value: "qual:pointsinthepaint", label: "In the Paint" },
-  { value: "qual:2ndchance", label: "2nd Chance" },
-  { value: "qual:fromturnover", label: "From Turnover" },
-  { value: "qual:shooting", label: "Shooting Foul" },
-  { value: "subtype:charge", label: "Charge" },
-  { value: "subtype:technical", label: "Technical Foul" },
-  { value: "subtype:badpass", label: "Bad Pass" },
-  { value: "subtype:ballhandling", label: "Ball Handling" },
-  { value: "subtype:travel", label: "Travel" },
-  { value: "subtype:24sec", label: "Shot Clock" },
-];
-
-function matchesSingleType(e: PlayByPlayEvent, filter: string): boolean {
-  if (filter === "rebound-off") return e.type === "rebound" && e.subType === "offensive";
-  if (filter === "rebound-def") return e.type === "rebound" && e.subType === "defensive";
-  if (filter === "rebound-inbound") return e.type === "rebound" && e.subType === "offensivedeadball";
-  const [type, outcome] = filter.split("-");
-  if (e.type !== type) return false;
-  if (outcome === "made") return e.isSuccessful === 1;
-  if (outcome === "miss") return e.isSuccessful === 0;
-  if (type === "foul") return e.type === "foul" || e.type === "foulon";
-  return true;
-}
-
-function matchesShotType(e: PlayByPlayEvent, f: string): boolean {
-  const sub = e.subType ?? "";
-  switch (f) {
-    case "subtype:layup":    return ["layup", "drivinglayup", "reverselayup"].includes(sub);
-    case "subtype:floater":  return sub === "floatingjumpshot";
-    case "subtype:jumpshot": return ["jumpshot", "pullupjumpshot", "turnaroundjumpshot", "fadeaway", "stepbackjumpshot", "hookshot"].includes(sub);
-    case "subtype:dunk":     return ["dunk", "alleyoop", "alleyoopdunk"].includes(sub);
-    case "subtype:tipin":    return ["tipinlayup", "tipindunk"].includes(sub);
-    default: return false;
-  }
-}
-
-function matchesSituation(e: PlayByPlayEvent, f: string): boolean {
-  switch (f) {
-    case "qual:fastbreak":        return e.qualifiers.includes("fastbreak");
-    case "qual:pointsinthepaint": return e.qualifiers.includes("pointsinthepaint");
-    case "qual:2ndchance":        return e.qualifiers.includes("2ndchance");
-    case "qual:fromturnover":     return e.qualifiers.includes("fromturnover");
-    case "qual:shooting":         return e.type === "foul" && e.qualifiers.includes("shooting");
-    case "subtype:charge":        return e.type === "foul" && e.subType === "offensive";
-    case "subtype:technical":     return e.type === "foul" && ["technical", "benchTechnical", "coachTechnical"].includes(e.subType ?? "");
-    case "subtype:badpass":       return e.type === "turnover" && e.subType === "badpass";
-    case "subtype:ballhandling":  return e.type === "turnover" && e.subType === "ballhandling";
-    case "subtype:travel":        return e.type === "turnover" && e.subType === "travel";
-    case "subtype:24sec":         return e.type === "turnover" && e.subType === "24sec";
-    default: return false;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// ClipBrowserPanel — cross-match clip selection
-// ---------------------------------------------------------------------------
-
-function ClipBrowserPanel({
-  matches,
-  matchLookup,
-  playlist,
-  onAddClips,
-  onClose,
-  activeOrgId,
-  labels,
-  labelHandlers,
-  onNeedEvents,
-  videoStatusByMatch,
-}: {
-  matches: StoredMatch[];
-  matchLookup: Map<string, StoredMatch>;
-  playlist: Playlist;
-  onAddClips: (clips: PlaylistClipItem[]) => void;
-  onClose: () => void;
-  activeOrgId: string | null;
-  labels: Label[];
-  labelHandlers: {
-    onCreate: (name: string, color: LabelColor) => Promise<Label>;
-    onRename: (id: string, name: string) => Promise<void>;
-    onRecolor: (id: string, color: LabelColor) => Promise<void>;
-    onDelete: (id: string) => Promise<void>;
-    onSeedDefaults: () => Promise<void>;
-  };
-  /** Ask the page to load play-by-play for these matches if it hasn't yet. */
-  onNeedEvents: (matchIds: string[]) => Promise<void>;
-  /** Per-match video-file health from the page's probe (machine switches). */
-  videoStatusByMatch: Map<string, VideoFileStatus>;
-}) {
-  const [filterMatchId, setFilterMatchId] = useState<string | null>(matches[0]?.id ?? null);
-  const [eventsLoading, setEventsLoading] = useState(false);
-
-  // Keyed on the match ID SET, not the matches array: merging fetched events
-  // produces a new array, and depending on that would re-run this on arrival
-  // and flicker the loading state.
-  const matchIdsKey = matches.map((m) => m.id).join(",");
-
-  // The page only preloads events for games a playlist references, so the
-  // browser pulls the game it is showing. Runs on open and on every game
-  // switch; onNeedEvents ignores ids it already has or is already fetching.
-  useEffect(() => {
-    // No filter means "all games" — the panel would render every event.
-    const ids = filterMatchId ? [filterMatchId] : matchIdsKey.split(",").filter(Boolean);
-    if (ids.length === 0) return;
-    let cancelled = false;
-    setEventsLoading(true);
-    void onNeedEvents(ids).finally(() => {
-      if (!cancelled) setEventsLoading(false);
-    });
-    return () => { cancelled = true; };
-  }, [filterMatchId, matchIdsKey, onNeedEvents]);
-  const [filterTypes, setFilterTypes] = useState<Set<string>>(new Set());
-  const [filterSubTypes, setFilterSubTypes] = useState<Set<string>>(new Set());
-  const [filterSituations, setFilterSituations] = useState<Set<string>>(new Set());
-  const [filterTeams, setFilterTeams] = useState<Set<string>>(new Set());
-  const [filterPlayers, setFilterPlayers] = useState<Set<string>>(new Set());
-  const [filterLabelIds, setFilterLabelIds] = useState<Set<string>>(new Set());
-  const [preRoll, setPreRoll] = useState(10);
-  const [postRoll, setPostRoll] = useState(3);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set()); // "matchId:eventId"
-  // Local assignment state for the visible match.
-  const [clipAssignments, setClipAssignments] = useState<Map<string, Set<string>>>(new Map());
-  const [activeEventKey, setActiveEventKey] = useState<string | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [queueIdx, setQueueIdx] = useState(0);
-  const [draggingKey, setDraggingKey] = useState<string | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-
-  // Refs to avoid stale closures in timeupdate handler
-  const preRollRef = useRef(preRoll);
-  useEffect(() => { preRollRef.current = preRoll; }, [preRoll]);
-  const postRollRef = useRef(postRoll);
-  useEffect(() => { postRollRef.current = postRoll; }, [postRoll]);
-  const clipEndRef = useRef<number | undefined>(undefined);
-  const pendingSeekRef = useRef<{ event: PlayByPlayEvent; matchId: string } | null>(null);
-  const queueRef = useRef<Array<{ event: PlayByPlayEvent; matchId: string }>>([]);
-  const queueIdxRef = useRef(0);
-  const activeEventKeyRef = useRef(activeEventKey);
-  useEffect(() => { activeEventKeyRef.current = activeEventKey; }, [activeEventKey]);
-
-  const existingSet = useMemo(
-    () => new Set(playlist.items.filter(isClipItem).map((c) => `${c.matchId}:${c.eventId}`)),
-    [playlist.items]
-  );
-
-  const allEvents = useMemo(() => {
-    const source = filterMatchId ? matches.filter((m) => m.id === filterMatchId) : matches;
-    return source.flatMap((m) =>
-      m.events
-        // Dead-ball possession markers aren't watchable — keep them out of
-        // the browser and everything derived from it (teams, players, counts).
-        .filter((e) => !isBookkeepingEvent(e))
-        .map((e) => ({ event: e, matchId: m.id, matchTitle: m.title }))
-    );
-  }, [matches, filterMatchId]);
-
-  const teams = useMemo(() =>
-    Array.from(new Set(allEvents.map((x) => x.event.eventTeam?.teamName).filter(Boolean) as string[])),
-    [allEvents]
-  );
-  const players = useMemo(() => {
-    const source = filterTeams.size > 0
-      ? allEvents.filter(({ event }) => filterTeams.has(event.eventTeam?.teamName ?? ""))
-      : allEvents;
-    return Array.from(new Set(
-      source.map((x) => x.event.player ? playerName(x.event) : null).filter(Boolean) as string[]
-    ));
-  }, [allEvents, filterTeams]);
-  // Same Game + Team narrowing as the players list, so the Leaders popover
-  // never offers a player the Team filter would immediately hide.
-  const leaderEvents = useMemo(() => {
-    const source = filterTeams.size > 0
-      ? allEvents.filter(({ event }) => filterTeams.has(event.eventTeam?.teamName ?? ""))
-      : allEvents;
-    return source.map((x) => x.event);
-  }, [allEvents, filterTeams]);
-
-  const handleLeaderToggle = useCallback((name: string) => {
-    setFilterPlayers((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
-  }, []);
-
-  const filtered = useMemo(() => allEvents.filter(({ event, matchId }) => {
-    if (filterTypes.size > 0 && !Array.from(filterTypes).some((f) => matchesSingleType(event, f))) return false;
-    if (filterSubTypes.size > 0 && !Array.from(filterSubTypes).some((f) => matchesShotType(event, f))) return false;
-    if (filterSituations.size > 0 && !Array.from(filterSituations).some((f) => matchesSituation(event, f))) return false;
-    if (filterTeams.size > 0 && !filterTeams.has(event.eventTeam?.teamName ?? "")) return false;
-    if (filterPlayers.size > 0 && !filterPlayers.has(playerName(event))) return false;
-    if (filterLabelIds.size > 0) {
-      const assigned = clipAssignments.get(`${matchId}:${event.eventId}`);
-      if (!assigned || ![...filterLabelIds].some((id) => assigned.has(id))) return false;
-    }
-    return true;
-  }), [allEvents, filterTypes, filterSubTypes, filterSituations, filterTeams, filterPlayers, filterLabelIds, clipAssignments]);
-
-  // Load bank-scope assignments for the visible match(es) — refreshes on
-  // game change. The bank surfaces only playlist_id IS NULL rows.
-  useEffect(() => {
-    if (!activeOrgId || allEvents.length === 0) { setClipAssignments(new Map()); return; }
-    const clips: ClipKey[] = allEvents.map(({ event, matchId }) => ({ matchId, eventId: event.eventId }));
-    listAssignmentsForClips(activeOrgId, clips, null)
-      .then((rows) => {
-        const next = new Map<string, Set<string>>();
-        for (const r of rows) {
-          const key = `${r.matchId}:${r.eventId}`;
-          const set = next.get(key) ?? new Set<string>();
-          set.add(r.labelId);
-          next.set(key, set);
-        }
-        setClipAssignments(next);
-      })
-      .catch((e) => console.error("browser listAssignmentsForClips:", e));
-  }, [activeOrgId, allEvents]);
-
-  const selectedClipKeyPairs = useMemo<ClipKey[]>(() => {
-    const out: ClipKey[] = [];
-    for (const key of selectedIds) {
-      const [matchId, eventIdStr] = key.split(":");
-      const eventId = Number(eventIdStr);
-      if (matchId && Number.isFinite(eventId)) out.push({ matchId, eventId });
-    }
-    return out;
-  }, [selectedIds]);
-
-  const { bulkAssignedAll, bulkAssignedSome } = useMemo(() => {
-    const all = new Set<string>();
-    const some = new Set<string>();
-    if (selectedClipKeyPairs.length === 0) return { bulkAssignedAll: all, bulkAssignedSome: some };
-    const counts = new Map<string, number>();
-    for (const { matchId, eventId } of selectedClipKeyPairs) {
-      const s = clipAssignments.get(`${matchId}:${eventId}`);
-      if (!s) continue;
-      for (const id of s) counts.set(id, (counts.get(id) ?? 0) + 1);
-    }
-    const total = selectedClipKeyPairs.length;
-    for (const [id, n] of counts.entries()) {
-      if (n === total) all.add(id);
-      else if (n > 0) some.add(id);
-    }
-    return { bulkAssignedAll: all, bulkAssignedSome: some };
-  }, [selectedClipKeyPairs, clipAssignments]);
-
-  const handleToggleClipLabel = useCallback(
-    async (matchId: string, eventId: number, labelId: string, state: LabelTriState) => {
-      if (!activeOrgId) return;
-      const nextAssigned = state !== "all";
-      const key = `${matchId}:${eventId}`;
-      setClipAssignments((prev) => {
-        const next = new Map(prev);
-        const set = new Set(next.get(key) ?? []);
-        if (nextAssigned) set.add(labelId); else set.delete(labelId);
-        next.set(key, set);
-        return next;
-      });
-      try {
-        const existing = clipAssignments.get(key) ?? new Set<string>();
-        const wanted = new Set(existing);
-        if (nextAssigned) wanted.add(labelId); else wanted.delete(labelId);
-        await apiSetClipAssignments(activeOrgId, matchId, eventId, Array.from(wanted), null);
-        if (nextAssigned) trackEvent("label_applied", { bulk: false });
-      } catch (e) {
-        console.error("toggle clip label:", e);
-        toast.error("Failed to update label");
-      }
-    },
-    [activeOrgId, clipAssignments],
-  );
-
-  const handleBulkToggleLabel = useCallback(
-    async (labelId: string, state: LabelTriState) => {
-      if (!activeOrgId || selectedClipKeyPairs.length === 0) return;
-      const mode: "add" | "remove" = state === "all" ? "remove" : "add";
-      setClipAssignments((prev) => {
-        const next = new Map(prev);
-        for (const { matchId, eventId } of selectedClipKeyPairs) {
-          const key = `${matchId}:${eventId}`;
-          const set = new Set(next.get(key) ?? []);
-          if (mode === "add") set.add(labelId); else set.delete(labelId);
-          next.set(key, set);
-        }
-        return next;
-      });
-      try {
-        await apiBulkAssign(activeOrgId, selectedClipKeyPairs, labelId, mode, null);
-        if (mode === "add") trackEvent("label_applied", { bulk: true });
-      } catch (e) {
-        console.error("bulk toggle label:", e);
-        toast.error("Failed to apply label");
-      }
-    },
-    [activeOrgId, selectedClipKeyPairs],
-  );
-
-  function handleGameChange(newMatchId: string | null) {
-    setFilterMatchId(newMatchId);
-    setFilterTeams(new Set());
-    setFilterPlayers(new Set());
-  }
-
-  function handleTeamChange(newTeams: Set<string>) {
-    setFilterTeams(newTeams);
-    const source = newTeams.size > 0
-      ? allEvents.filter(({ event }) => newTeams.has(event.eventTeam?.teamName ?? ""))
-      : allEvents;
-    const validPlayers = new Set(
-      source.map((x) => x.event.player ? playerName(x.event) : null).filter(Boolean) as string[]
-    );
-    setFilterPlayers((prev) => new Set([...prev].filter((p) => validPlayers.has(p))));
-  }
-
-  // Keep ref for arrow key handler (avoids stale closures in global listener)
-  const filteredRef = useRef(filtered);
-  filteredRef.current = filtered;
-
-  const videoMatchId = activeEventKey
-    ? activeEventKey.split(":")[0]
-    : filterMatchId ?? null;
-  const localVideoUrl = useMemo(() => {
-    const match = videoMatchId ? matchLookup.get(videoMatchId) : null;
-    if (!match?.videoUrl) return null;
-    return isLocalPath(match.videoUrl) ? streamFileSrc(match.videoUrl) : match.videoUrl;
-  }, [videoMatchId, matchLookup]);
-
-  // Seek to an event — pause → seek → play, sets clipEnd for auto-advance
-  const seekToEvent = useCallback((event: PlayByPlayEvent, matchId: string) => {
-    const match = matchLookup.get(matchId);
-    const video = videoRef.current;
-    if (!match?.syncPoint || !video) return;
-    const videoTime = computeVideoTime(event, match.syncPoint);
-    if (videoTime === null) return;
-    const seekTo = Math.max(0, videoTime - preRollRef.current);
-    const clipEnd = videoTime + postRollRef.current;
-    clipEndRef.current = undefined;
-    video.pause();
-    const target1 = seekTo;
-    function onSeeked1() {
-      if (video!.currentTime > target1 + 2) { video!.addEventListener("seeked", onSeeked1, { once: true }); return; }
-      clipEndRef.current = clipEnd;
-      video!.play().catch(() => {});
-    }
-    video.addEventListener("seeked", onSeeked1, { once: true });
-    video.currentTime = seekTo;
-  }, [matchLookup]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Keep seek ref current so timeupdate handler always calls the latest version
-  const seekToEventRef = useRef(seekToEvent);
-  seekToEventRef.current = seekToEvent;
-
-  // Auto-advance to next clip via timeupdate
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    function handleTimeUpdate() {
-      const end = clipEndRef.current;
-      if (end === undefined || !video) return;
-      if (video.currentTime < end) return;
-      // Guard: if we're >60s past clipEnd the video is at a stale position (seek in progress)
-      if (video.currentTime > end + 60) return;
-
-      clipEndRef.current = undefined;
-      video.pause();
-      const nextIdx = queueIdxRef.current + 1;
-      const queue = queueRef.current;
-
-      if (nextIdx < queue.length) {
-        queueIdxRef.current = nextIdx;
-        setQueueIdx(nextIdx);
-        const { event, matchId } = queue[nextIdx];
-        const key = `${matchId}:${event.eventId}`;
-        setActiveEventKey(key);
-        activeEventKeyRef.current = key;
-        seekToEventRef.current(event, matchId);
-      } else {
-        video.pause();
-        setIsPlaying(false);
-        setActiveEventKey(null);
-        queueRef.current = [];
-      }
-    }
-
-    video.addEventListener("timeupdate", handleTimeUpdate);
-    return () => video.removeEventListener("timeupdate", handleTimeUpdate);
-  }, [localVideoUrl]); // re-attach when video element is (re-)mounted
-
-  // Deferred seek: fires once the video element is (re-)mounted after a match switch
-  useEffect(() => {
-    const pending = pendingSeekRef.current;
-    const video = videoRef.current;
-    if (!pending || !video) return;
-    pendingSeekRef.current = null;
-    const doSeek = () => seekToEvent(pending.event, pending.matchId);
-    if (video.readyState >= 1) doSeek();
-    else video.addEventListener("loadedmetadata", doSeek, { once: true });
-  }, [localVideoUrl, seekToEvent]);
-
-  function handleStop() {
-    queueRef.current = [];
-    queueIdxRef.current = 0;
-    setQueueIdx(0);
-    clipEndRef.current = undefined;
-    setIsPlaying(false);
-    setActiveEventKey(null);
-    videoRef.current?.pause();
-  }
-
-  function handleReplay() {
-    const item = queueRef.current[queueIdxRef.current];
-    if (item) seekToEvent(item.event, item.matchId);
-  }
-  const handleReplayRef = useRef(handleReplay);
-  handleReplayRef.current = handleReplay;
-
-  const handleRowClick = useCallback((event: PlayByPlayEvent, matchId: string) => {
-    const items = filteredRef.current;
-    const idx = items.findIndex((x) => x.event.eventId === event.eventId && x.matchId === matchId);
-    const queue = idx >= 0 ? items.slice(idx) : [{ event, matchId, matchTitle: "" }];
-
-    queueRef.current = queue;
-    queueIdxRef.current = 0;
-    setQueueIdx(0);
-    setIsPlaying(true);
-    setActiveEventKey(`${matchId}:${event.eventId}`);
-
-    if (videoRef.current) {
-      seekToEvent(event, matchId);
-    } else {
-      // Video element not yet mounted (match switch); pendingSeekRef effect fires once it mounts
-      pendingSeekRef.current = { event, matchId };
-    }
-  }, [seekToEvent]); // eslint-disable-line react-hooks/exhaustive-deps
-  const handleRowClickRef = useRef(handleRowClick);
-  handleRowClickRef.current = handleRowClick;
-
-  function handlePrev() {
-    const items = filteredRef.current;
-    const cur = items.findIndex((x) => `${x.matchId}:${x.event.eventId}` === activeEventKeyRef.current);
-    if (cur <= 0) return;
-    const { event, matchId } = items[cur - 1];
-    handleRowClickRef.current(event, matchId);
-  }
-
-  function handleNext() {
-    const items = filteredRef.current;
-    const cur = items.findIndex((x) => `${x.matchId}:${x.event.eventId}` === activeEventKeyRef.current);
-    if (cur === -1 || cur >= items.length - 1) return;
-    const { event, matchId } = items[cur + 1];
-    handleRowClickRef.current(event, matchId);
-  }
-
-  function handlePlayAll() {
-    const items = filteredRef.current;
-    if (items.length === 0) return;
-    handleRowClick(items[0].event, items[0].matchId);
-  }
-
-  const activeIdx = filtered.findIndex(({ event, matchId }) => `${matchId}:${event.eventId}` === activeEventKey);
-  const canPrev = isPlaying && activeIdx > 0;
-  const canNext = isPlaying && activeIdx >= 0 && activeIdx < filtered.length - 1;
-  const isQueueActive = isPlaying;
-
-  // Arrow key navigation: ↓/↑ = next/prev clip, ← = replay
-  // Keys belong to the sheet while it is open (one owner at a time).
-  useKeyScope("clip-browser", true);
-  useHotkeys("clip-browser", (e) => {
-    const action = resolvePlayerKey(e);
-    if (action === "toggle-play") {
-      e.preventDefault();
-      const video = videoRef.current;
-      if (!video) return;
-      if (!isPlaying && video.paused) { handlePlayAll(); return; }
-      if (video.paused) video.play().catch(() => {});
-      else video.pause();
-      return;
-    }
-    if (action === "replay") { e.preventDefault(); handleReplayRef.current(); return; }
-    if (action !== "next" && action !== "prev") return;
-    e.preventDefault();
-    const items = filteredRef.current;
-    if (items.length === 0) return;
-    const cur = items.findIndex((x) => `${x.matchId}:${x.event.eventId}` === activeEventKeyRef.current);
-    const next =
-      action === "next"
-        ? cur === -1 ? 0 : Math.min(cur + 1, items.length - 1)
-        : cur === -1 ? items.length - 1 : Math.max(cur - 1, 0);
-    if (next !== cur || cur === -1) {
-      const { event, matchId } = items[next];
-      handleRowClickRef.current(event, matchId);
-    }
-  });
-
-  // Scroll active row into view
-  useEffect(() => {
-    if (activeEventKey === null) return;
-    const eventId = activeEventKey.split(":")[1];
-    document.querySelector(`[data-event-id="${eventId}"]`)?.scrollIntoView({ block: "nearest" });
-  }, [activeEventKey]);
-
-  const allSelected = filtered.length > 0 && filtered.every(({ event, matchId }) => selectedIds.has(`${matchId}:${event.eventId}`));
-
-  function toggleSelectAll() {
-    if (allSelected) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(filtered.map(({ event, matchId }) => `${matchId}:${event.eventId}`)));
-    }
-  }
-
-  function toggleOne(key: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
-
-  function handleAdd() {
-    const toAdd: PlaylistClipItem[] = filtered
-      .filter(({ event, matchId }) => {
-        const key = `${matchId}:${event.eventId}`;
-        return selectedIds.has(key) && !existingSet.has(key);
-      })
-      .map(({ event, matchId }) => ({ type: 'clip' as const, matchId, eventId: event.eventId }));
-    onAddClips(toAdd);
-    onClose();
-  }
-
-  const newCount = Array.from(selectedIds).filter((k) => !existingSet.has(k)).length;
-  const isMultiMatch = filterMatchId === null;
-
-  return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-border px-4 py-3 shrink-0">
-        <div className="flex flex-col gap-0.5">
-          <span className="text-sm font-semibold text-foreground">Add Clips to Playlist</span>
-          <span className="text-xs text-muted-foreground">
-            Adding to: <span className="font-medium text-foreground">{playlist.name}</span>
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link to="/upload">
-            <Button size="sm" variant="outline" className="h-8 gap-1.5">
-              <Plus className="h-3.5 w-3.5" />
-              Import game
-            </Button>
-          </Link>
-          {activeOrgId && selectedClipKeyPairs.length > 0 && (
-            <LabelPickerPopover
-              trigger={
-                <Button size="sm" variant="outline" className="h-8 gap-1.5" title="Bank labels">
-                  <Tag className="h-3.5 w-3.5" />
-                  Apply bank label
-                  <ChevronDown className="h-3 w-3" />
-                </Button>
-              }
-              labels={labels}
-              assignedAllIds={bulkAssignedAll}
-              assignedSomeIds={bulkAssignedSome}
-              onToggle={handleBulkToggleLabel}
-              onCreate={labelHandlers.onCreate}
-              onRename={labelHandlers.onRename}
-              onRecolor={labelHandlers.onRecolor}
-              onDelete={labelHandlers.onDelete}
-              onSeedDefaults={labelHandlers.onSeedDefaults}
-              scopeTitle="Bank labels"
-              scopeHint="Use these to find clips later — not visible inside playlists"
-            />
-          )}
-          <span title={newCount === 0 ? "Select clips to add them" : undefined}>
-            <Button
-              size="sm"
-              className="h-8 gap-1.5"
-              onClick={handleAdd}
-              disabled={newCount === 0}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add {newCount > 0 ? newCount : ""} clip{newCount !== 1 ? "s" : ""}
-            </Button>
-          </span>
-          <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-
-      {/* Filters — same labeled layout as ClipsView */}
-      <div className="flex flex-wrap items-end gap-3 px-4 py-3 border-b border-border shrink-0">
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Game</label>
-          <SingleSelectDropdown
-            options={matches.map((m) => ({ value: m.id, label: m.title }))}
-            value={filterMatchId}
-            onChange={handleGameChange}
-            placeholder="All games"
-            required
-          />
-        </div>
-
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Event type</label>
-          <MultiSelectDropdown
-            options={EVENT_TYPE_OPTIONS}
-            selected={filterTypes}
-            onChange={setFilterTypes}
-            placeholder="All types"
-          />
-        </div>
-
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Shot type</label>
-          <MultiSelectDropdown
-            options={SHOT_TYPE_OPTIONS}
-            selected={filterSubTypes}
-            onChange={setFilterSubTypes}
-            placeholder="All shots"
-          />
-        </div>
-
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Situation</label>
-          <MultiSelectDropdown
-            options={SITUATION_OPTIONS}
-            selected={filterSituations}
-            onChange={setFilterSituations}
-            placeholder="Any situation"
-          />
-        </div>
-
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Team</label>
-          <MultiSelectDropdown
-            options={teams.map((t) => ({ value: t, label: t }))}
-            selected={filterTeams}
-            onChange={handleTeamChange}
-            placeholder="All teams"
-          />
-        </div>
-
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Player</label>
-          <MultiSelectDropdown
-            options={players.map((p) => ({ value: p, label: p }))}
-            selected={filterPlayers}
-            onChange={setFilterPlayers}
-            placeholder="All players"
-          />
-        </div>
-
-        <div className="space-y-1">
-          {/* Non-breaking space keeps the trigger aligned with its labeled
-              neighbors — Leaders is a picker for the Player filter, not its
-              own dimension. */}
-          <label className="text-xs text-muted-foreground">&nbsp;</label>
-          <LeadersPopover
-            events={leaderEvents}
-            selectedPlayers={filterPlayers}
-            onTogglePlayer={handleLeaderToggle}
-          />
-        </div>
-
-        {labels.length > 0 && (
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Labels</label>
-            <MultiSelectDropdown
-              options={labels.map((l) => ({ value: l.id, label: l.name }))}
-              selected={filterLabelIds}
-              onChange={setFilterLabelIds}
-              placeholder="Any label"
-            />
-          </div>
-        )}
-
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Pre-roll (s)</label>
-          <Input
-            type="number"
-            min={0}
-            max={30}
-            className="h-9 w-20"
-            value={preRoll}
-            onChange={(e) => setPreRoll(Number(e.target.value))}
-          />
-        </div>
-
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Post-roll (s)</label>
-          <Input
-            type="number"
-            min={0}
-            max={60}
-            className="h-9 w-20"
-            value={postRoll}
-            onChange={(e) => setPostRoll(Number(e.target.value))}
-          />
-        </div>
-
-        <div className="ml-auto self-end pb-0.5 text-xs text-muted-foreground">{filtered.length} events</div>
-      </div>
-
-      {/* Content: event table | video player */}
-      <ResizablePanelGroup direction="horizontal" className="flex-1 min-h-0">
-        <ResizablePanel defaultSize="55" minSize="30">
-          <div className="h-full overflow-y-auto">
-            {filtered.length === 0 ? (
-              eventsLoading ? (
-                // This game's play-by-play is still arriving — without this
-                // branch the filter-advice copy below would be plainly wrong.
-                <div className="py-12 text-center text-sm text-muted-foreground">Loading clips…</div>
-              ) : (
-              <div className="flex flex-col items-center gap-3 py-12 text-center">
-                <p className="text-sm text-muted-foreground">
-                  {matches.length === 0
-                    ? "No games imported yet. Import a game to get started."
-                    : "No events match the current filters. Try adjusting them."}
-                </p>
-                {matches.length === 0 && (
-                  <Link to="/upload">
-                    <Button size="sm" variant="outline" className="text-xs gap-1.5">
-                      <Plus className="h-3.5 w-3.5" />
-                      Import game
-                    </Button>
-                  </Link>
-                )}
-              </div>
-              )
-            ) : (
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 border-b border-border bg-muted/80 text-xs font-medium text-muted-foreground">
-                  <tr>
-                    <th className="w-8 px-3 py-2.5">
-                      <input
-                        type="checkbox"
-                        checked={allSelected}
-                        onChange={toggleSelectAll}
-                        className="h-3.5 w-3.5 rounded border-border accent-primary"
-                      />
-                    </th>
-                    <th className="px-4 py-2.5 text-left">Period</th>
-                    <th className="px-4 py-2.5 text-left">Clock</th>
-                    {isMultiMatch && <th className="px-4 py-2.5 text-left">Game</th>}
-                    <th className="px-4 py-2.5 text-left">Event</th>
-                    <th className="px-4 py-2.5 text-left">Player</th>
-                    <th className="px-4 py-2.5 text-left">Team</th>
-                    <th className="px-4 py-2.5 text-left"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border bg-card">
-                  {filtered.map(({ event, matchId, matchTitle }) => {
-                    const key = `${matchId}:${event.eventId}`;
-                    const isSelected = selectedIds.has(key);
-                    const alreadyIn = existingSet.has(key);
-                    const isActive = activeEventKey === key;
-                    return (
-                      <tr
-                        key={key}
-                        data-event-id={event.eventId}
-                        draggable
-                        onDragStart={(e) => {
-                          e.dataTransfer.setData("text/clip", key);
-                          e.dataTransfer.effectAllowed = "copy";
-                          setDraggingKey(key);
-                        }}
-                        onDragEnd={() => setDraggingKey(null)}
-                        className={`cursor-pointer transition-colors hover:bg-muted/50 ${isActive ? "bg-primary/10" : isSelected ? "bg-primary/5" : ""} ${alreadyIn ? "opacity-40" : ""} ${draggingKey === key ? "opacity-50" : ""}`}
-                        onClick={() => handleRowClick(event, matchId)}
-                      >
-                        <td className="w-8 px-3 py-2.5">
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            disabled={alreadyIn}
-                            onChange={() => {}}
-                            onClick={(e) => { e.stopPropagation(); if (!alreadyIn) toggleOne(key); }}
-                            className="h-3.5 w-3.5 rounded border-border accent-primary"
-                          />
-                        </td>
-                        <td className="px-4 py-2.5 text-muted-foreground">Q{event.period}</td>
-                        <td className="px-4 py-2.5 font-mono text-muted-foreground">{formatGameClock(event.gameClockTime)}</td>
-                        {isMultiMatch && (
-                          <td className="px-4 py-2.5 text-xs text-muted-foreground truncate max-w-[120px]">{matchTitle}</td>
-                        )}
-                        <td className="px-4 py-2.5">
-                          <div className="flex items-center gap-1.5">
-                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${eventColors(event).badge}`}>
-                              {eventLabel(event)}
-                            </span>
-                            {activeOrgId && (() => {
-                              const assigned = labels.filter((l) => clipAssignments.get(key)?.has(l.id));
-                              if (assigned.length === 0) return null;
-                              const visible = assigned.slice(0, 2);
-                              const overflow = assigned.slice(2);
-                              return (
-                                <>
-                                  {visible.map((l) => <LabelChip key={l.id} label={l} />)}
-                                  {overflow.length > 0 && (
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <span className="text-xs text-muted-foreground">+{overflow.length}</span>
-                                      </TooltipTrigger>
-                                      <TooltipContent>{overflow.map((l) => l.name).join(", ")}</TooltipContent>
-                                    </Tooltip>
-                                  )}
-                                </>
-                              );
-                            })()}
-                          </div>
-                        </td>
-                        <td className="px-4 py-2.5 text-foreground/80">{playerName(event)}</td>
-                        <td className="px-4 py-2.5 text-muted-foreground">{event.eventTeam?.teamName ?? "—"}</td>
-                        <td className="px-4 py-2.5">
-                          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                            <Play
-                              className={`h-3.5 w-3.5 ${
-                                isActive ? "text-primary" : "text-muted-foreground/40"
-                              }`}
-                            />
-                            {activeOrgId && (
-                              <LabelPickerPopover
-                                trigger={
-                                  <button
-                                    type="button"
-                                    className="rounded p-0.5 text-muted-foreground hover:text-primary hover:bg-primary/10 data-[state=open]:text-primary"
-                                    title="Bank labels"
-                                  >
-                                    <Tag className="h-3.5 w-3.5" />
-                                  </button>
-                                }
-                                labels={labels}
-                                assignedAllIds={clipAssignments.get(key) ?? new Set<string>()}
-                                onToggle={(labelId, state) => handleToggleClipLabel(matchId, event.eventId, labelId, state)}
-                                onCreate={labelHandlers.onCreate}
-                                onRename={labelHandlers.onRename}
-                                onRecolor={labelHandlers.onRecolor}
-                                onDelete={labelHandlers.onDelete}
-                                onSeedDefaults={labelHandlers.onSeedDefaults}
-                                scopeTitle="Bank labels"
-                                scopeHint="Use these to find clips later — not visible inside playlists"
-                              />
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </ResizablePanel>
-
-        <ResizableHandle />
-
-        <ResizablePanel defaultSize="45" minSize="25">
-          <div className="flex h-full flex-col gap-2 p-4">
-            {localVideoUrl ? (
-              <>
-                <div className="relative">
-                  <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
-                  {videoMatchId &&
-                    videoStatusByMatch.get(videoMatchId) !== undefined &&
-                    videoStatusByMatch.get(videoMatchId) !== "ok" && (
-                    <div className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-2 bg-black/85 px-6 text-center">
-                      <VideoOff className="h-6 w-6 text-amber-400" />
-                      <p className="text-sm font-medium text-white">
-                        This game's video file can't be found
-                      </p>
-                      <p className="max-w-xs text-xs text-white/70">
-                        It may have been moved or renamed, or it's on another computer.
-                        Open the game in the Library and use Locate file to point at it.
-                      </p>
-                    </div>
-                  )}
-                </div>
-                <VideoClipControls
-                  videoRef={videoRef}
-                  canPrev={canPrev}
-                  canNext={canNext}
-                  isQueueActive={isQueueActive}
-                  onPrev={handlePrev}
-                  onNext={handleNext}
-                  onReplay={handleReplay}
-                  onStop={handleStop}
-                  onPlayAll={handlePlayAll}
-                  ownsSpace={false}
-                />
-              </>
-            ) : (
-              <div className="flex h-full items-center justify-center">
-                <p className="text-center text-sm text-muted-foreground">
-                  Select a game with video to preview clips
-                </p>
-              </div>
-            )}
-          </div>
-        </ResizablePanel>
-      </ResizablePanelGroup>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// AddToDropdown
-// ---------------------------------------------------------------------------
-
-function AddToDropdown({
-  playlists,
-  activePlaylistId,
-  addToSearch,
-  setAddToSearch,
-  onAddToPlaylist,
-  onCreatePlaylist,
-}: {
-  playlists: Playlist[];
-  activePlaylistId: string | null;
-  addToSearch: string;
-  setAddToSearch: (v: string) => void;
-  onAddToPlaylist: (playlist: Playlist) => Promise<void>;
-  onCreatePlaylist: (name: string) => Promise<void>;
-}) {
-  const [creating, setCreating] = useState(false);
-  const [addingId, setAddingId] = useState<string | null>(null);
-  const trimmed = addToSearch.trim();
-  const q = trimmed.toLowerCase();
-  const candidates = playlists.filter(
-    (pl) => !(activePlaylistId && pl.id === activePlaylistId),
-  );
-  const options = candidates.filter((pl) => !q || pl.name.toLowerCase().includes(q));
-  // Same search-or-create mechanics as LabelPickerPopover: the search input
-  // doubles as the name field; an exact name match hides the create row.
-  const exactMatch = candidates.some((pl) => pl.name.toLowerCase() === q);
-  const showCreateRow = trimmed.length > 0 && !exactMatch;
-
-  // The rows stay mounted until the add resolves (the handler closes the
-  // dropdown on success), so without this guard a double-click fires two
-  // overlapping adds of the same clips.
-  async function handleAdd(pl: Playlist) {
-    if (addingId) return;
-    setAddingId(pl.id);
-    try {
-      await onAddToPlaylist(pl);
-    } catch (err) {
-      console.error("[playlists] Failed to add clips to playlist:", err);
-      Sentry.captureException(err);
-      toast.error("Couldn't add the clips");
-    } finally {
-      // On success the handler closes the dropdown and this unmounts, so the
-      // reset only matters on failure — where the rows must be usable again.
-      setAddingId(null);
-    }
-  }
-
-  async function handleCreate() {
-    if (!showCreateRow || creating) return;
-    setCreating(true);
-    try {
-      await onCreatePlaylist(trimmed);
-    } catch (err) {
-      console.error("[playlists] Failed to create playlist from dropdown:", err);
-      toast.error("Couldn't create playlist");
-      setCreating(false);
-    }
-  }
-
-  return (
-    <div className="absolute right-0 z-20 mt-1 w-72 rounded-md border border-border bg-popover shadow-lg">
-      <div className="border-b border-border p-2">
-        <input
-          autoFocus
-          type="text"
-          placeholder="Search or create…"
-          value={addToSearch}
-          onChange={(e) => setAddToSearch(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && showCreateRow) {
-              e.preventDefault();
-              void handleCreate();
-            }
-          }}
-          className="w-full rounded-sm bg-muted px-2 py-1 text-xs outline-none"
-        />
-      </div>
-      {options.length > 0 ? (
-        <div className="max-h-60 overflow-y-auto py-1">
-          {options.map((pl) => (
-            <button
-              key={pl.id}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-50"
-              onClick={() => void handleAdd(pl)}
-              disabled={addingId !== null}
-            >
-              {addingId === pl.id && (
-                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
-              )}
-              <span className="flex-1 truncate">{pl.name}</span>
-              <span className="text-xs text-muted-foreground">{pl.items.length}</span>
-            </button>
-          ))}
-        </div>
-      ) : (
-        !showCreateRow && (
-          <p className="px-3 py-3 text-xs text-muted-foreground">
-            Type a name to create a new playlist
-          </p>
-        )
-      )}
-      {showCreateRow && (
-        <button
-          className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-50"
-          onClick={() => void handleCreate()}
-          disabled={creating}
-        >
-          {creating ? (
-            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
-          ) : (
-            <Plus className="h-3.5 w-3.5 shrink-0 text-primary" />
-          )}
-          <span className="flex-1 truncate">
-            Create &ldquo;<span className="font-medium">{trimmed}</span>&rdquo;
-          </span>
-        </button>
-      )}
-    </div>
-  );
-}
+const BROWSER_COLLAPSED_KEY = "scoutable_playlist_browser_collapsed";
+const BROWSER_WIDTH_KEY = "scoutable_playlist_browser_width";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -1368,29 +296,36 @@ export function PlaylistsPage() {
   const [queueFilters, setQueueFilters] = useState<QueueFilters>({ ...EMPTY_QUEUE_FILTERS });
   const [filtersOpen, setFiltersOpen] = useState(false);
 
-  // Clip drag state
-  const [clipDragKey, setClipDragKey] = useState<string | null>(null);
-  // The full set of items moving with the current queue drag (multi-selection
-  // and/or whole groups). Null for non-queue drags (e.g. from the clip browser).
-  const [dragBlockKeys, setDragBlockKeys] = useState<Set<string> | null>(null);
-  const dragBlockKeysRef = useRef<string[] | null>(null); // ordered, for drop math
-  const [clipDragOverIndex, setClipDragOverIndex] = useState<number | null>(null);
-  const [clipDragOverPosition, setClipDragOverPosition] = useState<"above" | "below">("below");
+  // Clip drag: what the pointer engine (use-list-drag.ts) is hovering. The
+  // list gap only shows for an empty list (rows open the gap themselves);
+  // playlist and folder hovers drive the highlight and spring-loading.
+  const [clipDropGap, setClipDropGap] = useState<number | null>(null);
   const [clipDragOverPlaylistId, setClipDragOverPlaylistId] = useState<string | null>(null);
   const [clipExpandFolderId, setClipExpandFolderId] = useState<string | null>(null);
   const [clipOpenPlaylistId, setClipOpenPlaylistId] = useState<string | null>(null);
   const clipDragFolderExpandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clipDragPlaylistOpenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dragCursorRef = useRef<{ x: number; y: number } | null>(null);
-  const dragCursorListenerRef = useRef<((ev: DragEvent) => void) | null>(null);
-  const dragScrollRAFRef = useRef<number | null>(null);
   const playlistScrollRef = useRef<HTMLDivElement | null>(null);
   const sidebarScrollRef = useRef<HTMLDivElement | null>(null);
-  // Refs mirroring state — used inside the RAF loop where direct state access is stale.
-  // clipDragOverPlaylistIdRef is updated synchronously alongside its state setter (no effect sync).
+  // Refs mirroring state, read from the engine's callbacks between renders.
   const clipDragOverPlaylistIdRef = useRef<string | null>(null);
+  const clipDragOverFolderIdRef = useRef<string | null>(null);
   const playlistsRef = useRef<Playlist[]>([]);
-  const browserPanelRef = usePanelRef();
+  const expandedFoldersRef = useRef(expandedFolders);
+  useEffect(() => { expandedFoldersRef.current = expandedFolders; }, [expandedFolders]);
+  const uncategorizedExpandedRef = useRef(uncategorizedExpanded);
+  useEffect(() => { uncategorizedExpandedRef.current = uncategorizedExpanded; }, [uncategorizedExpanded]);
+  // The playlist browser column: its width and whether it is shown are the
+  // coach's choices and survive restarts.
+  const [browserCollapsed, setBrowserCollapsed] = useState(
+    () => localStorage.getItem(BROWSER_COLLAPSED_KEY) === "1",
+  );
+  const [browserWidth, setBrowserWidth] = useState(() => {
+    const n = Number(localStorage.getItem(BROWSER_WIDTH_KEY));
+    return Number.isFinite(n) && n >= BROWSER_WIDTH.min && n <= BROWSER_WIDTH.max ? n : BROWSER_WIDTH.default;
+  });
+  useEffect(() => { localStorage.setItem(BROWSER_COLLAPSED_KEY, browserCollapsed ? "1" : "0"); }, [browserCollapsed]);
+  useEffect(() => { localStorage.setItem(BROWSER_WIDTH_KEY, String(browserWidth)); }, [browserWidth]);
 
   // Text card playback
   const [activeTextCard, setActiveTextCard] = useState<PlaylistTextCard | null>(null);
@@ -1402,9 +337,6 @@ export function PlaylistsPage() {
 
   // Item selection (clips and text cards)
   const [selectedClipIds, setSelectedClipIds] = useState<Set<string>>(new Set()); // "matchId:eventId" or "text:uuid"
-  const [showAddToDropdown, setShowAddToDropdown] = useState(false);
-  const [addToSearch, setAddToSearch] = useState("");
-  const addToDropdownRef = useRef<HTMLDivElement>(null);
 
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
 
@@ -1413,6 +345,11 @@ export function PlaylistsPage() {
   const persistentVideo = usePersistentVideo();
   const videoRef = useRef<HTMLVideoElement | null>(persistentVideo);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  // Add Clips is a modal task with its own preview: the editor's footage
+  // holds still behind the sheet (the queue stays, Space resumes it).
+  useEffect(() => {
+    if (showClipBrowser) videoRef.current?.pause();
+  }, [showClipBrowser]);
   const queueRef = useRef<PlaybackItem[]>([]);
   const queueIdxRef = useRef<number>(0);
   const [clipNote, setClipNote] = useState("");
@@ -2010,18 +947,6 @@ export function PlaylistsPage() {
   // Clear clip selection when active playlist changes
   useEffect(() => { setSelectedClipIds(new Set()); }, [selected?.id]);
 
-  // Click-outside handler for "Add to another playlist" dropdown
-  useEffect(() => {
-    function onMouseDown(e: MouseEvent) {
-      if (addToDropdownRef.current && !addToDropdownRef.current.contains(e.target as Node)) {
-        setShowAddToDropdown(false);
-        setAddToSearch("");
-      }
-    }
-    document.addEventListener("mousedown", onMouseDown);
-    return () => document.removeEventListener("mousedown", onMouseDown);
-  }, []);
-
   // Resolve playlist clip items in display order (cross-match aware)
   const playlistEvents = useMemo((): QueueItem[] => {
     if (!selected) return [];
@@ -2609,13 +1534,20 @@ export function PlaylistsPage() {
         playerFsRef.current.toggle();
         return;
       case "escape":
-        // Dialogs own their Escape; only a bare fullscreen layer exits here.
+        // Dialogs own their Escape. A bare fullscreen layer exits here
         // (macOS may have already dropped native fullscreen itself — this
-        // closes the CSS layer; the hook's poll reconciles the window.)
-        if (!playerFsRef.current.active) return;
+        // closes the CSS layer; the hook's poll reconciles the window);
+        // otherwise Escape lets go of the selection.
         if (document.querySelector('[role="dialog"]')) return;
-        e.preventDefault();
-        void playerFsRef.current.exit();
+        if (playerFsRef.current.active) {
+          e.preventDefault();
+          void playerFsRef.current.exit();
+          return;
+        }
+        if (selectedClipIds.size > 0) {
+          e.preventDefault();
+          setSelectedClipIds(new Set());
+        }
         return;
       case "replay":
         e.preventDefault();
@@ -2720,13 +1652,28 @@ export function PlaylistsPage() {
     });
   }
 
-  /** Optimistic local update + persist positions and group membership. */
+  /**
+   * Optimistic local update + persist positions and group membership. A
+   * failed save puts the old order back and offers a retry, so the list
+   * never keeps showing an order the server doesn't have.
+   */
   async function applyItemsUpdate(newItems: PlaylistItem[]) {
     if (!selected) return;
+    const before = selected;
     const updatedPlaylist = { ...selected, items: newItems };
-    setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updatedPlaylist : p));
+    setPlaylists((prev) => prev.map((p) => p.id === before.id ? updatedPlaylist : p));
     setSelected(updatedPlaylist);
-    await reorderItems(selected.id, newItems);
+    try {
+      await reorderItems(before.id, newItems);
+    } catch (err) {
+      console.error("[playlists] Failed to save the new order:", err);
+      Sentry.captureException(err);
+      setPlaylists((prev) => prev.map((p) => p.id === before.id ? before : p));
+      setSelected((prev) => (prev && prev.id === before.id ? before : prev));
+      toast.error("Couldn't save the new order", {
+        action: { label: "Retry", onClick: () => void applyItemsUpdate(newItems) },
+      });
+    }
   }
 
   async function handleReorder(newDisplayItems: PlaybackItem[]) {
@@ -2787,171 +1734,15 @@ export function PlaylistsPage() {
   }
 
   // ---------------------------------------------------------------------------
-  // Drag handlers (HTML5)
+  // Clip drag: pointer-driven, 1:1 (src/components/editor/use-list-drag.ts).
+  // The engine owns the lifted card and the row shifts; the page owns what a
+  // drop means and the browser column's spring-loading.
   // ---------------------------------------------------------------------------
 
-  /**
-   * Normalize a raw row-relative hover into the drop indicator, snapping gaps
-   * that fall inside a foreign group's run to the run boundary — so the
-   * indicator always shows where the block will actually land.
-   */
-  function setDropIndicator(rowIndex: number, rawPos: "above" | "below") {
-    let gap = rawPos === "above" ? rowIndex : rowIndex + 1;
-    // While filtered, rows index into queueItems (≠ sortedEvents) and drops
-    // are blocked anyway — keep the raw indicator.
-    if (!filtersActive) {
-      gap = snapGapToGroupBoundary(
-        gap, sortedEvents, itemKey, itemGroupIds, new Set(dragBlockKeysRef.current ?? [])
-      );
-    }
-    if (gap <= 0) {
-      setClipDragOverIndex(0);
-      setClipDragOverPosition("above");
-    } else {
-      setClipDragOverIndex(gap - 1);
-      setClipDragOverPosition("below");
-    }
-  }
+  const reducedMotion = useReducedMotionSafe();
 
-  function recalcDragPosition(x: number, y: number) {
-    const scrollEl = playlistScrollRef.current;
-    if (!scrollEl) return;
-    const trs = scrollEl.querySelectorAll('tbody tr');
-    for (let i = 0; i < trs.length; i++) {
-      const rect = trs[i].getBoundingClientRect();
-      if (y >= rect.top && y < rect.bottom) {
-        setDropIndicator(i, y < rect.top + rect.height / 2 ? 'above' : 'below');
-        return;
-      }
-    }
-  }
-
-  function handleClipDragStart(e: React.DragEvent, key: string) {
-    e.dataTransfer.setData("text/clip", key);
-    e.dataTransfer.effectAllowed = "move";
-    setClipDragKey(key);
-
-    // Block = the multi-selection when the grabbed row is part of it, else just
-    // the row — expanded to every member of any group a block item belongs to,
-    // in display order. dataTransfer still carries only the anchor key, so
-    // sidebar drops and the cross-playlist branch keep their single-clip
-    // semantics.
-    const seed = selectedClipIds.has(key) && selectedClipIds.size > 1
-      ? new Set(selectedClipIds)
-      : new Set([key]);
-    const gids = new Set<string>();
-    for (const k of seed) {
-      const g = itemGroupIds.get(k);
-      if (g) gids.add(g);
-    }
-    const block = sortedEvents
-      .map(itemKey)
-      .filter((k) => seed.has(k) || gids.has(itemGroupIds.get(k) ?? ""));
-    dragBlockKeysRef.current = block;
-    setDragBlockKeys(new Set(block));
-
-    // Track cursor globally so autoscroll works even when the cursor is over
-    // the sidebar (or any non-clip-row area) during the drag.
-    function trackCursor(ev: DragEvent) {
-      dragCursorRef.current = { x: ev.clientX, y: ev.clientY };
-    }
-    window.addEventListener("dragover", trackCursor);
-    dragCursorListenerRef.current = trackCursor;
-
-    function step() {
-      const cursor = dragCursorRef.current;
-      if (cursor) {
-        const threshold = 80;
-        // Autoscroll whichever container the cursor is currently over.
-        for (const el of [playlistScrollRef.current, sidebarScrollRef.current]) {
-          if (!el) continue;
-          const r = el.getBoundingClientRect();
-          if (cursor.x < r.left || cursor.x > r.right) continue;
-          let delta = 0;
-          if (cursor.y < r.top + threshold) {
-            delta = -10 * (1 - (cursor.y - r.top) / threshold);
-          } else if (cursor.y > r.bottom - threshold) {
-            delta = 10 * (1 - (r.bottom - cursor.y) / threshold);
-          }
-          if (delta !== 0) {
-            el.scrollBy(0, delta);
-            if (el === playlistScrollRef.current) recalcDragPosition(cursor.x, cursor.y);
-          }
-        }
-        // After autoscroll the browser may not re-fire dragover on the newly
-        // revealed rows under a stationary cursor, and elementFromPoint can lag
-        // the post-scroll layout by a frame. Iterate the data-playlist-id rows
-        // and resolve via getBoundingClientRect, which forces a synchronous
-        // layout read — always reflects the current scroll position.
-        const sidebarEl = sidebarScrollRef.current;
-        if (sidebarEl) {
-          const r = sidebarEl.getBoundingClientRect();
-          if (cursor.x >= r.left && cursor.x <= r.right && cursor.y >= r.top && cursor.y <= r.bottom) {
-            let foundId: string | null = null;
-            const rows = sidebarEl.querySelectorAll<HTMLElement>("[data-playlist-id]");
-            for (let i = 0; i < rows.length; i++) {
-              const rr = rows[i].getBoundingClientRect();
-              if (cursor.y >= rr.top && cursor.y <= rr.bottom && cursor.x >= rr.left && cursor.x <= rr.right) {
-                foundId = rows[i].dataset.playlistId ?? null;
-                break;
-              }
-            }
-            if (foundId !== clipDragOverPlaylistIdRef.current) {
-              clipDragOverPlaylistIdRef.current = foundId;
-              if (clipDragPlaylistOpenTimerRef.current) {
-                clearTimeout(clipDragPlaylistOpenTimerRef.current);
-                clipDragPlaylistOpenTimerRef.current = null;
-              }
-              setClipOpenPlaylistId(null);
-              setClipDragOverPlaylistId(foundId);
-              if (foundId && selectedRef.current?.id !== foundId) {
-                const pl = playlistsRef.current.find((p) => p.id === foundId);
-                if (pl) {
-                  setClipOpenPlaylistId(foundId);
-                  clipDragPlaylistOpenTimerRef.current = setTimeout(() => {
-                    clipDragPlaylistOpenTimerRef.current = null;
-                    setClipOpenPlaylistId(null);
-                    selectPlaylist(pl);
-                  }, 600);
-                }
-              }
-            }
-          }
-        }
-      }
-      dragScrollRAFRef.current = requestAnimationFrame(step);
-    }
-    dragScrollRAFRef.current = requestAnimationFrame(step);
-  }
-
-  function handleClipDragOver(e: React.DragEvent, index: number) {
-    if (!e.dataTransfer.types.includes("text/clip")) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    dragCursorRef.current = { x: e.clientX, y: e.clientY };
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const position = e.clientY < rect.top + rect.height / 2 ? "above" : "below";
-    setDropIndicator(index, position);
-  }
-
-  function handleClipDragEnd() {
-    if (dragScrollRAFRef.current !== null) {
-      cancelAnimationFrame(dragScrollRAFRef.current);
-      dragScrollRAFRef.current = null;
-    }
-    if (dragCursorListenerRef.current) {
-      window.removeEventListener("dragover", dragCursorListenerRef.current);
-      dragCursorListenerRef.current = null;
-    }
-    dragCursorRef.current = null;
-    clipDragOverPlaylistIdRef.current = null;
-    dragBlockKeysRef.current = null;
-    setDragBlockKeys(null);
-    setClipDragKey(null);
-    setClipDragOverIndex(null);
-    setClipDragOverPlaylistId(null);
-    setClipExpandFolderId(null);
-    setClipOpenPlaylistId(null);
+  /** Reset every piece of hover and spring-load state once a drag is over. */
+  function endClipDragBookkeeping() {
     if (clipDragFolderExpandTimerRef.current) {
       clearTimeout(clipDragFolderExpandTimerRef.current);
       clipDragFolderExpandTimerRef.current = null;
@@ -2960,92 +1751,153 @@ export function PlaylistsPage() {
       clearTimeout(clipDragPlaylistOpenTimerRef.current);
       clipDragPlaylistOpenTimerRef.current = null;
     }
+    clipDragOverPlaylistIdRef.current = null;
+    clipDragOverFolderIdRef.current = null;
+    setClipDropGap(null);
+    setClipDragOverPlaylistId(null);
+    setClipExpandFolderId(null);
+    setClipOpenPlaylistId(null);
   }
 
-  function handleClipDrop(e: React.DragEvent, targetIndex: number) {
-    e.preventDefault();
-    // Reordering a filtered (partial) list is ambiguous — locked until cleared.
-    if (filtersActive) return;
-    const key = e.dataTransfer.getData("text/clip");
-    if (!key || !selected) return;
-    // The indicator state is what the user last saw (already group-snapped) —
-    // derive the gap from it so the drop lands exactly where indicated. Fall
-    // back to the drop row if the indicator was cleared mid-flight.
-    const rawGap = clipDragOverIndex !== null
-      ? (clipDragOverPosition === "above" ? clipDragOverIndex : clipDragOverIndex + 1)
-      : (clipDragOverPosition === "above" ? targetIndex : targetIndex + 1);
-    setClipDragOverIndex(null);
-    const sourceIndex = sortedEvents.findIndex((i) => itemKey(i) === key);
+  function handleDragTarget(target: DragTarget) {
+    setClipDropGap(target.kind === "list" ? target.gap : null);
 
-    // Cross-playlist drop: the dragged clip didn't originate in the current
-    // playlist (e.g. user spring-loaded into a different playlist mid-drag).
-    if (sourceIndex === -1) {
-      if (key.startsWith("text:")) return; // text cards don't migrate
-      // Foreign clips never enter a group implicitly — land at the boundary.
-      const insertIndex = snapGapToGroupBoundary(rawGap, sortedEvents, itemKey, itemGroupIds, new Set());
-      const colonIdx = key.indexOf(":");
-      const matchId = key.slice(0, colonIdx);
-      const eventId = Number(key.slice(colonIdx + 1));
-      if (selected.items.filter(isClipItem).some((c) => c.matchId === matchId && c.eventId === eventId)) return;
-      // Map insertIndex (sortedEvents space) → items space.
-      let itemsInsertIndex: number;
-      if (insertIndex >= sortedEvents.length) {
-        itemsInsertIndex = selected.items.length;
-      } else {
-        const targetItem = sortedEvents[insertIndex];
-        const targetK = itemKey(targetItem);
-        const itemsIdx = selected.items.findIndex((i) => {
-          const k = i.type === "text" ? `text:${(i as PlaylistTextCard).id}` : `${(i as PlaylistClipItem).matchId}:${(i as PlaylistClipItem).eventId}`;
-          return k === targetK;
-        });
-        itemsInsertIndex = itemsIdx >= 0 ? itemsIdx : selected.items.length;
+    // Hovering a playlist highlights it and, after a beat, opens it so the
+    // clip can be placed inside (the drag carries on as a foreign drop).
+    const playlistId = target.kind === "playlist" ? target.id : null;
+    if (playlistId !== clipDragOverPlaylistIdRef.current) {
+      clipDragOverPlaylistIdRef.current = playlistId;
+      if (clipDragPlaylistOpenTimerRef.current) {
+        clearTimeout(clipDragPlaylistOpenTimerRef.current);
+        clipDragPlaylistOpenTimerRef.current = null;
       }
-      const newClip: PlaylistClipItem = { type: "clip", matchId, eventId };
-      const newItems = [...selected.items];
-      newItems.splice(itemsInsertIndex, 0, newClip);
-      const targetId = selected.id;
-      const dropTarget = selected;
-      // Arm after the rows exist so updateClipR2Url has something to patch.
-      void addClips(targetId, [newClip], itemsInsertIndex)
-        .then(() => queuePendingShip(dropTarget))
-        .catch((err) => {
-          console.error("[playlists] Failed to add dropped clip to queue:", err);
-          // Catching it here is what keeps the toast honest, but it also stops
-          // the rejection reaching Sentry on its own — so report it.
-          Sentry.captureException(err);
-          toast.error("Couldn't add the clip");
-        });
-      trackEvent("clip_added_to_playlist", { playlist_id: targetId, match_id: matchId });
-      setPlaylists((prev) => prev.map((p) => p.id === targetId ? { ...p, items: newItems } : p));
-      setSelected((prev) => prev ? { ...prev, items: newItems } : prev);
-      handleClipDragEnd();
-      return;
+      setClipOpenPlaylistId(null);
+      setClipDragOverPlaylistId(playlistId);
+      if (playlistId && selectedRef.current?.id !== playlistId) {
+        const pl = playlistsRef.current.find((p) => p.id === playlistId);
+        if (pl) {
+          setClipOpenPlaylistId(playlistId);
+          clipDragPlaylistOpenTimerRef.current = setTimeout(() => {
+            clipDragPlaylistOpenTimerRef.current = null;
+            setClipOpenPlaylistId(null);
+            selectPlaylist(pl);
+          }, 600);
+        }
+      }
     }
 
-    // Same-playlist block reorder: the block is the multi-selection and/or
-    // whole groups captured at dragstart (falls back to the anchor row alone).
-    const blockKeys = dragBlockKeysRef.current ?? [key];
+    // Hovering a collapsed folder (or the Uncategorized section) opens it.
+    const folderId = target.kind === "folder" ? target.id : null;
+    if (folderId !== clipDragOverFolderIdRef.current) {
+      clipDragOverFolderIdRef.current = folderId;
+      if (clipDragFolderExpandTimerRef.current) {
+        clearTimeout(clipDragFolderExpandTimerRef.current);
+        clipDragFolderExpandTimerRef.current = null;
+      }
+      setClipExpandFolderId(null);
+      const collapsed =
+        folderId === "uncategorized"
+          ? !uncategorizedExpandedRef.current
+          : folderId !== null && !expandedFoldersRef.current.has(folderId);
+      if (folderId && collapsed) {
+        setClipExpandFolderId(folderId);
+        clipDragFolderExpandTimerRef.current = setTimeout(() => {
+          clipDragFolderExpandTimerRef.current = null;
+          setClipExpandFolderId(null);
+          if (folderId === "uncategorized") setUncategorizedExpanded(true);
+          else setExpandedFolders((prev) => new Set([...prev, folderId]));
+        }, 600);
+      }
+    }
+  }
+
+  /** A block dropped back into its own list: persist the order on screen. */
+  function commitReorder(gap: number, blockKeys: readonly string[]) {
+    if (!selected) return;
     const keySet = new Set(blockKeys);
     const blockIndices: number[] = [];
     sortedEvents.forEach((it, i) => {
       if (keySet.has(itemKey(it))) blockIndices.push(i);
     });
-    if (blockIndices.length === 0) {
-      handleClipDragEnd();
-      return;
-    }
-    // Gaps inside the block's own group are legal (they collapse to a no-op).
-    const gap = snapGapToGroupBoundary(rawGap, sortedEvents, itemKey, itemGroupIds, keySet);
+    if (blockIndices.length === 0) return;
     const next = moveBlock(sortedEvents, blockIndices, gap);
-    const isNoop = next.length === sortedEvents.length &&
-      next.every((it, i) => itemKey(it) === itemKey(sortedEvents[i]));
-    if (isNoop) {
-      handleClipDragEnd();
-      return;
-    }
-    handleReorder(next);
-    handleClipDragEnd();
+    if (isSameOrder(next, sortedEvents, itemKey)) return;
+    // A manual move materialises whatever order was on screen.
+    setClockSort("none");
+    void handleReorder(next);
   }
+
+  /**
+   * A clip carried in from another playlist (the drag spring-loaded into
+   * this one). Foreign clips never enter a group implicitly: they land at
+   * the nearest group boundary. The optimistic row is pulled back if the
+   * add fails.
+   */
+  function commitForeignDrop(key: string, rawGap: number) {
+    if (!selected) return;
+    if (key.startsWith("text:")) return; // text cards don't migrate
+    const insertIndex = snapGapToGroupBoundary(rawGap, sortedEvents, itemKey, itemGroupIds, new Set());
+    const colonIdx = key.indexOf(":");
+    const matchId = key.slice(0, colonIdx);
+    const eventId = Number(key.slice(colonIdx + 1));
+    const isSame = (c: PlaylistClipItem) => c.matchId === matchId && c.eventId === eventId;
+    if (selected.items.filter(isClipItem).some(isSame)) return;
+    const itemsInsertIndex = itemsIndexForGap(
+      insertIndex,
+      sortedEvents.map(itemKey),
+      selected.items.map(playlistItemKey),
+    );
+    const newClip: PlaylistClipItem = { type: "clip", matchId, eventId };
+    const newItems = [...selected.items];
+    newItems.splice(itemsInsertIndex, 0, newClip);
+    const target = selected;
+    setPlaylists((prev) => prev.map((p) => (p.id === target.id ? { ...p, items: newItems } : p)));
+    setSelected((prev) => (prev && prev.id === target.id ? { ...prev, items: newItems } : prev));
+    trackEvent("clip_added_to_playlist", { playlist_id: target.id, match_id: matchId });
+    // Arm after the rows exist so updateClipR2Url has something to patch.
+    void addClips(target.id, [newClip], itemsInsertIndex)
+      .then(() => queuePendingShip(target))
+      .catch((err) => {
+        console.error("[playlists] Failed to add dropped clip to queue:", err);
+        // Catching it here is what keeps the toast honest, but it also stops
+        // the rejection reaching Sentry on its own — so report it.
+        Sentry.captureException(err);
+        const without = (items: PlaylistItem[]) => items.filter((i) => !(isClipItem(i) && isSame(i)));
+        setPlaylists((prev) => prev.map((p) => (p.id === target.id ? { ...p, items: without(p.items) } : p)));
+        setSelected((prev) => (prev && prev.id === target.id ? { ...prev, items: without(prev.items) } : prev));
+        toast.error("Couldn't add the clip");
+      });
+  }
+
+  const listDrag = useListDrag({
+    listRef: playlistScrollRef,
+    sidebarRef: sidebarScrollRef,
+    reducedMotion,
+    canStart: () => {
+      // Reordering a filtered (partial) list is ambiguous — locked until cleared.
+      if (filtersActive) {
+        toast("Clear the filters to reorder");
+        return false;
+      }
+      return true;
+    },
+    blockFor: (anchorKey) => dragBlockKeys(anchorKey, selectedClipIds, sortedEvents.map(itemKey), itemGroupIds),
+    snapGap: (gap, blockKeys) =>
+      snapGapToGroupBoundary(gap, sortedEvents, itemKey, itemGroupIds, new Set(blockKeys)),
+    onTarget: handleDragTarget,
+    onDrop: ({ gap, blockKeys, anchorKey, foreign }) => {
+      if (foreign) commitForeignDrop(anchorKey, gap);
+      else commitReorder(gap, blockKeys);
+    },
+    onDropOnPlaylist: (playlistId, anchorKey) => void handleClipDropOnPlaylist(playlistId, anchorKey),
+    onEnd: endClipDragBookkeeping,
+  });
+
+  // The list under a drag changed (spring-loaded into another playlist):
+  // the engine re-measures and carries the clip across as a foreign drop.
+  useEffect(() => {
+    listDrag.invalidate();
+  }, [selected?.id, listDrag]);
 
   async function handleClipDropOnPlaylist(targetPlaylistId: string, clipKey: string) {
     // Text cards can't be dropped onto other playlists
@@ -3054,9 +1906,9 @@ export function PlaylistsPage() {
     const matchId = clipKey.slice(0, colonIdx);
     const eventId = Number(clipKey.slice(colonIdx + 1));
     const target = playlists.find((p) => p.id === targetPlaylistId);
-    if (!target) { handleClipDragEnd(); return; }
+    if (!target) { endClipDragBookkeeping(); return; }
     if (target.items.filter(isClipItem).some((c) => c.matchId === matchId && c.eventId === eventId)) {
-      handleClipDragEnd();
+      endClipDragBookkeeping();
       return;
     }
     const found = selected?.items.filter(isClipItem).find((c) => c.matchId === matchId && c.eventId === eventId);
@@ -3066,12 +1918,12 @@ export function PlaylistsPage() {
     // The membership check above reads state that only updates once the await
     // below resolves, so two quick drops of the same clip both pass it.
     const inFlightKey = `${targetPlaylistId}:${clipKey}`;
-    if (clipAddInFlightRef.current.has(inFlightKey)) { handleClipDragEnd(); return; }
+    if (clipAddInFlightRef.current.has(inFlightKey)) { endClipDragBookkeeping(); return; }
     clipAddInFlightRef.current.add(inFlightKey);
     // Synchronously end the drag bookkeeping before the await — guarantees the
     // RAF/window listener can't keep firing while we await the network call,
     // even if dragend never reaches the (possibly unmounted) source row.
-    handleClipDragEnd();
+    endClipDragBookkeeping();
     try {
       await addClips(targetPlaylistId, [sourceClip], target.items.length);
     } catch (err) {
@@ -3774,7 +2626,7 @@ export function PlaylistsPage() {
    * behavior); a folder id → create inside it (context menu); null → root.
    */
   function handleNewPlaylist(folderIdOverride?: string | null) {
-    if (browserPanelRef.current?.isCollapsed()) browserPanelRef.current.expand();
+    setBrowserCollapsed(false);
     const tempId = `temp-${Date.now()}`;
     const folderId = folderIdOverride === undefined ? selected?.folderId : folderIdOverride ?? undefined;
     const tempPlaylist: Playlist = { id: tempId, name: "New Playlist", items: [], folderId };
@@ -3796,9 +2648,48 @@ export function PlaylistsPage() {
   // every keystroke.
   // ---------------------------------------------------------------------------
 
-  function renderPlaylistRow(pl: Playlist, indentPx: number): React.ReactNode {
+  /** One step of indent per folder depth. */
+  const FOLDER_INDENT = 14;
+
+  function renderSectionHeader({
+    id,
+    label,
+    count,
+    expanded,
+    onToggle,
+    dragOver,
+    springLoading,
+  }: {
+    id: string;
+    label: string;
+    count: number;
+    expanded: boolean;
+    onToggle: () => void;
+    dragOver?: boolean;
+    springLoading?: boolean;
+  }): React.ReactNode {
+    return (
+      <div
+        data-folder-id={id === "uncategorized" ? "uncategorized" : undefined}
+        className={cn(
+          "mx-2 mt-2 flex h-6 cursor-default select-none items-center gap-1 rounded-md px-1.5 text-subheadline font-semibold text-muted-foreground transition-colors duration-100 hover:text-foreground",
+          dragOver && "bg-primary/10 ring-1 ring-inset ring-selection",
+          springLoading && "text-primary",
+        )}
+        onClick={onToggle}
+      >
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <span className="nums">{count}</span>
+        <ChevronRight className={cn("size-3 shrink-0 transition-transform duration-150 ease-spring", expanded && "rotate-90")} />
+      </div>
+    );
+  }
+
+  function renderPlaylistRow(pl: Playlist, depth: number): React.ReactNode {
     const isActive = selected?.id === pl.id;
     const isEditingThis = editingPlaylistId === pl.id;
+    const isDropTarget = clipDragOverPlaylistId === pl.id;
+    const menuOpen = openMenuPlaylistId === pl.id;
     return (
       <ContextMenu key={pl.id}>
         <ContextMenuTrigger asChild>
@@ -3807,96 +2698,68 @@ export function PlaylistsPage() {
             draggable={!isEditingThis}
             onDragStart={(e) => handleDragStart(pl.id, e)}
             onDragEnd={() => setDragOverFolder(null)}
-            onDragOver={(e) => {
-              if (!e.dataTransfer.types.includes("text/clip")) return;
-              e.preventDefault();
-              e.dataTransfer.dropEffect = "copy";
-              if (clipDragOverPlaylistIdRef.current !== pl.id) {
-                clipDragOverPlaylistIdRef.current = pl.id;
-                setClipDragOverPlaylistId(pl.id);
-                // Spring-load: open this playlist after a delay if not already open.
-                if (selected?.id !== pl.id && clipDragPlaylistOpenTimerRef.current === null) {
-                  setClipOpenPlaylistId(pl.id);
-                  clipDragPlaylistOpenTimerRef.current = setTimeout(() => {
-                    clipDragPlaylistOpenTimerRef.current = null;
-                    setClipOpenPlaylistId(null);
-                    selectPlaylist(pl);
-                  }, 600);
-                }
-              }
-            }}
-            onDragLeave={(e) => {
-              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                clipDragOverPlaylistIdRef.current = null;
-                setClipDragOverPlaylistId(null);
-                setClipOpenPlaylistId(null);
-                if (clipDragPlaylistOpenTimerRef.current) {
-                  clearTimeout(clipDragPlaylistOpenTimerRef.current);
-                  clipDragPlaylistOpenTimerRef.current = null;
-                }
-              }
-            }}
-            onDrop={(e) => {
-              const key = e.dataTransfer.getData("text/clip");
-              if (!key) return;
-              e.preventDefault();
-              void handleClipDropOnPlaylist(pl.id, key);
-            }}
-            style={{ paddingLeft: indentPx }}
-            className={`group flex w-full cursor-pointer items-center justify-between border-l-2 pr-3 py-1.5 text-left transition-colors hover:bg-muted/50 ${
-              isActive
-                ? "border-l-primary bg-primary/10"
-                : "border-l-border hover:border-l-border/80"
-            } ${clipDragOverPlaylistId === pl.id ? "bg-primary/15 ring-1 ring-inset ring-primary" : ""} ${clipOpenPlaylistId === pl.id ? "animate-pulse" : ""}`}
+            style={{ paddingLeft: 8 + depth * FOLDER_INDENT }}
+            className={cn(
+              "group mx-2 flex h-7 cursor-default select-none items-center gap-1.5 rounded-md pr-1.5 outline-none transition-[background-color,box-shadow] duration-100",
+              isActive ? "bg-selection text-selection-foreground" : "text-foreground hover:bg-fill-1 active:bg-fill-2",
+              isDropTarget && "bg-selection/20 ring-2 ring-inset ring-selection",
+              clipOpenPlaylistId === pl.id && "animate-pulse",
+            )}
             onClick={() => !isEditingThis && selectPlaylist(pl)}
           >
-            <div className="flex min-w-0 flex-1 items-center gap-1.5">
-              <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40 opacity-0 group-hover:opacity-100 cursor-grab" />
-              <ListVideo className={`h-3 w-3 shrink-0 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
-              {isEditingThis && editingVia === "sidebar" ? (
-                <input
-                  autoFocus
-                  className="flex-1 min-w-0 rounded border border-primary bg-background px-1 py-0.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary"
-                  value={editPlaylistName}
-                  onChange={(e) => setEditPlaylistName(e.target.value)}
-                  onClick={(e) => e.stopPropagation()}
-                  onBlur={() => handleRenamePlaylist(pl.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") e.currentTarget.blur();
-                    if (e.key === "Escape") {
-                      if (pl.id === pendingNewPlaylistId) {
-                        setPendingNewPlaylistId(null);
-                        setPlaylists((prev) => prev.filter((p) => p.id !== pl.id));
-                      }
-                      setEditingPlaylistId(null);
+            <ListVideo className={cn("size-4 shrink-0", isActive ? "text-selection-foreground" : "text-primary")} />
+            {isEditingThis && editingVia === "sidebar" ? (
+              <input
+                autoFocus
+                className="h-5 min-w-0 flex-1 rounded-sm bg-card px-1 text-sm text-foreground ring-2 ring-selection outline-none"
+                value={editPlaylistName}
+                onChange={(e) => setEditPlaylistName(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                onBlur={() => handleRenamePlaylist(pl.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                  if (e.key === "Escape") {
+                    if (pl.id === pendingNewPlaylistId) {
+                      setPendingNewPlaylistId(null);
+                      setPlaylists((prev) => prev.filter((p) => p.id !== pl.id));
                     }
-                  }}
-                />
-              ) : (
-                <>
-                  {(pl.teamIds?.length ?? 0) > 0 && (
-                    <Users className="h-3 w-3 shrink-0 text-primary/70" />
-                  )}
-                  <span className={`truncate text-sm ${isActive ? "font-medium text-primary" : "text-muted-foreground"}`}>
-                    {pl.name}
-                  </span>
-                </>
-              )}
-            </div>
-            <div className="ml-2 flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
-              <span className={`text-xs text-muted-foreground ${openMenuPlaylistId === pl.id ? "hidden" : "group-hover:hidden"}`}>
+                    setEditingPlaylistId(null);
+                  }
+                }}
+              />
+            ) : (
+              <>
+                <span className="min-w-0 flex-1 truncate text-sm">{pl.name}</span>
+                {(pl.teamIds?.length ?? 0) > 0 && (
+                  <Users className={cn("size-3 shrink-0", isActive ? "text-selection-foreground/80" : "text-muted-foreground")} />
+                )}
+              </>
+            )}
+            <div className="flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
+              <span
+                className={cn(
+                  "text-xs nums",
+                  isActive ? "text-selection-foreground/80" : "text-muted-foreground",
+                  menuOpen ? "hidden" : "group-hover:hidden",
+                )}
+              >
                 {pl.items.length}
               </span>
               <DropdownMenu
-                open={openMenuPlaylistId === pl.id}
+                open={menuOpen}
                 onOpenChange={(open) => setOpenMenuPlaylistId(open ? pl.id : null)}
               >
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    className={`rounded p-0.5 text-muted-foreground hover:text-foreground focus:outline-none ${openMenuPlaylistId === pl.id ? "flex" : "hidden group-hover:flex"}`}
+                    aria-label="Playlist actions"
+                    className={cn(
+                      "size-5 items-center justify-center rounded-sm outline-none transition-colors duration-100",
+                      isActive ? "text-selection-foreground hover:bg-white/20" : "text-muted-foreground hover:bg-fill-2 hover:text-foreground",
+                      menuOpen ? "flex" : "hidden group-hover:flex",
+                    )}
                   >
-                    <MoreHorizontal className="h-3.5 w-3.5" />
+                    <MoreHorizontal className="size-3.5" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
@@ -3916,11 +2779,11 @@ export function PlaylistsPage() {
                             Uncategorized
                           </DropdownMenuItem>
                           {folders.length > 0 && <DropdownMenuSeparator />}
-                          {flatFolders.map(({ folder, depth }) => (
+                          {flatFolders.map(({ folder, depth: folderDepth }) => (
                             <DropdownMenuItem
                               key={folder.id}
                               disabled={pl.folderId === folder.id}
-                              style={{ paddingLeft: 8 + depth * 12 }}
+                              style={{ paddingLeft: 8 + folderDepth * 12 }}
                               onSelect={() => {
                                 void movePlaylistToFolder(pl.id, folder.id);
                                 setExpandedFolders((prev) => new Set([...prev, folder.id]));
@@ -3970,11 +2833,11 @@ export function PlaylistsPage() {
                   Uncategorized
                 </ContextMenuItem>
                 {folders.length > 0 && <ContextMenuSeparator />}
-                {flatFolders.map(({ folder, depth }) => (
+                {flatFolders.map(({ folder, depth: folderDepth }) => (
                   <ContextMenuItem
                     key={folder.id}
                     disabled={pl.folderId === folder.id}
-                    style={{ paddingLeft: 8 + depth * 12 }}
+                    style={{ paddingLeft: 8 + folderDepth * 12 }}
                     onSelect={() => {
                       void movePlaylistToFolder(pl.id, folder.id);
                       setExpandedFolders((prev) => new Set([...prev, folder.id]));
@@ -4008,9 +2871,6 @@ export function PlaylistsPage() {
     );
   }
 
-  /** Indent scheme: header 12 + depth*16, playlist rows 36 + depth*16 (depth 0 matches the old fixed classes). */
-  const FOLDER_INDENT = 16;
-
   function renderFolderNode(folder: PlaylistFolder, depth: number): React.ReactNode {
     const items = byFolder.get(folder.id) ?? [];
     const subfolders = childFolders.get(folder.id) ?? [];
@@ -4018,12 +2878,14 @@ export function PlaylistsPage() {
     const isExpanded = search.trim() ? true : expandedFolders.has(folder.id);
     const isEditing = editingFolderId === folder.id;
     const isDragOver = dragOverFolder === folder.id;
+    const springLoading = clipExpandFolderId === folder.id;
+    const menuOpen = openMenuFolderId === folder.id;
     return (
       <div
         key={folder.id}
-        className={isDragOver ? "bg-primary/10 ring-1 ring-inset ring-primary rounded-sm" : clipExpandFolderId === folder.id ? "bg-primary/10 rounded-sm" : ""}
+        // Folder and playlist moves stay on the browser's native drag; clip
+        // drags are the pointer engine's and never reach these handlers.
         onDragEnter={(e) => {
-          if (e.dataTransfer.types.includes("text/clip")) return;
           e.preventDefault();
           // Nested wrappers: only the innermost folder may claim the drag.
           e.stopPropagation();
@@ -4035,19 +2897,6 @@ export function PlaylistsPage() {
           setDragOverFolder(folder.id);
         }}
         onDragOver={(e) => {
-          if (e.dataTransfer.types.includes("text/clip")) {
-            e.stopPropagation();
-            // Auto-expand collapsed folder: start timer once on first dragOver
-            if (!expandedFolders.has(folder.id) && clipDragFolderExpandTimerRef.current === null) {
-              setClipExpandFolderId(folder.id);
-              clipDragFolderExpandTimerRef.current = setTimeout(() => {
-                clipDragFolderExpandTimerRef.current = null;
-                setClipExpandFolderId(null);
-                setExpandedFolders((prev) => new Set([...prev, folder.id]));
-              }, 600);
-            }
-            return;
-          }
           e.preventDefault();
           e.stopPropagation();
           if (
@@ -4073,16 +2922,6 @@ export function PlaylistsPage() {
           }
         }}
         onDragLeave={(e) => {
-          if (e.dataTransfer.types.includes("text/clip")) {
-            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-              setClipExpandFolderId(null);
-              if (clipDragFolderExpandTimerRef.current) {
-                clearTimeout(clipDragFolderExpandTimerRef.current);
-                clipDragFolderExpandTimerRef.current = null;
-              }
-            }
-            return;
-          }
           if (!e.currentTarget.contains(e.relatedTarget as Node)) {
             setDragOverFolder(null);
             if (clipDragFolderExpandTimerRef.current) {
@@ -4092,15 +2931,13 @@ export function PlaylistsPage() {
             }
           }
         }}
-        onDrop={(e) => {
-          if (e.dataTransfer.types.includes("text/clip")) return;
-          handleDrop(folder.id, e);
-        }}
+        onDrop={(e) => handleDrop(folder.id, e)}
       >
         {/* Folder header */}
         <ContextMenu>
           <ContextMenuTrigger asChild>
             <div
+              data-folder-id={folder.id}
               draggable={!isEditing}
               onDragStart={(e) => {
                 // Don't also start an ancestor folder's drag.
@@ -4111,21 +2948,27 @@ export function PlaylistsPage() {
                 draggedFolderIdRef.current = null;
                 setDragOverFolder(null);
               }}
-              style={{ paddingLeft: 12 + depth * FOLDER_INDENT }}
-              className={`group flex items-center gap-1.5 pr-3 py-2 cursor-pointer select-none transition-colors ${
-                isDragOver ? "" : "hover:bg-muted/50"
-              }`}
+              style={{ paddingLeft: 8 + depth * FOLDER_INDENT }}
+              className={cn(
+                "group mx-2 flex h-7 cursor-default select-none items-center gap-1 rounded-md pr-1.5 text-foreground outline-none transition-[background-color,box-shadow] duration-100",
+                !isDragOver && "hover:bg-fill-1 active:bg-fill-2",
+                isDragOver && "bg-primary/10 ring-2 ring-inset ring-selection",
+                springLoading && "bg-primary/10",
+              )}
               onClick={() => !isEditing && toggleFolder(folder.id)}
             >
-              {isExpanded ? (
-                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              ) : (
-                <ChevronRight className={`h-3.5 w-3.5 shrink-0 transition-colors ${clipExpandFolderId === folder.id ? "text-primary animate-pulse" : "text-muted-foreground"}`} />
-              )}
+              <ChevronRight
+                className={cn(
+                  "size-3.5 shrink-0 transition-transform duration-150 ease-spring",
+                  isExpanded && "rotate-90",
+                  springLoading ? "text-primary" : "text-muted-foreground",
+                )}
+              />
+              <Folder className="size-4 shrink-0 text-primary" />
               {isEditing ? (
                 <input
                   autoFocus
-                  className="flex-1 min-w-0 rounded border border-primary bg-background px-1 py-0.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary"
+                  className="h-5 min-w-0 flex-1 rounded-sm bg-card px-1 text-sm text-foreground ring-2 ring-selection outline-none"
                   value={editFolderName}
                   onChange={(e) => setEditFolderName(e.target.value)}
                   onClick={(e) => e.stopPropagation()}
@@ -4144,7 +2987,7 @@ export function PlaylistsPage() {
                 />
               ) : (
                 <span
-                  className="flex-1 min-w-0 truncate text-sm font-semibold text-foreground/80"
+                  className="min-w-0 flex-1 truncate text-sm font-medium"
                   onDoubleClick={(e) => {
                     e.stopPropagation();
                     setEditingFolderId(folder.id);
@@ -4156,17 +2999,23 @@ export function PlaylistsPage() {
               )}
               {!isEditing ? (
                 <div className="flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
-                  <span className={`text-xs font-semibold text-muted-foreground ${openMenuFolderId === folder.id ? "hidden" : "group-hover:hidden"}`}>{items.length}</span>
+                  <span className={cn("text-xs nums text-muted-foreground", menuOpen ? "hidden" : "group-hover:hidden")}>
+                    {items.length}
+                  </span>
                   <DropdownMenu
-                    open={openMenuFolderId === folder.id}
+                    open={menuOpen}
                     onOpenChange={(open) => setOpenMenuFolderId(open ? folder.id : null)}
                   >
                     <DropdownMenuTrigger asChild>
                       <button
                         type="button"
-                        className={`rounded p-0.5 text-muted-foreground hover:text-foreground focus:outline-none ${openMenuFolderId === folder.id ? "flex" : "hidden group-hover:flex"}`}
+                        aria-label="Folder actions"
+                        className={cn(
+                          "size-5 items-center justify-center rounded-sm text-muted-foreground outline-none transition-colors duration-100 hover:bg-fill-2 hover:text-foreground",
+                          menuOpen ? "flex" : "hidden group-hover:flex",
+                        )}
                       >
-                        <MoreHorizontal className="h-3.5 w-3.5" />
+                        <MoreHorizontal className="size-3.5" />
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
@@ -4220,7 +3069,7 @@ export function PlaylistsPage() {
                   </DropdownMenu>
                 </div>
               ) : (
-                <span className="shrink-0 text-xs text-muted-foreground">{items.length}</span>
+                <span className="shrink-0 text-xs nums text-muted-foreground">{items.length}</span>
               )}
             </div>
           </ContextMenuTrigger>
@@ -4277,14 +3126,17 @@ export function PlaylistsPage() {
 
         {/* Subfolders, then this folder's playlists */}
         {isExpanded && (
-          <div className="pb-1">
+          <div>
             {subfolders.map((sub) => renderFolderNode(sub, depth + 1))}
             {items.length === 0 && subfolders.length === 0 ? (
-              <p style={{ paddingLeft: 40 + depth * FOLDER_INDENT }} className="py-1.5 text-xs text-muted-foreground/60">
+              <p
+                style={{ paddingLeft: 8 + (depth + 1) * FOLDER_INDENT + 22 }}
+                className="mx-2 flex h-7 items-center text-subheadline text-muted-foreground/70"
+              >
                 Empty — drag a playlist here
               </p>
             ) : (
-              items.map((pl) => renderPlaylistRow(pl, 36 + depth * FOLDER_INDENT))
+              items.map((pl) => renderPlaylistRow(pl, depth + 1))
             )}
           </div>
         )}
@@ -4339,26 +3191,58 @@ export function PlaylistsPage() {
     }
   }
 
-  async function handleRemoveSelected() {
-    if (!selected) return;
-    const survivors = selected.items.filter((c) => !selectedClipIds.has(playlistItemKey(c)));
+  function handleRemoveSelected() {
+    if (!selected || selectedClipIds.size === 0) return;
+    const prevItems = selected.items;
+    const survivors = prevItems.filter((c) => !selectedClipIds.has(playlistItemKey(c)));
     // Groups that fell below 2 members dissolve.
     const newItems = normalizeGroups(survivors);
     const groupsChanged = newItems.some((it, i) => it !== survivors[i]);
     const updated = { ...selected, items: newItems };
     setSelected(updated);
     setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updated : p));
-    const clipKeysToRemove = selected.items.filter(isClipItem)
+    const clipKeysToRemove = prevItems.filter(isClipItem)
       .filter((c) => selectedClipIds.has(`${c.matchId}:${c.eventId}`))
       .map((c) => ({ matchId: c.matchId, eventId: c.eventId }));
-    const textCardIdsToRemove = selected.items.filter((i) => !isClipItem(i))
+    const textCardIdsToRemove = prevItems.filter((i) => !isClipItem(i))
       .filter((c) => selectedClipIds.has(`text:${(c as PlaylistTextCard).id}`))
       .map((c) => (c as PlaylistTextCard).id);
-    await removeClips(selected.id, clipKeysToRemove, textCardIdsToRemove);
-    // removeClips only deletes rows — a dissolved survivor's group_id must be
-    // NULLed explicitly.
-    if (groupsChanged) await reorderItems(selected.id, newItems);
+    const count = clipKeysToRemove.length + textCardIdsToRemove.length;
     setSelectedClipIds(new Set());
+
+    // A slip waiting to happen, so it stays undoable for the life of the
+    // toast; the rows only leave the server once it is gone.
+    let undone = false;
+    let committed = false;
+    const commit = () => {
+      if (undone || committed) return;
+      committed = true;
+      void (async () => {
+        await removeClips(selected.id, clipKeysToRemove, textCardIdsToRemove);
+        // removeClips only deletes rows — a dissolved survivor's group_id must
+        // be NULLed explicitly.
+        if (groupsChanged) await reorderItems(selected.id, newItems);
+      })().catch((err) => {
+        console.error("[playlists] Failed to remove items:", err);
+        Sentry.captureException(err);
+        toast.error("Couldn't remove the items");
+      });
+    };
+    toast(`${count} item${count !== 1 ? "s" : ""} removed`, {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          undone = true;
+          // Restore the pre-removal array wholesale — also restores any
+          // groupId the normalization dissolved.
+          const restored = { ...updated, items: prevItems };
+          setSelected(restored);
+          setPlaylists((prev) => prev.map((p) => p.id === selected.id ? restored : p));
+        },
+      },
+      onAutoClose: commit,
+      onDismiss: commit,
+    });
   }
 
   function handleRemoveSingleClip(item: PlaylistClipItem) {
@@ -4463,8 +3347,6 @@ export function PlaylistsPage() {
     // recipients got rows with no uploaded media.
     queuePendingShip(target);
     setSelectedClipIds(new Set());
-    setShowAddToDropdown(false);
-    setAddToSearch("");
   }
 
   /** Create-and-add from the AddToDropdown: the new playlist lands in the same
@@ -4668,11 +3550,7 @@ export function PlaylistsPage() {
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
-    const handler = () => {
-      const panel = browserPanelRef.current;
-      if (!panel) return;
-      panel.isCollapsed() ? panel.expand() : panel.collapse();
-    };
+    const handler = () => setBrowserCollapsed((v) => !v);
     window.addEventListener("playlist-browser-toggle", handler);
     return () => window.removeEventListener("playlist-browser-toggle", handler);
   }, []);
@@ -4848,119 +3726,17 @@ export function PlaylistsPage() {
     );
 
   const clipListStack = (
-    <>
-      <div className="flex shrink-0 flex-col gap-3">
+    <div className="@container relative flex min-h-0 flex-1 flex-col">
       {noSync && selected.items.filter(isClipItem).length > 0 && (
-        <div className="rounded-md bg-amber-50 dark:bg-amber-950 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300">
+        <div className="mb-3 shrink-0 rounded-md bg-amber-500/10 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300">
           No sync point — set one in the game to enable playback controls.
         </div>
       )}
 
-      {selectedClipIds.size > 0 && (
-        <div className="flex items-center gap-3 rounded-lg bg-primary/10 px-4 py-2.5">
-          <span className="text-sm font-medium text-primary">
-            {selectedClipIds.size} item{selectedClipIds.size !== 1 ? "s" : ""} selected
-          </span>
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              className="h-7 gap-1 bg-red-600 px-2 text-xs text-white hover:bg-red-700"
-              onClick={handleRemoveSelected}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Remove from playlist
-            </Button>
-            {(() => {
-              const keys = [...selectedClipIds];
-              const gid = itemGroupIds.get(keys[0] ?? "");
-              const groupTotal = gid
-                ? [...itemGroupIds.values()].filter((g) => g === gid).length
-                : 0;
-              const isExactlyOneGroup = !!gid
-                && keys.every((k) => itemGroupIds.get(k) === gid)
-                && keys.length === groupTotal;
-              if (isExactlyOneGroup) {
-                return (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 gap-1 px-2 text-xs"
-                    disabled={filtersActive}
-                    onClick={() => handleUngroup(gid!)}
-                  >
-                    <Link2 className="h-3.5 w-3.5" />
-                    Ungroup
-                  </Button>
-                );
-              }
-              if (keys.length >= 2) {
-                return (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 gap-1 px-2 text-xs"
-                    disabled={filtersActive}
-                    title={filtersActive ? "Clear filters to group" : "Keep these items together when reordering"}
-                    onClick={handleGroupSelected}
-                  >
-                    <Link2 className="h-3.5 w-3.5" />
-                    Group
-                  </Button>
-                );
-              }
-              return null;
-            })()}
-            {selectedClipKeyPairs.length > 0 && (
-              <LabelPickerPopover
-                trigger={
-                  <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs">
-                    <Tag className="h-3.5 w-3.5" />
-                    Apply label
-                    <ChevronDown className="h-3 w-3" />
-                  </Button>
-                }
-                labels={labels}
-                assignedAllIds={bulkAssignedAll}
-                assignedSomeIds={bulkAssignedSome}
-                onToggle={handleBulkToggleLabel}
-                onCreate={handleCreateLabel}
-                onRename={handleRenameLabel}
-                onRecolor={handleRecolorLabel}
-                onDelete={handleDeleteLabel}
-                onSeedDefaults={handleSeedDefaultLabels}
-                scopeTitle={`Labels in ${selected?.name ?? "this playlist"}`}
-                scopeHint="Visible only in this playlist"
-              />
-            )}
-            {/* Always shown: with no other playlist the dropdown opens straight
-                into its "type a name to create" state. */}
-            <div ref={addToDropdownRef} className="relative">
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 gap-1 px-2 text-xs"
-                onClick={() => { setShowAddToDropdown((v) => !v); setAddToSearch(""); }}
-              >
-                Add to another playlist
-                <ChevronDown className="h-3 w-3" />
-              </Button>
-              {showAddToDropdown && (
-                <AddToDropdown
-                  playlists={playlists}
-                  activePlaylistId={selected?.id ?? null}
-                  addToSearch={addToSearch}
-                  setAddToSearch={setAddToSearch}
-                  onAddToPlaylist={handleAddSelectedToPlaylist}
-                  onCreatePlaylist={handleCreatePlaylistAndAdd}
-                />
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-      </div>
-
-      <div ref={playlistScrollRef} className="min-h-0 flex-1 overflow-y-auto">
+      <div
+        ref={playlistScrollRef}
+        className={cn("min-h-0 flex-1 overflow-y-auto", selectedClipIds.size > 0 && "pb-16")}
+      >
       {filtersOpen && (
         <PlaylistFilterBar
           filters={queueFilters}
@@ -4974,7 +3750,7 @@ export function PlaylistsPage() {
         />
       )}
       {filtersActive && !filtersOpen && (
-        <div className="flex items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-700 dark:text-amber-400">
+        <div className="mb-2 flex items-center gap-2 rounded-md bg-amber-500/10 px-3 py-1.5 text-xs text-amber-700 dark:text-amber-300">
           Filtered: showing {queueItems.filter((i) => !isTextCard(i)).length} of{" "}
           {sortedEvents.filter((i) => !isTextCard(i)).length} clips
           <button
@@ -4988,48 +3764,36 @@ export function PlaylistsPage() {
       )}
       {queueItems.length === 0 ? (
         <div
-          onDragOver={(e) => {
-            if (!e.dataTransfer.types.includes("text/clip")) return;
-            e.preventDefault();
-            e.dataTransfer.dropEffect = "copy";
-            setClipDragOverIndex(0);
-            setClipDragOverPosition("above");
-          }}
-          onDragLeave={(e) => {
-            if (!e.currentTarget.contains(e.relatedTarget as Node)) setClipDragOverIndex(null);
-          }}
-          onDrop={(e) => handleClipDrop(e, 0)}
-          className={`flex min-h-full flex-col items-center justify-center gap-3 py-12 text-center rounded-lg border-2 border-dashed transition-colors ${
-            clipDragOverIndex === 0 ? "border-primary bg-primary/5" : "border-transparent"
-          }`}
+          className={cn(
+            "flex min-h-full flex-col items-center justify-center rounded-window ring-2 ring-inset transition-[box-shadow,background-color] duration-150",
+            clipDropGap === 0 ? "bg-primary/5 ring-selection" : "ring-transparent",
+          )}
         >
-          <p className="text-sm text-muted-foreground">
-            This playlist has no clips yet.
-          </p>
-          <Button
-            size="sm"
-            variant="outline"
-            className={"gap-1.5" + hl("add-clips")}
-            onClick={() => { setOnboardingHighlight(null); setShowClipBrowser(true); }}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add Clips
-          </Button>
+          <EmptyState
+            icon={<ListVideo />}
+            title="No clips yet"
+            body="Add plays from your games, or drag clips in from another playlist."
+            action={
+              <Button
+                size="sm"
+                className={cn(hl("add-clips"))}
+                onClick={() => { setOnboardingHighlight(null); setShowClipBrowser(true); }}
+              >
+                <Plus />
+                Add clips
+              </Button>
+            }
+          />
         </div>
       ) : (
-        <div role="grid" aria-label="Clips" className="divide-y divide-separator overflow-hidden rounded-window bg-card ring-1 ring-separator">
+        <div
+          role="grid"
+          aria-label="Clips"
+          className="overflow-hidden rounded-window bg-card ring-1 ring-separator [&>[role=row]:not(:first-child)]:shadow-[inset_0_1px_0_var(--separator)]"
+        >
           {queueItems.map((item, index) => {
             const key = itemKey(item);
-            const drag = {
-              isDragTarget: clipDragOverIndex === index,
-              dragTargetPosition: clipDragOverPosition,
-              isDragSource: dragBlockKeys?.has(key) ?? false,
-              onDragStart: (e: React.DragEvent) => handleClipDragStart(e, key),
-              onDragOver: (e: React.DragEvent, i: number) => handleClipDragOver(e, i),
-              onDragLeave: () => setClipDragOverIndex(null),
-              onDrop: (e: React.DragEvent, i: number) => handleClipDrop(e, i),
-              onDragEnd: handleClipDragEnd,
-            };
+            const drag = { rowKey: key, onPointerDown: (e: React.PointerEvent) => listDrag.onRowPointerDown(e, key) };
             if (isTextCard(item)) {
               const card = item as PlaylistTextCard;
               return (
@@ -5098,7 +3862,71 @@ export function PlaylistsPage() {
         </div>
       )}
       </div>
-    </>
+
+      <SelectionBar
+        count={selectedClipIds.size}
+        onRemove={handleRemoveSelected}
+        onClear={() => setSelectedClipIds(new Set())}
+        group={(() => {
+          const keys = [...selectedClipIds];
+          const gid = itemGroupIds.get(keys[0] ?? "");
+          const groupTotal = gid ? [...itemGroupIds.values()].filter((g) => g === gid).length : 0;
+          const isExactlyOneGroup = !!gid
+            && keys.every((k) => itemGroupIds.get(k) === gid)
+            && keys.length === groupTotal;
+          if (isExactlyOneGroup) {
+            return { kind: "ungroup" as const, disabled: filtersActive, onClick: () => void handleUngroup(gid!) };
+          }
+          if (keys.length >= 2) {
+            return {
+              kind: "group" as const,
+              disabled: filtersActive,
+              reason: filtersActive ? "Clear filters to group" : "Keep these items together when reordering",
+              onClick: () => void handleGroupSelected(),
+            };
+          }
+          return null;
+        })()}
+        labelPicker={selectedClipKeyPairs.length > 0 ? (
+          <LabelPickerPopover
+            trigger={
+              <PillButton title="Labels">
+                <Tag />
+                <span className={PILL_LABEL}>Label</span>
+                <ChevronDown className="size-3 text-muted-foreground" />
+              </PillButton>
+            }
+            labels={labels}
+            assignedAllIds={bulkAssignedAll}
+            assignedSomeIds={bulkAssignedSome}
+            onToggle={handleBulkToggleLabel}
+            onCreate={handleCreateLabel}
+            onRename={handleRenameLabel}
+            onRecolor={handleRecolorLabel}
+            onDelete={handleDeleteLabel}
+            onSeedDefaults={handleSeedDefaultLabels}
+            side="top"
+            scopeTitle={`Labels in ${selected?.name ?? "this playlist"}`}
+            scopeHint="Visible only in this playlist"
+          />
+        ) : null}
+        addTo={
+          <AddToPopover
+            playlists={playlists}
+            activePlaylistId={selected?.id ?? null}
+            onAddToPlaylist={handleAddSelectedToPlaylist}
+            onCreatePlaylist={handleCreatePlaylistAndAdd}
+            trigger={
+              <PillButton title="Add to another playlist">
+                <ListPlus />
+                <span className={PILL_LABEL}>Add to</span>
+                <ChevronDown className="size-3 text-muted-foreground" />
+              </PillButton>
+            }
+          />
+        }
+      />
+    </div>
   );
 
   return (
@@ -5188,244 +4016,155 @@ export function PlaylistsPage() {
         }
       />
     )}
-    <ResizablePanelGroup direction="horizontal" autoSaveId="playlists-browser" className="min-h-0 flex-1">
-      {/* LEFT PANEL — playlist sidebar */}
-      <ResizablePanel
-        panelRef={browserPanelRef}
-        defaultSize={260}
-        minSize={200}
-        collapsible
-        collapsedSize={0}
-        className="flex flex-col border-r border-border bg-card"
+    <div className="flex min-h-0 flex-1">
+      {/* LEFT — the playlist browser, a source list in its own column */}
+      <BrowserColumn
+        collapsed={browserCollapsed}
+        width={browserWidth}
+        onWidthChange={setBrowserWidth}
+        onCollapse={() => setBrowserCollapsed(true)}
+        className="bg-card"
       >
-        <div ref={sidebarScrollRef} className="flex flex-1 flex-col overflow-y-auto">
-        {/* Header */}
-        <div className="sticky top-0 z-10 border-b border-border bg-card px-3 py-3 space-y-2">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-foreground">Playlists</span>
-            {totalPlaylists > 0 && (
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                {totalPlaylists}
-              </span>
-            )}
-            <div className="ml-auto flex items-center gap-1">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 w-7 p-0"
-                      onClick={() => handleNewPlaylist()}
-                    >
-                      <ListPlus className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>New Playlist</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 w-7 p-0"
-                      onClick={() => handleNewFolder()}
-                    >
-                      <FolderPlus className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>New Folder</TooltipContent>
-                </Tooltip>
-              </div>
-          </div>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search playlists…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="h-7 w-full rounded-md border border-border bg-background pl-8 pr-7 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-            {search && (
-              <button
-                type="button"
-                onClick={() => setSearch("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
+        <div className="flex h-11 shrink-0 items-center gap-1 px-3">
+          <SearchField
+            className="min-w-0 flex-1"
+            placeholder="Search"
+            aria-label="Search playlists"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button size="icon-sm" variant="ghost" aria-label="New folder" onClick={() => handleNewFolder()}>
+                <FolderPlus />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>New folder</TooltipContent>
+          </Tooltip>
         </div>
 
+        <div ref={sidebarScrollRef} className="min-h-0 flex-1 overflow-y-auto pb-2">
         {loading ? (
-          <div className="space-y-3 p-4">
-            {[0, 1].map((i) => (
-              <div key={i} className="space-y-2">
-                <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
-                <div className="h-8 w-full animate-pulse rounded bg-muted" />
-              </div>
+          <div className="flex flex-col gap-1 px-2 py-2">
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="h-7 animate-pulse rounded-md bg-fill-1" style={{ width: `${70 + ((i * 37) % 30)}%` }} />
             ))}
           </div>
         ) : playlists.length === 0 && folders.length === 0 ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
-            <ListVideo className="h-8 w-8 text-muted-foreground/40" />
-            <p className="text-sm font-medium text-muted-foreground">No playlists yet</p>
-            <p className="text-xs text-muted-foreground/70">
-              Give it a name and add clips from your games.
-            </p>
-            <Button size="sm" variant="outline" className="mt-2 text-xs" onClick={() => handleNewPlaylist()}>
+          <EmptyState
+            icon={<ListVideo />}
+            title="No playlists yet"
+            body="Give one a name and add clips from your games."
+            action={
+              <Button size="sm" variant="outline" onClick={() => handleNewPlaylist()}>
                 New playlist
               </Button>
-          </div>
+            }
+          />
         ) : search.trim() && filteredPlaylists.length === 0 ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
-            <Search className="h-6 w-6 text-muted-foreground/40" />
-            <p className="text-sm text-muted-foreground">No matches for "{search}"</p>
-          </div>
+          <p className="px-4 py-8 text-center text-sm text-muted-foreground">No matches for &ldquo;{search}&rdquo;</p>
         ) : (
-          <div className="py-2">
+          <div className="py-1">
             {/* Folder tree (roots; renderFolderNode recurses) */}
             {(childFolders.get(null) ?? []).map((folder) => renderFolderNode(folder, 0))}
 
-            {/* Uncategorized */}
+            {/* Uncategorized: a section only once there are folders to be apart from */}
             {(() => {
               const items = byFolder.get(null) ?? [];
-              if (items.length === 0 && (folders.length > 0 || search.trim())) return null;
-              const isExpanded = search.trim() ? true : uncategorizedExpanded;
+              if (items.length === 0) return null;
+              const sectioned = folders.length > 0;
+              const isExpanded = !sectioned || search.trim() ? true : uncategorizedExpanded;
               const isDragOver = dragOverFolder === "uncategorized";
               return (
                 <div
-                  className={isDragOver ? "bg-primary/10 ring-1 ring-inset ring-primary rounded-sm" : clipExpandFolderId === "uncategorized" ? "bg-primary/10 rounded-sm" : ""}
                   onDragEnter={(e) => {
-                    if (e.dataTransfer.types.includes("text/clip")) return;
                     e.preventDefault();
                     setDragOverFolder("uncategorized");
                   }}
                   onDragOver={(e) => {
-                    if (e.dataTransfer.types.includes("text/clip")) {
-                      if (!uncategorizedExpanded && clipDragFolderExpandTimerRef.current === null) {
-                        setClipExpandFolderId("uncategorized");
-                        clipDragFolderExpandTimerRef.current = setTimeout(() => {
-                          clipDragFolderExpandTimerRef.current = null;
-                          setClipExpandFolderId(null);
-                          setUncategorizedExpanded(true);
-                        }, 600);
-                      }
-                      return;
-                    }
                     e.preventDefault();
                     e.dataTransfer.dropEffect = "move";
                     setDragOverFolder("uncategorized");
                   }}
                   onDragLeave={(e) => {
-                    if (e.dataTransfer.types.includes("text/clip")) {
-                      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                        setClipExpandFolderId(null);
-                        if (clipDragFolderExpandTimerRef.current) {
-                          clearTimeout(clipDragFolderExpandTimerRef.current);
-                          clipDragFolderExpandTimerRef.current = null;
-                        }
-                      }
-                      return;
-                    }
                     if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverFolder(null);
                   }}
-                  onDrop={(e) => {
-                    if (e.dataTransfer.types.includes("text/clip")) return;
-                    handleDrop(null, e);
-                  }}
+                  onDrop={(e) => handleDrop(null, e)}
                 >
-                  <div
-                    className={`group flex items-center gap-1.5 px-3 py-2 cursor-pointer select-none transition-colors ${
-                      isDragOver ? "" : "hover:bg-muted/50"
-                    }`}
-                    onClick={() => setUncategorizedExpanded((v) => !v)}
-                  >
-                    {isExpanded ? (
-                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    ) : (
-                      <ChevronRight className={`h-3.5 w-3.5 shrink-0 transition-colors ${clipExpandFolderId === "uncategorized" ? "text-primary animate-pulse" : "text-muted-foreground"}`} />
-                    )}
-                    <span className="flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
-                      Uncategorized
-                    </span>
-                    <span className="shrink-0 text-xs text-muted-foreground">{items.length}</span>
-                  </div>
-                  {isExpanded && (
-                    <div className="pb-1">
-                      {items.map((pl) => renderPlaylistRow(pl, 32))}
-                    </div>
-                  )}
+                  {sectioned &&
+                    renderSectionHeader({
+                      id: "uncategorized",
+                      label: "Uncategorized",
+                      count: items.length,
+                      expanded: isExpanded,
+                      dragOver: isDragOver,
+                      springLoading: clipExpandFolderId === "uncategorized",
+                      onToggle: () => setUncategorizedExpanded((v) => !v),
+                    })}
+                  {isExpanded && items.map((pl) => renderPlaylistRow(pl, 0))}
                 </div>
               );
             })()}
 
-            {/* Shared by me section */}
+            {/* Shared by me */}
             {(() => {
               const sharedPlaylists = playlists.filter((p) => (p.teamIds?.length ?? 0) > 0);
               if (sharedPlaylists.length === 0) return null;
               return (
-                <div className="mt-1 border-t border-border pt-1">
-                  <div
-                    className="group flex items-center gap-1.5 px-3 py-2 cursor-pointer select-none transition-colors hover:bg-muted/50"
-                    onClick={() => setSharedSectionExpanded((v) => !v)}
-                  >
-                    {sharedSectionExpanded ? (
-                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    ) : (
-                      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    )}
-                    <span className="flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
-                      Shared by me
-                    </span>
-                    <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                      {sharedPlaylists.length}
-                    </span>
-                  </div>
-                  {sharedSectionExpanded && (
-                    <div className="pb-1">
-                      {sharedPlaylists.map((pl) => {
-                        const isActive = selected?.id === pl.id;
-                        const teamNames = (pl.teamIds ?? [])
-                          .map((id) => userTeams.find((t) => t.id === id)?.name)
-                          .filter(Boolean)
-                          .join(", ");
-                        return (
-                          <div
-                            key={pl.id}
-                            className={`flex w-full cursor-pointer items-center gap-2 border-l-2 pl-8 pr-3 py-1.5 text-left transition-colors hover:bg-muted/50 ${
-                              isActive ? "border-l-primary bg-primary/10" : "border-l-border hover:border-l-border/80"
-                            }`}
-                            onClick={() => selectPlaylist(pl)}
-                          >
-                            <Users className={`h-3 w-3 shrink-0 ${isActive ? "text-primary" : "text-primary/60"}`} />
-                            <div className="flex min-w-0 flex-1 flex-col">
-                              <span className={`truncate text-sm ${isActive ? "font-medium text-primary" : "text-muted-foreground"}`}>
-                                {pl.name}
+                <div className="mt-1">
+                  {renderSectionHeader({
+                    id: "shared",
+                    label: "Shared by me",
+                    count: sharedPlaylists.length,
+                    expanded: sharedSectionExpanded,
+                    onToggle: () => setSharedSectionExpanded((v) => !v),
+                  })}
+                  {sharedSectionExpanded &&
+                    sharedPlaylists.map((pl) => {
+                      const isActive = selected?.id === pl.id;
+                      const teamNames = (pl.teamIds ?? [])
+                        .map((id) => userTeams.find((t) => t.id === id)?.name)
+                        .filter(Boolean)
+                        .join(", ");
+                      return (
+                        <div
+                          key={pl.id}
+                          data-playlist-id={pl.id}
+                          className={cn(
+                            "group mx-2 flex min-h-7 cursor-default select-none items-center gap-1.5 rounded-md px-2 py-1 transition-[background-color,box-shadow] duration-100",
+                            isActive ? "bg-selection text-selection-foreground" : "text-foreground hover:bg-fill-1 active:bg-fill-2",
+                            clipDragOverPlaylistId === pl.id && "bg-selection/20 ring-2 ring-inset ring-selection",
+                          )}
+                          onClick={() => selectPlaylist(pl)}
+                        >
+                          <Users className={cn("size-4 shrink-0", isActive ? "text-selection-foreground" : "text-primary")} />
+                          <div className="flex min-w-0 flex-1 flex-col">
+                            <span className="truncate text-sm leading-tight">{pl.name}</span>
+                            {teamNames && (
+                              <span className={cn("truncate text-footnote", isActive ? "text-selection-foreground/70" : "text-muted-foreground")}>
+                                {teamNames}
                               </span>
-                              {teamNames && (
-                                <span className="truncate text-[10px] text-muted-foreground/60">{teamNames}</span>
-                              )}
-                            </div>
-                            <button
-                              type="button"
-                              className="ml-auto shrink-0 rounded p-0.5 text-primary hover:bg-primary/10 focus:outline-none"
-                              title="Manage sharing"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                selectPlaylist(pl);
-                                setPendingShareTeamIds(new Set(pl.teamIds ?? []));
-                                setShareDialogOpen(true);
-                              }}
-                            >
-                              <Share2 className="h-3.5 w-3.5" />
-                            </button>
+                            )}
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                          <button
+                            type="button"
+                            className={cn(
+                              "flex size-5 shrink-0 items-center justify-center rounded-sm opacity-0 outline-none transition-[opacity,background-color] duration-100 group-hover:opacity-100 focus-visible:opacity-100",
+                              isActive ? "text-selection-foreground hover:bg-white/20" : "text-muted-foreground hover:bg-fill-2 hover:text-foreground",
+                            )}
+                            title="Manage sharing"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              selectPlaylist(pl);
+                              setPendingShareTeamIds(new Set(pl.teamIds ?? []));
+                              setShareDialogOpen(true);
+                            }}
+                          >
+                            <Share2 className="size-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
                 </div>
               );
             })()}
@@ -5436,7 +4175,7 @@ export function PlaylistsPage() {
             <ContextMenu>
               <ContextMenuTrigger asChild>
                 <div
-                  className="h-16"
+                  className="h-12"
                   onDragOver={(e) => {
                     if (
                       !e.dataTransfer.types.includes("text/folder-id") &&
@@ -5445,10 +4184,7 @@ export function PlaylistsPage() {
                     e.preventDefault();
                     e.dataTransfer.dropEffect = "move";
                   }}
-                  onDrop={(e) => {
-                    if (e.dataTransfer.types.includes("text/clip")) return;
-                    handleDrop(null, e);
-                  }}
+                  onDrop={(e) => handleDrop(null, e)}
                 />
               </ContextMenuTrigger>
               <ContextMenuContent>
@@ -5462,38 +4198,36 @@ export function PlaylistsPage() {
             </ContextMenu>
           </div>
         )}
+        </div>
+
         {!loading && (
-          <div className="sticky bottom-0 z-10 mt-auto border-t border-border bg-card p-3">
-            <Button
-              size="sm"
-              variant="outline"
-              className="w-full gap-1.5 text-xs"
+          <div className="shrink-0 border-t border-separator p-1.5">
+            <button
+              type="button"
               onClick={() => handleNewPlaylist()}
+              className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm text-foreground outline-none transition-[background-color,transform] duration-100 hover:bg-fill-1 active:scale-[0.99] active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection"
             >
-              <ListPlus className="h-3.5 w-3.5" />
+              <ListPlus className="size-4 text-primary" />
               New Playlist
-            </Button>
+            </button>
           </div>
         )}
-        </div>
-      </ResizablePanel>
+      </BrowserColumn>
 
-      <ResizableHandle />
-
-      {/* RIGHT PANEL — detail */}
-      <ResizablePanel minSize={480} className="flex flex-col overflow-hidden bg-background">
+      {/* RIGHT — the editor */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
         {selected === null ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-12 text-center">
-            <ListVideo className="h-10 w-10 text-muted-foreground/40" />
-            <p className="text-sm font-medium text-muted-foreground">
-              Select a playlist
-            </p>
-            <p className="text-sm text-muted-foreground/70">
-              Choose one from the panel, or create a new playlist to start collecting clips.
-            </p>
-            <Button size="sm" variant="outline" className="mt-1 text-xs" onClick={() => handleNewPlaylist()}>
-                New playlist
-              </Button>
+          <div className="flex flex-1 items-center justify-center p-12">
+            <EmptyState
+              icon={<ListVideo />}
+              title="Select a playlist"
+              body="Choose one from the list, or start a new playlist and add clips to it."
+              action={
+                <Button size="sm" variant="outline" onClick={() => handleNewPlaylist()}>
+                  New playlist
+                </Button>
+              }
+            />
           </div>
         ) : (
           <>
@@ -5534,16 +4268,8 @@ export function PlaylistsPage() {
               </ResizablePanelGroup>
             )}
           </div>
-          <Dialog open={showClipBrowser} onOpenChange={setShowClipBrowser}>
-            <DialogContent
-              className="w-[calc(100vw-4rem)] max-w-[calc(100vw-4rem)] sm:max-w-[calc(100vw-4rem)] h-[85vh] p-0 gap-0 bg-card"
-              showCloseButton={false}
-              onInteractOutside={(e) => {
-                if (document.querySelector('[data-resize-handle-state="drag"]')) {
-                  e.preventDefault();
-                }
-              }}
-            >
+          <Sheet open={showClipBrowser} onOpenChange={setShowClipBrowser}>
+            <SheetContent>
               <ClipBrowserPanel
                 matches={matches}
                 matchLookup={matchLookup}
@@ -5562,8 +4288,8 @@ export function PlaylistsPage() {
                   onSeedDefaults: handleSeedDefaultLabels,
                 }}
               />
-            </DialogContent>
-          </Dialog>
+            </SheetContent>
+          </Sheet>
           {/* Upgrade dialog — shown when free user tries a paid feature */}
           <UpgradeDialog
             open={upgradeDialogOpen}
@@ -5704,7 +4430,7 @@ export function PlaylistsPage() {
                             return next;
                           });
                         }}
-                        className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm text-left transition-colors hover:bg-accent${checked ? " bg-accent/60" : ""}`}
+                        className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm text-left transition-colors hover:bg-fill-1${checked ? " bg-fill-2" : ""}`}
                       >
                         <input
                           type="checkbox"
@@ -5761,7 +4487,7 @@ export function PlaylistsPage() {
                                   return next;
                                 });
                               }}
-                              className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm text-left transition-colors hover:bg-accent${checked ? " bg-accent/60" : ""}`}
+                              className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm text-left transition-colors hover:bg-fill-1${checked ? " bg-fill-2" : ""}`}
                             >
                               <input
                                 type="checkbox"
@@ -5808,8 +4534,8 @@ export function PlaylistsPage() {
           </Dialog>
           </>
         )}
-      </ResizablePanel>
-    </ResizablePanelGroup>
+      </div>
+    </div>
     </Page>
 
     {/* Playlist deletion is irreversible and unshares it everywhere.

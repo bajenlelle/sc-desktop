@@ -81,7 +81,7 @@ export function Sidebar() {
       transition={reduced ? { duration: 0 } : springs.standard}
       aria-hidden={collapsed || undefined}
       className={cn(
-        "relative h-screen shrink-0 overflow-hidden",
+        "relative h-screen shrink-0 overflow-hidden select-none",
         IS_MACOS ? "bg-material-sidebar" : "border-r border-separator bg-sidebar",
       )}
     >

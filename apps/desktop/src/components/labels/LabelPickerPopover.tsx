@@ -259,7 +259,7 @@ export function LabelPickerPopover({
             return (
               <div
                 key={label.id}
-                className="group flex items-center gap-2 px-2 py-1.5 hover:bg-accent/40"
+                className="group flex items-center gap-2 px-2 py-1.5 hover:bg-fill-1"
               >
                 <button
                   type="button"
@@ -298,7 +298,7 @@ export function LabelPickerPopover({
                     <PopoverTrigger asChild>
                       <button
                         type="button"
-                        className="h-6 w-6 rounded p-0 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-accent hover:text-foreground flex items-center justify-center"
+                        className="h-6 w-6 rounded p-0 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-fill-2 hover:text-foreground flex items-center justify-center"
                         aria-label="Change color"
                       >
                         <span className={cn("h-3 w-3 rounded-full", labelSwatchClasses[label.color])} />
@@ -318,7 +318,7 @@ export function LabelPickerPopover({
                     <DropdownMenuTrigger asChild>
                       <button
                         type="button"
-                        className="h-6 w-6 rounded text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-accent hover:text-foreground flex items-center justify-center"
+                        className="h-6 w-6 rounded text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-fill-2 hover:text-foreground flex items-center justify-center"
                         aria-label="Label actions"
                       >
                         <MoreHorizontal className="h-3.5 w-3.5" />
@@ -359,7 +359,7 @@ export function LabelPickerPopover({
 
         {/* Create row */}
         {showCreateRow && (
-          <div className="border-t flex items-center gap-2 px-2 py-1.5 hover:bg-accent/40">
+          <div className="border-t flex items-center gap-2 px-2 py-1.5 hover:bg-fill-1">
             <button
               type="button"
               onClick={() => void handleCreate()}
@@ -377,7 +377,7 @@ export function LabelPickerPopover({
               <PopoverTrigger asChild>
                 <button
                   type="button"
-                  className="h-6 w-6 rounded text-muted-foreground hover:bg-accent hover:text-foreground flex items-center justify-center"
+                  className="h-6 w-6 rounded text-muted-foreground hover:bg-fill-2 hover:text-foreground flex items-center justify-center"
                   aria-label="Pick color"
                 >
                   <span className={cn("h-3 w-3 rounded-full", labelSwatchClasses[createColor])} />

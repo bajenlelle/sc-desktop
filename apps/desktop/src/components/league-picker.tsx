@@ -73,7 +73,7 @@ export function LeaguePicker({ leagues, value, onChange, className }: LeaguePick
         <button
           type="button"
           className={cn(
-            "flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary",
+            "flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm font-medium transition-colors hover:bg-fill-1 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary",
             className,
           )}
         >
@@ -121,7 +121,7 @@ export function LeaguePicker({ leagues, value, onChange, className }: LeaguePick
                     onChange(league);
                     setOpen(false);
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent/40"
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-fill-1"
                 >
                   <span aria-hidden>{countryFlag(league.country)}</span>
                   <span className="flex-1 truncate">{league.name}</span>
