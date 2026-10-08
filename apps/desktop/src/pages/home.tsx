@@ -296,7 +296,7 @@ function CoachHomePage() {
               }
               action={
                 <Link to="/playlists" className="text-sm text-primary hover:underline">
-                  View All
+                  View all
                 </Link>
               }
             />
@@ -330,7 +330,7 @@ function CoachHomePage() {
               title="Recent imports"
               action={
                 <Link to="/matches" className="text-sm text-primary hover:underline">
-                  View All
+                  View all
                 </Link>
               }
             />

@@ -1,8 +1,10 @@
 @import "tailwindcss";
-/* Class names built in shared logic (eventColors) must be generated too. */
-@source "../../../packages/shared/lib";
 @import "tw-animate-css";
 @import "./themes.css";
+
+/* Class names built in shared logic (eventColors) must be generated too.
+   After the imports: an @import that follows any other rule is dropped. */
+@source "../../../packages/shared/lib";
 
 @custom-variant dark (&:is(.dark *));
 
