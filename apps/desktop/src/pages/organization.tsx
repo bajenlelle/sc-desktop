@@ -35,6 +35,8 @@ import { ChevronDown, ChevronUp, Loader2, MoreHorizontal, Search, UserPlus } fro
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { useLocation, useNavigate } from "react-router-dom";
+import { Page, PageContent } from "@/components/shell/page";
+import { Toolbar } from "@/components/shell/toolbar";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -635,31 +637,25 @@ export function OrganizationPage() {
   const licenseExpired = !!org.expiresAt && new Date(org.expiresAt).getTime() < Date.now();
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-6">
-
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">{org.name}</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            {ctx.orgMembers.length} member{ctx.orgMembers.length !== 1 ? "s" : ""}
-            {" · "}
-            {ctx.allOrgTeams.length} team{ctx.allOrgTeams.length !== 1 ? "s" : ""}
-          </p>
-        </div>
-        {canManageTeams && (
-          <Button
-            size="sm"
-            className="gap-1.5 shrink-0"
-            onClick={() => setShowInviteModal(true)}
-            disabled={licenseExpired}
-            title={licenseExpired ? "License expired — inviting is paused" : undefined}
-          >
-            <UserPlus className="h-4 w-4" />
-            Invite people
-          </Button>
-        )}
-      </div>
+    <Page>
+      <Toolbar
+        title={org.name}
+        subtitle={`${ctx.orgMembers.length} member${ctx.orgMembers.length !== 1 ? "s" : ""} · ${ctx.allOrgTeams.length} team${ctx.allOrgTeams.length !== 1 ? "s" : ""}`}
+        actions={
+          canManageTeams && (
+            <Button
+              size="sm"
+              onClick={() => setShowInviteModal(true)}
+              disabled={licenseExpired}
+              title={licenseExpired ? "License expired — inviting is paused" : undefined}
+            >
+              <UserPlus />
+              Invite people
+            </Button>
+          )
+        }
+      />
+      <PageContent width="medium" className="space-y-6">
 
       {/* License card — admin only; non-admins get the app-shell LicenseBanner
           once the license actually expires */}
@@ -903,6 +899,7 @@ export function OrganizationPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+      </PageContent>
+    </Page>
   );
 }

@@ -22,6 +22,7 @@ import { useAuth } from "@/lib/auth-context";
 import { createClient } from "@/lib/supabase/client";
 import { interactiveUpdateCheck } from "@/lib/updates";
 import { IS_MACOS } from "@/lib/platform";
+import { menuAppearanceFor } from "@scoutable/shared/lib/appearance";
 
 const ZOOM_KEY = "scoutable_zoom";
 const ZOOM_MIN = 0.5;
@@ -34,7 +35,7 @@ const ZOOM_STEP = 0.1;
  */
 const HAS_NATIVE_MENU = IS_MACOS;
 
-/** Items only coaches/admins can use (mirrors app-sidebar gating). */
+/** Items only coaches/admins can use (mirrors the sidebar's gating). */
 const COACH_ADMIN_IDS = ["new-playlist", "add-game", "go-home", "go-playlists", "go-library"];
 
 /** Mirror of each item's native enablement, consulted by the keyboard fallback. */
@@ -205,7 +206,7 @@ export function MenuHandler() {
   }, [pathname]);
 
   useEffect(() => {
-    invoke("menu_sync_theme", { theme: theme ?? "system" }).catch(() => {});
+    invoke("menu_sync_theme", { theme: menuAppearanceFor(theme) }).catch(() => {});
   }, [theme]);
 
   return null;

@@ -23,7 +23,7 @@ export function GroupHeader({
   action,
   className,
   ...props
-}: React.ComponentProps<"div"> & { title: React.ReactNode; action?: React.ReactNode }) {
+}: Omit<React.ComponentProps<"div">, "title"> & { title: React.ReactNode; action?: React.ReactNode }) {
   return (
     <div className={cn("flex items-end justify-between gap-3 px-1 pb-2", className)} {...props}>
       <h2 className="text-headline text-foreground">{title}</h2>

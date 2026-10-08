@@ -52,7 +52,7 @@ export function LicenseBanner() {
   }
 
   return (
-    <div className="border-b border-destructive/40 bg-destructive/5 px-4 py-2">
+    <div className="shrink-0 border-b border-separator bg-destructive/8 px-4 py-2">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
         <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
         <span className="font-medium text-destructive">

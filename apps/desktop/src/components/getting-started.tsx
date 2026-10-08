@@ -9,6 +9,7 @@ import { deriveOrgSetupProgress, type OrgSetupProgress } from "@scoutable/shared
 import { getHasExported } from "@/lib/prefs";
 import { trackEvent } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
+import { ProgressBar } from "@/components/ui/progress-bar";
 import type { Playlist, StoredMatch } from "@/types/match";
 
 interface Step {
@@ -206,7 +207,7 @@ export function GettingStarted({
     celebratedRef.current = true;
     trackEvent("onboarding_completed", { variant: isClubAdmin ? "admin" : "member" });
     dismissOnboardingChecklist().catch(() => {});
-    toast.success(isClubAdmin ? "Your club is set up 🎉" : "You're all set — happy scouting! 🎉");
+    toast.success(isClubAdmin ? "Your club is set up" : "You're all set. Happy scouting!");
     setHidden(true);
   }, [show, allDone]);
 
@@ -238,61 +239,56 @@ export function GettingStarted({
       : `You've joined ${activeOrg?.orgName ?? "your organization"}. Here's how to get going.${demoNote}`;
 
   return (
-    <div className="rounded-xl border border-primary/30 bg-card p-5">
-      <div className="flex items-start justify-between gap-4">
+    <section className="rounded-window bg-card ring-1 ring-separator">
+      <div className="flex items-start justify-between gap-4 px-5 pt-4">
         <div>
-          <h2 className="text-base font-semibold text-foreground">Welcome to Scoutable 👋</h2>
+          <h2 className="text-title-3 text-foreground">Welcome to Scoutable</h2>
           <p className="mt-0.5 text-sm text-muted-foreground">{welcome}</p>
         </div>
         <button
           type="button"
           onClick={handleDismiss}
-          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          title="Dismiss — you can always find these actions in the sidebar"
+          className="-mr-2 -mt-1 flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none transition-[background-color,transform] duration-100 hover:bg-fill-2 hover:text-foreground active:scale-95 focus-visible:ring-2 focus-visible:ring-selection"
+          title="Dismiss. You can always find these actions in the sidebar"
+          aria-label="Dismiss"
         >
-          <X className="h-4 w-4" />
+          <X className="size-3.5" />
         </button>
       </div>
 
       {/* OAuth signups skip the signup form's role question — ask once here. */}
       {profile?.declaredRole == null && (
-        <div className="mt-4 flex flex-col gap-2 rounded-lg bg-muted/50 p-3">
-          <span className="text-xs font-medium text-foreground">What describes you best?</span>
+        <div className="mx-5 mt-4 flex flex-col gap-2 rounded-lg bg-fill-1 p-3">
+          <span className="text-callout font-medium text-foreground">What describes you best?</span>
           <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => handleDeclareRole("coach")}
-              className="rounded-md border border-border px-3 py-2 text-left text-sm transition-colors hover:border-primary/50 hover:bg-primary/5"
-            >
-              <span className="font-medium text-foreground">Coach</span>
-              <span className="block text-xs text-muted-foreground">I scout and analyze games</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDeclareRole("player")}
-              className="rounded-md border border-border px-3 py-2 text-left text-sm transition-colors hover:border-primary/50 hover:bg-primary/5"
-            >
-              <span className="font-medium text-foreground">Player</span>
-              <span className="block text-xs text-muted-foreground">I study my games and build highlights</span>
-            </button>
+            {(
+              [
+                ["coach", "Coach", "I scout and analyze games"],
+                ["player", "Player", "I study my games and build highlights"],
+              ] as const
+            ).map(([role, label, hint]) => (
+              <button
+                key={role}
+                type="button"
+                onClick={() => handleDeclareRole(role)}
+                className="rounded-md bg-card px-3 py-2 text-left ring-1 ring-separator outline-none transition-[background-color,transform,box-shadow] duration-100 hover:bg-fill-1 active:scale-[0.99] active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection"
+              >
+                <span className="text-sm font-medium text-foreground">{label}</span>
+                <span className="block text-callout text-muted-foreground">{hint}</span>
+              </button>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Progress */}
-      <div className="mt-4 flex items-center gap-3">
-        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-          <div
-            className="h-full rounded-full bg-primary transition-all"
-            style={{ width: `${(doneCount / steps.length) * 100}%` }}
-          />
-        </div>
-        <span className="text-xs tabular-nums text-muted-foreground">
+      <div className="mt-4 flex items-center gap-3 px-5">
+        <ProgressBar percent={(doneCount / steps.length) * 100} className="flex-1" />
+        <span className="text-callout nums text-muted-foreground">
           {doneCount} of {steps.length}
         </span>
       </div>
 
-      <ul className="mt-4 flex flex-col">
+      <ul className="mt-3 flex flex-col px-2 pb-2">
         {steps.map((step) => {
           const clickable = !step.done && !!step.to;
           return (
@@ -302,19 +298,17 @@ export function GettingStarted({
                 onClick={() => handleStep(step)}
                 disabled={!clickable}
                 className={cn(
-                  "flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left",
-                  clickable && "transition-colors hover:bg-muted/60",
+                  "flex min-h-9 w-full items-center gap-3 rounded-md px-3 py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection",
+                  clickable && "transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2",
                 )}
               >
                 <span
                   className={cn(
-                    "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border",
-                    step.done
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border text-transparent",
+                    "flex size-5 shrink-0 items-center justify-center rounded-full",
+                    step.done ? "bg-primary text-primary-foreground" : "ring-1 ring-inset ring-separator-strong text-transparent",
                   )}
                 >
-                  <Check className="h-3 w-3" />
+                  <Check className="size-3 stroke-[2.5]" />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span
@@ -326,20 +320,20 @@ export function GettingStarted({
                     {step.title}
                   </span>
                   {step.hint && !step.done && (
-                    <span className="block text-xs text-muted-foreground">{step.hint}</span>
+                    <span className="block text-callout text-muted-foreground">{step.hint}</span>
                   )}
                 </span>
                 {step.locked && !step.done && (
-                  <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <Lock className="size-3.5 shrink-0 text-muted-foreground" />
                 )}
                 {clickable && (
-                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50" />
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground/50" />
                 )}
               </button>
             </li>
           );
         })}
       </ul>
-    </div>
+    </section>
   );
 }

@@ -19,6 +19,8 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { probeVideoPath, videoBasename, type VideoFileStatus } from "@/lib/video-probe";
 import { cn } from "@/lib/utils";
+import { Page, PageContent } from "@/components/shell/page";
+import { Toolbar } from "@/components/shell/toolbar";
 import type { StoredMatch, SyncPoint } from "@/types/match";
 
 // ---------------------------------------------------------------------------
@@ -320,38 +322,36 @@ export function MatchDetailPage() {
     : null;
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto">
-      {/* ── Header bar ─────────────────────────────────────────────────── */}
-      <div className="shrink-0 px-6 pt-6 pb-2">
-      <div className="mx-auto max-w-4xl flex items-center justify-between">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="gap-1.5 text-muted-foreground"
-          onClick={() => {
-            if (fromPlaylists) {
-              navigate("/playlists", {
-                state: { restore: { matchId: locationState!.matchId, playlistId: locationState!.playlistId } },
-              });
-            } else {
-              navigate("/matches");
-            }
-          }}
-        >
-          <ArrowLeft className="h-4 w-4" />
-          {fromPlaylists ? "Back to Playlists" : "Back to Library"}
-        </Button>
-
-        {saveIndicator && (
-          <span className="text-xs text-emerald-600 dark:text-emerald-400 transition-opacity">
-            {saveIndicator}
-          </span>
-        )}
-      </div>
-      </div>
-
-      <div className="flex-1 px-6 pb-10">
-      <div className="mx-auto max-w-4xl space-y-8">
+    <Page>
+      <Toolbar
+        title={title}
+        leading={
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+            onClick={() => {
+              if (fromPlaylists) {
+                navigate("/playlists", {
+                  state: { restore: { matchId: locationState!.matchId, playlistId: locationState!.playlistId } },
+                });
+              } else {
+                navigate("/matches");
+              }
+            }}
+          >
+            <ArrowLeft />
+            {fromPlaylists ? "Playlists" : "Library"}
+          </Button>
+        }
+        actions={
+          saveIndicator && (
+            <span className="text-callout text-emerald-600 dark:text-emerald-400">{saveIndicator}</span>
+          )
+        }
+      />
+      <PageContent width="wide">
+      <div className="space-y-8">
         {/* ── Game identity header ──────────────────────────────────────── */}
         <section className="space-y-3 pt-2">
           {/* Matchup identity row */}
@@ -745,7 +745,7 @@ export function MatchDetailPage() {
           </div>
         </section>
       </div>
-      </div>
-    </div>
+      </PageContent>
+    </Page>
   );
 }

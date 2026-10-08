@@ -7,6 +7,7 @@
 import { useNavigate } from "react-router-dom";
 import { ListVideo, Loader2, Plus, Send, Share2, Film, Download } from "lucide-react";
 import type { HomeHero } from "@scoutable/shared/lib/home-hero";
+import { Button } from "@/components/ui/button";
 
 export function NextActionHero({
   hero,
@@ -106,31 +107,22 @@ export function NextActionHero({
   const Icon = content.ctaIcon;
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-4 rounded-window bg-primary/8 p-5 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
-        <p className="text-xs font-semibold uppercase tracking-wider text-primary">Next up</p>
-        <p className="mt-1 truncate text-base font-semibold text-foreground">{content.title}</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">{content.body}</p>
+        <p className="text-subheadline font-semibold text-primary">Next up</p>
+        <p className="mt-1 truncate text-title-2 text-foreground">{content.title}</p>
+        <p className="mt-1 text-sm text-muted-foreground">{content.body}</p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {content.secondary && (
-          <button
-            type="button"
-            onClick={content.secondary.onClick}
-            className="inline-flex min-h-[44px] items-center justify-center rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
+          <Button variant="ghost" onClick={content.secondary.onClick}>
             {content.secondary.label}
-          </button>
+          </Button>
         )}
-        <button
-          type="button"
-          onClick={content.onCta}
-          disabled={content.ctaBusy}
-          className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
-        >
-          {content.ctaBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon className="h-4 w-4" />}
+        <Button onClick={content.onCta} disabled={content.ctaBusy}>
+          {content.ctaBusy ? <Loader2 className="animate-spin" /> : <Icon />}
           {content.ctaLabel}
-        </button>
+        </Button>
       </div>
     </div>
   );

@@ -27,6 +27,7 @@ import {
 import { useTheme } from "next-themes";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { DEFAULT_THEME, getTheme, type ThemeMode } from "@scoutable/shared/lib/themes";
+import { windowThemeFor } from "@scoutable/shared/lib/appearance";
 import { getColorThemeSlot, setColorThemeSlot } from "@/lib/prefs";
 import { trackEvent } from "@/lib/analytics";
 
@@ -72,7 +73,7 @@ export function ColorThemeProvider({ children }: { children: ReactNode }) {
     // as the content: an explicit Light/Dark pins it, "System" hands it back
     // to the OS (null) so the material follows later appearance changes.
     getCurrentWindow()
-      .setTheme(theme === "system" ? null : mode)
+      .setTheme(windowThemeFor(theme, mode))
       .catch(() => {});
   }, [mode, slots, theme]);
 

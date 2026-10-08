@@ -1,11 +1,14 @@
 'use client'
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ProgressBar } from "@/components/ui/progress-bar";
+import { GroupedList, GroupHeader, GroupRow } from "@/components/ui/group";
+import { Page, PageContent } from "@/components/shell/page";
+import { Toolbar } from "@/components/shell/toolbar";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -18,12 +21,12 @@ import { openBillingPortal, openUpgradeFlow } from "@/lib/billing";
 import { DeleteAccountDialog } from "@/components/delete-account-dialog";
 import type { OrgContext } from "@/types/org";
 import { toast } from "sonner";
-import { LogOut, Zap, Users, Building2, ArrowUpRight, Loader2 } from "lucide-react";
+import { LogOut, Building2, ArrowUpRight, Loader2 } from "lucide-react";
 import { orgPlanColors, orgPlanLabel, type ImportQuota } from "@scoutable/shared/lib/plan-tier";
 import { DevicesCard } from "@/components/devices-card";
 import { MarketingEmailToggle } from "@/components/marketing-email-toggle";
 import { MyTeamCard } from "@/components/my-team-card";
-
+import { cn } from "@/lib/utils";
 
 type SubStatus = {
   isActive: boolean;
@@ -165,22 +168,37 @@ export function ProfilePage() {
 
   if (loading) {
     return (
-      <div className="p-6 max-w-2xl mx-auto space-y-4">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="h-32 rounded-xl bg-muted animate-pulse" />
-        ))}
-      </div>
+      <Page>
+        <Toolbar title="Profile" />
+        <PageContent width="narrow">
+          <div className="space-y-6">
+            <div className="flex items-center gap-4">
+              <div className="size-16 animate-pulse rounded-full bg-fill-3" />
+              <div className="space-y-2">
+                <div className="h-5 w-40 animate-pulse rounded bg-fill-3" />
+                <div className="h-3 w-24 animate-pulse rounded bg-fill-2" />
+              </div>
+            </div>
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-24 animate-pulse rounded-window bg-fill-2" />
+            ))}
+          </div>
+        </PageContent>
+      </Page>
     );
   }
 
   if (!ctx) {
     return (
-      <div className="p-6 max-w-2xl mx-auto">
-        <p className="text-sm text-destructive">Failed to load profile.</p>
-        <button className="mt-2 text-sm text-primary underline" onClick={() => { setLoading(true); load(); }}>
-          Retry
-        </button>
-      </div>
+      <Page>
+        <Toolbar title="Profile" />
+        <PageContent width="narrow">
+          <p className="text-sm text-destructive">Failed to load profile.</p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => { setLoading(true); load(); }}>
+            Try again
+          </Button>
+        </PageContent>
+      </Page>
     );
   }
 
@@ -212,289 +230,252 @@ export function ProfilePage() {
   const isTrialing = sub?.status === "trialing";
   const periodDate = formatDate(sub?.currentPeriodEnd ?? null);
   const isFreeOrRookie = activeOrgPlan === 'free' || activeOrgPlan === 'rookie';
+  const planStatus = activeOrgIsPersonal
+    ? (sub?.isActive ? (isTrialing ? "Trial" : "Active") : "Free")
+    : "Org plan";
 
   return (
-    <div className="p-6 max-w-2xl mx-auto space-y-4">
-      <div className="mb-2">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Profile</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Your account and subscription.</p>
-      </div>
-
-      {/* ── Identity header ── */}
-      <Card className="overflow-hidden">
-        <div className="h-16 bg-gradient-to-r from-primary/20 via-primary/10 to-transparent" />
-        <CardContent className="px-6 pb-6 pt-0">
-          <div className="flex items-end gap-4 -mt-8">
+    <Page>
+      <Toolbar title="Profile" />
+      <PageContent width="narrow">
+        <div className="space-y-7">
+          {/* ── Identity ── */}
+          <div className="flex items-center gap-4">
             <button
               type="button"
-              className="relative h-16 w-16 rounded-full overflow-hidden bg-primary/15 border-4 border-card flex items-center justify-center text-lg font-bold text-primary hover:opacity-80 transition-opacity flex-shrink-0"
+              className="group relative flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/15 text-lg font-semibold text-primary outline-none transition-transform duration-150 active:scale-95 focus-visible:ring-2 focus-visible:ring-selection focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               onClick={() => fileInputRef.current?.click()}
               title="Change avatar"
             >
               {avatarPreview
-                ? <img src={avatarPreview} alt="Avatar" className="h-full w-full object-cover" />
+                ? <img src={avatarPreview} alt="Avatar" className="size-full object-cover" />
                 : <span>{initials}</span>}
-              <div className="absolute inset-0 bg-black/0 hover:bg-black/20 transition-colors flex items-center justify-center">
-                <span className="text-white text-xs opacity-0 hover:opacity-100 font-medium">Edit</span>
-              </div>
+              <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-callout font-medium text-white opacity-0 transition-[background-color,opacity] duration-150 group-hover:bg-black/30 group-hover:opacity-100">
+                Edit
+              </span>
             </button>
             <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarFileChange} />
-            <div className="pb-1 min-w-0">
-              <p className="text-base font-semibold text-foreground truncate">
+            <div className="min-w-0">
+              <p className="truncate text-title-1 text-foreground">
                 {fullName || user?.email?.split("@")[0] || "—"}
               </p>
-              <div className="flex items-center gap-2 mt-1 flex-wrap">
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-callout text-muted-foreground">
                 {(!activeOrgIsPersonal || profile.isPlatformAdmin) && (
-                  <Badge variant={roleBadgeVariant(displayRole, profile.isPlatformAdmin)} className="text-xs">
+                  <Badge variant={roleBadgeVariant(displayRole, profile.isPlatformAdmin)} className="text-caption">
                     {profile.isPlatformAdmin ? "Platform admin" : displayRole.charAt(0).toUpperCase() + displayRole.slice(1)}
                   </Badge>
                 )}
                 {activeOrg && !activeOrg.isPersonal && (
-                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <Building2 className="h-3 w-3" />
+                  <span className="flex items-center gap-1">
+                    <Building2 className="size-3" />
                     {activeOrg.orgName}
                   </span>
                 )}
               </div>
             </div>
           </div>
-        </CardContent>
-      </Card>
 
-      {/* ── Plan & Usage ── */}
-      <Card>
-        <CardContent className="p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-            <Zap className="h-4 w-4 text-muted-foreground" />
-            Plan & usage
-          </h2>
-
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className={`h-2 w-2 rounded-full ${planColors.dot} flex-shrink-0`} />
-              <span className="font-semibold text-foreground">{planName}</span>
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${planColors.badge}`}>
-                {activeOrgIsPersonal
-                  ? (sub?.isActive ? (isTrialing ? "Trial" : "Active") : "Free")
-                  : "Org plan"}
-              </span>
-            </div>
-            {activeOrgIsPersonal && periodDate && (
-              <span className="text-xs text-muted-foreground">
-                {isTrialing ? "Trial ends" : "Renews"} {periodDate}
-              </span>
-            )}
-          </div>
-
-          {showUsage && (
-            <div className="space-y-1.5">
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>
-                  {importQuota!.window === "lifetime"
-                    ? "Free game imports"
-                    : "Game imports this month"}
-                </span>
-                <span className="flex items-center gap-2">
-                  {(usageWarn || usageAtCap) && (
-                    <button
-                      type="button"
-                      onClick={handleUpgrade}
-                      className="font-medium text-primary hover:underline"
-                    >
-                      {importQuota!.window === "lifetime"
-                        ? "Upgrade for more imports"
-                        : "Upgrade — unlimited imports"}
-                    </button>
-                  )}
-                  <span className={usageAtCap ? "text-destructive font-medium" : usageWarn ? "text-amber-600 dark:text-amber-500 font-medium" : ""}>
-                    {importQuota!.remaining} of {importQuota!.limit} left
+          {/* ── Plan and usage ── */}
+          <section>
+            <GroupHeader title="Plan and usage" />
+            <GroupedList>
+              <GroupRow
+                label={
+                  <span className="flex items-center gap-2">
+                    <span className={cn("size-2 shrink-0 rounded-full", planColors.dot)} />
+                    <span className="font-medium">{planName}</span>
+                    <span className={cn("rounded-full px-2 py-px text-caption", planColors.badge)}>{planStatus}</span>
                   </span>
-                </span>
-              </div>
-              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all ${usageAtCap ? "bg-destructive" : usageWarn ? "bg-amber-500" : "bg-primary"}`}
-                  style={{ width: `${Math.min(100, usageRatio * 100)}%` }}
+                }
+                description={
+                  activeOrgIsPersonal
+                    ? periodDate ? `${isTrialing ? "Trial ends" : "Renews"} ${periodDate}` : undefined
+                    : "Managed by your organization admin"
+                }
+              />
+              {showUsage && (
+                <div className="px-4 py-3">
+                  <div className="flex items-center justify-between gap-3 text-callout">
+                    <span className="text-muted-foreground">
+                      {importQuota!.window === "lifetime" ? "Free game imports" : "Game imports this month"}
+                    </span>
+                    <span className="flex items-center gap-3">
+                      {(usageWarn || usageAtCap) && (
+                        <button
+                          type="button"
+                          onClick={handleUpgrade}
+                          className="font-medium text-primary hover:underline"
+                        >
+                          {importQuota!.window === "lifetime" ? "Upgrade for more" : "Upgrade for unlimited"}
+                        </button>
+                      )}
+                      <span className={cn("nums", usageAtCap ? "font-medium text-destructive" : usageWarn ? "font-medium text-amber-600 dark:text-amber-400" : "text-foreground")}>
+                        {importQuota!.remaining} of {importQuota!.limit} left
+                      </span>
+                    </span>
+                  </div>
+                  <ProgressBar
+                    percent={Math.min(100, usageRatio * 100)}
+                    className="mt-2"
+                    fillClassName={usageAtCap ? "bg-destructive" : usageWarn ? "bg-amber-500" : undefined}
+                  />
+                  <p className="mt-1.5 text-subheadline text-muted-foreground">
+                    {importQuota!.window === "lifetime"
+                      ? "Deleting games doesn't restore free imports. Re-importing the same game is always free."
+                      : "Resets on the 1st of every month."}
+                  </p>
+                </div>
+              )}
+              {activeOrgIsPersonal && sub?.isActive && (
+                <GroupRow
+                  label="Subscription"
+                  description="Billing, invoices and plan changes"
+                  trailing={
+                    <Button variant="outline" size="sm" onClick={handleManageSubscription} disabled={loadingPortal}>
+                      {loadingPortal ? <Loader2 className="animate-spin" /> : <ArrowUpRight />}
+                      {loadingPortal ? "Opening…" : "Manage…"}
+                    </Button>
+                  }
+                />
+              )}
+              {activeOrgIsPersonal && isFreeOrRookie && (
+                <GroupRow
+                  label={activeOrgPlan === 'free' ? "Upgrade to Rookie or Pro" : "Upgrade to Pro"}
+                  description="More imports and clean exports"
+                  trailing={
+                    <Button size="sm" onClick={handleUpgrade} disabled={loadingPortal}>
+                      <ArrowUpRight />
+                      Upgrade…
+                    </Button>
+                  }
+                />
+              )}
+            </GroupedList>
+          </section>
+
+          <MyTeamCard />
+
+          {/* ── My clubs ── membership across every club, mirroring the mobile
+               profile. Staff additionally get a Manage shortcut per club — it
+               switches the active space like the space menu's Manage action,
+               since the org page manages the active org. Always rendered: this
+               is the only entry point to joining a club on desktop. */}
+          <section>
+            <GroupHeader title={myClubs.length === 1 ? "My club" : "My clubs"} />
+            <GroupedList>
+              {myClubs.length === 0 && (
+                <GroupRow label="No clubs yet" description="Your personal space works without one." />
+              )}
+              {myClubs.map((club) => (
+                <GroupRow
+                  key={club.orgId}
+                  label={club.orgName}
+                  description={club.teamNames.length > 0 ? club.teamNames.join(" · ") : undefined}
+                  trailing={
+                    <>
+                      <span className="capitalize">{club.role}</span>
+                      {club.isNtOrg && <span>NT</span>}
+                      {(club.role === "coach" || club.role === "admin") && (
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          title={`Teams, members and invites for ${club.orgName}`}
+                          onClick={() => {
+                            // The org page manages the ACTIVE space — switch
+                            // first, same as the space menu's Manage action.
+                            setActiveOrg(club.orgId);
+                            navigate("/organization");
+                          }}
+                        >
+                          Manage
+                        </Button>
+                      )}
+                    </>
+                  }
+                />
+              ))}
+              <GroupRow onClick={() => navigate("/onboarding")} chevron>
+                <span className="flex-1 text-sm text-primary">Join a club…</span>
+              </GroupRow>
+            </GroupedList>
+          </section>
+
+          {/* ── Personal info ── */}
+          <section>
+            <GroupHeader title="Personal info" />
+            <GroupedList>
+              <div className="flex min-h-11 items-center gap-4 px-4 py-2">
+                <Label htmlFor="full-name" className="w-24 shrink-0 text-sm text-muted-foreground">Full name</Label>
+                <Input
+                  id="full-name"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="Your name"
+                  className="h-8"
                 />
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                {importQuota!.window === "lifetime"
-                  ? "Deleting games doesn't restore free imports — re-importing the same game is always free."
-                  : "Resets on the 1st of every month."}
-              </p>
-            </div>
-          )}
+              <GroupRow
+                label="Photo"
+                description="Click your avatar above to change it. Max 5 MB."
+                trailing={
+                  <Button size="sm" onClick={handleSaveProfile} disabled={saving}>
+                    {saving ? "Saving…" : "Save changes"}
+                  </Button>
+                }
+              />
+            </GroupedList>
+          </section>
 
-          {activeOrgIsPersonal ? (
-            <>
-              {sub?.isActive && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full gap-1.5"
-                  onClick={handleManageSubscription}
-                  disabled={loadingPortal}
-                >
-                  {loadingPortal ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
-                  {loadingPortal ? "Opening…" : "Manage subscription"}
-                </Button>
-              )}
-              {isFreeOrRookie && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full gap-1.5"
-                  onClick={handleUpgrade}
-                  disabled={loadingPortal}
-                >
-                  <ArrowUpRight className="h-3.5 w-3.5" />
-                  {activeOrgPlan === 'free' ? "Upgrade to Rookie or Pro" : "Upgrade to Pro"}
-                </Button>
-              )}
-            </>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              Plan managed by your organization admin.
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      <MyTeamCard />
-
-      {/* ── My clubs ── membership across every club, mirroring the mobile
-           profile. Answers "what am I part of?" (the one question players
-           had on the org page); staff additionally get a Manage shortcut
-           per club — it switches the active space like the space menu's
-           Manage action, since the org page manages the active org.
-           Always rendered: this is the only entry point to joining a club on
-           desktop, and the people who need it most are exactly the ones with
-           no club yet. */}
-      <Card>
-        <CardContent className="p-6 space-y-3">
-          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-            <Users className="h-4 w-4 text-muted-foreground" />
-            {myClubs.length === 1 ? "My club" : "My clubs"}
-          </h2>
-          {myClubs.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              No clubs yet. Your personal space works without one.
-            </p>
-          )}
-          {myClubs.map((club) => (
-            <div key={club.orgId} className="space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-foreground">{club.orgName}</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground capitalize">{club.role}</span>
-                  {club.isNtOrg && <span className="text-xs text-muted-foreground">NT</span>}
-                  {(club.role === "coach" || club.role === "admin") && (
-                    <button
-                      type="button"
-                      className="text-xs text-primary underline-offset-2 hover:underline"
-                      title={`Teams, members and invites for ${club.orgName}`}
-                      onClick={() => {
-                        // The org page manages the ACTIVE space — switch
-                        // first, same as the space menu's Manage action.
-                        setActiveOrg(club.orgId);
-                        navigate("/organization");
-                      }}
-                    >
-                      Manage
-                    </button>
-                  )}
-                </div>
+          {/* ── Account ── */}
+          <section>
+            <GroupHeader title="Account" />
+            <GroupedList>
+              <GroupRow label="Email" trailing={<span className="truncate">{user?.email ?? ""}</span>} />
+              <GroupRow
+                label="Password"
+                description="We'll email you a reset link"
+                trailing={
+                  <Button variant="outline" size="sm" onClick={handleChangePassword}>
+                    Change password…
+                  </Button>
+                }
+              />
+              <div className="px-4 py-2">
+                <MarketingEmailToggle />
               </div>
-              {club.teamNames.length > 0 && (
-                <p className="text-xs text-muted-foreground">{club.teamNames.join(" · ")}</p>
-              )}
-            </div>
-          ))}
-          <button
-            type="button"
-            className="text-xs text-primary underline-offset-2 hover:underline"
-            onClick={() => navigate("/onboarding")}
-          >
-            Join a club
-          </button>
-        </CardContent>
-      </Card>
+            </GroupedList>
+          </section>
 
-      {/* ── Personal Info ── */}
-      <Card>
-        <CardContent className="p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-foreground">Personal Info</h2>
-          <div className="space-y-2">
-            <Label htmlFor="full-name">Full name</Label>
-            <Input
-              id="full-name"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="Your name"
-            />
-          </div>
-          <p className="text-xs text-muted-foreground">Click your avatar above to change photo. Max 5 MB.</p>
-          <Button onClick={handleSaveProfile} disabled={saving} size="sm">
-            {saving ? "Saving…" : "Save changes"}
-          </Button>
-        </CardContent>
-      </Card>
+          <DevicesCard />
 
-      {/* ── Account ── */}
-      <Card>
-        <CardContent className="p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-foreground">Account</h2>
-          <div className="space-y-2">
-            <Label>Email</Label>
-            <Input value={user?.email ?? ""} readOnly className="text-muted-foreground cursor-default" />
-          </div>
-          <Button variant="outline" size="sm" onClick={handleChangePassword}>
-            Change password
-          </Button>
-          <MarketingEmailToggle />
-        </CardContent>
-      </Card>
+          <GroupedList>
+            <GroupRow onClick={handleSignOut}>
+              <LogOut className="size-4 shrink-0 text-muted-foreground" />
+              <span className="flex-1 text-sm text-foreground">Sign out of {user?.email}</span>
+            </GroupRow>
+          </GroupedList>
 
-      {/* ── Devices ── */}
-      <DevicesCard />
-
-      {/* ── Sign out ── */}
-      <Card className="border-dashed">
-        <CardContent className="p-4">
-          <button
-            type="button"
-            onClick={handleSignOut}
-            className="w-full flex items-center justify-between text-sm text-muted-foreground hover:text-foreground transition-colors group"
-          >
-            <span>Sign out of {user?.email}</span>
-            <LogOut className="h-4 w-4 opacity-50 group-hover:opacity-100 transition-opacity" />
-          </button>
-        </CardContent>
-      </Card>
-
-      {/* ── Danger zone ── */}
-      <Card className="border-destructive/40">
-        <CardContent className="p-4 flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-medium text-foreground">Delete account</p>
-            <p className="text-xs text-muted-foreground">
-              Permanently erase your account and everything in it.
-            </p>
-          </div>
-          <DeleteAccountDialog
-            email={user?.email ?? ""}
-            trigger={
-              <Button
-                variant="outline"
-                size="sm"
-                className="shrink-0 text-red-600 border-red-600/40 hover:bg-red-600/10 hover:text-red-600"
-              >
-                Delete…
-              </Button>
-            }
-          />
-        </CardContent>
-      </Card>
-    </div>
+          <section>
+            <GroupHeader title="Delete account" />
+            <GroupedList>
+              <GroupRow
+                label="Delete account"
+                description="Permanently erase your account and everything in it."
+                trailing={
+                  <DeleteAccountDialog
+                    email={user?.email ?? ""}
+                    trigger={
+                      <Button variant="outline" size="sm" className="shrink-0 text-destructive hover:bg-destructive/10">
+                        Delete…
+                      </Button>
+                    }
+                  />
+                }
+              />
+            </GroupedList>
+          </section>
+        </div>
+      </PageContent>
+    </Page>
   );
 }
