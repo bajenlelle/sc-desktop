@@ -52,7 +52,7 @@ import { VideoClipControls } from "@/components/video-clip-controls";
 import { listMatchesLight, listEventsForMatches, listFolders, createFolder, updateFolder, deleteFolder, updateVideoUrl } from "@/lib/matches-db";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { probeMatches, type VideoFileStatus } from "@/lib/video-probe";
-import { usePlayerFullscreen, useIdleControls } from "@/lib/use-player-fullscreen";
+import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { cn } from "@/lib/utils";
 import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderItems, updateClip, insertTextCard, updateTextCard, setPlaylistTeams, setPlaylistUsers, notifyPendingPlaylistShares } from "@/lib/playlists-db";
 import { groupShipFailures, mergeShipResults, type ClipShipResult } from "@scoutable/shared/lib/ship-result";
@@ -63,7 +63,7 @@ import type { Label, LabelColor, ClipKey } from "@scoutable/shared/types/labels"
 import { eventColors, eventLabel, formatGameClock, isBookkeepingEvent, parseGameClock, playerName } from "@scoutable/shared/lib/events";
 import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import type { CropKeyframe } from "@scoutable/shared/lib/crop-path";
-import { ClipTimeline, CropEditorBar, CropOverlay, upsertKeyframe } from "@/components/crop-editor";
+import { CropEditorBar, CropOverlay, upsertKeyframe } from "@/components/crop-editor";
 import { ExportFormatDialog, type ExportAction } from "@/components/export-format-dialog";
 import {
   moveBlock,
@@ -127,6 +127,15 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import type { Playlist, PlaylistFolder, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 import { isClipItem } from "@/types/match";
 import { toast } from "sonner";
+import { Page } from "@/components/shell/page";
+import { Toolbar } from "@/components/shell/toolbar";
+import { EditorToolbar } from "@/components/editor/editor-toolbar";
+import { PlayerStage } from "@/components/editor/player-stage";
+import { usePersistentVideo } from "@/components/editor/use-persistent-video";
+import { ClipRow, TextCardRow, type LabelRowControls } from "@/components/editor/clip-rows";
+import { useHotkeys, useKeyScope } from "@/lib/key-scope";
+import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
+import { clamp } from "@scoutable/shared/lib/motion-math";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -231,465 +240,6 @@ function matchesSituation(e: PlayByPlayEvent, f: string): boolean {
     case "subtype:24sec":         return e.type === "turnover" && e.subType === "24sec";
     default: return false;
   }
-}
-
-// ---------------------------------------------------------------------------
-// DraggableRow (used only in manual sort mode)
-// ---------------------------------------------------------------------------
-
-interface LabelRowControls {
-  labels: Label[];
-  assignedIds: Set<string>;
-  onToggle: (labelId: string, state: LabelTriState) => Promise<void> | void;
-  onCreate: (name: string, color: LabelColor) => Promise<Label>;
-  onRename: (id: string, name: string) => Promise<void>;
-  onRecolor: (id: string, color: LabelColor) => Promise<void>;
-  onDelete: (id: string) => Promise<void>;
-  onSeedDefaults?: () => Promise<void>;
-  scopeTitle?: string;
-  scopeHint?: string;
-}
-
-function DraggableRow({
-  item,
-  index,
-  isActive,
-  isMultiMatch,
-  matchTitle,
-  preOffset,
-  postOffset,
-  note,
-  isSelected,
-  onSelect,
-  isDragTarget,
-  dragTargetPosition,
-  onClick,
-  onDragStart,
-  onDragOver,
-  onDragLeave,
-  onDrop,
-  onDragEnd,
-  onInsertTextCardAbove,
-  onRemove,
-  labelControls,
-  groupPos,
-  groupSize,
-  onUngroup,
-  isDragSource,
-  canGroupSelection,
-  selectionCount,
-  onGroupSelected,
-}: {
-  item: QueueItem;
-  index: number;
-  isActive: boolean;
-  isMultiMatch: boolean;
-  matchTitle?: string;
-  preOffset: number;
-  postOffset: number;
-  note?: string;
-  isSelected: boolean;
-  onSelect: (e: React.MouseEvent) => void;
-  isDragTarget: boolean;
-  dragTargetPosition: "above" | "below";
-  onClick: (e: React.MouseEvent) => void;
-  onDragStart: (e: React.DragEvent) => void;
-  onDragOver: (e: React.DragEvent, index: number) => void;
-  onDragLeave: () => void;
-  onDrop: (e: React.DragEvent, index: number) => void;
-  onDragEnd: () => void;
-  onInsertTextCardAbove: () => void;
-  onRemove: () => void;
-  labelControls?: LabelRowControls;
-  groupPos?: GroupRunInfo["pos"];
-  groupSize?: number;
-  onUngroup?: () => void;
-  isDragSource?: boolean;
-  canGroupSelection?: boolean;
-  selectionCount?: number;
-  onGroupSelected?: () => void;
-}) {
-  const { event } = item;
-  return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <tr
-          draggable
-          data-event-id={event.eventId}
-          className={`group cursor-grab transition-colors hover:bg-muted/50 ${
-            groupPos && !isActive ? "bg-primary/[0.05]" : ""
-          } ${isActive ? "bg-primary/10" : ""} ${isDragSource ? "opacity-40" : ""} ${
-            isDragTarget && dragTargetPosition === "above" ? "border-t-2 border-t-primary" : ""
-          } ${
-            isDragTarget && dragTargetPosition === "below" ? "border-b-2 border-b-primary" : ""
-          }`}
-          onClick={onClick}
-          onMouseDown={(e) => { if (e.shiftKey) e.preventDefault(); }}
-          onDragStart={onDragStart}
-          onDragOver={(e) => onDragOver(e, index)}
-          onDragLeave={onDragLeave}
-          onDrop={(e) => onDrop(e, index)}
-          onDragEnd={onDragEnd}
-        >
-          <td className={`w-1.5 min-w-1.5 p-0 ${eventColors(event).strip}`} aria-hidden />
-          <td className="relative w-8 px-2 py-2.5">
-            {groupPos && (
-              <span
-                aria-hidden
-                className={`absolute left-1 w-[2px] rounded-full bg-primary/50 ${
-                  groupPos === "first" || groupPos === "only" ? "top-1.5" : "top-0"
-                } ${groupPos === "last" || groupPos === "only" ? "bottom-1.5" : "bottom-0"}`}
-              />
-            )}
-            <span className="flex items-center justify-center opacity-0 group-hover:opacity-60 transition-opacity">
-              <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
-            </span>
-          </td>
-          <td className="w-8 px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
-            <input
-              type="checkbox"
-              checked={isSelected}
-              onChange={() => {}}
-              onClick={onSelect}
-              className="h-3.5 w-3.5 rounded border-border accent-primary"
-            />
-          </td>
-          <td className="px-4 py-2.5 text-muted-foreground">Q{event.period}</td>
-          <td className="px-4 py-2.5 font-mono text-muted-foreground">
-            {formatGameClock(event.gameClockTime)}
-          </td>
-          {isMultiMatch && (
-            <td className="px-4 py-2.5 text-xs text-muted-foreground truncate max-w-[120px]">
-              {matchTitle ?? "—"}
-            </td>
-          )}
-          <td className="px-4 py-2.5">
-            <div className="flex items-center gap-1.5">
-              {(groupPos === "first" || groupPos === "only") && (
-                <span
-                  className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary"
-                  title={`${groupSize} items move together`}
-                >
-                  <Link2 className="h-2.5 w-2.5" />
-                  {groupSize}
-                  {onUngroup && (
-                    <button
-                      type="button"
-                      className="ml-0.5 rounded-full hover:bg-primary/20"
-                      title="Ungroup"
-                      onClick={(e) => { e.stopPropagation(); onUngroup(); }}
-                    >
-                      <X className="h-2.5 w-2.5" />
-                    </button>
-                  )}
-                </span>
-              )}
-              <span
-                className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${eventColors(event).badge}`}
-              >
-                {eventLabel(event)}
-              </span>
-              {labelControls && (() => {
-                const assigned = labelControls.labels.filter((l) => labelControls.assignedIds.has(l.id));
-                if (assigned.length === 0) return null;
-                const visible = assigned.slice(0, 2);
-                const overflow = assigned.slice(2);
-                return (
-                  <>
-                    {visible.map((l) => <LabelChip key={l.id} label={l} />)}
-                    {overflow.length > 0 && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="text-xs text-muted-foreground">+{overflow.length}</span>
-                        </TooltipTrigger>
-                        <TooltipContent>{overflow.map((l) => l.name).join(", ")}</TooltipContent>
-                      </Tooltip>
-                    )}
-                  </>
-                );
-              })()}
-            </div>
-          </td>
-          <td className="px-4 py-2.5 text-foreground/80">{playerName(event)}</td>
-          <td className="px-4 py-2.5 text-muted-foreground">
-            {event.eventTeam?.teamName ?? "—"}
-          </td>
-          <td className="px-4 py-2.5">
-            <div className="flex items-center gap-1">
-              <Play
-                className={`h-3.5 w-3.5 ${
-                  isActive ? "text-primary fill-primary" : "text-muted-foreground/30"
-                }`}
-              />
-              {(preOffset !== 0 || postOffset !== 0) && (
-                <span
-                  className="text-[10px] font-medium text-orange-400"
-                  title={`Pre ${preOffset >= 0 ? "+" : ""}${preOffset}s / Post ${postOffset >= 0 ? "+" : ""}${postOffset}s`}
-                >
-                  ±
-                </span>
-              )}
-              {note && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <MessageSquare className="ml-0.5 h-3 w-3 shrink-0 text-primary/60" />
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-56 whitespace-pre-wrap">{note}</TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-          </td>
-          <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-0.5">
-              {labelControls && (
-                <LabelPickerPopover
-                  trigger={
-                    <button
-                      type="button"
-                      className="opacity-0 group-hover:opacity-100 transition-opacity rounded p-0.5 text-muted-foreground hover:text-primary hover:bg-primary/10 data-[state=open]:opacity-100"
-                      onClick={(e) => e.stopPropagation()}
-                      title={labelControls.scopeTitle ?? "Labels"}
-                    >
-                      <Tag className="h-3.5 w-3.5" />
-                    </button>
-                  }
-                  labels={labelControls.labels}
-                  assignedAllIds={labelControls.assignedIds}
-                  onToggle={labelControls.onToggle}
-                  onCreate={labelControls.onCreate}
-                  onRename={labelControls.onRename}
-                  onRecolor={labelControls.onRecolor}
-                  onDelete={labelControls.onDelete}
-                  onSeedDefaults={labelControls.onSeedDefaults}
-                  scopeTitle={labelControls.scopeTitle}
-                  scopeHint={labelControls.scopeHint}
-                />
-              )}
-              <button
-                type="button"
-                className="opacity-0 group-hover:opacity-100 transition-opacity rounded p-0.5 text-muted-foreground hover:text-red-500 hover:bg-red-500/10"
-                onClick={(e) => { e.stopPropagation(); onRemove(); }}
-                title="Remove from playlist"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </td>
-        </tr>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuItem onSelect={onInsertTextCardAbove}>
-          Insert text card above
-        </ContextMenuItem>
-        {canGroupSelection && isSelected && onGroupSelected && (
-          <ContextMenuItem onSelect={onGroupSelected}>
-            Group {selectionCount} selected items
-          </ContextMenuItem>
-        )}
-        {groupPos && onUngroup && (
-          <ContextMenuItem onSelect={onUngroup}>
-            Ungroup ({groupSize} items)
-          </ContextMenuItem>
-        )}
-      </ContextMenuContent>
-    </ContextMenu>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// TextCardRow
-// ---------------------------------------------------------------------------
-
-function TextCardRow({
-  card,
-  index,
-  isActive,
-  isSelected,
-  onSelect,
-  isDragTarget,
-  dragTargetPosition,
-  onDragStart,
-  onDragOver,
-  onDragLeave,
-  onDrop,
-  onDragEnd,
-  onTextChange,
-  onTextSave,
-  onDurationChange,
-  onClick,
-  onRemove,
-  groupPos,
-  groupSize,
-  onUngroup,
-  isDragSource,
-}: {
-  card: PlaylistTextCard;
-  index: number;
-  isActive: boolean;
-  isSelected: boolean;
-  onSelect: (e: React.MouseEvent) => void;
-  isDragTarget: boolean;
-  dragTargetPosition: "above" | "below";
-  onDragStart: (e: React.DragEvent) => void;
-  onDragOver: (e: React.DragEvent, index: number) => void;
-  onDragLeave: () => void;
-  onDrop: (e: React.DragEvent, index: number) => void;
-  onDragEnd: () => void;
-  onTextChange: (id: string, text: string) => void;
-  onTextSave: (id: string, text: string) => void;
-  onDurationChange: (id: string, duration: number) => void;
-  onClick: (e: React.MouseEvent) => void;
-  onRemove: () => void;
-  groupPos?: GroupRunInfo["pos"];
-  groupSize?: number;
-  onUngroup?: () => void;
-  isDragSource?: boolean;
-}) {
-  const [durationOpen, setDurationOpen] = useState(false);
-  const [draftDuration, setDraftDuration] = useState(String(card.durationSeconds));
-
-  return (
-    <tr
-      draggable
-      data-text-card-id={card.id}
-      className={`group cursor-grab transition-colors bg-amber-50/30 dark:bg-amber-950/20 hover:bg-amber-100/40 dark:hover:bg-amber-900/30 ${
-        isActive ? "ring-1 ring-inset ring-amber-400" : ""
-      } ${isDragSource ? "opacity-40" : ""} ${
-        isDragTarget && dragTargetPosition === "above" ? "border-t-2 border-t-primary" : ""
-      } ${
-        isDragTarget && dragTargetPosition === "below" ? "border-b-2 border-b-primary" : ""
-      }`}
-      onClick={onClick}
-      onMouseDown={(e) => { if (e.shiftKey) e.preventDefault(); }}
-      onDragStart={onDragStart}
-      onDragOver={(e) => onDragOver(e, index)}
-      onDragLeave={onDragLeave}
-      onDrop={(e) => onDrop(e, index)}
-      onDragEnd={onDragEnd}
-    >
-      <td className="w-1.5 min-w-1.5 p-0 bg-amber-400" aria-hidden />
-      <td className="relative w-8 px-2 py-2.5">
-        {groupPos && (
-          <span
-            aria-hidden
-            className={`absolute left-1 w-[2px] rounded-full bg-primary/50 ${
-              groupPos === "first" || groupPos === "only" ? "top-1.5" : "top-0"
-            } ${groupPos === "last" || groupPos === "only" ? "bottom-1.5" : "bottom-0"}`}
-          />
-        )}
-        <span className="flex items-center justify-center opacity-0 group-hover:opacity-60 transition-opacity">
-          <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
-        </span>
-      </td>
-      <td className="w-8 px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
-        <input
-          type="checkbox"
-          checked={isSelected}
-          onChange={() => {}}
-          onClick={onSelect}
-          className="h-3.5 w-3.5 rounded border-border accent-primary"
-        />
-      </td>
-      {/* Icon */}
-      <td className="px-4 py-2.5" colSpan={2}>
-        <div className="flex items-center gap-2">
-          {(groupPos === "first" || groupPos === "only") && (
-            <span
-              className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary"
-              title={`${groupSize} items move together`}
-            >
-              <Link2 className="h-2.5 w-2.5" />
-              {groupSize}
-              {onUngroup && (
-                <button
-                  type="button"
-                  className="ml-0.5 rounded-full hover:bg-primary/20"
-                  title="Ungroup"
-                  onClick={(e) => { e.stopPropagation(); onUngroup(); }}
-                >
-                  <X className="h-2.5 w-2.5" />
-                </button>
-              )}
-            </span>
-          )}
-          <Type className="h-3.5 w-3.5 shrink-0 text-amber-400" />
-          <input
-            type="text"
-            value={card.text}
-            placeholder="Text card…"
-            className="min-w-0 flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/50 outline-none focus:ring-0 border-none"
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => onTextChange(card.id, e.target.value)}
-            onBlur={(e) => onTextSave(card.id, e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.currentTarget.blur();
-              }
-            }}
-          />
-        </div>
-      </td>
-      <td className="px-4 py-2.5" colSpan={4}>
-        <div className="flex items-center gap-2">
-          <Popover open={durationOpen} onOpenChange={(open) => {
-            setDurationOpen(open);
-            if (open) setDraftDuration(String(card.durationSeconds));
-          }}>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-800/50 transition-colors"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {card.durationSeconds}s
-              </button>
-            </PopoverTrigger>
-            <PopoverContent className="w-40 p-3" onClick={(e) => e.stopPropagation()}>
-              <label className="text-xs text-muted-foreground block mb-1.5">Duration (seconds)</label>
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  min={1}
-                  max={120}
-                  value={draftDuration}
-                  onChange={(e) => setDraftDuration(e.target.value)}
-                  className="h-7 w-full rounded border border-border bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      const n = Number(draftDuration);
-                      if (n > 0) onDurationChange(card.id, n);
-                      setDurationOpen(false);
-                    }
-                  }}
-                />
-                <button
-                  type="button"
-                  className="shrink-0 rounded bg-primary px-2 py-1 text-xs text-primary-foreground hover:bg-primary/90"
-                  onClick={() => {
-                    const n = Number(draftDuration);
-                    if (n > 0) onDurationChange(card.id, n);
-                    setDurationOpen(false);
-                  }}
-                >
-                  OK
-                </button>
-              </div>
-            </PopoverContent>
-          </Popover>
-        </div>
-      </td>
-      <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
-        <button
-          type="button"
-          className="opacity-0 group-hover:opacity-100 transition-opacity rounded p-0.5 text-muted-foreground hover:text-red-500 hover:bg-red-500/10"
-          onClick={(e) => { e.stopPropagation(); onRemove(); }}
-          title="Remove from playlist"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
-      </td>
-    </tr>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1104,29 +654,34 @@ function ClipBrowserPanel({
   const isQueueActive = isPlaying;
 
   // Arrow key navigation: ↓/↑ = next/prev clip, ← = replay
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.code !== "ArrowDown" && e.code !== "ArrowUp" && e.code !== "ArrowLeft") return;
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      if ((e.target as HTMLElement).isContentEditable) return;
+  // Keys belong to the sheet while it is open (one owner at a time).
+  useKeyScope("clip-browser", true);
+  useHotkeys("clip-browser", (e) => {
+    const action = resolvePlayerKey(e);
+    if (action === "toggle-play") {
       e.preventDefault();
-      if (e.code === "ArrowLeft") { handleReplayRef.current(); return; }
-      const items = filteredRef.current;
-      if (items.length === 0) return;
-      const cur = items.findIndex((x) => `${x.matchId}:${x.event.eventId}` === activeEventKeyRef.current);
-      const next =
-        e.code === "ArrowDown"
-          ? cur === -1 ? 0 : Math.min(cur + 1, items.length - 1)
-          : cur === -1 ? items.length - 1 : Math.max(cur - 1, 0);
-      if (next !== cur || cur === -1) {
-        const { event, matchId } = items[next];
-        handleRowClickRef.current(event, matchId);
-      }
+      const video = videoRef.current;
+      if (!video) return;
+      if (!isPlaying && video.paused) { handlePlayAll(); return; }
+      if (video.paused) video.play().catch(() => {});
+      else video.pause();
+      return;
     }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, []);
+    if (action === "replay") { e.preventDefault(); handleReplayRef.current(); return; }
+    if (action !== "next" && action !== "prev") return;
+    e.preventDefault();
+    const items = filteredRef.current;
+    if (items.length === 0) return;
+    const cur = items.findIndex((x) => `${x.matchId}:${x.event.eventId}` === activeEventKeyRef.current);
+    const next =
+      action === "next"
+        ? cur === -1 ? 0 : Math.min(cur + 1, items.length - 1)
+        : cur === -1 ? items.length - 1 : Math.max(cur - 1, 0);
+    if (next !== cur || cur === -1) {
+      const { event, matchId } = items[next];
+      handleRowClickRef.current(event, matchId);
+    }
+  });
 
   // Scroll active row into view
   useEffect(() => {
@@ -1340,7 +895,7 @@ function ClipBrowserPanel({
 
       {/* Content: event table | video player */}
       <ResizablePanelGroup direction="horizontal" className="flex-1 min-h-0">
-        <ResizablePanel defaultSize={55} minSize={30}>
+        <ResizablePanel defaultSize="55" minSize="30">
           <div className="h-full overflow-y-auto">
             {filtered.length === 0 ? (
               eventsLoading ? (
@@ -1491,7 +1046,7 @@ function ClipBrowserPanel({
 
         <ResizableHandle />
 
-        <ResizablePanel defaultSize={45} minSize={25}>
+        <ResizablePanel defaultSize="45" minSize="25">
           <div className="flex h-full flex-col gap-2 p-4">
             {localVideoUrl ? (
               <>
@@ -1522,6 +1077,7 @@ function ClipBrowserPanel({
                   onReplay={handleReplay}
                   onStop={handleStop}
                   onPlayAll={handlePlayAll}
+                  ownsSpace={false}
                 />
               </>
             ) : (
@@ -1731,6 +1287,11 @@ export function PlaylistsPage() {
   const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  // Surfaced as a toast: an error is feedback, not a permanent line of
+  // chrome under the toolbar.
+  useEffect(() => {
+    if (exportError) toast.error(exportError);
+  }, [exportError]);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
   const [isShipping, setIsShipping] = useState(false);
   const [shipProgress, setShipProgress] = useState<{ done: number; total: number } | null>(null);
@@ -1775,31 +1336,8 @@ export function PlaylistsPage() {
   const [cropDimmed, setCropDimmed] = useState(false);
   // Fullscreen player (native window fullscreen + fixed stage layer).
   const playerFs = usePlayerFullscreen();
-  const fsIdle = useIdleControls(playerFs.active);
-  const [fsChromeHover, setFsChromeHover] = useState(false);
-  const [fsPaused, setFsPaused] = useState(true);
   const playerFsRef = useRef(playerFs);
   playerFsRef.current = playerFs;
-  // Chrome never hides while paused (a presenting coach talks over frozen
-  // frames) or while the pointer is on the controls.
-  useEffect(() => {
-    fsIdle.setPinned(fsChromeHover || fsPaused);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fsChromeHover, fsPaused]);
-  useEffect(() => {
-    if (!playerFs.active) return;
-    const video = videoRef.current;
-    if (!video) return;
-    setFsPaused(video.paused);
-    const onPlay = () => setFsPaused(false);
-    const onPause = () => setFsPaused(true);
-    video.addEventListener("play", onPlay);
-    video.addEventListener("pause", onPause);
-    return () => {
-      video.removeEventListener("play", onPlay);
-      video.removeEventListener("pause", onPause);
-    };
-  }, [playerFs.active]);
   // View → Fullscreen Player (⌘⇧F) — same CustomEvent bridge as ⌘B.
   useEffect(() => {
     const handler = () => playerFsRef.current.toggle();
@@ -1870,7 +1408,11 @@ export function PlaylistsPage() {
 
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
 
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  // One <video> for the editor's life: layouts and fullscreen move it,
+  // never recreate it (see use-persistent-video.ts).
+  const persistentVideo = usePersistentVideo();
+  const videoRef = useRef<HTMLVideoElement | null>(persistentVideo);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const queueRef = useRef<PlaybackItem[]>([]);
   const queueIdxRef = useRef<number>(0);
   const [clipNote, setClipNote] = useState("");
@@ -3045,23 +2587,28 @@ export function PlaylistsPage() {
     _handleRowClickRef.current(items[cur + 1]);
   }, []);
 
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (
-        e.code !== "ArrowDown" && e.code !== "ArrowUp" && e.code !== "ArrowLeft" &&
-        e.code !== "KeyF" && e.code !== "Escape"
-      ) return;
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      if ((e.target as HTMLElement).isContentEditable) return;
-      if (e.code === "KeyF") {
-        // Plain F only — leave ⌘F/etc. to the system.
-        if (e.metaKey || e.ctrlKey || e.altKey) return;
+  // One key owner for the page (src/lib/key-scope.ts); the Add Clips sheet
+  // registers its own scope on top while it is open. The handler closes
+  // over the latest render, so no refs are needed for state.
+  useKeyScope("editor", true);
+  useHotkeys("editor", (e) => {
+    const action = resolvePlayerKey(e);
+    if (!action) return;
+    const video = videoRef.current;
+    const nudge = (delta: number) => {
+      if (!video || activeClipCrop.start === null || activeClipCrop.end === null) return;
+      video.currentTime = clamp(
+        video.currentTime + delta,
+        activeClipCrop.start,
+        Math.max(activeClipCrop.start, activeClipCrop.end - 0.05),
+      );
+    };
+    switch (action) {
+      case "fullscreen":
         e.preventDefault();
         playerFsRef.current.toggle();
         return;
-      }
-      if (e.code === "Escape") {
+      case "escape":
         // Dialogs own their Escape; only a bare fullscreen layer exits here.
         // (macOS may have already dropped native fullscreen itself — this
         // closes the CSS layer; the hook's poll reconciles the window.)
@@ -3070,23 +2617,80 @@ export function PlaylistsPage() {
         e.preventDefault();
         void playerFsRef.current.exit();
         return;
+      case "replay":
+        e.preventDefault();
+        _handleReplayRef.current();
+        return;
+      case "toggle-play": {
+        e.preventDefault();
+        if (!video) return;
+        if (activeEventId === null && activeTextCard === null && video.paused) {
+          if (queueItems.length > 0) startQueue(queueItems);
+          return;
+        }
+        if (video.paused) video.play().catch(() => {});
+        else video.pause();
+        return;
       }
-      e.preventDefault();
-      if (e.code === "ArrowLeft") { _handleReplayRef.current(); return; }
-      const items = _sortedEventsRef.current;
-      if (items.length === 0) return;
-      const cur = items.findIndex(i =>
-        isTextCard(i) ? (i as PlaylistTextCard).id === activeTextCardRef.current?.id
-                       : (i as QueueItem).event.eventId === _activeEventIdRef.current
-      );
-      const next = e.code === "ArrowDown"
-        ? cur === -1 ? 0 : Math.min(cur + 1, items.length - 1)
-        : cur === -1 ? items.length - 1 : Math.max(cur - 1, 0);
-      if (next !== cur || cur === -1) _handleRowClickRef.current(items[next]);
+      case "nudge-back":
+        e.preventDefault();
+        nudge(-NUDGE_SECONDS);
+        return;
+      case "nudge-forward":
+        e.preventDefault();
+        nudge(NUDGE_SECONDS);
+        return;
+      case "nudge-back-far":
+        e.preventDefault();
+        nudge(-NUDGE_FAR_SECONDS);
+        return;
+      case "nudge-forward-far":
+        e.preventDefault();
+        nudge(NUDGE_FAR_SECONDS);
+        return;
+      case "shuttle-pause":
+        e.preventDefault();
+        video?.pause();
+        return;
+      case "shuttle-forward": {
+        e.preventDefault();
+        if (!video) return;
+        setPlaybackSpeed(nextShuttleRate(playbackSpeed));
+        if (video.paused) video.play().catch(() => {});
+        return;
+      }
+      case "shuttle-back":
+        // WebKit has no reverse playback; stepping back is the honest version.
+        e.preventDefault();
+        nudge(-5);
+        return;
+      case "remove":
+        if (selectedClipIds.size === 0) return;
+        e.preventDefault();
+        void handleRemoveSelected();
+        return;
+      case "select-all":
+        if (queueItems.length === 0) return;
+        e.preventDefault();
+        setSelectedClipIds(new Set(queueItems.map(itemKey)));
+        return;
+      case "next":
+      case "prev": {
+        e.preventDefault();
+        const items = _sortedEventsRef.current;
+        if (items.length === 0) return;
+        const cur = items.findIndex(i =>
+          isTextCard(i) ? (i as PlaylistTextCard).id === activeTextCardRef.current?.id
+                         : (i as QueueItem).event.eventId === _activeEventIdRef.current
+        );
+        const next = action === "next"
+          ? cur === -1 ? 0 : Math.min(cur + 1, items.length - 1)
+          : cur === -1 ? items.length - 1 : Math.max(cur - 1, 0);
+        if (next !== cur || cur === -1) _handleRowClickRef.current(items[next]);
+        return;
+      }
     }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, []);
+  });
 
   useEffect(() => {
     if (activeEventId === null) return;
@@ -5101,176 +4705,136 @@ export function PlaylistsPage() {
   // they were duplicated verbatim before; only the ResizablePanel wrappers
   // and padding differ per layout. Edit these once for both.
   const playerStack = localVideoUrl ? (
-      <div
-        className={playerFs.active
-          ? cn("fixed inset-0 z-50 flex flex-col bg-black", !fsIdle.visible && "cursor-none")
-          : "contents"}
-      >
-        {/* Stage: in fullscreen a fixed-aspect box centered on black, so every
-            overlay's coordinate system (crop window, keyframes, text cards)
-            stays exactly the rendered video box. Chrome floats above it and
-            never reflows it. Windowed renders today's exact markup. */}
-        <div
-          className={playerFs.active ? "relative min-h-0 flex-1 flex items-center justify-center" : "contents"}
-          onDoubleClick={cropMode ? undefined : () => playerFsRef.current.toggle()}
-        >
-        <div className={playerFs.active ? "relative w-full max-w-full max-h-full aspect-video" : "relative"}>
-          <VideoPlayer src={localVideoUrl} videoRef={videoRef} />
-          {cropMode && activeClipKey && !activeTextCard && (
-            <CropOverlay
-              videoRef={videoRef}
-              keyframes={activeClipCrop.keyframes}
-              dimmed={cropDimmed}
-              onCommit={handleCropCommit}
-            />
-          )}
-          {activeMatchId &&
-            videoStatusByMatch.get(activeMatchId) !== undefined &&
-            videoStatusByMatch.get(activeMatchId) !== "ok" &&
-            !activeTextCard && (
-            <div className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-3 bg-black/85 px-6 text-center">
-              <VideoOff className="h-8 w-8 text-amber-400" />
-              <p className="text-sm font-medium text-white">
-                This game's video file can't be found
-              </p>
-              <p className="max-w-sm text-xs text-white/70">
-                It may have been moved or renamed, or it's on another computer —
-                games reference the file in place, nothing is uploaded. Point
-                Scoutable at the file to keep working.
-              </p>
-              <Button size="sm" onClick={handleLocateActiveVideo}>
-                Locate file…
-              </Button>
-            </div>
-          )}
-          {activeTextCard && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-black transition-opacity duration-200">
-              <p className="text-center text-4xl font-semibold text-white px-8">{activeTextCard.text}</p>
-            </div>
-          )}
-        </div>
-        </div>
-        {playerFs.active && (
-          <div
-            className={cn(
-              "dark absolute inset-x-0 top-0 z-[25] flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-5 pb-10 pt-4 transition-opacity motion-safe:duration-200",
-              fsIdle.visible ? "opacity-100" : "pointer-events-none opacity-0"
-            )}
+      <div className={playerFs.active ? "fixed inset-0 z-50 flex flex-col bg-black" : "contents"}>
+        {/* Stage: in fullscreen it fills the layer; every overlay's coordinate
+            system (crop window, keyframes, text cards) is the rendered video
+            box in both cases. */}
+        <div className={playerFs.active ? "relative min-h-0 flex-1" : "relative"}>
+          <PlayerStage
+            video={persistentVideo}
+            src={localVideoUrl}
+            fullscreen={playerFs.active}
+            onToggleFullscreen={() => playerFsRef.current.toggle()}
+            onExitFullscreen={() => void playerFs.exit()}
+            title={selected?.name}
+            position={listPosition >= 0 ? { index: listPosition, total: queueItems.length } : null}
+            clipWindow={
+              activeClipKey && activeClipCrop.start !== null && activeClipCrop.end !== null
+                ? { start: activeClipCrop.start, end: activeClipCrop.end }
+                : null
+            }
+            markers={cropMode ? activeClipCrop.keyframes : undefined}
+            onSeek={handleCropSeek}
+            transport={{
+              canPrev,
+              canNext,
+              isQueueActive,
+              onPrev: handlePrev,
+              onNext: handleNext,
+              onReplay: handleReplay,
+              onStop: handleStop,
+              onPlayAll: () => startQueue(queueItems),
+            }}
+            speed={playbackSpeed}
+            onSpeedChange={setPlaybackSpeed}
+            interactive={!cropMode}
           >
-            <span className="truncate text-sm font-medium text-white">{selected?.name}</span>
-            {listPosition >= 0 && (
-              <span className="shrink-0 text-xs tabular-nums text-white/70">
-                {listPosition + 1} / {queueItems.length}
-              </span>
+            {cropMode && activeClipKey && !activeTextCard && (
+              <CropOverlay
+                videoRef={videoRef}
+                keyframes={activeClipCrop.keyframes}
+                dimmed={cropDimmed}
+                onCommit={handleCropCommit}
+              />
             )}
-            <div className="flex-1" />
-            {/* Esc is the OS's on macOS — an explicit exit must always exist. */}
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 shrink-0 gap-1.5 border-white/25 bg-black/40 text-white hover:bg-black/60 hover:text-white"
-              onClick={() => void playerFs.exit()}
-            >
-              <Minimize2 className="h-3.5 w-3.5" />
-              Exit full screen
-            </Button>
+            {activeMatchId &&
+              videoStatusByMatch.get(activeMatchId) !== undefined &&
+              videoStatusByMatch.get(activeMatchId) !== "ok" &&
+              !activeTextCard && (
+              <div
+                className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-3 bg-black/85 px-6 text-center"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <VideoOff className="size-8 text-amber-400" />
+                <p className="text-sm font-medium text-white">
+                  This game's video file can't be found
+                </p>
+                <p className="max-w-sm text-xs text-white/70">
+                  It may have been moved or renamed, or it's on another computer —
+                  games reference the file in place, nothing is uploaded. Point
+                  Scoutable at the file to keep working.
+                </p>
+                <Button size="sm" onClick={handleLocateActiveVideo}>
+                  Locate file…
+                </Button>
+              </div>
+            )}
+            {activeTextCard && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-black">
+                <p className="px-8 text-center text-4xl font-semibold text-white">{activeTextCard.text}</p>
+              </div>
+            )}
+          </PlayerStage>
+        </div>
+        {!playerFs.active && (
+          <div className="flex flex-col gap-2">
+            {activeClipKey && (
+              <CropEditorBar
+                active={cropMode}
+                onToggle={() => setCropMode((v) => !v)}
+                dimmed={cropDimmed}
+                onToggleDimmed={() => setCropDimmed((v) => !v)}
+                keyframeCount={activeClipCrop.keyframes?.length ?? 0}
+                onRemoveAtPlayhead={handleCropRemoveAtPlayhead}
+                onReset={() => setActiveClipCropKeyframes(null)}
+              />
+            )}
+            {activeClipKey && activeOrgId && (() => {
+              const key = `${activeClipKey.matchId}:${activeClipKey.eventId}`;
+              const assignedIds = clipAssignments.get(key) ?? new Set<string>();
+              const assigned = labels.filter((l) => assignedIds.has(l.id));
+              const playlistName = selected?.name ?? "this playlist";
+              const scopeTitle = `Labels in ${playlistName}`;
+              return (
+                <div className="flex flex-wrap items-center gap-1.5 px-1">
+                  <LabelPickerPopover
+                    trigger={
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-muted-foreground ring-1 ring-separator transition-[background-color,color,transform] duration-100 hover:bg-fill-1 hover:text-primary active:scale-95"
+                        title={scopeTitle}
+                      >
+                        <Tag className="size-3" />
+                        {assigned.length === 0 ? "Add labels" : "Edit"}
+                      </button>
+                    }
+                    labels={labels}
+                    assignedAllIds={assignedIds}
+                    onToggle={(labelId, state) => handleToggleClipLabel(activeClipKey.matchId, activeClipKey.eventId, labelId, state)}
+                    onCreate={handleCreateLabel}
+                    onRename={handleRenameLabel}
+                    onRecolor={handleRecolorLabel}
+                    onDelete={handleDeleteLabel}
+                    onSeedDefaults={handleSeedDefaultLabels}
+                    align="start"
+                    scopeTitle={scopeTitle}
+                    scopeHint="Visible only in this playlist"
+                  />
+                  {assigned.map((l) => <LabelChip key={l.id} label={l} />)}
+                </div>
+              );
+            })()}
+            {activeEventId !== null && (
+              <textarea
+                className="w-full resize-none rounded-md bg-card px-3 py-2 text-sm text-foreground ring-1 ring-separator outline-none transition-[box-shadow] duration-150 placeholder:text-muted-foreground/60 focus:ring-2 focus:ring-selection"
+                rows={2}
+                placeholder="Add a note for this clip…"
+                value={clipNote}
+                onChange={(e) => handleNoteChange(e.target.value)}
+              />
+            )}
           </div>
         )}
-        <div
-          className={playerFs.active
-            ? cn(
-                "dark absolute inset-x-0 bottom-0 z-[25] flex flex-col gap-2 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-5 pb-4 pt-10 transition-opacity motion-safe:duration-200",
-                fsIdle.visible ? "opacity-100" : "pointer-events-none opacity-0"
-              )
-            : "contents"}
-          onPointerEnter={playerFs.active ? () => setFsChromeHover(true) : undefined}
-          onPointerLeave={playerFs.active ? () => setFsChromeHover(false) : undefined}
-        >
-        {/* Clip scrubber — always on during playback (both layouts, windowed
-            and fullscreen); the pan-keyframe dots appear only in crop mode. */}
-        {activeClipKey && activeClipCrop.start !== null && activeClipCrop.end !== null && (
-          <ClipTimeline
-            videoRef={videoRef}
-            keyframes={cropMode ? activeClipCrop.keyframes : undefined}
-            clipStart={activeClipCrop.start}
-            clipEnd={activeClipCrop.end}
-            onSeek={handleCropSeek}
-          />
-        )}
-        <VideoClipControls
-          videoRef={videoRef}
-          canPrev={canPrev}
-          canNext={canNext}
-          isQueueActive={isQueueActive}
-          onPrev={handlePrev}
-          onNext={handleNext}
-          onReplay={handleReplay}
-          onStop={handleStop}
-          onPlayAll={() => startQueue(queueItems)}
-          activeClipPreOffset={activeClipOffsets.pre}
-          activeClipPostOffset={activeClipOffsets.post}
-          onPreOffsetChange={(delta) => adjustActiveClip(delta, 0)}
-          onPostOffsetChange={(delta) => adjustActiveClip(0, delta)}
-          onToggleFullscreen={() => playerFsRef.current.toggle()}
-          isFullscreen={playerFs.active}
-          className={playerFs.active ? "mx-auto w-full max-w-3xl border-white/10 bg-card/85 backdrop-blur-md" : undefined}
-        />
-        {activeClipKey && (
-          <CropEditorBar
-            active={cropMode}
-            onToggle={() => setCropMode((v) => !v)}
-            dimmed={cropDimmed}
-            onToggleDimmed={() => setCropDimmed((v) => !v)}
-            keyframeCount={activeClipCrop.keyframes?.length ?? 0}
-            onRemoveAtPlayhead={handleCropRemoveAtPlayhead}
-            onReset={() => setActiveClipCropKeyframes(null)}
-          />
-        )}
-        {!playerFs.active && activeClipKey && activeOrgId && (() => {
-          const key = `${activeClipKey.matchId}:${activeClipKey.eventId}`;
-          const assignedIds = clipAssignments.get(key) ?? new Set<string>();
-          const assigned = labels.filter((l) => assignedIds.has(l.id));
-          const playlistName = selected?.name ?? "this playlist";
-          const scopeTitle = `Labels in ${playlistName}`;
-          return (
-            <div className="flex flex-wrap items-center gap-1.5 px-1">
-              <LabelPickerPopover
-                trigger={
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground hover:border-primary/60 hover:text-primary transition-colors"
-                    title={scopeTitle}
-                  >
-                    <Tag className="h-3 w-3" />
-                    {assigned.length === 0 ? "Add labels" : "Edit"}
-                  </button>
-                }
-                labels={labels}
-                assignedAllIds={assignedIds}
-                onToggle={(labelId, state) => handleToggleClipLabel(activeClipKey.matchId, activeClipKey.eventId, labelId, state)}
-                onCreate={handleCreateLabel}
-                onRename={handleRenameLabel}
-                onRecolor={handleRecolorLabel}
-                onDelete={handleDeleteLabel}
-                onSeedDefaults={handleSeedDefaultLabels}
-                align="start"
-                scopeTitle={scopeTitle}
-                scopeHint="Visible only in this playlist"
-              />
-              {assigned.map((l) => <LabelChip key={l.id} label={l} />)}
-            </div>
-          );
-        })()}
-        {!playerFs.active && activeEventId !== null && (
-          <textarea
-            className="w-full resize-none rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary transition-colors"
-            rows={3}
-            placeholder="Add a note for this clip…"
-            value={clipNote}
-            onChange={(e) => handleNoteChange(e.target.value)}
-          />
-        )}
-        </div>
       </div>
     ) : (
       <div className="space-y-2">
@@ -5292,174 +4856,6 @@ export function PlaylistsPage() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-2.5">
-        <div className="flex items-center gap-1.5">
-          <label className="text-xs text-muted-foreground">Pre</label>
-          <Input
-            type="number"
-            min={0}
-            max={30}
-            className="h-7 w-16 text-xs"
-            value={preRoll}
-            onChange={(e) => setPreRoll(Number(e.target.value))}
-          />
-          <label className="text-xs text-muted-foreground">Post</label>
-          <Input
-            type="number"
-            min={0}
-            max={60}
-            className="h-7 w-16 text-xs"
-            value={postRoll}
-            onChange={(e) => setPostRoll(Number(e.target.value))}
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            className={"h-8 gap-1.5" + hl("add-clips")}
-            onClick={() => { setOnboardingHighlight(null); setShowClipBrowser(true); }}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add Clips
-          </Button>
-          <Button
-            size="sm"
-            variant={filtersActive ? "default" : "outline"}
-            className="h-8 gap-1.5"
-            onClick={() => setFiltersOpen((v) => !v)}
-            title="Filter clips by player, label, event type, period or game"
-          >
-            <Filter className="h-3.5 w-3.5" />
-            Filter
-            {activeFilterDims > 0 && (
-              <span className="rounded-full bg-primary-foreground/20 px-1.5 text-[10px] tabular-nums">
-                {activeFilterDims}
-              </span>
-            )}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 gap-1.5"
-            onClick={() => handleInsertTextCard(sortedEvents.length)}
-            disabled={filtersActive}
-            title={filtersActive ? "Clear filters to edit the playlist" : undefined}
-          >
-            <Type className="h-3.5 w-3.5" />
-            Add Text Card
-          </Button>
-        </div>
-        <div className="flex items-center gap-2">
-          {isPlaying ? (
-            <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={handleStop}>
-              <Square className="h-3.5 w-3.5" />
-              Stop
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 gap-1.5"
-              onClick={() => startQueue(queueItems)}
-              disabled={queueItems.length === 0 || noSync}
-            >
-              <SkipForward className="h-3.5 w-3.5" />
-              {filtersActive
-                ? `Play ${queueItems.filter((i) => !isTextCard(i)).length} filtered`
-                : "Play Playlist"}
-            </Button>
-          )}
-          {isExporting ? (
-            <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              <span className="tabular-nums">
-                {exportProgress ? exportProgressLabel(exportProgress) : "Exporting…"}
-              </span>
-              {exportProgress && (
-                <ProgressBar percent={exportProgressPercent(exportProgress)} className="w-16" />
-              )}
-            </Button>
-          ) : (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className={"h-8 gap-1.5" + hl("export")}
-                  onClick={() => setOnboardingHighlight(null)}
-                  disabled={exportLocked ? playlistEmpty : !!exportDisabledReason}
-                  title={exportLocked
-                    ? "Export playlists as MP4 with Rookie or Pro"
-                    : (exportDisabledReason ?? "Export playlist as MP4")}
-                >
-                  {activeOrgPlan === 'free'
-                    ? <Lock className="h-3.5 w-3.5" />
-                    : <FileDown className="h-3.5 w-3.5" />
-                  }
-                  {selectedClipIds.size > 0
-                    ? `Export ${selectedClipIds.size} selected`
-                    : filtersActive
-                      ? `Export ${queueItems.filter((i) => !isTextCard(i)).length} filtered clips`
-                      : 'Export playlist'}
-                  <ChevronDown className="h-3 w-3 text-muted-foreground" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
-                <DropdownMenuItem onClick={() => openExportPicker("save")} className="gap-2">
-                  <FileDown className="h-3.5 w-3.5" />
-                  Save to computer…
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => openExportPicker("send")} className="gap-2">
-                  <Smartphone className="h-3.5 w-3.5" />
-                  Send to my phone…
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </div>
-        {/* Share button — icon-only, colored when shared */}
-        {userTeams.length > 0 && (
-          isShipping ? (
-            <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              <span className="tabular-nums">
-                {shipProgress ? `${shipProgress.done} of ${shipProgress.total}` : "Uploading…"}
-              </span>
-            </Button>
-          ) : (() => {
-            const teamCount = selected?.teamIds?.length ?? 0;
-            const userCount = selected?.userIds?.length ?? 0;
-            const isShared = teamCount > 0 || userCount > 0;
-            const teamNames = (selected?.teamIds ?? [])
-              .map((id) => userTeams.find((t) => t.id === id)?.name ?? "Team");
-            const parts: string[] = [];
-            if (teamNames.length > 0) parts.push(teamNames.join(", "));
-            if (userCount > 0) parts.push(`${userCount} member${userCount !== 1 ? "s" : ""}`);
-            const sharedLabel = parts.join(" · ");
-            return (
-              <Button
-                size="sm"
-                variant={isShared ? "default" : "outline"}
-                className={"h-8 w-8 p-0" + hl("share")}
-                onClick={() => {
-                  setOnboardingHighlight(null);
-                  setPendingShareTeamIds(new Set(selected?.teamIds ?? []));
-                  setPendingShareUserIds(new Set(selected?.userIds ?? []));
-                  setMemberSearchQuery("");
-                  setShareDialogOpen(true);
-                }}
-                disabled={!!exportDisabledReason}
-                title={isShared ? `Shared with: ${sharedLabel}` : (exportDisabledReason ?? "Share with team or members")}
-              >
-                <Share2 className="h-3.5 w-3.5" />
-              </Button>
-            );
-          })()
-        )}
-        {exportError && (
-          <p className="w-full text-xs text-red-500 mt-1">{exportError}</p>
-        )}
-      </div>
       {selectedClipIds.size > 0 && (
         <div className="flex items-center gap-3 rounded-lg bg-primary/10 px-4 py-2.5">
           <span className="text-sm font-medium text-primary">
@@ -5621,122 +5017,84 @@ export function PlaylistsPage() {
           </Button>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="w-full min-w-[580px] text-sm">
-            <thead className="border-b border-border bg-muted/80 text-xs font-medium text-muted-foreground">
-              <tr>
-                <th className="w-1.5 min-w-1.5 p-0" aria-hidden />
-                <th className="w-8" />
-                <th className="w-8 px-3 py-2.5">
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    onChange={toggleSelectAll}
-                    className="h-3.5 w-3.5 rounded border-border accent-primary"
-                  />
-                </th>
-                <th className="px-4 py-2.5 text-left">Period</th>
-                <th
-                  className={`px-4 py-2.5 text-left select-none ${clockSortLocked ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:text-foreground"}`}
-                  onClick={() => !clockSortLocked && setClockSort((s) => s === "none" ? "asc" : s === "asc" ? "desc" : "none")}
-                  title={clockSortLocked ? "Clock sort is unavailable when text cards or groups are present" : undefined}
-                >
-                  <span className="inline-flex items-center gap-1">
-                    Clock
-                    {!clockSortLocked && clockSort === "asc" && <ArrowUp className="h-3 w-3" />}
-                    {!clockSortLocked && clockSort === "desc" && <ArrowDown className="h-3 w-3" />}
-                  </span>
-                </th>
-                {isMultiMatch && <th className="px-4 py-2.5 text-left">Game</th>}
-                <th className="px-4 py-2.5 text-left">Event</th>
-                <th className="px-4 py-2.5 text-left">Player</th>
-                <th className="px-4 py-2.5 text-left">Team</th>
-                <th className="px-4 py-2.5" />
-                <th className="px-3 py-2.5" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border bg-card">
-              {queueItems.map((item, index) => {
-                const key = itemKey(item);
-                if (isTextCard(item)) {
-                  const card = item as PlaylistTextCard;
-                  return (
-                    <TextCardRow
-                      key={key}
-                      card={card}
-                      index={index}
-                      isActive={activeTextCard?.id === card.id}
-                      isSelected={selectedClipIds.has(key)}
-                      onSelect={(e) => toggleSelectClip(key, e)}
-                      isDragTarget={clipDragOverIndex === index}
-                      dragTargetPosition={clipDragOverPosition}
-                      onClick={(e) => { if (e.shiftKey) { toggleSelectClip(key, e); return; } handleRowClick(card); }}
-                      onDragStart={(e) => handleClipDragStart(e, key)}
-                      onDragOver={(e, i) => handleClipDragOver(e, i)}
-                      onDragLeave={() => setClipDragOverIndex(null)}
-                      onDrop={(e, i) => handleClipDrop(e, i)}
-                      onDragEnd={handleClipDragEnd}
-                      onTextChange={handleTextCardTextChange}
-                      onTextSave={handleTextCardTextSave}
-                      onDurationChange={handleTextCardDurationChange}
-                      onRemove={() => handleRemoveSingleTextCard(card)}
-                      groupPos={!filtersActive ? groupRuns.get(key)?.pos : undefined}
-                      groupSize={groupRuns.get(key)?.size}
-                      onUngroup={!filtersActive && groupRuns.get(key) ? () => handleUngroup(groupRuns.get(key)!.groupId) : undefined}
-                      isDragSource={dragBlockKeys?.has(key) ?? false}
-                    />
-                  );
-                }
-                const queueItem = item as QueueItem;
-                const rowKey = `${queueItem.matchId}:${queueItem.event.eventId}`;
-                const clip = clipByKey.get(rowKey);
-                return (
-                  <DraggableRow
-                    key={key}
-                    index={index}
-                    item={queueItem}
-                    isActive={queueItem.event.eventId === activeEventId}
-                    isMultiMatch={isMultiMatch}
-                    matchTitle={matchLookup.get(queueItem.matchId)?.title}
-                    preOffset={clip?.preRollOffset ?? 0}
-                    postOffset={clip?.postRollOffset ?? 0}
-                    note={clip?.note}
-                    isSelected={selectedClipIds.has(key)}
-                    onSelect={(e) => toggleSelectClip(key, e)}
-                    isDragTarget={clipDragOverIndex === index}
-                    dragTargetPosition={clipDragOverPosition}
-                    onClick={(e) => { if (e.shiftKey) { toggleSelectClip(key, e); return; } handleRowClick(queueItem); }}
-                    onDragStart={(e) => handleClipDragStart(e, key)}
-                    onDragOver={(e, i) => handleClipDragOver(e, i)}
-                    onDragLeave={() => setClipDragOverIndex(null)}
-                    onDrop={(e, i) => handleClipDrop(e, i)}
-                    onDragEnd={handleClipDragEnd}
-                    onInsertTextCardAbove={() => handleInsertTextCard(index)}
-                    onRemove={() => { if (clip) handleRemoveSingleClip(clip); }}
-                    labelControls={activeOrgId ? {
-                      labels,
-                      assignedIds: clipAssignments.get(rowKey) ?? new Set<string>(),
-                      onToggle: (labelId, state) => handleToggleClipLabel(queueItem.matchId, queueItem.event.eventId, labelId, state),
-                      onCreate: handleCreateLabel,
-                      onRename: handleRenameLabel,
-                      onRecolor: handleRecolorLabel,
-                      onDelete: handleDeleteLabel,
-                      onSeedDefaults: handleSeedDefaultLabels,
-                      scopeTitle: `Labels in ${selected?.name ?? "this playlist"}`,
-                      scopeHint: "Visible only in this playlist",
-                    } : undefined}
-                    groupPos={!filtersActive ? groupRuns.get(key)?.pos : undefined}
-                    groupSize={groupRuns.get(key)?.size}
-                    onUngroup={!filtersActive && groupRuns.get(key) ? () => handleUngroup(groupRuns.get(key)!.groupId) : undefined}
-                    isDragSource={dragBlockKeys?.has(key) ?? false}
-                    canGroupSelection={!filtersActive && selectedClipIds.size >= 2}
-                    selectionCount={selectedClipIds.size}
-                    onGroupSelected={handleGroupSelected}
-                  />
-                );
-              })}
-            </tbody>
-          </table>
+        <div role="grid" aria-label="Clips" className="divide-y divide-separator overflow-hidden rounded-window bg-card ring-1 ring-separator">
+          {queueItems.map((item, index) => {
+            const key = itemKey(item);
+            const drag = {
+              isDragTarget: clipDragOverIndex === index,
+              dragTargetPosition: clipDragOverPosition,
+              isDragSource: dragBlockKeys?.has(key) ?? false,
+              onDragStart: (e: React.DragEvent) => handleClipDragStart(e, key),
+              onDragOver: (e: React.DragEvent, i: number) => handleClipDragOver(e, i),
+              onDragLeave: () => setClipDragOverIndex(null),
+              onDrop: (e: React.DragEvent, i: number) => handleClipDrop(e, i),
+              onDragEnd: handleClipDragEnd,
+            };
+            if (isTextCard(item)) {
+              const card = item as PlaylistTextCard;
+              return (
+                <TextCardRow
+                  key={key}
+                  card={card}
+                  index={index}
+                  isActive={activeTextCard?.id === card.id}
+                  isSelected={selectedClipIds.has(key)}
+                  anySelected={selectedClipIds.size > 0}
+                  onSelect={(e) => toggleSelectClip(key, e)}
+                  drag={drag}
+                  onClick={(e) => { if (e.shiftKey || e.metaKey || e.ctrlKey) { toggleSelectClip(key, e); return; } handleRowClick(card); }}
+                  onTextChange={handleTextCardTextChange}
+                  onTextSave={handleTextCardTextSave}
+                  onDurationChange={handleTextCardDurationChange}
+                  onRemove={() => handleRemoveSingleTextCard(card)}
+                  groupPos={!filtersActive ? groupRuns.get(key)?.pos : undefined}
+                  groupSize={groupRuns.get(key)?.size}
+                  onUngroup={!filtersActive && groupRuns.get(key) ? () => handleUngroup(groupRuns.get(key)!.groupId) : undefined}
+                />
+              );
+            }
+            const queueItem = item as QueueItem;
+            const rowKey = `${queueItem.matchId}:${queueItem.event.eventId}`;
+            const clip = clipByKey.get(rowKey);
+            return (
+              <ClipRow
+                key={key}
+                index={index}
+                event={queueItem.event}
+                isActive={queueItem.event.eventId === activeEventId}
+                isMultiMatch={isMultiMatch}
+                matchTitle={matchLookup.get(queueItem.matchId)?.title}
+                preOffset={clip?.preRollOffset ?? 0}
+                postOffset={clip?.postRollOffset ?? 0}
+                note={clip?.note}
+                isSelected={selectedClipIds.has(key)}
+                anySelected={selectedClipIds.size > 0}
+                onSelect={(e) => toggleSelectClip(key, e)}
+                drag={drag}
+                onClick={(e) => { if (e.shiftKey || e.metaKey || e.ctrlKey) { toggleSelectClip(key, e); return; } handleRowClick(queueItem); }}
+                onInsertTextCardAbove={() => handleInsertTextCard(index)}
+                onRemove={() => { if (clip) handleRemoveSingleClip(clip); }}
+                labelControls={activeOrgId ? {
+                  labels,
+                  assignedIds: clipAssignments.get(rowKey) ?? new Set<string>(),
+                  onToggle: (labelId, state) => handleToggleClipLabel(queueItem.matchId, queueItem.event.eventId, labelId, state),
+                  onCreate: handleCreateLabel,
+                  onRename: handleRenameLabel,
+                  onRecolor: handleRecolorLabel,
+                  onDelete: handleDeleteLabel,
+                  onSeedDefaults: handleSeedDefaultLabels,
+                  scopeTitle: `Labels in ${selected?.name ?? "this playlist"}`,
+                  scopeHint: "Visible only in this playlist",
+                } : undefined}
+                groupPos={!filtersActive ? groupRuns.get(key)?.pos : undefined}
+                groupSize={groupRuns.get(key)?.size}
+                onUngroup={!filtersActive && groupRuns.get(key) ? () => handleUngroup(groupRuns.get(key)!.groupId) : undefined}
+                canGroupSelection={!filtersActive && selectedClipIds.size >= 2}
+                selectionCount={selectedClipIds.size}
+                onGroupSelected={handleGroupSelected}
+              />
+            );
+          })}
         </div>
       )}
       </div>
@@ -5745,12 +5103,97 @@ export function PlaylistsPage() {
 
   return (
     <>
-    <ResizablePanelGroup direction="horizontal" autoSaveId="playlists-browser" className="h-full">
+    <Page>
+    {selected ? (
+      <EditorToolbar
+        name={selected.name}
+        itemCount={selected.items.length}
+        isMultiMatch={isMultiMatch}
+        editing={editingPlaylistId === selected.id && editingVia === "header"}
+        editValue={editPlaylistName}
+        onEditValueChange={setEditPlaylistName}
+        onStartRename={() => { setEditingVia("header"); setEditingPlaylistId(selected.id); setEditPlaylistName(selected.name); }}
+        onCommitRename={() => handleRenamePlaylist(selected.id)}
+        onCancelRename={() => setEditingPlaylistId(null)}
+        onDeletePlaylist={() => setDeleteTarget(selected)}
+        theaterMode={theaterMode}
+        onTheaterModeChange={setTheaterMode}
+        isPlaying={isPlaying}
+        playDisabled={queueItems.length === 0 || noSync}
+        playLabel={filtersActive ? `Play ${queueItems.filter((i) => !isTextCard(i)).length} filtered` : "Play"}
+        onPlay={() => startQueue(queueItems)}
+        onStop={handleStop}
+        onAddClips={() => { setOnboardingHighlight(null); setShowClipBrowser(true); }}
+        highlightAddClips={onboardingHighlight === "add-clips"}
+        filtersOpen={filtersOpen}
+        filtersActive={filtersActive}
+        activeFilterDims={activeFilterDims}
+        onToggleFilters={() => setFiltersOpen((v) => !v)}
+        onAddTextCard={() => handleInsertTextCard(sortedEvents.length)}
+        addTextCardDisabledReason={filtersActive ? "Clear filters to edit the playlist" : null}
+        preRoll={preRoll}
+        postRoll={postRoll}
+        onPreRollChange={setPreRoll}
+        onPostRollChange={setPostRoll}
+        clockSort={clockSort}
+        clockSortLocked={clockSortLocked}
+        onClockSortChange={setClockSort}
+        hasItems={queueItems.length > 0}
+        onSelectAll={() => setSelectedClipIds(new Set(queueItems.map(itemKey)))}
+        exportLocked={exportLocked}
+        exportDisabledReason={exportDisabledReason}
+        isExporting={isExporting}
+        exportProgress={exportProgress}
+        exportLabel={
+          selectedClipIds.size > 0
+            ? `Export ${selectedClipIds.size} selected`
+            : filtersActive
+              ? `Export ${queueItems.filter((i) => !isTextCard(i)).length} filtered`
+              : "Export"
+        }
+        highlightExport={onboardingHighlight === "export"}
+        onExport={openExportPicker}
+        onExportMenuOpen={() => setOnboardingHighlight(null)}
+        shareVisible={userTeams.length > 0}
+        isShipping={isShipping}
+        shipLabel={shipProgress ? `${shipProgress.done} of ${shipProgress.total}` : null}
+        isShared={(selected.teamIds?.length ?? 0) > 0 || (selected.userIds?.length ?? 0) > 0}
+        sharedLabel={(() => {
+          const teamNames = (selected.teamIds ?? []).map((id) => userTeams.find((t) => t.id === id)?.name ?? "Team");
+          const userCount = selected.userIds?.length ?? 0;
+          const parts: string[] = [];
+          if (teamNames.length > 0) parts.push(teamNames.join(", "));
+          if (userCount > 0) parts.push(`${userCount} member${userCount !== 1 ? "s" : ""}`);
+          return parts.join(" · ");
+        })()}
+        shareDisabledReason={exportDisabledReason}
+        highlightShare={onboardingHighlight === "share"}
+        onShare={() => {
+          setOnboardingHighlight(null);
+          setPendingShareTeamIds(new Set(selected.teamIds ?? []));
+          setPendingShareUserIds(new Set(selected.userIds ?? []));
+          setMemberSearchQuery("");
+          setShareDialogOpen(true);
+        }}
+      />
+    ) : (
+      <Toolbar
+        variant="static"
+        title="Playlists"
+        actions={
+          <Button size="sm" onClick={() => handleNewPlaylist()}>
+            <ListPlus />
+            New playlist
+          </Button>
+        }
+      />
+    )}
+    <ResizablePanelGroup direction="horizontal" autoSaveId="playlists-browser" className="min-h-0 flex-1">
       {/* LEFT PANEL — playlist sidebar */}
       <ResizablePanel
         panelRef={browserPanelRef}
-        defaultSize={22}
-        minSize={15}
+        defaultSize={260}
+        minSize={200}
         collapsible
         collapsedSize={0}
         className="flex flex-col border-r border-border bg-card"
@@ -6038,7 +5481,7 @@ export function PlaylistsPage() {
       <ResizableHandle />
 
       {/* RIGHT PANEL — detail */}
-      <ResizablePanel defaultSize={78} minSize={40} className="flex flex-col overflow-hidden bg-background">
+      <ResizablePanel minSize={480} className="flex flex-col overflow-hidden bg-background">
         {selected === null ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-12 text-center">
             <ListVideo className="h-10 w-10 text-muted-foreground/40" />
@@ -6054,84 +5497,12 @@ export function PlaylistsPage() {
           </div>
         ) : (
           <>
-          <div className="flex flex-col gap-4 p-5 h-full">
-            {/* Playlist header */}
-            <div className="flex items-center justify-between flex-none">
-              <div className="group flex min-w-0 flex-1 items-start gap-1">
-                <div className="flex min-w-0 flex-col">
-                  {editingPlaylistId === selected.id && editingVia === "header" ? (
-                    <input
-                      autoFocus
-                      className="rounded border border-primary bg-background px-1 py-0.5 text-base font-semibold text-foreground outline-none focus:ring-1 focus:ring-primary"
-                      value={editPlaylistName}
-                      onChange={(e) => setEditPlaylistName(e.target.value)}
-                      onBlur={() => handleRenamePlaylist(selected.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleRenamePlaylist(selected.id);
-                        if (e.key === "Escape") setEditingPlaylistId(null);
-                      }}
-                    />
-                  ) : (
-                    <span className="text-base font-semibold text-foreground truncate">
-                      {selected.name}
-                    </span>
-                  )}
-                  <span className="text-xs text-muted-foreground">
-                    {selected.items.length} item{selected.items.length !== 1 ? "s" : ""}
-                    {isMultiMatch ? " · multiple games" : ""}
-                  </span>
-                </div>
-                {editingPlaylistId !== selected.id && (
-                  <>
-                    <button
-                      type="button"
-                      className="opacity-0 group-hover:opacity-100 transition-opacity rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-muted"
-                      title="Rename playlist"
-                      onClick={() => { setEditingVia("header"); setEditingPlaylistId(selected.id); setEditPlaylistName(selected.name); }}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      className="opacity-0 group-hover:opacity-100 transition-opacity rounded-md p-1 text-muted-foreground hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950"
-                      title="Delete playlist"
-                      onClick={() => setDeleteTarget(selected)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </>
-                )}
-              </div>
-              <div
-                className="flex items-center rounded-md border border-border p-0.5 gap-0.5 flex-none"
-                role="group"
-                aria-label="Layout view"
-              >
-                <Button
-                  variant={!theaterMode ? "secondary" : "ghost"}
-                  size="icon-sm"
-                  onClick={() => setTheaterMode(false)}
-                  title="Split view"
-                  aria-pressed={!theaterMode}
-                >
-                  <Columns2 className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  variant={theaterMode ? "secondary" : "ghost"}
-                  size="icon-sm"
-                  onClick={() => setTheaterMode(true)}
-                  title="Theater mode"
-                  aria-pressed={theaterMode}
-                >
-                  <Rows2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </div>
+          <div className="flex h-full flex-col gap-3 p-4">
 
             {/* Layout: horizontal split (default) or vertical theater mode */}
             {theaterMode ? (
               <ResizablePanelGroup key="theater" direction="vertical" autoSaveId="playlists-theater" className="min-h-0 flex-1">
-                <ResizablePanel defaultSize={70} minSize={25}>
+                <ResizablePanel defaultSize="70" minSize="25">
                 <div className="flex h-full flex-col gap-2 pb-3 min-w-0">
                 {playerStack}
                 </div>
@@ -6139,7 +5510,7 @@ export function PlaylistsPage() {
 
                 <ResizableHandle />
 
-                <ResizablePanel defaultSize={30} minSize={20}>
+                <ResizablePanel defaultSize="30" minSize="20">
                 <div className="flex h-full flex-col gap-3 overflow-hidden pt-3">
                 {clipListStack}
                 </div>
@@ -6147,7 +5518,7 @@ export function PlaylistsPage() {
               </ResizablePanelGroup>
             ) : (
               <ResizablePanelGroup key="split" direction="horizontal" autoSaveId="playlists-split" className="min-h-0 flex-1">
-                <ResizablePanel defaultSize={45} minSize={20}>
+                <ResizablePanel defaultSize="45" minSize="20">
                 <div className="flex h-full flex-col gap-3 overflow-hidden pr-3">
                 {clipListStack}
                 </div>
@@ -6155,7 +5526,7 @@ export function PlaylistsPage() {
 
                 <ResizableHandle />
 
-                <ResizablePanel defaultSize={55} minSize={20}>
+                <ResizablePanel defaultSize="55" minSize="20">
                 <div className="flex h-full flex-col gap-2 pl-3 min-w-0">
                 {playerStack}
                 </div>
@@ -6439,6 +5810,7 @@ export function PlaylistsPage() {
         )}
       </ResizablePanel>
     </ResizablePanelGroup>
+    </Page>
 
     {/* Playlist deletion is irreversible and unshares it everywhere.
         Lives at the page root (not inside the selected-playlist branch):

@@ -21,6 +21,8 @@ interface VideoClipControlsProps {
   isFullscreen?: boolean;
   /** Extra root classes (e.g. translucency when overlaid on footage). */
   className?: string;
+  /** False when a surface with its own key scope handles Space (the editor). */
+  ownsSpace?: boolean;
 }
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -42,6 +44,7 @@ export function VideoClipControls({
   onToggleFullscreen,
   isFullscreen,
   className,
+  ownsSpace = true,
 }: VideoClipControlsProps) {
   const preOffset = activeClipPreOffset ?? 0;
   const postOffset = activeClipPostOffset ?? 0;
@@ -100,6 +103,7 @@ export function VideoClipControls({
 
   // Global spacebar → play/pause (skip when focus is inside a text field)
   useEffect(() => {
+    if (!ownsSpace) return;
     function handleKeyDown(e: KeyboardEvent) {
       if (e.code !== "Space") return;
       const tag = (e.target as HTMLElement).tagName;
@@ -110,7 +114,7 @@ export function VideoClipControls({
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [ownsSpace]);
 
   return (
     <div className={cn("flex flex-col rounded-xl border border-border bg-card px-3 py-2 shadow-sm", className)}>
