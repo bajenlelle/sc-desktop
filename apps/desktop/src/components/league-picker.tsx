@@ -110,7 +110,7 @@ export function LeaguePicker({ leagues, value, onChange, className }: LeaguePick
           )}
           {groups.map(([groupName, groupLeagues]) => (
             <div key={groupName}>
-              <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <div className="px-3 py-1.5 text-subheadline font-medium text-muted-foreground">
                 {groupName}
               </div>
               {groupLeagues.map((league) => (

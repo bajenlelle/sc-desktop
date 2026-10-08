@@ -37,7 +37,7 @@ export function UploadPage() {
 
   return (
     <Page>
-      <Toolbar title="Import game" />
+      <Toolbar title="Import game" subtitle="Pick a game, link its video, set the tip-off" />
       <PageContent width="narrow">
         {licenseLocked ? (
           <EmptyState

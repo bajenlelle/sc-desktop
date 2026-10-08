@@ -25,7 +25,8 @@ export interface TransportProps {
   onStop: () => void;
 }
 
-function ControlButton({
+/** A white-on-footage control that acts on the press and names its key in a tooltip. */
+export function ControlButton({
   label,
   shortcut,
   onClick,

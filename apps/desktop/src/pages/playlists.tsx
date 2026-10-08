@@ -108,7 +108,6 @@ import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
 import { clamp } from "@scoutable/shared/lib/motion-math";
 import { dragBlockKeys, isSameOrder, itemsIndexForGap } from "@scoutable/shared/lib/list-reorder";
-import { useReducedMotionSafe } from "@/lib/motion";
 import { EmptyState } from "@/components/empty-state";
 import { SearchField } from "@/components/ui/search-field";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -117,6 +116,9 @@ import { BROWSER_WIDTH, BrowserColumn } from "@/components/editor/browser-column
 import { ClipBrowserPanel } from "@/components/editor/clip-browser-panel";
 import { PILL_LABEL, PillButton, SelectionBar } from "@/components/editor/selection-bar";
 import { useListDrag, type DragTarget } from "@/components/editor/use-list-drag";
+import { AutoHeight } from "@/components/ui/auto-height";
+import { AnimatePresence, motion } from "framer-motion";
+import { fadeVariants, useReducedMotionSafe } from "@/lib/motion";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -4322,7 +4324,9 @@ export function PlaylistsPage() {
             isSelection={selectedClipIds.size > 0}
             vertical={sendToPhoneVertical}
           />
-          {/* Share dialog — multi-team */}
+          {/* Share dialog — multi-team. One dialog, three phases that
+              cross-fade in place while its height springs. Mid-upload and
+              resolve exit only through their own buttons. */}
           <Dialog
             open={shareDialogOpen}
             onOpenChange={(open) => {
@@ -4332,205 +4336,214 @@ export function PlaylistsPage() {
               setShareDialogOpen(open);
             }}
           >
-            {sharePhase.kind === "uploading" ? (
-              <DialogContent onEscapeKeyDown={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()}>
-                <DialogHeader>
-                  <DialogTitle>Sharing playlist</DialogTitle>
-                </DialogHeader>
-                <div className="flex flex-col gap-3 py-2">
-                  <p className="text-sm text-muted-foreground">
-                    Recipients are notified once every clip is watchable.
-                  </p>
-                  <ProgressBar
-                    percent={
-                      shipProgress && shipProgress.total > 0
-                        ? Math.round((shipProgress.done / shipProgress.total) * 100)
-                        : null
-                    }
-                  />
-                  <p className="text-xs tabular-nums text-muted-foreground">
-                    {shipProgress
-                      ? `Uploading clip ${Math.min(shipProgress.done + 1, shipProgress.total)} of ${shipProgress.total}`
-                      : "Preparing clips…"}
-                  </p>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" size="sm" onClick={() => shareAbortRef.current?.abort()}>
-                    Cancel
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            ) : sharePhase.kind === "resolve" ? (
-              <DialogContent onEscapeKeyDown={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()}>
-                <DialogHeader>
-                  <DialogTitle>
-                    {sharePhase.result.failures.length} of {sharePhase.total} clips didn&apos;t upload
-                  </DialogTitle>
-                </DialogHeader>
-                <div className="flex flex-col gap-2 py-1">
-                  {groupShipFailures(sharePhase.result.failures).map((g) => (
-                    <p key={g.message} className="truncate text-xs text-muted-foreground" title={g.message}>
-                      {g.message}
-                      {g.count > 1 ? ` (${g.count})` : ""}
-                    </p>
-                  ))}
-                  {sharePhase.result.failures.length > groupShipFailures(sharePhase.result.failures).reduce((n, g) => n + g.count, 0) && (
-                    <p className="text-xs text-muted-foreground">and more…</p>
-                  )}
-                  <p className="text-sm text-muted-foreground">
-                    Uploaded clips are saved — trying again only retries the failed ones. Nothing has
-                    been shared yet.
-                  </p>
-                </div>
-                <DialogFooter className="flex-row justify-end gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setShareDialogOpen(false);
-                      setSharePhase({ kind: "pick" });
-                    }}
+            <DialogContent
+              showCloseButton={sharePhase.kind === "pick"}
+              onEscapeKeyDown={(e) => { if (sharePhase.kind !== "pick") e.preventDefault(); }}
+              onInteractOutside={(e) => { if (sharePhase.kind !== "pick") e.preventDefault(); }}
+            >
+              <AutoHeight>
+                <AnimatePresence mode="popLayout" initial={false}>
+                  <motion.div
+                    key={sharePhase.kind}
+                    variants={fadeVariants}
+                    initial="hidden"
+                    animate="visible"
+                    exit="exit"
+                    className="grid gap-4"
                   >
-                    Cancel
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      finishResolvedShare(sharePhase.teamIds, sharePhase.userIds, sharePhase.result, sharePhase.total)
-                    }
-                  >
-                    Share without them
-                  </Button>
-                  <Button size="sm" onClick={() => handleShareRetry(sharePhase)}>
-                    Try again
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            ) : (
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Share Playlist</DialogTitle>
-              </DialogHeader>
-              <div className="py-1">
-                {/* Teams section */}
-                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Teams</p>
-                <div className="flex flex-col gap-1">
-                  {userTeams.map((team) => {
-                    const checked = pendingShareTeamIds.has(team.id);
-                    return (
-                      <button
-                        key={team.id}
-                        type="button"
-                        onClick={() => {
-                          setPendingShareTeamIds((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(team.id)) next.delete(team.id);
-                            else next.add(team.id);
-                            return next;
-                          });
-                        }}
-                        className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm text-left transition-colors hover:bg-fill-1${checked ? " bg-fill-2" : ""}`}
-                      >
-                        <input
-                          type="checkbox"
-                          readOnly
-                          checked={checked}
-                          className="h-3.5 w-3.5 rounded border-border accent-primary pointer-events-none"
-                        />
-                        <Users className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        <span className="flex-1">{team.name}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+                    {sharePhase.kind === "uploading" ? (
+                      <>
+                        <DialogHeader>
+                          <DialogTitle>Sharing playlist</DialogTitle>
+                          <DialogDescription>Recipients are notified once every clip is watchable.</DialogDescription>
+                        </DialogHeader>
+                        <div className="flex flex-col gap-2">
+                          <ProgressBar
+                            percent={
+                              shipProgress && shipProgress.total > 0
+                                ? Math.round((shipProgress.done / shipProgress.total) * 100)
+                                : null
+                            }
+                          />
+                          <p className="text-callout text-muted-foreground nums">
+                            {shipProgress
+                              ? `Uploading clip ${Math.min(shipProgress.done + 1, shipProgress.total)} of ${shipProgress.total}`
+                              : "Preparing clips…"}
+                          </p>
+                        </div>
+                        <DialogFooter>
+                          <Button variant="outline" onClick={() => shareAbortRef.current?.abort()}>
+                            Cancel
+                          </Button>
+                        </DialogFooter>
+                      </>
+                    ) : sharePhase.kind === "resolve" ? (
+                      <>
+                        <DialogHeader>
+                          <DialogTitle>
+                            {sharePhase.result.failures.length} of {sharePhase.total} clips didn&apos;t upload
+                          </DialogTitle>
+                          <DialogDescription>
+                            Uploaded clips are saved — trying again only retries the failed ones. Nothing has been
+                            shared yet.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="flex flex-col gap-1 rounded-md bg-fill-1 px-3 py-2">
+                          {groupShipFailures(sharePhase.result.failures).map((g) => (
+                            <p key={g.message} className="truncate text-callout text-muted-foreground" title={g.message}>
+                              {g.message}
+                              {g.count > 1 ? ` (${g.count})` : ""}
+                            </p>
+                          ))}
+                          {sharePhase.result.failures.length > groupShipFailures(sharePhase.result.failures).reduce((n, g) => n + g.count, 0) && (
+                            <p className="text-callout text-muted-foreground">and more…</p>
+                          )}
+                        </div>
+                        <DialogFooter>
+                          <Button
+                            variant="ghost"
+                            onClick={() => {
+                              setShareDialogOpen(false);
+                              setSharePhase({ kind: "pick" });
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() =>
+                              finishResolvedShare(sharePhase.teamIds, sharePhase.userIds, sharePhase.result, sharePhase.total)
+                            }
+                          >
+                            Share without them
+                          </Button>
+                          <Button onClick={() => handleShareRetry(sharePhase)}>Try again</Button>
+                        </DialogFooter>
+                      </>
+                    ) : (
+                      <>
+                        <DialogHeader>
+                          <DialogTitle>Share playlist</DialogTitle>
+                          <DialogDescription>Pick the teams and members who should see it.</DialogDescription>
+                        </DialogHeader>
+                        <div>
+                          <p className="mb-1 px-1 text-subheadline font-medium text-muted-foreground">Teams</p>
+                          <div className="flex flex-col gap-0.5">
+                            {userTeams.map((team) => {
+                              const checked = pendingShareTeamIds.has(team.id);
+                              return (
+                                <button
+                                  key={team.id}
+                                  type="button"
+                                  aria-pressed={checked}
+                                  onClick={() => {
+                                    setPendingShareTeamIds((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(team.id)) next.delete(team.id);
+                                      else next.add(team.id);
+                                      return next;
+                                    });
+                                  }}
+                                  className={cn(
+                                    "flex h-9 items-center gap-2.5 rounded-md px-2 text-left text-sm outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection",
+                                    checked && "bg-fill-1",
+                                  )}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    readOnly
+                                    tabIndex={-1}
+                                    checked={checked}
+                                    className="pointer-events-none size-3.5 rounded accent-primary"
+                                  />
+                                  <Users className="size-4 shrink-0 text-muted-foreground" />
+                                  <span className="flex-1 truncate">{team.name}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
 
-                {/* Members section */}
-                <p className="mb-1.5 mt-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Members</p>
-                {shareableMembers.length === 0 ? (
-                  <p className="px-3 text-xs text-muted-foreground/60">No team members to share with.</p>
-                ) : (
-                  <>
-                    <div className="relative mb-2">
-                      <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
-                      <input
-                        type="text"
-                        placeholder="Search members…"
-                        value={memberSearchQuery}
-                        onChange={(e) => setMemberSearchQuery(e.target.value)}
-                        className="w-full rounded-md border border-border bg-background py-1.5 pl-8 pr-3 text-sm outline-none focus:ring-1 focus:ring-ring"
-                      />
-                    </div>
-                    <div className="flex max-h-48 flex-col gap-0.5 overflow-y-auto">
-                      {shareableMembers
-                        .filter((m) => {
-                          const q = memberSearchQuery.toLowerCase();
-                          return !q || (m.fullName ?? "").toLowerCase().includes(q);
-                        })
-                        .map((member) => {
-                          const checked = pendingShareUserIds.has(member.id);
-                          const initials = (member.fullName ?? "?")
-                            .split(" ")
-                            .map((w) => w[0])
-                            .slice(0, 2)
-                            .join("")
-                            .toUpperCase();
-                          return (
-                            <button
-                              key={member.id}
-                              type="button"
-                              onClick={() => {
-                                setPendingShareUserIds((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.has(member.id)) next.delete(member.id);
-                                  else next.add(member.id);
-                                  return next;
-                                });
-                              }}
-                              className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm text-left transition-colors hover:bg-fill-1${checked ? " bg-fill-2" : ""}`}
-                            >
-                              <input
-                                type="checkbox"
-                                readOnly
-                                checked={checked}
-                                className="h-3.5 w-3.5 rounded border-border accent-primary pointer-events-none"
+                          <p className="mt-4 mb-1 px-1 text-subheadline font-medium text-muted-foreground">Members</p>
+                          {shareableMembers.length === 0 ? (
+                            <p className="px-1 text-callout text-muted-foreground">No team members to share with.</p>
+                          ) : (
+                            <>
+                              <SearchField
+                                className="mb-1.5"
+                                placeholder="Search members"
+                                aria-label="Search members"
+                                value={memberSearchQuery}
+                                onChange={(e) => setMemberSearchQuery(e.target.value)}
                               />
-                              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
-                                {initials}
-                              </span>
-                              <span className="flex-1 truncate">{member.fullName ?? member.email ?? "Unknown"}</span>
-                            </button>
-                          );
-                        })}
-                    </div>
-                  </>
-                )}
-              </div>
-              <DialogFooter className="flex-row justify-between gap-2">
-                {((selected?.teamIds?.length ?? 0) > 0 || (selected?.userIds?.length ?? 0) > 0) && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-muted-foreground"
-                    onClick={() => handleShare([], [])}
-                  >
-                    Remove all
-                  </Button>
-                )}
-                <div className="flex gap-2 ml-auto">
-                  <Button variant="outline" size="sm" onClick={() => setShareDialogOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => handleShare([...pendingShareTeamIds], [...pendingShareUserIds])}
-                  >
-                    Done
-                  </Button>
-                </div>
-              </DialogFooter>
+                              <div className="flex max-h-48 flex-col gap-0.5 overflow-y-auto">
+                                {shareableMembers
+                                  .filter((m) => {
+                                    const q = memberSearchQuery.toLowerCase();
+                                    return !q || (m.fullName ?? "").toLowerCase().includes(q);
+                                  })
+                                  .map((member) => {
+                                    const checked = pendingShareUserIds.has(member.id);
+                                    const initials = (member.fullName ?? "?")
+                                      .split(" ")
+                                      .map((w) => w[0])
+                                      .slice(0, 2)
+                                      .join("")
+                                      .toUpperCase();
+                                    return (
+                                      <button
+                                        key={member.id}
+                                        type="button"
+                                        aria-pressed={checked}
+                                        onClick={() => {
+                                          setPendingShareUserIds((prev) => {
+                                            const next = new Set(prev);
+                                            if (next.has(member.id)) next.delete(member.id);
+                                            else next.add(member.id);
+                                            return next;
+                                          });
+                                        }}
+                                        className={cn(
+                                          "flex h-9 items-center gap-2.5 rounded-md px-2 text-left text-sm outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection",
+                                          checked && "bg-fill-1",
+                                        )}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          readOnly
+                                          tabIndex={-1}
+                                          checked={checked}
+                                          className="pointer-events-none size-3.5 rounded accent-primary"
+                                        />
+                                        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
+                                          {initials}
+                                        </span>
+                                        <span className="flex-1 truncate">{member.fullName ?? member.email ?? "Unknown"}</span>
+                                      </button>
+                                    );
+                                  })}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                        <DialogFooter>
+                          {((selected?.teamIds?.length ?? 0) > 0 || (selected?.userIds?.length ?? 0) > 0) && (
+                            <Button variant="ghost" className="mr-auto text-muted-foreground" onClick={() => handleShare([], [])}>
+                              Stop sharing
+                            </Button>
+                          )}
+                          <Button variant="outline" onClick={() => setShareDialogOpen(false)}>
+                            Cancel
+                          </Button>
+                          <Button onClick={() => handleShare([...pendingShareTeamIds], [...pendingShareUserIds])}>
+                            Done
+                          </Button>
+                        </DialogFooter>
+                      </>
+                    )}
+                  </motion.div>
+                </AnimatePresence>
+              </AutoHeight>
             </DialogContent>
-            )}
           </Dialog>
           </>
         )}

@@ -30,6 +30,8 @@ export function ClipScrubber({
   markers,
   onSeek,
   frameSeconds = 1 / 25,
+  showTimes = true,
+  ariaLabel = "Clip position",
   className,
 }: {
   video: HTMLVideoElement;
@@ -38,6 +40,9 @@ export function ClipScrubber({
   markers?: CropKeyframe[];
   onSeek: (t: number) => void;
   frameSeconds?: number;
+  /** Elapsed and total either side of the track; off where a larger readout sits nearby. */
+  showTimes?: boolean;
+  ariaLabel?: string;
   className?: string;
 }) {
   const duration = Math.max(0.001, end - start);
@@ -176,14 +181,14 @@ export function ClipScrubber({
 
   return (
     <div className={cn("flex items-center gap-2", className)}>
-      <span ref={elapsedRef} className="w-10 text-right text-xs nums text-white/80">
+      <span ref={elapsedRef} className={cn("w-10 text-right text-xs nums text-white/80", !showTimes && "hidden")}>
         {formatClipTime(elapsedNow)}
       </span>
       <div
         ref={trackRef}
         role="slider"
         tabIndex={0}
-        aria-label="Clip position"
+        aria-label={ariaLabel}
         aria-valuemin={0}
         aria-valuemax={Math.round(duration * 10) / 10}
         aria-valuenow={Math.round(elapsedNow * 10) / 10}
@@ -234,7 +239,7 @@ export function ClipScrubber({
           </div>
         )}
       </div>
-      <span className="w-10 text-xs nums text-white/80">{formatClipTime(duration)}</span>
+      {showTimes && <span className="w-10 text-xs nums text-white/80">{formatClipTime(duration)}</span>}
     </div>
   );
 }

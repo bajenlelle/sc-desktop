@@ -2,9 +2,13 @@
  * Confirms a finished import and hands the coach the next step. The import
  * used to end by silently redirecting to /playlists, which left no trace of
  * what was created — or of a missing video/sync point that would block
- * export later.
+ * export later. Every way out animates the dialog away first and only then
+ * changes the page underneath it.
  */
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Check } from "lucide-react";
+import { motion } from "framer-motion";
 import {
   Dialog,
   DialogContent,
@@ -14,7 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2 } from "lucide-react";
+import { springs } from "@/lib/motion";
 
 export interface ImportSummary {
   matchId: string;
@@ -28,13 +32,19 @@ export interface ImportSummary {
 }
 
 export function ImportSuccessDialog({
-  open,
+  open: openProp,
   summary,
 }: {
   open: boolean;
   summary: ImportSummary | null;
 }) {
   const navigate = useNavigate();
+  const [open, setOpen] = useState(openProp);
+  const next = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (openProp) setOpen(true);
+  }, [openProp]);
+
   if (!summary) return null;
 
   const { matchId, title, clipCount, hasVideo, hasSyncPoint, isUpdate } = summary;
@@ -53,20 +63,34 @@ export function ImportSuccessDialog({
         ? `${title} — ${clips} ready. Set a sync point so clips line up with the video.`
         : `${title} — ${clips} ready to scout.`;
 
-  function goPlaylists() {
-    navigate("/playlists", { state: { createNew: true } });
+  /** Leave the same way the dialog came, then go. */
+  function closeThen(go: () => void) {
+    next.current = go;
+    setOpen(false);
   }
 
-  function goGame() {
-    navigate(`/matches/${matchId}`);
-  }
+  const goPlaylists = () => closeThen(() => navigate("/playlists", { state: { createNew: true } }));
+  const goGame = () => closeThen(() => navigate(`/matches/${matchId}`));
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!next) navigate("/playlists"); }}>
-      <DialogContent>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) closeThen(() => navigate("/playlists")); }}>
+      <DialogContent
+        onExitComplete={() => {
+          const go = next.current;
+          next.current = null;
+          go?.();
+        }}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+            <motion.span
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ ...springs.settle, delay: 0.08 }}
+              className="flex size-5 items-center justify-center rounded-full bg-emerald-500 text-white"
+            >
+              <Check className="size-3" strokeWidth={3} />
+            </motion.span>
             {isUpdate ? "Game updated" : "Game imported"}
           </DialogTitle>
           <DialogDescription>{description}</DialogDescription>
@@ -77,9 +101,7 @@ export function ImportSuccessDialog({
               <Button variant="outline" onClick={goPlaylists}>
                 Build a playlist
               </Button>
-              <Button onClick={goGame}>
-                {needs === "video" ? "Add video" : "Set sync point"}
-              </Button>
+              <Button onClick={goGame}>{needs === "video" ? "Add video" : "Set sync point"}</Button>
             </>
           ) : (
             <>

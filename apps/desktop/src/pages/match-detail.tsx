@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 import { DeleteMatchDialog } from "@/components/delete-match-dialog";
 import { SyncPointPicker } from "@/components/sync-point-picker";
-import { TipoffSuggestionStrip } from "@/components/tipoff-suggestion-strip";
+import { isSuggestionPending, TipoffSuggestionStrip } from "@/components/tipoff-suggestion-strip";
 import { useTipoffSuggestion } from "@/lib/use-tipoff-suggestion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -550,6 +550,7 @@ export function MatchDetailPage() {
               initialSeconds={storedMatch.syncPoint?.syncVideoTime}
               seekRequest={tipoffSuggestion.seekRequest}
               onUserAction={tipoffSuggestion.noteUserAction}
+              hasPendingSuggestion={isSuggestionPending(tipoffSuggestion.state)}
               suggestionSlot={
                 <TipoffSuggestionStrip
                   state={tipoffSuggestion.state}
