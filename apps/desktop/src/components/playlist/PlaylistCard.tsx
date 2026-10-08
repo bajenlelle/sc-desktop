@@ -34,7 +34,7 @@ export function PlaylistCard({
     >
       <button type="button" onClick={onOpen} className="flex flex-col gap-2 text-left">
         {isNew && (
-          <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
+          <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-caption text-primary">
             <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
             New
           </span>
@@ -67,7 +67,7 @@ export function PlaylistCard({
         <div className="flex flex-col gap-1.5">
           <div className="h-1.5 overflow-hidden rounded-full bg-muted">
             <div
-              className="h-full rounded-full bg-primary transition-all"
+              className="h-full rounded-full bg-primary transition-[width] duration-300 ease-spring"
               style={{ width: `${pct}%` }}
             />
           </div>

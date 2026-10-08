@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import "tw-animate-css";
 @import "./themes.css";
 
 /* Class names built in shared logic (eventColors) must be generated too.

@@ -720,7 +720,7 @@ export function MyPlaylistsPage() {
         {partial && (
           <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted">
             <div
-              className="h-full rounded-full bg-primary transition-all"
+              className="h-full rounded-full bg-primary transition-[width] duration-300 ease-spring"
               style={{ width: `${(watched / total) * 100}%` }}
             />
           </div>
@@ -838,7 +838,7 @@ export function MyPlaylistsPage() {
                       <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     )}
                     <User2 className="h-3 w-3 shrink-0 text-primary/70" />
-                    <span className="flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <span className="flex-1 truncate text-subheadline font-medium text-muted-foreground">
                       Shared with me
                     </span>
                     <span className="text-xs text-muted-foreground">{directOnlyPlaylists.length}</span>
@@ -883,7 +883,7 @@ export function MyPlaylistsPage() {
                       ) : (
                         <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                       )}
-                      <span className="flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      <span className="flex-1 truncate text-subheadline font-medium text-muted-foreground">
                         {teamName}
                       </span>
                       <span className="text-xs text-muted-foreground">{teamPlaylists.length}</span>
@@ -1055,7 +1055,7 @@ export function MyPlaylistsPage() {
                   <div className="flex items-center gap-2 px-4 pb-2">
                     <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
                       <div
-                        className="h-full rounded-full bg-primary transition-all"
+                        className="h-full rounded-full bg-primary transition-[width] duration-300 ease-spring"
                         style={{ width: `${(selectedProgress.watched / selectedProgress.total) * 100}%` }}
                       />
                     </div>
@@ -1136,7 +1136,7 @@ export function MyPlaylistsPage() {
           <DialogDescription>Choose which teams and players can see this playlist.</DialogDescription>
         </DialogHeader>
         <div className="py-2">
-          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Teams</p>
+          <p className="mb-1.5 text-subheadline font-medium text-muted-foreground">Teams</p>
           <div className="flex flex-col gap-1">
             {allOrgTeams.map((team) => {
               const checked = pendingShareTeamIds.has(team.id);
@@ -1158,7 +1158,7 @@ export function MyPlaylistsPage() {
                   }}
                 >
                   <span className={cn("flex h-4 w-4 items-center justify-center rounded border", checked ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40")}>
-                    {checked && <span className="text-[10px] font-bold">✓</span>}
+                    {checked && <span className="text-caption font-bold">✓</span>}
                   </span>
                   {team.name}
                 </button>
@@ -1166,7 +1166,7 @@ export function MyPlaylistsPage() {
             })}
           </div>
           <div className="mt-4">
-            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Players</p>
+            <p className="mb-1.5 text-subheadline font-medium text-muted-foreground">Players</p>
             <input
               type="text"
               placeholder="Search players…"
@@ -1208,7 +1208,7 @@ export function MyPlaylistsPage() {
                         checked={checked}
                         className="h-3.5 w-3.5 rounded border-border accent-primary pointer-events-none"
                       />
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-caption font-semibold text-primary">
                         {initials}
                       </span>
                       <span className="flex-1 truncate">{member.fullName ?? member.email ?? "Unknown"}</span>

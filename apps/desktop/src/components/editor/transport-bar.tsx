@@ -74,7 +74,7 @@ export function ControlButton({
       </TooltipTrigger>
       <TooltipContent side="top" className="flex items-center gap-1.5">
         {label}
-        {shortcut && <Kbd className="h-4 min-w-4 border-white/20 bg-white/10 text-[10px] text-white/80">{shortcut}</Kbd>}
+        {shortcut && <Kbd className="h-4 min-w-4 border-white/20 bg-white/10 text-footnote text-white/80">{shortcut}</Kbd>}
       </TooltipContent>
     </Tooltip>
   );

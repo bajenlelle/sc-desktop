@@ -201,7 +201,7 @@ export function EditorToolbar(p: EditorToolbarProps) {
             <Filter />
             Filter
             {p.activeFilterDims > 0 && (
-              <span className="rounded-full bg-primary px-1.5 text-[10px] nums text-primary-foreground">{p.activeFilterDims}</span>
+              <span className="rounded-full bg-primary px-1.5 text-caption nums text-primary-foreground">{p.activeFilterDims}</span>
             )}
           </Button>
 

@@ -17,7 +17,7 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-center">
+    <div className="flex flex-col items-center justify-center py-16 text-center select-none">
       {icon && (
         <div className="mb-3 flex size-12 items-center justify-center rounded-full bg-fill-1 text-muted-foreground [&_svg]:size-6">
           {icon}

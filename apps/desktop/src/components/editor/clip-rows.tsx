@@ -74,7 +74,7 @@ function GroupRail({ pos }: { pos: GroupRunInfo["pos"] }) {
 function GroupPill({ size, onUngroup }: { size?: number; onUngroup?: () => void }) {
   return (
     <span
-      className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+      className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-primary/15 px-1.5 py-0.5 text-caption text-primary"
       title={`${size} items move together`}
     >
       <Link2 className="size-2.5" />
@@ -249,7 +249,7 @@ export function ClipRow({
             {isActive && <Play className={cn("mr-1 size-3.5 fill-current", isSelected ? "text-selection-foreground" : "text-primary")} />}
             {(preOffset !== 0 || postOffset !== 0) && (
               <span
-                className="text-[10px] font-medium text-orange-400"
+                className="text-caption text-orange-400"
                 title={`Pre ${preOffset >= 0 ? "+" : ""}${preOffset}s / Post ${postOffset >= 0 ? "+" : ""}${postOffset}s`}
               >
                 ±

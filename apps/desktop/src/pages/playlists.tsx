@@ -110,6 +110,7 @@ import { clamp } from "@scoutable/shared/lib/motion-math";
 import { dragBlockKeys, isSameOrder, itemsIndexForGap } from "@scoutable/shared/lib/list-reorder";
 import { EmptyState } from "@/components/empty-state";
 import { SearchField } from "@/components/ui/search-field";
+import { Stepper } from "@/components/ui/stepper";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { AddToPopover } from "@/components/editor/add-to-popover";
 import { BROWSER_WIDTH, BrowserColumn } from "@/components/editor/browser-column";
@@ -268,12 +269,20 @@ export function PlaylistsPage() {
   const playerFs = usePlayerFullscreen();
   const playerFsRef = useRef(playerFs);
   playerFsRef.current = playerFs;
+  // Full screen needs footage to show: with no video on the stage it only
+  // ever exits (F, ⌘⇧F and the menu used to blank the window).
+  const hasStageRef = useRef(false);
+  hasStageRef.current = !!localVideoUrl;
+  const toggleFullscreen = useCallback(() => {
+    if (!playerFsRef.current.active && !hasStageRef.current) return;
+    playerFsRef.current.toggle();
+  }, []);
   // View → Fullscreen Player (⌘⇧F) — same CustomEvent bridge as ⌘B.
   useEffect(() => {
-    const handler = () => playerFsRef.current.toggle();
+    const handler = () => toggleFullscreen();
     window.addEventListener("player-fullscreen-toggle", handler);
     return () => window.removeEventListener("player-fullscreen-toggle", handler);
-  }, []);
+  }, [toggleFullscreen]);
   // Playlist IDs whose clips need shipping as soon as state settles: arriving
   // from the dashboard's "Upload missing clips", or after adding clips to an
   // already-shared playlist (which previously left them stranded un-shipped).
@@ -1533,7 +1542,7 @@ export function PlaylistsPage() {
     switch (action) {
       case "fullscreen":
         e.preventDefault();
-        playerFsRef.current.toggle();
+        toggleFullscreen();
         return;
       case "escape":
         // Dialogs own their Escape. A bare fullscreen layer exits here
@@ -3171,10 +3180,6 @@ export function PlaylistsPage() {
   // Clip selection helpers
   // ---------------------------------------------------------------------------
 
-  const allSelected =
-    queueItems.length > 0 &&
-    queueItems.every((item) => selectedClipIds.has(itemKey(item)));
-
   function toggleSelectClip(key: string, e: React.MouseEvent) {
     e.stopPropagation();
     setSelectedClipIds((prev) => {
@@ -3183,14 +3188,6 @@ export function PlaylistsPage() {
       else next.add(key);
       return next;
     });
-  }
-
-  function toggleSelectAll() {
-    if (allSelected) {
-      setSelectedClipIds(new Set());
-    } else {
-      setSelectedClipIds(new Set(queueItems.map(itemKey)));
-    }
   }
 
   function handleRemoveSelected() {
@@ -3594,7 +3591,7 @@ export function PlaylistsPage() {
             video={persistentVideo}
             src={localVideoUrl}
             fullscreen={playerFs.active}
-            onToggleFullscreen={() => playerFsRef.current.toggle()}
+            onToggleFullscreen={toggleFullscreen}
             onExitFullscreen={() => void playerFs.exit()}
             title={selected?.name}
             position={listPosition >= 0 ? { index: listPosition, total: queueItems.length } : null}
@@ -3668,6 +3665,43 @@ export function PlaylistsPage() {
                 onRemoveAtPlayhead={handleCropRemoveAtPlayhead}
                 onReset={() => setActiveClipCropKeyframes(null)}
               />
+            )}
+            {/* This clip's own length: the playlist's clip length plus the
+                clip's offsets, shown as the seconds that actually play. */}
+            {activeEventId !== null && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1">
+                <span className="text-callout text-muted-foreground">This clip</span>
+                <div className="flex items-center gap-1.5">
+                  <Stepper
+                    label="Seconds before the play"
+                    value={preRoll + activeClipOffsets.pre}
+                    min={0}
+                    onChange={(n) => adjustActiveClip(n - (preRoll + activeClipOffsets.pre), 0)}
+                    format={(v) => `${v} s`}
+                  />
+                  <span className="text-callout text-muted-foreground">before</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Stepper
+                    label="Seconds after the play"
+                    value={postRoll + activeClipOffsets.post}
+                    min={0}
+                    onChange={(n) => adjustActiveClip(0, n - (postRoll + activeClipOffsets.post))}
+                    format={(v) => `${v} s`}
+                  />
+                  <span className="text-callout text-muted-foreground">after</span>
+                </div>
+                {(activeClipOffsets.pre !== 0 || activeClipOffsets.post !== 0) && (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => adjustActiveClip(-activeClipOffsets.pre, -activeClipOffsets.post)}
+                    title={`Back to the playlist's ${preRoll} s before and ${postRoll} s after`}
+                  >
+                    Reset
+                  </Button>
+                )}
+              </div>
             )}
             {activeClipKey && activeOrgId && (() => {
               const key = `${activeClipKey.matchId}:${activeClipKey.eventId}`;
@@ -4514,7 +4548,7 @@ export function PlaylistsPage() {
                                           checked={checked}
                                           className="pointer-events-none size-3.5 rounded accent-primary"
                                         />
-                                        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
+                                        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-caption font-semibold text-primary">
                                           {initials}
                                         </span>
                                         <span className="flex-1 truncate">{member.fullName ?? member.email ?? "Unknown"}</span>

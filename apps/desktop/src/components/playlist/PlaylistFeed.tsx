@@ -45,7 +45,7 @@ function Section({
   return (
     <section className="flex flex-col gap-3">
       {title && (
-        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <h2 className="text-subheadline font-medium text-muted-foreground">
           {title}
           <span className="ml-1.5 font-normal opacity-60">{playlists.length}</span>
         </h2>
@@ -272,7 +272,7 @@ export function PlaylistFeed({
           {hero && !query.trim() && hero.kind !== "done" && (
             <div className="flex flex-col gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase tracking-wider text-primary">
+                <p className="text-subheadline font-medium text-primary">
                   {hero.kind === "continue"
                     ? "Pick up where you left off"
                     : hero.count === 1

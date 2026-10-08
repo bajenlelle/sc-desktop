@@ -729,7 +729,7 @@ export function MatchDetailPage() {
 
         {/* ── Danger zone ───────────────────────────────────────────────── */}
         <section className="border-t border-border pt-6 space-y-2">
-          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Danger zone</p>
+          <p className="text-subheadline font-medium text-muted-foreground">Danger zone</p>
           <div className="flex items-center gap-4">
             <DeleteMatchDialog
               matchId={matchId}

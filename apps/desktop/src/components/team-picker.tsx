@@ -36,7 +36,7 @@ export function TeamCrest({ team, size = 28 }: { team: Pick<LeagueTeam, "name" |
   return (
     <span
       style={style}
-      className="flex shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground ring-1 ring-border"
+      className="flex shrink-0 items-center justify-center rounded-full bg-muted text-caption font-semibold text-muted-foreground ring-1 ring-separator"
     >
       {initials(team.name)}
     </span>

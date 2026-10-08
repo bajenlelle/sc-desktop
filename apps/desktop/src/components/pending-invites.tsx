@@ -64,7 +64,7 @@ export function PendingInvites({
 
   return (
     <div className="space-y-1">
-      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-1">
+      <p className="px-1 text-subheadline font-medium text-muted-foreground">
         Pending invites ({invites.length})
       </p>
       {shown.map((invite) => {

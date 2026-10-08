@@ -156,7 +156,7 @@ export function VideoClipControls({
           onClick={() => setSpeedOpen((v) => !v)}
           title="Playback speed"
           className={cn(
-            "h-10 min-w-[3rem] rounded-lg px-1.5 text-xs font-semibold tabular-nums transition-all",
+            "h-10 min-w-[3rem] rounded-lg px-1.5 text-xs font-semibold tabular-nums transition-[background-color,color,transform]",
             "hover:bg-muted active:scale-95",
             speed !== 1 ? "text-primary" : "text-foreground/60 hover:text-foreground"
           )}
@@ -238,7 +238,7 @@ function CtrlBtn({
       disabled={disabled}
       title={title}
       className={cn(
-        "flex items-center justify-center rounded-lg text-foreground/70 transition-all",
+        "flex items-center justify-center rounded-lg text-foreground/70 transition-[background-color,color,transform,opacity]",
         small ? "h-6 w-6 text-xs" : "h-10 w-10",
         "hover:bg-muted hover:text-foreground",
         "active:scale-95",

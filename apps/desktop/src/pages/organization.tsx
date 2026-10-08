@@ -818,7 +818,7 @@ export function OrganizationPage() {
                 const label = role === "admin" ? "Admins" : role === "coach" ? "Coaches" : "Players";
                 return (
                   <div key={role} className="space-y-1">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-1">
+                    <p className="px-1 text-subheadline font-medium text-muted-foreground">
                       {label} ({group.length})
                     </p>
                     {group.map((m) => (

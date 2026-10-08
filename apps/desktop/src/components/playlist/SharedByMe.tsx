@@ -64,8 +64,8 @@ function SegmentedProgress({
   const progressPct = total > 0 ? (inProgress / total) * 100 : 0;
   return (
     <div className={cn("flex h-1.5 overflow-hidden rounded-full bg-muted", className)}>
-      <div className="h-full bg-primary transition-all" style={{ width: `${donePct}%` }} />
-      <div className="h-full bg-primary/40 transition-all" style={{ width: `${progressPct}%` }} />
+      <div className="h-full bg-primary transition-[width] duration-300 ease-spring" style={{ width: `${donePct}%` }} />
+      <div className="h-full bg-primary/40 transition-[width] duration-300 ease-spring" style={{ width: `${progressPct}%` }} />
     </div>
   );
 }
@@ -583,7 +583,7 @@ export function SharedByMe({
                         <TableRow key={r.userId}>
                           <TableCell>
                             <span className="flex items-center gap-2 min-w-0">
-                              <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
+                              <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/15 text-caption font-semibold text-primary">
                                 {r.avatarUrl
                                   ? <img src={r.avatarUrl} alt="" className="h-full w-full object-cover" />
                                   : initials(r.name)}
@@ -595,7 +595,7 @@ export function SharedByMe({
                             <span className="flex items-center gap-2">
                               <span className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
                                 <span
-                                  className="block h-full rounded-full bg-primary transition-all"
+                                  className="block h-full rounded-full bg-primary transition-[width] duration-300 ease-spring"
                                   style={{ width: `${rpct}%` }}
                                 />
                               </span>
