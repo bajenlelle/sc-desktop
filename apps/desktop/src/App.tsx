@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
-import { BrowserRouter, Routes, Route, Outlet, useNavigate, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useNavigate, useLocation, useOutlet } from "react-router-dom";
 import { getVersion } from "@tauri-apps/api/app";
-import { MotionConfig } from "framer-motion";
+import { AnimatePresence, MotionConfig, motion } from "framer-motion";
+import { RotateCw, TriangleAlert } from "lucide-react";
 import { Sentry } from "@/lib/sentry";
 import { initAnalytics, trackEvent } from "@/lib/analytics";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -34,7 +35,11 @@ import { ThemeSync } from "@/components/theme-sync";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WindowChromeEffects } from "@/lib/window-chrome";
 import { WindowDragStrip } from "@/components/shell/window-drag-strip";
-import { springs } from "@/lib/motion";
+import { fadeVariants, springs } from "@/lib/motion";
+import { AuthShell } from "@/components/auth/auth-frame";
+import { StatusScreen } from "@/components/status-screen";
+import { AutoHeight } from "@/components/ui/auto-height";
+import { Button } from "@/components/ui/button";
 
 function ThemedToaster() {
   // Token-driven unconditionally so toasts follow every color theme —
@@ -128,31 +133,46 @@ function DeepLinkHandler() {
   return null;
 }
 
+/**
+ * Signed-out screens. The app's mark stays put; moving between Sign in,
+ * Create account and the password pages cross-fades the content below it
+ * while the column springs to the new height. useOutlet keeps the leaving
+ * page's own element during its fade.
+ */
 function AuthLayout() {
+  const location = useLocation();
+  const outlet = useOutlet();
   return (
-    <div className="min-h-screen bg-background font-sans antialiased">
+    <>
       <WindowDragStrip />
-      <Outlet />
-    </div>
+      <AuthShell>
+        <AutoHeight>
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.div key={location.pathname} variants={fadeVariants} initial="hidden" animate="visible" exit="exit">
+              {outlet}
+            </motion.div>
+          </AnimatePresence>
+        </AutoHeight>
+      </AuthShell>
+    </>
   );
 }
 
 function CrashFallback() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-6">
+    <div className="h-screen">
       <WindowDragStrip />
-      <div className="max-w-md space-y-4 rounded-window bg-card p-6 text-center ring-1 ring-separator">
-        <h1 className="text-title-3 text-foreground">Something went wrong</h1>
-        <p className="text-sm text-muted-foreground">
-          The error has been reported automatically. Reloading usually gets you back on track.
-        </p>
-        <button
-          onClick={() => window.location.reload()}
-          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-[background-color,transform] duration-150 hover:bg-primary/90 active:scale-[0.97]"
-        >
-          Reload Scoutable
-        </button>
-      </div>
+      <StatusScreen
+        icon={<TriangleAlert />}
+        title="Something went wrong"
+        body="The error has been reported. Reloading usually gets you back to where you were."
+        actions={
+          <Button onClick={() => window.location.reload()}>
+            <RotateCw />
+            Reload Scoutable
+          </Button>
+        }
+      />
     </div>
   );
 }

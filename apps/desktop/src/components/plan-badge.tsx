@@ -52,9 +52,9 @@ export function PlanBadge({ tier, size = "md", href, quota, onUpgrade, showArrow
   // Approaching or at the cap the whole chip goes amber — the tier colour
   // stops being the useful signal once imports are the constraint.
   const chipColors = atCap || warn
-    ? "bg-amber-500/15 text-amber-600 dark:text-amber-500"
+    ? "bg-warning/15 text-warning"
     : colors.badge;
-  const dotColor = atCap || warn ? "bg-amber-500" : colors.dot;
+  const dotColor = atCap || warn ? "bg-warning" : colors.dot;
 
   const quotaText = !showQuota
     ? null

@@ -10,12 +10,12 @@ import {
   type TeamSeason,
 } from "@scoutable/shared/lib/team-games";
 import type { LeagueTeam } from "@scoutable/shared/types/league-team";
+import { formatDate } from "@/lib/format-date";
 
 export type PickedFrom = "latest_card" | "team_list";
 
-const longDate = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-const shortDate = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+const longDate = (iso: string) => formatDate(iso, "weekday");
+const shortDate = (iso: string) => formatDate(iso, "short");
 
 function OpponentCrest({ icon, size }: { icon: string; size: number }) {
   const style = { width: size, height: size };

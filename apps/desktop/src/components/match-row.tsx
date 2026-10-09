@@ -3,6 +3,7 @@ import { Trash2, ChevronRight, VideoOff } from "lucide-react";
 import { DeleteMatchDialog } from "@/components/delete-match-dialog";
 import type { VideoFileStatus } from "@/lib/video-probe";
 import type { StoredMatch } from "@/types/match";
+import { formatDate } from "@/lib/format-date";
 
 /**
  * One game in a grouped list: title on the first line, teams, date and clip
@@ -19,11 +20,7 @@ export function MatchRow({
   /** From probeMatches — undefined while probing (no badge until known). */
   videoStatus?: VideoFileStatus;
 }) {
-  const date = new Date(match.date).toLocaleDateString("sv-SE", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  const date = formatDate(match.date);
   return (
     <Link
       to={`/matches/${match.id}`}

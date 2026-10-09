@@ -1,18 +1,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { LogoMark, Wordmark } from "@/components/logo";
-import { createClient } from "@/lib/supabase/client";
+import { Loader2 } from "lucide-react";
+import { AuthError, AuthHeading, FieldGroup, GroupField } from "@/components/auth/auth-frame";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { createClient } from "@/lib/supabase/client";
 
 export function ResetPasswordPage() {
   const navigate = useNavigate();
@@ -24,77 +15,53 @@ export function ResetPasswordPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-
     if (password !== confirm) {
-      setError("Passwords do not match.");
+      setError("The passwords don't match.");
       return;
     }
-
     setLoading(true);
-    const supabase = createClient();
-    const { error } = await supabase.auth.updateUser({ password });
-
+    const { error } = await createClient().auth.updateUser({ password });
     if (error) {
       setError(error.message);
       setLoading(false);
       return;
     }
-
     navigate("/");
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 flex flex-col items-center gap-2 text-center">
-          <LogoMark className="h-12 w-12 rounded-xl" />
-          <Wordmark className="h-6" />
-        </div>
-
-        <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-xl">Set new password</CardTitle>
-            <CardDescription>Choose a new password for your account.</CardDescription>
-          </CardHeader>
-          <form onSubmit={handleSubmit}>
-            <CardContent className="space-y-4">
-              {error && (
-                <p className="rounded-md bg-red-50 dark:bg-red-950/50 px-3 py-2 text-sm text-red-600 dark:text-red-400">
-                  {error}
-                </p>
-              )}
-              <div className="space-y-2">
-                <Label htmlFor="password">New password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  autoComplete="new-password"
-                  required
-                  minLength={6}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="confirm">Confirm new password</Label>
-                <Input
-                  id="confirm"
-                  type="password"
-                  autoComplete="new-password"
-                  required
-                  value={confirm}
-                  onChange={(e) => setConfirm(e.target.value)}
-                />
-              </div>
-            </CardContent>
-            <CardFooter className="pt-6">
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? "Updating…" : "Update password"}
-              </Button>
-            </CardFooter>
-          </form>
-        </Card>
-      </div>
-    </div>
+    <>
+      <AuthHeading title="Choose a new password" />
+      <form onSubmit={handleSubmit} className="grid gap-3">
+        <FieldGroup>
+          <GroupField
+            type="password"
+            aria-label="New password"
+            placeholder="New password (at least 6 characters)"
+            autoComplete="new-password"
+            required
+            minLength={6}
+            autoFocus
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <GroupField
+            type="password"
+            aria-label="Confirm new password"
+            placeholder="Confirm new password"
+            autoComplete="new-password"
+            required
+            aria-invalid={confirm !== "" && confirm !== password}
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+          />
+        </FieldGroup>
+        <AuthError message={error} />
+        <Button type="submit" className="w-full" disabled={loading}>
+          {loading && <Loader2 className="animate-spin" />}
+          Save password
+        </Button>
+      </form>
+    </>
   );
 }

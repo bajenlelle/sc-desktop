@@ -8,9 +8,11 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Check, FolderSearch, HelpCircle, VideoOff } from "lucide-react";
+import { Check, FolderSearch, HelpCircle, Loader2, VideoOff } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { AutoHeight } from "@/components/ui/auto-height";
+import { Callout, GroupedList } from "@/components/ui/group";
 import {
   Dialog,
   DialogContent,
@@ -120,7 +122,7 @@ export function RelinkVideosDialog({
       `Linked ${linked} video${linked !== 1 ? "s" : ""}`,
       {
         description:
-          "Check a clip from each game — if the timing looks off, redo the sync point.",
+          "Check a clip from each game. If the timing looks off, set the tip-off again.",
       },
     );
     onRelinked();
@@ -135,91 +137,76 @@ export function RelinkVideosDialog({
   return (
     <Dialog open={dialogOpen} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button
-          variant="outline"
-          className="gap-2 border-amber-500/40 text-amber-600 hover:text-amber-600 dark:text-amber-400"
-        >
-          <VideoOff className="h-4 w-4" />
-          Find missing videos… ({missing.length})
+        <Button variant="outline" size="sm" className="text-warning hover:text-warning">
+          <VideoOff />
+          Find missing videos… <span className="nums">({missing.length})</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FolderSearch className="h-4 w-4 text-primary" />
-            Find missing videos
-          </DialogTitle>
+          <DialogTitle>Find missing videos</DialogTitle>
           <DialogDescription>
-            Games reference the video file on the machine that imported them — nothing is
-            uploaded. Point at the folder holding your game videos on this computer and
-            they'll be matched by filename.
+            Games use the video file on the computer that imported them; nothing is uploaded. Choose the folder that
+            holds your game videos on this computer and they're matched by file name.
           </DialogDescription>
         </DialogHeader>
 
-        {rows === null ? (
-          <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border py-8">
-            <p className="max-w-sm text-center text-sm text-muted-foreground">
-              {missing.length} game{missing.length !== 1 ? "s" : ""} point
-              {missing.length === 1 ? "s" : ""} at a video file that can't be found.
-            </p>
-            <Button onClick={handlePickFolder} disabled={scanning} className="gap-2">
-              <FolderSearch className="h-4 w-4" />
-              {scanning ? "Scanning…" : "Choose folder…"}
-            </Button>
-          </div>
-        ) : (
-          <div className="max-h-72 space-y-1 overflow-y-auto">
-            {rows.map((row) => (
-              <div
-                key={row.matchId}
-                className="flex items-center gap-3 rounded-lg border border-border px-3 py-2"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-foreground">{row.title}</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {row.resolvedPath ?? row.fileName}
-                  </p>
+        <AutoHeight>
+          {rows === null ? (
+            <Callout
+              tone="warning"
+              icon={<VideoOff />}
+              action={
+                <Button size="sm" onClick={handlePickFolder} disabled={scanning}>
+                  {scanning ? <Loader2 className="animate-spin" /> : <FolderSearch />}
+                  Choose folder…
+                </Button>
+              }
+            >
+              {missing.length === 1
+                ? "1 game points at a video file that can't be found."
+                : `${missing.length} games point at video files that can't be found.`}
+            </Callout>
+          ) : (
+            <GroupedList className="max-h-72 overflow-y-auto">
+              {rows.map((row) => (
+                <div key={row.matchId} className="flex min-h-12 items-center gap-3 px-4 py-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm">{row.title}</p>
+                    <p className="truncate text-callout text-muted-foreground">{row.resolvedPath ?? row.fileName}</p>
+                  </div>
+                  {row.resolvedPath ? (
+                    <span className="flex shrink-0 items-center gap-1 text-callout text-success">
+                      <Check className="size-3.5" />
+                      {row.outcome === "located" ? "Located" : "Found"}
+                    </span>
+                  ) : (
+                    <>
+                      {row.outcome === "ambiguous" && (
+                        <span className="flex shrink-0 items-center gap-1 text-callout text-muted-foreground">
+                          <HelpCircle className="size-3.5" />
+                          Several files match
+                        </span>
+                      )}
+                      <Button size="xs" variant="outline" className="shrink-0" onClick={() => handleLocateRow(row.matchId)}>
+                        Locate…
+                      </Button>
+                    </>
+                  )}
                 </div>
-                {row.resolvedPath ? (
-                  <span className="flex shrink-0 items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
-                    <Check className="h-3.5 w-3.5" />
-                    {row.outcome === "located" ? "Located" : "Found"}
-                  </span>
-                ) : (
-                  <>
-                    {row.outcome === "ambiguous" && (
-                      <span
-                        className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground"
-                        title="Several files in that folder share this name — pick the right one"
-                      >
-                        <HelpCircle className="h-3.5 w-3.5" />
-                        Several matches
-                      </span>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 shrink-0 text-xs"
-                      onClick={() => handleLocateRow(row.matchId)}
-                    >
-                      Locate…
-                    </Button>
-                  </>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </GroupedList>
+          )}
+        </AutoHeight>
 
         {rows !== null && (
-          <DialogFooter className="items-center gap-2 sm:justify-between">
-            <Button variant="ghost" size="sm" onClick={handlePickFolder} disabled={scanning || applying}>
+          <DialogFooter className="items-center sm:justify-between">
+            <Button variant="ghost" size="sm" className="-ml-2" onClick={handlePickFolder} disabled={scanning || applying}>
               Scan another folder…
             </Button>
             <Button onClick={handleApply} disabled={linkable.length === 0 || applying}>
-              {applying
-                ? "Linking…"
-                : `Link ${linkable.length} video${linkable.length !== 1 ? "s" : ""}`}
+              {applying && <Loader2 className="animate-spin" />}
+              Link {linkable.length} video{linkable.length !== 1 ? "s" : ""}
             </Button>
           </DialogFooter>
         )}

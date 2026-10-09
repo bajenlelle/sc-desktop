@@ -11,6 +11,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { LABEL_COLORS, labelDotClasses, labelSwatchClasses } from "@/lib/label-colors";
 import type { Label, LabelColor } from "@scoutable/shared/types/labels";
 import { cn } from "@/lib/utils";
@@ -164,6 +166,8 @@ export function LabelPickerPopover({
     setCreateColor(LABEL_COLORS[(idx + 1) % LABEL_COLORS.length]);
   }
 
+  const [deleteTarget, setDeleteTarget] = useState<Label | null>(null);
+
   async function handleRenameSubmit() {
     if (!renameId) return;
     const next = renameValue.trim();
@@ -179,6 +183,7 @@ export function LabelPickerPopover({
   }
 
   return (
+    <>
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent
@@ -335,19 +340,10 @@ export function LabelPickerPopover({
                         Rename
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        onSelect={(e) => {
-                          e.preventDefault();
-                          if (
-                            window.confirm(
-                              `Delete "${label.name}"? This removes it from every clip you've tagged.`,
-                            )
-                          ) {
-                            void onDelete(label.id);
-                          }
-                        }}
-                        className="text-red-500 focus:text-red-500"
+                        onSelect={() => setDeleteTarget(label)}
+                        className="text-destructive focus:bg-destructive focus:text-white"
                       >
-                        Delete
+                        Delete…
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -394,5 +390,31 @@ export function LabelPickerPopover({
         )}
       </PopoverContent>
     </Popover>
+
+    {/* Deleting a label takes it off every clip, so it asks first. */}
+    <Dialog open={deleteTarget !== null} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Delete “{deleteTarget?.name}”?</DialogTitle>
+          <DialogDescription>It comes off every clip you've tagged with it.</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => {
+              const target = deleteTarget;
+              setDeleteTarget(null);
+              if (target) void onDelete(target.id);
+            }}
+          >
+            Delete label
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

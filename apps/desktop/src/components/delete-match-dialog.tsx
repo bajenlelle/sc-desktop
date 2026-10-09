@@ -1,7 +1,10 @@
 import { useState } from "react";
+import { Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -49,43 +52,30 @@ export function DeleteMatchDialog({
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>Delete game?</DialogTitle>
+          <DialogTitle>Delete “{matchTitle}”?</DialogTitle>
+          <DialogDescription>The game and all its clips are removed for good. This can't be undone.</DialogDescription>
         </DialogHeader>
-        <p className="text-sm text-muted-foreground">
-          This will permanently remove{" "}
-          <span className="font-semibold text-foreground">
-            {matchTitle}
-          </span>{" "}
-          and all its clips. This can&apos;t be undone.
-        </p>
         {!isDemo && importQuota !== null && (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-callout text-muted-foreground">
             {importQuota.window === "lifetime"
-              ? "Deleting doesn't restore your free imports — you get 3 games total. Re-importing this same game later is free."
-              : "Deleting doesn't restore your monthly import — the import has already been used. Re-importing this same game later is free."}
+              ? `Deleting doesn't give back a free import: the free plan has ${importQuota.baseLimit} in total. Importing this same game again later is free.`
+              : "Deleting doesn't give back this month's import. Importing this same game again later is free."}
           </p>
         )}
         {deleteError && (
-          <p className="text-sm text-red-600 dark:text-red-400">{deleteError}</p>
+          <p role="alert" className="text-callout text-destructive">
+            {deleteError}
+          </p>
         )}
-        <div className="flex justify-end gap-2 pt-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setOpen(false)}
-            disabled={deleting}
-          >
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={deleting}>
             Cancel
           </Button>
-          <Button
-            size="sm"
-            className="bg-red-600 hover:bg-red-700 text-white"
-            onClick={handleDelete}
-            disabled={deleting}
-          >
-            {deleting ? "Deleting…" : "Delete game"}
+          <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+            {deleting && <Loader2 className="animate-spin" />}
+            Delete game
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

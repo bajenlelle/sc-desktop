@@ -1,18 +1,9 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { LogoMark, Wordmark } from "@/components/logo";
-import { createClient } from "@/lib/supabase/client";
+import { Loader2, Mail } from "lucide-react";
+import { AuthError, AuthHeading, FieldGroup, GroupField } from "@/components/auth/auth-frame";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { createClient } from "@/lib/supabase/client";
 
 export function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -24,83 +15,65 @@ export function ForgotPasswordPage() {
     e.preventDefault();
     setLoading(true);
     setError(null);
-
-    const supabase = createClient();
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    const { error } = await createClient().auth.resetPasswordForEmail(email, {
       redirectTo: "scoutable://auth/callback?type=recovery",
     });
-
     if (error) {
       setError(error.message);
       setLoading(false);
       return;
     }
-
     setSuccess(true);
     setLoading(false);
   }
 
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 flex flex-col items-center gap-2 text-center">
-          <LogoMark className="h-12 w-12 rounded-xl" />
-          <Wordmark className="h-6" />
-        </div>
-
-        <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-xl">Reset your password</CardTitle>
-            <CardDescription>
-              Enter your email and we&apos;ll send you a reset link.
-            </CardDescription>
-          </CardHeader>
-
-          {success ? (
-            <CardContent>
-              <div className="rounded-md bg-green-50 dark:bg-green-950/50 px-3 py-3 text-sm text-green-700 dark:text-green-400">
-                <p className="font-medium">Check your email</p>
-                <p className="mt-1 text-muted-foreground">
-                  If an account exists for <strong>{email}</strong>, a reset link has been sent.
-                </p>
-              </div>
-            </CardContent>
-          ) : (
-            <form onSubmit={handleSubmit}>
-              <CardContent className="space-y-4">
-                {error && (
-                  <p className="rounded-md bg-red-50 dark:bg-red-950/50 px-3 py-2 text-sm text-red-600 dark:text-red-400">
-                    {error}
-                  </p>
-                )}
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="you@example.com"
-                    autoComplete="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                  />
-                </div>
-              </CardContent>
-              <CardFooter className="flex flex-col gap-3 pt-6">
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? "Sending…" : "Send reset link"}
-                </Button>
-                <p className="text-center text-sm text-muted-foreground">
-                  Remember your password?{" "}
-                  <Link to="/auth/login" className="text-primary hover:underline font-medium">
-                    Sign in
-                  </Link>
-                </p>
-              </CardFooter>
-            </form>
-          )}
-        </Card>
+  if (success) {
+    return (
+      <div className="text-center">
+        <span className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-primary/12 text-primary">
+          <Mail className="size-6" />
+        </span>
+        <h1 className="text-title-1">Check your inbox</h1>
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          If <span className="font-medium text-foreground">{email}</span> has an account, a link to choose a new password
+          is on its way.
+        </p>
+        <p className="mt-6 text-callout">
+          <Link to="/auth/login" className="font-medium text-primary hover:underline">
+            Back to sign in
+          </Link>
+        </p>
       </div>
-    </div>
+    );
+  }
+
+  return (
+    <>
+      <AuthHeading title="Reset your password" description="We'll email you a link to choose a new one." />
+      <form onSubmit={handleSubmit} className="grid gap-3">
+        <FieldGroup>
+          <GroupField
+            type="email"
+            aria-label="Email"
+            placeholder="Email"
+            autoComplete="email"
+            required
+            autoFocus
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </FieldGroup>
+        <AuthError message={error} />
+        <Button type="submit" className="w-full" disabled={loading}>
+          {loading && <Loader2 className="animate-spin" />}
+          Send link
+        </Button>
+      </form>
+      <p className="mt-6 text-center text-callout">
+        <Link to="/auth/login" className="font-medium text-primary hover:underline">
+          Back to sign in
+        </Link>
+      </p>
+    </>
   );
 }

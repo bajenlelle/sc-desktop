@@ -27,6 +27,7 @@ import { DevicesCard } from "@/components/devices-card";
 import { MarketingEmailToggle } from "@/components/marketing-email-toggle";
 import { MyTeamCard } from "@/components/my-team-card";
 import { cn } from "@/lib/utils";
+import { formatDate as formatLongDate } from "@/lib/format-date";
 
 type SubStatus = {
   isActive: boolean;
@@ -37,7 +38,7 @@ type SubStatus = {
 
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
-  return new Date(iso).toLocaleDateString("en-SE", { day: "numeric", month: "long", year: "numeric" });
+  return formatLongDate(iso, "long");
 }
 
 function roleBadgeVariant(role: string | null, isPlatformAdmin: boolean): "default" | "secondary" | "outline" | "destructive" {
@@ -224,7 +225,7 @@ export function ProfilePage() {
   const showUsage = importQuota !== null;
   const usageRatio = importQuota?.limit ? importQuota.used / importQuota.limit : 0;
   const usageAtCap = showUsage && (importQuota!.remaining ?? 0) <= 0;
-  // Lifetime pools are small (Free = 3) — warn from 65% so 2-of-3 shows amber.
+  // Lifetime pools are small (Free = 3): warn from 65% so 2 of 3 used already shows the warning.
   const usageWarn =
     showUsage && !usageAtCap && usageRatio >= (importQuota!.window === "lifetime" ? 0.65 : 0.8);
   const isTrialing = sub?.status === "trialing";
@@ -245,7 +246,7 @@ export function ProfilePage() {
               type="button"
               className="group relative flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/15 text-lg font-semibold text-primary outline-none transition-transform duration-150 active:scale-95 focus-visible:ring-2 focus-visible:ring-selection focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               onClick={() => fileInputRef.current?.click()}
-              title="Change avatar"
+              aria-label="Change photo"
             >
               {avatarPreview
                 ? <img src={avatarPreview} alt="Avatar" className="size-full object-cover" />
@@ -309,7 +310,7 @@ export function ProfilePage() {
                           {importQuota!.window === "lifetime" ? "Upgrade for more" : "Upgrade for unlimited"}
                         </button>
                       )}
-                      <span className={cn("nums", usageAtCap ? "font-medium text-destructive" : usageWarn ? "font-medium text-amber-600 dark:text-amber-400" : "text-foreground")}>
+                      <span className={cn("nums", usageAtCap ? "font-medium text-destructive" : usageWarn ? "font-medium text-warning" : "text-foreground")}>
                         {importQuota!.remaining} of {importQuota!.limit} left
                       </span>
                     </span>
@@ -317,7 +318,7 @@ export function ProfilePage() {
                   <ProgressBar
                     percent={Math.min(100, usageRatio * 100)}
                     className="mt-2"
-                    fillClassName={usageAtCap ? "bg-destructive" : usageWarn ? "bg-amber-500" : undefined}
+                    fillClassName={usageAtCap ? "bg-destructive" : usageWarn ? "bg-warning" : undefined}
                   />
                   <p className="mt-1.5 text-subheadline text-muted-foreground">
                     {importQuota!.window === "lifetime"
@@ -379,7 +380,7 @@ export function ProfilePage() {
                         <Button
                           variant="outline"
                           size="xs"
-                          title={`Teams, members and invites for ${club.orgName}`}
+                          aria-label={`Manage ${club.orgName}`}
                           onClick={() => {
                             // The org page manages the ACTIVE space — switch
                             // first, same as the space menu's Manage action.
@@ -440,9 +441,7 @@ export function ProfilePage() {
                   </Button>
                 }
               />
-              <div className="px-4 py-2">
-                <MarketingEmailToggle />
-              </div>
+              <MarketingEmailToggle />
             </GroupedList>
           </section>
 

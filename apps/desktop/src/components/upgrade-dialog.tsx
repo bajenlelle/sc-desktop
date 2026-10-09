@@ -20,7 +20,7 @@ interface Props {
 export function UpgradeDialog({ open, onClose, featureName = "This feature", description, analyticsFeature, analyticsSource }: Props) {
   const { user, expectPlanChange } = useAuth();
   const [loading, setLoading] = useState(false);
-  const body = description ?? "Turn your playlists into MP4s you can share anywhere — plus 6 game imports a month on Rookie, unlimited on Pro. Cancel anytime.";
+  const body = description ?? "Turn your playlists into MP4s you can share anywhere, with 6 game imports a month on Rookie and unlimited on Pro. Cancel anytime.";
 
   useEffect(() => {
     if (open) trackEvent("upgrade_gate_hit", { feature: analyticsFeature ?? featureName });
@@ -44,22 +44,22 @@ export function UpgradeDialog({ open, onClose, featureName = "This feature", des
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="max-w-md">
-        <DialogHeader>
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-            <Lock className="h-5 w-5 text-muted-foreground" />
-          </div>
-          <DialogTitle className="text-center">{featureName}</DialogTitle>
-          <DialogDescription className="text-center">
-            {body}
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter className="flex-col gap-2 sm:flex-col">
-          <Button className="w-full gap-1.5" onClick={handleUpgrade} disabled={loading}>
-            {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            {loading ? "Opening…" : "View plans & upgrade"}
+        <div className="flex gap-4">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary/12 text-primary">
+            <Lock className="size-5" />
+          </span>
+          <DialogHeader>
+            <DialogTitle>{featureName}</DialogTitle>
+            <DialogDescription>{body}</DialogDescription>
+          </DialogHeader>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={loading}>
+            Not now
           </Button>
-          <Button variant="ghost" className="w-full" onClick={onClose} disabled={loading}>
-            Maybe later
+          <Button onClick={handleUpgrade} disabled={loading}>
+            {loading && <Loader2 className="animate-spin" />}
+            See plans
           </Button>
         </DialogFooter>
       </DialogContent>

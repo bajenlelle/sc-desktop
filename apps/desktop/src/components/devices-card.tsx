@@ -7,11 +7,13 @@
  * lever: kills sessions, not rows; evicted push tokens are pruned too).
  */
 import { useCallback, useEffect, useState } from "react";
-import { Globe, Laptop, LogOut, Smartphone, X } from "lucide-react";
+import { Globe, Loader2, LogOut, MinusCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { GroupFooter, GroupHeader, GroupedList } from "@/components/ui/group";
+import { APP_ICON, lastActive } from "@/lib/devices-ui";
+import { cn } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -31,19 +33,7 @@ import {
 } from "@scoutable/shared/lib/devices-db";
 import { appKindLabel, partitionDevicesByActivity } from "@scoutable/shared/lib/device-boot";
 
-function lastActive(iso: string): string {
-  const d = new Date(iso);
-  const days = Math.floor((Date.now() - d.getTime()) / 86_400_000);
-  if (days <= 0) return "today";
-  if (days === 1) return "yesterday";
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
 
-const APP_ICON = {
-  web: Globe,
-  desktop: Laptop,
-  mobile: Smartphone,
-} as const;
 
 export function DevicesCard() {
   const [devices, setDevices] = useState<UserDevice[] | null>(null);
@@ -98,14 +88,13 @@ export function DevicesCard() {
   const renderRow = (d: UserDevice, muted: boolean) => {
     const Icon = APP_ICON[d.app] ?? Globe;
     const isThis = d.deviceId === ownDeviceId;
+    const name = d.deviceName ?? d.platform ?? "Unknown device";
     return (
-      <li key={d.deviceId} className="flex items-center gap-3">
-        <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <div key={d.deviceId} className="flex min-h-12 items-center gap-3 px-4 py-2">
+        <Icon className="size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
-          <p className={`truncate text-sm ${muted ? "text-muted-foreground" : "text-foreground"}`}>
-            {d.deviceName ?? d.platform ?? "Unknown device"}
-          </p>
-          <p className="text-xs text-muted-foreground">
+          <p className={cn("truncate text-sm", muted && "text-muted-foreground")}>{name}</p>
+          <p className="text-callout text-muted-foreground">
             {appKindLabel(d.app)} · Last active {lastActive(d.lastSeen)}
           </p>
         </div>
@@ -114,65 +103,62 @@ export function DevicesCard() {
         ) : (
           <Button
             variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-muted-foreground"
+            size="icon-xs"
+            className="text-muted-foreground hover:text-destructive"
             onClick={() => setConfirming(d)}
-            aria-label={`Remove ${d.deviceName ?? d.platform ?? "device"}`}
+            aria-label={`Remove ${name}`}
           >
-            <X className="h-3.5 w-3.5" />
+            <MinusCircle />
           </Button>
         )}
-      </li>
+      </div>
     );
   };
 
   return (
-    <Card>
-      <CardContent className="p-6 space-y-4">
-        <h2 className="text-sm font-semibold text-foreground">Devices</h2>
-        <ul className="space-y-3">{active.map((d) => renderRow(d, false))}</ul>
-        {inactive.length > 0 && (
-          <div className="space-y-3 border-t border-border pt-3">
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">Inactive</p>
-              <p className="text-xs text-muted-foreground">
-                Not used in the last 30 days — these don&apos;t count toward your device limit.
-              </p>
-            </div>
-            <ul className="space-y-3">{inactive.map((d) => renderRow(d, true))}</ul>
-          </div>
-        )}
-        {devices.length > 1 && (
-          <Button variant="outline" size="sm" onClick={handleSignOutOthers} disabled={signingOut}>
-            <LogOut className="mr-2 h-4 w-4" />
-            {signingOut ? "Signing out…" : "Sign out all other devices"}
-          </Button>
-        )}
-      </CardContent>
+    <section className="space-y-7">
+      <div>
+        <GroupHeader
+          title="Devices"
+          action={
+            devices.length > 1 && (
+              <Button variant="ghost" size="xs" className="text-primary" onClick={handleSignOutOthers} disabled={signingOut}>
+                {signingOut ? <Loader2 className="animate-spin" /> : <LogOut />}
+                Sign out everywhere else
+              </Button>
+            )
+          }
+        />
+        <GroupedList>{active.map((d) => renderRow(d, false))}</GroupedList>
+      </div>
+      {inactive.length > 0 && (
+        <div>
+          <GroupHeader title="Inactive devices" />
+          <GroupedList>{inactive.map((d) => renderRow(d, true))}</GroupedList>
+          <GroupFooter>Not used in the last 30 days, so they don't count toward your device limit.</GroupFooter>
+        </div>
+      )}
 
       <Dialog open={confirming !== null} onOpenChange={(open) => !open && setConfirming(null)}>
-        <DialogContent>
+        <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Remove this device?</DialogTitle>
             <DialogDescription>
               {(confirming?.deviceName ?? confirming?.platform ?? "This device") +
-                " will lose access the next time it opens Scoutable."}
+                " loses access the next time it opens Scoutable."}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirming(null)} disabled={removing}>
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              onClick={() => confirming && handleRemove(confirming)}
-              disabled={removing}
-            >
-              {removing ? "Removing…" : "Remove device"}
+            <Button variant="destructive" onClick={() => confirming && handleRemove(confirming)} disabled={removing}>
+              {removing && <Loader2 className="animate-spin" />}
+              Remove device
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Card>
+    </section>
   );
 }

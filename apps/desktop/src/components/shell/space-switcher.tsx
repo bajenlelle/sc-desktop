@@ -88,7 +88,7 @@ export function SpaceSwitcher({
             <span
               className={cn(
                 "block truncate text-subheadline nums",
-                atCap || warn ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground",
+                atCap || warn ? "text-warning" : "text-muted-foreground",
               )}
             >
               {secondLine}

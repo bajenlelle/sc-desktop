@@ -6,7 +6,6 @@ import {
   computeHero,
   feedCounts,
   filterFeed,
-  relativeTimeShort,
   visibleFeed,
   watchStateOf,
   type FeedPlaylist,
@@ -20,6 +19,7 @@ import { ProgressBar } from "@/components/ui/progress-bar";
 import { ProgressRing } from "@/components/ui/progress-ring";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { pressable } from "@/lib/pressable";
+import { relativeTime } from "@/lib/format-date";
 
 export interface FeedFilters {
   query: string;
@@ -47,7 +47,7 @@ function FeedRow({
     playlist.sharerName ?? "A coach",
     playlist.teamNames && playlist.teamNames.length > 0 ? playlist.teamNames.join(", ") : null,
     `${playlist.clipCount} clip${playlist.clipCount === 1 ? "" : "s"}`,
-    relativeTimeShort(playlist.sharedAt),
+    relativeTime(playlist.sharedAt),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -193,7 +193,7 @@ export function PlaylistFeed({
             <p className="mt-1 text-sm text-muted-foreground nums">
               {hero.kind === "continue"
                 ? `${hero.playlist.watchedCount} of ${hero.playlist.clipCount} watched`
-                : [hero.playlist.sharerName, relativeTimeShort(hero.playlist.sharedAt)].filter(Boolean).join(" · ")}
+                : [hero.playlist.sharerName, relativeTime(hero.playlist.sharedAt)].filter(Boolean).join(" · ")}
             </p>
             {hero.kind === "continue" && hero.playlist.clipCount > 0 && (
               <ProgressBar

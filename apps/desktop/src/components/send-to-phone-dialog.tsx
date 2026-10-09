@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { AutoHeight } from "@/components/ui/auto-height";
 import { ProgressBar } from "@/components/ui/progress-bar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { sendHighlightToPhone, type SendToPhoneStage } from "@/lib/highlight-share";
 import { getMyShareForPlaylist } from "@/lib/highlight-shares-db";
 import { highlightContentKey } from "@scoutable/shared/lib/highlight-shares-db";
@@ -217,7 +218,7 @@ export function SendToPhoneDialog({
 
         <AutoHeight>
           {!error && rangeNote && (
-            <p className="mb-3 rounded-md bg-amber-500/10 px-3 py-2 text-callout text-amber-700 dark:text-amber-400">
+            <p className="mb-3 rounded-window bg-warning/12 px-3 py-2 text-callout text-foreground">
               {rangeNote}
             </p>
           )}
@@ -252,16 +253,15 @@ export function SendToPhoneDialog({
                     {copied ? "Copied" : "Copy link"}
                   </Button>
                   {reusedFrom && playlist && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-muted-foreground"
-                      onClick={() => runPipeline(playlist)}
-                      title="Re-render if the playlist has changed since this link was made"
-                    >
-                      <RefreshCw />
-                      Create new link
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => runPipeline(playlist)}>
+                          <RefreshCw />
+                          Create new link
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Renders again, for when the playlist changed after this link was made</TooltipContent>
+                    </Tooltip>
                   )}
                 </div>
                 <p className="text-center text-callout text-muted-foreground">

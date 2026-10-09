@@ -36,6 +36,7 @@ import { choiceFor, spacesSharingAnswer, teamRoleIn, teamSpaces } from "@scoutab
 import { getTeamSources } from "@scoutable/shared/lib/league-teams-db";
 import { fromTeamSide, stageForMatchType, teamGames, teamSeasons, type TeamGame, type TeamSeason } from "@scoutable/shared/lib/team-games";
 import { sortOrgsClubFirst } from "@scoutable/shared/lib/orgs";
+import { formatDate } from "@/lib/format-date";
 
 // The import view a space last chose, on this computer. Only "all" is stored:
 // a space with a team opens on its own games unless the user switched away.
@@ -142,11 +143,7 @@ function GameRow({
   imported?: boolean;
   onClick: () => void;
 }) {
-  const date = new Date(game.rawStartDateTime).toLocaleDateString("sv-SE", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  const date = formatDate(game.rawStartDateTime);
 
   return (
     <button
@@ -844,7 +841,7 @@ export function UploadZone({
                       )}
                     </div>
                     <p className="truncate text-subheadline text-muted-foreground nums">
-                      {new Date(selectedGame.rawStartDateTime).toLocaleDateString("sv-SE")}
+                      {formatDate(selectedGame.rawStartDateTime)}
                       {selectedGame.venueInfo?.name ? ` · ${selectedGame.venueInfo.name}` : ""}
                     </p>
                   </div>

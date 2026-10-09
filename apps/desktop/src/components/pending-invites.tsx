@@ -12,8 +12,8 @@ import {
 import { GroupHeader, GroupedList } from "@/components/ui/group";
 import { listOrgInvites, resendOrgInvite, revokeOrgInvite } from "@/lib/profile-db";
 import { roleLabel } from "@/lib/roles";
+import { relativeTime } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
-import { relativeTimeShort } from "@scoutable/shared/lib/playlist-feed";
 import { canManageInvite, inviteExpiryLabel, pendingEmailInvites } from "@scoutable/shared/lib/pending-invites";
 import type { OrgInvite, OrgTeam } from "@/types/org";
 
@@ -98,7 +98,7 @@ export function PendingInvites({
               <div className="flex min-w-0 flex-1 flex-col">
                 <span className="truncate text-sm">{invite.email}</span>
                 <span className="truncate text-callout text-muted-foreground nums">
-                  {[roleLabel(invite.role), team, `sent ${relativeTimeShort(invite.createdAt)}`].filter(Boolean).join(" · ")}
+                  {[roleLabel(invite.role), team, `sent ${relativeTime(invite.createdAt)}`].filter(Boolean).join(" · ")}
                   {" · "}
                   <span className={cn(expired && "text-destructive")}>{expiry}</span>
                 </span>

@@ -10,6 +10,7 @@ import {
 } from "@scoutable/shared/lib/update-progress";
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/ui/progress-bar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Sentry } from "@/lib/sentry";
 import { silentUpdateCheck, UPDATE_FOUND_EVENT } from "@/lib/updates";
 
@@ -130,9 +131,24 @@ export function UpdateCard() {
                   ? "Update failed"
                   : "Update available"}
           </p>
-          <p className="truncate text-callout text-muted-foreground" title={status === "error" ? error ?? undefined : update.body ?? undefined}>
-            {status === "error" ? error : `Version ${update.version}`}
-          </p>
+          {(() => {
+            const line = (
+              <p className="truncate text-callout text-muted-foreground">
+                {status === "error" ? error : `Version ${update.version}`}
+              </p>
+            );
+            const full = status === "error" ? error : update.body;
+            return full ? (
+              <Tooltip>
+                <TooltipTrigger asChild>{line}</TooltipTrigger>
+                <TooltipContent side="right" className="max-w-72 whitespace-pre-wrap">
+                  {full}
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              line
+            );
+          })()}
         </div>
         {idle && (
           <button

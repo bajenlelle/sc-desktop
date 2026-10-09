@@ -16,7 +16,8 @@ import {
   type DashboardStatusFilter,
   type RecipientRow,
 } from "@scoutable/shared/lib/shared-by-me";
-import { initials, relativeTimeShort } from "@scoutable/shared/lib/playlist-feed";
+import { initials } from "@scoutable/shared/lib/playlist-feed";
+import { relativeTime } from "@/lib/format-date";
 import type { SharedPlaylist } from "@/lib/playlists-db";
 import { getTeamMembers, type TeamMemberRef } from "@/lib/teams-db";
 import { listPlaylistClipViews, type PlaylistClipView } from "@/lib/clip-views-db";
@@ -301,7 +302,7 @@ export function SharedByMe({
             ]
               .filter(Boolean)
               .join(", ");
-            const when = relativeTimeShort(row.newestSharedAt);
+            const when = relativeTime(row.newestSharedAt);
             const toggle = () => setExpandedId(expanded ? null : row.playlist.id);
             return (
               <div key={row.playlist.id}>
@@ -414,7 +415,7 @@ export function SharedByMe({
                                   )}
                                 </span>
                                 <span className="w-16 shrink-0 text-right text-subheadline text-muted-foreground nums">
-                                  {relativeTimeShort(r.lastActivity) ?? "—"}
+                                  {relativeTime(r.lastActivity) ?? "—"}
                                 </span>
                                 <span className="flex w-24 shrink-0 justify-end">
                                   {!done &&

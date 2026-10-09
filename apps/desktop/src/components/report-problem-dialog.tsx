@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { ImagePlus, Loader2, X } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { getVersion } from "@tauri-apps/api/app";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { submitFeedbackReport } from "@scoutable/shared/lib/feedback";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/auth-context";
@@ -23,6 +25,7 @@ export function ReportProblemDialog({ open, onOpenChange }: ReportProblemDialogP
   const [description, setDescription] = useState("");
   const [screenshot, setScreenshot] = useState<{ name: string; base64: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   function handleFile(file: File | undefined) {
     if (!file) return setScreenshot(null);
@@ -53,15 +56,15 @@ export function ReportProblemDialog({ open, onOpenChange }: ReportProblemDialogP
     });
     setSubmitting(false);
     if (result.ok) {
-      toast.success("Thanks — feedback received!");
+      toast.success("Thanks. We got your feedback.");
       setDescription("");
       setScreenshot(null);
       onOpenChange(false);
     } else {
       toast.error(
         result.error === "too_many_reports"
-          ? "You've sent a few reports recently — please wait a bit before sending another."
-          : "Couldn't send the report. Please try again.",
+          ? "You've sent a few reports recently. Wait a little before sending another."
+          : "Couldn't send the report. Try again.",
       );
     }
   }
@@ -72,32 +75,55 @@ export function ReportProblemDialog({ open, onOpenChange }: ReportProblemDialogP
         <DialogHeader>
           <DialogTitle>Send feedback</DialogTitle>
           <DialogDescription>
-            Found a bug, got an idea, or something confusing? Tell us — your app version and
-            current page are attached automatically.
+            A bug, an idea, something confusing: tell us. Your app version and the page you're on are attached
+            automatically.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
-          <div className="space-y-2">
+        <div className="grid gap-4">
+          <div className="grid gap-1.5">
             <Label htmlFor="report-description">What happened?</Label>
-            <textarea
+            <Textarea
               id="report-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={5}
               maxLength={4000}
-              placeholder="e.g. Exporting the playlist 'Defense vs Alvik' fails after a few seconds…"
-              className="w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              placeholder="Exporting the playlist “Defence vs Alvik” stops after a few seconds…"
             />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="report-screenshot">Screenshot (optional)</Label>
+          <div className="flex items-center gap-3">
+            {/* The real file input stays hidden behind a regular button. */}
             <input
+              ref={fileRef}
               id="report-screenshot"
               type="file"
               accept="image/png,image/jpeg,image/webp"
+              className="sr-only"
+              tabIndex={-1}
               onChange={(e) => handleFile(e.target.files?.[0])}
-              className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground hover:file:bg-muted/80"
             />
+            <Button type="button" variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
+              <ImagePlus />
+              {screenshot ? "Change screenshot…" : "Attach screenshot…"}
+            </Button>
+            {screenshot ? (
+              <span className="flex min-w-0 items-center gap-1 rounded-full bg-fill-2 py-0.5 pr-1 pl-2.5 text-callout">
+                <span className="truncate">{screenshot.name}</span>
+                <button
+                  type="button"
+                  aria-label="Remove screenshot"
+                  onClick={() => {
+                    setScreenshot(null);
+                    if (fileRef.current) fileRef.current.value = "";
+                  }}
+                  className="flex size-4 items-center justify-center rounded-full opacity-70 hover:bg-fill-3 hover:opacity-100"
+                >
+                  <X className="size-3" />
+                </button>
+              </span>
+            ) : (
+              <span className="text-callout text-muted-foreground">Optional, up to 2 MB</span>
+            )}
           </div>
         </div>
         <DialogFooter>
@@ -105,7 +131,8 @@ export function ReportProblemDialog({ open, onOpenChange }: ReportProblemDialogP
             Cancel
           </Button>
           <Button onClick={handleSubmit} disabled={!description.trim() || submitting}>
-            {submitting ? "Sending…" : "Send Feedback"}
+            {submitting && <Loader2 className="animate-spin" />}
+            Send feedback
           </Button>
         </DialogFooter>
       </DialogContent>

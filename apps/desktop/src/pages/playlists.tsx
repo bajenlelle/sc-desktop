@@ -2456,7 +2456,7 @@ export function PlaylistsPage() {
         setFolders((prev) => prev.filter((f) => f.id !== id));
         setExpandedFolders((prev) => { const s = new Set(prev); s.delete(id); return s; });
         console.error("Failed to create folder:", err);
-        alert(`Failed to create folder: ${err instanceof Error ? err.message : String(err)}`);
+        toast.error("Couldn't create the folder", { description: err instanceof Error ? err.message : String(err) });
       }
       return;
     }
