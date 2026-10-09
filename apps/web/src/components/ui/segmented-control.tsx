@@ -5,7 +5,7 @@ import { ToggleGroup as ToggleGroupPrimitive } from "radix-ui"
 import { motion } from "framer-motion"
 
 import { cn } from "@/lib/utils"
-import { springs } from "@/lib/motion"
+import { springs, useReducedMotionSafe } from "@/lib/motion"
 
 export interface SegmentedOption<T extends string> {
   value: T
@@ -35,6 +35,9 @@ export function SegmentedControl<T extends string>({
   "aria-label"?: string
 }) {
   const id = React.useId()
+  // Signed-out pages have no MotionConfig, so the thumb checks the setting
+  // itself: under reduced motion it moves without travelling.
+  const reduced = useReducedMotionSafe()
   return (
     <ToggleGroupPrimitive.Root
       type="single"
@@ -59,7 +62,7 @@ export function SegmentedControl<T extends string>({
           {value === o.value && (
             <motion.span
               layoutId={`${id}-thumb`}
-              transition={springs.snappy}
+              transition={reduced ? { duration: 0 } : springs.snappy}
               className="absolute inset-0 rounded-[5px] bg-card shadow-[0_1px_2px_rgb(0_0_0/0.12),0_0_0_0.5px_var(--separator)] pointer-coarse:rounded-md"
             />
           )}

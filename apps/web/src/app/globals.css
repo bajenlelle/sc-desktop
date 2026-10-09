@@ -300,16 +300,25 @@
   --shadow-sheet: 0 0 0 1px var(--separator), 0 18px 48px -12px rgb(0 0 0 / 0.55);
 }
 
+/* :root, not html: the materials and separators are set on :root, which
+   outranks a bare html selector, so these overrides would lose in light mode. */
 @media (prefers-reduced-transparency: reduce) {
-  html, .dark {
+  :root, .dark {
     --material-sidebar: var(--sidebar);
     --material-toolbar: var(--background);
     --material-popover: var(--popover);
   }
   .backdrop-blur, .backdrop-blur-sm, .backdrop-blur-md, .backdrop-blur-lg, .backdrop-blur-xl { backdrop-filter: none; }
+  /* A solid toolbar ends on a hairline, not the soft edge (an inline mask
+     in shell/toolbar.tsx, hence !important). */
+  header[data-scrolled] {
+    -webkit-mask-image: none !important;
+    mask-image: none !important;
+    box-shadow: 0 1px 0 var(--separator);
+  }
 }
 @media (prefers-contrast: more) {
-  html, .dark { --separator: var(--separator-strong); }
+  :root, .dark { --separator: var(--separator-strong); }
 }
 @media (prefers-reduced-motion: reduce) {
   /* Motion becomes a cross-fade; comprehension cues stay. Spinners keep
