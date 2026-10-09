@@ -57,6 +57,10 @@
   --color-separator-strong: var(--separator-strong);
   --color-selection: var(--selection);
   --color-selection-foreground: var(--selection-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-material-sidebar: var(--material-sidebar);
   --color-material-toolbar: var(--material-toolbar);
   --color-material-popover: var(--material-popover);
@@ -171,6 +175,12 @@
   --selection: var(--primary);
   --selection-foreground: var(--primary-foreground);
   --selection-inactive: var(--fill-3);
+  /* Status colours: the same in every theme (like the system colours), tuned
+     per mode so text stays legible. Amber is a warning, never a hover. */
+  --success: oklch(0.56 0.14 152);
+  --success-foreground: oklch(1 0 0);
+  --warning: oklch(0.62 0.15 62);
+  --warning-foreground: oklch(1 0 0);
   --shadow-menu: 0 0 0 1px var(--separator), 0 8px 24px -6px rgb(0 0 0 / 0.18);
   --shadow-dialog: 0 0 0 1px var(--separator), 0 24px 64px -16px rgb(0 0 0 / 0.35);
   --shadow-sheet: 0 0 0 1px var(--separator), 0 18px 48px -12px rgb(0 0 0 / 0.3);
@@ -233,6 +243,10 @@
   --selection: var(--primary);
   --selection-foreground: var(--primary-foreground);
   --selection-inactive: var(--fill-3);
+  --success: oklch(0.76 0.15 152);
+  --success-foreground: oklch(0.18 0.02 240);
+  --warning: oklch(0.8 0.14 72);
+  --warning-foreground: oklch(0.18 0.02 240);
   --shadow-menu: 0 0 0 1px var(--separator), 0 8px 24px -6px rgb(0 0 0 / 0.5);
   --shadow-dialog: 0 0 0 1px var(--separator), 0 24px 64px -16px rgb(0 0 0 / 0.6);
   --shadow-sheet: 0 0 0 1px var(--separator), 0 18px 48px -12px rgb(0 0 0 / 0.55);

@@ -7,7 +7,7 @@ export function Kbd({ className, ...props }: React.ComponentProps<"kbd">) {
   return (
     <kbd
       className={cn(
-        "inline-flex h-5 min-w-5 items-center justify-center rounded border border-separator bg-fill-1 px-1 font-sans text-[11px] text-muted-foreground",
+        "inline-flex h-5 min-w-5 items-center justify-center rounded border border-separator bg-fill-1 px-1 font-sans text-subheadline text-muted-foreground",
         className
       )}
       {...props}

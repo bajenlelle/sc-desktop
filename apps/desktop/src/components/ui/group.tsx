@@ -44,6 +44,8 @@ export interface GroupRowProps {
   chevron?: boolean
   onClick?: () => void
   disabled?: boolean
+  /** A red label for actions that delete or sign out. */
+  destructive?: boolean
   className?: string
   children?: React.ReactNode
 }
@@ -56,6 +58,7 @@ export function GroupRow({
   chevron,
   onClick,
   disabled,
+  destructive,
   className,
   children,
 }: GroupRowProps) {
@@ -66,7 +69,7 @@ export function GroupRow({
         <span className="flex shrink-0 items-center text-muted-foreground [&_svg]:size-4">{leading}</span>
       )}
       <span className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-sm text-foreground">{label}</span>
+        <span className={cn("truncate text-sm", destructive ? "text-destructive" : "text-foreground")}>{label}</span>
         {description && <span className="text-callout text-muted-foreground">{description}</span>}
       </span>
       {trailing && <span className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">{trailing}</span>}
@@ -87,4 +90,80 @@ export function GroupRow({
     )
   }
   return <div className={classes}>{body}</div>
+}
+
+/**
+ * A settings-style form row: the label in a fixed column on the left, the
+ * control on the right (System Settings' form layout). `htmlFor` ties the
+ * label to the control for clicks and screen readers.
+ */
+export function FormRow({
+  label,
+  htmlFor,
+  description,
+  className,
+  children,
+}: {
+  label: React.ReactNode
+  htmlFor?: string
+  description?: React.ReactNode
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className={cn("flex min-h-11 items-center gap-4 px-4 py-2", className)}>
+      <div className="flex w-32 shrink-0 flex-col">
+        <label htmlFor={htmlFor} className="text-sm text-foreground">
+          {label}
+        </label>
+        {description && <span className="text-callout text-muted-foreground">{description}</span>}
+      </div>
+      <div className="flex min-w-0 flex-1 items-center justify-end gap-2">{children}</div>
+    </div>
+  )
+}
+
+/** A tinted note inside or between groups: status, warning or error. */
+export function Callout({
+  tone = "neutral",
+  icon,
+  className,
+  children,
+  action,
+}: {
+  tone?: "neutral" | "warning" | "destructive" | "success"
+  icon?: React.ReactNode
+  className?: string
+  children: React.ReactNode
+  action?: React.ReactNode
+}) {
+  return (
+    <div
+      role={tone === "destructive" ? "alert" : undefined}
+      className={cn(
+        "flex items-start gap-2.5 rounded-window px-3 py-2.5 text-callout",
+        tone === "neutral" && "bg-fill-1 text-foreground",
+        tone === "warning" && "bg-warning/12 text-foreground",
+        tone === "destructive" && "bg-destructive/10 text-foreground",
+        tone === "success" && "bg-success/12 text-foreground",
+        className
+      )}
+    >
+      {icon && (
+        <span
+          className={cn(
+            "mt-px flex shrink-0 [&_svg]:size-4",
+            tone === "warning" && "text-warning",
+            tone === "destructive" && "text-destructive",
+            tone === "success" && "text-success",
+            tone === "neutral" && "text-muted-foreground"
+          )}
+        >
+          {icon}
+        </span>
+      )}
+      <div className="min-w-0 flex-1">{children}</div>
+      {action && <div className="shrink-0 self-center">{action}</div>}
+    </div>
+  )
 }

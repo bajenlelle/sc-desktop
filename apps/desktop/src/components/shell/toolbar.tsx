@@ -34,11 +34,14 @@ export function SidebarToggle() {
  * instead of a line). `static` layouts (split views) keep it in flow with a
  * hairline. The bar and the title are drag regions for the window; when the
  * sidebar is hidden on macOS the bar pads for the traffic lights.
+ * `principal` is the centred item (a view switcher, as in Calendar's
+ * Day/Week/Month): it sits in the space between the title and the actions.
  */
 export function Toolbar({
   title,
   subtitle,
   leading,
+  principal,
   search,
   actions,
   variant = "scroll",
@@ -47,6 +50,7 @@ export function Toolbar({
   title: React.ReactNode;
   subtitle?: React.ReactNode;
   leading?: React.ReactNode;
+  principal?: React.ReactNode;
   search?: React.ReactNode;
   actions?: React.ReactNode;
   variant?: "scroll" | "static";
@@ -82,11 +86,16 @@ export function Toolbar({
         <h1 data-tauri-drag-region className="truncate text-title-3 text-foreground">
           {title}
         </h1>
-        {subtitle && <span className="truncate text-subheadline text-muted-foreground">{subtitle}</span>}
+        {subtitle && <span className="truncate text-subheadline text-muted-foreground nums">{subtitle}</span>}
       </div>
-      {search && <div className="ml-auto w-48 shrink-0 md:w-56">{search}</div>}
+      {principal && (
+        <div data-tauri-drag-region className="flex min-w-0 flex-1 justify-center">
+          {principal}
+        </div>
+      )}
+      {search && <div className={cn("w-48 shrink-0 md:w-56", !principal && "ml-auto")}>{search}</div>}
       {actions && (
-        <div className={cn("flex shrink-0 items-center gap-2", !search && "ml-auto")}>{actions}</div>
+        <div className={cn("flex shrink-0 items-center gap-2", !search && !principal && "ml-auto")}>{actions}</div>
       )}
     </header>
   );
