@@ -5,10 +5,11 @@
  */
 import { useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
 import { requestLicenseRenewal } from "@/lib/profile-db";
+import { formatDate } from "@/lib/format-date";
 import { getLicenseState, graceEndsAt } from "@scoutable/shared/lib/license-state";
 
 export function LicenseBanner() {
@@ -26,11 +27,7 @@ export function LicenseBanner() {
 
   const isAdmin = activeOrg.role === "admin";
   const graceEnd = graceEndsAt(activeOrg.expiresAt);
-  const graceEndLabel = graceEnd?.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  const graceEndLabel = graceEnd ? formatDate(graceEnd) : null;
 
   async function handleRequestRenewal() {
     if (!activeOrg) return;
@@ -38,11 +35,11 @@ export function LicenseBanner() {
     try {
       await requestLicenseRenewal(activeOrg.orgId);
       setRequested(true);
-      toast.success("Renewal requested — we'll be in touch.");
+      toast.success("Renewal requested. We'll be in touch.");
     } catch (e) {
       if ((e as Error).message === "renewal_already_requested") {
         setRequested(true);
-        toast.info("Renewal already requested — we're on it.");
+        toast.info("Renewal already requested. We're on it.");
       } else {
         toast.error((e as Error).message);
       }
@@ -54,35 +51,29 @@ export function LicenseBanner() {
   return (
     <div className="shrink-0 border-b border-separator bg-destructive/8 px-4 py-2">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-        <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
+        <AlertTriangle className="size-4 shrink-0 text-destructive" />
         <span className="font-medium text-destructive">
           {activeOrg.orgName}&apos;s license has expired
         </span>
         <span className="text-muted-foreground">
           {state === "grace"
-            ? `Importing, sharing, and invites pause on ${graceEndLabel} unless it's renewed.`
-            : "Importing, sharing, and invites are paused. Existing playlists stay watchable."}
+            ? `Importing, sharing and invites pause on ${graceEndLabel} unless it's renewed.`
+            : "Importing, sharing and invites are paused. Existing playlists stay watchable."}
         </span>
         {isAdmin ? (
           requested ? (
-            <span className="text-xs font-medium text-emerald-600 dark:text-emerald-500">
-              Renewal requested — we&apos;ll be in touch
+            <span className="flex items-center gap-1 text-callout text-muted-foreground">
+              <Check className="size-3.5 text-success" />
+              Renewal requested
             </span>
           ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 text-xs"
-              disabled={requesting}
-              onClick={handleRequestRenewal}
-            >
-              {requesting ? "Requesting…" : "Request renewal"}
+            <Button size="xs" variant="outline" disabled={requesting} onClick={handleRequestRenewal}>
+              {requesting && <Loader2 className="animate-spin" />}
+              Request renewal
             </Button>
           )
         ) : (
-          <span className="text-xs text-muted-foreground">
-            Ask your organization admin about renewal.
-          </span>
+          <span className="text-callout text-muted-foreground">Ask your club's admin about renewing.</span>
         )}
       </div>
     </div>

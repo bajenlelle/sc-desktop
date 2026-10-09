@@ -1,24 +1,16 @@
-import { useState, useMemo } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Check, Loader2, Search, X } from "lucide-react";
-import { assignMemberToTeam } from "@/lib/profile-db";
-import type { OrgTeam, UserProfile } from "@/types/org";
+import { useMemo, useState } from "react";
+import { Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-
-function roleBadgeVariant(role: string): "default" | "secondary" | "outline" {
-  if (role === "admin") return "default";
-  if (role === "coach") return "secondary";
-  return "outline";
-}
+import { initials } from "@scoutable/shared/lib/playlist-feed";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { GroupedList } from "@/components/ui/group";
+import { SearchField } from "@/components/ui/search-field";
+import { assignMemberToTeam } from "@/lib/profile-db";
+import { pressable } from "@/lib/pressable";
+import { roleLabel } from "@/lib/roles";
+import { cn } from "@/lib/utils";
+import type { OrgTeam, UserProfile } from "@/types/org";
 
 interface AddMembersToTeamModalProps {
   open: boolean;
@@ -29,6 +21,7 @@ interface AddMembersToTeamModalProps {
   onAdded: () => void;
 }
 
+/** Club members who aren't on the team yet, each a row that toggles with a check. */
 export function AddMembersToTeamModal({
   open,
   onClose,
@@ -51,17 +44,13 @@ export function AddMembersToTeamModal({
 
   const availableToAdd = useMemo(
     () => orgMembers.filter((m) => !currentTeamMemberIds.has(m.id)),
-    [orgMembers, currentTeamMemberIds]
+    [orgMembers, currentTeamMemberIds],
   );
 
   const filtered = useMemo(() => {
-    if (!searchQuery.trim()) return availableToAdd;
-    const q = searchQuery.toLowerCase();
-    return availableToAdd.filter(
-      (m) =>
-        m.fullName?.toLowerCase().includes(q) ||
-        m.email?.toLowerCase().includes(q)
-    );
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return availableToAdd;
+    return availableToAdd.filter((m) => m.fullName?.toLowerCase().includes(q) || m.email?.toLowerCase().includes(q));
   }, [availableToAdd, searchQuery]);
 
   function toggle(id: string) {
@@ -73,28 +62,15 @@ export function AddMembersToTeamModal({
     });
   }
 
-  function deselect(id: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-  }
-
-  const selectedMembers = orgMembers.filter((m) => selectedIds.has(m.id));
-
   async function handleAdd() {
     if (selectedIds.size === 0) return;
     setAdding(true);
     try {
       for (const userId of selectedIds) {
         const member = orgMembers.find((m) => m.id === userId)!;
-        const teamRole = member.role === "player" ? "player" : "coach";
-        await assignMemberToTeam(userId, team.id, teamRole);
+        await assignMemberToTeam(userId, team.id, member.role === "player" ? "player" : "coach");
       }
-      toast.success(
-        `${selectedIds.size} member${selectedIds.size !== 1 ? "s" : ""} added to ${team.name}`
-      );
+      toast.success(`${selectedIds.size} member${selectedIds.size !== 1 ? "s" : ""} added to ${team.name}`);
       onAdded();
       handleOpenChange(false);
     } catch (e) {
@@ -109,109 +85,67 @@ export function AddMembersToTeamModal({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Add members to {team.name}</DialogTitle>
+          <DialogDescription>Choose from the people already in the club.</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3">
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              className="pl-8"
-              placeholder="Search by name or email…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-
-          {/* Selected chips */}
-          {selectedMembers.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {selectedMembers.map((m) => (
-                <span
-                  key={m.id}
-                  className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary text-xs px-2.5 py-1 font-medium"
-                >
-                  {m.fullName ?? m.email ?? m.id.slice(0, 8)}
-                  <button
-                    type="button"
-                    className="hover:text-primary/60 transition-colors"
-                    onClick={() => deselect(m.id)}
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-
-          {/* Member list */}
-          {availableToAdd.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">
-              All org members are already in this team.
-            </p>
-          ) : filtered.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">
-              No members match &ldquo;{searchQuery}&rdquo;.
-            </p>
-          ) : (
-            <div className="max-h-64 overflow-y-auto -mx-1 space-y-0.5">
-              {filtered.map((m) => {
-                const selected = selectedIds.has(m.id);
-                const displayName = m.fullName ?? m.email ?? m.id.slice(0, 8);
-                return (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => toggle(m.id)}
-                    className="w-full flex items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-fill-1 transition-colors"
-                  >
-                    {/* Checkbox indicator */}
+        {availableToAdd.length === 0 ? (
+          <p className="py-6 text-center text-callout text-muted-foreground">Everyone in the club is already on this team.</p>
+        ) : (
+          <div className="grid gap-2">
+            {availableToAdd.length > 6 && (
+              <SearchField
+                placeholder="Search by name or email"
+                aria-label="Search members"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            )}
+            <GroupedList className="max-h-72 overflow-y-auto">
+              {filtered.length === 0 ? (
+                <p className="px-3 py-2.5 text-callout text-muted-foreground">No one matches “{searchQuery}”.</p>
+              ) : (
+                filtered.map((m) => {
+                  const selected = selectedIds.has(m.id);
+                  const name = m.fullName ?? m.email ?? m.id.slice(0, 8);
+                  return (
                     <div
-                      className={[
-                        "h-4 w-4 shrink-0 rounded border flex items-center justify-center transition-colors",
-                        selected ? "bg-primary border-primary" : "border-input bg-background",
-                      ].join(" ")}
+                      key={m.id}
+                      {...pressable(() => toggle(m.id), { role: "checkbox", checked: selected })}
+                      className="flex min-h-11 cursor-default items-center gap-3 px-3 py-1.5 outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection"
                     >
-                      {selected && <Check className="h-2.5 w-2.5 text-primary-foreground" />}
+                      <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-caption font-semibold text-primary">
+                        {initials(name)}
+                      </span>
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="truncate text-sm">{name}</span>
+                        {m.fullName && m.email && <span className="truncate text-callout text-muted-foreground">{m.email}</span>}
+                      </span>
+                      <span className="shrink-0 text-callout text-muted-foreground">{roleLabel(m.role)}</span>
+                      <Check
+                        aria-hidden
+                        className={cn(
+                          "size-4 shrink-0 stroke-[2.5] text-primary transition-[opacity,transform] duration-150",
+                          selected ? "scale-100 opacity-100" : "scale-75 opacity-0",
+                        )}
+                      />
                     </div>
-
-                    {/* Initials avatar */}
-                    <div className="h-6 w-6 rounded-full bg-muted flex items-center justify-center text-xs text-muted-foreground shrink-0 font-medium">
-                      {displayName[0].toUpperCase()}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm truncate">{displayName}</p>
-                      {m.fullName && m.email && (
-                        <p className="text-xs text-muted-foreground truncate">{m.email}</p>
-                      )}
-                    </div>
-
-                    <Badge variant={roleBadgeVariant(m.role)} className="text-xs shrink-0">
-                      {m.role}
-                    </Badge>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                  );
+                })
+              )}
+            </GroupedList>
+          </div>
+        )}
 
         <DialogFooter>
-          <Button variant="outline" size="sm" onClick={() => handleOpenChange(false)}>
+          {selectedIds.size > 0 && (
+            <span className="mr-auto self-center text-callout text-muted-foreground nums">{selectedIds.size} selected</span>
+          )}
+          <Button variant="outline" onClick={() => handleOpenChange(false)}>
             Cancel
           </Button>
-          <Button
-            size="sm"
-            onClick={handleAdd}
-            disabled={selectedIds.size === 0 || adding}
-          >
-            {adding && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
-            {adding
-              ? "Adding…"
-              : selectedIds.size > 0
-              ? `Add ${selectedIds.size} member${selectedIds.size !== 1 ? "s" : ""}`
-              : "Add members"}
+          <Button onClick={handleAdd} disabled={selectedIds.size === 0 || adding}>
+            {adding && <Loader2 className="animate-spin" />}
+            {selectedIds.size > 0 ? `Add ${selectedIds.size}` : "Add"}
           </Button>
         </DialogFooter>
       </DialogContent>
