@@ -2,20 +2,31 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { Card, CardContent } from "@/components/ui/card";
+import { Check, Clipboard, Loader2, MoreHorizontal, RefreshCw, Users } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { SegmentedControl } from "@/components/ui/segmented-control";
+import { Callout, FORM_ROW_DATE, FORM_ROW_INPUT, FormRow, GroupFooter, GroupHeader, GroupRow, GroupedList } from "@/components/ui/group";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { EmptyState } from "@/components/empty-state";
+import { LicenseBadge } from "@/components/license-badge";
+import { PersonAvatar } from "@/components/person-avatar";
+import { useAdminGate } from "@/components/admin/admin-sections";
+import { PlanTierMenu } from "@/components/admin/plan-tier-menu";
+import { Page, PageContent } from "@/components/shell/page";
+import { Toolbar } from "@/components/shell/toolbar";
+import { BackButton } from "@/components/shell/back-button";
 import {
-  getOrgContext,
   getOrgById,
   getOrgMembersForAdmin,
   updateOrgNameForPlatform,
@@ -34,38 +45,18 @@ import type {
   OrgPlanTier,
   UserProfile,
 } from "@scoutable/shared/types/org";
-import { LicenseBadge } from "@/components/license-badge";
-import { useAuth } from "@/components/auth-context";
-import { toast } from "sonner";
-import { Clipboard, Check, Loader2, RefreshCw } from "lucide-react";
-import { Page, PageContent } from "@/components/shell/page";
-import { Toolbar } from "@/components/shell/toolbar";
-import { BackButton } from "@/components/shell/back-button";
+import { getLicenseState } from "@scoutable/shared/lib/license-state";
+import { formatDate } from "@/lib/format-date";
+import { roleLabel } from "@/lib/roles";
+import { cn } from "@/lib/utils";
 
-function roleBadgeVariant(
-  role: string,
-  isPlatformAdmin = false
-): "default" | "secondary" | "outline" | "destructive" {
-  if (isPlatformAdmin) return "destructive";
-  if (role === "admin") return "default";
-  if (role === "coach") return "secondary";
-  return "outline";
-}
+type Tab = "overview" | "members" | "invites";
 
-function StatCard({ label, value }: { label: string; value: string | number }) {
-  return (
-    <Card>
-      <CardContent className="p-4">
-        <p className="text-2xl font-bold">{value}</p>
-        <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
-      </CardContent>
-    </Card>
-  );
-}
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 function fmtDate(iso: string | number | null | undefined): string {
   if (iso == null) return "never";
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return formatDate(iso);
 }
 
 /** One-line human description of an audit event's change. */
@@ -100,13 +91,13 @@ function describeEvent(e: OrgLicenseEvent): string {
 export default function OrgDetailPage() {
   const router = useRouter();
   const { id: orgId } = useParams<{ id: string }>();
-  const { user } = useAuth();
+  const checked = useAdminGate();
 
-  const [checked, setChecked] = useState(false);
   const [org, setOrg] = useState<Organization | null>(null);
   const [members, setMembers] = useState<UserProfile[]>([]);
   const [events, setEvents] = useState<OrgLicenseEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<Tab>("overview");
 
   const [editNameOpen, setEditNameOpen] = useState(false);
   const [editName, setEditName] = useState("");
@@ -129,22 +120,11 @@ export default function OrgDetailPage() {
   const [copied, setCopied] = useState(false);
 
   const [removingId, setRemovingId] = useState<string | null>(null);
+  // Removing someone asks first, as on the Club page.
+  const [removeTarget, setRemoveTarget] = useState<UserProfile | null>(null);
   const [promotingId, setPromotingId] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
-
-  useEffect(() => {
-    if (!user) return;
-    getOrgContext()
-      .then((ctx) => {
-        if (!ctx.profile.isPlatformAdmin) {
-          router.replace("/organization");
-        } else {
-          setChecked(true);
-        }
-      })
-      .catch(() => router.replace("/organization"));
-  }, [user]);
 
   useEffect(() => {
     if (!checked || !orgId) return;
@@ -326,6 +306,7 @@ export default function OrgDetailPage() {
     try {
       await removeOrgMember(memberId, orgId);
       toast.success("Member removed");
+      setRemoveTarget(null);
       await loadData();
     } catch (e) {
       toast.error((e as Error).message);
@@ -340,7 +321,15 @@ export default function OrgDetailPage() {
         <Toolbar inline title="Organization" leading={<BackButton href="/admin" label="Admin" />} />
         <PageContent>
           {!org && checked && !loading ? (
-            <p className="text-sm text-red-500">Organization not found.</p>
+            <EmptyState
+              title="Organization not found"
+              body="It may have been deleted."
+              action={
+                <Button variant="outline" size="sm" onClick={() => router.push("/admin")}>
+                  Back to Admin
+                </Button>
+              }
+            />
           ) : (
             <div className="flex h-64 items-center justify-center">
               <Loader2 className="size-5 animate-spin text-muted-foreground" />
@@ -353,399 +342,453 @@ export default function OrgDetailPage() {
 
   const coachCount = members.filter((m) => m.role !== "player").length;
   const playerCount = members.filter((m) => m.role === "player").length;
+  const licenseState = getLicenseState(org.expiresAt);
+  const licenseNeedsLook = licenseState === "expiring" || licenseState === "grace" || licenseState === "locked";
+  const seats = (count: number, limit: number | null) => (
+    <span className={cn("nums", limit != null && count > limit && "text-destructive")}>
+      {count} of {limit ?? "unlimited"}
+    </span>
+  );
 
   return (
     <Page width="medium">
-    <Toolbar
-      inline
-      title={org.name}
-      leading={<BackButton href="/admin" label="Admin" />}
-      actions={
-        <>
-          <Button variant="outline" size="sm" onClick={() => { setEditName(org.name); setEditNameOpen(true); }}>
-            Edit Name
-          </Button>
-          <Button variant="destructive" size="sm" onClick={() => setDeleteDialogOpen(true)}>
-            Delete
-          </Button>
-        </>
-      }
-    />
-    <PageContent className="space-y-6">
-
-      {/* Tabs */}
-      <Tabs defaultValue="overview">
-        <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="members">Members</TabsTrigger>
-          <TabsTrigger value="invites">Invites</TabsTrigger>
-        </TabsList>
-
-        {/* Overview */}
-        <TabsContent value="overview" className="pt-4 space-y-4">
-          <div className="grid grid-cols-3 gap-4">
-            <StatCard label="Members" value={members.length} />
-            <StatCard label="Expires" value={org.expiresAt ? fmtDate(org.expiresAt) : "Never"} />
-            <StatCard
-              label="Created"
-              value={new Date(org.createdAt).toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              })}
-            />
-          </div>
-
-          {/* License card */}
-          <Card>
-            <CardContent className="p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-medium text-foreground">License</p>
-                <div className="flex items-center gap-2">
-                  <LicenseBadge expiresAt={org.expiresAt} />
-                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={openLicenseDialog}>
-                    Edit
-                  </Button>
-                </div>
-              </div>
-              <div className="flex gap-6 text-sm">
-                <div>
-                  <span className="text-muted-foreground text-xs">Coaches</span>
-                  <p className="font-semibold">
-                    {coachCount} / {org.coachSeatLimit !== null ? org.coachSeatLimit : "∞"}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground text-xs">Players</span>
-                  <p className="font-semibold">
-                    {playerCount} / {org.playerSeatLimit !== null ? org.playerSeatLimit : "∞"}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground text-xs">Plan tier</span>
-                  <select
-                    value={org.planTier}
-                    onChange={(e) => handlePlanTierChange(e.target.value as OrgPlanTier)}
-                    className="mt-0.5 block text-xs rounded border border-border bg-background px-2 py-1 cursor-pointer"
-                  >
-                    <option value="free">Free</option>
-                    <option value="rookie">Rookie</option>
-                    <option value="pro">Pro</option>
-                    <option value="franchise">Franchise</option>
-                  </select>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Contact & notes */}
-          <Card>
-            <CardContent className="p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-medium text-foreground">Contact &amp; notes</p>
-                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={openContactDialog}>
-                  Edit
-                </Button>
-              </div>
-              {org.contactName || org.contactEmail || org.notes ? (
-                <div className="space-y-1 text-sm">
-                  {(org.contactName || org.contactEmail) && (
-                    <p>
-                      {org.contactName ?? "—"}
-                      {org.contactEmail && (
-                        <span className="text-muted-foreground"> · {org.contactEmail}</span>
-                      )}
-                    </p>
-                  )}
-                  {org.notes && (
-                    <p className="text-muted-foreground whitespace-pre-wrap">{org.notes}</p>
-                  )}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  No contact yet. Add one — the contact gets license expiry reminders alongside org
-                  admins.
-                </p>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* License history */}
-          <Card>
-            <CardContent className="p-4 space-y-3">
-              <p className="text-sm font-medium text-foreground">License history</p>
-              {events.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No license changes recorded yet.</p>
-              ) : (
-                <ul className="space-y-2">
-                  {events.map((e) => (
-                    <li key={e.id} className="text-sm">
-                      <span className="text-foreground">{describeEvent(e)}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {" "}
-                        — {e.actorName}, {fmtDate(e.createdAt)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Members */}
-        <TabsContent value="members" className="pt-4">
-          {members.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No members yet.</p>
-          ) : (
-            <div className="space-y-1">
-              {members.map((m) => (
-                <div
-                  key={m.id}
-                  className="flex items-center justify-between rounded-lg border border-border px-4 py-3"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm">{m.fullName ?? m.email ?? m.id.slice(0, 8)}</span>
-                    <Badge variant={roleBadgeVariant(m.role, m.isPlatformAdmin)} className="text-xs">
-                      {m.isPlatformAdmin ? "platform admin" : m.role}
-                    </Badge>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-muted-foreground">
-                      {new Date(m.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                    </span>
-                    {!m.isPlatformAdmin && m.role !== "admin" && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 text-xs"
-                        disabled={promotingId === m.id}
-                        onClick={() => handlePromote(m.id)}
-                      >
-                        {promotingId === m.id ? "Promoting…" : "Promote to admin"}
-                      </Button>
-                    )}
-                    {!m.isPlatformAdmin && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 text-xs text-destructive hover:text-destructive"
-                        disabled={removingId === m.id}
-                        onClick={() => handleRemoveMember(m.id)}
-                      >
-                        {removingId === m.id ? "Removing…" : "Remove"}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </TabsContent>
-
-        {/* Invites */}
-        <TabsContent value="invites" className="pt-4">
-          <Card>
-            <CardContent className="p-4 space-y-3">
-              <p className="text-sm font-medium text-foreground">Admin Invite Code</p>
-              <p className="text-xs text-muted-foreground">
-                Generate a single-use admin invite code for this organization.
-              </p>
-              {inviteCode ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="rounded-md border border-border bg-muted/50 px-3 py-1.5 font-mono text-sm font-medium shrink-0">
-                    {inviteCode}
-                  </div>
-                  <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={handleCopy}>
-                    {copied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Clipboard className="h-3.5 w-3.5" />}
-                    {copied ? "Copied!" : "Copy Invite"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-8 text-xs gap-1.5 text-muted-foreground"
-                    onClick={handleGenerateInvite}
-                    disabled={generatingInvite}
-                  >
-                    <RefreshCw className={`h-3.5 w-3.5 ${generatingInvite ? "animate-spin" : ""}`} />
-                    {generatingInvite ? "Regenerating…" : "Regenerate"}
-                  </Button>
-                </div>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 text-xs"
-                  onClick={handleGenerateInvite}
-                  disabled={generatingInvite}
-                >
-                  {generatingInvite ? "Generating…" : "Generate Code"}
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-
-      {/* Edit Name Dialog */}
-      <Dialog open={editNameOpen} onOpenChange={setEditNameOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Organization Name</DialogTitle>
-          </DialogHeader>
-          <Input
-            value={editName}
-            onChange={(e) => setEditName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
-            autoFocus
+      <Toolbar
+        title={org.name}
+        subtitle={`${plural(members.length, "member")} · created ${formatDate(org.createdAt)}`}
+        leading={<BackButton href="/admin" label="Admin" />}
+        principal={
+          <SegmentedControl
+            aria-label="Show"
+            value={tab}
+            onValueChange={setTab}
+            options={[
+              { value: "overview", label: "Overview" },
+              { value: "members", label: "Members" },
+              { value: "invites", label: "Invites" },
+            ]}
           />
+        }
+        actions={
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="icon-sm" variant="ghost" aria-label="More">
+                <MoreHorizontal />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onSelect={() => {
+                  setEditName(org.name);
+                  setEditNameOpen(true);
+                }}
+              >
+                Rename…
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="text-destructive focus:bg-destructive focus:text-white" onSelect={() => setDeleteDialogOpen(true)}>
+                Delete organization…
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        }
+      />
+      <PageContent className="space-y-7">
+        {tab === "overview" && (
+          <>
+            <section>
+              <GroupHeader
+                title="License"
+                action={
+                  <Button size="xs" variant="ghost" className="text-primary" onClick={openLicenseDialog}>
+                    Edit…
+                  </Button>
+                }
+              />
+              <GroupedList>
+                <GroupRow label="Plan" trailing={<PlanTierMenu value={org.planTier} onChange={(t) => void handlePlanTierChange(t)} />} />
+                <GroupRow
+                  label="Expires"
+                  trailing={
+                    <>
+                      {licenseNeedsLook && <LicenseBadge expiresAt={org.expiresAt} />}
+                      <span className="nums">{org.expiresAt ? formatDate(org.expiresAt) : "Never"}</span>
+                    </>
+                  }
+                />
+                <GroupRow label="Coaches" trailing={seats(coachCount, org.coachSeatLimit)} />
+                <GroupRow label="Players" trailing={seats(playerCount, org.playerSeatLimit)} />
+              </GroupedList>
+              <GroupFooter>A plan chosen here is set by hand: Stripe won&apos;t change it afterwards.</GroupFooter>
+            </section>
+
+            <section>
+              <GroupHeader
+                title="Contact and notes"
+                action={
+                  <Button size="xs" variant="ghost" className="text-primary" onClick={openContactDialog}>
+                    Edit…
+                  </Button>
+                }
+              />
+              <GroupedList>
+                {org.contactName || org.contactEmail || org.notes ? (
+                  <>
+                    {(org.contactName || org.contactEmail) && (
+                      <>
+                        <GroupRow label="Name" trailing={org.contactName ?? "—"} />
+                        <GroupRow
+                          label="Email"
+                          trailing={
+                            org.contactEmail ? (
+                              <a href={`mailto:${org.contactEmail}`} className="text-primary underline-offset-2 hover:underline">
+                                {org.contactEmail}
+                              </a>
+                            ) : (
+                              "—"
+                            )
+                          }
+                        />
+                      </>
+                    )}
+                    {org.notes && <p className="px-4 py-2.5 text-sm whitespace-pre-wrap text-muted-foreground">{org.notes}</p>}
+                  </>
+                ) : (
+                  <p className="px-4 py-3 text-callout text-muted-foreground">
+                    No contact yet. The contact gets license expiry reminders alongside the organization&apos;s admins.
+                  </p>
+                )}
+              </GroupedList>
+            </section>
+
+            <section>
+              <GroupHeader title="License history" />
+              <GroupedList>
+                {events.length === 0 ? (
+                  <p className="px-4 py-3 text-callout text-muted-foreground">No license changes recorded yet.</p>
+                ) : (
+                  events.map((e) => (
+                    <div key={e.id} className="flex flex-col px-4 py-2">
+                      <span className="text-sm text-foreground">{describeEvent(e)}</span>
+                      <span className="text-callout text-muted-foreground nums">
+                        {e.actorName}, {fmtDate(e.createdAt)}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </GroupedList>
+            </section>
+          </>
+        )}
+
+        {tab === "members" &&
+          (members.length === 0 ? (
+            <EmptyState
+              icon={<Users />}
+              title="No members yet"
+              body="Make an admin invite code to bring in the first admin."
+              action={
+                <Button size="sm" variant="outline" onClick={() => setTab("invites")}>
+                  Invites
+                </Button>
+              }
+            />
+          ) : (
+            (["admin", "coach", "player"] as const).map((role) => {
+              const group = members.filter((m) => m.role === role);
+              if (group.length === 0) return null;
+              const label = role === "admin" ? "Admins" : role === "coach" ? "Coaches" : "Players";
+              return (
+                <section key={role}>
+                  <GroupHeader
+                    title={
+                      <>
+                        {label} <span className="font-normal text-muted-foreground nums">{group.length}</span>
+                      </>
+                    }
+                  />
+                  <GroupedList>
+                    {group.map((m) => {
+                      const name = m.fullName ?? m.email ?? m.id.slice(0, 8);
+                      const busy = promotingId === m.id || removingId === m.id;
+                      return (
+                        <div key={m.id} className="flex min-h-12 items-center gap-3 px-4 py-2">
+                          <PersonAvatar name={name} url={m.avatarUrl} className="size-7" />
+                          <div className="flex min-w-0 flex-1 flex-col">
+                            <span className="truncate text-sm">{name}</span>
+                            <span className="truncate text-callout text-muted-foreground nums">
+                              {[m.fullName ? m.email : null, `joined ${formatDate(m.createdAt)}`].filter(Boolean).join(" · ")}
+                            </span>
+                          </div>
+                          {m.isPlatformAdmin ? (
+                            <Badge variant="destructive">{roleLabel(m.role, true)}</Badge>
+                          ) : (
+                            <span className="shrink-0 text-callout text-muted-foreground">{roleLabel(m.role)}</span>
+                          )}
+                          {!m.isPlatformAdmin &&
+                            (busy ? (
+                              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                            ) : (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button size="icon-xs" variant="ghost" aria-label={`Actions for ${name}`}>
+                                    <MoreHorizontal />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  {m.role !== "admin" && (
+                                    <>
+                                      <DropdownMenuItem onSelect={() => void handlePromote(m.id)}>Make admin</DropdownMenuItem>
+                                      <DropdownMenuSeparator />
+                                    </>
+                                  )}
+                                  <DropdownMenuItem
+                                    className="text-destructive focus:bg-destructive focus:text-white"
+                                    onSelect={() => setRemoveTarget(m)}
+                                  >
+                                    Remove from organization…
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            ))}
+                        </div>
+                      );
+                    })}
+                  </GroupedList>
+                </section>
+              );
+            })
+          ))}
+
+        {tab === "invites" && (
+          <section>
+            <GroupHeader title="Admin invite code" />
+            <GroupedList>
+              {inviteCode ? (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
+                  <span className="font-mono text-title-3 tracking-wider select-all">{inviteCode}</span>
+                  <div className="ml-auto flex items-center gap-2">
+                    <Button size="sm" variant="outline" onClick={handleCopy}>
+                      {copied ? <Check className="text-success" /> : <Clipboard />}
+                      {copied ? "Copied" : "Copy invite"}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={handleGenerateInvite} disabled={generatingInvite}>
+                      <RefreshCw className={cn(generatingInvite && "animate-spin")} />
+                      {generatingInvite ? "Regenerating…" : "Regenerate"}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex min-h-12 items-center justify-between gap-3 px-4 py-2">
+                  <span className="text-sm text-muted-foreground">No code yet.</span>
+                  <Button size="sm" onClick={handleGenerateInvite} disabled={generatingInvite}>
+                    {generatingInvite && <Loader2 className="animate-spin" />}
+                    Generate code
+                  </Button>
+                </div>
+              )}
+            </GroupedList>
+            <GroupFooter>
+              A single-use code that makes whoever uses it an admin of {org.name}. Copy invite copies a join link with the
+              code.
+            </GroupFooter>
+          </section>
+        )}
+      </PageContent>
+
+      {/* Rename */}
+      <Dialog open={editNameOpen} onOpenChange={setEditNameOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Rename organization</DialogTitle>
+          </DialogHeader>
+          <GroupedList>
+            <FormRow label="Name" htmlFor="org-rename">
+              <Input
+                id="org-rename"
+                className={FORM_ROW_INPUT}
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
+                autoFocus
+              />
+            </FormRow>
+          </GroupedList>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditNameOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setEditNameOpen(false)}>
+              Cancel
+            </Button>
             <Button onClick={handleSaveName} disabled={savingName || !editName.trim()}>
-              {savingName ? "Saving…" : "Save"}
+              {savingName && <Loader2 className="animate-spin" />}
+              Save
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Delete Org Dialog */}
-      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <DialogContent>
+      {/* Delete */}
+      <Dialog open={deleteDialogOpen} onOpenChange={(o) => !deleting && setDeleteDialogOpen(o)}>
+        <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Delete {org.name}?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes the organization. Its members are detached from it, but their accounts stay. This
+              can&apos;t be undone.
+            </DialogDescription>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            This will permanently delete the organization. All members will be detached from the org but their accounts remain intact. This cannot be undone.
-          </p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={deleting}>Cancel</Button>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={deleting}>
+              Cancel
+            </Button>
             <Button variant="destructive" onClick={handleDeleteOrg} disabled={deleting}>
-              {deleting ? "Deleting…" : "Delete organization"}
+              {deleting && <Loader2 className="animate-spin" />}
+              Delete organization
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Edit License Dialog */}
-      <Dialog open={licenseOpen} onOpenChange={setLicenseOpen}>
-        <DialogContent>
+      {/* Remove a member */}
+      <Dialog open={!!removeTarget} onOpenChange={(o) => !o && !removingId && setRemoveTarget(null)}>
+        <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Edit License</DialogTitle>
+            <DialogTitle>
+              Remove {removeTarget?.fullName ?? removeTarget?.email} from {org.name}?
+            </DialogTitle>
+            <DialogDescription>
+              They lose access to the organization&apos;s teams and shared playlists. They can be invited again later.
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Coach seat limit (blank = unlimited)</label>
+          <DialogFooter>
+            <Button variant="outline" disabled={!!removingId} onClick={() => setRemoveTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" disabled={!!removingId} onClick={() => removeTarget && void handleRemoveMember(removeTarget.id)}>
+              {removingId && <Loader2 className="animate-spin" />}
+              Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* License */}
+      <Dialog open={licenseOpen} onOpenChange={setLicenseOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit license</DialogTitle>
+          </DialogHeader>
+          <GroupedList>
+            <FormRow label="Coach seats" htmlFor="license-coach">
               <Input
+                id="license-coach"
                 type="number"
                 min="0"
+                inputMode="numeric"
                 placeholder="Unlimited"
+                className={FORM_ROW_INPUT}
                 value={editCoachSeats}
                 onChange={(e) => setEditCoachSeats(e.target.value)}
               />
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Player seat limit (blank = unlimited)</label>
+            </FormRow>
+            <FormRow label="Player seats" htmlFor="license-player">
               <Input
+                id="license-player"
                 type="number"
                 min="0"
+                inputMode="numeric"
                 placeholder="Unlimited"
+                className={FORM_ROW_INPUT}
                 value={editPlayerSeats}
                 onChange={(e) => setEditPlayerSeats(e.target.value)}
               />
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Expiry date (blank = never)</label>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="date"
-                  value={editExpiresAt}
-                  onChange={(e) => setEditExpiresAt(e.target.value)}
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-9 shrink-0 text-xs"
-                  onClick={handleQuickRenew}
-                >
-                  +1 year
-                </Button>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                The license lasts through the whole expiry day.
-              </p>
-            </div>
-            {(() => {
-              const c = editCoachSeats.trim() ? parseInt(editCoachSeats, 10) : null;
-              const p = editPlayerSeats.trim() ? parseInt(editPlayerSeats, 10) : null;
-              const belowCoach = c != null && !Number.isNaN(c) && c < coachCount;
-              const belowPlayer = p != null && !Number.isNaN(p) && p < playerCount;
-              if (!belowCoach && !belowPlayer) return null;
-              return (
-                <p className="text-xs text-amber-600 dark:text-amber-500">
-                  {belowCoach && `Coach limit is below the current ${coachCount} coaches. `}
-                  {belowPlayer && `Player limit is below the current ${playerCount} players. `}
-                  Existing members keep access, but no one new can join.
-                </p>
-              );
-            })()}
-          </div>
+            </FormRow>
+            <FormRow label="Expires" htmlFor="license-expires" description="Blank: never">
+              <Input
+                id="license-expires"
+                type="date"
+                className={FORM_ROW_DATE}
+                value={editExpiresAt}
+                onChange={(e) => setEditExpiresAt(e.target.value)}
+              />
+              <Button type="button" size="xs" variant="outline" className="shrink-0" onClick={handleQuickRenew}>
+                +1 year
+              </Button>
+            </FormRow>
+          </GroupedList>
+          <p className="-mt-2 px-1 text-subheadline text-muted-foreground">The license lasts through the whole expiry day.</p>
+          {(() => {
+            const c = editCoachSeats.trim() ? parseInt(editCoachSeats, 10) : null;
+            const p = editPlayerSeats.trim() ? parseInt(editPlayerSeats, 10) : null;
+            const belowCoach = c != null && !Number.isNaN(c) && c < coachCount;
+            const belowPlayer = p != null && !Number.isNaN(p) && p < playerCount;
+            if (!belowCoach && !belowPlayer) return null;
+            return (
+              <Callout tone="warning">
+                {belowCoach && `Coach limit is below the current ${coachCount} coaches. `}
+                {belowPlayer && `Player limit is below the current ${playerCount} players. `}
+                Existing members keep access, but no one new can join.
+              </Callout>
+            );
+          })()}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setLicenseOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setLicenseOpen(false)}>
+              Cancel
+            </Button>
             <Button onClick={handleSaveLicense} disabled={savingLicense}>
-              {savingLicense ? "Saving…" : "Save"}
+              {savingLicense && <Loader2 className="animate-spin" />}
+              Save
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Contact & notes dialog */}
+      {/* Contact and notes */}
       <Dialog open={contactOpen} onOpenChange={setContactOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Contact &amp; notes</DialogTitle>
+            <DialogTitle>Contact and notes</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Contact name</label>
-              <Input
-                placeholder="Anna Andersson"
-                value={editContactName}
-                onChange={(e) => setEditContactName(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Contact email</label>
-              <Input
-                type="email"
-                placeholder="kansli@club.se"
-                value={editContactEmail}
-                onChange={(e) => setEditContactEmail(e.target.value)}
-              />
-              <p className="mt-1 text-xs text-muted-foreground">
-                Gets license expiry reminders alongside org admins.
-              </p>
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Notes</label>
-              <textarea
-                value={editNotes}
-                onChange={(e) => setEditNotes(e.target.value)}
-                rows={4}
-                placeholder="Contract terms, renewal history, who to call…"
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-              />
-            </div>
-          </div>
+          <section>
+            <GroupedList>
+              <FormRow label="Name" htmlFor="contact-name">
+                <Input
+                  id="contact-name"
+                  placeholder="Anna Andersson"
+                  className={FORM_ROW_INPUT}
+                  value={editContactName}
+                  onChange={(e) => setEditContactName(e.target.value)}
+                />
+              </FormRow>
+              <FormRow label="Email" htmlFor="contact-email">
+                <Input
+                  id="contact-email"
+                  type="email"
+                  placeholder="kansli@club.se"
+                  className={FORM_ROW_INPUT}
+                  value={editContactEmail}
+                  onChange={(e) => setEditContactEmail(e.target.value)}
+                />
+              </FormRow>
+            </GroupedList>
+            <GroupFooter>Gets license expiry reminders alongside the organization&apos;s admins.</GroupFooter>
+          </section>
+          <Textarea
+            aria-label="Notes"
+            value={editNotes}
+            onChange={(e) => setEditNotes(e.target.value)}
+            rows={4}
+            placeholder="Contract terms, renewal history, who to call…"
+          />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setContactOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setContactOpen(false)}>
+              Cancel
+            </Button>
             <Button onClick={handleSaveContact} disabled={savingContact}>
-              {savingContact ? "Saving…" : "Save"}
+              {savingContact && <Loader2 className="animate-spin" />}
+              Save
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </PageContent>
     </Page>
   );
 }

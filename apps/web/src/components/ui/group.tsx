@@ -94,6 +94,12 @@ export function GroupRow({
   return <div className={classes}>{body}</div>
 }
 
+/** An input inside a FormRow: borderless and right-aligned, as System Settings' fields are. */
+export const FORM_ROW_INPUT = "h-7 border-0 bg-transparent px-0 text-right shadow-none ring-0 focus-visible:ring-0"
+
+/** A date input inside a FormRow: compact and outlined, so it reads as a control, not text. */
+export const FORM_ROW_DATE = "h-7 w-auto px-2 pointer-coarse:h-9"
+
 /**
  * A settings-style form row: the label in a fixed column on the left, the
  * control on the right (System Settings' form layout). `htmlFor` ties the

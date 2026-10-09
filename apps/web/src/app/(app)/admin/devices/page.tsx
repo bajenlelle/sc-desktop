@@ -6,19 +6,22 @@
  * (app_config: device_cap_player / device_cap_coach). This data validates the
  * caps before any user-facing enforcement ships.
  */
-import { Fragment, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronRight, Globe, Laptop, Smartphone } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { ChevronRight, Globe, Laptop, Loader2, MonitorSmartphone, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
-import { createClient } from "@/lib/supabase/client";
-import { getOrgContext } from "@/lib/profile-db";
-import { useAuth } from "@/components/auth-context";
-import { listDeviceOutliers, type DeviceOutlier } from "@scoutable/shared/lib/devices-db";
+import { GroupFooter, GroupedList } from "@/components/ui/group";
+import { EmptyState } from "@/components/empty-state";
+import { AdminSections, useAdminGate } from "@/components/admin/admin-sections";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
-import { BackButton } from "@/components/shell/back-button";
+import { createClient } from "@/lib/supabase/client";
+import { listDeviceOutliers, type DeviceOutlier } from "@scoutable/shared/lib/devices-db";
+import { formatDate } from "@/lib/format-date";
+import { roleLabel } from "@/lib/roles";
+import { springs } from "@/lib/motion";
+import { cn } from "@/lib/utils";
 
 const APP_ICON: Record<string, typeof Globe> = {
   web: Globe,
@@ -26,27 +29,74 @@ const APP_ICON: Record<string, typeof Globe> = {
   mobile: Smartphone,
 };
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+/** One account over its cap; its devices open under it. */
+function OutlierRow({ outlier: o, expanded, onToggle }: { outlier: DeviceOutlier; expanded: boolean; onToggle: () => void }) {
+  return (
+    <div>
+      <div className="flex min-h-12 items-center gap-3 py-2 pr-4 pl-2">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          aria-label={expanded ? "Hide devices" : "Show devices"}
+          className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection pointer-coarse:size-9"
+        >
+          <ChevronRight className={cn("size-4 transition-transform duration-200 ease-spring", expanded && "rotate-90")} />
+        </button>
+        {/* A pointer target only: the chevron is the keyboard control. */}
+        <div onClick={onToggle} className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-sm font-medium">{o.fullName ?? o.email ?? "—"}</span>
+          <span className="truncate text-callout text-muted-foreground">
+            {[o.fullName ? o.email : null, roleLabel(o.role), o.orgs.length > 0 ? o.orgs.join(", ") : null]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <Badge variant="destructive" className="nums">
+            {o.activeDevices} of {o.cap}
+          </Badge>
+          {o.blocked30d > 0 && (
+            <span className="text-callout text-muted-foreground nums">{o.blocked30d} blocked in 30 days</span>
+          )}
+        </div>
+      </div>
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            key="devices"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={springs.standard}
+            className="overflow-hidden"
+          >
+            <ul className="border-t border-separator bg-fill-1/50 py-1">
+              {o.devices.map((d, i) => {
+                const Icon = APP_ICON[d.app] ?? Globe;
+                return (
+                  <li key={i} className="flex min-h-9 items-center gap-2.5 py-1.5 pr-4 pl-11">
+                    <Icon className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 truncate text-sm">{d.device_name ?? d.platform ?? "Unknown device"}</span>
+                    <span className="ml-auto shrink-0 text-callout text-muted-foreground nums">
+                      first seen {formatDate(d.first_seen, "short")} · last active {formatDate(d.last_seen, "short")}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
 }
 
 export default function AdminDevicesPage() {
-  const router = useRouter();
-  const { user } = useAuth();
-  const [checked, setChecked] = useState(false);
+  const checked = useAdminGate();
   const [outliers, setOutliers] = useState<DeviceOutlier[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    if (!user) return;
-    getOrgContext()
-      .then((ctx) => {
-        if (!ctx.profile.isPlatformAdmin) router.replace("/organization");
-        else setChecked(true);
-      })
-      .catch(() => router.replace("/organization"));
-  }, [user, router]);
 
   // loading starts true; the fetch runs once when the admin check clears.
   useEffect(() => {
@@ -66,103 +116,34 @@ export default function AdminDevicesPage() {
     });
   }
 
-  if (!checked) return null;
-
   return (
-    <Page>
-    <Toolbar inline title="Device outliers" leading={<BackButton href="/admin" label="Admin" />} />
-    <PageContent className="space-y-6">
-      <p className="text-sm text-muted-foreground">
-        Accounts with more active devices (last 30 days) than their cap — possible account
-        sharing. Caps live in app_config (device_cap_player / device_cap_coach).
-      </p>
-
-      <Card>
-        <CardContent className="p-0">
-          {loading ? (
-            <p className="p-6 text-sm text-muted-foreground">Loading…</p>
-          ) : outliers.length === 0 ? (
-            <p className="p-6 text-sm text-muted-foreground">
-              No accounts over their device cap. Nothing to see — that&apos;s good.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left">
-                    <th className="px-4 py-3 font-medium text-muted-foreground">Account</th>
-                    <th className="px-4 py-3 font-medium text-muted-foreground">Role</th>
-                    <th className="px-4 py-3 font-medium text-muted-foreground">Orgs</th>
-                    <th className="px-4 py-3 font-medium text-muted-foreground">Active devices</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {outliers.map((o) => (
-                    <Fragment key={o.userId}>
-                      <tr
-                        onClick={() => toggle(o.userId)}
-                        className="cursor-pointer border-b border-border hover:bg-muted/50"
-                      >
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            {expanded.has(o.userId) ? (
-                              <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                            ) : (
-                              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                            )}
-                            <div>
-                              <p className="font-medium text-foreground">{o.fullName ?? "—"}</p>
-                              <p className="text-xs text-muted-foreground">{o.email ?? "—"}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 capitalize">{o.role}</td>
-                        <td className="px-4 py-3 text-muted-foreground">
-                          {o.orgs.length > 0 ? o.orgs.join(", ") : "—"}
-                        </td>
-                        <td className="px-4 py-3">
-                          <Badge variant="destructive">
-                            {o.activeDevices} of {o.cap}
-                          </Badge>
-                          {o.blocked30d > 0 && (
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              blocked: {o.blocked30d} in 30d
-                            </p>
-                          )}
-                        </td>
-                      </tr>
-                      {expanded.has(o.userId) && (
-                        <tr className="border-b border-border bg-muted/30">
-                          <td colSpan={4} className="px-4 py-3">
-                            <ul className="space-y-2 pl-6">
-                              {o.devices.map((d, i) => {
-                                const Icon = APP_ICON[d.app] ?? Globe;
-                                return (
-                                  <li key={i} className="flex items-center gap-2 text-sm">
-                                    <Icon className="h-4 w-4 text-muted-foreground" />
-                                    <span className="text-foreground">
-                                      {d.device_name ?? d.platform ?? "Unknown device"}
-                                    </span>
-                                    <span className="text-xs text-muted-foreground">
-                                      first seen {formatDate(d.first_seen)} · last active{" "}
-                                      {formatDate(d.last_seen)}
-                                    </span>
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </PageContent>
+    <Page width="medium">
+      <Toolbar title="Admin" subtitle="Accounts over their device cap" principal={<AdminSections current="devices" />} />
+      <PageContent>
+        {!checked || loading ? (
+          <div className="flex h-64 items-center justify-center">
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : outliers.length === 0 ? (
+          <EmptyState
+            icon={<MonitorSmartphone />}
+            title="No one over their cap"
+            body="No account has more active devices than its role allows."
+          />
+        ) : (
+          <section>
+            <GroupedList>
+              {outliers.map((o) => (
+                <OutlierRow key={o.userId} outlier={o} expanded={expanded.has(o.userId)} onToggle={() => toggle(o.userId)} />
+              ))}
+            </GroupedList>
+            <GroupFooter>
+              Active devices in the last 30 days against the role&apos;s cap: possible account sharing. Caps live in
+              app_config (device_cap_player, device_cap_coach).
+            </GroupFooter>
+          </section>
+        )}
+      </PageContent>
     </Page>
   );
 }

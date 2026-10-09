@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import type { OrgMembership } from "@scoutable/shared/types/org";
 import { orgPlanLabel, type ImportQuota } from "@scoutable/shared/lib/plan-tier";
 import { PlanBadge } from "@/components/plan-badge";
+import { SpaceAvatar } from "@/components/space-avatar";
 import { useAuth } from "@/components/auth-context";
 import { useShell } from "./shell-context";
 import { openUpgradeFlow } from "@/lib/billing";
@@ -18,12 +19,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-
-function orgInitials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return name.slice(0, 2).toUpperCase();
-}
 
 function orgLabel(org: OrgMembership): string {
   return org.isPersonal ? "Personal" : org.orgName;
@@ -44,20 +39,6 @@ function planLine(org: OrgMembership, importQuota: ImportQuota | null): { text: 
     warn,
     atCap,
   };
-}
-
-function SpaceAvatar({ org, className }: { org: OrgMembership; className?: string }) {
-  return (
-    <span
-      className={cn(
-        "flex size-7 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold",
-        org.isPersonal ? "bg-fill-2 text-muted-foreground" : "bg-primary text-primary-foreground",
-        className,
-      )}
-    >
-      {org.isPersonal ? <User className="size-4" /> : orgInitials(org.orgName)}
-    </span>
-  );
 }
 
 /**
@@ -95,7 +76,7 @@ function SpaceMenuContent({ org, header }: { org: OrgMembership; header?: boolea
       {header && (
         <>
           <div className="flex items-center gap-2.5 px-2 py-1.5">
-            <SpaceAvatar org={org} />
+            <SpaceAvatar name={org.orgName} personal={org.isPersonal} />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-foreground">{orgLabel(org)}</p>
               <p className={cn("truncate text-subheadline nums", line.atCap || line.warn ? "text-warning" : "text-muted-foreground")}>
@@ -157,7 +138,7 @@ export function SpaceSwitcher({ org }: { org: OrgMembership }) {
           type="button"
           className="mx-2 flex items-center gap-2.5 rounded-md px-2 py-1.5 text-left outline-none transition-[background-color,transform] duration-100 hover:bg-fill-1 active:scale-[0.99] active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection data-[state=open]:bg-fill-2"
         >
-          <SpaceAvatar org={org} />
+          <SpaceAvatar name={org.orgName} personal={org.isPersonal} />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-semibold text-foreground">{orgLabel(org)}</span>
             <span
@@ -196,7 +177,7 @@ export function CompactSpaceSwitcher() {
           aria-label={`Space: ${orgLabel(activeOrg)}`}
           className="-ml-1 flex h-11 items-center gap-1 rounded-lg px-1 outline-none transition-transform duration-100 active:scale-95 focus-visible:ring-2 focus-visible:ring-selection"
         >
-          <SpaceAvatar org={activeOrg} className="size-8 rounded-lg text-xs" />
+          <SpaceAvatar name={activeOrg.orgName} personal={activeOrg.isPersonal} className="size-8 rounded-lg text-xs" />
           <ChevronDown className="size-3.5 text-muted-foreground" />
         </button>
       </DropdownMenuTrigger>

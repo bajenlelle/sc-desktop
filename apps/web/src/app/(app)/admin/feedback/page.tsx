@@ -1,18 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { createClient } from "@/lib/supabase/client";
-import { getOrgContext } from "@/lib/profile-db";
-import { useAuth } from "@/components/auth-context";
+import { ExternalLink, Image as ImageIcon, Loader2, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
-import { ExternalLink, Image as ImageIcon, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { GroupHeader, GroupedList } from "@/components/ui/group";
+import { PopUpButton } from "@/components/ui/pop-up-button";
+import { EmptyState } from "@/components/empty-state";
+import { PersonAvatar } from "@/components/person-avatar";
+import { AdminSections, useAdminGate } from "@/components/admin/admin-sections";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
-import { BackButton } from "@/components/shell/back-button";
+import { createClient } from "@/lib/supabase/client";
+import { formatDate } from "@/lib/format-date";
 
 interface FeedbackReport {
   id: string;
@@ -29,35 +29,82 @@ interface FeedbackReport {
   status: "open" | "triaged" | "resolved";
 }
 
-const GITHUB_REPO = "bajenlelle/sc-desktop";
-const NEXT_STATUS: Record<FeedbackReport["status"], FeedbackReport["status"]> = {
-  open: "triaged",
-  triaged: "resolved",
-  resolved: "open",
-};
+type Status = FeedbackReport["status"];
 
-const STATUS_STYLE: Record<FeedbackReport["status"], string> = {
-  open: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  triaged: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-  resolved: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-};
+const GITHUB_REPO = "bajenlelle/sc-desktop";
+
+/** Triage order: what needs a look first. */
+const STATUSES: { value: Status; label: string }[] = [
+  { value: "open", label: "Open" },
+  { value: "triaged", label: "Triaged" },
+  { value: "resolved", label: "Resolved" },
+];
+
+function ReportRow({
+  report: r,
+  onStatusChange,
+  onOpenScreenshot,
+}: {
+  report: FeedbackReport;
+  onStatusChange: (status: Status) => void;
+  onOpenScreenshot: () => void;
+}) {
+  const links = r.github_issue_number || r.screenshot_path || r.sentry_event_id;
+  return (
+    <div className="flex flex-col gap-2 px-4 py-3">
+      <div className="flex items-start gap-3">
+        <PersonAvatar name={r.email} className="size-7" />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-sm font-medium">{r.email ?? "Unknown user"}</span>
+          {/* The OS is a full user agent on web and desktop: on hover, not in the line. */}
+          <span className="truncate text-callout text-muted-foreground nums" title={r.os ?? undefined}>
+            {`${r.app} ${r.app_version}`} · {formatDate(r.created_at)}
+          </span>
+        </div>
+        <PopUpButton size="sm" aria-label="Status" align="end" value={r.status} onValueChange={onStatusChange} options={STATUSES} />
+      </div>
+      <div className="flex flex-col gap-2 pl-10">
+        <p className="text-sm whitespace-pre-wrap text-foreground">{r.description}</p>
+        {r.route && <p className="truncate font-mono text-callout text-muted-foreground">{r.route}</p>}
+        {links && (
+          <div className="flex flex-wrap items-center gap-2">
+            {r.github_issue_number && (
+              <Button variant="outline" size="xs" asChild>
+                <a href={`https://github.com/${GITHUB_REPO}/issues/${r.github_issue_number}`} target="_blank" rel="noreferrer">
+                  <ExternalLink />
+                  Issue #{r.github_issue_number}
+                </a>
+              </Button>
+            )}
+            {r.screenshot_path && (
+              <Button variant="outline" size="xs" onClick={onOpenScreenshot}>
+                <ImageIcon />
+                Screenshot
+              </Button>
+            )}
+            {r.sentry_event_id && (
+              <Button variant="outline" size="xs" asChild>
+                <a
+                  href={`https://scoutable.sentry.io/issues/?query=id%3A${r.sentry_event_id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <ExternalLink />
+                  Sentry event
+                </a>
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function AdminFeedbackPage() {
-  const router = useRouter();
-  const { user } = useAuth();
-  const [checked, setChecked] = useState(false);
+  const checked = useAdminGate();
   const [reports, setReports] = useState<FeedbackReport[]>([]);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (!user) return;
-    getOrgContext()
-      .then((ctx) => {
-        if (!ctx.profile.isPlatformAdmin) router.replace("/organization");
-        else setChecked(true);
-      })
-      .catch(() => router.replace("/organization"));
-  }, [user, router]);
 
   async function loadReports() {
     setLoading(true);
@@ -73,8 +120,8 @@ export default function AdminFeedbackPage() {
     loadReports();
   }, [checked]);
 
-  async function cycleStatus(report: FeedbackReport) {
-    const next = NEXT_STATUS[report.status];
+  async function setStatus(report: FeedbackReport, next: Status) {
+    if (next === report.status) return;
     const supabase = createClient();
     const { error } = await supabase.rpc("admin_set_feedback_status", {
       p_report_id: report.id,
@@ -99,83 +146,54 @@ export default function AdminFeedbackPage() {
     window.open(data.signedUrl, "_blank", "noopener");
   }
 
-  if (!checked) return null;
+  const openCount = reports.filter((r) => r.status === "open").length;
 
   return (
     <Page width="medium">
-    <Toolbar inline title="Feedback" leading={<BackButton href="/admin" label="Admin" />} />
-    <PageContent className="space-y-6">
-      <p className="text-sm text-muted-foreground">
-        User-submitted problem reports. Click a status to advance it (open → triaged →
-        resolved).
-      </p>
-
-      {loading ? (
-        <div className="flex justify-center py-12">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-        </div>
-      ) : reports.length === 0 ? (
-        <Card>
-          <CardContent className="p-8 text-center text-sm text-muted-foreground">
-            No reports yet. That&apos;s either very good or very bad.
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {reports.map((r) => (
-            <Card key={r.id}>
-              <CardContent className="space-y-3 p-4">
-                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <button
-                    onClick={() => cycleStatus(r)}
-                    className={`rounded-full px-2 py-0.5 font-medium capitalize transition-opacity hover:opacity-75 ${STATUS_STYLE[r.status]}`}
-                  >
-                    {r.status}
-                  </button>
-                  <span className="font-medium text-foreground">{r.email ?? "unknown user"}</span>
-                  <span>
-                    {r.app} {r.app_version}
-                  </span>
-                  {r.route && <span className="font-mono">{r.route}</span>}
-                  <span>{new Date(r.created_at).toLocaleString()}</span>
-                </div>
-                <p className="whitespace-pre-wrap text-sm text-foreground">{r.description}</p>
-                <div className="flex flex-wrap items-center gap-2">
-                  {r.github_issue_number && (
-                    <Button variant="outline" size="sm" asChild>
-                      <Link
-                        href={`https://github.com/${GITHUB_REPO}/issues/${r.github_issue_number}`}
-                        target="_blank"
-                      >
-                        <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-                        Issue #{r.github_issue_number}
-                      </Link>
-                    </Button>
-                  )}
-                  {r.screenshot_path && (
-                    <Button variant="outline" size="sm" onClick={() => openScreenshot(r.screenshot_path!)}>
-                      <ImageIcon className="mr-1.5 h-3.5 w-3.5" />
-                      Screenshot
-                    </Button>
-                  )}
-                  {r.sentry_event_id && (
-                    <Button variant="outline" size="sm" asChild>
-                      <Link
-                        href={`https://scoutable.sentry.io/issues/?query=id%3A${r.sentry_event_id}`}
-                        target="_blank"
-                      >
-                        <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-                        Sentry event
-                      </Link>
-                    </Button>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-    </PageContent>
+      <Toolbar
+        title="Admin"
+        subtitle={checked && !loading ? `${openCount} open` : undefined}
+        principal={<AdminSections current="feedback" />}
+      />
+      <PageContent className="space-y-7">
+        {!checked || loading ? (
+          <div className="flex h-64 items-center justify-center">
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : reports.length === 0 ? (
+          <EmptyState
+            icon={<MessageSquare />}
+            title="No reports yet"
+            body="Problems people report from the apps show up here."
+          />
+        ) : (
+          STATUSES.map(({ value, label }) => {
+            const group = reports.filter((r) => r.status === value);
+            if (group.length === 0) return null;
+            return (
+              <section key={value}>
+                <GroupHeader
+                  title={
+                    <>
+                      {label} <span className="font-normal text-muted-foreground nums">{group.length}</span>
+                    </>
+                  }
+                />
+                <GroupedList>
+                  {group.map((r) => (
+                    <ReportRow
+                      key={r.id}
+                      report={r}
+                      onStatusChange={(s) => void setStatus(r, s)}
+                      onOpenScreenshot={() => r.screenshot_path && void openScreenshot(r.screenshot_path)}
+                    />
+                  ))}
+                </GroupedList>
+              </section>
+            );
+          })
+        )}
+      </PageContent>
     </Page>
   );
 }

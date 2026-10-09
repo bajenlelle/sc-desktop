@@ -73,10 +73,10 @@ export function PlanBadge({ tier, size = "md", href, quota, onUpgrade, showArrow
       <span className={cn("rounded-full flex-shrink-0", dotSize, dotColor)} />
       {label}
       {quotaText && (
-        // In the xs (chrome/dropdown) size the quota text is longer than
-        // everything around it and doesn't fit a phone-width navbar — hide it
-        // below sm there. The amber chip still signals warn/at-cap; the full
-        // text stays on the md profile-card badge and at sm+.
+        // In the xs (menu) size the quota text is longer than everything
+        // around it and doesn't fit a phone's width — hide it below sm
+        // there. The amber chip still signals warn/at-cap; the full text
+        // stays on the md size and at sm+.
         <>
           <span aria-hidden className={cn("opacity-40", size === "xs" && "hidden sm:inline")}>·</span>
           <span className={cn(size === "xs" && "hidden sm:inline")}>{quotaText}</span>
