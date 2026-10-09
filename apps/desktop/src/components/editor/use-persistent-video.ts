@@ -1,4 +1,5 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
+import { releaseVideo } from "@/lib/release-video";
 
 /**
  * One <video> element for the life of the editor. The stage that shows it
@@ -17,5 +18,13 @@ export function usePersistentVideo(): HTMLVideoElement {
     video.className = "h-full w-full";
     ref.current = video;
   }
+  // When the editor goes, the element goes with it: give back its decoder
+  // (see release-video.ts). By then the stage has taken it off the page.
+  useEffect(() => {
+    const video = ref.current;
+    return () => {
+      if (video && !video.isConnected) releaseVideo(video);
+    };
+  }, []);
   return ref.current;
 }
