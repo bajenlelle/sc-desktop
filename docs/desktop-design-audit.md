@@ -237,6 +237,14 @@ Built on `design/apple-redesign` in six commits, one per milestone, plus fixes. 
 - **Export, send, share:** closing Send to phone cancels the upload, and a render still running is discarded; Share is one dialog whose phases cross-fade; the format choice is two pressable rows.
 - **Also fixed:** `<title>` and favicon; panel sizes in the right unit; the Add Clips outside-click guard; event badge colours defined in `packages/shared` are always generated; seven unused components and `@dnd-kit` removed.
 
+**Part 2, the remaining screens** (one commit per group after the audit commits):
+
+- **Shared playlists and the player view:** a toolbar with search and From/Team pop-up buttons; coaches switch *Shared by me* and *Shared with me* in its centre. The feed opens on what to watch next, then New, In progress and Watched as grouped rows with progress rings. Opening a playlist pushes a watch view on the editor's stage and floating bar, with the clip list beside it and the coach's note under the footage; text cards pause like footage, speed carries across clips, ↑/↓, Space, R, J/K/L and F work as in the editor. The dashboard is one grouped list whose rows spring open into their recipients; both Share dialogs use one recipient picker.
+- **Club (Organization):** Teams and Members switch in the toolbar; seats and expiry are one group with bars; teams open into their members; removing a member asks first; the invite dialog is one dialog whose link settings cross-fade in, with pop-up buttons and a token field.
+- **Game page:** a settings form (title, date, team colours, video, tip-off collapsed to its time with Adjust, rosters, a destructive row to delete).
+- **Signing in and joining a club:** one frame under the app's mark; pages cross-fade while the column springs to its height; fields in one inset group with inline errors; Continue with Apple in Apple's style.
+- **Gates and dialogs:** a shared status screen for the device limit, an unavailable workspace, the crash fallback and loading; alert-style upgrade and delete dialogs; feedback with a real text area; relink, devices and the marketing switch as grouped rows; one date format everywhere; no `alert()` or `window.confirm` left.
+
 ## 7. Known gaps and next steps
 
 **Verified:** typecheck, production build, shared tests, `cargo clippy` and `cargo test`; every screen above walked through on one Mac (macOS 15, Retina display) in Courtside, Scoutable Dark and Aubergine, at 1280×720 and 1728×1018. Exercised by hand: reorder (with cancel), sidebar hover and spring-loading, the selection pill, bulk remove and Undo, the Add Clips sheet with chips and Leaders, the tip-off picker's keys, picking a game for import, Send to phone up to rendering (then cancelled), the Share dialog.
@@ -250,14 +258,15 @@ Built on `design/apple-redesign` in six commits, one per milestone, plus fixes. 
 - Trim handles on the scrubber (clip length is steppers for now).
 - An animated reveal for the playlist filter bar.
 
-**Left from the audit:** `alert()` when creating a folder fails and `window.confirm` when deleting a label; playlist selection forgotten when navigating away; the two Share dialogs (editor and Shared playlists) still differ; window size and position are not remembered; many `title` tooltips remain. The player-facing pages (My playlists / Shared playlists), Organization, auth and onboarding received the foundations only; the player view still uses the old player and controls.
+**Left from the audit:** playlist selection forgotten when navigating away; window size and position are not remembered; some `title` tooltips remain in the editor. (Part 2 redesigned the player-facing pages, Organization, the game page, auth and onboarding, moved the player view onto the editor's player, aligned the two Share dialogs and removed `alert()` and `window.confirm`.)
+
+**Part 2, not verified:** the player feed with real data (the account used has nothing shared with it; the screenshot uses made-up playlists); the signed-out screens were reached through a temporary navigation shortcut, not by signing out; the device-limit and unavailable screens were forced the same way; nothing was submitted (no invites, shares, reminders, sign-ins or joins). The shared `relativeTimeShort` still formats older dates in Swedish for web and mobile; the desktop now uses its own English formatter.
 
 **Next steps, in order of value:**
 
 1. Run the branch on Windows and on macOS 26 before anything ships; the transparent window and vibrancy are the parts most likely to differ.
-2. Bring the player view onto `PlayerStage` so players get the same player as coaches.
-3. `cancel_export`, then window-state persistence.
-4. Merge the playlist browser into the sidebar (Notes-style), so the editor gets the full width.
-5. Virtualise the clip list above about 1,000 items.
+2. `cancel_export`, then window-state persistence.
+3. Merge the playlist browser into the sidebar (Notes-style), so the editor gets the full width.
+4. Virtualise the clip list above about 1,000 items.
 
 **For release notes, if this ships:** the appearance follows macOS by default for anyone who never picked Light or Dark (a synced choice is kept); the window uses `macos-private-api`, which rules out the Mac App Store (accepted).
