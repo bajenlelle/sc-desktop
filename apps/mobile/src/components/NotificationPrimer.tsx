@@ -6,7 +6,10 @@
  * card never returns once permission is decided either way.
  */
 import { useCallback, useEffect, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { View } from "react-native";
+import { Button } from "@/components/ui/Button";
+import { Callout } from "@/components/ui/Group";
+import { Text } from "@/components/ui/Text";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Device from "expo-device";
 import { trackEvent } from "@/lib/analytics";
@@ -64,35 +67,23 @@ export function NotificationPrimer() {
   if (!visible) return null;
 
   return (
-    <View className="mx-4 mb-2 rounded-xl border border-primary/30 bg-primary/5 p-4">
-      <Text className="text-sm font-semibold text-foreground">
+    <Callout icon="bell">
+      <Text variant="callout" className="font-semibold">
         Know when new clips land
       </Text>
-      <Text className="mt-1 text-sm text-muted-foreground">
+      <Text variant="callout" className="text-muted-foreground">
         {isCoachOrAdmin
           ? "Get a notification when someone shares a playlist with you."
           : "Get a notification when your coach shares a playlist with you."}
       </Text>
-      <View className="mt-3 flex-row items-center gap-2">
-        <Pressable
-          accessibilityRole="button"
-          onPress={enable}
-          className="min-h-[44px] items-center justify-center rounded-lg bg-primary px-4 active:opacity-80"
-        >
-          <Text className="text-sm font-semibold text-primary-foreground">
-            Turn on notifications
-          </Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          onPress={dismiss}
-          className="min-h-[44px] items-center justify-center rounded-lg px-4 active:bg-muted"
-        >
-          <Text className="text-sm font-medium text-muted-foreground">
-            Not now
-          </Text>
-        </Pressable>
+      <View className="mt-2.5 flex-row items-center gap-2">
+        <Button size="sm" onPress={enable}>
+          Turn on notifications
+        </Button>
+        <Button size="sm" variant="ghost" onPress={dismiss}>
+          Not now
+        </Button>
       </View>
-    </View>
+    </Callout>
   );
 }
