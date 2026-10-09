@@ -24,7 +24,7 @@ export default function AppLayout() {
     <MyTeamProvider>
       <PlaylistsProvider>
         <NotificationsBridge />
-        <Stack screenOptions={{ headerShown: false }} />
+        <Stack screenOptions={{ headerShown: false, headerBackButtonDisplayMode: "minimal" }} />
       </PlaylistsProvider>
     </MyTeamProvider>
   );
