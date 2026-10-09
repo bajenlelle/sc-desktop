@@ -159,15 +159,6 @@ function rowDomId(key: string): string {
   return `clip-row-${key.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 }
 
-/** Keyboard focus rather than a click's (older WebKit lacks the selector). */
-function isFocusVisible(el: Element): boolean {
-  try {
-    return el.matches(":focus-visible");
-  } catch {
-    return false;
-  }
-}
-
 /** The row element for a key, inside the given list only. */
 function findRow(container: HTMLElement | null, key: string): HTMLElement | null {
   return container?.querySelector<HTMLElement>(`[data-row-key="${CSS.escape(key)}"]`) ?? null;
@@ -1635,6 +1626,20 @@ export function PlaylistsPage() {
     window.addEventListener("pointerdown", off, true);
     return () => window.removeEventListener("pointerdown", off, true);
   }, [keyboardNav]);
+
+  // How the latest input came: a press moves focus to the grid by script,
+  // and WebKit can call that :focus-visible, so the grid asks this instead.
+  const lastInputRef = useRef<"pointer" | "keyboard">("pointer");
+  useEffect(() => {
+    const onPointer = () => { lastInputRef.current = "pointer"; };
+    const onKey = () => { lastInputRef.current = "keyboard"; };
+    window.addEventListener("pointerdown", onPointer, true);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("pointerdown", onPointer, true);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, []);
 
   /** Moves focus with the arrows (and plays there, as a plain arrow always has). */
   function moveListFocus(move: FocusMove) {
@@ -4228,7 +4233,7 @@ export function PlaylistsPage() {
           tabIndex={0}
           onFocus={(e) => {
             // Tabbing in shows where the keys will act.
-            if (e.target !== e.currentTarget || !isFocusVisible(e.currentTarget)) return;
+            if (e.target !== e.currentTarget || lastInputRef.current !== "keyboard") return;
             setKeyboardNav(true);
             if (focusKey === null) setFocusKey(activeKey ?? visibleKeys[0] ?? null);
           }}

@@ -250,7 +250,6 @@ export function ClipTrimmer({
     e.preventDefault();
     e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
-    e.currentTarget.focus({ preventScroll: true });
     const track = trackRef.current?.getBoundingClientRect();
     if (!track) return;
     // Keep the grab offset: the handle never jumps to the pointer.
@@ -418,7 +417,13 @@ export function ClipTrimmer({
           {handle("in")}
           {handle("out")}
         </div>
-
+      </div>
+      <div className="flex items-center gap-2 pl-1.5">
+        <p className="min-w-0 flex-1 truncate text-xs nums text-white/75" aria-live="polite">
+          <span className="text-white">{formatSeconds(length)}</span>
+          <span aria-hidden> · </span>
+          {formatSeconds(eventTime - win.start)} before, {formatSeconds(win.end - eventTime)} after
+        </p>
         <div className="flex shrink-0 items-center gap-1.5">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -444,11 +449,6 @@ export function ClipTrimmer({
           </Tooltip>
         </div>
       </div>
-      <p className="pl-11 text-xs nums text-white/75" aria-live="polite">
-        <span className="text-white">{formatSeconds(length)}</span>
-        <span aria-hidden> · </span>
-        {formatSeconds(eventTime - win.start)} before the play, {formatSeconds(win.end - eventTime)} after
-      </p>
     </div>
   );
 }
