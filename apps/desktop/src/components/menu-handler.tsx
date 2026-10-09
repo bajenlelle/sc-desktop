@@ -197,7 +197,8 @@ export function MenuHandler() {
 
   useEffect(() => {
     setEnabled("toggle-playlist-browser", pathname === "/playlists");
-    setEnabled("fullscreen-player", pathname === "/playlists");
+    // Both players: the editor and the watch view of a shared playlist.
+    setEnabled("fullscreen-player", pathname === "/playlists" || pathname === "/my-playlists");
     // Export is enabled by pages/playlists.tsx while a playlist is open;
     // everywhere else it must be off. On the page itself the mirror must not
     // keep a stale "off" — the page decides, through its own listener.

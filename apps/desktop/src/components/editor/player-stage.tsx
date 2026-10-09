@@ -23,10 +23,16 @@ function isLocalSource(src: string): boolean {
 
 const IDLE_MS = 2500;
 
+/** What a page can ask of the stage: Space toggles through here, so the key gets the same glyph as a click. */
+export interface PlayerStageHandle {
+  togglePlay: () => void;
+}
+
 export interface PlayerStageProps {
   /** The persistent element (usePersistentVideo); the stage hosts it. */
   video: HTMLVideoElement;
-  src: string;
+  /** Null until something has been chosen to play (the stage waits, black). */
+  src: string | null;
   fullscreen?: boolean;
   onToggleFullscreen?: () => void;
   onExitFullscreen?: () => void;
@@ -45,6 +51,9 @@ export interface PlayerStageProps {
   /** Overlays stacked on the footage (crop window, missing file, text card). */
   children?: React.ReactNode;
   className?: string;
+  handleRef?: React.Ref<PlayerStageHandle>;
+  /** Something other than the footage is playing (a timed text card): its state drives the controls. */
+  playback?: { paused: boolean; toggle: () => void };
 }
 
 /**
@@ -71,6 +80,8 @@ export function PlayerStage({
   interactive = true,
   children,
   className,
+  handleRef,
+  playback,
 }: PlayerStageProps) {
   const hostRef = React.useRef<HTMLDivElement | null>(null);
   const stageRef = React.useRef<HTMLDivElement | null>(null);
@@ -100,7 +111,7 @@ export function PlayerStage({
   }, [video]);
 
   React.useEffect(() => {
-    if (video.getAttribute("src") !== src) {
+    if (src && video.getAttribute("src") !== src) {
       video.src = src;
     }
     video.playbackRate = speed;
@@ -130,8 +141,8 @@ export function PlayerStage({
         tags: {
           kind,
           media_error_code: String(video.error?.code ?? 0),
-          ext: src.match(/\.([a-z0-9]{1,5})(?:[?#]|$)/i)?.[1]?.toLowerCase() ?? "none",
-          local: String(isLocalSource(src)),
+          ext: src?.match(/\.([a-z0-9]{1,5})(?:[?#]|$)/i)?.[1]?.toLowerCase() ?? "none",
+          local: String(!!src && isLocalSource(src)),
         },
       });
     }
@@ -204,9 +215,14 @@ export function PlayerStage({
     },
     [],
   );
-  const chromeVisible = paused || active || chromeHover;
+  const chromeVisible = (playback ? playback.paused : paused) || active || chromeHover;
 
   const togglePlay = React.useCallback(() => {
+    if (playback) {
+      setFlash({ id: Date.now(), kind: playback.paused ? "play" : "pause" });
+      playback.toggle();
+      return;
+    }
     if (!transport.isQueueActive && video.paused && transport.onPlayAll) {
       transport.onPlayAll();
       setFlash({ id: Date.now(), kind: "play" });
@@ -219,11 +235,13 @@ export function PlayerStage({
       video.pause();
       setFlash({ id: Date.now(), kind: "pause" });
     }
-  }, [video, transport]);
+  }, [video, transport, playback]);
+
+  React.useImperativeHandle(handleRef, () => ({ togglePlay }), [togglePlay]);
 
   const transportProps: TransportProps = {
     ...transport,
-    paused,
+    paused: playback ? playback.paused : paused,
     onTogglePlay: togglePlay,
   };
 
@@ -244,7 +262,16 @@ export function PlayerStage({
       onPointerLeave={() => {
         if (!paused) setActive(false);
       }}
-      onClick={interactive ? togglePlay : undefined}
+      onClick={
+        interactive
+          ? (e) => {
+              // The second click of a double-click is the fullscreen gesture,
+              // not a second toggle.
+              if (e.detail > 1) return;
+              togglePlay();
+            }
+          : undefined
+      }
       onDoubleClick={interactive && onToggleFullscreen ? onToggleFullscreen : undefined}
     >
       <div ref={hostRef} className="absolute inset-0 [&>video]:h-full [&>video]:w-full [&>video]:object-contain" />
@@ -256,7 +283,7 @@ export function PlayerStage({
           role="alert"
           className="absolute inset-0 z-[13] flex items-center justify-center bg-black/80 p-6 text-center text-sm text-white"
         >
-          <p className="max-w-sm">{mediaFailureMessage(failure, { remote: !isLocalSource(src) })}</p>
+          <p className="max-w-sm">{mediaFailureMessage(failure, { remote: !src || !isLocalSource(src) })}</p>
         </div>
       )}
 

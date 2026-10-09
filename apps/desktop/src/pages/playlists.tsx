@@ -5,10 +5,8 @@ import { trackEvent } from "@/lib/analytics";
 import { Sentry } from "@/lib/sentry";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
-  Check,
   ChevronDown,
   ChevronRight,
-  Filter,
   Folder,
   FolderPlus,
   Share2,
@@ -16,9 +14,7 @@ import {
   ListPlus,
   ListVideo,
   MoreHorizontal,
-  Play,
   Plus,
-  Search,
   Tag,
   VideoOff,
 } from "lucide-react";
@@ -110,6 +106,7 @@ import { clamp } from "@scoutable/shared/lib/motion-math";
 import { dragBlockKeys, isSameOrder, itemsIndexForGap } from "@scoutable/shared/lib/list-reorder";
 import { EmptyState } from "@/components/empty-state";
 import { SearchField } from "@/components/ui/search-field";
+import { ShareRecipients } from "@/components/playlist/share-recipients";
 import { Stepper } from "@/components/ui/stepper";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { AddToPopover } from "@/components/editor/add-to-popover";
@@ -247,7 +244,6 @@ export function PlaylistsPage() {
   const [sharePhase, setSharePhase] = useState<SharePhase>({ kind: "pick" });
   const shareAbortRef = useRef<AbortController | null>(null);
   const [shareableMembers, setShareableMembers] = useState<UserProfile[]>([]);
-  const [memberSearchQuery, setMemberSearchQuery] = useState("");
   const [sharedSectionExpanded, setSharedSectionExpanded] = useState(true);
   // Clip browser panel
   const [showClipBrowser, setShowClipBrowser] = useState(false);
@@ -939,8 +935,6 @@ export function PlaylistsPage() {
     return visible;
   }, [search, filteredPlaylists, folders]);
 
-  const totalPlaylists = playlists.length;
-
   // Group filtered playlists by folderId
   const byFolder = useMemo(() => {
     const map = new Map<string | null, Playlist[]>();
@@ -957,18 +951,6 @@ export function PlaylistsPage() {
 
   // Clear clip selection when active playlist changes
   useEffect(() => { setSelectedClipIds(new Set()); }, [selected?.id]);
-
-  // Resolve playlist clip items in display order (cross-match aware)
-  const playlistEvents = useMemo((): QueueItem[] => {
-    if (!selected) return [];
-    return selected.items
-      .filter(isClipItem)
-      .map((clip) => {
-        const event = eventByKey.get(`${clip.matchId}:${clip.eventId}`);
-        return event ? { event, matchId: clip.matchId } : null;
-      })
-      .filter((x): x is QueueItem => x !== null);
-  }, [selected, eventByKey]);
 
   const isMultiMatch = useMemo(
     () => new Set(selected?.items.filter(isClipItem).map((c) => c.matchId)).size > 1,
@@ -3523,7 +3505,6 @@ export function PlaylistsPage() {
   // UpgradeDialog. Mechanical blockers (demo game, missing video/sync) only
   // disable the button for paid users, who could otherwise actually export.
   const exportLocked = activeOrgPlan === 'free';
-  const playlistEmpty = !selected || queueItems.length === 0;
 
   const exportDisabledReason = (() => {
     if (!selected || queueItems.length === 0) return filtersActive ? "No clips match the filters" : "Playlist is empty";
@@ -4036,7 +4017,6 @@ export function PlaylistsPage() {
           setOnboardingHighlight(null);
           setPendingShareTeamIds(new Set(selected.teamIds ?? []));
           setPendingShareUserIds(new Set(selected.userIds ?? []));
-          setMemberSearchQuery("");
           setShareDialogOpen(true);
         }}
       />
@@ -4460,108 +4440,31 @@ export function PlaylistsPage() {
                           <DialogTitle>Share playlist</DialogTitle>
                           <DialogDescription>Pick the teams and members who should see it.</DialogDescription>
                         </DialogHeader>
-                        <div>
-                          <p className="mb-1 px-1 text-subheadline font-medium text-muted-foreground">Teams</p>
-                          <div className="flex flex-col gap-0.5">
-                            {userTeams.map((team) => {
-                              const checked = pendingShareTeamIds.has(team.id);
-                              return (
-                                <button
-                                  key={team.id}
-                                  type="button"
-                                  aria-pressed={checked}
-                                  onClick={() => {
-                                    setPendingShareTeamIds((prev) => {
-                                      const next = new Set(prev);
-                                      if (next.has(team.id)) next.delete(team.id);
-                                      else next.add(team.id);
-                                      return next;
-                                    });
-                                  }}
-                                  className={cn(
-                                    "flex h-9 items-center gap-2.5 rounded-md px-2 text-left text-sm outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection",
-                                    checked && "bg-fill-1",
-                                  )}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    readOnly
-                                    tabIndex={-1}
-                                    checked={checked}
-                                    className="pointer-events-none size-3.5 rounded accent-primary"
-                                  />
-                                  <Users className="size-4 shrink-0 text-muted-foreground" />
-                                  <span className="flex-1 truncate">{team.name}</span>
-                                </button>
-                              );
-                            })}
-                          </div>
-
-                          <p className="mt-4 mb-1 px-1 text-subheadline font-medium text-muted-foreground">Members</p>
-                          {shareableMembers.length === 0 ? (
-                            <p className="px-1 text-callout text-muted-foreground">No team members to share with.</p>
-                          ) : (
-                            <>
-                              <SearchField
-                                className="mb-1.5"
-                                placeholder="Search members"
-                                aria-label="Search members"
-                                value={memberSearchQuery}
-                                onChange={(e) => setMemberSearchQuery(e.target.value)}
-                              />
-                              <div className="flex max-h-48 flex-col gap-0.5 overflow-y-auto">
-                                {shareableMembers
-                                  .filter((m) => {
-                                    const q = memberSearchQuery.toLowerCase();
-                                    return !q || (m.fullName ?? "").toLowerCase().includes(q);
-                                  })
-                                  .map((member) => {
-                                    const checked = pendingShareUserIds.has(member.id);
-                                    const initials = (member.fullName ?? "?")
-                                      .split(" ")
-                                      .map((w) => w[0])
-                                      .slice(0, 2)
-                                      .join("")
-                                      .toUpperCase();
-                                    return (
-                                      <button
-                                        key={member.id}
-                                        type="button"
-                                        aria-pressed={checked}
-                                        onClick={() => {
-                                          setPendingShareUserIds((prev) => {
-                                            const next = new Set(prev);
-                                            if (next.has(member.id)) next.delete(member.id);
-                                            else next.add(member.id);
-                                            return next;
-                                          });
-                                        }}
-                                        className={cn(
-                                          "flex h-9 items-center gap-2.5 rounded-md px-2 text-left text-sm outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection",
-                                          checked && "bg-fill-1",
-                                        )}
-                                      >
-                                        <input
-                                          type="checkbox"
-                                          readOnly
-                                          tabIndex={-1}
-                                          checked={checked}
-                                          className="pointer-events-none size-3.5 rounded accent-primary"
-                                        />
-                                        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-caption font-semibold text-primary">
-                                          {initials}
-                                        </span>
-                                        <span className="flex-1 truncate">{member.fullName ?? member.email ?? "Unknown"}</span>
-                                      </button>
-                                    );
-                                  })}
-                              </div>
-                            </>
-                          )}
-                        </div>
+                        <ShareRecipients
+                          teams={userTeams}
+                          members={shareableMembers}
+                          teamIds={pendingShareTeamIds}
+                          userIds={pendingShareUserIds}
+                          onToggleTeam={(id) =>
+                            setPendingShareTeamIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(id)) next.delete(id);
+                              else next.add(id);
+                              return next;
+                            })
+                          }
+                          onToggleUser={(id) =>
+                            setPendingShareUserIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(id)) next.delete(id);
+                              else next.add(id);
+                              return next;
+                            })
+                          }
+                        />
                         <DialogFooter>
                           {((selected?.teamIds?.length ?? 0) > 0 || (selected?.userIds?.length ?? 0) > 0) && (
-                            <Button variant="ghost" className="mr-auto text-muted-foreground" onClick={() => handleShare([], [])}>
+                            <Button variant="ghost" className="mr-auto text-destructive" onClick={() => handleShare([], [])}>
                               Stop sharing
                             </Button>
                           )}

@@ -2,6 +2,7 @@ import * as React from "react"
 import { ChevronRight } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { pressable } from "@/lib/pressable"
 
 /**
  * macOS grouped (inset) lists: a rounded card holding rows separated by
@@ -79,14 +80,15 @@ export function GroupRow({
   const classes = cn(
     "flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left",
     interactive &&
-      "cursor-default outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection disabled:opacity-50 disabled:hover:bg-transparent",
+      "cursor-default outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection aria-disabled:opacity-50 aria-disabled:hover:bg-transparent aria-disabled:active:bg-transparent",
     className
   )
   if (interactive) {
+    // A div, not a <button>: long labels must truncate (see pressable.ts).
     return (
-      <button type="button" onClick={onClick} disabled={disabled} className={classes}>
+      <div {...pressable(onClick, { disabled })} className={classes}>
         {body}
-      </button>
+      </div>
     )
   }
   return <div className={classes}>{body}</div>

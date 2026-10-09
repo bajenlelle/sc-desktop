@@ -88,14 +88,16 @@ export function Toolbar({
         </h1>
         {subtitle && <span className="truncate text-subheadline text-muted-foreground nums">{subtitle}</span>}
       </div>
+      {/* Centred on the bar itself, so it never shifts when the items beside
+          it come and go. Clicks around it fall through to the drag region. */}
       {principal && (
-        <div data-tauri-drag-region className="flex min-w-0 flex-1 justify-center">
-          {principal}
+        <div className="pointer-events-none absolute inset-y-0 left-1/2 flex -translate-x-1/2 items-center">
+          <div className="pointer-events-auto">{principal}</div>
         </div>
       )}
-      {search && <div className={cn("w-48 shrink-0 md:w-56", !principal && "ml-auto")}>{search}</div>}
+      {search && <div className="ml-auto w-48 shrink-0 md:w-56">{search}</div>}
       {actions && (
-        <div className={cn("flex shrink-0 items-center gap-2", !search && !principal && "ml-auto")}>{actions}</div>
+        <div className={cn("flex shrink-0 items-center gap-2", !search && "ml-auto")}>{actions}</div>
       )}
     </header>
   );
