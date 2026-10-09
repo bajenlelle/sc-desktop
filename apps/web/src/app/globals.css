@@ -344,3 +344,18 @@
 .animate-progress-indeterminate {
   animation: progress-indeterminate 1.4s var(--ease-out-spring) infinite;
 }
+
+/* The signed-out pages arrive with a short fade and rise; with reduced
+   motion, only the fade. */
+@keyframes auth-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes auth-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.auth-enter { animation: auth-enter 260ms var(--ease-out-spring) both; }
+@media (prefers-reduced-motion: reduce) {
+  .auth-enter { animation: auth-fade 180ms ease-out both; }
+}

@@ -1,5 +1,8 @@
 import Link from "next/link";
-import { Download, Film, ListVideo, Share2, Ticket } from "lucide-react";
+import { ChevronRight, CreditCard, Download, Film, ListVideo, Share2, Ticket } from "lucide-react";
+import { LogoMark } from "@/components/logo";
+import { Button } from "@/components/ui/button";
+import { GroupFooter, GroupHeader, GroupedList } from "@/components/ui/group";
 import { RolePrompt } from "@/components/role-prompt";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
@@ -30,57 +33,59 @@ export default function GetStartedPage() {
     },
   ];
 
+  const rowClass =
+    "flex min-h-11 items-center gap-3 px-4 py-2 text-sm text-foreground outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection";
+
   return (
     <Page width="narrow">
-    <Toolbar title="Get started" />
-    <PageContent className="flex flex-col items-center gap-10 pt-6 text-center">
-      <RolePrompt />
-      <div className="flex flex-col items-center gap-3">
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">
-          Welcome to Scoutable 👋
-        </h2>
-        <p className="max-w-md text-sm text-muted-foreground">
-          Scouting lives in the desktop app — download it, sign in with this account, and
-          you&apos;ll find a sample game ready to explore.
-        </p>
-        <a
-          href="https://scoutable.se/#download"
-          target="_blank"
-          rel="noreferrer"
-          className="mt-2 inline-flex items-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-        >
-          <Download className="h-4 w-4" />
-          Download the desktop app
-        </a>
-      </div>
+      <Toolbar title="Get started" />
+      <PageContent className="space-y-7">
+        <RolePrompt />
 
-      <div className="grid w-full gap-4 sm:grid-cols-3">
-        {steps.map((s) => (
-          <div key={s.title} className="flex flex-col items-center gap-2 rounded-xl border border-border bg-card p-5">
-            <s.icon className="h-5 w-5 text-primary" aria-hidden />
-            <h2 className="text-sm font-semibold text-foreground">{s.title}</h2>
-            <p className="text-xs text-muted-foreground">{s.body}</p>
-          </div>
-        ))}
-      </div>
+        <section className="flex flex-col items-center gap-3 rounded-window bg-card px-6 py-8 text-center ring-1 ring-separator">
+          <LogoMark className="size-14 rounded-[13px] shadow-sm ring-1 ring-black/5" />
+          <h2 className="text-title-1 text-foreground">Welcome to Scoutable</h2>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Scouting lives in the desktop app. Download it, sign in with this account, and you&apos;ll find a
+            sample game ready to explore.
+          </p>
+          <Button asChild className="mt-2">
+            <a href="https://scoutable.se/#download" target="_blank" rel="noreferrer">
+              <Download />
+              Download the desktop app
+            </a>
+          </Button>
+        </section>
 
-      <div className="flex flex-col items-center gap-1.5 text-sm text-muted-foreground">
-        <p className="flex items-center gap-1.5">
-          <Ticket className="h-3.5 w-3.5 text-primary/70" aria-hidden />
-          Joining a team?{" "}
-          <Link href="/onboarding" className="font-medium text-primary underline-offset-2 hover:underline">
-            Enter your invite code
+        <section>
+          <GroupHeader title="In the desktop app" />
+          <GroupedList>
+            {steps.map((step) => (
+              <div key={step.title} className="flex items-start gap-3 px-4 py-3">
+                <step.icon className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">{step.title}</p>
+                  <p className="text-callout text-muted-foreground">{step.body}</p>
+                </div>
+              </div>
+            ))}
+          </GroupedList>
+          <GroupFooter>On the web you can watch playlists shared with you and manage your plan.</GroupFooter>
+        </section>
+
+        <GroupedList>
+          <Link href="/onboarding" className={rowClass}>
+            <Ticket className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="flex-1">Joining a team? Enter your invite code</span>
+            <ChevronRight className="size-4 shrink-0 text-muted-foreground/60" />
           </Link>
-        </p>
-        <p>
-          On the web you can watch playlists shared with you and{" "}
-          <Link href="/profile" className="font-medium text-primary underline-offset-2 hover:underline">
-            manage your plan
+          <Link href="/profile" className={rowClass}>
+            <CreditCard className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="flex-1">Manage your plan</span>
+            <ChevronRight className="size-4 shrink-0 text-muted-foreground/60" />
           </Link>
-          .
-        </p>
-      </div>
-    </PageContent>
+        </GroupedList>
+      </PageContent>
     </Page>
   );
 }

@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { joinByCode } from "@/lib/profile-db";
@@ -10,8 +9,11 @@ import { trackEvent } from "@/lib/analytics";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth-context";
 import { toast } from "sonner";
+import { Loader2 } from "lucide-react";
+import { AuthError } from "@/components/auth/auth-frame";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
+import { BackButton } from "@/components/shell/back-button";
 
 function extractCode(input: string): string {
   const trimmed = input.trim();
@@ -23,7 +25,11 @@ function extractCode(input: string): string {
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { reloadProfile, setActiveOrg } = useAuth();
+  const { reloadProfile, setActiveOrg, myOrgs } = useAuth();
+  // Without a space this is the only page there is (proxy.ts sends every
+  // route here), so it carries its own way out; otherwise it's a step from
+  // Get started, and signing out lives in the account menu and Profile.
+  const hasSpace = myOrgs.length > 0;
   const [input, setInput] = useState("");
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,46 +63,35 @@ export default function OnboardingPage() {
 
   return (
     <Page width="narrow">
-      <Toolbar title="Join a team" />
-      <PageContent className="flex justify-center">
-      <Card className="mt-6 w-full max-w-sm">
-        <CardContent className="p-6 space-y-5">
-          <div className="text-center space-y-1">
-            <p className="text-lg font-semibold text-foreground">Welcome to Scoutable</p>
-            <p className="text-sm text-muted-foreground">
-              Enter your invite code or paste a join link to get started.
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Input
-              placeholder="ABC123 or app.scoutable.se/join/ABC123"
-              value={input}
-              onChange={(e) => { setInput(e.target.value); setError(null); }}
-              onKeyDown={(e) => e.key === "Enter" && handleJoin()}
-              autoFocus
-            />
-            {error && <p className="text-xs text-red-500">{error}</p>}
-            <Button
-              className="w-full"
-              onClick={handleJoin}
-              disabled={joining || !input.trim()}
-            >
-              {joining ? "Joining…" : "Join"}
-            </Button>
-          </div>
-
-          <div className="text-center">
+      <Toolbar title="Join a team" leading={hasSpace ? <BackButton href="/get-started" label="Get started" /> : undefined} />
+      <PageContent>
+        <div className="mx-auto grid max-w-sm gap-3 pt-2 lg:pt-6">
+          <p className="text-sm text-muted-foreground">
+            Enter your invite code, or paste the join link you were sent.
+          </p>
+          <Input
+            aria-label="Invite code or join link"
+            placeholder="ABC123 or app.scoutable.se/join/ABC123"
+            value={input}
+            onChange={(e) => { setInput(e.target.value); setError(null); }}
+            onKeyDown={(e) => e.key === "Enter" && handleJoin()}
+            autoFocus
+          />
+          <AuthError message={error} />
+          <Button className="w-full" onClick={handleJoin} disabled={joining || !input.trim()}>
+            {joining && <Loader2 className="animate-spin" />}
+            Join
+          </Button>
+          {!hasSpace && (
             <button
               type="button"
               onClick={handleSignOut}
-              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-4"
+              className="mt-3 justify-self-center text-callout text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
             >
               Sign out
             </button>
-          </div>
-        </CardContent>
-      </Card>
+          )}
+        </div>
       </PageContent>
     </Page>
   );

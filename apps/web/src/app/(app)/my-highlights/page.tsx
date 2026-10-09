@@ -15,7 +15,8 @@
 import { useEffect, useState } from "react";
 import { Clapperboard, ListVideo, Loader2, Monitor, Share2, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { EmptyState } from "@/components/empty-state";
+import { GroupFooter, GroupedList } from "@/components/ui/group";
 import { useAuth } from "@/components/auth-context";
 import { createClient } from "@/lib/supabase/client";
 import { trackEvent } from "@/lib/analytics";
@@ -67,18 +68,17 @@ function PitchPage() {
   ];
 
   return (
-    <div className="pt-4">
-      <div className="text-center">
-        <h2 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-          Build your own highlight tape
-        </h2>
-        <p className="mx-auto mt-3 max-w-xl text-muted-foreground">
-          This is your space — separate from your club. Import your own games and turn
-          them into tapes that are yours to keep and share.
+    <div className="space-y-7">
+      <section className="text-center">
+        {/* Under the large title on narrow screens it steps down a size, so the page keeps one top heading. */}
+        <h2 className="text-title-2 text-foreground lg:text-title-1">Build your own highlight tape</h2>
+        <p className="mx-auto mt-2 max-w-xl text-sm text-muted-foreground">
+          This is your space, separate from your club. Import your own games and turn them into tapes that are
+          yours to keep and share.
         </p>
-      </div>
+      </section>
 
-      <div className="mt-8 overflow-hidden rounded-xl border border-border shadow-sm">
+      <div className="overflow-hidden rounded-window bg-black ring-1 ring-separator">
         {videoFailed ? (
           /* eslint-disable-next-line @next/next/no-img-element */
           <img src={PITCH_POSTER} alt={PITCH_MEDIA_ALT} className="w-full" />
@@ -96,37 +96,35 @@ function PitchPage() {
               onError={() => setVideoFailed(true)}
             >
               <source src={PITCH_VIDEO_WEBM} type="video/webm" />
-              {/* Source errors fire on the element, not the video — the last
+              {/* Source errors fire on the element, not the video: the last
                   source failing means no playable source at all. */}
               <source src={PITCH_VIDEO_MP4} type="video/mp4" onError={() => setVideoFailed(true)} />
             </video>
-            {/* Reduced motion: still frame instead of the loop. */}
+            {/* Reduced motion: a still frame instead of the loop. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={PITCH_POSTER} alt={PITCH_MEDIA_ALT} className="hidden w-full motion-reduce:block" />
           </>
         )}
       </div>
 
-      <div className="mt-8 grid gap-4 sm:grid-cols-3">
+      <GroupedList>
         {bullets.map((b) => (
-          <Card key={b.title}>
-            <CardContent className="p-4">
-              <b.icon className="h-5 w-5 text-primary" aria-hidden />
-              <h2 className="mt-2 text-sm font-semibold text-foreground">{b.title}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">{b.body}</p>
-            </CardContent>
-          </Card>
+          <div key={b.title} className="flex items-start gap-3 px-4 py-3">
+            <b.icon className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">{b.title}</p>
+              <p className="text-callout text-muted-foreground">{b.body}</p>
+            </div>
+          </div>
         ))}
-      </div>
+      </GroupedList>
 
-      <div className="mt-10 flex flex-col items-center gap-3">
-        <Button size="lg" className="min-h-11 px-8" onClick={handleDownload}>
-          <Monitor className="mr-2 h-4 w-4" aria-hidden />
-          Get the desktop app — free
+      <div className="flex flex-col items-center gap-2">
+        <Button size="lg" onClick={handleDownload}>
+          <Monitor />
+          Get the desktop app, free
         </Button>
-        <p className="text-sm text-muted-foreground">
-          No card needed.
-        </p>
+        <p className="text-callout text-muted-foreground">No card needed.</p>
       </div>
     </div>
   );
@@ -150,51 +148,45 @@ function OwnPlaylists() {
   if (loading) {
     return (
       <div className="flex justify-center py-20">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
-  return (
-    <div>
-      <p className="text-sm text-muted-foreground">
-        Your own playlists, built in the desktop app. Send them to your phone from there
-        to watch and share anywhere.
-      </p>
+  if (playlists.length === 0) {
+    return (
+      <EmptyState
+        icon={<ListVideo />}
+        title="No tapes yet"
+        body="Import a game in the desktop app and your playlists show up here."
+        action={
+          <Button variant="outline" size="sm" asChild>
+            <a href={DESKTOP_APP_URL} target="_blank" rel="noreferrer">
+              Get the desktop app
+            </a>
+          </Button>
+        }
+      />
+    );
+  }
 
-      {playlists.length === 0 ? (
-        <div className="mt-12 flex flex-col items-center gap-2 text-center">
-          <ListVideo className="h-8 w-8 text-muted-foreground" aria-hidden />
-          <p className="text-base font-semibold text-foreground">No tapes yet</p>
-          <p className="max-w-sm text-sm text-muted-foreground">
-            Import a game in the{" "}
-            <a
-              href={DESKTOP_APP_URL}
-              target="_blank"
-              rel="noreferrer"
-              className="font-medium text-primary underline-offset-2 hover:underline"
-            >
-              desktop app
-            </a>{" "}
-            and your playlists show up here.
-          </p>
-        </div>
-      ) : (
-        <ul className="mt-6 flex flex-col gap-2">
-          {playlists.map((pl) => (
-            <li
-              key={pl.id}
-              className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3"
-            >
-              <span className="truncate text-sm font-medium text-foreground">{pl.name}</span>
-              <span className="shrink-0 text-xs text-muted-foreground">
-                {pl.items.filter(isClipItem).length} clips
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+  return (
+    <section>
+      <GroupedList>
+        {playlists.map((pl) => (
+          <div key={pl.id} className="flex min-h-11 items-center justify-between gap-3 px-4 py-2">
+            <span className="truncate text-sm text-foreground">{pl.name}</span>
+            <span className="shrink-0 text-callout text-muted-foreground nums">
+              {pl.items.filter(isClipItem).length} clips
+            </span>
+          </div>
+        ))}
+      </GroupedList>
+      <GroupFooter>
+        Your own playlists, built in the desktop app. Send them to your phone from there to watch and share
+        anywhere.
+      </GroupFooter>
+    </section>
   );
 }
 
@@ -210,7 +202,7 @@ export default function MyHighlightsPage() {
       <PageContent>
         {profileLoading ? (
           <div className="flex justify-center py-20">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>
         ) : upgraded ? (
           <OwnPlaylists />

@@ -8,11 +8,16 @@ import { ShellProvider } from "./shell-context";
 import { Sidebar } from "./sidebar";
 import { TabBar } from "./tab-bar";
 
-/** The watch view plays edge to edge: the tab bar steps aside, as the iOS app's player covers its tabs. */
-function TabBarUnlessWatching() {
+/**
+ * The tab bar steps aside for the watch view, which plays edge to edge as the
+ * iOS app's player covers its tabs, and for joining a team: a focused task,
+ * and for an account with no space yet the only page there is.
+ */
+function TabBarUnlessFocused() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   if (pathname === "/my-playlists" && searchParams.has("p")) return null;
+  if (pathname === "/onboarding") return null;
   return <TabBar />;
 }
 
@@ -30,7 +35,7 @@ export function AppShell({ profile, children }: { profile: UserProfile | null; c
         <DeviceGate>{children}</DeviceGate>
       </main>
       <Suspense fallback={<TabBar />}>
-        <TabBarUnlessWatching />
+        <TabBarUnlessFocused />
       </Suspense>
     </ShellProvider>
   );
