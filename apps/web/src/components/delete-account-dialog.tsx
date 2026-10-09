@@ -2,9 +2,12 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -74,39 +77,39 @@ export function DeleteAccountDialog({
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>Delete account?</DialogTitle>
+          <DialogTitle>Delete your account?</DialogTitle>
+          <DialogDescription>
+            This deletes <span className="font-medium text-foreground">{email}</span> with your games, playlists, shared
+            links and watch history, and cancels any subscription. It can&apos;t be undone.
+          </DialogDescription>
         </DialogHeader>
-        <p className="text-sm text-muted-foreground">
-          This permanently deletes the account{" "}
-          <span className="font-semibold text-foreground">{email}</span> — including your games,
-          playlists, shared links and watch history. Any active subscription is canceled. This
-          can&apos;t be undone.
-        </p>
-        <div className="space-y-1.5">
-          <p className="text-xs text-muted-foreground">
+        <div className="grid gap-1.5">
+          <label htmlFor="delete-confirm" className="text-callout text-muted-foreground">
             Type <span className="font-semibold text-foreground">DELETE</span> to confirm.
-          </p>
+          </label>
           <Input
+            id="delete-confirm"
             value={confirmText}
             onChange={(e) => setConfirmText(e.target.value)}
             placeholder="DELETE"
             autoComplete="off"
+            spellCheck={false}
           />
         </div>
-        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="outline" size="sm" onClick={() => handleOpenChange(false)} disabled={deleting}>
+        {error && (
+          <p role="alert" className="text-callout text-destructive">
+            {error}
+          </p>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={deleting}>
             Cancel
           </Button>
-          <Button
-            size="sm"
-            className="bg-red-600 hover:bg-red-700 text-white"
-            onClick={handleDelete}
-            disabled={deleting || confirmText !== "DELETE"}
-          >
-            {deleting ? "Deleting…" : "Delete account"}
+          <Button variant="destructive" onClick={handleDelete} disabled={deleting || confirmText !== "DELETE"}>
+            {deleting && <Loader2 className="animate-spin" />}
+            Delete account
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

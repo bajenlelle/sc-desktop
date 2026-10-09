@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
+import { Switch } from "@/components/ui/switch";
 import { getMarketingEmailsOn, setMarketingEmailsOn } from "@scoutable/shared/lib/email-preferences";
 
 /**
@@ -34,20 +35,19 @@ export function MarketingEmailToggle() {
   }
 
   return (
-    <label className="flex items-start gap-2 text-sm">
-      <input
-        type="checkbox"
-        className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
-        checked={consent ?? false}
-        disabled={consent === null || saving}
-        onChange={(e) => toggle(e.target.checked)}
-      />
-      <span>
-        <span className="text-foreground">Email me tips and offers</span>
-        <span className="block text-xs text-muted-foreground">
-          Product tips, offers and free-import top-ups. Account emails, such as playlists shared with you, arrive either way.
+    <label htmlFor="marketing-emails" className="flex min-h-11 cursor-default items-center gap-4 px-4 py-2">
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm">Tips and offers by email</span>
+        <span className="block text-callout text-muted-foreground">
+          Product tips, offers and free-import top-ups. Account emails, like playlists shared with you, arrive either way.
         </span>
       </span>
+      <Switch
+        id="marketing-emails"
+        checked={consent ?? false}
+        disabled={consent === null || saving}
+        onCheckedChange={(v) => void toggle(v)}
+      />
     </label>
   );
 }

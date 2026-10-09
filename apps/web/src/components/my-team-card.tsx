@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Shield } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
+import { GroupedList, GroupFooter, GroupHeader, GroupRow } from "@/components/ui/group";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/auth-context";
 import { useMyTeam } from "@/lib/my-team";
@@ -38,67 +37,56 @@ export function MyTeamCard() {
   const others = editOrg ? spaces.filter((o) => o.orgId !== editOrg.orgId) : [];
 
   return (
-    <Card>
-      <CardContent className="p-6 space-y-3">
-        <div>
-          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-            <Shield className="h-4 w-4 text-muted-foreground" />
-            Your team
-          </h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            The team you coach or play for. We use it to find your games when you import.
-          </p>
-        </div>
-
+    <section>
+      <GroupHeader title="Your team" />
+      <GroupedList>
         {rows.map((row) => {
           const roleLine = teamRoleLine(teamRoleIn(row.orgs[0], profile?.declaredRole));
+          const used = `${single ? "Used in" : "In"} ${spaceListLabel(row.orgs)}`;
           return (
-            <div key={row.key} className="space-y-1.5 rounded-md border border-border p-3">
-              {!single && <p className="text-xs text-muted-foreground">In {spaceListLabel(row.orgs)}</p>}
-              <div className="flex items-center gap-3">
-                {row.team ? (
-                  <>
-                    <TeamCrest team={row.team} size={32} />
-                    <div className="min-w-0 flex-1">
-                      <TeamLabel team={row.team} className="text-sm" />
-                      {roleLine && <p className="text-xs text-muted-foreground">{roleLine}</p>}
-                    </div>
-                  </>
+            <GroupRow
+              key={row.key}
+              leading={row.team ? <TeamCrest team={row.team} size={28} /> : undefined}
+              label={
+                row.team ? (
+                  <TeamLabel team={row.team} className="text-sm" />
+                ) : row.unlistedTeam ? (
+                  row.unlistedTeam
                 ) : (
-                  <div className="min-w-0 flex-1 text-sm">
-                    {row.unlistedTeam ? (
-                      <>
-                        <span className="text-foreground">{row.unlistedTeam}</span>
-                        <p className="text-xs text-muted-foreground">Not in a league we cover yet</p>
-                      </>
-                    ) : (
-                      <span className="text-muted-foreground">No team yet</span>
-                    )}
-                  </div>
-                )}
+                  <span className="text-muted-foreground">No team yet</span>
+                )
+              }
+              description={
+                <>
+                  {row.team ? roleLine : row.unlistedTeam ? "Not in a league we cover yet" : null}
+                  {(row.team ? roleLine : row.unlistedTeam) ? " · " : ""}
+                  {used}
+                </>
+              }
+              trailing={
                 <Button variant="outline" size="sm" onClick={() => setEditing(row)}>
-                  {row.team || row.unlistedTeam ? "Change" : "Choose team"}
+                  {row.team || row.unlistedTeam ? "Change…" : "Choose team…"}
                 </Button>
-              </div>
-              {single && <p className="text-xs text-muted-foreground">Used in {spaceListLabel(row.orgs)}</p>}
-            </div>
+              }
+            />
           );
         })}
+      </GroupedList>
+      <GroupFooter>The team you coach or play for. It finds your games when you import.</GroupFooter>
 
-        {editing && editOrg && (
-          <TeamDialog
-            key={editing.key}
-            mode="change"
-            org={editOrg}
-            otherSpaces={others}
-            defaultChecked={spacesSharingAnswer(spaces, choices, editOrg.orgId).filter((id) => id !== editOrg.orgId)}
-            initialTeamId={editing.team?.id ?? null}
-            role={teamRoleIn(editOrg, profile?.declaredRole)}
-            onDone={() => setEditing(null)}
-            onDismiss={() => setEditing(null)}
-          />
-        )}
-      </CardContent>
-    </Card>
+      {editing && editOrg && (
+        <TeamDialog
+          key={editing.key}
+          mode="change"
+          org={editOrg}
+          otherSpaces={others}
+          defaultChecked={spacesSharingAnswer(spaces, choices, editOrg.orgId).filter((id) => id !== editOrg.orgId)}
+          initialTeamId={editing.team?.id ?? null}
+          role={teamRoleIn(editOrg, profile?.declaredRole)}
+          onDone={() => setEditing(null)}
+          onDismiss={() => setEditing(null)}
+        />
+      )}
+    </section>
   );
 }

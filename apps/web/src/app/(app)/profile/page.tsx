@@ -2,31 +2,37 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card, CardContent } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { createClient } from "@/lib/supabase/client";
-import { useAuth } from "@/components/auth-context";
-import { getOrgContext, updateMyProfile, uploadAvatar, getSubscriptionStatus } from "@/lib/profile-db";
-import { trackEvent } from "@/lib/analytics";
+import Link from "next/link";
+import { useTheme } from "next-themes";
 import posthog from "posthog-js";
+import { toast } from "sonner";
+import { ArrowUpRight, Building2, Laptop, Loader2, LogOut, MessageSquarePlus } from "lucide-react";
 import type { OrgContext } from "@scoutable/shared/types/org";
 import { orgPlanColors, orgPlanLabel, type ImportQuota } from "@scoutable/shared/lib/plan-tier";
-import { toast } from "sonner";
+import { useAuth } from "@/components/auth-context";
 import { DeleteAccountDialog } from "@/components/delete-account-dialog";
 import { DevicesCard } from "@/components/devices-card";
-import { ThemePicker } from "@/components/theme-picker";
-import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Laptop, Loader2, MessageSquarePlus } from "lucide-react";
-import Link from "next/link";
 import { MarketingEmailToggle } from "@/components/marketing-email-toggle";
 import { MyTeamCard } from "@/components/my-team-card";
 import { ReportProblemDialog } from "@/components/report-problem-dialog";
-import { GroupedList, GroupRow } from "@/components/ui/group";
+import { ThemePicker } from "@/components/theme-picker";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
 import { DESKTOP_APP_URL } from "@/components/shell/sidebar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { GroupFooter, GroupHeader, GroupedList, GroupRow } from "@/components/ui/group";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { ProgressBar } from "@/components/ui/progress-bar";
+import { SegmentedControl } from "@/components/ui/segmented-control";
+import { createClient } from "@/lib/supabase/client";
+import { getOrgContext, updateMyProfile, uploadAvatar, getSubscriptionStatus } from "@/lib/profile-db";
+import { trackEvent } from "@/lib/analytics";
+import { roleLabel } from "@/lib/roles";
+import { cn } from "@/lib/utils";
+import { formatDate as formatLongDate } from "@/lib/format-date";
 
 // Query params must precede the fragment or the browser drops them.
 const PRICING_URL_BASE = "https://scoutable.se/pricing";
@@ -40,7 +46,7 @@ type SubStatus = {
 
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
-  return new Date(iso).toLocaleDateString("en-SE", { day: "numeric", month: "long", year: "numeric" });
+  return formatLongDate(iso, "long");
 }
 
 function roleBadgeVariant(role: string, isPlatformAdmin: boolean): "default" | "secondary" | "outline" | "destructive" {
@@ -53,6 +59,7 @@ function roleBadgeVariant(role: string, isPlatformAdmin: boolean): "default" | "
 export default function ProfilePage() {
   const { user, activeOrgId, activeOrgRole, activeOrgPlan, activeOrgIsPersonal, expectPlanChange } = useAuth();
   const router = useRouter();
+  const { theme, setTheme } = useTheme();
 
   const [ctx, setCtx] = useState<OrgContext | null>(null);
   const [loading, setLoading] = useState(true);
@@ -204,10 +211,10 @@ export default function ProfilePage() {
     return (
       <Page width="narrow">
         <Toolbar title="Profile" />
-        <PageContent className="space-y-4">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-32 rounded-xl bg-muted animate-pulse" />
-          ))}
+        <PageContent>
+          <div className="flex h-64 items-center justify-center">
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          </div>
         </PageContent>
       </Page>
     );
@@ -218,10 +225,19 @@ export default function ProfilePage() {
       <Page width="narrow">
         <Toolbar title="Profile" />
         <PageContent>
-          <p className="text-sm text-destructive">Failed to load profile.</p>
-          <button className="mt-2 text-sm text-primary underline" onClick={() => { setLoading(true); load(); }}>
-            Retry
-          </button>
+          <div className="flex flex-col items-center gap-3 py-16 text-center">
+            <p className="text-title-3">Couldn&apos;t load your profile</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setLoading(true);
+                void load();
+              }}
+            >
+              Try again
+            </Button>
+          </div>
         </PageContent>
       </Page>
     );
@@ -232,7 +248,7 @@ export default function ProfilePage() {
   const initials = (fullName || user?.email || "?").slice(0, 2).toUpperCase();
   const activeOrg = ctx.myOrgs.find((o) => o.orgId === activeOrgId) ?? null;
   const activeOrgTeams = activeOrgId ? ctx.myTeams.filter((t) => t.orgId === activeOrgId) : [];
-  // Managing a club is staff-only; players get the same card read-only.
+  // Managing a club is staff-only; players get the same row read-only.
   const canManageActiveOrg =
     !!activeOrg && !activeOrg.isPersonal && (activeOrg.role === "coach" || activeOrg.role === "admin");
 
@@ -240,295 +256,289 @@ export default function ProfilePage() {
   const planLabel = orgPlanLabel(activeOrgPlan);
   const isTrialing = sub?.status === "trialing";
   const isFreeOrRookie = activeOrgPlan === "free" || activeOrgPlan === "rookie";
-  const dateLabel = isTrialing ? "Trial ends" : "Renews";
   const periodDate = formatDate(sub?.currentPeriodEnd ?? null);
-  // Progress bar only for personal spaces on limited plans (free / rookie).
-  // Org spaces have no limit and don't display the count.
+  const planStatus = activeOrgIsPersonal ? (sub?.isActive ? (isTrialing ? "Trial" : "Active") : "Free") : "Active";
+  // Usage only for personal spaces on limited plans (free / rookie); club
+  // spaces have no limit and don't show the count.
   const showUsage = activeOrgIsPersonal && importQuota !== null;
   const usageRatio = importQuota?.limit ? importQuota.used / importQuota.limit : 0;
   const usageAtCap = showUsage && (importQuota!.remaining ?? 0) <= 0;
-  // Lifetime pools are small (Free = 3) — warn from 65% so 2-of-3 shows amber.
+  // Lifetime pools are small (Free = 3): warn from 65% so 2-of-3 shows amber.
   const usageWarn =
     showUsage && !usageAtCap && usageRatio >= (importQuota!.window === "lifetime" ? 0.65 : 0.8);
 
   return (
     <Page width="narrow">
-    <Toolbar title="Profile" />
-    <PageContent className="space-y-4">
-      {/* ── Identity header ── */}
-      <Card className="overflow-hidden">
-        <div className="h-16 bg-gradient-to-r from-primary/20 via-primary/10 to-transparent" />
-        <CardContent className="px-6 pb-6 pt-0">
-          <div className="flex items-end gap-4 -mt-8">
-            <button
-              type="button"
-              className="relative h-16 w-16 rounded-full overflow-hidden bg-primary/15 border-4 border-card flex items-center justify-center text-lg font-bold text-primary hover:opacity-80 transition-opacity flex-shrink-0"
-              onClick={() => fileInputRef.current?.click()}
-              title="Change avatar"
-            >
-              {avatarPreview
-                ? <img src={avatarPreview} alt="Avatar" className="h-full w-full object-cover" />
-                : <span>{initials}</span>}
-            </button>
-            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarFileChange} />
-            <div className="pb-1 min-w-0">
-              <p className="text-base font-semibold text-foreground truncate">
-                {fullName || user?.email?.split("@")[0] || "—"}
-              </p>
-              <div className="flex items-center gap-2 mt-1 flex-wrap">
-                {(!activeOrgIsPersonal || profile.isPlatformAdmin) && (
-                  <Badge variant={roleBadgeVariant(displayRole, profile.isPlatformAdmin)} className="text-xs">
-                    {profile.isPlatformAdmin ? "Platform admin" : displayRole.charAt(0).toUpperCase() + displayRole.slice(1)}
-                  </Badge>
-                )}
-                {activeOrg && !activeOrg.isPersonal && (
-                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <Building2 className="h-3 w-3" />
-                    {activeOrg.orgName}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* ── Plan & Usage ── */}
-      <Card>
-        <CardContent className="p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-            <Zap className="h-4 w-4 text-muted-foreground" />
-            Plan & Usage
-          </h2>
-
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className={`h-2 w-2 rounded-full ${planColors.dot} flex-shrink-0`} />
-              <span className="font-semibold text-foreground">{planLabel}</span>
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${planColors.badge}`}>
-                {activeOrgIsPersonal ? (sub?.isActive ? (isTrialing ? "Trial" : "Active") : "Free") : "Active"}
-              </span>
-            </div>
-            {activeOrgIsPersonal && periodDate && (
-              <span className="text-xs text-muted-foreground">{dateLabel} {periodDate}</span>
-            )}
-          </div>
-
-          {activeOrgIsPersonal && sub?.isActive && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full gap-1.5"
-              onClick={handleManageSubscription}
-              disabled={loadingPortal}
-            >
-              {loadingPortal ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
-              {loadingPortal ? "Opening…" : "Manage subscription"}
-            </Button>
-          )}
-
-          {activeOrgIsPersonal && isFreeOrRookie && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full gap-1.5"
-              onClick={handleUpgrade}
-              disabled={loadingPortal}
-            >
-              <ArrowUpRight className="h-3.5 w-3.5" />
-              {activeOrgPlan === "free" ? "Upgrade to Rookie or Pro" : "Upgrade to Pro"}
-            </Button>
-          )}
-
-          {!activeOrgIsPersonal && (
-            <p className="text-xs text-muted-foreground">
-              Plan managed by your organization admin.
-            </p>
-          )}
-
-          {showUsage && (
-            <div className="space-y-1.5">
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>
-                  {importQuota!.window === "lifetime"
-                    ? "Free game imports"
-                    : "Game imports this month"}
-                </span>
-                <span className="flex items-center gap-2">
-                  {(usageWarn || usageAtCap) && (
-                    <button
-                      type="button"
-                      onClick={handleUpgrade}
-                      className="font-medium text-primary hover:underline"
-                    >
-                      Upgrade — unlimited imports
-                    </button>
-                  )}
-                  <span className={usageAtCap ? "text-destructive font-medium" : usageWarn ? "text-amber-600 dark:text-amber-500 font-medium" : ""}>
-                    {importQuota!.remaining} of {importQuota!.limit} left
-                  </span>
-                </span>
-              </div>
-              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all ${usageAtCap ? "bg-destructive" : usageWarn ? "bg-amber-500" : "bg-primary"}`}
-                  style={{ width: `${Math.min(100, usageRatio * 100)}%` }}
-                />
-              </div>
-              <p className="text-[11px] text-muted-foreground">
-                {importQuota!.window === "lifetime"
-                  ? "Deleting games doesn't restore free imports — re-importing the same game is always free."
-                  : "Resets on the 1st of every month."}
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <MyTeamCard />
-
-      {/* ── Org & Teams ── */}
-      {activeOrg && !activeOrg.isPersonal && (
-        <Card>
-          <CardContent className="p-6 space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <Users className="h-4 w-4 text-muted-foreground" />
-                {canManageActiveOrg ? "Organization" : "My club"}
-              </h2>
-              {canManageActiveOrg && (
-                <Link href="/organization" className="flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
-                  Manage <ChevronRight className="h-3 w-3" />
-                </Link>
-              )}
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-foreground">{activeOrg.orgName}</span>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground capitalize">{activeOrg.role}</span>
-                {activeOrg.isNtOrg && <span className="text-xs text-muted-foreground">NT</span>}
-              </div>
-            </div>
-            {activeOrgTeams.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {activeOrgTeams.map((team) => (
-                  <span key={team.id} className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-                    {team.name}
-                  </span>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* ── Personal Info ── */}
-      <Card>
-        <CardContent className="p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-foreground">Personal Info</h2>
-          <div className="space-y-2">
-            <Label htmlFor="full-name">Full name</Label>
-            <Input
-              id="full-name"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="Your name"
-            />
-          </div>
-          <p className="text-xs text-muted-foreground">Click your avatar above to change photo. Max 5 MB.</p>
-          <Button onClick={handleSaveProfile} disabled={saving} size="sm">
-            {saving ? "Saving…" : "Save changes"}
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* ── Account ── */}
-      <Card>
-        <CardContent className="p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-foreground">Account</h2>
-          <div className="space-y-2">
-            <Label>Email</Label>
-            <Input value={user?.email ?? ""} readOnly className="text-muted-foreground cursor-default" />
-          </div>
-          <Button variant="outline" size="sm" onClick={handleChangePassword}>
-            Change password
-          </Button>
-          <MarketingEmailToggle />
-        </CardContent>
-      </Card>
-
-      {/* ── Appearance ── */}
-      <Card>
-        <CardContent className="p-6 space-y-4">
-          <div>
-            <h2 className="text-sm font-semibold text-foreground">Appearance</h2>
-            <p className="text-sm text-muted-foreground">
-              Choose how Scoutable looks. Picking a theme applies it right away, switching
-              between dark and light if needed. Your choice follows you to the desktop and
-              mobile apps.
-            </p>
-          </div>
-          <ThemePicker />
-        </CardContent>
-      </Card>
-
-      {/* ── Devices ── */}
-      <DevicesCard />
-
-      {/* ── Help: on wide screens these live in the sidebar ── */}
-      <GroupedList className="lg:hidden">
-        <GroupRow leading={<MessageSquarePlus />} label="Send feedback…" onClick={() => setFeedbackOpen(true)} />
-        <a
-          href={DESKTOP_APP_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex min-h-11 items-center gap-3 px-4 py-2 text-sm text-foreground outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection"
-        >
-          <Laptop className="size-4 shrink-0 text-muted-foreground" />
-          <span className="flex-1">Get the desktop app</span>
-          <ArrowUpRight className="size-4 shrink-0 text-muted-foreground/60" />
-        </a>
-      </GroupedList>
-      <ReportProblemDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
-
-      {/* ── Sign out ── */}
-      <Card className="border-dashed">
-        <CardContent className="p-4">
+      <Toolbar title="Profile" />
+      <PageContent className="space-y-7">
+        {/* ── Identity ── */}
+        <div className="flex items-center gap-4">
           <button
             type="button"
-            onClick={handleSignOut}
-            className="w-full flex items-center justify-between text-sm text-muted-foreground hover:text-foreground transition-colors group"
+            className="group relative size-16 shrink-0 rounded-full outline-none transition-transform duration-150 active:scale-95 focus-visible:ring-2 focus-visible:ring-selection focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            onClick={() => fileInputRef.current?.click()}
+            aria-label="Change photo"
           >
-            <span>Sign out of {user?.email}</span>
-            <LogOut className="h-4 w-4 opacity-50 group-hover:opacity-100 transition-opacity" />
+            <Avatar className="size-16">
+              {avatarPreview && <AvatarImage src={avatarPreview} alt="" className="object-cover" />}
+              <AvatarFallback className="bg-primary/15 text-lg font-semibold text-primary">{initials}</AvatarFallback>
+            </Avatar>
+            <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/0 text-callout font-medium text-white opacity-0 transition-[background-color,opacity] duration-150 group-hover:bg-black/30 group-hover:opacity-100">
+              Edit
+            </span>
           </button>
-        </CardContent>
-      </Card>
-
-      {/* ── Danger zone ── */}
-      <Card className="border-destructive/40">
-        <CardContent className="p-4 flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-medium text-foreground">Delete account</p>
-            <p className="text-xs text-muted-foreground">
-              Permanently erase your account and everything in it.
-            </p>
+          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarFileChange} />
+          <div className="min-w-0">
+            <p className="truncate text-title-1 text-foreground">{fullName || user?.email?.split("@")[0] || "—"}</p>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-callout text-muted-foreground">
+              {(!activeOrgIsPersonal || profile.isPlatformAdmin) && (
+                <Badge variant={roleBadgeVariant(displayRole, profile.isPlatformAdmin)}>
+                  {roleLabel(displayRole, profile.isPlatformAdmin)}
+                </Badge>
+              )}
+              {activeOrg && !activeOrg.isPersonal && (
+                <span className="flex items-center gap-1">
+                  <Building2 className="size-3" />
+                  {activeOrg.orgName}
+                </span>
+              )}
+            </div>
           </div>
-          <DeleteAccountDialog
-            email={user?.email ?? ""}
-            trigger={
-              <Button
-                variant="outline"
-                size="sm"
-                className="shrink-0 text-red-600 border-red-600/40 hover:bg-red-600/10 hover:text-red-600"
-              >
-                Delete…
-              </Button>
-            }
-          />
-        </CardContent>
-      </Card>
-    </PageContent>
+        </div>
+
+        {/* ── Plan and usage ── */}
+        <section>
+          <GroupHeader title="Plan and usage" />
+          <GroupedList>
+            <GroupRow
+              label={
+                <span className="flex items-center gap-2">
+                  <span className={cn("size-2 shrink-0 rounded-full", planColors.dot)} />
+                  <span className="font-medium">{planLabel}</span>
+                  <span className={cn("rounded-full px-2 py-px text-caption", planColors.badge)}>{planStatus}</span>
+                </span>
+              }
+              description={
+                activeOrgIsPersonal
+                  ? periodDate
+                    ? `${isTrialing ? "Trial ends" : "Renews"} ${periodDate}`
+                    : undefined
+                  : "Managed by your club's admin"
+              }
+            />
+            {showUsage && (
+              <div className="px-4 py-3">
+                <div className="flex items-center justify-between gap-3 text-callout">
+                  <span className="text-muted-foreground">
+                    {importQuota!.window === "lifetime" ? "Free game imports" : "Game imports this month"}
+                  </span>
+                  <span className="flex items-center gap-3">
+                    {(usageWarn || usageAtCap) && (
+                      <button type="button" onClick={handleUpgrade} className="font-medium text-primary hover:underline">
+                        Upgrade for unlimited
+                      </button>
+                    )}
+                    <span
+                      className={cn(
+                        "nums",
+                        usageAtCap ? "font-medium text-destructive" : usageWarn ? "font-medium text-warning" : "text-foreground",
+                      )}
+                    >
+                      {importQuota!.remaining} of {importQuota!.limit} left
+                    </span>
+                  </span>
+                </div>
+                <ProgressBar
+                  percent={Math.min(100, usageRatio * 100)}
+                  className="mt-2"
+                  fillClassName={usageAtCap ? "bg-destructive" : usageWarn ? "bg-warning" : undefined}
+                />
+                <p className="mt-1.5 text-subheadline text-muted-foreground">
+                  {importQuota!.window === "lifetime"
+                    ? "Deleting games doesn't restore free imports. Re-importing the same game is always free."
+                    : "Resets on the 1st of every month."}
+                </p>
+              </div>
+            )}
+            {activeOrgIsPersonal && sub?.isActive && (
+              <GroupRow
+                label="Subscription"
+                description="Billing, invoices and plan changes"
+                trailing={
+                  <Button variant="outline" size="sm" onClick={handleManageSubscription} disabled={loadingPortal}>
+                    {loadingPortal ? <Loader2 className="animate-spin" /> : <ArrowUpRight />}
+                    {loadingPortal ? "Opening…" : "Manage…"}
+                  </Button>
+                }
+              />
+            )}
+            {activeOrgIsPersonal && isFreeOrRookie && (
+              <GroupRow
+                label={activeOrgPlan === "free" ? "Upgrade to Rookie or Pro" : "Upgrade to Pro"}
+                description="More imports and clean exports"
+                trailing={
+                  <Button size="sm" onClick={handleUpgrade} disabled={loadingPortal}>
+                    <ArrowUpRight />
+                    Upgrade…
+                  </Button>
+                }
+              />
+            )}
+          </GroupedList>
+        </section>
+
+        <MyTeamCard />
+
+        {/* ── The active club, read-only for players ── */}
+        {activeOrg && !activeOrg.isPersonal && (
+          <section>
+            <GroupHeader title="Club" />
+            <GroupedList>
+              <GroupRow
+                label={activeOrg.orgName}
+                description={activeOrgTeams.length > 0 ? activeOrgTeams.map((t) => t.name).join(" · ") : undefined}
+                trailing={
+                  <>
+                    <span>{roleLabel(activeOrg.role)}</span>
+                    {activeOrg.isNtOrg && <span>NT</span>}
+                    {canManageActiveOrg && (
+                      <Button variant="outline" size="xs" asChild>
+                        <Link href="/organization">Manage…</Link>
+                      </Button>
+                    )}
+                  </>
+                }
+              />
+            </GroupedList>
+          </section>
+        )}
+
+        {/* ── Personal info ── */}
+        <section>
+          <GroupHeader title="Personal info" />
+          <GroupedList>
+            <div className="flex min-h-11 items-center gap-4 px-4 py-2">
+              <Label htmlFor="full-name" className="w-24 shrink-0 text-sm text-muted-foreground">
+                Full name
+              </Label>
+              <Input
+                id="full-name"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="Your name"
+                className="h-8"
+              />
+            </div>
+            <GroupRow
+              label="Photo"
+              description="Tap your picture above to change it. Max 5 MB."
+              trailing={
+                <Button size="sm" onClick={handleSaveProfile} disabled={saving}>
+                  {saving && <Loader2 className="animate-spin" />}
+                  Save changes
+                </Button>
+              }
+            />
+          </GroupedList>
+        </section>
+
+        {/* ── Account ── */}
+        <section>
+          <GroupHeader title="Account" />
+          <GroupedList>
+            <GroupRow label="Email" trailing={<span className="truncate">{user?.email ?? ""}</span>} />
+            <GroupRow
+              label="Password"
+              description="We'll email you a reset link"
+              trailing={
+                <Button variant="outline" size="sm" onClick={handleChangePassword}>
+                  Change password…
+                </Button>
+              }
+            />
+            <MarketingEmailToggle />
+          </GroupedList>
+        </section>
+
+        {/* ── Appearance: follows the system unless Light or Dark is picked;
+               the choice (and the themes) follow the account to every app. ── */}
+        <section>
+          <GroupHeader title="Appearance" />
+          <GroupedList>
+            {/* Beside its label from sm; under it, full width, on a phone. */}
+            <div className="flex min-h-11 flex-col gap-3 px-4 py-2.5 sm:flex-row sm:items-center sm:gap-4">
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="text-sm text-foreground">Appearance</span>
+                <span className="text-callout text-muted-foreground">Light, dark, or follow the system</span>
+              </div>
+              <SegmentedControl
+                aria-label="Appearance"
+                className="max-sm:w-full max-sm:[&>button]:flex-1"
+                value={(theme as "system" | "light" | "dark" | undefined) ?? "system"}
+                onValueChange={(v) => setTheme(v)}
+                options={[
+                  { value: "system", label: "System" },
+                  { value: "light", label: "Light" },
+                  { value: "dark", label: "Dark" },
+                ]}
+              />
+            </div>
+            <div className="px-4 py-3">
+              <p className="mb-3 text-sm text-foreground">Theme</p>
+              <ThemePicker />
+            </div>
+          </GroupedList>
+          <GroupFooter>Picking a theme applies it right away. Your choice follows you to the desktop and mobile apps.</GroupFooter>
+        </section>
+
+        <DevicesCard />
+
+        {/* ── Help: beside the sidebar these live in its account menu ── */}
+        <section className="lg:hidden">
+          <GroupHeader title="Help" />
+          <GroupedList>
+            <GroupRow leading={<MessageSquarePlus />} label="Send feedback…" onClick={() => setFeedbackOpen(true)} chevron />
+            <a
+              href={DESKTOP_APP_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex min-h-11 items-center gap-3 px-4 py-2 text-sm text-foreground outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection"
+            >
+              <Laptop className="size-4 shrink-0 text-muted-foreground" />
+              <span className="flex-1">Get the desktop app</span>
+              <ArrowUpRight className="size-4 shrink-0 text-muted-foreground/60" />
+            </a>
+          </GroupedList>
+        </section>
+        <ReportProblemDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+
+        <GroupedList>
+          <GroupRow onClick={handleSignOut}>
+            <LogOut className="size-4 shrink-0 text-muted-foreground" />
+            <span className="flex-1 text-sm text-foreground">Sign out of {user?.email}</span>
+          </GroupRow>
+        </GroupedList>
+
+        <section>
+          <GroupHeader title="Delete account" />
+          <GroupedList>
+            <GroupRow
+              label="Delete account"
+              description="Permanently erase your account and everything in it."
+              trailing={
+                <DeleteAccountDialog
+                  email={user?.email ?? ""}
+                  trigger={
+                    <Button variant="outline" size="sm" className="shrink-0 text-destructive hover:bg-destructive/10">
+                      Delete…
+                    </Button>
+                  }
+                />
+              }
+            />
+          </GroupedList>
+        </section>
+      </PageContent>
     </Page>
   );
 }
