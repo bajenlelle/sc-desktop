@@ -2,28 +2,19 @@
 import "@/lib/dev-read-only";
 import "../global.css";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import * as Sentry from "@sentry/react-native";
 import { setDbErrorReporter } from "@scoutable/shared/lib/report";
-import { Stack, usePathname, type ErrorBoundaryProps } from "expo-router";
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider, usePathname, type ErrorBoundaryProps } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { Pressable, Text, View, useColorScheme } from "react-native";
+import { Platform, Pressable, Text, View, useColorScheme } from "react-native";
+import { SymbolView } from "expo-symbols";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import * as ScreenOrientation from "expo-screen-orientation";
 import { initAnalytics, trackEvent } from "@/lib/analytics";
-import {
-  useFonts,
-  DMSans_400Regular,
-  DMSans_500Medium,
-  DMSans_700Bold,
-} from "@expo-google-fonts/dm-sans";
-import {
-  BarlowCondensed_600SemiBold,
-  BarlowCondensed_700Bold,
-} from "@expo-google-fonts/barlow-condensed";
 import { AuthProvider } from "@/lib/auth-context";
-import { MobileThemeProvider, useThemeColors } from "@/lib/theme-context";
+import { MobileThemeProvider, useAppTheme, useThemeColors } from "@/lib/theme-context";
 import { ThemeSync } from "@/components/ThemeSync";
 import { themeColors } from "@/lib/theme";
 
@@ -122,9 +113,33 @@ function PageTracker() {
  */
 function ThemedShell() {
   const colors = useThemeColors();
+  const { resolvedMode } = useAppTheme();
+  // Native bars (headers, tabs, back buttons) take their colours from the
+  // navigation theme, so they follow the eight colour themes like the rest.
+  const navTheme = useMemo(() => {
+    const base = resolvedMode === "dark" ? DarkTheme : DefaultTheme;
+    return {
+      ...base,
+      dark: resolvedMode === "dark",
+      colors: {
+        ...base.colors,
+        primary: colors.primary,
+        background: colors.background,
+        card: colors.background,
+        text: colors.foreground,
+        border: colors.separator,
+        notification: colors.destructive,
+      },
+    };
+  }, [colors, resolvedMode]);
   return (
-    <>
+    <ThemeProvider value={navTheme}>
       <PageTracker />
+      {/* Android draws icons from a Material Symbols font; load it before the
+          first screen so icons never flash in blank. */}
+      {Platform.OS === "android" && (
+        <SymbolView name={{ android: "check" }} size={1} style={{ position: "absolute", opacity: 0 }} />
+      )}
       <Stack
         screenOptions={{
           headerShown: false,
@@ -132,7 +147,7 @@ function ThemedShell() {
         }}
       />
       <StatusBar style="auto" />
-    </>
+    </ThemeProvider>
   );
 }
 
@@ -143,15 +158,6 @@ function RootLayout() {
     // is open. (The iOS plugin sets the same lock before launch.)
     ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
   }, []);
-
-  // Fonts load async; rendering with system fallbacks until then beats a blank screen.
-  useFonts({
-    DMSans_400Regular,
-    DMSans_500Medium,
-    DMSans_700Bold,
-    BarlowCondensed_600SemiBold,
-    BarlowCondensed_700Bold,
-  });
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
