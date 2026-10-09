@@ -9,6 +9,8 @@ import { Stack, usePathname, type ErrorBoundaryProps } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { Pressable, Text, View, useColorScheme } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import * as ScreenOrientation from "expo-screen-orientation";
 import { initAnalytics, trackEvent } from "@/lib/analytics";
 import {
   useFonts,
@@ -137,6 +139,9 @@ function ThemedShell() {
 function RootLayout() {
   useEffect(() => {
     trackEvent("app_started");
+    // Portrait everywhere; the player's fullscreen unlocks rotation while it
+    // is open. (The iOS plugin sets the same lock before launch.)
+    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
   }, []);
 
   // Fonts load async; rendering with system fallbacks until then beats a blank screen.
@@ -149,14 +154,16 @@ function RootLayout() {
   });
 
   return (
-    <SafeAreaProvider>
-      <AuthProvider>
-        <MobileThemeProvider>
-          <ThemeSync />
-          <ThemedShell />
-        </MobileThemeProvider>
-      </AuthProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <AuthProvider>
+          <MobileThemeProvider>
+            <ThemeSync />
+            <ThemedShell />
+          </MobileThemeProvider>
+        </AuthProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
