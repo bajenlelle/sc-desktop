@@ -1,33 +1,97 @@
-import { useMemo, useState } from "react";
-import { Check, ChevronDown, ListVideo, Play, Search, X } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { PlaylistCard, type PlaylistCardData } from "@/components/playlist/PlaylistCard";
-import { cn } from "@/lib/utils";
+"use client";
+
+import { useMemo } from "react";
+import { Check, ChevronRight, ListVideo, Play } from "lucide-react";
 import {
   byLastWatched,
   byNewest,
   computeHero,
   feedCounts,
   filterFeed,
-  relativeTimeShort,
-  sharerFilterOptions,
   visibleFeed,
   watchStateOf,
+  type FeedPlaylist,
   type WatchFilter,
 } from "@scoutable/shared/lib/playlist-feed";
-
-/** Search earns its place once the list stops fitting on one screen. */
-const SEARCH_THRESHOLD = 10;
+import { EmptyState } from "@/components/empty-state";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { GroupHeader, GroupedList } from "@/components/ui/group";
+import { ProgressBar } from "@/components/ui/progress-bar";
+import { ProgressRing } from "@/components/ui/progress-ring";
+import { SegmentedControl } from "@/components/ui/segmented-control";
+import { pressable } from "@/lib/pressable";
+import { relativeTime } from "@/lib/format-date";
 
 export interface SourceOption {
   /** "all" | "direct" | `team:<id>` */
   value: string;
   label: string;
+}
+
+export interface FeedFilters {
+  query: string;
+  /** "all" or a sharer's user id. */
+  sharer: string;
+  /** "all" | "direct" | `team:<id>`. */
+  source: string;
+  watch: WatchFilter;
+}
+
+export const EMPTY_FEED_FILTERS: FeedFilters = { query: "", sharer: "all", source: "all", watch: "all" };
+
+function FeedRow({
+  playlist,
+  onOpen,
+  onResume,
+}: {
+  playlist: FeedPlaylist;
+  onOpen: () => void;
+  onResume?: () => void;
+}) {
+  const state = watchStateOf(playlist);
+  const left = Math.max(0, playlist.clipCount - playlist.watchedCount);
+  const details = [
+    playlist.sharerName ?? "A coach",
+    playlist.teamNames && playlist.teamNames.length > 0 ? playlist.teamNames.join(", ") : null,
+    `${playlist.clipCount} clip${playlist.clipCount === 1 ? "" : "s"}`,
+    relativeTime(playlist.sharedAt),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <div className="flex items-center">
+      {/* A pressable div, not a <button>: the title must truncate (see pressable.ts). */}
+      <div
+        {...pressable(onOpen)}
+        className="flex min-h-12 min-w-0 flex-1 cursor-default items-center gap-3 px-4 py-2 text-left outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection pointer-coarse:min-h-16"
+      >
+        <ProgressRing
+          value={playlist.clipCount > 0 ? playlist.watchedCount / playlist.clipCount : 0}
+          label={`${playlist.watchedCount} of ${playlist.clipCount} watched`}
+        />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="flex min-w-0 items-center gap-2">
+            <span className={state === "new" ? "truncate text-sm font-semibold" : "truncate text-sm"}>{playlist.name}</span>
+            {state === "new" && <Badge>New</Badge>}
+          </span>
+          <span className="truncate text-callout text-muted-foreground nums">{details}</span>
+        </span>
+        {state === "progress" && (
+          <span className="shrink-0 text-callout text-muted-foreground nums">{left} left</span>
+        )}
+        {!onResume && <ChevronRight className="size-4 shrink-0 text-muted-foreground/60" />}
+      </div>
+      {onResume && (
+        <div className="shrink-0 pr-3">
+          <Button size="xs" variant="secondary" onClick={onResume}>
+            <Play className="fill-current" />
+            Resume
+          </Button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Section({
@@ -37,275 +101,156 @@ function Section({
   onResume,
 }: {
   title?: string;
-  playlists: PlaylistCardData[];
+  playlists: FeedPlaylist[];
   onOpen: (id: string) => void;
   onResume?: (id: string) => void;
 }) {
   if (playlists.length === 0) return null;
   return (
-    <section className="flex flex-col gap-3">
+    <section>
       {title && (
-        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          {title}
-          <span className="ml-1.5 font-normal opacity-60">{playlists.length}</span>
-        </h2>
+        <GroupHeader
+          title={
+            <>
+              {title} <span className="font-normal text-muted-foreground nums">{playlists.length}</span>
+            </>
+          }
+        />
       )}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <GroupedList>
         {playlists.map((p) => (
-          <PlaylistCard
+          <FeedRow
             key={p.id}
             playlist={p}
             onOpen={() => onOpen(p.id)}
-            onResume={onResume ? () => onResume(p.id) : undefined}
+            onResume={onResume && watchStateOf(p) === "progress" ? () => onResume(p.id) : undefined}
           />
         ))}
-      </div>
+      </GroupedList>
     </section>
   );
 }
 
 /**
- * The player's landing view: what's new, what's part-watched, what's done.
- *
- * Filters matter most on a phone, where there's no sidebar to browse — the
- * watch-state chips and the source dropdown are the only way to narrow a long
- * list. They're shown at every size so there's one code path, and they're
- * genuinely useful on desktop once a player has a season's worth of playlists.
+ * The recipient's landing view: the one thing to watch next, then what's
+ * new, what's part-watched and what's done. The filtering, counts and the
+ * call to action live in @scoutable/shared/lib/playlist-feed (shared with
+ * desktop and mobile, tested there). Search sits in the page's toolbar, and
+ * so do the From/Team filters beside the sidebar; on narrower screens the
+ * page hands them in as `filterControls`, shown above the list.
  */
 export function PlaylistFeed({
   playlists,
-  sourceOptions,
+  filters,
+  onWatchChange,
+  onClearFilters,
   onOpen,
   onResume,
-  emptyCopy,
+  emptyBody,
+  welcome,
+  filterControls,
 }: {
-  playlists: PlaylistCardData[];
-  sourceOptions: SourceOption[];
+  playlists: FeedPlaylist[];
+  filters: FeedFilters;
+  onWatchChange: (watch: WatchFilter) => void;
+  onClearFilters: () => void;
   onOpen: (id: string) => void;
   onResume: (id: string) => void;
-  /** Overrides the no-playlists body copy (coaches get non-player phrasing). */
-  emptyCopy?: string;
+  emptyBody?: string;
+  welcome?: React.ReactNode;
+  filterControls?: React.ReactNode;
 }) {
-  const [watch, setWatch] = useState<WatchFilter>("all");
-  const [source, setSource] = useState("all");
-  const [sharer, setSharer] = useState("all");
-  const [query, setQuery] = useState("");
-
-  // Filtering, counts, and the hero CTA all live in
-  // @scoutable/shared/lib/playlist-feed (tested there).
-  const sharerOptions = useMemo(() => sharerFilterOptions(playlists), [playlists]);
-
-  const inSource = useMemo(
-    () => filterFeed(playlists, { query, sharer, source }),
-    [playlists, source, sharer, query],
+  const inScope = useMemo(
+    () => filterFeed(playlists, { query: filters.query, sharer: filters.sharer, source: filters.source }),
+    [playlists, filters.query, filters.sharer, filters.source],
   );
-
-  const counts = useMemo(() => feedCounts(inSource), [inSource]);
-
-  const visible = useMemo(() => visibleFeed(inSource, watch), [inSource, watch]);
-
-  // Hero is computed over ALL playlists (not the filtered view) — it's a call
-  // to action, not a search result.
+  const counts = useMemo(() => feedCounts(inScope), [inScope]);
+  const visible = useMemo(() => visibleFeed(inScope, filters.watch), [inScope, filters.watch]);
+  // Over ALL playlists: a call to action, not a search result.
   const hero = useMemo(() => computeHero(playlists), [playlists]);
+  const searching = filters.query.trim().length > 0;
 
-  const activeSourceLabel =
-    sourceOptions.find((o) => o.value === source)?.label ?? "All playlists";
-
-  const chips: { key: WatchFilter; label: string }[] = [
-    { key: "all", label: "All" },
-    { key: "new", label: "New" },
-    { key: "progress", label: "In progress" },
-    { key: "watched", label: "Watched" },
-  ];
-
-  const hasAnything = playlists.length > 0;
+  if (playlists.length === 0) {
+    return (
+      <>
+        {welcome}
+        <EmptyState
+          icon={<ListVideo />}
+          title="No playlists yet"
+          body={emptyBody ?? "When your coach shares clips with you, they show up here."}
+        />
+      </>
+    );
+  }
 
   return (
-    <div className="flex flex-col">
-      {hasAnything && (
-        // The page's toolbar carries the title and stays put; the filters
-        // scroll with the list.
-        <div className="flex flex-col gap-2 pb-1">
-          <div className="flex items-center gap-2">
-            {/* From = who shared it; To = which team it reached. */}
-            <div className="flex shrink-0 items-center gap-2">
-            {sharerOptions.length > 0 && (
-              <label className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">From</span>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex min-h-[36px] shrink-0 items-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium text-foreground"
-                  >
-                    <span className="max-w-[8rem] truncate">
-                      {sharer === "all"
-                        ? "Everyone"
-                        : sharerOptions.find((o) => o.value === sharer)?.label ?? "Everyone"}
-                    </span>
-                    <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-52">
-                  {sharerOptions.map((o) => (
-                    <DropdownMenuItem
-                      key={o.value}
-                      onClick={() => setSharer(o.value)}
-                      className={cn("text-sm", o.value === sharer && "font-semibold text-primary")}
-                    >
-                      {o.label}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              </label>
-            )}
-            {sourceOptions.length > 1 && (
-              <label className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">Team</span>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex min-h-[36px] shrink-0 items-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium text-foreground"
-                  >
-                    <span className="max-w-[9rem] truncate">{activeSourceLabel}</span>
-                    <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                  {sourceOptions.map((o) => (
-                    <DropdownMenuItem
-                      key={o.value}
-                      onClick={() => setSource(o.value)}
-                      className={cn("text-sm", o.value === source && "font-semibold text-primary")}
-                    >
-                      {o.label}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              </label>
-            )}
-            </div>
-          </div>
+    <div className="flex flex-col gap-6">
+      {welcome}
 
-          {playlists.length > SEARCH_THRESHOLD && (
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search playlists…"
-                className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-8 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+      {hero && hero.kind !== "done" && !searching && filters.watch === "all" && (
+        <div className="flex flex-col gap-4 rounded-window bg-primary/8 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-subheadline font-semibold text-primary">
+              {hero.kind === "continue"
+                ? "Pick up where you left off"
+                : hero.count === 1
+                  ? "New for you"
+                  : `${hero.count} new playlists`}
+            </p>
+            <p className="mt-1 truncate text-title-2 text-foreground">{hero.playlist.name}</p>
+            <p className="mt-1 text-sm text-muted-foreground nums">
+              {hero.kind === "continue"
+                ? `${hero.playlist.watchedCount} of ${hero.playlist.clipCount} watched`
+                : [hero.playlist.sharerName, relativeTime(hero.playlist.sharedAt)].filter(Boolean).join(" · ")}
+            </p>
+            {hero.kind === "continue" && hero.playlist.clipCount > 0 && (
+              <ProgressBar
+                percent={(hero.playlist.watchedCount / hero.playlist.clipCount) * 100}
+                className="mt-2.5 h-1 w-48"
               />
-              {query && (
-                <button
-                  type="button"
-                  onClick={() => setQuery("")}
-                  aria-label="Clear search"
-                  className="absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Scrolls sideways rather than wrapping — keeps the bar one row on
-              a narrow screen, edge to edge. */}
-          <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 sm:-mx-6 sm:px-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {chips.map((c) => {
-              const n = counts[c.key];
-              const active = watch === c.key;
-              return (
-                <button
-                  key={c.key}
-                  type="button"
-                  onClick={() => setWatch(c.key)}
-                  className={cn(
-                    "flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-colors",
-                    active
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground",
-                  )}
-                >
-                  {c.label}
-                  <span className={cn("tabular-nums", active ? "opacity-80" : "opacity-60")}>{n}</span>
-                </button>
-              );
-            })}
+            )}
           </div>
+          <Button className="shrink-0" onClick={() => onResume(hero.playlist.id)}>
+            <Play className="fill-current" />
+            {hero.kind === "continue" ? "Resume" : "Watch"}
+          </Button>
         </div>
       )}
+      {hero?.kind === "done" && !searching && filters.watch === "all" && (
+        <p className="flex items-center gap-1.5 px-1 text-sm text-muted-foreground">
+          <Check className="size-4 text-success" />
+          All caught up. You&apos;ve watched everything.
+        </p>
+      )}
 
-      {!hasAnything ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center">
-          <ListVideo className="h-10 w-10 text-muted-foreground/40" />
-          <p className="text-sm font-medium text-foreground">No playlists yet</p>
-          <p className="max-w-xs text-sm text-muted-foreground">
-            {emptyCopy ?? "When your coach shares clips with you, they'll show up here."}
-          </p>
-        </div>
-      ) : visible.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 py-16 text-center">
-          <p className="text-sm text-muted-foreground">Nothing here right now.</p>
-          <button
-            type="button"
-            onClick={() => { setWatch("all"); setSource("all"); setSharer("all"); setQuery(""); }}
-            className="min-h-[36px] text-sm font-medium text-primary"
-          >
-            Clear filters
-          </button>
-        </div>
-      ) : watch === "all" ? (
-        // Unfiltered, the grouping is the point — it answers "what's new?"
-        // at a glance without any interaction.
-        <div className="flex flex-col gap-8 py-4">
-          {/* Hero CTA — hidden while searching (the user is already navigating). */}
-          {hero && !query.trim() && hero.kind !== "done" && (
-            <div className="flex flex-col gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase tracking-wider text-primary">
-                  {hero.kind === "continue"
-                    ? "Pick up where you left off"
-                    : hero.count === 1
-                      ? "You have a new playlist"
-                      : `You have ${hero.count} new playlists`}
-                </p>
-                <p className="mt-1 truncate text-base font-semibold text-foreground">
-                  {hero.playlist.name}
-                  {hero.playlist.teamNames && hero.playlist.teamNames.length > 0 && (
-                    <span className="text-xs font-normal text-muted-foreground">
-                      {" "}· {hero.playlist.teamNames.join(", ")}
-                    </span>
-                  )}
-                </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {hero.kind === "continue"
-                    ? `${hero.playlist.watchedCount} of ${hero.playlist.clipCount} watched`
-                    : [hero.playlist.sharerName, relativeTimeShort(hero.playlist.sharedAt)]
-                        .filter(Boolean)
-                        .join(" · ")}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => onResume(hero.playlist.id)}
-                className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
-              >
-                <Play className="h-4 w-4" />
-                {hero.kind === "continue" ? "Continue watching" : "Start watching"}
-              </button>
-            </div>
-          )}
-          {hero?.kind === "done" && !query.trim() && (
-            <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-              All caught up — you&apos;ve watched everything.
-            </p>
-          )}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <SegmentedControl
+          aria-label="Show"
+          className="self-start"
+          value={filters.watch}
+          onValueChange={onWatchChange}
+          options={[
+            { value: "all", label: <>All <span className="opacity-60 nums">{counts.all}</span></> },
+            { value: "new", label: <>New <span className="opacity-60 nums">{counts.new}</span></> },
+            { value: "progress", label: <>In progress <span className="opacity-60 nums">{counts.progress}</span></> },
+            { value: "watched", label: <>Watched <span className="opacity-60 nums">{counts.watched}</span></> },
+          ]}
+        />
+        {filterControls && <div className="flex flex-wrap items-center gap-2 lg:hidden">{filterControls}</div>}
+      </div>
+
+      {visible.length === 0 ? (
+        <EmptyState
+          title="Nothing here"
+          body="No playlists match these filters."
+          action={
+            <Button variant="outline" size="sm" onClick={onClearFilters}>
+              Clear filters
+            </Button>
+          }
+        />
+      ) : filters.watch === "all" ? (
+        <>
           <Section
             title="New"
             playlists={visible.filter((p) => watchStateOf(p) === "new").sort(byNewest)}
@@ -322,17 +267,13 @@ export function PlaylistFeed({
             playlists={visible.filter((p) => watchStateOf(p) === "watched").sort(byNewest)}
             onOpen={onOpen}
           />
-        </div>
+        </>
       ) : (
-        // With a chip active the section header would just repeat it, so the
-        // list goes flat.
-        <div className="py-4">
-          <Section
-            playlists={[...visible].sort(watch === "progress" ? byLastWatched : byNewest)}
-            onOpen={onOpen}
-            onResume={watch === "progress" ? onResume : undefined}
-          />
-        </div>
+        <Section
+          playlists={[...visible].sort(filters.watch === "progress" ? byLastWatched : byNewest)}
+          onOpen={onOpen}
+          onResume={filters.watch === "progress" ? onResume : undefined}
+        />
       )}
     </div>
   );

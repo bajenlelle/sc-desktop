@@ -24,7 +24,8 @@ import {
   collectReferencedMatchIds,
   mergeEventsIntoMatches,
 } from "@scoutable/shared/lib/playlist-matches";
-import { playableClips, toFeedPlaylists, type FeedPlaylist } from "@scoutable/shared/lib/playlist-feed";
+import { toFeedPlaylists, type FeedPlaylist } from "@scoutable/shared/lib/playlist-feed";
+import { buildWatchItems, firstUnwatchedKey, recordOnce, watchProgress } from "@scoutable/shared/lib/watch-queue";
 import { getOrgContext, getOrgContextForOrg } from "@/lib/profile-db";
 import { useAuth } from "@/components/auth-context";
 import type { SourceOption } from "@/components/playlist/PlaylistFeed";
@@ -86,17 +87,23 @@ export function useSharedPlaylists() {
     [allPlaylists, selectedId],
   );
 
+  /** The playlist opened with Resume, until its watch view has started playing it. */
+  const [autoplayId, setAutoplayId] = useState<string | null>(null);
+
   const openPlaylist = useCallback((id: string, opts?: { resumed?: boolean }) => {
     trackEvent("playlist_opened", { playlist_id: id, resumed: opts?.resumed ?? false });
+    setAutoplayId(opts?.resumed ? id : null);
     router.push(`/my-playlists?p=${id}`);
   }, [router]);
 
-  const closePlaylist = useCallback(() => {
-    router.push("/my-playlists");
-  }, [router]);
+  /** Opens a playlist and starts from the first clip the player hasn't watched. */
+  const resumePlaylist = useCallback((id: string) => openPlaylist(id, { resumed: true }), [openPlaylist]);
 
-  /** Set by Resume; consumed once the playlist's items have loaded. */
-  const resumeTargetRef = useRef<string | null>(null);
+  const consumeAutoplay = useCallback(() => setAutoplayId(null), []);
+
+  // Clips already recorded as watched, for recordWatched's once-only check:
+  // a ref, so two calls in one batch can't both pass it.
+  const recordedRef = useRef<Set<string>>(new Set());
 
   // Load playlists + matches + org context. Two modes:
   // - Coach/admin (and legacy): scoped to the active org's teams.
@@ -161,7 +168,9 @@ export function useSharedPlaylists() {
       setSharedOutPlaylists(sharedOutPls);
       // Watch history drives the feed's NEW badges and progress bars.
       const views = await listMyClipViews().catch(() => []);
-      setClipViews(new Set(views.map((v) => clipViewKey(v.playlistId, v.matchId, v.eventId))));
+      const viewKeys = views.map((v) => clipViewKey(v.playlistId, v.matchId, v.eventId));
+      for (const key of viewKeys) recordedRef.current.add(key);
+      setClipViews(new Set(viewKeys));
       const last = new Map<string, string>();
       for (const v of views) {
         const prev = last.get(v.playlistId);
@@ -265,14 +274,8 @@ export function useSharedPlaylists() {
    */
   const recordWatched = useCallback((playlistId: string, matchId: string, eventId: number) => {
     const key = clipViewKey(playlistId, matchId, eventId);
-    let alreadyKnown = false;
-    setClipViews((prev) => {
-      if (prev.has(key)) { alreadyKnown = true; return prev; }
-      const next = new Set(prev);
-      next.add(key);
-      return next;
-    });
-    if (alreadyKnown) return;
+    if (!recordOnce(recordedRef.current, key)) return;
+    setClipViews((prev) => new Set(prev).add(key));
     setLastWatched((prev) => new Map(prev).set(playlistId, new Date().toISOString()));
     trackEvent("clip_watched", { playlist_id: playlistId });
     void markClipWatched(playlistId, matchId, eventId);
@@ -300,7 +303,7 @@ export function useSharedPlaylists() {
    * shares). Only teams that actually have playlists appear.
    */
   const sourceOptions = useMemo<SourceOption[]>(() => {
-    const opts: SourceOption[] = [{ value: "all", label: "All playlists" }];
+    const opts: SourceOption[] = [{ value: "all", label: "All teams" }];
     if (receivedDirectPlaylists.length > 0) {
       opts.push({ value: "direct", label: "Shared with me" });
     }
@@ -312,41 +315,29 @@ export function useSharedPlaylists() {
     return opts;
   }, [receivedDirectPlaylists, receivedTeamPlaylists, teamMap]);
 
-  /** Watched/total for the open playlist, shown under the controls. */
-  const selectedProgress = useMemo(() => {
-    if (!selected) return { watched: 0, total: 0 };
-    const clips = playableClips(selected);
-    return {
-      watched: clips.filter((c) => clipViews.has(clipViewKey(selected.id, c.matchId, c.eventId))).length,
-      total: clips.length,
-    };
-  }, [selected, clipViews]);
-
-  /** Opens a playlist and starts from the first clip the player hasn't watched. */
-  const resumePlaylist = useCallback((id: string) => {
-    openPlaylist(id, { resumed: true });
-    const pl = allPlaylists.find((p) => p.id === id);
-    if (!pl) return;
-    // Playable clips only — an unshipped clip can't be the resume target
-    // (it isn't in the queue, and falling back to index 0 replays watched
-    // clips: the exact bug this fixed).
-    const firstUnwatched = playableClips(pl)
-      .find((c) => !clipViews.has(clipViewKey(pl.id, c.matchId, c.eventId)));
-    resumeTargetRef.current = firstUnwatched
-      ? `${firstUnwatched.matchId}:${firstUnwatched.eventId}`
-      : null;
-  }, [allPlaylists, clipViews, openPlaylist]);
+  /**
+   * The open playlist as its watch view needs it: what can be watched, how
+   * far through it the user is, and where Play and Resume start (the first
+   * uploaded clip not yet watched).
+   */
+  const watchItems = useMemo(() => (selected ? buildWatchItems(selected, eventByKey) : []), [selected, eventByKey]);
+  const selectedProgress = useMemo(
+    () => (selected ? watchProgress(selected, clipViews) : { watched: 0, total: 0 }),
+    [selected, clipViews],
+  );
+  const startKey = useMemo(() => (selected ? firstUnwatchedKey(selected, clipViews) : null), [selected, clipViews]);
 
   return {
     loading,
     selectedId,
     selected,
     openPlaylist,
-    closePlaylist,
     resumePlaylist,
-    resumeTargetRef,
+    autoplay: autoplayId !== null && autoplayId === selected?.id,
+    consumeAutoplay,
+    watchItems,
+    startKey,
     matchLookup,
-    eventByKey,
     feedItems,
     sourceOptions,
     sharedOutPlaylists,

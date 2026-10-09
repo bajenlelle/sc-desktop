@@ -1,107 +1,126 @@
-import { Check, MessageSquare } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
-import {
-  eventColors,
-  eventLabel,
-  formatGameClock,
-  periodLabel,
-  playerName,
-} from "@scoutable/shared/lib/events";
-import type { PlayByPlayEvent } from "@scoutable/shared/types/match";
+"use client";
 
-export interface ClipRowProps {
-  event: PlayByPlayEvent;
-  /** Opponent / match title, shown so multi-game playlists stay legible. */
-  matchTitle?: string;
-  matchDate?: string;
-  /** The coach's note on this clip — the actual coaching, so it leads. */
-  note?: string;
-  /** False when the clip has no exported file and can't play on web. */
-  playable: boolean;
-  watched: boolean;
-  active: boolean;
-  onSelect: () => void;
-}
+import { motion } from "framer-motion";
+import { Check, MessageSquare, Play, Type } from "lucide-react";
+import { eventColors, eventLabel, formatGameClock, playerName } from "@scoutable/shared/lib/events";
+import type { PlayByPlayEvent, PlaylistTextCard } from "@scoutable/shared/types/match";
+import { pressable } from "@/lib/pressable";
+import { springs } from "@/lib/motion";
+import { cn } from "@/lib/utils";
+
+const rowClass =
+  "group relative flex min-h-11 w-full cursor-default select-none items-stretch gap-2 pr-3 text-left outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection pointer-coarse:min-h-14";
 
 /**
- * One clip in a player's playlist.
- *
- * Shared by /my-playlists and /view/[playlistId] — those two previously held
- * near-identical copies of this markup, so keeping one component is what
- * stops them drifting apart again.
+ * The one highlight that follows the playing item: a single element that
+ * springs from row to row rather than a class that appears and vanishes.
  */
-export function ClipRow({
+function ActiveRowPill() {
+  return (
+    <motion.div
+      layoutId="active-row"
+      transition={springs.standard}
+      aria-hidden
+      className="pointer-events-none absolute inset-y-0.5 inset-x-1 rounded-md bg-primary/12"
+    />
+  );
+}
+
+// Rows are pressable divs, not <button>s, so long names truncate (see
+// pressable.ts). Space stays play/pause; Return plays the row.
+
+/**
+ * One clip in a recipient's playlist: the event and player, then period,
+ * clock, team and (in multi-game playlists) the game; whether it has been
+ * watched and whether the coach left a note. The playing row carries the
+ * springing highlight.
+ */
+export function WatchClipRow({
+  rowKey,
   event,
   matchTitle,
-  matchDate,
   note,
-  playable,
   watched,
   active,
-  onSelect,
-}: ClipRowProps) {
+  onPlay,
+}: {
+  rowKey: string;
+  event: PlayByPlayEvent;
+  /** Shown in multi-game playlists only. */
+  matchTitle?: string;
+  note?: string;
+  watched: boolean;
+  active: boolean;
+  onPlay: () => void;
+}) {
   const colors = eventColors(event);
-
-  const context = [
-    event.period ? periodLabel(event.period) : null,
-    formatGameClock(event.gameClockTime),
-    matchTitle,
-    matchDate ? new Date(matchDate).toLocaleDateString("sv-SE") : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-
   return (
-    <button
-      type="button"
-      onClick={playable ? onSelect : undefined}
-      disabled={!playable}
-      className={cn(
-        // 56px floor keeps this a comfortable touch target on a phone.
-        "flex w-full min-h-[56px] items-stretch gap-0 text-left transition-colors",
-        playable ? "active:bg-muted/70 lg:hover:bg-muted/50" : "opacity-50 cursor-not-allowed",
-        active && "bg-primary/10",
-      )}
-    >
-      {/* Event colour rail — makes a long list scannable at a glance. */}
-      <span className={cn("w-1 shrink-0", colors.strip)} aria-hidden />
-
-      <span className="flex flex-1 flex-col gap-1 min-w-0 px-3 py-2.5">
-        <span className="flex items-center gap-2 min-w-0">
-          {watched ? (
-            <Check className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Watched" />
-          ) : (
-            <span className="w-3.5 shrink-0" aria-hidden />
-          )}
-          <span
-            className={cn(
-              "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium",
-              colors.badge,
-            )}
-          >
+    <div {...pressable(onPlay, { space: false })} data-row-key={rowKey} aria-current={active || undefined} className={rowClass}>
+      {active && <ActiveRowPill />}
+      <span className={cn("relative z-10 w-[3px] shrink-0 self-stretch", colors.strip)} aria-hidden />
+      <span className="relative z-10 flex min-w-0 flex-1 flex-col justify-center py-1.5 pl-1">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className={cn("inline-flex shrink-0 items-center rounded-full px-2 py-px text-[11px] font-medium pointer-coarse:text-xs", colors.badge)}>
             {eventLabel(event)}
           </span>
-          <span className="truncate text-sm text-foreground">{playerName(event)}</span>
+          <span className="truncate text-sm font-medium">{playerName(event)}</span>
         </span>
-
-        {context && (
-          <span className="pl-[22px] text-xs text-muted-foreground truncate">{context}</span>
-        )}
-
-        {note && (
-          <span className="flex items-start gap-1.5 pl-[22px] text-xs text-foreground/80">
-            <MessageSquare className="mt-0.5 h-3 w-3 shrink-0 text-primary/70" aria-hidden />
-            <span className="line-clamp-2">{note}</span>
-          </span>
+        <span className="flex min-w-0 items-center gap-1 text-subheadline text-muted-foreground nums">
+          <span className="shrink-0">Q{event.period}</span>
+          <span aria-hidden>·</span>
+          <span className="shrink-0">{formatGameClock(event.gameClockTime)}</span>
+          {event.eventTeam?.teamName && (
+            <>
+              <span aria-hidden>·</span>
+              <span className="truncate">{event.eventTeam.teamName}</span>
+            </>
+          )}
+          {matchTitle && (
+            <>
+              <span aria-hidden>·</span>
+              <span className="truncate">{matchTitle}</span>
+            </>
+          )}
+        </span>
+      </span>
+      <span className="relative z-10 flex shrink-0 items-center gap-1.5">
+        {note && <MessageSquare aria-label="Note from your coach" className="size-3.5 text-primary/70" />}
+        {active ? (
+          <Play aria-label="Playing" className="size-3.5 fill-current text-primary" />
+        ) : watched ? (
+          <Check aria-label="Watched" className="size-3.5 text-muted-foreground" />
+        ) : (
+          <span className="size-3.5" aria-hidden />
         )}
       </span>
+    </div>
+  );
+}
 
-      {!playable && (
-        <span className="flex items-center pr-3">
-          <Badge variant="outline" className="text-xs shrink-0">Not on web</Badge>
+export function WatchTextCardRow({
+  rowKey,
+  card,
+  active,
+  onPlay,
+}: {
+  rowKey: string;
+  card: PlaylistTextCard;
+  active: boolean;
+  onPlay: () => void;
+}) {
+  return (
+    <div {...pressable(onPlay, { space: false })} data-row-key={rowKey} aria-current={active || undefined} className={rowClass}>
+      {active && <ActiveRowPill />}
+      <span className="relative z-10 w-[3px] shrink-0 self-stretch bg-fill-3" aria-hidden />
+      <span className="relative z-10 flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-1">
+        <Type className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+        <span className="truncate text-sm italic text-muted-foreground">{card.text || "Text card"}</span>
+      </span>
+      {active && (
+        <span className="relative z-10 flex shrink-0 items-center">
+          <Play aria-label="Showing" className="size-3.5 fill-current text-primary" />
         </span>
       )}
-    </button>
+    </div>
   );
 }

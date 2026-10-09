@@ -230,6 +230,13 @@
   --tab-bar-height: 0px;
 }
 
+/* How far below the window's top a page's toolbar ends, for things that
+   stick under it (the watch view's player). */
+:root { --page-bar-height: calc(var(--safe-top) + 2.75rem); }
+@media (width >= 64rem) {
+  :root { --page-bar-height: calc(var(--safe-top) + var(--toolbar-height)); }
+}
+
 /* The tab bar is in the page under lg unless the watch view has put it away
    (components/shell/tab-bar.tsx): 49pt plus its hairline, over the home
    indicator. */
