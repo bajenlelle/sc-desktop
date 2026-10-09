@@ -18,6 +18,8 @@
  * of adopting the account's.
  */
 
+import { LogBox } from "react-native";
+
 const READ_RPCS = new Set([
   "check_onboarding_needed",
   "count_club_matches_this_month",
@@ -105,6 +107,9 @@ if (__DEV__ && process.env.EXPO_PUBLIC_READ_ONLY === "1") {
     const res = await original(input, init);
     return method === "GET" && /\/rest\/v1\/profiles/.test(url) ? withoutThemeColumns(res) : res;
   };
+  // The refusals are expected; keep them out of the on-screen error overlay
+  // (Metro's console still shows them) so real errors stand out.
+  LogBox.ignoreLogs(["Blocked by read-only mode", "[read-only]"]);
   console.warn("[read-only] on: writes to production are blocked in this session");
 }
 
