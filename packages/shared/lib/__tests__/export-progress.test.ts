@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ExportProgress } from "../export-progress";
-import { exportProgressLabel, exportProgressPercent } from "../export-progress";
+import { exportProgressLabel, exportProgressPercent, isExportCancelled } from "../export-progress";
 
 const p = (phase: ExportProgress["phase"], done: number, total: number): ExportProgress => ({
   phase,
@@ -42,5 +42,24 @@ describe("exportProgressLabel", () => {
 
   it("labels the concat pass distinctly", () => {
     expect(exportProgressLabel(p("stitching", 17, 17))).toBe("Stitching clips…");
+  });
+});
+
+describe("isExportCancelled", () => {
+  it("recognises the command's own token and an AbortError", () => {
+    expect(isExportCancelled("export_cancelled")).toBe(true);
+    expect(isExportCancelled(new Error("export_cancelled"))).toBe(true);
+    expect(isExportCancelled({ name: "AbortError", message: "Export stopped" })).toBe(true);
+    const abort = new Error("The operation was aborted");
+    abort.name = "AbortError";
+    expect(isExportCancelled(abort)).toBe(true);
+  });
+
+  it("leaves real failures alone", () => {
+    expect(isExportCancelled("ffmpeg exited with code 1")).toBe(false);
+    expect(isExportCancelled(new Error("No segments to export"))).toBe(false);
+    expect(isExportCancelled(null)).toBe(false);
+    expect(isExportCancelled(undefined)).toBe(false);
+    expect(isExportCancelled(42)).toBe(false);
   });
 });

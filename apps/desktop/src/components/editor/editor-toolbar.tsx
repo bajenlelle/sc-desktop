@@ -17,6 +17,7 @@ import {
   Square,
   Trash2,
   Type,
+  CircleX,
 } from "lucide-react";
 import { exportProgressLabel, exportProgressPercent, type ExportProgress } from "@scoutable/shared/lib/export-progress";
 import type { ExportAction } from "@/components/export-format-dialog";
@@ -35,6 +36,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Kbd } from "@/components/ui/kbd";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Stepper } from "@/components/ui/stepper";
@@ -91,6 +93,8 @@ export interface EditorToolbarProps {
   exportDisabledReason: string | null;
   isExporting: boolean;
   exportProgress: ExportProgress | null;
+  /** Stops the running Save to computer render. */
+  onStopExport: () => void;
   exportLabel: string;
   highlightExport: boolean;
   onExport: (action: ExportAction) => void;
@@ -223,11 +227,27 @@ export function EditorToolbar(p: EditorToolbarProps) {
           </Button>
 
           {p.isExporting ? (
-            <Button size="sm" variant="outline" disabled className="gap-2">
-              <Loader2 className="animate-spin" />
+            // Progress with its own stop control, like a download in Safari.
+            <div className="flex h-8 items-center gap-2 rounded-md bg-card pr-1 pl-2.5 text-sm shadow-xs ring-1 ring-separator">
+              <Loader2 className="size-4 animate-spin text-muted-foreground" />
               <span className="nums">{p.exportProgress ? exportProgressLabel(p.exportProgress) : "Exporting…"}</span>
               {p.exportProgress && <ProgressBar percent={exportProgressPercent(p.exportProgress)} className="w-16" />}
-            </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="Stop exporting"
+                    onClick={p.onStopExport}
+                    className="flex size-6 items-center justify-center rounded-full text-muted-foreground outline-none transition-[background-color,color,transform] duration-100 hover:bg-fill-2 hover:text-foreground active:scale-90 focus-visible:ring-2 focus-visible:ring-selection"
+                  >
+                    <CircleX className="size-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  Stop exporting <Kbd className="ml-1">⌘.</Kbd>
+                </TooltipContent>
+              </Tooltip>
+            </div>
           ) : (
             <Explained reason={p.exportLocked ? null : p.exportDisabledReason}>
               <DropdownMenu onOpenChange={(open) => open && p.onExportMenuOpen()}>

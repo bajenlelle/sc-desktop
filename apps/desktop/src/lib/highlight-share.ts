@@ -22,7 +22,7 @@ export async function sendHighlightToPhone(
   onStage?: (stage: SendToPhoneStage) => void,
   vertical = false,
   onExportProgress?: (progress: ExportProgress) => void,
-  /** Aborting stops the upload, and stops everything after a render that is still running. */
+  /** Aborting stops the render (ffmpeg is killed) or the upload, whichever is running. */
   signal?: AbortSignal,
 ): Promise<string> {
   const stopIfCancelled = () => {
@@ -39,14 +39,15 @@ export async function sendHighlightToPhone(
   const tempPath = `${tempDir}/sc_highlight_${stamp}.mp4`;
   const posterTempPath = `${tempDir}/sc_highlight_${stamp}.jpg`;
 
-  onStage?.("rendering");
-  // Watermark always on: send-to-phone clips land on Instagram/TikTok —
-  // this surface is public distribution regardless of the sender's plan.
-  await exportPlaylistToPath(segments, preRoll, postRoll, tempPath, true, vertical, {
-    onProgress: onExportProgress,
-  });
-
   try {
+    onStage?.("rendering");
+    // Watermark always on: send-to-phone clips land on Instagram/TikTok;
+    // this surface is public distribution regardless of the sender's plan.
+    // The signal stops the render itself, not only what comes after it.
+    await exportPlaylistToPath(segments, preRoll, postRoll, tempPath, true, vertical, {
+      onProgress: onExportProgress,
+      signal,
+    });
     stopIfCancelled();
     onStage?.("uploading");
     // Per-user, uuid-keyed — unlike Clip & Ship's guessable clip keys.

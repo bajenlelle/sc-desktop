@@ -53,8 +53,8 @@ function isAbort(e: unknown): boolean {
  * exports always render fresh: a subset must not impersonate the full
  * playlist's link.
  *
- * Every way out cancels: closing stops the upload, and a render still in
- * progress finishes on its own but is never uploaded or linked.
+ * Every way out cancels: closing stops the render (ffmpeg is killed) or the
+ * upload, and nothing is linked.
  */
 export function SendToPhoneDialog({
   open,
@@ -87,6 +87,8 @@ export function SendToPhoneDialog({
   const [rangeNote, setRangeNote] = useState<string | null>(null);
   const runningRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
+  /** Bumped by every run and every close: a run that was left behind never touches the state again. */
+  const runIdRef = useRef(0);
   // What actually renders: segments minus out-of-range clips. Everything
   // downstream (render, analytics, the reuse fingerprint) must read this,
   // never the raw prop, or the cached link stops matching its content.
@@ -95,6 +97,8 @@ export function SendToPhoneDialog({
   function runPipeline(pl: { id: string; name: string }) {
     if (runningRef.current) return;
     runningRef.current = true;
+    const run = ++runIdRef.current;
+    const current = () => run === runIdRef.current;
     const controller = new AbortController();
     abortRef.current = controller;
     setError(null);
@@ -104,7 +108,7 @@ export function SendToPhoneDialog({
     const kept = keptRef.current;
     sendHighlightToPhone(pl, kept, preRoll, postRoll, setStage, vertical, setRenderProgress, controller.signal)
       .then((url) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || !current()) return;
         setShareUrl(url);
         trackEvent("highlight_sent_to_phone", {
           playlist_id: pl.id,
@@ -115,14 +119,15 @@ export function SendToPhoneDialog({
         });
       })
       .catch((e) => {
-        if (isAbort(e) || controller.signal.aborted) return;
+        if (isAbort(e) || controller.signal.aborted || !current()) return;
         setError(e instanceof Error ? e.message : String(e));
       })
       .finally(() => {
+        if (abortRef.current === controller) abortRef.current = null;
+        if (!current()) return;
         setStage(null);
         setRenderProgress(null);
         runningRef.current = false;
-        if (abortRef.current === controller) abortRef.current = null;
       });
   }
 
@@ -183,6 +188,11 @@ export function SendToPhoneDialog({
   function handleClose() {
     abortRef.current?.abort();
     abortRef.current = null;
+    // Leave the stopped run behind, so reopening starts a fresh one at once.
+    runIdRef.current++;
+    runningRef.current = false;
+    setStage(null);
+    setRenderProgress(null);
     setShareUrl(null);
     setReusedFrom(null);
     setError(null);

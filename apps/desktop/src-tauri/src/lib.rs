@@ -6,8 +6,12 @@ use percent_encoding::percent_decode_str;
 use tauri::http::{Method, Response, StatusCode};
 
 mod device_identity;
+mod export_jobs;
 mod video_frames;
 mod menu;
+
+use export_jobs::{partial_output_path, ExportJobs, JobHandle, TempFiles, EXPORT_CANCELLED};
+use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
 // Export command
@@ -300,6 +304,69 @@ fn emit_export_progress(
     }
 }
 
+/// What a finished ffmpeg run reports.
+struct FfmpegRun {
+    success: bool,
+    /// Lines joined with "\n", as the shell plugin's `output()` collects them.
+    stderr: String,
+}
+
+/// Runs the ffmpeg sidecar to completion. Within an export the process is
+/// registered with the job, so stopping the export kills it mid-render; a
+/// stopped job ends in `Err(EXPORT_CANCELLED)`, before or after the run.
+async fn run_ffmpeg(app: &tauri::AppHandle, args: &[String], job: Option<&JobHandle>) -> Result<FfmpegRun, String> {
+    use tauri_plugin_shell::process::CommandEvent;
+    use tauri_plugin_shell::ShellExt;
+
+    if job.is_some_and(|j| j.is_cancelled()) {
+        return Err(EXPORT_CANCELLED.into());
+    }
+    let (mut rx, child) = app
+        .shell()
+        .sidecar("ffmpeg")
+        .map_err(|e| e.to_string())?
+        .args(args)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    // Outside a job nobody can stop it; holding the child keeps the same
+    // lifetime output() gives it.
+    let _unmanaged = match job {
+        Some(job) => {
+            job.attach(Box::new(child));
+            None
+        }
+        None => Some(child),
+    };
+
+    let mut code = None;
+    let mut stderr = Vec::new();
+    while let Some(event) = rx.recv().await {
+        match event {
+            CommandEvent::Terminated(payload) => code = payload.code,
+            CommandEvent::Stderr(line) => {
+                stderr.extend(line);
+                stderr.push(b'\n');
+            }
+            _ => {}
+        }
+    }
+    if let Some(job) = job {
+        job.detach();
+        if job.is_cancelled() {
+            return Err(EXPORT_CANCELLED.into());
+        }
+    }
+    Ok(FfmpegRun { success: code == Some(0), stderr: String::from_utf8_lossy(&stderr).into_owned() })
+}
+
+/// Stops a running export (Save to computer, Send to phone, or a clip being
+/// cut for sharing): kills its ffmpeg process and makes the export return
+/// `export_cancelled`. False when nothing with that id is running.
+#[tauri::command]
+fn cancel_export(jobs: tauri::State<'_, Arc<ExportJobs>>, id: String) -> bool {
+    jobs.cancel(&id)
+}
+
 #[tauri::command]
 async fn export_playlist(
     app: tauri::AppHandle,
@@ -309,11 +376,15 @@ async fn export_playlist(
     vertical: Option<bool>,
     progress_id: Option<String>,
 ) -> Result<(), String> {
-    use tauri_plugin_shell::ShellExt;
+    use tauri::Manager;
 
     if segments.is_empty() {
         return Err("No segments to export".into());
     }
+    // The progress id doubles as the job id `cancel_export` stops it by.
+    let jobs = app.state::<Arc<ExportJobs>>().inner().clone();
+    let job = progress_id.as_deref().map(|id| ExportJobs::begin(&jobs, id));
+    let job = job.as_ref();
     // 9:16 social export: crop a (possibly moving) window at source
     // resolution, then scale to 1080x1920. The concat filter requires every
     // segment to share one WxH, so the whole export is either 16:9 or 9:16.
@@ -334,13 +405,19 @@ async fn export_playlist(
         .unwrap_or_default()
         .as_millis();
 
-    let mut temp_files: Vec<std::path::PathBuf> = Vec::new();
+    // Every file made along the way goes when this function returns, however
+    // it returns (finished, failed part-way, or stopped), or when the app quits.
+    let mut temp = TempFiles::new(job);
+    let mut segment_files: Vec<std::path::PathBuf> = Vec::new();
 
     emit_export_progress(&app, &progress_id, "clips", 0, segments.len());
 
     // Encode each segment to a temp MP4 with fade-in/fade-out.
     for (i, segment) in segments.iter().enumerate() {
-        let temp_path = std::env::temp_dir().join(format!("sc_seg_{}_{}.mp4", timestamp, i));
+        if job.is_some_and(|j| j.is_cancelled()) {
+            return Err(EXPORT_CANCELLED.into());
+        }
+        let temp_path = temp.track(std::env::temp_dir().join(format!("sc_seg_{}_{}.mp4", timestamp, i)));
 
         let status = match segment {
             ExportSegment::Clip { video_path, start, end, crop_keyframes } => {
@@ -354,13 +431,7 @@ async fn export_playlist(
                     temp_path.to_str().unwrap(),
                 );
 
-                app.shell()
-                    .sidecar("ffmpeg")
-                    .map_err(|e| e.to_string())?
-                    .args(&args)
-                    .output()
-                    .await
-                    .map_err(|e| e.to_string())?
+                run_ffmpeg(&app, &args, job).await?
             }
             ExportSegment::Text { text, duration_seconds } => {
                 use ab_glyph::{FontArc, PxScale};
@@ -411,8 +482,7 @@ async fn export_playlist(
                     draw_text_mut(&mut img, Rgba([255, 255, 255, 255]), x, y, scale, &font, line);
                 }
 
-                let png_path = std::env::temp_dir()
-                    .join(format!("sc_text_{}_{}.png", timestamp, i));
+                let png_path = temp.track(std::env::temp_dir().join(format!("sc_text_{}_{}.png", timestamp, i)));
                 img.save(&png_path)
                     .map_err(|e| format!("Failed to save text frame: {e}"))?;
 
@@ -423,35 +493,18 @@ async fn export_playlist(
                     temp_path.to_str().unwrap(),
                 );
 
-                let result = app.shell()
-                    .sidecar("ffmpeg")
-                    .map_err(|e| e.to_string())?
-                    .args(&args)
-                    .output()
-                    .await
-                    .map_err(|e| e.to_string())?;
-
+                let result = run_ffmpeg(&app, &args, job).await;
                 let _ = std::fs::remove_file(&png_path);
-                result
+                result?
             }
         };
 
-        let segment_error = if !status.status.success() {
-            Some(String::from_utf8_lossy(&status.stderr).to_string())
-        } else {
-            assert_rendered_output(&temp_path, &format!("Segment {} of {}", i + 1, segments.len()))
-                .err()
-        };
-        if let Some(message) = segment_error {
-            // Clean up already-created temp files before returning error
-            for f in &temp_files {
-                let _ = std::fs::remove_file(f);
-            }
-            let _ = std::fs::remove_file(&temp_path);
-            return Err(message);
+        if !status.success {
+            return Err(status.stderr);
         }
+        assert_rendered_output(&temp_path, &format!("Segment {} of {}", i + 1, segments.len()))?;
 
-        temp_files.push(temp_path);
+        segment_files.push(temp_path);
         emit_export_progress(&app, &progress_id, "clips", i + 1, segments.len());
     }
 
@@ -461,36 +514,26 @@ async fn export_playlist(
     // segment is already normalized to 1280x720 there, so one steady mark
     // covers the whole timeline (and the poster frame inherits it).
     // Best-effort: a failed raster must never lose a finished render.
-    let watermark_png = std::env::temp_dir().join(format!("sc_wm_{timestamp}.png"));
+    let watermark_png = temp.track(std::env::temp_dir().join(format!("sc_wm_{timestamp}.png")));
     let with_watermark = watermark && render_watermark_png(&watermark_png).is_ok();
-    let inputs: Vec<String> = temp_files.iter().map(|p| p.to_str().unwrap().to_string()).collect();
+    let inputs: Vec<String> = segment_files.iter().map(|p| p.to_str().unwrap().to_string()).collect();
+    // The final pass writes beside the target and is moved into place only
+    // when it succeeds: a stopped or failed export never touches the chosen
+    // file (ffmpeg -y would truncate an existing one at once).
+    let target = std::path::PathBuf::from(&output_path);
+    let partial = temp.track(partial_output_path(&target));
     let concat_args = concat_args(
         &inputs,
         with_watermark.then(|| watermark_png.to_str().unwrap()),
         vertical,
         &rate,
-        &output_path,
+        partial.to_str().ok_or("Output path is not valid UTF-8")?,
     );
-    let result = app
-        .shell()
-        .sidecar("ffmpeg")
-        .map_err(|e| e.to_string())?
-        .args(&concat_args)
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    // Clean up temp files regardless of outcome.
-    for f in &temp_files {
-        let _ = std::fs::remove_file(f);
+    let result = run_ffmpeg(&app, &concat_args, job).await?;
+    if !result.success {
+        return Err(result.stderr);
     }
-    let _ = std::fs::remove_file(&watermark_png);
-
-    if result.status.success() {
-        Ok(())
-    } else {
-        Err(String::from_utf8_lossy(&result.stderr).to_string())
-    }
+    std::fs::rename(&partial, &target).map_err(|e| format!("Couldn't save the video: {e}"))
 }
 
 #[tauri::command]
@@ -500,15 +543,17 @@ async fn export_clip_for_ship(
     start: f64,
     end: f64,
     output_path: String,
+    job_id: Option<String>,
 ) -> Result<(), String> {
-    use tauri_plugin_shell::ShellExt;
+    use tauri::Manager;
+    let jobs = app.state::<Arc<ExportJobs>>().inner().clone();
+    let job = job_id.as_deref().map(|id| ExportJobs::begin(&jobs, id));
+    if let Some(job) = &job {
+        job.own(std::path::Path::new(&output_path));
+    }
     let duration = (end - start).max(0.001);
     let fade_out_start = (duration - 0.25).max(0.0);
-    let result = app
-        .shell()
-        .sidecar("ffmpeg")
-        .map_err(|e| e.to_string())?
-        .args([
+    let args: Vec<String> = [
             "-y",
             "-ss", &format!("{start:.3}"),
             "-to", &format!("{end:.3}"),
@@ -526,15 +571,20 @@ async fn export_clip_for_ship(
             "-c:a", "aac",
             "-b:a", "96k",
             &output_path,
-        ])
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
-    if result.status.success() {
-        assert_rendered_output(std::path::Path::new(&output_path), "This clip")
-    } else {
-        Err(String::from_utf8_lossy(&result.stderr).to_string())
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let outcome = match run_ffmpeg(&app, &args, job.as_ref()).await {
+        Ok(result) if result.success => assert_rendered_output(std::path::Path::new(&output_path), "This clip"),
+        Ok(result) => Err(result.stderr),
+        Err(e) => Err(e),
+    };
+    if outcome.is_err() {
+        // A stopped or failed cut leaves no half-written file behind.
+        let _ = std::fs::remove_file(&output_path);
     }
+    outcome
 }
 
 /// Extract a single poster frame (JPEG) from a rendered highlight video.
@@ -899,8 +949,10 @@ pub fn run() {
                 responder.respond(response);
             });
         })
+        .manage(Arc::new(ExportJobs::default()))
         .invoke_handler(tauri::generate_handler![
             export_playlist,
+            cancel_export,
             get_temp_dir,
             list_video_files,
             delete_file,
@@ -913,8 +965,17 @@ pub fn run() {
             menu::menu_set_enabled,
             menu::menu_sync_theme
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app, event| {
+            // Sidecars spawned from Rust outlive the app unless stopped here.
+            if let tauri::RunEvent::Exit = event {
+                use tauri::Manager;
+                if let Some(jobs) = app.try_state::<Arc<ExportJobs>>() {
+                    jobs.kill_all();
+                }
+            }
+        });
 }
 
 /// Filesystem path from the path component of a `stream://` URI.

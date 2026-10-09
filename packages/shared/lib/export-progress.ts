@@ -35,3 +35,18 @@ export function exportProgressLabel(p: ExportProgress): string {
   if (p.phase === "stitching") return "Stitching clips…";
   return `Rendering clip ${Math.min(p.done + 1, Math.max(1, p.total))} of ${p.total}`;
 }
+
+/** What the Rust export returns when it was stopped on purpose (cancel_export). */
+export const EXPORT_CANCELLED = "export_cancelled";
+
+/**
+ * True for an export that was stopped rather than failed: the raw rejection
+ * from the export command, or the AbortError the desktop wrapper turns it
+ * into. Callers say nothing (or "Export stopped") instead of an error.
+ */
+export function isExportCancelled(e: unknown): boolean {
+  if (e === EXPORT_CANCELLED) return true;
+  if (typeof e !== "object" || e === null) return false;
+  const { name, message } = e as { name?: unknown; message?: unknown };
+  return name === "AbortError" || message === EXPORT_CANCELLED;
+}

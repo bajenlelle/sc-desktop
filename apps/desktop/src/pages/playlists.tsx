@@ -86,7 +86,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { exportPlaylist, notifyExportSuccess, type ExportSegment } from "@/lib/export";
-import type { ExportProgress } from "@scoutable/shared/lib/export-progress";
+import { isExportCancelled, type ExportProgress } from "@scoutable/shared/lib/export-progress";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { getExportWatermarkDisabled, setHasExported } from "@/lib/prefs";
 import { clipAndShip } from "@/lib/clip-and-ship";
@@ -221,6 +221,7 @@ export function PlaylistsPage() {
     if (exportError) toast.error(exportError);
   }, [exportError]);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
+  const exportAbortRef = useRef<AbortController | null>(null);
   const [isShipping, setIsShipping] = useState(false);
   const [shipProgress, setShipProgress] = useState<{ done: number; total: number } | null>(null);
   const [userTeams, setUserTeams] = useState<OrgTeam[]>([]);
@@ -1510,6 +1511,12 @@ export function PlaylistsPage() {
   // over the latest render, so no refs are needed for state.
   useKeyScope("editor", true);
   useHotkeys("editor", (e) => {
+    // ⌘. is the Mac's "stop what's running": here, a Save to computer render.
+    if ((e.metaKey || e.ctrlKey) && e.key === "." && isExporting) {
+      e.preventDefault();
+      stopExport();
+      return;
+    }
     const action = resolvePlayerKey(e);
     if (!action) return;
     const video = videoRef.current;
@@ -2028,9 +2035,10 @@ export function PlaylistsPage() {
       setUpgradeDialogOpen(true);
       return;
     }
-    setIsExporting(true);
     setExportError(null);
     setExportProgress(null);
+    const abort = new AbortController();
+    exportAbortRef.current = abort;
     let segmentCount = 0;
     try {
       const segments = buildExportSegments();
@@ -2041,6 +2049,9 @@ export function PlaylistsPage() {
       const watermark = !(canDisableWatermark && getExportWatermarkDisabled());
       const exportedPath = await exportPlaylist(segments, preRoll, postRoll, selected!.name, watermark, vertical, {
         onProgress: setExportProgress,
+        signal: abort.signal,
+        // "Exporting…" only once the save panel has a path: not while it is open.
+        onPathChosen: () => setIsExporting(true),
       });
       if (exportedPath) {
         notifyExportSuccess(exportedPath);
@@ -2051,12 +2062,23 @@ export function PlaylistsPage() {
         window.dispatchEvent(new CustomEvent("playlist-exported"));
       }
     } catch (e) {
-      setExportError(e instanceof Error ? e.message : String(e));
-      trackEvent('video_exported', { playlist_id: selected!.id, clip_count: segmentCount, status: 'error', error: (e instanceof Error ? e.message : String(e)).slice(0, 200) });
+      if (isExportCancelled(e)) {
+        toast("Export stopped");
+        trackEvent('video_exported', { playlist_id: selected!.id, clip_count: segmentCount, status: 'cancelled' });
+      } else {
+        setExportError(e instanceof Error ? e.message : String(e));
+        trackEvent('video_exported', { playlist_id: selected!.id, clip_count: segmentCount, status: 'error', error: (e instanceof Error ? e.message : String(e)).slice(0, 200) });
+      }
     } finally {
+      if (exportAbortRef.current === abort) exportAbortRef.current = null;
       setIsExporting(false);
       setExportProgress(null);
     }
+  }
+
+  /** Stops a Save to computer render where it is (toolbar ⓧ, or ⌘.). */
+  function stopExport() {
+    exportAbortRef.current?.abort();
   }
 
   // ---------------------------------------------------------------------------
@@ -3988,6 +4010,7 @@ export function PlaylistsPage() {
         exportLocked={exportLocked}
         exportDisabledReason={exportDisabledReason}
         isExporting={isExporting}
+        onStopExport={stopExport}
         exportProgress={exportProgress}
         exportLabel={
           selectedClipIds.size > 0
