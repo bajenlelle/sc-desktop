@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import { router } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Stack, router } from "expo-router";
 import { clipViewKey } from "@scoutable/shared/lib/clip-views-db";
 import { useAuth } from "@/lib/auth-context";
 import { trackEvent } from "@/lib/analytics";
@@ -83,32 +82,16 @@ export default function PlaylistsScreen() {
   }, [refresh]);
 
   return (
-    <SafeAreaView edges={["top"]} className="flex-1 bg-background">
-      <View className="flex-row items-center justify-between px-4 pb-1 pt-3">
-        <Text className="font-heading text-2xl text-foreground">
-          {isCoachOrAdmin ? "Shared Playlists" : "My Playlists"}
-        </Text>
-        <View className="flex-row items-center gap-1">
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Send feedback"
-            onPress={() => setFeedbackOpen(true)}
-            className="min-h-[44px] items-center justify-center rounded-full border border-border px-3"
-          >
-            <Text className="text-xs font-medium text-muted-foreground">
-              Feedback
-            </Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Profile"
-            onPress={() => router.navigate("/profile")}
-            className="min-h-[44px] min-w-[44px] items-center justify-center"
-          >
-            <Avatar name={profile?.fullName} url={profile?.avatarUrl} size={32} />
-          </Pressable>
-        </View>
-      </View>
+    <View className="flex-1 bg-background">
+      {/* Opaque bar until this screen's content becomes one scrolling list
+          (M4), so nothing sits under a transparent large title. */}
+      <Stack.Screen
+        options={{
+          title: isCoachOrAdmin ? "Shared playlists" : "My playlists",
+          headerTransparent: false,
+          headerStyle: { backgroundColor: colors.background },
+        }}
+      />
 
       {/* Coaches get two views: their outbound dashboard and the normal
           inbound feed — same split as web/desktop. */}
@@ -168,6 +151,6 @@ export default function PlaylistsScreen() {
         />
       )}
       <ReportProblemSheet visible={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
-    </SafeAreaView>
+    </View>
   );
 }

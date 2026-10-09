@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { Alert, ScrollView, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import Constants from "expo-constants";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
@@ -47,15 +46,12 @@ export default function ProfileScreen() {
   }
 
   return (
-    <SafeAreaView edges={["top"]} className="flex-1 bg-background">
-      {/* Tab root — no back affordance. */}
-      <View className="flex-row items-center px-4 pb-1 pt-3">
-        <Text className="font-heading text-2xl text-foreground">
-          Profile
-        </Text>
-      </View>
-
-      <ScrollView contentContainerClassName="gap-6 px-4 py-4">
+    <>
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        className="flex-1 bg-background"
+        contentContainerClassName="gap-6 px-4 py-4"
+      >
         <LicenseNotice />
 
         <View className="flex-row items-center gap-4">
@@ -171,6 +167,6 @@ export default function ProfileScreen() {
       />
 
       <ReportProblemSheet visible={reportOpen} onClose={() => setReportOpen(false)} />
-    </SafeAreaView>
+    </>
   );
 }

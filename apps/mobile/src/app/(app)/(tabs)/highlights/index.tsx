@@ -25,7 +25,6 @@
  * condition the 3.1.3(f) exemption rests on.
  */
 import { ScrollView, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useThemeColors } from "@/lib/theme-context";
@@ -58,7 +57,11 @@ function PitchPage() {
   const colors = useThemeColors();
 
   return (
-    <ScrollView contentContainerClassName="gap-6 px-4 py-6">
+    <ScrollView
+      contentInsetAdjustmentBehavior="automatic"
+      className="flex-1 bg-background"
+      contentContainerClassName="gap-6 px-4 py-6"
+    >
       <View className="items-center gap-2">
         <Text className="text-xs font-semibold uppercase tracking-widest text-primary">
           My Highlights
@@ -110,14 +113,5 @@ function PitchPage() {
 }
 
 export default function HighlightsScreen() {
-  return (
-    <SafeAreaView edges={["top"]} className="flex-1 bg-background">
-      <View className="flex-row items-center px-4 pb-1 pt-3">
-        <Text className="font-heading text-2xl text-foreground">
-          My Highlights
-        </Text>
-      </View>
-      <PitchPage />
-    </SafeAreaView>
-  );
+  return <PitchPage />;
 }
