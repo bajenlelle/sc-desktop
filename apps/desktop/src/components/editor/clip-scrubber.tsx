@@ -2,15 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { animate, motion, useMotionValue } from "framer-motion";
 import type { CropKeyframe } from "@scoutable/shared/lib/crop-path";
 import { clamp, rubberband } from "@scoutable/shared/lib/motion-math";
+import { formatClipTime } from "@scoutable/shared/lib/clip-timing";
 import { cn } from "@/lib/utils";
 import { springs } from "@/lib/motion";
-
-function formatClipTime(seconds: number): string {
-  const s = Math.max(0, seconds);
-  const m = Math.floor(s / 60);
-  const rest = s - m * 60;
-  return `${m}:${rest.toFixed(1).padStart(4, "0")}`;
-}
+import { useFrameSeek } from "./use-frame-seek";
 
 const THUMB_HIT = 10;
 
@@ -53,7 +48,8 @@ export function ClipScrubber({
   const [pressed, setPressed] = useState(false);
   const [hoverX, setHoverX] = useState<number | null>(null);
   const [hoverTime, setHoverTime] = useState(0);
-  const scrubRef = useRef<{ grabOffset: number; wasPlaying: boolean; pendingTime: number | null; raf: number } | null>(null);
+  const scrubRef = useRef<{ grabOffset: number; wasPlaying: boolean } | null>(null);
+  const frameSeek = useFrameSeek(video, onSeek);
 
   const fractionToX = useCallback((frac: number) => {
     const width = trackRef.current?.clientWidth ?? 0;
@@ -91,27 +87,6 @@ export function ClipScrubber({
     return { time: start + frac * duration, raw, width: rect.width };
   }
 
-  function flushSeek() {
-    const s = scrubRef.current;
-    if (!s) return;
-    s.raf = 0;
-    if (s.pendingTime === null) return;
-    if (video.seeking) {
-      s.raf = requestAnimationFrame(flushSeek);
-      return;
-    }
-    const t = s.pendingTime;
-    s.pendingTime = null;
-    onSeek(t);
-  }
-
-  function scheduleSeek(t: number) {
-    const s = scrubRef.current;
-    if (!s) return;
-    s.pendingTime = t;
-    if (!s.raf) s.raf = requestAnimationFrame(flushSeek);
-  }
-
   function moveThumb(clientX: number) {
     const s = scrubRef.current;
     if (!s) return;
@@ -121,7 +96,7 @@ export function ClipScrubber({
     thumbX.set(clamp(raw, 0, width) + rubberband(over, width));
     paint(time);
     setHoverTime(time);
-    scheduleSeek(time);
+    frameSeek.schedule(time);
   }
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
@@ -134,8 +109,6 @@ export function ClipScrubber({
     scrubRef.current = {
       grabOffset: onThumb ? localX - thumbAt : 0,
       wasPlaying: !video.paused,
-      pendingTime: null,
-      raf: 0,
     };
     if (!video.paused) video.pause();
     setPressed(true);
@@ -153,8 +126,7 @@ export function ClipScrubber({
   function endScrub() {
     const s = scrubRef.current;
     if (!s) return;
-    if (s.raf) cancelAnimationFrame(s.raf);
-    if (s.pendingTime !== null) onSeek(s.pendingTime);
+    frameSeek.settle();
     scrubRef.current = null;
     setPressed(false);
     const width = trackRef.current?.clientWidth ?? 0;

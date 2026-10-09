@@ -3,7 +3,8 @@
  * move through clips and nudge within one, J/K/L shuttle, Space toggles.
  * The clip list adds a macOS table's keys: Shift extends the selection,
  * ⌘↑/⌘↓ and Home/End jump to the ends, Return plays the focused row,
- * Shift+F10 opens its menu. Every native menu accelerator is a ⌘-chord, so
+ * Shift+F10 opens its menu, T trims the playing clip. Every native menu
+ * accelerator is a ⌘-chord, so
  * chords are left alone except ⌘A and ⌘↑/⌘↓, which the list claims.
  */
 export type PlayerKeyAction =
@@ -17,6 +18,7 @@ export type PlayerKeyAction =
   | "extend-last"
   | "play-focused"
   | "row-menu"
+  | "trim"
   | "nudge-back"
   | "nudge-forward"
   | "nudge-back-far"
@@ -78,6 +80,8 @@ export function resolvePlayerKey(e: KeyChord): PlayerKeyAction | null {
       return "shuttle-forward";
     case "KeyR":
       return "replay";
+    case "KeyT":
+      return e.shiftKey ? null : "trim";
     case "Space":
       return "toggle-play";
     case "KeyF":

@@ -54,6 +54,11 @@ export interface PlayerStageProps {
   handleRef?: React.Ref<PlayerStageHandle>;
   /** Something other than the footage is playing (a timed text card): its state drives the controls. */
   playback?: { paused: boolean; toggle: () => void };
+  /**
+   * Trimming: this bar (ClipTrimmer) replaces the transport, pinned in the
+   * same material, and a click on the footage no longer toggles playback.
+   */
+  trimBar?: React.ReactNode;
 }
 
 /**
@@ -82,6 +87,7 @@ export function PlayerStage({
   className,
   handleRef,
   playback,
+  trimBar,
 }: PlayerStageProps) {
   const hostRef = React.useRef<HTMLDivElement | null>(null);
   const stageRef = React.useRef<HTMLDivElement | null>(null);
@@ -247,6 +253,7 @@ export function PlayerStage({
 
   const readout =
     position && position.total > 0 ? `${position.index + 1} of ${position.total}` : undefined;
+  const clickable = interactive && !trimBar;
 
   return (
     <div
@@ -263,7 +270,7 @@ export function PlayerStage({
         if (!paused) setActive(false);
       }}
       onClick={
-        interactive
+        clickable
           ? (e) => {
               // The second click of a double-click is the fullscreen gesture,
               // not a second toggle.
@@ -272,7 +279,7 @@ export function PlayerStage({
             }
           : undefined
       }
-      onDoubleClick={interactive && onToggleFullscreen ? onToggleFullscreen : undefined}
+      onDoubleClick={clickable && onToggleFullscreen ? onToggleFullscreen : undefined}
     >
       <div ref={hostRef} className="absolute inset-0 [&>video]:h-full [&>video]:w-full [&>video]:object-contain" />
 
@@ -323,9 +330,25 @@ export function PlayerStage({
         </div>
       )}
 
-      {/* Floating chrome */}
+      {/* Floating chrome, or the trim bar in its place */}
       <AnimatePresence>
-        {chromeVisible && (
+        {trimBar ? (
+          <motion.div
+            key="trim"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={springs.standard}
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+            className={cn(
+              "dark absolute inset-x-3 bottom-3 z-20 rounded-xl bg-black/60 px-3 pt-2.5 pb-2 text-white shadow-menu ring-1 ring-white/10 backdrop-blur-xl",
+              fullscreen && "mx-auto max-w-3xl",
+            )}
+          >
+            {trimBar}
+          </motion.div>
+        ) : chromeVisible ? (
           <motion.div
             key="chrome"
             initial={{ opacity: 0, y: 8 }}
@@ -359,7 +382,7 @@ export function PlayerStage({
               readout={readout}
             />
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
 
       {fullscreen && (

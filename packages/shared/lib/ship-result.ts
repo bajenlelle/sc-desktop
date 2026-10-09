@@ -20,7 +20,17 @@ export interface ClipShipResult {
   /** Clips still failing after the automatic retry. */
   failures: ClipShipFailure[];
   /** Every successful upload of this run — callers patch local state with these. */
-  uploaded: Array<{ matchId: string; eventId: number; r2Url: string }>;
+  uploaded: Array<{
+    matchId: string;
+    eventId: number;
+    r2Url: string;
+    /**
+     * The per-clip offsets the upload was cut at. A clip trimmed while it
+     * uploaded no longer matches: its URL serves the old cut.
+     */
+    preRollOffset?: number;
+    postRollOffset?: number;
+  }>;
   /** True when the run was cancelled between clips; remaining work untouched. */
   aborted: boolean;
 }

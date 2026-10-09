@@ -2,6 +2,7 @@ import * as React from "react";
 import {
   ArrowDownUp,
   ChevronDown,
+  CircleX,
   Columns2,
   FileDown,
   Filter,
@@ -11,13 +12,12 @@ import {
   Play,
   Plus,
   Rows2,
-  Scissors,
   Share2,
   Smartphone,
   Square,
+  Timer,
   Trash2,
   Type,
-  CircleX,
 } from "lucide-react";
 import { exportProgressLabel, exportProgressPercent, type ExportProgress } from "@scoutable/shared/lib/export-progress";
 import type { ExportAction } from "@/components/export-format-dialog";
@@ -173,7 +173,7 @@ export function EditorToolbar(p: EditorToolbarProps) {
               <TooltipTrigger asChild>
                 <PopoverTrigger asChild>
                   <Button variant="ghost" size="icon-sm" aria-label="Clip length">
-                    <Scissors />
+                    <Timer />
                   </Button>
                 </PopoverTrigger>
               </TooltipTrigger>

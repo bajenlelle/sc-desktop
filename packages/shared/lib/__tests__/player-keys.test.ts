@@ -54,6 +54,9 @@ describe("resolvePlayerKey", () => {
     expect(resolvePlayerKey(key("F10", { shiftKey: true }))).toBe("row-menu");
     expect(resolvePlayerKey(key("F10"))).toBeNull();
     expect(resolvePlayerKey(key("ContextMenu"))).toBe("row-menu");
+    expect(resolvePlayerKey(key("KeyT"))).toBe("trim");
+    expect(resolvePlayerKey(key("KeyT", { shiftKey: true }))).toBeNull();
+    expect(resolvePlayerKey(key("KeyT", { metaKey: true }))).toBeNull();
   });
 
   it("leaves Control-arrows and option chords to the system", () => {

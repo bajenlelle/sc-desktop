@@ -28,7 +28,9 @@ type ClipSegment = Extract<ExportSegment, { kind: "clip" }>;
  * Idempotent: clips that already have r2Url on their PlaylistClipItem are
  * skipped — safe because anything that invalidates an upload's CONTENT clears
  * the r2Url first (a sync-point save nulls it for the whole match via
- * clearShippedClipsForMatch). Aborting via opts.signal stops the clip being
+ * clearShippedClipsForMatch; a trim nulls it for the clip via
+ * clearShippedClip). Each upload reports the offsets it was cut at, so a
+ * caller can tell a clip that was trimmed while it uploaded. Aborting via opts.signal stops the clip being
  * cut (cancel_export kills its ffmpeg) or uploaded, and reports aborted:
  * never a failure.
  */
@@ -122,7 +124,13 @@ export async function clipAndShip(
       await updateClipR2Url(playlist.id, seg.matchId, event.eventId, r2Url);
       uploadedKeys.add(itemKey);
       result.shipped++;
-      result.uploaded.push({ matchId: seg.matchId, eventId: event.eventId, r2Url });
+      result.uploaded.push({
+        matchId: seg.matchId,
+        eventId: event.eventId,
+        r2Url,
+        preRollOffset: seg.preRollOffset ?? 0,
+        postRollOffset: seg.postRollOffset ?? 0,
+      });
       return null;
     } catch (e) {
       if (opts?.signal?.aborted || isExportCancelled(e)) return null; // stopped, not a failure

@@ -16,6 +16,7 @@ import {
   ListVideo,
   MoreHorizontal,
   Plus,
+  Scissors,
   Tag,
   VideoOff,
 } from "lucide-react";
@@ -27,7 +28,7 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { probeMatches, type VideoFileStatus } from "@/lib/video-probe";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { cn } from "@/lib/utils";
-import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderItems, updateClip, insertTextCard, updateTextCard, setPlaylistTeams, setPlaylistUsers, notifyPendingPlaylistShares } from "@/lib/playlists-db";
+import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderItems, updateClip, clearShippedClip, insertTextCard, updateTextCard, setPlaylistTeams, setPlaylistUsers, notifyPendingPlaylistShares } from "@/lib/playlists-db";
 import { groupShipFailures, mergeShipResults, type ClipShipResult } from "@scoutable/shared/lib/ship-result";
 import { listLabels, createLabel as apiCreateLabel, updateLabel as apiUpdateLabel, deleteLabel as apiDeleteLabel, seedDefaultLabels, listAssignmentsForClips, setClipAssignments as apiSetClipAssignments, bulkAssign as apiBulkAssign } from "@/lib/labels-db";
 import { LabelChip } from "@/components/labels/LabelChip";
@@ -101,6 +102,9 @@ import { EditorToolbar } from "@/components/editor/editor-toolbar";
 import { PlayerStage } from "@/components/editor/player-stage";
 import { usePersistentVideo } from "@/components/editor/use-persistent-video";
 import { ClipRow, TextCardRow } from "@/components/editor/clip-rows";
+import { ClipTrimmer, type TrimWindow } from "@/components/editor/clip-trimmer";
+import { formatSeconds, offsetsForTrim, stepToWhole } from "@scoutable/shared/lib/trim-math";
+import { Kbd } from "@/components/ui/kbd";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
 import { clamp } from "@scoutable/shared/lib/motion-math";
@@ -298,6 +302,20 @@ export function PlaylistsPage() {
   // Vertical-crop editor: overlay visible + "export view" dim toggle.
   const [cropMode, setCropMode] = useState(false);
   const [cropDimmed, setCropDimmed] = useState(false);
+  // Trim: the playing clip's ends on handles over the player (ClipTrimmer).
+  // Nothing plays or advances on its own meanwhile (trimActiveRef).
+  const [trim, setTrim] = useState<{
+    key: string;
+    matchId: string;
+    eventId: number;
+    eventTime: number;
+    start: number;
+    end: number;
+  } | null>(null);
+  const trimActiveRef = useRef(false);
+  trimActiveRef.current = trim !== null;
+  /** A row's "Trim clip…" on a clip that isn't playing: trim once it is. */
+  const pendingTrimKeyRef = useRef<string | null>(null);
   // Fullscreen player (native window fullscreen + fixed stage layer).
   const playerFs = usePlayerFullscreen();
   const playerFsRef = useRef(playerFs);
@@ -923,17 +941,7 @@ export function PlaylistsPage() {
       if (!pendingSeekRef.current) return;
       const { seekTo, clipEnd } = pendingSeekRef.current;
       pendingSeekRef.current = null;
-      clipEndRef.current = undefined;
-      const targetP = seekTo;
-      const endP = clipEnd;
-      const videoP = video!;
-      function onSeekedPending() {
-        if (videoP.currentTime > targetP + 2) { videoP.addEventListener("seeked", onSeekedPending, { once: true }); return; }
-        clipEndRef.current = endP;
-        videoP.play().catch(() => {});
-      }
-      videoP.addEventListener("seeked", onSeekedPending, { once: true });
-      videoP.currentTime = seekTo;
+      seekAndPlay(video!, seekTo, clipEnd);
     }
     video.addEventListener("canplay", handleCanPlay, { once: true });
     return () => video.removeEventListener("canplay", handleCanPlay);
@@ -1155,6 +1163,10 @@ export function PlaylistsPage() {
   // ---------------------------------------------------------------------------
 
   const handleStop = useCallback(() => {
+    if (trimActiveRef.current) {
+      trimActiveRef.current = false;
+      setTrim(null);
+    }
     queueRef.current = [];
     queueIdxRef.current = 0;
     setIsPlaying(false);
@@ -1169,26 +1181,18 @@ export function PlaylistsPage() {
     videoRef.current?.pause();
   }, []);
 
+  /**
+   * The steppers and Reset: the playing clip's own length, applied to the
+   * clip while it plays.
+   */
   function adjustActiveClip(preDelta: number, postDelta: number) {
-    if (!selected || activeEventId === null) return;
-    const matchId = activeMatchIdRef.current ?? primaryMatchId(selected);
-    if (!matchId) return;
-    const existingClip = selected.items.filter(isClipItem).find(
-      (c) => c.matchId === matchId && c.eventId === activeEventId
-    );
-    const newPre = Math.max(-preRollRef.current, (existingClip?.preRollOffset ?? 0) + preDelta);
-    const newPost = Math.max(-postRollRef.current, (existingClip?.postRollOffset ?? 0) + postDelta);
-
-    const newItems = selected.items.map((c) =>
-      isClipItem(c) && c.matchId === matchId && c.eventId === activeEventId
-        ? { ...c, preRollOffset: newPre, postRollOffset: newPost }
-        : c
-    );
-    const updatedPlaylist = { ...selected, items: newItems };
-    setSelected(updatedPlaylist);
-    selectedRef.current = updatedPlaylist;
-    setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updatedPlaylist : p));
-    updateClip(selected.id, matchId, activeEventId, { preRollOffset: newPre, postRollOffset: newPost }).catch(() => {});
+    if (!selected || !activeClipKey) return;
+    const { matchId, eventId } = activeClipKey;
+    const existingClip = clipByKey.get(`${matchId}:${eventId}`);
+    const hundredths = (n: number) => Math.round(n * 100) / 100;
+    const newPre = Math.max(-preRoll, hundredths((existingClip?.preRollOffset ?? 0) + preDelta));
+    const newPost = Math.max(-postRoll, hundredths((existingClip?.postRollOffset ?? 0) + postDelta));
+    void commitClipOffsets(matchId, eventId, newPre, newPost);
     const curQueueItem = queueRef.current[queueIdxRef.current];
     if (!curQueueItem || isTextCard(curQueueItem)) return;
     if (preDelta !== 0) {
@@ -1198,11 +1202,71 @@ export function PlaylistsPage() {
     }
     // Only the end moved: shorten or extend the running clip in place. A
     // restart here would make trimming the tail a stop-start exercise.
-    const sp = matchLookupRef.current.get(curQueueItem.matchId)?.syncPoint;
-    const videoTime = sp ? computeVideoTime((curQueueItem as QueueItem).event, sp) : null;
-    if (videoTime !== null && clipEndRef.current !== undefined) {
-      clipEndRef.current = Math.max(videoTime, videoTime + postRollRef.current + newPost);
+    const w = itemWindow(curQueueItem as QueueItem, newPre, newPost);
+    if (w && clipEndRef.current !== undefined) clipEndRef.current = w.end;
+  }
+
+  /**
+   * The one way a clip's own length changes (the steppers, Reset, a trim):
+   * applied at once, saved, and put back with a toast if the save fails.
+   * An upload recipients already have was cut at the old length, so it is
+   * cleared and, in a shared playlist, made again with the new cut.
+   */
+  async function commitClipOffsets(matchId: string, eventId: number, pre: number, post: number) {
+    const before = selectedRef.current;
+    if (!before) return;
+    const clip = before.items.filter(isClipItem).find((c) => c.matchId === matchId && c.eventId === eventId);
+    if (!clip) return;
+    const shippedUrl = clip.r2Url;
+    const isThisClip = (c: PlaylistItem): c is PlaylistClipItem =>
+      isClipItem(c) && c.matchId === matchId && c.eventId === eventId;
+    const apply = (edit: (c: PlaylistClipItem) => PlaylistClipItem) => {
+      const patch = (pl: Playlist): Playlist => ({ ...pl, items: pl.items.map((c) => (isThisClip(c) ? edit(c) : c)) });
+      setSelected((prev) => (prev && prev.id === before.id ? patch(prev) : prev));
+      if (selectedRef.current?.id === before.id) selectedRef.current = patch(selectedRef.current);
+      setPlaylists((prev) => prev.map((p) => (p.id === before.id ? patch(p) : p)));
+    };
+    apply((c) => ({ ...c, preRollOffset: pre, postRollOffset: post, r2Url: undefined }));
+    try {
+      await updateClip(before.id, matchId, eventId, { preRollOffset: pre, postRollOffset: post });
+    } catch (err) {
+      // Put back only what this change set: a later one may have landed since.
+      apply((c) =>
+        (c.preRollOffset ?? 0) === pre && (c.postRollOffset ?? 0) === post
+          ? { ...c, preRollOffset: clip.preRollOffset, postRollOffset: clip.postRollOffset, r2Url: shippedUrl }
+          : c,
+      );
+      Sentry.captureException(err);
+      toast.error("Couldn't save the clip's length");
+      return;
     }
+    const reship = () => queuePendingShip({ ...before, items: before.items.map((c) => (isThisClip(c) ? { ...c, r2Url: undefined } : c)) });
+    if (!shippedUrl) {
+      // Nothing was uploaded, or an upload is still running: the ship sorts
+      // out what is missing or stale (see applyR2Urls).
+      reship();
+      return;
+    }
+    const clearUpload = async () => {
+      try {
+        await clearShippedClip(before.id, matchId, eventId, shippedUrl);
+        reship();
+      } catch (err) {
+        apply((c) => (c.r2Url === undefined ? { ...c, r2Url: shippedUrl } : c));
+        Sentry.captureException(err);
+        toast.error("Recipients still see the old cut", {
+          description: "The new length is saved, but the shared clip couldn't be replaced.",
+          action: {
+            label: "Try again",
+            onClick: () => {
+              apply((c) => ({ ...c, r2Url: undefined }));
+              void clearUpload();
+            },
+          },
+        });
+      }
+    };
+    await clearUpload();
   }
 
   function saveClipNote(note: string) {
@@ -1329,29 +1393,51 @@ export function PlaylistsPage() {
     return { pre: clip?.preRollOffset ?? 0, post: clip?.postRollOffset ?? 0 };
   }
 
+  /**
+   * The stretch of video a queue item plays, from the clip's latest
+   * offsets. clipBounds is also what exports and shipped clips are cut
+   * with, so what plays is what goes out.
+   */
+  function itemWindow(item: QueueItem, preOverride?: number, postOverride?: number): { start: number; end: number } | null {
+    const sp = matchLookupRef.current.get(item.matchId)?.syncPoint;
+    if (!sp) return null;
+    const videoTime = computeVideoTime(item.event, sp);
+    if (videoTime === null) return null;
+    const { pre, post } = getClipOffsets(item.matchId, item.event.eventId);
+    return clipBounds(videoTime, preRollRef.current, postRollRef.current, preOverride ?? pre, postOverride ?? post);
+  }
+
+  /**
+   * Seeks to a clip's start and plays it; at `end` the timeupdate handler
+   * moves the queue on. While trimming nothing plays and nothing advances:
+   * the seek only brings the clip into view.
+   */
+  function seekAndPlay(video: HTMLVideoElement, start: number, end: number) {
+    clipEndRef.current = undefined;
+    video.pause();
+    function onSeeked() {
+      // A seeked from an earlier, later jump: wait for this one.
+      if (video.currentTime > start + 2) {
+        video.addEventListener("seeked", onSeeked, { once: true });
+        return;
+      }
+      if (trimActiveRef.current) return;
+      clipEndRef.current = end;
+      video.play().catch(() => {});
+    }
+    video.addEventListener("seeked", onSeeked, { once: true });
+    video.currentTime = start;
+  }
+
   const seekToItem = useCallback((
     item: QueueItem,
     preOverride?: number,
     postOverride?: number,
   ) => {
-    const sp = matchLookupRef.current.get(item.matchId)?.syncPoint;
     const video = videoRef.current;
-    if (!sp || !video) return;
-    const videoTime = computeVideoTime(item.event, sp);
-    if (videoTime === null) return;
-    const { pre, post } = getClipOffsets(item.matchId, item.event.eventId);
-    const seekTo = Math.max(0, Math.min(videoTime, videoTime - preRollRef.current - (preOverride ?? pre)));
-    const clipEnd = Math.max(videoTime, videoTime + postRollRef.current + (postOverride ?? post));
-    clipEndRef.current = undefined;
-    video.pause();
-    const target2 = seekTo;
-    function onSeeked2() {
-      if (video!.currentTime > target2 + 2) { video!.addEventListener("seeked", onSeeked2, { once: true }); return; }
-      clipEndRef.current = clipEnd;
-      video!.play().catch(() => {});
-    }
-    video.addEventListener("seeked", onSeeked2, { once: true });
-    video.currentTime = seekTo;
+    const w = itemWindow(item, preOverride, postOverride);
+    if (!video || !w) return;
+    seekAndPlay(video, w.start, w.end);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isQueueActive = activeEventId !== null || activeTextCard !== null;
@@ -1380,32 +1466,13 @@ export function PlaylistsPage() {
       } else {
         const clipItem = nextItem as QueueItem;
         setActiveEventId(clipItem.event.eventId);
-        const sp = matchLookupRef.current.get(clipItem.matchId)?.syncPoint;
-        if (sp) {
-          const videoTime = computeVideoTime(clipItem.event, sp);
-          if (videoTime !== null) {
-            const { pre, post } = getClipOffsets(clipItem.matchId, clipItem.event.eventId);
-            const seekTo = Math.max(0, videoTime - preRollRef.current - pre);
-            const clipEnd = Math.max(videoTime, videoTime + postRollRef.current + post);
-            if (clipItem.matchId !== activeMatchIdRef.current) {
-              pendingSeekRef.current = { seekTo, clipEnd };
-              setActiveMatchId(clipItem.matchId);
-            } else {
-              const video = videoRef.current;
-              clipEndRef.current = undefined;
-              video?.pause();
-              if (video) {
-                const target3 = seekTo;
-                const end3 = clipEnd;
-                function onSeeked3() {
-                  if (video!.currentTime > target3 + 2) { video!.addEventListener("seeked", onSeeked3, { once: true }); return; }
-                  clipEndRef.current = end3;
-                  video!.play().catch(() => {});
-                }
-                video.addEventListener("seeked", onSeeked3, { once: true });
-                video.currentTime = seekTo;
-              }
-            }
+        const w = itemWindow(clipItem);
+        if (w) {
+          if (clipItem.matchId !== activeMatchIdRef.current) {
+            pendingSeekRef.current = { seekTo: w.start, clipEnd: w.end };
+            setActiveMatchId(clipItem.matchId);
+          } else if (videoRef.current) {
+            seekAndPlay(videoRef.current, w.start, w.end);
           }
         }
       }
@@ -1438,7 +1505,7 @@ export function PlaylistsPage() {
 
     function handleTimeUpdate() {
       const end = clipEndRef.current;
-      if (end === undefined || !video) return;
+      if (end === undefined || !video || trimActiveRef.current) return;
       if (video.currentTime < end) return;
       // Guard: if we're >60s past clipEnd the video is at a stale position (seek in progress)
       if (video.currentTime > end + 60) return;
@@ -1457,29 +1524,13 @@ export function PlaylistsPage() {
         } else {
           const clipItem = nextItem as QueueItem;
           setActiveEventId(clipItem.event.eventId);
-          const sp = matchLookupRef.current.get(clipItem.matchId)?.syncPoint;
-          if (sp) {
-            const videoTime = computeVideoTime(clipItem.event, sp);
-            if (videoTime !== null) {
-              const { pre: nextPre, post: nextPost } = getClipOffsets(clipItem.matchId, clipItem.event.eventId);
-              const seekTo = Math.max(0, videoTime - preRollRef.current - nextPre);
-              const clipEnd = Math.max(videoTime, videoTime + postRollRef.current + nextPost);
-              if (clipItem.matchId !== activeMatchIdRef.current) {
-                pendingSeekRef.current = { seekTo, clipEnd };
-                setActiveMatchId(clipItem.matchId);
-              } else {
-                // clipEndRef was already cleared above — keep it undefined until seeked
-                video.pause();
-                const target4 = seekTo;
-                const end4 = clipEnd;
-                function onSeeked4() {
-                  if (video!.currentTime > target4 + 2) { video!.addEventListener("seeked", onSeeked4, { once: true }); return; }
-                  clipEndRef.current = end4;
-                  video!.play().catch(() => {});
-                }
-                video.addEventListener("seeked", onSeeked4, { once: true });
-                video.currentTime = seekTo;
-              }
+          const w = itemWindow(clipItem);
+          if (w) {
+            if (clipItem.matchId !== activeMatchIdRef.current) {
+              pendingSeekRef.current = { seekTo: w.start, clipEnd: w.end };
+              setActiveMatchId(clipItem.matchId);
+            } else {
+              seekAndPlay(video, w.start, w.end);
             }
           }
         }
@@ -1497,6 +1548,7 @@ export function PlaylistsPage() {
 
   function startQueue(queue: PlaybackItem[]) {
     if (queue.length === 0) return;
+    abandonTrim();
     const firstItem = queue[0];
     queueRef.current = queue;
     queueIdxRef.current = 0;
@@ -1517,12 +1569,8 @@ export function PlaylistsPage() {
     activeTextCardRef.current = null;
     setActiveEventId(clipItem.event.eventId);
     if (clipItem.matchId !== activeMatchIdRef.current) {
-      const videoTime = computeVideoTime(clipItem.event, sp);
-      if (videoTime !== null) {
-        const { pre, post } = getClipOffsets(clipItem.matchId, clipItem.event.eventId);
-        const seekTo = Math.max(0, videoTime - preRollRef.current - pre);
-        pendingSeekRef.current = { seekTo, clipEnd: videoTime + postRollRef.current + post };
-      }
+      const w = itemWindow(clipItem);
+      if (w) pendingSeekRef.current = { seekTo: w.start, clipEnd: w.end };
       setActiveMatchId(clipItem.matchId);
     } else {
       seekToItem(clipItem);
@@ -1683,6 +1731,89 @@ export function PlaylistsPage() {
     );
   }
 
+  /** T, the Trim button, or a row's "Trim clip…": the playing clip's ends on handles. */
+  function startTrim() {
+    if (trimActiveRef.current || !selected || !activeClipKey || activeTextCard || playerFs.active || cropMode) return;
+    const { matchId, eventId } = activeClipKey;
+    const sync = matchLookup.get(matchId)?.syncPoint;
+    const event = eventByKey.get(`${matchId}:${eventId}`);
+    const eventTime = sync && event ? computeVideoTime(event, sync) : null;
+    if (eventTime === null) return;
+    const clip = clipByKey.get(`${matchId}:${eventId}`);
+    const { start, end } = clipBounds(eventTime, preRoll, postRoll, clip?.preRollOffset, clip?.postRollOffset);
+    // Set now, not at the next render: a seek landing meanwhile must not play.
+    trimActiveRef.current = true;
+    clipEndRef.current = undefined;
+    videoRef.current?.pause();
+    setTrim({ key: `${matchId}:${eventId}`, matchId, eventId, eventTime, start, end });
+  }
+
+  /** Something else took over (another clip, Stop, full screen): trim mode just closes. */
+  function abandonTrim() {
+    if (!trimActiveRef.current) return;
+    trimActiveRef.current = false;
+    setTrim(null);
+  }
+
+  /**
+   * Done (with the new ends) or Cancel (null). Either way the clip stays,
+   * paused at its start: Space plays the result and the queue carries on
+   * after it.
+   */
+  function endTrim(result: TrimWindow | null) {
+    const tr = trim;
+    if (!tr) return;
+    trimActiveRef.current = false;
+    setTrim(null);
+    let window = { start: tr.start, end: tr.end };
+    const inChanged = !!result && Math.abs(result.start - tr.start) >= 0.05;
+    const outChanged = !!result && Math.abs(result.end - tr.end) >= 0.05;
+    if (result && (inChanged || outChanged)) {
+      const offsets = offsetsForTrim({ eventTime: tr.eventTime, start: result.start, end: result.end, preRoll, postRoll });
+      void commitClipOffsets(tr.matchId, tr.eventId, offsets.preRollOffset, offsets.postRollOffset);
+      window = clipBounds(tr.eventTime, preRoll, postRoll, offsets.preRollOffset, offsets.postRollOffset);
+      trackEvent("clip_trimmed", {
+        playlist_id: selected?.id,
+        in_changed: inChanged,
+        out_changed: outChanged,
+        length_seconds: Math.round((window.end - window.start) * 10) / 10,
+      });
+    }
+    const video = videoRef.current;
+    if (video && activeKey === tr.key) {
+      video.pause();
+      video.currentTime = window.start;
+      clipEndRef.current = window.end;
+    }
+  }
+
+  /** A row's "Trim clip…": that clip plays (paused) and opens for trimming. */
+  function trimRow(item: QueueItem) {
+    const key = itemKey(item);
+    if (key === activeKey) {
+      startTrim();
+      return;
+    }
+    pendingTrimKeyRef.current = key;
+    handleRowClick(item);
+  }
+
+  useEffect(() => {
+    if (pendingTrimKeyRef.current === null) return;
+    if (pendingTrimKeyRef.current === activeKey) {
+      pendingTrimKeyRef.current = null;
+      startTrim();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKey]);
+
+  // Trim belongs to one clip in the window: another clip, full screen or
+  // the crop editor closes it.
+  useEffect(() => {
+    if (trim && (activeKey !== trim.key || playerFs.active || cropMode)) abandonTrim();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKey, playerFs.active, cropMode]);
+
   // One key owner for the page (src/lib/key-scope.ts); the Add Clips sheet
   // registers its own scope on top while it is open. The handler closes
   // over the latest render, so no refs are needed for state.
@@ -1729,6 +1860,11 @@ export function PlaylistsPage() {
       case "replay":
         e.preventDefault();
         _handleReplayRef.current();
+        return;
+      case "trim":
+        if (!activeClipKey) return;
+        e.preventDefault();
+        startTrim();
         return;
       case "toggle-play": {
         e.preventDefault();
@@ -2344,6 +2480,25 @@ export function PlaylistsPage() {
    */
   function applyR2Urls(uploaded: ClipShipResult["uploaded"], plId: string) {
     if (uploaded.length === 0) return;
+    // A clip trimmed while it uploaded: that upload is the old cut. It is
+    // not kept (cleared only while it is still the stored URL, so a newer
+    // upload is never wiped), and the playlist ships again with the new one.
+    const current = selectedRef.current?.id === plId ? selectedRef.current : playlistsRef.current.find((p) => p.id === plId);
+    const isStale = (u: ClipShipResult["uploaded"][number]) => {
+      if (!current || u.preRollOffset === undefined || u.postRollOffset === undefined) return false;
+      const item = current.items.find(
+        (i): i is PlaylistClipItem => isClipItem(i) && i.matchId === u.matchId && i.eventId === u.eventId,
+      );
+      return !!item && ((item.preRollOffset ?? 0) !== u.preRollOffset || (item.postRollOffset ?? 0) !== u.postRollOffset);
+    };
+    const stale = uploaded.filter(isStale);
+    if (stale.length > 0 && current) {
+      void Promise.all(stale.map((u) => clearShippedClip(plId, u.matchId, u.eventId, u.r2Url)))
+        .then(() => queuePendingShip(current))
+        .catch((err) => Sentry.captureException(err));
+      uploaded = uploaded.filter((u) => !stale.includes(u));
+      if (uploaded.length === 0) return;
+    }
     const byKey = new Map(uploaded.map((u) => [`${u.matchId}:${u.eventId}`, u.r2Url]));
     const patch = (pl: Playlist): Playlist => ({
       ...pl,
@@ -2576,7 +2731,7 @@ export function PlaylistsPage() {
       } else if (result.shipped > 0) {
         // Silent when everything was already in the cloud (idempotent re-run).
         toast.success(`Clips uploaded to "${target.name}"`, {
-          description: `${uploadedCount} clip${uploadedCount === 1 ? "" : "s"} are now in the cloud.`,
+          description: `${uploadedCount} clip${uploadedCount === 1 ? " is" : "s are"} now in the cloud.`,
         });
         trackEvent("playlist_shipped", { playlist_id: target.id, clip_count: uploadedCount });
       }
@@ -3809,6 +3964,18 @@ export function PlaylistsPage() {
             speed={playbackSpeed}
             onSpeedChange={setPlaybackSpeed}
             interactive={!cropMode}
+            trimBar={
+              trim ? (
+                <ClipTrimmer
+                  key={trim.key}
+                  video={persistentVideo}
+                  eventTime={trim.eventTime}
+                  initial={{ start: trim.start, end: trim.end }}
+                  onCancel={() => endTrim(null)}
+                  onDone={(w) => endTrim(w)}
+                />
+              ) : undefined
+            }
           >
             {cropMode && activeClipKey && !activeTextCard && (
               <CropOverlay
@@ -3862,41 +4029,66 @@ export function PlaylistsPage() {
             )}
             {/* This clip's own length: the playlist's clip length plus the
                 clip's offsets, shown as the seconds that actually play. */}
-            {activeEventId !== null && (
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1">
-                <span className="text-callout text-muted-foreground">This clip</span>
-                <div className="flex items-center gap-1.5">
-                  <Stepper
-                    label="Seconds before the play"
-                    value={preRoll + activeClipOffsets.pre}
-                    min={0}
-                    onChange={(n) => adjustActiveClip(n - (preRoll + activeClipOffsets.pre), 0)}
-                    format={(v) => `${v} s`}
-                  />
-                  <span className="text-callout text-muted-foreground">before</span>
+            {activeEventId !== null && (() => {
+              // A trim can leave fractions: shown to the tenth, and the
+              // steppers move on to whole seconds from there.
+              const before = preRoll + activeClipOffsets.pre;
+              const after = postRoll + activeClipOffsets.post;
+              return (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1">
+                  <span className="text-callout text-muted-foreground">This clip</span>
+                  <div className="flex items-center gap-1.5">
+                    <Stepper
+                      label="Seconds before the play"
+                      value={before}
+                      min={0}
+                      disabled={!!trim}
+                      onChange={(n) => adjustActiveClip(stepToWhole(before, n) - before, 0)}
+                      format={formatSeconds}
+                    />
+                    <span className="text-callout text-muted-foreground">before</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Stepper
+                      label="Seconds after the play"
+                      value={after}
+                      min={0}
+                      disabled={!!trim}
+                      onChange={(n) => adjustActiveClip(0, stepToWhole(after, n) - after)}
+                      format={formatSeconds}
+                    />
+                    <span className="text-callout text-muted-foreground">after</span>
+                  </div>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        disabled={!!trim || cropMode || !!activeTextCard}
+                        onClick={startTrim}
+                      >
+                        <Scissors />
+                        Trim…
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="flex items-center gap-1.5">
+                      Drag the clip's start and end on the player
+                      <Kbd>T</Kbd>
+                    </TooltipContent>
+                  </Tooltip>
+                  {(activeClipOffsets.pre !== 0 || activeClipOffsets.post !== 0) && !trim && (
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => adjustActiveClip(-activeClipOffsets.pre, -activeClipOffsets.post)}
+                      title={`Back to the playlist's ${preRoll} s before and ${postRoll} s after`}
+                    >
+                      Reset
+                    </Button>
+                  )}
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <Stepper
-                    label="Seconds after the play"
-                    value={postRoll + activeClipOffsets.post}
-                    min={0}
-                    onChange={(n) => adjustActiveClip(0, n - (postRoll + activeClipOffsets.post))}
-                    format={(v) => `${v} s`}
-                  />
-                  <span className="text-callout text-muted-foreground">after</span>
-                </div>
-                {(activeClipOffsets.pre !== 0 || activeClipOffsets.post !== 0) && (
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    onClick={() => adjustActiveClip(-activeClipOffsets.pre, -activeClipOffsets.post)}
-                    title={`Back to the playlist's ${preRoll} s before and ${postRoll} s after`}
-                  >
-                    Reset
-                  </Button>
-                )}
-              </div>
-            )}
+              );
+            })()}
             {activeClipKey && activeOrgId && (() => {
               const key = `${activeClipKey.matchId}:${activeClipKey.eventId}`;
               const assignedIds = clipAssignments.get(key) ?? new Set<string>();
@@ -4092,6 +4284,7 @@ export function PlaylistsPage() {
                 drag={drag}
                 onClick={(e) => handleRowPress(queueItem, e)}
                 onInsertTextCardAbove={() => handleInsertTextCard(index)}
+                onTrim={noSync ? undefined : () => trimRow(queueItem)}
                 onRemove={() => { if (clip) handleRemoveSingleClip(clip); }}
                 labelControls={activeOrgId ? {
                   labels,

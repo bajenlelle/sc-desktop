@@ -527,6 +527,30 @@ export async function clearShippedClipsForMatch(
   return data?.length ?? 0;
 }
 
+/**
+ * Null one playlist clip's shipped URL: the clip was trimmed, so the uploaded
+ * MP4 is the old cut (same reasoning as clearShippedClipsForMatch). With
+ * `onlyIfUrl` the clear applies only while that URL is still the stored one,
+ * so it can never wipe a newer upload that landed first.
+ */
+export async function clearShippedClip(
+  supabase: SupabaseClient,
+  playlistId: string,
+  matchId: string,
+  eventId: number,
+  onlyIfUrl?: string,
+): Promise<void> {
+  let query = supabase
+    .from("playlist_clips")
+    .update({ r2_url: null })
+    .eq("playlist_id", playlistId)
+    .eq("match_id", matchId)
+    .eq("event_id", eventId);
+  if (onlyIfUrl !== undefined) query = query.eq("r2_url", onlyIfUrl);
+  const { error } = await query;
+  if (error) throw new Error(`Failed to clear the shipped clip: ${error.message}`);
+}
+
 // ---------------------------------------------------------------------------
 // Assign (or unassign) a playlist to a team (legacy single-team — kept for
 // backward compat; prefer setPlaylistTeams for new code)

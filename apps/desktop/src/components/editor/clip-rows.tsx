@@ -170,6 +170,7 @@ export function ClipRow({
   onClick,
   drag,
   onInsertTextCardAbove,
+  onTrim,
   onRemove,
   labelControls,
   groupPos,
@@ -197,6 +198,8 @@ export function ClipRow({
   onClick: (e: React.MouseEvent) => void;
   drag: RowDragProps;
   onInsertTextCardAbove: () => void;
+  /** Opens the clip for trimming; absent when it can't play (no sync point). */
+  onTrim?: () => void;
   onRemove: () => void;
   labelControls?: LabelRowControls;
   groupPos?: GroupRunInfo["pos"];
@@ -331,6 +334,7 @@ export function ClipRow({
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
+        {onTrim && <ContextMenuItem onSelect={onTrim}>Trim clip…</ContextMenuItem>}
         <ContextMenuItem onSelect={onInsertTextCardAbove}>Insert text card above</ContextMenuItem>
         {canGroupSelection && isSelected && onGroupSelected && (
           <ContextMenuItem onSelect={onGroupSelected}>Group {selectionCount} selected items</ContextMenuItem>

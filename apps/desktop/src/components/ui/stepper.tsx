@@ -12,6 +12,7 @@ export function Stepper({
   step = 1,
   format,
   label,
+  disabled = false,
   className,
 }: {
   value: number
@@ -22,6 +23,7 @@ export function Stepper({
   format?: (value: number) => React.ReactNode
   /** Accessible name for the control, e.g. "Pre-roll". */
   label: string
+  disabled?: boolean
   className?: string
 }) {
   const clamp = (n: number) => Math.min(max, Math.max(min, n))
@@ -33,11 +35,11 @@ export function Stepper({
       aria-label={label}
       className={cn("inline-flex items-center overflow-hidden rounded-md bg-card shadow-xs ring-1 ring-separator", className)}
     >
-      <button type="button" aria-label={`Decrease ${label}`} disabled={value <= min} onClick={() => onChange(clamp(value - step))} className={btn}>
+      <button type="button" aria-label={`Decrease ${label}`} disabled={disabled || value <= min} onClick={() => onChange(clamp(value - step))} className={btn}>
         <Minus />
       </button>
-      <span className="min-w-9 px-1 text-center text-sm nums text-foreground">{format ? format(value) : value}</span>
-      <button type="button" aria-label={`Increase ${label}`} disabled={value >= max} onClick={() => onChange(clamp(value + step))} className={btn}>
+      <span className={cn("min-w-9 px-1 text-center text-sm nums text-foreground", disabled && "opacity-50")}>{format ? format(value) : value}</span>
+      <button type="button" aria-label={`Increase ${label}`} disabled={disabled || value >= max} onClick={() => onChange(clamp(value + step))} className={btn}>
         <Plus />
       </button>
     </div>
