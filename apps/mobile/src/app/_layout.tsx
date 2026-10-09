@@ -1,3 +1,5 @@
+// Before anything that might create a client: dev-only read-only mode.
+import "@/lib/dev-read-only";
 import "../global.css";
 
 import { useEffect } from "react";
