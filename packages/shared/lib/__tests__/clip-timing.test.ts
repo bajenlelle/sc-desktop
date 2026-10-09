@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PlayByPlayEvent, SyncPoint } from "../../types/match";
-import { clipBounds, clipShipKey, computeVideoTime, isWatchedPosition } from "../clip-timing";
+import { clipBounds, clipShipKey, computeVideoTime, formatClipTime, isWatchedPosition } from "../clip-timing";
 
 function ev(partial: Partial<PlayByPlayEvent>): PlayByPlayEvent {
   return partial as PlayByPlayEvent;
@@ -102,5 +102,22 @@ describe("isWatchedPosition", () => {
     expect(isWatchedPosition(5, NaN)).toBe(false);
     expect(isWatchedPosition(5, Infinity)).toBe(false);
     expect(isWatchedPosition(5, -1)).toBe(false);
+  });
+});
+
+describe("formatClipTime", () => {
+  it("shows minutes, seconds and tenths", () => {
+    expect(formatClipTime(7.44)).toBe("0:07.4");
+    expect(formatClipTime(62)).toBe("1:02.0");
+    expect(formatClipTime(0)).toBe("0:00.0");
+  });
+
+  it("never goes negative", () => {
+    expect(formatClipTime(-3)).toBe("0:00.0");
+  });
+
+  it("carries a rounded minute instead of showing 60 seconds", () => {
+    expect(formatClipTime(59.96)).toBe("1:00.0");
+    expect(formatClipTime(119.99)).toBe("2:00.0");
   });
 });

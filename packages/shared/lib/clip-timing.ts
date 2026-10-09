@@ -37,6 +37,18 @@ export function clipBounds(
 }
 
 /**
+ * A position within a clip for a scrubber or trim readout: "0:07.4",
+ * "1:02.0". Tenths, because a play is decided in fractions of a second.
+ */
+export function formatClipTime(seconds: number): string {
+  // Round first, so 59.96 reads 1:00.0 rather than 0:60.0.
+  const s = Math.round(Math.max(0, seconds) * 10) / 10;
+  const m = Math.floor(s / 60);
+  const rest = s - m * 60;
+  return `${m}:${rest.toFixed(1).padStart(4, "0")}`;
+}
+
+/**
  * R2 object key for a shipped clip. pre/post are the EFFECTIVE totals
  * (base roll + per-clip offset); start is the computed in-video start second,
  * which depends on the match's sync point — so a re-synced game mints NEW

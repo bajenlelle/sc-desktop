@@ -9,6 +9,7 @@ import { DeviceGate } from "@/components/device-gate";
 import { UpgradeCelebration } from "@/components/upgrade-celebration";
 import { MyTeamProvider } from "@/lib/my-team";
 import { TeamStep } from "@/components/team-step";
+import { AppProviders } from "@/components/providers";
 import type { UserProfile } from "@scoutable/shared/types/org";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -50,6 +51,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   return (
+    <AppProviders>
     <AuthProvider>
       <MyTeamProvider>
       <ThemeSync />
@@ -65,5 +67,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </div>
       </MyTeamProvider>
     </AuthProvider>
+    </AppProviders>
   );
 }

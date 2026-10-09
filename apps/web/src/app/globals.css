@@ -1,19 +1,28 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "@fontsource-variable/dm-sans";
-@import "@fontsource/barlow-condensed/600.css";
-@import "@fontsource/barlow-condensed/700.css";
-@import "@fontsource/barlow-condensed/800.css";
 @import "./themes.css";
+
+/* Class names built in shared logic (eventColors, orgPlanColors) must be
+   generated too: Tailwind skips node_modules, which is how web reaches
+   packages/shared. After the imports: an @import after any rule is dropped. */
+@source "../../../../packages/shared/lib";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: "DM Sans Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Barlow Condensed", ui-sans-serif, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, monospace;
+  /* The platform font: SF Pro on Apple devices (optical sizes, tracking tables
+     and tabular figures come with it), Segoe UI on Windows, Roboto on Android.
+     The brand lives in the wordmark. */
+  --font-sans: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* text-sm is the app's body size and text-xs its secondary size; both
+     follow the text scale below (macOS with a mouse, iOS on touch). */
+  --text-sm: var(--type-body-size);
+  --text-sm--line-height: var(--type-body-leading);
+  --text-xs: var(--type-xs-size);
+  --text-xs--line-height: var(--type-xs-leading);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -43,6 +52,28 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  /* Derived materials and fills (see :root below) */
+  --color-fill-1: var(--fill-1);
+  --color-fill-2: var(--fill-2);
+  --color-fill-3: var(--fill-3);
+  --color-fill-4: var(--fill-4);
+  --color-separator: var(--separator);
+  --color-separator-strong: var(--separator-strong);
+  --color-selection: var(--selection);
+  --color-selection-foreground: var(--selection-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-material-sidebar: var(--material-sidebar);
+  --color-material-toolbar: var(--material-toolbar);
+  --color-material-popover: var(--material-popover);
+  --color-material-sheet: var(--material-sheet);
+  --shadow-menu: var(--shadow-menu);
+  --shadow-dialog: var(--shadow-dialog);
+  --shadow-sheet: var(--shadow-sheet);
+  --radius-window: var(--window-radius);
+  --ease-spring: var(--ease-out-spring);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -50,6 +81,82 @@
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
+}
+
+/* ---------------------------------------------------------------------------
+   Text styles, one set at two scales. With a mouse or trackpad they are the
+   macOS sizes the desktop app uses; on touch screens they are the iOS default
+   sizes (about 1.3 times larger, the ratio Apple uses between iPad apps and
+   their Mac versions), so the hierarchy is the same on both. rem-based, so
+   browser zoom scales them. Tracking is size-specific: tight above 20px,
+   zero at body, slightly open below 12px.
+   ------------------------------------------------------------------------- */
+:root {
+  --type-large-title-size: 1.625rem;   --type-large-title-leading: 2rem;
+  --type-title-1-size: 1.375rem;       --type-title-1-leading: 1.625rem;
+  --type-title-2-size: 1.0625rem;      --type-title-2-leading: 1.375rem;
+  --type-title-3-size: 0.9375rem;      --type-title-3-leading: 1.25rem;
+  --type-headline-size: 0.8125rem;     --type-headline-leading: 1rem;
+  --type-body-size: 0.8125rem;         --type-body-leading: 1.125rem;
+  --type-callout-size: 0.75rem;        --type-callout-leading: 1rem;
+  --type-subheadline-size: 0.6875rem;  --type-subheadline-leading: 0.875rem;
+  --type-footnote-size: 0.625rem;      --type-footnote-leading: 0.8125rem;
+  --type-xs-size: 0.75rem;             --type-xs-leading: 1rem;
+}
+@media (pointer: coarse) {
+  :root {
+    --type-large-title-size: 2.125rem; --type-large-title-leading: 2.5625rem;
+    --type-title-1-size: 1.75rem;      --type-title-1-leading: 2.125rem;
+    --type-title-2-size: 1.375rem;     --type-title-2-leading: 1.75rem;
+    --type-title-3-size: 1.25rem;      --type-title-3-leading: 1.5625rem;
+    --type-headline-size: 1.0625rem;   --type-headline-leading: 1.375rem;
+    /* 17px: also keeps iOS Safari from zooming into a focused field (< 16px). */
+    --type-body-size: 1.0625rem;       --type-body-leading: 1.375rem;
+    --type-callout-size: 1rem;         --type-callout-leading: 1.3125rem;
+    --type-subheadline-size: 0.9375rem; --type-subheadline-leading: 1.25rem;
+    --type-footnote-size: 0.8125rem;   --type-footnote-leading: 1.125rem;
+    --type-xs-size: 0.8125rem;         --type-xs-leading: 1.125rem;
+  }
+}
+
+@utility text-large-title { font-size: var(--type-large-title-size); line-height: var(--type-large-title-leading); font-weight: 400; letter-spacing: -0.02em; }
+@utility text-title-1 { font-size: var(--type-title-1-size); line-height: var(--type-title-1-leading); font-weight: 400; letter-spacing: -0.016em; }
+@utility text-title-2 { font-size: var(--type-title-2-size); line-height: var(--type-title-2-leading); font-weight: 700; letter-spacing: -0.01em; }
+@utility text-title-3 { font-size: var(--type-title-3-size); line-height: var(--type-title-3-leading); font-weight: 600; letter-spacing: -0.006em; }
+@utility text-headline { font-size: var(--type-headline-size); line-height: var(--type-headline-leading); font-weight: 700; letter-spacing: 0; }
+@utility text-body { font-size: var(--type-body-size); line-height: var(--type-body-leading); font-weight: 400; letter-spacing: 0; }
+@utility text-callout { font-size: var(--type-callout-size); line-height: var(--type-callout-leading); font-weight: 400; letter-spacing: 0.004em; }
+@utility text-subheadline { font-size: var(--type-subheadline-size); line-height: var(--type-subheadline-leading); font-weight: 400; letter-spacing: 0.006em; }
+@utility text-footnote { font-size: var(--type-footnote-size); line-height: var(--type-footnote-leading); font-weight: 400; letter-spacing: 0.01em; }
+@utility text-caption { font-size: var(--type-footnote-size); line-height: var(--type-footnote-leading); font-weight: 500; letter-spacing: 0.01em; }
+/* Counters, clocks, dates, quotas: figures that must align. */
+@utility nums { font-variant-numeric: tabular-nums; }
+
+/* Menus, popovers and tooltips materialise from their trigger and leave the
+   same way. Radix keeps the node mounted while the close animation runs. */
+@utility chrome-animate {
+  transform-origin: var(
+    --radix-dropdown-menu-content-transform-origin,
+    var(
+      --radix-context-menu-content-transform-origin,
+      var(--radix-popover-content-transform-origin, var(--radix-tooltip-content-transform-origin, center))
+    )
+  );
+  &[data-state="open"] { animation: chrome-in 180ms var(--ease-out-spring) both; }
+  &[data-state="closed"] { animation: chrome-out 120ms ease-in both; }
+}
+
+@keyframes chrome-in {
+  from { opacity: 0; transform: scale(0.94); filter: blur(3px); }
+  to { opacity: 1; transform: scale(1); filter: blur(0); }
+}
+@keyframes chrome-out {
+  from { opacity: 1; transform: scale(1); filter: blur(0); }
+  to { opacity: 0; transform: scale(0.96); filter: blur(2px); }
+}
+@keyframes progress-indeterminate {
+  from { transform: translateX(-100%) scaleX(0.3); }
+  to { transform: translateX(100%) scaleX(0.3); }
 }
 
 :root {
@@ -61,13 +168,13 @@
   --card-foreground: oklch(0.1 0.01 240);
   --popover: oklch(0.99 0 0);
   --popover-foreground: oklch(0.1 0.01 240);
-  --primary: oklch(0.6 0.15 210);
-  --primary-foreground: oklch(1 0 0);
+  --primary: oklch(0.6 0.15 210);         /* sky blue */
+  --primary-foreground: oklch(1 0 0);     /* white */
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.1 0.01 240);
   --muted: oklch(0.97 0 0);
   --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.75 0.17 70);
+  --accent: oklch(0.75 0.17 70);          /* amber */
   --accent-foreground: oklch(0.1 0.01 240);
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0 0);
@@ -86,23 +193,59 @@
   --sidebar-accent-foreground: oklch(0.1 0.01 240);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.6 0.15 210);
+
+  /* Derived tokens: formulas over the theme tokens above, so every block in
+     themes.css re-derives them without changes. Declared again in .dark so a
+     forced-dark island (video chrome) derives from its own foreground. */
+  --fill-1: color-mix(in oklab, var(--foreground) 5%, transparent);
+  --fill-2: color-mix(in oklab, var(--foreground) 8%, transparent);
+  --fill-3: color-mix(in oklab, var(--foreground) 12%, transparent);
+  --fill-4: color-mix(in oklab, var(--foreground) 18%, transparent);
+  --separator: color-mix(in oklab, var(--foreground) 10%, transparent);
+  --separator-strong: color-mix(in oklab, var(--foreground) 18%, transparent);
+  --material-sidebar: var(--sidebar);
+  --material-toolbar: color-mix(in oklab, var(--background) 72%, transparent);
+  --material-popover: color-mix(in oklab, var(--popover) 88%, transparent);
+  --material-sheet: var(--popover);
+  --selection: var(--primary);
+  --selection-foreground: var(--primary-foreground);
+  --selection-inactive: var(--fill-3);
+  /* Status colours: the same in every theme (like the system colours), tuned
+     per mode so text stays legible. Amber is a warning, never a hover. */
+  --success: oklch(0.56 0.14 152);
+  --success-foreground: oklch(1 0 0);
+  --warning: oklch(0.62 0.15 62);
+  --warning-foreground: oklch(1 0 0);
+  --shadow-menu: 0 0 0 1px var(--separator), 0 8px 24px -6px rgb(0 0 0 / 0.18);
+  --shadow-dialog: 0 0 0 1px var(--separator), 0 24px 64px -16px rgb(0 0 0 / 0.35);
+  --shadow-sheet: 0 0 0 1px var(--separator), 0 18px 48px -12px rgb(0 0 0 / 0.3);
+  --window-radius: 10px;
+  --ease-out-spring: cubic-bezier(0.25, 1, 0.5, 1);
+
+  /* Layout. The toolbar matches desktop's; on phones the shell sets the tab
+     bar height (0 elsewhere) so floating things clear it. */
+  --toolbar-height: 3.25rem;
+  --sidebar-width: 220px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --tab-bar-height: 0px;
 }
 
 .dark {
   color-scheme: dark;
-  --background: oklch(0.18 0.02 240);
-  --foreground: oklch(0.9 0.01 240);
-  --card: oklch(0.22 0.02 240);
+  --background: oklch(0.18 0.02 240);    /* darkest surface — the floor everything lifts from */
+  --foreground: oklch(0.9 0.01 240);     /* #E2E8F0 */
+  --card: oklch(0.22 0.02 240);          /* elevated one step above background */
   --card-foreground: oklch(0.9 0.01 240);
   --popover: oklch(0.22 0.02 240);
   --popover-foreground: oklch(0.9 0.01 240);
-  --primary: oklch(0.72 0.15 210);
+  --primary: oklch(0.72 0.15 210);       /* #00BCD8 sky blue */
   --primary-foreground: oklch(0.18 0.02 240);
   --secondary: oklch(0.28 0.02 240);
   --secondary-foreground: oklch(0.9 0.01 240);
   --muted: oklch(0.28 0.02 240);
   --muted-foreground: oklch(0.68 0.01 240);
-  --accent: oklch(0.76 0.17 70);
+  --accent: oklch(0.76 0.17 70);         /* #F49A00 amber */
   --accent-foreground: oklch(0.1 0.01 240);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(0.32 0.02 240);
@@ -113,7 +256,7 @@
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.22 0.02 240);
+  --sidebar: oklch(0.22 0.02 240);       /* elevated rail, same level as cards */
   --sidebar-foreground: oklch(0.9 0.01 240);
   --sidebar-primary: oklch(0.72 0.15 210);
   --sidebar-primary-foreground: oklch(0.18 0.02 240);
@@ -121,16 +264,70 @@
   --sidebar-accent-foreground: oklch(0.9 0.01 240);
   --sidebar-border: oklch(0.32 0.02 240);
   --sidebar-ring: oklch(0.72 0.15 210);
+
+  --fill-1: color-mix(in oklab, var(--foreground) 5%, transparent);
+  --fill-2: color-mix(in oklab, var(--foreground) 8%, transparent);
+  --fill-3: color-mix(in oklab, var(--foreground) 12%, transparent);
+  --fill-4: color-mix(in oklab, var(--foreground) 18%, transparent);
+  --separator: color-mix(in oklab, var(--foreground) 10%, transparent);
+  --separator-strong: color-mix(in oklab, var(--foreground) 18%, transparent);
+  --material-sidebar: var(--sidebar);
+  --material-toolbar: color-mix(in oklab, var(--background) 72%, transparent);
+  --material-popover: color-mix(in oklab, var(--popover) 88%, transparent);
+  --material-sheet: var(--popover);
+  --selection: var(--primary);
+  --selection-foreground: var(--primary-foreground);
+  --selection-inactive: var(--fill-3);
+  --success: oklch(0.76 0.15 152);
+  --success-foreground: oklch(0.18 0.02 240);
+  --warning: oklch(0.8 0.14 72);
+  --warning-foreground: oklch(0.18 0.02 240);
+  --shadow-menu: 0 0 0 1px var(--separator), 0 8px 24px -6px rgb(0 0 0 / 0.5);
+  --shadow-dialog: 0 0 0 1px var(--separator), 0 24px 64px -16px rgb(0 0 0 / 0.6);
+  --shadow-sheet: 0 0 0 1px var(--separator), 0 18px 48px -12px rgb(0 0 0 / 0.55);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  html, .dark {
+    --material-sidebar: var(--sidebar);
+    --material-toolbar: var(--background);
+    --material-popover: var(--popover);
+  }
+  .backdrop-blur, .backdrop-blur-sm, .backdrop-blur-md, .backdrop-blur-lg, .backdrop-blur-xl { backdrop-filter: none; }
+}
+@media (prefers-contrast: more) {
+  html, .dark { --separator: var(--separator-strong); }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Motion becomes a cross-fade; comprehension cues stay. Spinners keep
+     spinning: they are status, not decoration. */
+  @keyframes chrome-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes chrome-out { from { opacity: 1; } to { opacity: 0; } }
+  .animate-pulse { animation: none; }
+  .animate-progress-indeterminate { animation: none; transform: scaleX(0.08); }
 }
 
 @layer base {
+  html {
+    /* iOS would otherwise enlarge text on rotation. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
   * {
     @apply border-border outline-ring/50;
   }
   body {
     @apply bg-background text-foreground;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    /* A tap shows the press state the components draw, not a grey flash. */
+    -webkit-tap-highlight-color: transparent;
   }
-  h1, h2, h3 {
-    font-family: var(--font-display, var(--font-sans));
-  }
+  /* SF Symbols "regular" weight for 16 px icons; filled primary buttons
+     opt back into stroke-2. */
+  svg.lucide { stroke-width: 1.75px; }
+}
+
+.animate-progress-indeterminate {
+  animation: progress-indeterminate 1.4s var(--ease-out-spring) infinite;
 }

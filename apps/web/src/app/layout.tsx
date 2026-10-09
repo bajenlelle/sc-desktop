@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ColorThemeProvider } from "@/components/color-theme-provider";
@@ -30,6 +30,41 @@ export const metadata: Metadata = {
   description: "Watch your team's playlists",
 };
 
+// Edge to edge on phones (the shell pads for the notch and home indicator
+// itself); the browser chrome takes the default background of each mode.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#fcfcfc" },
+    { media: "(prefers-color-scheme: dark)", color: "#09131a" },
+  ],
+};
+
+/**
+ * Toasts in the active theme's colours (sonner's own palette is light-only
+ * and ignores the colour themes), bottom centre, clear of the phone tab bar.
+ */
+function ThemedToaster() {
+  return (
+    <Toaster
+      position="bottom-center"
+      duration={4000}
+      mobileOffset={{ bottom: "calc(var(--tab-bar-height) + 12px)" }}
+      toastOptions={{
+        style: {
+          background: "var(--popover)",
+          border: "none",
+          boxShadow: "var(--shadow-menu)",
+          borderRadius: "10px",
+          color: "var(--foreground)",
+        },
+      }}
+    />
+  );
+}
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -44,7 +79,7 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <ColorThemeProvider>
             <PostHogProvider>{children}</PostHogProvider>
-            <Toaster richColors />
+            <ThemedToaster />
           </ColorThemeProvider>
         </ThemeProvider>
       </body>
