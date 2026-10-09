@@ -23,7 +23,8 @@ export function StatCells({ cells, className }: { cells: StatCell[]; className?:
           const body = (
             <>
               <div className={cn("text-title-2 nums", c.warn ? "text-warning" : "text-foreground")}>{c.value}</div>
-              <div className="truncate text-callout text-muted-foreground">{c.label}</div>
+              {/* Wraps rather than truncates: three cells share a phone's width. */}
+              <div className="text-callout text-muted-foreground">{c.label}</div>
             </>
           );
           return c.onClick ? (

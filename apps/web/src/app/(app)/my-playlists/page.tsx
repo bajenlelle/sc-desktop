@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { sharerFilterOptions } from "@scoutable/shared/lib/playlist-feed";
 import { isMultiGame } from "@scoutable/shared/lib/watch-queue";
 import { isClipItem, type Playlist } from "@scoutable/shared/types/match";
@@ -9,6 +10,7 @@ import { useAuth } from "@/components/auth-context";
 import { AdminSetupCard } from "@/components/admin-setup-card";
 import { EMPTY_FEED_FILTERS, PlaylistFeed, type FeedFilters } from "@/components/playlist/PlaylistFeed";
 import { SharedByMe } from "@/components/playlist/SharedByMe";
+import { ShareRecipients } from "@/components/playlist/share-recipients";
 import { useSharedPlaylists } from "@/components/playlist/use-shared-playlists";
 import { WatchView } from "@/components/playlist/watch-view";
 import { BackButton } from "@/components/shell/back-button";
@@ -16,11 +18,11 @@ import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Callout } from "@/components/ui/group";
 import { PopUpButton } from "@/components/ui/pop-up-button";
 import { SearchField } from "@/components/ui/search-field";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { WelcomeCard } from "@/components/welcome-card";
-import { cn } from "@/lib/utils";
 
 /**
  * Playlists shared with the user (and, for coaches, the ones they share):
@@ -59,18 +61,42 @@ export default function MyPlaylistsPage() {
   // received-playlists view. Players never see the switch.
   const [coachTab, setCoachTab] = useState<"by-me" | "with-me">("by-me");
   const [feedFilters, setFeedFilters] = useState<FeedFilters>(EMPTY_FEED_FILTERS);
-  const [pendingShareTeamIds, setPendingShareTeamIds] = useState<Set<string>>(new Set());
-  const [pendingShareUserIds, setPendingShareUserIds] = useState<Set<string>>(new Set());
-  const [playerSearchQuery, setPlayerSearchQuery] = useState("");
+  const [dashboardQuery, setDashboardQuery] = useState("");
+  const [shareTeamIds, setShareTeamIds] = useState<Set<string>>(new Set());
+  const [shareUserIds, setShareUserIds] = useState<Set<string>>(new Set());
+  const [sharing, setSharing] = useState(false);
 
   const sharerOptions = useMemo(() => sharerFilterOptions(feedItems), [feedItems]);
   const multiGame = useMemo(() => isMultiGame(watchItems), [watchItems]);
 
+  function openShare(pl: Playlist) {
+    setShareTeamIds(new Set(pl.teamIds ?? []));
+    setShareUserIds(new Set(pl.userIds ?? []));
+    setShareTarget(pl);
+  }
+
   async function handleShare(teamIds: string[], userIds: string[]) {
-    if (!shareTarget) return;
-    await shareTo(shareTarget, teamIds, userIds);
+    const target = shareTarget;
+    if (!target) return;
+    setSharing(true);
+    try {
+      await shareTo(target, teamIds, userIds);
+    } catch (e) {
+      toast.error("Couldn't update sharing", { description: (e as Error).message });
+      return;
+    } finally {
+      setSharing(false);
+    }
     setShareTarget(null);
   }
+
+  const toggleIn = (set: (fn: (prev: Set<string>) => Set<string>) => void) => (id: string) =>
+    set((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const isCoachOrAdmin = userRole === "coach" || userRole === "admin";
   const showDashboard = isCoachOrAdmin && coachTab === "by-me";
@@ -91,114 +117,42 @@ export default function MyPlaylistsPage() {
     );
   }
 
+  // This page can't upload (no footage on the web); the desktop app can.
+  const unshipped = shareTarget?.items.filter((i) => isClipItem(i) && !i.r2Url).length ?? 0;
+  const hasRecipients = (shareTarget?.teamIds?.length ?? 0) > 0 || (shareTarget?.userIds?.length ?? 0) > 0;
   const shareDialog = (
-    <Dialog open={shareTarget !== null} onOpenChange={(open) => { if (!open) { setShareTarget(null); setPlayerSearchQuery(""); } }}>
+    <Dialog open={shareTarget !== null} onOpenChange={(open) => !open && !sharing && setShareTarget(null)}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Share Playlist</DialogTitle>
-          <DialogDescription>Choose which teams and players can see this playlist.</DialogDescription>
+          <DialogTitle>Share playlist</DialogTitle>
+          <DialogDescription>Choose the teams and members who can watch “{shareTarget?.name}”.</DialogDescription>
         </DialogHeader>
-        <div className="py-2">
-          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Teams</p>
-          <div className="flex flex-col gap-1">
-            {allOrgTeams.map((team) => {
-              const checked = pendingShareTeamIds.has(team.id);
-              return (
-                <button
-                  key={team.id}
-                  type="button"
-                  className={cn(
-                    "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-muted",
-                    checked && "bg-primary/10"
-                  )}
-                  onClick={() => {
-                    setPendingShareTeamIds((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(team.id)) next.delete(team.id);
-                      else next.add(team.id);
-                      return next;
-                    });
-                  }}
-                >
-                  <span className={cn("flex h-4 w-4 items-center justify-center rounded border", checked ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40")}>
-                    {checked && <span className="text-[10px] font-bold">✓</span>}
-                  </span>
-                  {team.name}
-                </button>
-              );
-            })}
-          </div>
-          <div className="mt-4">
-            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Players</p>
-            <input
-              type="text"
-              placeholder="Search players…"
-              value={playerSearchQuery}
-              onChange={(e) => setPlayerSearchQuery(e.target.value)}
-              className="mb-2 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
-            />
-            <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
-              {Array.from(memberMap.values())
-                .filter((m) => m.id !== currentUserId && (m.fullName ?? "").toLowerCase().includes(playerSearchQuery.toLowerCase()))
-                .map((member) => {
-                  const checked = pendingShareUserIds.has(member.id);
-                  const initials = (member.fullName ?? "?")
-                    .split(" ")
-                    .map((w) => w[0])
-                    .slice(0, 2)
-                    .join("")
-                    .toUpperCase();
-                  return (
-                    <button
-                      key={member.id}
-                      type="button"
-                      className={cn(
-                        "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-muted",
-                        checked && "bg-primary/10"
-                      )}
-                      onClick={() => {
-                        setPendingShareUserIds((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(member.id)) next.delete(member.id);
-                          else next.add(member.id);
-                          return next;
-                        });
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        readOnly
-                        checked={checked}
-                        className="h-3.5 w-3.5 rounded border-border accent-primary pointer-events-none"
-                      />
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
-                        {initials}
-                      </span>
-                      <span className="flex-1 truncate">{member.fullName ?? member.email ?? "Unknown"}</span>
-                    </button>
-                  );
-                })}
-            </div>
-          </div>
-        </div>
-        {(() => {
-          // Web can't upload clips — shares of unshipped clips stay silent
-          // until the desktop editor uploads them.
-          const unshipped = shareTarget?.items.filter((i) => isClipItem(i) && !i.r2Url).length ?? 0;
-          return unshipped > 0 ? (
-            <p className="text-xs text-amber-600 dark:text-amber-400">
-              {unshipped} clip{unshipped === 1 ? " isn't" : "s aren't"} uploaded yet — recipients
-              won&apos;t be notified until you upload them from the desktop editor.
-            </p>
-          ) : null;
-        })()}
-        <DialogFooter className="flex items-center">
-          {((shareTarget?.teamIds?.length ?? 0) > 0 || (shareTarget?.userIds?.length ?? 0) > 0) && (
-            <Button variant="ghost" size="sm" className="text-muted-foreground mr-auto" onClick={() => handleShare([], [])}>
-              Remove all
+        <ShareRecipients
+          teams={allOrgTeams}
+          members={[...memberMap.values()].filter((m) => m.id !== currentUserId)}
+          teamIds={shareTeamIds}
+          userIds={shareUserIds}
+          onToggleTeam={toggleIn(setShareTeamIds)}
+          onToggleUser={toggleIn(setShareUserIds)}
+        />
+        {unshipped > 0 && (
+          <Callout tone="warning" icon={<AlertTriangle />}>
+            {unshipped === 1
+              ? "1 clip isn't uploaded yet, so recipients don't see it. Upload it from the desktop app."
+              : `${unshipped} clips aren't uploaded yet, so recipients don't see them. Upload them from the desktop app.`}
+          </Callout>
+        )}
+        <DialogFooter>
+          {hasRecipients && (
+            <Button variant="ghost" className="text-destructive sm:mr-auto" disabled={sharing} onClick={() => handleShare([], [])}>
+              Stop sharing
             </Button>
           )}
-          <Button size="sm" onClick={() => handleShare([...pendingShareTeamIds], [...pendingShareUserIds])}>
+          <Button variant="outline" disabled={sharing} onClick={() => setShareTarget(null)}>
+            Cancel
+          </Button>
+          <Button disabled={sharing} onClick={() => handleShare([...shareTeamIds], [...shareUserIds])}>
+            {sharing && <Loader2 className="animate-spin" />}
             Done
           </Button>
         </DialogFooter>
@@ -298,7 +252,14 @@ export default function MyPlaylistsPage() {
           ) : undefined
         }
         search={
-          !showDashboard && feedItems.length > 0 ? (
+          showDashboard ? (
+            <SearchField
+              placeholder="Search playlists"
+              aria-label="Search playlists"
+              value={dashboardQuery}
+              onChange={(e) => setDashboardQuery(e.target.value)}
+            />
+          ) : feedItems.length > 0 ? (
             <SearchField
               placeholder="Search playlists"
               aria-label="Search playlists"
@@ -318,12 +279,9 @@ export default function MyPlaylistsPage() {
               memberMap={memberMap}
               teamMap={teamMap}
               currentUserId={currentUserId}
+              query={dashboardQuery}
               onOpenPlaylist={openPlaylist}
-              onManageShare={(pl) => {
-                setPendingShareTeamIds(new Set(pl.teamIds ?? []));
-                setPendingShareUserIds(new Set(pl.userIds ?? []));
-                setShareTarget(pl);
-              }}
+              onManageShare={openShare}
             />
           </>
         ) : (
