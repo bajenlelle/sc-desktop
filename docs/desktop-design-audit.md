@@ -245,18 +245,24 @@ Built on `design/apple-redesign` in six commits, one per milestone, plus fixes. 
 - **Signing in and joining a club:** one frame under the app's mark; pages cross-fade while the column springs to its height; fields in one inset group with inline errors; Continue with Apple in Apple's style.
 - **Gates and dialogs:** a shared status screen for the device limit, an unavailable workspace, the crash fallback and loading; alert-style upgrade and delete dialogs; feedback with a real text area; relink, devices and the marketing switch as grouped rows; one date format everywhere; no `alert()` or `window.confirm` left.
 
+**Part 2, the features that weren't built** (four more commits):
+
+- **Stopping an export:** exports run as jobs the webview can stop (`cancel_export` kills ffmpeg mid-segment). Save to computer gets a stop button in its progress pill (and ⌘.); closing Send to phone stops the render itself; cancelling a share stops the clip being cut. A stopped or failed export never leaves a file at the chosen path (the final pass writes a hidden partial and is renamed on success), temp files are always deleted, and quitting the app mid-export kills ffmpeg and deletes what it was writing.
+- **Keyboard focus in the clip list:** a macOS table's model. A focus row (kept apart from the selection) follows whatever plays; Shift+↑/↓ extends the selection from an anchor, ⌘↑/⌘↓ and Home/End go to the ends, Return plays the focused row, Delete removes it (with Undo) when nothing is selected, Shift+F10 opens its menu. Shift-click selects a range; ⌘-click toggles. The ring shows only while the keyboard drives the list. The playing row is now matched by game and event, which marked the wrong row in multi-game playlists.
+- **Filter bar:** above the list rather than inside it; it and the collapsed "Filtered" strip spring the height and cross-fade. Hidden rows leave the selection.
+- **Trim handles:** QuickTime's trim bar replaces the transport (T, the Trim button, or "Trim clip…" in a row's menu): the clip framed in yellow on the footage around it, the play marked, handles that drag 1:1, show the frame under them and resist at the start of the video, the play itself and a one-second clip; Space plays the trim, I and O set an end at the playhead. A trimmed clip that recipients already had is uploaded again, so they get the new cut. Every clip window in the editor now comes from the same function as exports.
+
 ## 7. Known gaps and next steps
 
 **Verified:** typecheck, production build, shared tests, `cargo clippy` and `cargo test`; every screen above walked through on one Mac (macOS 15, Retina display) in Courtside, Scoutable Dark and Aubergine, at 1280×720 and 1728×1018. Exercised by hand: reorder (with cancel), sidebar hover and spring-loading, the selection pill, bulk remove and Undo, the Add Clips sheet with chips and Leaders, the tip-off picker's keys, picking a game for import, Send to phone up to rendering (then cancelled), the Share dialog.
 
 **Not verified:** a Windows build; macOS 26; the reduced motion, reduced transparency and increased contrast settings at runtime; the reorder rollback against a failing network; a complete import, share upload or export (nothing was saved or sent from the branch).
 
-**Planned but not built:**
+**Planned but not built:** nothing left from the first list; see part 2 above.
 
-- Cancelling an export mid-render needs a Rust `cancel_export` (kill the ffmpeg child, clean up temp files). Until then Save to computer can't be stopped once rendering, and a cancelled Send to phone finishes its render in the background before discarding it.
-- A keyboard focus model for the clip list (roving focus, Shift+↑/↓ to extend, Enter to play).
-- Trim handles on the scrubber (clip length is steppers for now).
-- An animated reveal for the playlist filter bar.
+**Part 2 features, verified by hand** (on a throwaway playlist made for the purpose and deleted afterwards): stopping Save to computer mid-render (nothing left at the target, no temp files, no ffmpeg); an export that finishes and is renamed into place; closing Send to phone mid-render and reopening it fresh; quitting the app during the final pass (the hidden partial and the temp files are deleted, ffmpeg goes); Shift+↓ ranges, Shift-click, Delete with Undo, Shift+F10; the filter bar and its strip; a trim dragged with the frame preview, played with Space, kept with Return, still there after a reload, and a trim cancelled with Esc.
+
+**Part 2 features, not verified:** a trim on a clip of a shared playlist (the re-upload); cancelling a share mid-cut; VoiceOver reading the clip list; reduced motion on the filter bar.
 
 **Left from the audit:** playlist selection forgotten when navigating away; window size and position are not remembered; some `title` tooltips remain in the editor. (Part 2 redesigned the player-facing pages, Organization, the game page, auth and onboarding, moved the player view onto the editor's player, aligned the two Share dialogs and removed `alert()` and `window.confirm`.)
 
@@ -265,7 +271,7 @@ Built on `design/apple-redesign` in six commits, one per milestone, plus fixes. 
 **Next steps, in order of value:**
 
 1. Run the branch on Windows and on macOS 26 before anything ships; the transparent window and vibrancy are the parts most likely to differ.
-2. `cancel_export`, then window-state persistence.
+2. Window-state persistence.
 3. Merge the playlist browser into the sidebar (Notes-style), so the editor gets the full width.
 4. Virtualise the clip list above about 1,000 items.
 
