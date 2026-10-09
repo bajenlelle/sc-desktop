@@ -1,14 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Check, ChevronLeft, Link2, Loader2, Settings2, X } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Check, ChevronLeft, Link2, Loader2, X } from "lucide-react";
+import { toast } from "sonner";
 import {
   classifyInviteEmails,
   inviteSummary,
@@ -30,11 +25,13 @@ import {
 } from "@/lib/profile-db";
 import type { OrgInvite, OrgTeam, UserProfile } from "@scoutable/shared/types/org";
 import { trackEvent } from "@/lib/analytics";
-import { toast } from "sonner";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import { fadeVariants } from "@/lib/motion";
+import { cn } from "@/lib/utils";
+import { AutoHeight } from "@/components/ui/auto-height";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Callout, FormRow, GroupedList } from "@/components/ui/group";
+import { PopUpButton } from "@/components/ui/pop-up-button";
 
 type Role = "coach" | "player" | "admin";
 
@@ -55,11 +52,11 @@ interface InviteModalProps {
   playerSeatLimit?: number | null;
 }
 
-const EXPIRY_OPTIONS: { label: string; hours: number | null }[] = [
-  { label: "7 days", hours: 7 * 24 },
-  { label: "30 days", hours: 30 * 24 },
-  { label: "Never", hours: null },
-];
+const EXPIRY_OPTIONS = [
+  { value: String(7 * 24), label: "7 days" },
+  { value: String(30 * 24), label: "30 days" },
+  { value: "never", label: "Never" },
+] as const;
 
 /** Not expired and not used up: the invite still blocks a second one. */
 function isLiveInvite(i: OrgInvite, now = Date.now()): boolean {
@@ -73,11 +70,13 @@ const APP_URL =
   typeof window !== "undefined"
     ? `${window.location.protocol}//${window.location.host}`
     : "https://app.scoutable.se";
+const NO_TEAM = "none";
 
-// ---------------------------------------------------------------------------
-// InviteModal
-// ---------------------------------------------------------------------------
-
+/**
+ * Inviting people to a club: by email (a token field that takes a pasted
+ * list) or with a link anyone can use. The link's settings are a second page
+ * of the same dialog that cross-fades in, rather than a second dialog.
+ */
 export function InviteModal({
   open,
   onClose,
@@ -97,45 +96,42 @@ export function InviteModal({
   const [emails, setEmails] = useState<string[]>([]);
   const [emailInput, setEmailInput] = useState("");
   const [sending, setSending] = useState(false);
-
-  // Pending email invites (for duplicate detection)
   const [pendingInvites, setPendingInvites] = useState<OrgInvite[]>([]);
 
-  // Link invite state
   const [linkInvite, setLinkInvite] = useState<OrgInvite | null>(null);
   const [loadingLink, setLoadingLink] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
-  // Settings panel
-  const [showSettings, setShowSettings] = useState(false);
+  const [page, setPage] = useState<"main" | "link">("main");
   const [settingsExpiryHours, setSettingsExpiryHours] = useState<number | null>(30 * 24);
   const [savingSettings, setSavingSettings] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
-  // Whether this send used a paste, for analytics.
+  /** Whether this send used a paste, for analytics. */
   const pastedRef = useRef(false);
 
   // Reset on open + load pending email invites for duplicate detection
   useEffect(() => {
-    if (open) {
-      setEmails([]);
-      setEmailInput("");
-      pastedRef.current = false;
-      setShowSettings(false);
-      setSelectedRole(initialRole ?? "coach");
-      setSelectedTeamId(initialTeamId ?? null);
-      setLinkInvite(null);
-      listOrgInvites(orgId).then((invites) =>
-        setPendingInvites(invites.filter((i) => !!i.email && i.maxUses === 1))
-      );
-    }
+    if (!open) return;
+    setEmails([]);
+    setEmailInput("");
+    pastedRef.current = false;
+    setPage("main");
+    setSelectedRole(initialRole ?? "coach");
+    setSelectedTeamId(initialTeamId ?? null);
+    setLinkInvite(null);
+    listOrgInvites(orgId)
+      .then((invites) => setPendingInvites(invites.filter((i) => !!i.email && i.maxUses === 1)))
+      .catch(() => setPendingInvites([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // Load link invite when role or team changes
   useEffect(() => {
     if (!open) return;
-    loadLinkInvite(selectedRole, selectedTeamId);
+    void loadLinkInvite(selectedRole, selectedTeamId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, selectedRole, selectedTeamId]);
 
   async function loadLinkInvite(role: Role, teamId: string | null) {
@@ -148,9 +144,7 @@ export function InviteModal({
       const invite = await getOrCreateLinkInvite(orgId, role, teamId);
       setLinkInvite(invite);
       setSettingsExpiryHours(
-        invite.expiresAt
-          ? Math.round((new Date(invite.expiresAt).getTime() - Date.now()) / 3600000)
-          : null
+        invite.expiresAt ? Math.round((new Date(invite.expiresAt).getTime() - Date.now()) / 3600000) : null,
       );
     } catch {
       setLinkInvite(null);
@@ -166,7 +160,7 @@ export function InviteModal({
   // Status per chip, derived so it stays right if the invite list loads late.
   const liveInviteEmails = useMemo(
     () => pendingInvites.flatMap((i) => (i.email && isLiveInvite(i) ? [i.email] : [])),
-    [pendingInvites]
+    [pendingInvites],
   );
   const entries: InviteEntry[] = useMemo(
     () =>
@@ -174,7 +168,7 @@ export function InviteModal({
         memberEmails: orgMembers.flatMap((m) => (m.email ? [m.email] : [])),
         invitedEmails: liveInviteEmails,
       }),
-    [emails, orgMembers, liveInviteEmails]
+    [emails, orgMembers, liveInviteEmails],
   );
   const toInvite = entries.filter((e) => e.status === "new").map((e) => e.email);
   const invalidCount = entries.filter((e) => e.status === "invalid").length;
@@ -184,9 +178,7 @@ export function InviteModal({
   // warns. Coach seats cover admins too (join_by_code counts them together).
   const seatRole = selectedRole === "player" ? "player" : "coach";
   const seatLimit = seatRole === "player" ? playerSeatLimit : coachSeatLimit;
-  const seatsUsed = orgMembers.filter((m) =>
-    seatRole === "player" ? m.role === "player" : m.role !== "player"
-  ).length;
+  const seatsUsed = orgMembers.filter((m) => (seatRole === "player" ? m.role === "player" : m.role !== "player")).length;
   const seatsLeft = seatLimit == null ? null : Math.max(0, seatLimit - seatsUsed);
   const overSeats = seatsLeft !== null && toInvite.length > seatsLeft;
 
@@ -214,7 +206,7 @@ export function InviteModal({
 
   function handlePaste(e: React.ClipboardEvent<HTMLInputElement>) {
     const text = e.clipboardData.getData("text");
-    // One plain address pastes as text, so it can still be edited before Enter.
+    // One plain address pastes as text, so it can still be edited before Return.
     if (!/[,;\s]/.test(text.trim())) return;
     e.preventDefault();
     pastedRef.current = true;
@@ -233,7 +225,7 @@ export function InviteModal({
     setEmails((prev) => prev.filter((e) => e !== email));
   }
 
-  /** Invalid chip → back into the input for fixing. */
+  /** An address that isn't valid goes back into the field for fixing. */
   function editEmail(email: string) {
     removeEmail(email);
     setEmailInput(email);
@@ -288,12 +280,10 @@ export function InviteModal({
 
   function handleCopyLink() {
     if (!linkInvite) return;
-    const url = `${APP_URL}/join/${linkInvite.code}`;
-    navigator.clipboard.writeText(url);
+    void navigator.clipboard.writeText(`${APP_URL}/join/${linkInvite.code}`);
     trackEvent("invite_link_copied", { role: selectedRole });
-    // Copying IS the "invite your coaches/players" onboarding action — stamp
-    // it (fire-and-forget, never blocking the copy UX) so the admin setup
-    // checklist can check the step, and poke any mounted checklist to refresh.
+    // Copying is the "invite your coaches/players" onboarding step: stamp it
+    // (never blocking the copy) so the admin setup checklist can tick it.
     markOrgInviteCopied(linkInvite.id)
       .then(() => window.dispatchEvent(new CustomEvent("org-setup-changed")))
       .catch(() => {});
@@ -307,7 +297,7 @@ export function InviteModal({
     try {
       await updateOrgInviteExpiry(linkInvite.id, settingsExpiryHours);
       toast.success("Link settings saved");
-      setShowSettings(false);
+      setPage("main");
       await loadLinkInvite(selectedRole, selectedTeamId);
     } catch (e) {
       toast.error((e as Error).message);
@@ -321,8 +311,8 @@ export function InviteModal({
     setDeactivating(true);
     try {
       await deleteOrgInvite(linkInvite.id);
-      setShowSettings(false);
-      toast.success("Invite link deactivated");
+      setPage("main");
+      toast.success("Invite link turned off");
       await loadLinkInvite(selectedRole, selectedTeamId);
     } catch (e) {
       toast.error((e as Error).message);
@@ -336,296 +326,233 @@ export function InviteModal({
     { value: "player", label: "Player" },
     ...(isAdmin ? [{ value: "admin" as Role, label: "Admin" }] : []),
   ];
-
+  const teamOptions = [
+    { value: NO_TEAM, label: "No specific team" },
+    ...orgTeams.map((t) => ({ value: t.id, label: t.season ? `${t.name} (${t.season})` : t.name })),
+  ];
   const selectedTeamName = orgTeams.find((t) => t.id === selectedTeamId)?.name ?? null;
+  const roleWord = roleOptions.find((o) => o.value === selectedRole)?.label ?? "Coach";
 
-  const linkLabel = (() => {
-    const teamPart = selectedTeamName ? ` to ${selectedTeamName}` : "";
-    return `Copy ${selectedRole} link${teamPart}`;
+  const expiryText = (() => {
+    if (!linkInvite?.expiresAt) return "Never expires";
+    const daysLeft = Math.ceil((new Date(linkInvite.expiresAt).getTime() - Date.now()) / 86400000);
+    if (daysLeft <= 0) return "Expired";
+    return `Expires in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}`;
   })();
 
-  const expiryLabel = (() => {
-    if (!linkInvite?.expiresAt) return "no expiry";
-    const msLeft = new Date(linkInvite.expiresAt).getTime() - Date.now();
-    const daysLeft = Math.ceil(msLeft / 86400000);
-    if (daysLeft <= 0) return "expired";
-    return `expires in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}`;
-  })();
+  const rolePopUp = (id: string) => (
+    <PopUpButton id={id} aria-label="Role" value={selectedRole} onValueChange={setSelectedRole} options={roleOptions} />
+  );
 
-  // ── Settings panel ──────────────────────────────────────────────────────────
-  if (showSettings) {
-    return (
-      <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Invitation link settings</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground -mt-1">
-            This link can be shared with multiple people.
-          </p>
-
-          <div className="space-y-4 pt-1">
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">Role</label>
-              <select
-                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                value={selectedRole}
-                onChange={(e) => setSelectedRole(e.target.value as Role)}
-              >
-                {roleOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">Expires after</label>
-              <select
-                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                value={settingsExpiryHours === null ? "null" : String(settingsExpiryHours)}
-                onChange={(e) => setSettingsExpiryHours(e.target.value === "null" ? null : Number(e.target.value))}
-              >
-                {EXPIRY_OPTIONS.map((o) => (
-                  <option key={o.label} value={o.hours === null ? "null" : String(o.hours)}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between pt-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-destructive hover:text-destructive text-xs"
-              onClick={handleDeactivate}
-              disabled={deactivating}
-            >
-              {deactivating ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
-              Deactivate link
-            </Button>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => setShowSettings(false)}>
-                <ChevronLeft className="h-3.5 w-3.5 mr-1" />
-                Back
-              </Button>
-              <Button size="sm" onClick={handleSaveSettings} disabled={savingSettings}>
-                {savingSettings ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
-                Save
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-    );
-  }
-
-  // ── Main panel ──────────────────────────────────────────────────────────────
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Invite people to {orgName}</DialogTitle>
-        </DialogHeader>
-
-        {licenseExpired && (
-          <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs">
-            <p className="font-semibold text-destructive">License expired</p>
-            <p className="text-muted-foreground mt-0.5">
-              New invites are paused until your license is renewed.
-            </p>
-          </div>
-        )}
-
-        <div className="space-y-4">
-          {/* Role + Team selectors */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">Role</label>
-              <select
-                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                value={selectedRole}
-                onChange={(e) => setSelectedRole(e.target.value as Role)}
-              >
-                {roleOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </div>
-            {orgTeams.length > 0 && (
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Team <span className="text-muted-foreground font-normal">(optional)</span></label>
-                <select
-                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                  value={selectedTeamId ?? ""}
-                  onChange={(e) => setSelectedTeamId(e.target.value || null)}
-                >
-                  <option value="">No specific team</option>
-                  {orgTeams.map((t) => (
-                    <option key={t.id} value={t.id}>{t.name}{t.season ? ` (${t.season})` : ""}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
-
-          <p className="text-xs text-muted-foreground">
-            Coaches can invite players and other coaches themselves — you don&apos;t have to
-            send every invite.
-          </p>
-
-          {/* Email chip input: type, or paste a whole list */}
-          <div className="space-y-1.5">
-            <div className="flex items-baseline justify-between">
-              <label className="text-sm font-medium">
-                Email addresses
-                {emails.length > 0 && (
-                  <span className="font-normal text-muted-foreground"> ({emails.length})</span>
-                )}
-              </label>
-              {emails.length > 0 && (
-                <button
-                  type="button"
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                  onClick={() => setEmails([])}
-                >
-                  Clear all
-                </button>
-              )}
-            </div>
-            <div
-              className="min-h-[80px] max-h-40 overflow-y-auto w-full rounded-md border border-input bg-background px-3 py-2 flex flex-wrap content-start gap-1.5 cursor-text"
-              onClick={() => inputRef.current?.focus()}
-            >
-              {entries.map((entry) => (
-                <EmailChip
-                  key={entry.email}
-                  entry={entry}
-                  onRemove={() => removeEmail(entry.email)}
-                  onEdit={() => editEmail(entry.email)}
-                  onResend={() => handleResend(entry.email)}
-                />
-              ))}
-              <input
-                ref={inputRef}
-                type="text"
-                inputMode="email"
-                autoComplete="off"
-                autoCapitalize="off"
-                spellCheck={false}
-                value={emailInput}
-                onChange={(e) => setEmailInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                onPaste={handlePaste}
-                onBlur={handleBlur}
-                placeholder={emails.length === 0 ? "Paste a list or type an email…" : ""}
-                className="flex-1 min-w-[160px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-              />
-            </div>
-            {entries.length > 0 ? (
-              <p className="text-xs text-muted-foreground">
-                {inviteSummary(entries)}
-                {invalidCount > 0 && (
-                  <>
-                    {" · "}
-                    <button
-                      type="button"
-                      className="underline underline-offset-2 hover:text-foreground"
-                      onClick={() => setEmails((prev) => prev.filter(isValidEmail))}
-                    >
-                      Remove not valid
-                    </button>
-                  </>
-                )}
-              </p>
+        <AutoHeight>
+          <AnimatePresence mode="popLayout" initial={false}>
+            {page === "link" ? (
+              <motion.div key="link" variants={fadeVariants} initial="hidden" animate="visible" exit="exit" className="grid gap-4">
+                <DialogHeader>
+                  <DialogTitle>Invite link settings</DialogTitle>
+                  <DialogDescription>Anyone with the link can join {orgName} as a {roleWord.toLowerCase()}.</DialogDescription>
+                </DialogHeader>
+                <GroupedList>
+                  <FormRow label="Role" htmlFor="invite-link-role">
+                    {rolePopUp("invite-link-role")}
+                  </FormRow>
+                  <FormRow label="Expires after" htmlFor="invite-link-expiry">
+                    <PopUpButton
+                      id="invite-link-expiry"
+                      aria-label="Expires after"
+                      value={
+                        settingsExpiryHours === null
+                          ? "never"
+                          : (EXPIRY_OPTIONS.find((o) => o.value === String(settingsExpiryHours))?.value ?? null)
+                      }
+                      placeholder={settingsExpiryHours === null ? "Never" : `${Math.round(settingsExpiryHours / 24)} days`}
+                      onValueChange={(v) => setSettingsExpiryHours(v === "never" ? null : Number(v))}
+                      options={EXPIRY_OPTIONS}
+                    />
+                  </FormRow>
+                </GroupedList>
+                <DialogFooter>
+                  <Button
+                    variant="ghost"
+                    className="mr-auto text-destructive"
+                    onClick={handleDeactivate}
+                    disabled={deactivating || !linkInvite}
+                  >
+                    {deactivating && <Loader2 className="animate-spin" />}
+                    Turn off link
+                  </Button>
+                  <Button variant="outline" onClick={() => setPage("main")}>
+                    <ChevronLeft />
+                    Back
+                  </Button>
+                  <Button onClick={handleSaveSettings} disabled={savingSettings || !linkInvite}>
+                    {savingSettings && <Loader2 className="animate-spin" />}
+                    Save
+                  </Button>
+                </DialogFooter>
+              </motion.div>
             ) : (
-              <p className="text-xs text-muted-foreground">
-                Paste a list from a spreadsheet, an email or a file, or type addresses and press Enter.
-              </p>
-            )}
-            {overCap && (
-              <p className="text-xs text-destructive">
-                You can send up to {MAX_INVITES_PER_SEND} invites at a time. Remove some, or send the rest
-                afterwards.
-              </p>
-            )}
-            {!overCap && overSeats && (
-              <div className="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground">
-                {toInvite.length} {seatRole} invites, {seatsLeftLabel(seatsUsed, seatLimit, seatRole)}.
-                Invites past the limit can&apos;t be accepted until seats free up.
-              </div>
-            )}
-          </div>
+              <motion.div key="main" variants={fadeVariants} initial="hidden" animate="visible" exit="exit" className="grid gap-4">
+                <DialogHeader>
+                  <DialogTitle>Invite people to {orgName}</DialogTitle>
+                  <DialogDescription>
+                    Each person gets an email with a link to join. Coaches can invite players and other coaches
+                    themselves.
+                  </DialogDescription>
+                </DialogHeader>
 
-          {/* Divider */}
-          <div className="flex items-center gap-3">
-            <div className="flex-1 h-px bg-border" />
-            <span className="text-xs text-muted-foreground font-medium">OR</span>
-            <div className="flex-1 h-px bg-border" />
-          </div>
-
-          {/* Persistent link */}
-          <div className="flex items-center justify-between gap-2">
-            <button
-              type="button"
-              className="flex items-center gap-2 min-w-0 text-left group disabled:opacity-50"
-              onClick={handleCopyLink}
-              disabled={!linkInvite || loadingLink || licenseExpired}
-              title={licenseExpired ? "License expired" : undefined}
-            >
-              <Link2 className="h-4 w-4 text-muted-foreground shrink-0" />
-              <div className="min-w-0">
-                <span className="text-sm font-medium group-hover:underline underline-offset-2">
-                  {copiedLink ? "Copied!" : linkLabel}
-                </span>
-                {linkInvite && !copiedLink && (
-                  <span className="ml-1.5 text-xs text-muted-foreground">({expiryLabel})</span>
+                {licenseExpired && (
+                  <Callout tone="destructive">Inviting is paused until the license is renewed.</Callout>
                 )}
-              </div>
-              {loadingLink
-                ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" />
-                : copiedLink
-                ? <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                : null}
-            </button>
-            <button
-              type="button"
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 shrink-0"
-              onClick={() => setShowSettings(true)}
-            >
-              <Settings2 className="h-3.5 w-3.5" />
-              Edit settings
-            </button>
-          </div>
-        </div>
 
-        {/* Footer */}
-        <div className="flex justify-end gap-2 pt-2 border-t border-border">
-          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button
-            size="sm"
-            onClick={handleSend}
-            disabled={toInvite.length === 0 || overCap || sending || licenseExpired}
-            title={licenseExpired ? "License expired — inviting is paused" : undefined}
-          >
-            {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
-            {sending
-              ? "Sending…"
-              : toInvite.length > 0
-                ? `Send ${toInvite.length} invite${toInvite.length === 1 ? "" : "s"}`
-                : "Send"}
-          </Button>
-        </div>
+                <GroupedList>
+                  <FormRow label="Role" htmlFor="invite-role">
+                    {rolePopUp("invite-role")}
+                  </FormRow>
+                  {orgTeams.length > 0 && (
+                    <FormRow label="Team" htmlFor="invite-team">
+                      <PopUpButton
+                        id="invite-team"
+                        aria-label="Team"
+                        value={selectedTeamId ?? NO_TEAM}
+                        onValueChange={(v) => setSelectedTeamId(v === NO_TEAM ? null : v)}
+                        options={teamOptions}
+                      />
+                    </FormRow>
+                  )}
+                </GroupedList>
+
+                {/* A token field: type and press Return, or paste a whole list. */}
+                <div className="grid gap-1.5">
+                  <div className="flex items-baseline justify-between px-1">
+                    <label htmlFor="invite-emails" className="text-headline">
+                      Email addresses
+                      {emails.length > 0 && <span className="font-normal text-muted-foreground nums"> {emails.length}</span>}
+                    </label>
+                    {emails.length > 0 && (
+                      <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={() => setEmails([])}>
+                        Clear all
+                      </Button>
+                    )}
+                  </div>
+                  <div
+                    className="flex max-h-40 min-h-20 w-full cursor-text flex-wrap content-start gap-1.5 overflow-y-auto rounded-window bg-card px-2.5 py-2 shadow-xs ring-1 ring-separator transition-shadow focus-within:ring-2 focus-within:ring-selection"
+                    onClick={() => inputRef.current?.focus()}
+                  >
+                    {entries.map((entry) => (
+                      <EmailChip
+                        key={entry.email}
+                        entry={entry}
+                        onRemove={() => removeEmail(entry.email)}
+                        onEdit={() => editEmail(entry.email)}
+                        onResend={() => handleResend(entry.email)}
+                      />
+                    ))}
+                    <input
+                      id="invite-emails"
+                      ref={inputRef}
+                      type="text"
+                      inputMode="email"
+                      autoComplete="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
+                      value={emailInput}
+                      onChange={(e) => setEmailInput(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      onPaste={handlePaste}
+                      onBlur={handleBlur}
+                      placeholder={emails.length === 0 ? "Paste a list or type an address" : ""}
+                      className="min-w-40 flex-1 bg-transparent py-0.5 text-sm outline-none placeholder:text-muted-foreground"
+                    />
+                  </div>
+                  <p className="px-1 text-callout text-muted-foreground">
+                    {entries.length > 0 ? (
+                      <>
+                        {inviteSummary(entries)}
+                        {invalidCount > 0 && (
+                          <>
+                            {" · "}
+                            <button
+                              type="button"
+                              className="text-primary outline-none hover:underline focus-visible:underline"
+                              onClick={() => setEmails((prev) => prev.filter(isValidEmail))}
+                            >
+                              Remove the ones that aren&apos;t valid
+                            </button>
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      "From a spreadsheet, an email or a file; or type an address and press Return."
+                    )}
+                  </p>
+                  {overCap && (
+                    <Callout tone="destructive">
+                      You can send up to {MAX_INVITES_PER_SEND} invites at a time. Remove some, or send the rest
+                      afterwards.
+                    </Callout>
+                  )}
+                  {!overCap && overSeats && (
+                    <Callout tone="warning">
+                      {toInvite.length} {seatRole} invites, {seatsLeftLabel(seatsUsed, seatLimit, seatRole)}. Invites past
+                      the limit can&apos;t be accepted until seats free up.
+                    </Callout>
+                  )}
+                </div>
+
+                {/* The reusable link */}
+                {!licenseExpired && (
+                  <div className="grid gap-1.5">
+                    <p className="px-1 text-headline">Or share a link</p>
+                    <GroupedList>
+                      <div className="flex min-h-11 items-center gap-3 px-3 py-2">
+                        <Link2 className="size-4 shrink-0 text-muted-foreground" />
+                        <div className="flex min-w-0 flex-1 flex-col">
+                          <span className="truncate text-sm">
+                            {roleWord} link{selectedTeamName ? ` to ${selectedTeamName}` : ""}
+                          </span>
+                          <span className="text-callout text-muted-foreground nums">
+                            {loadingLink ? "Getting the link…" : linkInvite ? expiryText : "No link available"}
+                          </span>
+                        </div>
+                        <Button variant="ghost" size="xs" onClick={() => setPage("link")} disabled={!linkInvite}>
+                          Settings…
+                        </Button>
+                        <Button size="xs" variant="secondary" onClick={handleCopyLink} disabled={!linkInvite || loadingLink}>
+                          {copiedLink ? <Check className="text-success" /> : <Link2 />}
+                          {copiedLink ? "Copied" : "Copy"}
+                        </Button>
+                      </div>
+                    </GroupedList>
+                  </div>
+                )}
+
+                <DialogFooter>
+                  <Button variant="outline" onClick={onClose}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleSend} disabled={toInvite.length === 0 || overCap || sending || licenseExpired}>
+                    {sending && <Loader2 className="animate-spin" />}
+                    {sending
+                      ? "Sending…"
+                      : toInvite.length > 0
+                        ? `Send ${toInvite.length} invite${toInvite.length === 1 ? "" : "s"}`
+                        : "Send"}
+                  </Button>
+                </DialogFooter>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </AutoHeight>
       </DialogContent>
     </Dialog>
   );
 }
 
-// ---------------------------------------------------------------------------
-// EmailChip — one address in the input, styled by what will happen to it
-// ---------------------------------------------------------------------------
-
+/** One address in the token field, tinted by what will happen to it. */
 function EmailChip({
   entry,
   onRemove,
@@ -637,45 +564,41 @@ function EmailChip({
   onEdit: () => void;
   onResend: () => void;
 }) {
-  const tone =
-    entry.status === "new"
-      ? "bg-primary/10 text-primary"
-      : entry.status === "invalid"
-        ? "bg-destructive/10 text-destructive ring-1 ring-inset ring-destructive/30"
-        : "bg-muted text-muted-foreground";
-  const title =
-    entry.status === "invalid"
-      ? "Not a valid email address. Click to edit."
-      : entry.status === "member"
-        ? "Already a member of this organization"
-        : entry.status === "invited"
-          ? "Already has a pending invite"
-          : undefined;
-
   return (
     <span
-      title={title}
-      className={`inline-flex max-w-full items-center gap-1 rounded-full text-xs px-2.5 py-1 font-medium ${tone}`}
+      className={cn(
+        "inline-flex max-w-full items-center gap-1 rounded-full py-0.5 pr-1 pl-2.5 text-callout font-medium",
+        entry.status === "new" && "bg-primary/12 text-primary",
+        entry.status === "invalid" && "bg-destructive/10 text-destructive ring-1 ring-inset ring-destructive/30",
+        (entry.status === "member" || entry.status === "invited") && "bg-fill-2 text-muted-foreground",
+      )}
     >
       {entry.status === "invalid" ? (
         <button
           type="button"
-          className="truncate"
-          onClick={(e) => { e.stopPropagation(); onEdit(); }}
+          className="truncate outline-none"
+          aria-label={`${entry.email} isn't a valid address; edit it`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit();
+          }}
         >
           {entry.email}
         </button>
       ) : (
         <span className="truncate">{entry.email}</span>
       )}
-      {entry.status === "member" && <span className="font-normal">· member</span>}
+      {entry.status === "member" && <span className="font-normal">· already a member</span>}
       {entry.status === "invited" && (
         <>
           <span className="font-normal">· invited</span>
           <button
             type="button"
-            className="font-normal underline underline-offset-2 hover:text-foreground"
-            onClick={(e) => { e.stopPropagation(); onResend(); }}
+            className="font-normal text-primary outline-none hover:underline"
+            onClick={(e) => {
+              e.stopPropagation();
+              onResend();
+            }}
           >
             Resend
           </button>
@@ -683,11 +606,14 @@ function EmailChip({
       )}
       <button
         type="button"
-        className="opacity-70 hover:opacity-100 transition-opacity"
-        onClick={(e) => { e.stopPropagation(); onRemove(); }}
+        className="flex size-4 items-center justify-center rounded-full opacity-70 transition-opacity hover:bg-fill-3 hover:opacity-100"
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemove();
+        }}
         aria-label={`Remove ${entry.email}`}
       >
-        <X className="h-3 w-3" />
+        <X className="size-3" />
       </button>
     </span>
   );

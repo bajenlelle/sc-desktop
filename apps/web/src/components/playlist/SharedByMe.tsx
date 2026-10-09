@@ -42,7 +42,7 @@ import {
 import { Callout, GroupedList } from "@/components/ui/group";
 import { PopUpButton } from "@/components/ui/pop-up-button";
 import { SegmentedControl } from "@/components/ui/segmented-control";
-import { PersonAvatar } from "./share-recipients";
+import { PersonAvatar } from "@/components/person-avatar";
 
 const SORT_OPTIONS: { value: DashboardSort; label: string }[] = [
   { value: "recent", label: "Recently shared" },
