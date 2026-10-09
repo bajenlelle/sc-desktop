@@ -7,6 +7,7 @@ import {
   type MediaFailure,
 } from "@scoutable/shared/lib/media-failure";
 import { useAuth } from "@/lib/auth-context";
+import { releaseVideo } from "@/lib/release-video";
 import { Sentry } from "@/lib/sentry";
 import { Wordmark } from "@/components/logo";
 
@@ -79,6 +80,16 @@ export function VideoPlayer({ src, videoRef, onLoadFailure }: VideoPlayerProps) 
       video.removeEventListener("loadstart", onLoadStart);
     };
   }, [videoRef, src]);
+
+  // Unmounted players must give back their decoder (see release-video.ts).
+  // Cleanup runs after React has removed the element; under StrictMode's
+  // re-run it is still attached and keeps its source.
+  useEffect(() => {
+    const video = videoRef.current;
+    return () => {
+      if (video && !video.isConnected) releaseVideo(video);
+    };
+  }, [videoRef]);
 
   return (
     <div
