@@ -123,12 +123,11 @@ export function PlaylistFeed({
   return (
     <div className="flex flex-col">
       {hasAnything && (
-        // Sticky so the filters stay reachable while scrolling a long list.
-        <div className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur">
-          <div className="flex items-center justify-between gap-2 px-4 pb-2 pt-4 sm:px-6">
-            <h1 className="text-lg font-semibold text-foreground">My Playlists</h1>
-            {/* From = who shared it; To = which team it reached. Grouped so
-                justify-between can't strand one dropdown mid-header. */}
+        // The page's toolbar carries the title and stays put; the filters
+        // scroll with the list.
+        <div className="flex flex-col gap-2 pb-1">
+          <div className="flex items-center gap-2">
+            {/* From = who shared it; To = which team it reached. */}
             <div className="flex shrink-0 items-center gap-2">
             {sharerOptions.length > 0 && (
               <label className="flex items-center gap-1.5">
@@ -192,8 +191,8 @@ export function PlaylistFeed({
           </div>
 
           {playlists.length > SEARCH_THRESHOLD && (
-            <div className="relative px-4 pb-2 sm:px-6">
-              <Search className="pointer-events-none absolute left-7 top-1/2 mt-[-4px] h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground sm:left-9" />
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="text"
                 value={query}
@@ -206,7 +205,7 @@ export function PlaylistFeed({
                   type="button"
                   onClick={() => setQuery("")}
                   aria-label="Clear search"
-                  className="absolute right-5 top-1/2 mt-[-4px] flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:text-foreground sm:right-7"
+                  className="absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -215,8 +214,8 @@ export function PlaylistFeed({
           )}
 
           {/* Scrolls sideways rather than wrapping — keeps the bar one row on
-              a narrow screen. */}
-          <div className="flex gap-1.5 overflow-x-auto px-4 pb-3 sm:px-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              a narrow screen, edge to edge. */}
+          <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 sm:-mx-6 sm:px-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {chips.map((c) => {
               const n = counts[c.key];
               const active = watch === c.key;
@@ -242,7 +241,7 @@ export function PlaylistFeed({
       )}
 
       {!hasAnything ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-16 text-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center">
           <ListVideo className="h-10 w-10 text-muted-foreground/40" />
           <p className="text-sm font-medium text-foreground">No playlists yet</p>
           <p className="max-w-xs text-sm text-muted-foreground">
@@ -250,7 +249,7 @@ export function PlaylistFeed({
           </p>
         </div>
       ) : visible.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 px-6 py-16 text-center">
+        <div className="flex flex-col items-center gap-2 py-16 text-center">
           <p className="text-sm text-muted-foreground">Nothing here right now.</p>
           <button
             type="button"
@@ -263,7 +262,7 @@ export function PlaylistFeed({
       ) : watch === "all" ? (
         // Unfiltered, the grouping is the point — it answers "what's new?"
         // at a glance without any interaction.
-        <div className="flex flex-col gap-8 px-4 py-5 sm:px-6">
+        <div className="flex flex-col gap-8 py-4">
           {/* Hero CTA — hidden while searching (the user is already navigating). */}
           {hero && !query.trim() && hero.kind !== "done" && (
             <div className="flex flex-col gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -327,7 +326,7 @@ export function PlaylistFeed({
       ) : (
         // With a chip active the section header would just repeat it, so the
         // list goes flat.
-        <div className="px-4 py-5 sm:px-6">
+        <div className="py-4">
           <Section
             playlists={[...visible].sort(watch === "progress" ? byLastWatched : byNewest)}
             onOpen={onOpen}

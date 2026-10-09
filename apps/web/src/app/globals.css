@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import "tw-animate-css";
 @import "./themes.css";
 
 /* Class names built in shared logic (eventColors, orgPlanColors) must be
@@ -229,6 +228,13 @@
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --tab-bar-height: 0px;
+}
+
+/* The tab bar is in the page under lg unless the watch view has put it away
+   (components/shell/tab-bar.tsx): 49pt plus its hairline, over the home
+   indicator. */
+@media (width < 64rem) {
+  :root:has(#tab-bar) { --tab-bar-height: calc(50px + var(--safe-bottom)); }
 }
 
 .dark {

@@ -13,7 +13,7 @@
  * via send-to-phone, or in the desktop app).
  */
 import { useEffect, useState } from "react";
-import { Check, Clapperboard, ListVideo, Loader2, Monitor, Share2, Wand2 } from "lucide-react";
+import { Clapperboard, ListVideo, Loader2, Monitor, Share2, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/components/auth-context";
@@ -21,6 +21,8 @@ import { createClient } from "@/lib/supabase/client";
 import { trackEvent } from "@/lib/analytics";
 import { listPlaylists } from "@scoutable/shared/lib/playlists-db";
 import { isClipItem, type Playlist } from "@scoutable/shared/types/match";
+import { Page, PageContent } from "@/components/shell/page";
+import { Toolbar } from "@/components/shell/toolbar";
 
 const DESKTOP_APP_URL = "https://scoutable.se/#download";
 
@@ -65,12 +67,11 @@ function PitchPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6">
+    <div className="pt-4">
       <div className="text-center">
-        <p className="text-xs font-semibold uppercase tracking-widest text-primary">My Highlights</p>
-        <h1 className="mt-2 text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
+        <h2 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
           Build your own highlight tape
-        </h1>
+        </h2>
         <p className="mx-auto mt-3 max-w-xl text-muted-foreground">
           This is your space — separate from your club. Import your own games and turn
           them into tapes that are yours to keep and share.
@@ -155,12 +156,8 @@ function OwnPlaylists() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
-      <div className="flex items-center gap-2">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">My Highlights</h1>
-        <Check className="h-5 w-5 text-primary" aria-hidden />
-      </div>
-      <p className="mt-1 text-sm text-muted-foreground">
+    <div>
+      <p className="text-sm text-muted-foreground">
         Your own playlists, built in the desktop app. Send them to your phone from there
         to watch and share anywhere.
       </p>
@@ -204,16 +201,23 @@ function OwnPlaylists() {
 export default function MyHighlightsPage() {
   const { myOrgs, profileLoading } = useAuth();
 
-  if (profileLoading) {
-    return (
-      <div className="flex justify-center py-20">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
   const personalOrg = myOrgs.find((o) => o.isPersonal) ?? null;
   const upgraded = personalOrg != null && personalOrg.planTier !== "free";
 
-  return upgraded ? <OwnPlaylists /> : <PitchPage />;
+  return (
+    <Page width="medium">
+      <Toolbar title="My highlights" />
+      <PageContent>
+        {profileLoading ? (
+          <div className="flex justify-center py-20">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : upgraded ? (
+          <OwnPlaylists />
+        ) : (
+          <PitchPage />
+        )}
+      </PageContent>
+    </Page>
+  );
 }

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,7 +37,10 @@ import type {
 import { LicenseBadge } from "@/components/license-badge";
 import { useAuth } from "@/components/auth-context";
 import { toast } from "sonner";
-import { ArrowLeft, Clipboard, Check, Loader2, RefreshCw } from "lucide-react";
+import { Clipboard, Check, Loader2, RefreshCw } from "lucide-react";
+import { Page, PageContent } from "@/components/shell/page";
+import { Toolbar } from "@/components/shell/toolbar";
+import { BackButton } from "@/components/shell/back-button";
 
 function roleBadgeVariant(
   role: string,
@@ -332,20 +334,20 @@ export default function OrgDetailPage() {
     }
   }
 
-  if (!checked || loading) {
+  if (!checked || loading || !org) {
     return (
-      <div className="p-6 max-w-3xl mx-auto flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Loading…
-      </div>
-    );
-  }
-
-  if (!org) {
-    return (
-      <div className="p-6 max-w-3xl mx-auto">
-        <p className="text-sm text-red-500">Organization not found.</p>
-      </div>
+      <Page width="medium">
+        <Toolbar inline title="Organization" leading={<BackButton href="/admin" label="Admin" />} />
+        <PageContent>
+          {!org && checked && !loading ? (
+            <p className="text-sm text-red-500">Organization not found.</p>
+          ) : (
+            <div className="flex h-64 items-center justify-center">
+              <Loader2 className="size-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+        </PageContent>
+      </Page>
     );
   }
 
@@ -353,29 +355,23 @@ export default function OrgDetailPage() {
   const playerCount = members.filter((m) => m.role === "player").length;
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <Link
-            href="/admin"
-            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Platform Admin
-          </Link>
-          <span className="text-muted-foreground">/</span>
-          <h1 className="text-xl font-bold tracking-tight text-foreground">{org.name}</h1>
-        </div>
-        <div className="flex items-center gap-2">
+    <Page width="medium">
+    <Toolbar
+      inline
+      title={org.name}
+      leading={<BackButton href="/admin" label="Admin" />}
+      actions={
+        <>
           <Button variant="outline" size="sm" onClick={() => { setEditName(org.name); setEditNameOpen(true); }}>
             Edit Name
           </Button>
           <Button variant="destructive" size="sm" onClick={() => setDeleteDialogOpen(true)}>
             Delete
           </Button>
-        </div>
-      </div>
+        </>
+      }
+    />
+    <PageContent className="space-y-6">
 
       {/* Tabs */}
       <Tabs defaultValue="overview">
@@ -749,6 +745,7 @@ export default function OrgDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageContent>
+    </Page>
   );
 }

@@ -46,6 +46,8 @@ import { useAuth } from "@/components/auth-context";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { Page, PageContent } from "@/components/shell/page";
+import { Toolbar } from "@/components/shell/toolbar";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -602,26 +604,33 @@ export default function OrganizationPage() {
 
   if (loading) {
     return (
-      <div className="p-6 max-w-3xl mx-auto flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Loading…
-      </div>
+      <Page width="medium">
+        <Toolbar title="Club" />
+        <PageContent>
+          <div className="flex h-64 items-center justify-center">
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          </div>
+        </PageContent>
+      </Page>
     );
   }
 
   if (!ctx) {
     return (
-      <div className="p-6 max-w-3xl mx-auto">
-        <p className="text-sm text-red-500">
-          Failed to load organization. Check your connection and try again.
-        </p>
-        <button
-          className="mt-2 text-sm text-primary underline"
-          onClick={() => { setLoading(true); load(); }}
-        >
-          Retry
-        </button>
-      </div>
+      <Page width="medium">
+        <Toolbar title="Club" />
+        <PageContent>
+          <p className="text-sm text-red-500">
+            Failed to load organization. Check your connection and try again.
+          </p>
+          <button
+            className="mt-2 text-sm text-primary underline"
+            onClick={() => { setLoading(true); load(); }}
+          >
+            Retry
+          </button>
+        </PageContent>
+      </Page>
     );
   }
 
@@ -631,19 +640,19 @@ export default function OrganizationPage() {
 
   if (ctx.org === null) {
     return (
-      <div className="p-6 max-w-3xl mx-auto space-y-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Organization</h1>
-          <p className="mt-1 text-sm text-muted-foreground">You don&apos;t belong to an organization yet.</p>
-        </div>
-        {profile.isPlatformAdmin && (
-          <div className="pt-2">
-            <Link href="/admin" className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4">
-              Go to Platform Admin Dashboard →
-            </Link>
-          </div>
-        )}
-      </div>
+      <Page width="medium">
+        <Toolbar title="Club" />
+        <PageContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">You don&apos;t belong to a club yet.</p>
+          {profile.isPlatformAdmin && (
+            <div className="pt-2">
+              <Link href="/admin" className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4">
+                Go to Platform Admin Dashboard →
+              </Link>
+            </div>
+          )}
+        </PageContent>
+      </Page>
     );
   }
 
@@ -654,31 +663,27 @@ export default function OrganizationPage() {
   const licenseExpired = !!org.expiresAt && new Date(org.expiresAt).getTime() < Date.now();
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-6">
-
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">{org.name}</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            {ctx.orgMembers.length} member{ctx.orgMembers.length !== 1 ? "s" : ""}
-            {" · "}
-            {ctx.allOrgTeams.length} team{ctx.allOrgTeams.length !== 1 ? "s" : ""}
-          </p>
-        </div>
-        {canManageTeams && (
+    <Page width="medium">
+    <Toolbar
+      title={org.name}
+      subtitle={`${ctx.orgMembers.length} member${ctx.orgMembers.length !== 1 ? "s" : ""} · ${ctx.allOrgTeams.length} team${ctx.allOrgTeams.length !== 1 ? "s" : ""}`}
+      actions={
+        canManageTeams && (
           <Button
             size="sm"
             className="gap-1.5 shrink-0"
             onClick={() => setShowInviteModal(true)}
             disabled={licenseExpired}
+            aria-label="Invite people"
             title={licenseExpired ? "License expired — inviting is paused" : undefined}
           >
             <UserPlus className="h-4 w-4" />
-            Invite people
+            <span className="hidden sm:inline">Invite people</span>
           </Button>
-        )}
-      </div>
+        )
+      }
+    />
+    <PageContent className="space-y-6">
 
       {/* License card — admin only; non-admins get the app-shell LicenseBanner
           once the license actually expires */}
@@ -931,6 +936,7 @@ export default function OrganizationPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageContent>
+    </Page>
   );
 }

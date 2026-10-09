@@ -10,6 +10,8 @@ import { trackEvent } from "@/lib/analytics";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth-context";
 import { toast } from "sonner";
+import { Page, PageContent } from "@/components/shell/page";
+import { Toolbar } from "@/components/shell/toolbar";
 
 function extractCode(input: string): string {
   const trimmed = input.trim();
@@ -54,8 +56,10 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center p-4">
-      <Card className="w-full max-w-sm">
+    <Page width="narrow">
+      <Toolbar title="Join a team" />
+      <PageContent className="flex justify-center">
+      <Card className="mt-6 w-full max-w-sm">
         <CardContent className="p-6 space-y-5">
           <div className="text-center space-y-1">
             <p className="text-lg font-semibold text-foreground">Welcome to Scoutable</p>
@@ -93,6 +97,7 @@ export default function OnboardingPage() {
           </div>
         </CardContent>
       </Card>
-    </div>
+      </PageContent>
+    </Page>
   );
 }

@@ -10,6 +10,9 @@ import { getOrgContext } from "@/lib/profile-db";
 import { useAuth } from "@/components/auth-context";
 import { toast } from "sonner";
 import { ExternalLink, Image as ImageIcon, Loader2 } from "lucide-react";
+import { Page, PageContent } from "@/components/shell/page";
+import { Toolbar } from "@/components/shell/toolbar";
+import { BackButton } from "@/components/shell/back-button";
 
 interface FeedbackReport {
   id: string;
@@ -99,14 +102,13 @@ export default function AdminFeedbackPage() {
   if (!checked) return null;
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Feedback</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          User-submitted problem reports. Click a status to advance it (open → triaged →
-          resolved).
-        </p>
-      </div>
+    <Page width="medium">
+    <Toolbar inline title="Feedback" leading={<BackButton href="/admin" label="Admin" />} />
+    <PageContent className="space-y-6">
+      <p className="text-sm text-muted-foreground">
+        User-submitted problem reports. Click a status to advance it (open → triaged →
+        resolved).
+      </p>
 
       {loading ? (
         <div className="flex justify-center py-12">
@@ -173,6 +175,7 @@ export default function AdminFeedbackPage() {
           ))}
         </div>
       )}
-    </div>
+    </PageContent>
+    </Page>
   );
 }

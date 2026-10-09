@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { Download, Film, ListVideo, Share2, Ticket } from "lucide-react";
 import { RolePrompt } from "@/components/role-prompt";
+import { Page, PageContent } from "@/components/shell/page";
+import { Toolbar } from "@/components/shell/toolbar";
 
 /**
  * Landing page for signed-in users whose only space is their personal org —
@@ -29,12 +31,14 @@ export default function GetStartedPage() {
   ];
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col items-center gap-10 px-6 py-16 text-center">
+    <Page width="narrow">
+    <Toolbar title="Get started" />
+    <PageContent className="flex flex-col items-center gap-10 pt-6 text-center">
       <RolePrompt />
       <div className="flex flex-col items-center gap-3">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">
+        <h2 className="text-2xl font-bold tracking-tight text-foreground">
           Welcome to Scoutable 👋
-        </h1>
+        </h2>
         <p className="max-w-md text-sm text-muted-foreground">
           Scouting lives in the desktop app — download it, sign in with this account, and
           you&apos;ll find a sample game ready to explore.
@@ -76,6 +80,7 @@ export default function GetStartedPage() {
           .
         </p>
       </div>
-    </div>
+    </PageContent>
+    </Page>
   );
 }

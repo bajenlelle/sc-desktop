@@ -29,6 +29,8 @@ import { toast } from "sonner";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { getOrgContext } from "@/lib/profile-db";
 import { FreeRefillsCard } from "@/components/free-refills-card";
+import { Page, PageContent } from "@/components/shell/page";
+import { Toolbar } from "@/components/shell/toolbar";
 
 type LicenseFilter = "all" | "expiring" | "expired" | "over_cap";
 
@@ -129,35 +131,38 @@ export default function AdminPage() {
 
   if (!checked) {
     return (
-      <div className="p-6 max-w-5xl mx-auto flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Loading…
-      </div>
+      <Page>
+        <Toolbar title="Admin" />
+        <PageContent>
+          <div className="flex h-64 items-center justify-center">
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          </div>
+        </PageContent>
+      </Page>
     );
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Platform Admin</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">All organizations on the platform</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Link
-            href="/admin/feedback"
-            className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4"
-          >
-            Feedback
-          </Link>
-          <Link
-            href="/admin/devices"
-            className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4"
-          >
-            Devices
-          </Link>
-          <Button onClick={() => setDialogOpen(true)}>+ Create Org</Button>
-        </div>
+    <Page>
+    <Toolbar
+      title="Admin"
+      subtitle="All organizations on the platform"
+      actions={<Button size="sm" onClick={() => setDialogOpen(true)}>+ Create Org</Button>}
+    />
+    <PageContent className="space-y-6">
+      <div className="flex items-center gap-3">
+        <Link
+          href="/admin/feedback"
+          className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4"
+        >
+          Feedback
+        </Link>
+        <Link
+          href="/admin/devices"
+          className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4"
+        >
+          Devices
+        </Link>
       </div>
 
       <div className="flex items-center gap-2">
@@ -295,7 +300,8 @@ export default function AdminPage() {
       <FreeRefillsCard />
 
       <CreateOrgDialog open={dialogOpen} onOpenChange={setDialogOpen} onCreated={loadOrgs} />
-    </div>
+    </PageContent>
+    </Page>
   );
 }
 

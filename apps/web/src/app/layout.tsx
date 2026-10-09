@@ -51,6 +51,7 @@ function ThemedToaster() {
     <Toaster
       position="bottom-center"
       duration={4000}
+      offset={{ bottom: "calc(var(--tab-bar-height) + 24px)" }}
       mobileOffset={{ bottom: "calc(var(--tab-bar-height) + 12px)" }}
       toastOptions={{
         style: {

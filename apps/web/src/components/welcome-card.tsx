@@ -28,7 +28,7 @@ export function WelcomeCard() {
   }
 
   return (
-    <div className="mx-4 mt-4 rounded-xl border border-primary/30 bg-card p-4 sm:mx-6">
+    <div className="mb-4 rounded-xl border border-primary/30 bg-card p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-2">
           <h2 className="text-sm font-semibold text-foreground">Welcome to Scoutable 👋</h2>

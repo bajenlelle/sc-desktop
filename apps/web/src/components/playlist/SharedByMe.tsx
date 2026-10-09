@@ -294,7 +294,7 @@ export function SharedByMe({
   ].filter((c) => c.key !== "issues" || counts.issues > 0);
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 px-4 py-5 sm:px-6">
+    <div className="flex w-full flex-col gap-3">
       {/* Roll-up strip — the standing pre-practice question ("who's behind?")
           answered before any expanding. The behind stat doubles as a filter. */}
       <div className="flex items-stretch gap-2">

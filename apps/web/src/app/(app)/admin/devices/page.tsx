@@ -16,6 +16,9 @@ import { createClient } from "@/lib/supabase/client";
 import { getOrgContext } from "@/lib/profile-db";
 import { useAuth } from "@/components/auth-context";
 import { listDeviceOutliers, type DeviceOutlier } from "@scoutable/shared/lib/devices-db";
+import { Page, PageContent } from "@/components/shell/page";
+import { Toolbar } from "@/components/shell/toolbar";
+import { BackButton } from "@/components/shell/back-button";
 
 const APP_ICON: Record<string, typeof Globe> = {
   web: Globe,
@@ -66,14 +69,13 @@ export default function AdminDevicesPage() {
   if (!checked) return null;
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Device outliers</h1>
-        <p className="mt-0.5 text-sm text-muted-foreground">
-          Accounts with more active devices (last 30 days) than their cap — possible account
-          sharing. Caps live in app_config (device_cap_player / device_cap_coach).
-        </p>
-      </div>
+    <Page>
+    <Toolbar inline title="Device outliers" leading={<BackButton href="/admin" label="Admin" />} />
+    <PageContent className="space-y-6">
+      <p className="text-sm text-muted-foreground">
+        Accounts with more active devices (last 30 days) than their cap — possible account
+        sharing. Caps live in app_config (device_cap_player / device_cap_coach).
+      </p>
 
       <Card>
         <CardContent className="p-0">
@@ -160,6 +162,7 @@ export default function AdminDevicesPage() {
           )}
         </CardContent>
       </Card>
-    </div>
+    </PageContent>
+    </Page>
   );
 }

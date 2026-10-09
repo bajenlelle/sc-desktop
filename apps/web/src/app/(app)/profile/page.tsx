@@ -18,10 +18,15 @@ import { toast } from "sonner";
 import { DeleteAccountDialog } from "@/components/delete-account-dialog";
 import { DevicesCard } from "@/components/devices-card";
 import { ThemePicker } from "@/components/theme-picker";
-import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Loader2 } from "lucide-react";
+import { LogOut, Zap, Users, Building2, ArrowUpRight, ChevronRight, Laptop, Loader2, MessageSquarePlus } from "lucide-react";
 import Link from "next/link";
 import { MarketingEmailToggle } from "@/components/marketing-email-toggle";
 import { MyTeamCard } from "@/components/my-team-card";
+import { ReportProblemDialog } from "@/components/report-problem-dialog";
+import { GroupedList, GroupRow } from "@/components/ui/group";
+import { Page, PageContent } from "@/components/shell/page";
+import { Toolbar } from "@/components/shell/toolbar";
+import { DESKTOP_APP_URL } from "@/components/shell/sidebar";
 
 // Query params must precede the fragment or the browser drops them.
 const PRICING_URL_BASE = "https://scoutable.se/pricing";
@@ -55,6 +60,7 @@ export default function ProfilePage() {
   const [sub, setSub] = useState<SubStatus | null>(null);
   const [importQuota, setImportQuota] = useState<ImportQuota | null>(null);
   const [loadingPortal, setLoadingPortal] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   const [fullName, setFullName] = useState("");
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -196,22 +202,28 @@ export default function ProfilePage() {
 
   if (loading) {
     return (
-      <div className="p-6 max-w-2xl mx-auto space-y-4">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="h-32 rounded-xl bg-muted animate-pulse" />
-        ))}
-      </div>
+      <Page width="narrow">
+        <Toolbar title="Profile" />
+        <PageContent className="space-y-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-32 rounded-xl bg-muted animate-pulse" />
+          ))}
+        </PageContent>
+      </Page>
     );
   }
 
   if (!ctx) {
     return (
-      <div className="p-6 max-w-2xl mx-auto">
-        <p className="text-sm text-destructive">Failed to load profile.</p>
-        <button className="mt-2 text-sm text-primary underline" onClick={() => { setLoading(true); load(); }}>
-          Retry
-        </button>
-      </div>
+      <Page width="narrow">
+        <Toolbar title="Profile" />
+        <PageContent>
+          <p className="text-sm text-destructive">Failed to load profile.</p>
+          <button className="mt-2 text-sm text-primary underline" onClick={() => { setLoading(true); load(); }}>
+            Retry
+          </button>
+        </PageContent>
+      </Page>
     );
   }
 
@@ -240,12 +252,9 @@ export default function ProfilePage() {
     showUsage && !usageAtCap && usageRatio >= (importQuota!.window === "lifetime" ? 0.65 : 0.8);
 
   return (
-    <div className="p-6 max-w-2xl mx-auto space-y-4">
-      <div className="mb-2">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Profile</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Your account and subscription.</p>
-      </div>
-
+    <Page width="narrow">
+    <Toolbar title="Profile" />
+    <PageContent className="space-y-4">
       {/* ── Identity header ── */}
       <Card className="overflow-hidden">
         <div className="h-16 bg-gradient-to-r from-primary/20 via-primary/10 to-transparent" />
@@ -466,6 +475,22 @@ export default function ProfilePage() {
       {/* ── Devices ── */}
       <DevicesCard />
 
+      {/* ── Help: on wide screens these live in the sidebar ── */}
+      <GroupedList className="lg:hidden">
+        <GroupRow leading={<MessageSquarePlus />} label="Send feedback…" onClick={() => setFeedbackOpen(true)} />
+        <a
+          href={DESKTOP_APP_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex min-h-11 items-center gap-3 px-4 py-2 text-sm text-foreground outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection"
+        >
+          <Laptop className="size-4 shrink-0 text-muted-foreground" />
+          <span className="flex-1">Get the desktop app</span>
+          <ArrowUpRight className="size-4 shrink-0 text-muted-foreground/60" />
+        </a>
+      </GroupedList>
+      <ReportProblemDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+
       {/* ── Sign out ── */}
       <Card className="border-dashed">
         <CardContent className="p-4">
@@ -503,6 +528,7 @@ export default function ProfilePage() {
           />
         </CardContent>
       </Card>
-    </div>
+    </PageContent>
+    </Page>
   );
 }
