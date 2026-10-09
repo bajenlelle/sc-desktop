@@ -1,12 +1,22 @@
 /**
  * The editor's playback keys, QuickTime and Final Cut conventions: arrows
  * move through clips and nudge within one, J/K/L shuttle, Space toggles.
- * Every native menu accelerator is a ⌘-chord, so chords are left alone
- * except ⌘A, which the list claims for select-all.
+ * The clip list adds a macOS table's keys: Shift extends the selection,
+ * ⌘↑/⌘↓ and Home/End jump to the ends, Return plays the focused row,
+ * Shift+F10 opens its menu. Every native menu accelerator is a ⌘-chord, so
+ * chords are left alone except ⌘A and ⌘↑/⌘↓, which the list claims.
  */
 export type PlayerKeyAction =
   | "next"
   | "prev"
+  | "extend-next"
+  | "extend-prev"
+  | "first"
+  | "last"
+  | "extend-first"
+  | "extend-last"
+  | "play-focused"
+  | "row-menu"
   | "nudge-back"
   | "nudge-forward"
   | "nudge-back-far"
@@ -32,14 +42,30 @@ export interface KeyChord {
 export function resolvePlayerKey(e: KeyChord): PlayerKeyAction | null {
   const chord = e.metaKey || e.ctrlKey;
   if (chord) {
-    return e.code === "KeyA" && !e.altKey && !e.shiftKey ? "select-all" : null;
+    if (e.altKey) return null;
+    if (e.code === "KeyA" && !e.shiftKey) return "select-all";
+    // ⌘ only: Control-arrows belong to Mission Control.
+    if (e.metaKey && !e.ctrlKey && e.code === "ArrowUp") return e.shiftKey ? "extend-first" : "first";
+    if (e.metaKey && !e.ctrlKey && e.code === "ArrowDown") return e.shiftKey ? "extend-last" : "last";
+    return null;
   }
   if (e.altKey) return null;
   switch (e.code) {
     case "ArrowDown":
-      return "next";
+      return e.shiftKey ? "extend-next" : "next";
     case "ArrowUp":
-      return "prev";
+      return e.shiftKey ? "extend-prev" : "prev";
+    case "Home":
+      return e.shiftKey ? "extend-first" : "first";
+    case "End":
+      return e.shiftKey ? "extend-last" : "last";
+    case "Enter":
+    case "NumpadEnter":
+      return e.shiftKey ? null : "play-focused";
+    case "F10":
+      return e.shiftKey ? "row-menu" : null;
+    case "ContextMenu":
+      return "row-menu";
     case "ArrowLeft":
       return e.shiftKey ? "nudge-back-far" : "nudge-back";
     case "ArrowRight":

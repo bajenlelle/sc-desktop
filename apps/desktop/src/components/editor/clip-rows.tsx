@@ -58,6 +58,25 @@ export function ActiveRowPill() {
   );
 }
 
+/**
+ * Where the keys act while the list is driven from the keyboard: an inset
+ * ring with the active pill's shape. Pointer users never see it.
+ */
+function FocusRing({ onSelection }: { onSelection: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "pointer-events-none absolute inset-y-0.5 inset-x-1 z-20 rounded-md ring-2",
+        onSelection ? "ring-selection-foreground/70" : "ring-selection",
+      )}
+    />
+  );
+}
+
+/** Hover-only row buttons also show for the focused row and for keyboard focus. */
+const REVEAL = "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 group-data-[focused]:opacity-100";
+
 function GroupRail({ pos }: { pos: GroupRunInfo["pos"] }) {
   return (
     <span
@@ -118,7 +137,7 @@ function RowLead({
         aria-label="Select"
         className={cn(
           "size-3.5 rounded accent-primary transition-opacity duration-100",
-          showCheckbox || isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+          showCheckbox || isSelected ? "opacity-100" : REVEAL,
         )}
       />
     </div>
@@ -135,9 +154,11 @@ function rowClasses({ isSelected }: { isSelected: boolean }) {
 }
 
 export function ClipRow({
+  domId,
   event,
   index,
   isActive,
+  focused,
   isMultiMatch,
   matchTitle,
   preOffset,
@@ -158,9 +179,13 @@ export function ClipRow({
   selectionCount,
   onGroupSelected,
 }: {
+  /** The row's id, for the grid's aria-activedescendant. */
+  domId: string;
   event: PlayByPlayEvent;
   index: number;
   isActive: boolean;
+  /** Keyboard focus is on this row and the ring is showing. */
+  focused: boolean;
   isMultiMatch: boolean;
   matchTitle?: string;
   preOffset: number;
@@ -191,10 +216,11 @@ export function ClipRow({
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div
+          id={domId}
           role="row"
           data-row-key={drag.rowKey}
           data-row-index={index}
-          data-event-id={event.eventId}
+          data-focused={focused || undefined}
           aria-selected={isSelected}
           className={rowClasses({ isSelected })}
           onClick={onClick}
@@ -204,10 +230,11 @@ export function ClipRow({
           onPointerDown={drag.onPointerDown}
         >
           {isActive && !isSelected && <ActiveRowPill />}
+          {focused && <FocusRing onSelection={isSelected} />}
           <div className={cn("relative z-10 w-[3px] shrink-0 self-stretch", colors.strip)} aria-hidden />
           <RowLead groupPos={groupPos} isSelected={isSelected} showCheckbox={anySelected} onSelect={onSelect} />
 
-          <div className="relative z-10 flex min-w-0 flex-1 flex-col justify-center py-1.5">
+          <div role="gridcell" className="relative z-10 flex min-w-0 flex-1 flex-col justify-center py-1.5">
             <div className="flex min-w-0 items-center gap-1.5">
               {(groupPos === "first" || groupPos === "only") && <GroupPill size={groupSize} onUngroup={onUngroup} />}
               <span className={cn("inline-flex shrink-0 items-center rounded-full px-2 py-px text-[11px] font-medium", colors.badge)}>
@@ -268,7 +295,10 @@ export function ClipRow({
                 trigger={
                   <button
                     type="button"
-                    className="flex size-6 items-center justify-center rounded-md opacity-0 transition-[opacity,background-color] duration-100 group-hover:opacity-100 hover:bg-primary/10 hover:text-primary active:scale-95 data-[state=open]:opacity-100"
+                    className={cn(
+                      "flex size-6 items-center justify-center rounded-md transition-[opacity,background-color] duration-100 hover:bg-primary/10 hover:text-primary active:scale-95 data-[state=open]:opacity-100",
+                      REVEAL,
+                    )}
                     title={labelControls.scopeTitle ?? "Labels"}
                   >
                     <Tag className="size-3.5" />
@@ -288,7 +318,10 @@ export function ClipRow({
             )}
             <button
               type="button"
-              className="flex size-6 items-center justify-center rounded-md opacity-0 transition-[opacity,background-color] duration-100 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive active:scale-95"
+              className={cn(
+                "flex size-6 items-center justify-center rounded-md transition-[opacity,background-color] duration-100 hover:bg-destructive/10 hover:text-destructive active:scale-95",
+                REVEAL,
+              )}
               onClick={onRemove}
               title="Remove from playlist"
             >
@@ -312,9 +345,11 @@ export function ClipRow({
 }
 
 export function TextCardRow({
+  domId,
   card,
   index,
   isActive,
+  focused,
   isSelected,
   anySelected,
   onSelect,
@@ -328,9 +363,11 @@ export function TextCardRow({
   groupSize,
   onUngroup,
 }: {
+  domId: string;
   card: PlaylistTextCard;
   index: number;
   isActive: boolean;
+  focused: boolean;
   isSelected: boolean;
   anySelected: boolean;
   onSelect: (e: React.MouseEvent) => void;
@@ -349,10 +386,11 @@ export function TextCardRow({
 
   return (
     <div
+      id={domId}
       role="row"
       data-row-key={drag.rowKey}
       data-row-index={index}
-      data-text-card-id={card.id}
+      data-focused={focused || undefined}
       aria-selected={isSelected}
       className={cn(rowClasses({ isSelected }), !isSelected && "bg-amber-500/6 hover:bg-amber-500/12")}
       onClick={onClick}
@@ -362,10 +400,11 @@ export function TextCardRow({
       onPointerDown={drag.onPointerDown}
     >
       {isActive && !isSelected && <ActiveRowPill />}
+      {focused && <FocusRing onSelection={isSelected} />}
       <div className="relative z-10 w-[3px] shrink-0 self-stretch bg-amber-400" aria-hidden />
       <RowLead groupPos={groupPos} isSelected={isSelected} showCheckbox={anySelected} onSelect={onSelect} />
 
-      <div className="relative z-10 flex min-w-0 flex-1 items-center gap-2 py-1.5">
+      <div role="gridcell" className="relative z-10 flex min-w-0 flex-1 items-center gap-2 py-1.5">
         {(groupPos === "first" || groupPos === "only") && <GroupPill size={groupSize} onUngroup={onUngroup} />}
         <Type className="size-3.5 shrink-0 text-amber-500" />
         <input
@@ -425,7 +464,10 @@ export function TextCardRow({
       <div className="relative z-10 flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
         <button
           type="button"
-          className="flex size-6 items-center justify-center rounded-md opacity-0 transition-[opacity,background-color] duration-100 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive active:scale-95"
+          className={cn(
+            "flex size-6 items-center justify-center rounded-md transition-[opacity,background-color] duration-100 hover:bg-destructive/10 hover:text-destructive active:scale-95",
+            REVEAL,
+          )}
           onClick={onRemove}
           title="Remove from playlist"
         >

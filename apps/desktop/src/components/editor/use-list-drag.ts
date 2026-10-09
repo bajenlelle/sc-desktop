@@ -62,6 +62,11 @@ export interface ListDragOptions {
   /** Always fires last, whatever ended the drag. */
   onEnd: () => void;
   reducedMotion: boolean;
+  /**
+   * The list's own focus target (the grid): a press moves focus there, so
+   * the keys and assistive tech follow the row that was pressed.
+   */
+  focusRef?: RefObject<HTMLElement | null>;
 }
 
 export interface ListDrag {
@@ -579,10 +584,16 @@ export function useListDrag(options: ListDragOptions): ListDrag {
         if ((e.target as HTMLElement).closest(INTERACTIVE)) return;
         // No text selection may start from a row (WebKit would extend one
         // into the sidebar as the pointer crosses it); the one default worth
-        // keeping, a field elsewhere losing focus, is done by hand.
+        // keeping, focus leaving a field elsewhere, is done by hand: to the
+        // list itself when it has a focus target.
         e.preventDefault();
         const active = document.activeElement as HTMLElement | null;
-        if (active && active !== document.body && !e.currentTarget.contains(active)) active.blur();
+        const focusTarget = opts.current.focusRef?.current;
+        if (focusTarget) {
+          if (active !== focusTarget) focusTarget.focus({ preventScroll: true });
+        } else if (active && active !== document.body && !e.currentTarget.contains(active)) {
+          active.blur();
+        }
         pendingRef.current = {
           pointerId: e.pointerId,
           key,

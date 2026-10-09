@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { MultiSelectDropdown } from "@/components/ui/multi-select-dropdown";
 import type { Label } from "@scoutable/shared/types/labels";
 
@@ -30,7 +31,8 @@ export function queueFiltersActive(f: QueueFilters): boolean {
 /**
  * The in-playlist filter bar (Johannes #4/#12): narrow the queue by player,
  * label, event type, period or game. Every dropdown only offers what the
- * open playlist actually contains — an empty dimension isn't rendered.
+ * open playlist actually contains; an empty dimension isn't rendered. It
+ * sits above the clip list, an inset group like the list itself.
  */
 export function PlaylistFilterBar({
   filters,
@@ -55,7 +57,7 @@ export function PlaylistFilterBar({
     onChange({ ...filters, [key]: next });
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/30 px-3 py-2">
+    <div className="flex flex-wrap items-center gap-2 rounded-window bg-card p-2 ring-1 ring-separator">
       {options.players.length > 1 && (
         <MultiSelectDropdown
           placeholder="Player"
@@ -96,17 +98,13 @@ export function PlaylistFilterBar({
           onChange={(s) => set("matchIds", s)}
         />
       )}
-      <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+      <span className="ml-auto pl-1 text-callout text-muted-foreground nums">
         {shownCount} of {totalCount} clips
       </span>
       {queueFiltersActive(filters) && (
-        <button
-          type="button"
-          onClick={() => onChange({ ...EMPTY_QUEUE_FILTERS })}
-          className="text-xs font-medium text-primary"
-        >
-          Clear filters
-        </button>
+        <Button variant="ghost" size="xs" onClick={() => onChange({ ...EMPTY_QUEUE_FILTERS })}>
+          Clear
+        </Button>
       )}
     </div>
   );

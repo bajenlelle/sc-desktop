@@ -144,6 +144,12 @@ export function WatchView({
         else q.prev();
         return;
       }
+      case "first":
+      case "last":
+        if (items.length === 0) return;
+        e.preventDefault();
+        q.playIndex(action === "first" ? 0 : items.length - 1);
+        return;
       case "toggle-play":
         e.preventDefault();
         stageRef.current?.togglePlay();

@@ -37,6 +37,31 @@ describe("resolvePlayerKey", () => {
     expect(resolvePlayerKey(key("KeyA"))).toBeNull();
   });
 
+  it("maps the clip list's table keys", () => {
+    expect(resolvePlayerKey(key("ArrowDown", { shiftKey: true }))).toBe("extend-next");
+    expect(resolvePlayerKey(key("ArrowUp", { shiftKey: true }))).toBe("extend-prev");
+    expect(resolvePlayerKey(key("ArrowUp", { metaKey: true }))).toBe("first");
+    expect(resolvePlayerKey(key("ArrowDown", { metaKey: true }))).toBe("last");
+    expect(resolvePlayerKey(key("ArrowUp", { metaKey: true, shiftKey: true }))).toBe("extend-first");
+    expect(resolvePlayerKey(key("ArrowDown", { metaKey: true, shiftKey: true }))).toBe("extend-last");
+    expect(resolvePlayerKey(key("Home"))).toBe("first");
+    expect(resolvePlayerKey(key("End"))).toBe("last");
+    expect(resolvePlayerKey(key("Home", { shiftKey: true }))).toBe("extend-first");
+    expect(resolvePlayerKey(key("End", { shiftKey: true }))).toBe("extend-last");
+    expect(resolvePlayerKey(key("Enter"))).toBe("play-focused");
+    expect(resolvePlayerKey(key("NumpadEnter"))).toBe("play-focused");
+    expect(resolvePlayerKey(key("Enter", { shiftKey: true }))).toBeNull();
+    expect(resolvePlayerKey(key("F10", { shiftKey: true }))).toBe("row-menu");
+    expect(resolvePlayerKey(key("F10"))).toBeNull();
+    expect(resolvePlayerKey(key("ContextMenu"))).toBe("row-menu");
+  });
+
+  it("leaves Control-arrows and option chords to the system", () => {
+    expect(resolvePlayerKey(key("ArrowUp", { ctrlKey: true }))).toBeNull();
+    expect(resolvePlayerKey(key("ArrowDown", { metaKey: true, altKey: true }))).toBeNull();
+    expect(resolvePlayerKey(key("KeyA", { metaKey: true, altKey: true }))).toBeNull();
+  });
+
   it("ignores option chords and unknown keys", () => {
     expect(resolvePlayerKey(key("Space", { altKey: true }))).toBeNull();
     expect(resolvePlayerKey(key("KeyQ"))).toBeNull();

@@ -11,6 +11,7 @@ import {
   FolderPlus,
   Share2,
   Users,
+  ListFilter,
   ListPlus,
   ListVideo,
   MoreHorizontal,
@@ -104,6 +105,15 @@ import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
 import { clamp } from "@scoutable/shared/lib/motion-math";
 import { dragBlockKeys, isSameOrder, itemsIndexForGap } from "@scoutable/shared/lib/list-reorder";
+import {
+  clickSelection,
+  extendSelection,
+  focusAfterRemoval,
+  moveFocus,
+  pruneSelection,
+  type FocusMove,
+} from "@scoutable/shared/lib/list-selection";
+import { Callout } from "@/components/ui/group";
 import { EmptyState } from "@/components/empty-state";
 import { SearchField } from "@/components/ui/search-field";
 import { ShareRecipients } from "@/components/playlist/share-recipients";
@@ -116,7 +126,7 @@ import { PILL_LABEL, PillButton, SelectionBar } from "@/components/editor/select
 import { useListDrag, type DragTarget } from "@/components/editor/use-list-drag";
 import { AutoHeight } from "@/components/ui/auto-height";
 import { AnimatePresence, motion } from "framer-motion";
-import { fadeVariants, useReducedMotionSafe } from "@/lib/motion";
+import { fadeVariants, springs, useReducedMotionSafe } from "@/lib/motion";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -139,6 +149,32 @@ function itemKey(i: PlaybackItem): string {
 function playlistItemKey(i: PlaylistItem): string {
   return isClipItem(i) ? `${i.matchId}:${i.eventId}` : `text:${i.id}`;
 }
+
+/** A row's DOM id, for the grid's aria-activedescendant. */
+function rowDomId(key: string): string {
+  return `clip-row-${key.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+}
+
+/** Keyboard focus rather than a click's (older WebKit lacks the selector). */
+function isFocusVisible(el: Element): boolean {
+  try {
+    return el.matches(":focus-visible");
+  } catch {
+    return false;
+  }
+}
+
+/** The row element for a key, inside the given list only. */
+function findRow(container: HTMLElement | null, key: string): HTMLElement | null {
+  return container?.querySelector<HTMLElement>(`[data-row-key="${CSS.escape(key)}"]`) ?? null;
+}
+
+/** The filter bar and the "Filtered" strip under the toolbar: a few points of travel, then still. */
+const revealVariants = {
+  hidden: { opacity: 0, y: -6 },
+  visible: { opacity: 1, y: 0, transition: springs.standard },
+  exit: { opacity: 0, y: -6, transition: springs.exit },
+};
 
 // ---------------------------------------------------------------------------
 // The playlist browser column remembers its width and whether it is shown.
@@ -345,6 +381,15 @@ export function PlaylistsPage() {
 
   // Item selection (clips and text cards)
   const [selectedClipIds, setSelectedClipIds] = useState<Set<string>>(new Set()); // "matchId:eventId" or "text:uuid"
+  // Keyboard focus in the clip list, a macOS table's: the row the arrows
+  // move from, kept apart from the selection. It follows whatever starts
+  // playing. The anchor is where a Shift range grows from.
+  const [focusKey, setFocusKey] = useState<string | null>(null);
+  const [anchorKey, setAnchorKey] = useState<string | null>(null);
+  // The focus ring shows while the list is driven from the keyboard and
+  // goes at the next pointer press, the way :focus-visible does.
+  const [keyboardNav, setKeyboardNav] = useState(false);
+  const gridRef = useRef<HTMLDivElement | null>(null);
 
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
 
@@ -384,19 +429,26 @@ export function PlaylistsPage() {
   useEffect(() => { sessionStorage.setItem("expandedFolders", JSON.stringify([...expandedFolders])); }, [expandedFolders]);
   useEffect(() => { sessionStorage.setItem("uncategorizedExpanded", String(uncategorizedExpanded)); }, [uncategorizedExpanded]);
 
+  /**
+   * The playing row by its list key (`matchId:eventId`, or `text:id` for a
+   * text card). Event ids repeat across games, so a multi-game playlist must
+   * never match the playing row by event id alone.
+   */
+  const activeKey = activeTextCard
+    ? `text:${activeTextCard.id}`
+    : activeEventId !== null && activeMatchId !== null
+      ? `${activeMatchId}:${activeEventId}`
+      : null;
+
   // Sync note textarea when active clip changes
   useEffect(() => {
     if (activeEventId === null || !selected) { setClipNote(""); return; }
-    // Find the clip in the queue to get its matchId
-    const queueItem = queueRef.current.find(
-      (i): i is QueueItem => !isTextCard(i) && (i as QueueItem).event.eventId === activeEventId
-    );
     const clip = selected.items.filter(isClipItem).find(
-      (c) => c.matchId === (queueItem?.matchId ?? activeMatchIdRef.current) && c.eventId === activeEventId
+      (c) => c.matchId === activeMatchId && c.eventId === activeEventId
     );
     setClipNote(clip?.note ?? "");
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeEventId, selected?.id]);
+  }, [activeKey, selected?.id]);
 
   // Load playlists + matches on mount; restore selection if returning from match detail
   useEffect(() => {
@@ -950,8 +1002,13 @@ export function PlaylistsPage() {
   // Reset clock sort when the selected playlist changes
   useEffect(() => { setClockSort("none"); }, [selected?.id]);
 
-  // Clear clip selection when active playlist changes
-  useEffect(() => { setSelectedClipIds(new Set()); }, [selected?.id]);
+  // Clear clip selection and focus when active playlist changes
+  useEffect(() => {
+    setSelectedClipIds(new Set());
+    setFocusKey(null);
+    setAnchorKey(null);
+    setKeyboardNav(false);
+  }, [selected?.id]);
 
   const isMultiMatch = useMemo(
     () => new Set(selected?.items.filter(isClipItem).map((c) => c.matchId)).size > 1,
@@ -1053,6 +1110,18 @@ export function PlaylistsPage() {
 
   /** What the queue, playback, selection and export actually operate on. */
   const queueItems = filtersActive ? filteredEvents : sortedEvents;
+  /** The rows on screen, in order: what focus moves over and ranges span. */
+  const visibleKeys = useMemo(() => queueItems.map(itemKey), [queueItems]);
+
+  // Rows that leave the screen (a filter hid them, or they were removed)
+  // leave the selection too, so a bulk remove never takes rows nobody can
+  // see; focus and anchor let go of them the same way.
+  useEffect(() => {
+    setSelectedClipIds((prev) => pruneSelection(prev, visibleKeys) as Set<string>);
+    const shown = new Set(visibleKeys);
+    setFocusKey((key) => (key !== null && !shown.has(key) ? null : key));
+    setAnchorKey((key) => (key !== null && !shown.has(key) ? null : key));
+  }, [visibleKeys]);
 
   // Only offer filter options the open playlist actually contains.
   const queueFilterOptions = useMemo(() => {
@@ -1137,13 +1206,10 @@ export function PlaylistsPage() {
   }
 
   function saveClipNote(note: string) {
-    if (!selected || activeEventId === null) return;
-    const queueItem = queueRef.current.find(
-      (i): i is QueueItem => !isTextCard(i) && (i as QueueItem).event.eventId === activeEventId
-    );
-    if (!queueItem) return;
+    if (!selected || activeEventId === null || activeMatchId === null) return;
+    const matchId = activeMatchId;
     const newItems = selected.items.map((c) =>
-      isClipItem(c) && c.matchId === queueItem.matchId && c.eventId === activeEventId
+      isClipItem(c) && c.matchId === matchId && c.eventId === activeEventId
         ? { ...c, note: note.trim() || undefined }
         : c
     );
@@ -1151,7 +1217,7 @@ export function PlaylistsPage() {
     setSelected(updatedPlaylist);
     selectedRef.current = updatedPlaylist;
     setPlaylists((prev) => prev.map((p) => (p.id === selected.id ? updatedPlaylist : p)));
-    updateClip(selected.id, queueItem.matchId, activeEventId, { note: note.trim() || null }).catch(() => {});
+    updateClip(selected.id, matchId, activeEventId, { note: note.trim() || null }).catch(() => {});
   }
 
   function handleNoteChange(value: string) {
@@ -1471,40 +1537,151 @@ export function PlaylistsPage() {
 
   const _sortedEventsRef = useRef(queueItems);
   _sortedEventsRef.current = queueItems;
-  const _activeEventIdRef = useRef(activeEventId);
-  _activeEventIdRef.current = activeEventId;
+  const _activeKeyRef = useRef(activeKey);
+  _activeKeyRef.current = activeKey;
   const _handleRowClickRef = useRef(handleRowClick);
   _handleRowClickRef.current = handleRowClick;
   const _handleReplayRef = useRef(handleReplay);
   _handleReplayRef.current = handleReplay;
 
-  const listPosition = useMemo(() => {
-    if (activeTextCard) return queueItems.findIndex(i => isTextCard(i) && (i as PlaylistTextCard).id === activeTextCard.id);
-    if (activeEventId !== null) return queueItems.findIndex(i => !isTextCard(i) && (i as QueueItem).event.eventId === activeEventId);
-    return -1;
-  }, [activeTextCard, activeEventId, queueItems]);
+  const listPosition = useMemo(
+    () => (activeKey === null ? -1 : visibleKeys.indexOf(activeKey)),
+    [activeKey, visibleKeys],
+  );
   const canPrev = listPosition > 0;
   const canNext = listPosition >= 0 && listPosition < queueItems.length - 1;
 
   const handlePrev = useCallback(() => {
     const items = _sortedEventsRef.current;
-    const cur = items.findIndex(i =>
-      isTextCard(i) ? (i as PlaylistTextCard).id === activeTextCardRef.current?.id
-                     : (i as QueueItem).event.eventId === _activeEventIdRef.current
-    );
+    const cur = items.findIndex((i) => itemKey(i) === _activeKeyRef.current);
     if (cur <= 0) return;
     _handleRowClickRef.current(items[cur - 1]);
   }, []);
 
   const handleNext = useCallback(() => {
     const items = _sortedEventsRef.current;
-    const cur = items.findIndex(i =>
-      isTextCard(i) ? (i as PlaylistTextCard).id === activeTextCardRef.current?.id
-                     : (i as QueueItem).event.eventId === _activeEventIdRef.current
-    );
+    const cur = items.findIndex((i) => itemKey(i) === _activeKeyRef.current);
     if (cur === -1 || cur >= items.length - 1) return;
     _handleRowClickRef.current(items[cur + 1]);
   }, []);
+
+  // Whatever starts playing (a click, the arrows, the queue moving on)
+  // becomes the row the keys work from.
+  useEffect(() => {
+    if (activeKey === null) return;
+    setFocusKey(activeKey);
+    setAnchorKey(activeKey);
+  }, [activeKey]);
+
+  // Keep the focused row in view. Looked up inside the list only: the Add
+  // Clips sheet renders rows for the same clips.
+  useEffect(() => {
+    if (focusKey === null) return;
+    findRow(gridRef.current, focusKey)?.scrollIntoView({ block: "nearest" });
+  }, [focusKey]);
+
+  // The ring goes at the next pointer press anywhere.
+  useEffect(() => {
+    if (!keyboardNav) return;
+    const off = () => setKeyboardNav(false);
+    window.addEventListener("pointerdown", off, true);
+    return () => window.removeEventListener("pointerdown", off, true);
+  }, [keyboardNav]);
+
+  /** Moves focus with the arrows (and plays there, as a plain arrow always has). */
+  function moveListFocus(move: FocusMove) {
+    const to = moveFocus(visibleKeys, focusKey ?? activeKey, move);
+    if (to === null) return;
+    setKeyboardNav(true);
+    setFocusKey(to);
+    setAnchorKey(to);
+    if (to === activeKey) return;
+    const item = queueItems.find((i) => itemKey(i) === to);
+    if (item) handleRowClick(item);
+  }
+
+  /** Shift+arrows: the range from the anchor follows focus, nothing plays. */
+  function extendListFocus(move: FocusMove) {
+    const from = focusKey ?? activeKey;
+    const to = moveFocus(visibleKeys, from, move);
+    if (to === null) return;
+    const shown = (key: string | null): key is string => key !== null && visibleKeys.includes(key);
+    const anchor = shown(anchorKey) ? anchorKey : shown(from) ? from : to;
+    setSelectedClipIds((prev) =>
+      extendSelection({ order: visibleKeys, selected: prev, anchor, previousFocus: shown(from) ? from : null, focus: to }),
+    );
+    setKeyboardNav(true);
+    setAnchorKey(anchor);
+    setFocusKey(to);
+  }
+
+  /** A click on a row: plain plays it, ⌘ toggles it, Shift selects the range from the anchor. */
+  function handleRowPress(item: PlaybackItem, e: React.MouseEvent) {
+    const key = itemKey(item);
+    const shift = e.shiftKey;
+    const toggle = e.metaKey || e.ctrlKey;
+    gridRef.current?.focus({ preventScroll: true });
+    if (!shift && !toggle) {
+      setFocusKey(key);
+      setAnchorKey(key);
+      handleRowClick(item);
+      return;
+    }
+    applyClickSelection(key, shift, toggle);
+  }
+
+  /** The row's checkbox: a toggle, or with Shift the range from the anchor. */
+  function handleRowCheckbox(key: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    applyClickSelection(key, e.shiftKey, !e.shiftKey);
+  }
+
+  function applyClickSelection(key: string, shift: boolean, toggle: boolean) {
+    const next = clickSelection({
+      order: visibleKeys,
+      selected: selectedClipIds,
+      anchor: anchorKey,
+      focus: focusKey,
+      key,
+      shift,
+      toggle,
+    });
+    setSelectedClipIds(next.selected);
+    setAnchorKey(next.anchor);
+    setFocusKey(next.focus);
+  }
+
+  /** Delete with nothing selected: the focused row goes, with Undo. */
+  function removeFocusedRow() {
+    if (!selected || focusKey === null) return;
+    const item = selected.items.find((i) => playlistItemKey(i) === focusKey);
+    if (!item) return;
+    const after = focusAfterRemoval(visibleKeys, new Set([focusKey]), focusKey);
+    setFocusKey(after);
+    setAnchorKey(after);
+    if (isClipItem(item)) handleRemoveSingleClip(item);
+    else handleRemoveSingleTextCard(item as PlaylistTextCard);
+  }
+
+  /**
+   * Shift+F10 (or the menu key): the focused row's context menu, opened the
+   * way a right-click opens it, at the row's leading edge.
+   */
+  function openFocusedRowMenu() {
+    if (focusKey === null) return;
+    const row = findRow(gridRef.current, focusKey);
+    if (!row) return;
+    row.scrollIntoView({ block: "nearest" });
+    const r = row.getBoundingClientRect();
+    row.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: r.left + 40,
+        clientY: r.top + r.height / 2,
+      }),
+    );
+  }
 
   // One key owner for the page (src/lib/key-scope.ts); the Add Clips sheet
   // registers its own scope on top while it is open. The handler closes
@@ -1597,42 +1774,62 @@ export function PlaylistsPage() {
         nudge(-5);
         return;
       case "remove":
-        if (selectedClipIds.size === 0) return;
+        if (selectedClipIds.size > 0) {
+          e.preventDefault();
+          void handleRemoveSelected();
+          return;
+        }
+        // Only a row the ring is showing on: a stray Delete never takes a
+        // clip nobody saw was focused.
+        if (!keyboardNav || focusKey === null) return;
         e.preventDefault();
-        void handleRemoveSelected();
+        removeFocusedRow();
         return;
       case "select-all":
         if (queueItems.length === 0) return;
         e.preventDefault();
-        setSelectedClipIds(new Set(queueItems.map(itemKey)));
+        setSelectedClipIds(new Set(visibleKeys));
         return;
       case "next":
-      case "prev": {
+      case "prev":
+      case "first":
+      case "last":
+        if (visibleKeys.length === 0) return;
         e.preventDefault();
-        const items = _sortedEventsRef.current;
-        if (items.length === 0) return;
-        const cur = items.findIndex(i =>
-          isTextCard(i) ? (i as PlaylistTextCard).id === activeTextCardRef.current?.id
-                         : (i as QueueItem).event.eventId === _activeEventIdRef.current
+        moveListFocus(action === "next" ? 1 : action === "prev" ? -1 : action);
+        return;
+      case "extend-next":
+      case "extend-prev":
+      case "extend-first":
+      case "extend-last":
+        if (visibleKeys.length === 0) return;
+        e.preventDefault();
+        extendListFocus(
+          action === "extend-next" ? 1 : action === "extend-prev" ? -1 : action === "extend-first" ? "first" : "last",
         );
-        const next = action === "next"
-          ? cur === -1 ? 0 : Math.min(cur + 1, items.length - 1)
-          : cur === -1 ? items.length - 1 : Math.max(cur - 1, 0);
-        if (next !== cur || cur === -1) _handleRowClickRef.current(items[next]);
+        return;
+      case "play-focused":
+      case "row-menu": {
+        // Return and the menu key belong to whatever has focus, a toolbar
+        // button say; the list answers only when it has focus itself (or
+        // nothing does).
+        const fromList = e.target === document.body || e.target === gridRef.current;
+        if (!fromList || focusKey === null) return;
+        e.preventDefault();
+        if (action === "row-menu") {
+          openFocusedRowMenu();
+          return;
+        }
+        const item = queueItems.find((i) => itemKey(i) === focusKey);
+        if (item) handleRowClick(item);
         return;
       }
     }
   });
 
   useEffect(() => {
-    if (activeEventId === null) return;
-    document.querySelector(`[data-event-id="${activeEventId}"]`)?.scrollIntoView({ block: "nearest" });
-  }, [activeEventId]);
-
-  useEffect(() => {
     if (!newlyInsertedCardId) return;
-    document.querySelector(`[data-text-card-id="${newlyInsertedCardId}"]`)
-      ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    findRow(gridRef.current, `text:${newlyInsertedCardId}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     setNewlyInsertedCardId(null);
   }, [newlyInsertedCardId, sortedEvents]);
 
@@ -1891,6 +2088,7 @@ export function PlaylistsPage() {
     },
     onDropOnPlaylist: (playlistId, anchorKey) => void handleClipDropOnPlaylist(playlistId, anchorKey),
     onEnd: endClipDragBookkeeping,
+    focusRef: gridRef,
   });
 
   // The list under a drag changed (spring-loaded into another playlist):
@@ -3184,16 +3382,6 @@ export function PlaylistsPage() {
   // Clip selection helpers
   // ---------------------------------------------------------------------------
 
-  function toggleSelectClip(key: string, e: React.MouseEvent) {
-    e.stopPropagation();
-    setSelectedClipIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
-
   function handleRemoveSelected() {
     if (!selected || selectedClipIds.size === 0) return;
     const prevItems = selected.items;
@@ -3211,6 +3399,9 @@ export function PlaylistsPage() {
       .filter((c) => selectedClipIds.has(`text:${(c as PlaylistTextCard).id}`))
       .map((c) => (c as PlaylistTextCard).id);
     const count = clipKeysToRemove.length + textCardIdsToRemove.length;
+    const after = focusAfterRemoval(visibleKeys, selectedClipIds, focusKey);
+    setFocusKey(after);
+    setAnchorKey(after);
     setSelectedClipIds(new Set());
 
     // A slip waiting to happen, so it stays undoable for the life of the
@@ -3764,43 +3955,54 @@ export function PlaylistsPage() {
       </div>
     );
 
+  const shownClipCount = queueItems.filter((i) => !isTextCard(i)).length;
+  const totalClipCount = sortedEvents.filter((i) => !isTextCard(i)).length;
   const clipListStack = (
     <div className="@container relative flex min-h-0 flex-1 flex-col">
       {noSync && selected.items.filter(isClipItem).length > 0 && (
-        <div className="mb-3 shrink-0 rounded-md bg-amber-500/10 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300">
-          No sync point — set one in the game to enable playback controls.
-        </div>
+        <Callout tone="warning" className="mb-3 shrink-0">
+          No sync point. Set one in the game to play these clips.
+        </Callout>
       )}
+
+      {/* Filters sit above the scroller, so they stay put while the list
+          moves. Opening, closing and the collapsed strip spring the height
+          and cross-fade (a fade only under reduced motion). */}
+      <AutoHeight className="shrink-0">
+        <AnimatePresence mode="popLayout" initial={false}>
+          {filtersOpen ? (
+            <motion.div key="filter-bar" variants={revealVariants} initial="hidden" animate="visible" exit="exit" className="pb-2">
+              <PlaylistFilterBar
+                filters={queueFilters}
+                onChange={(next) => {
+                  if (!filtersActive && queueFiltersActive(next)) trackEvent("playlist_filtered");
+                  setQueueFilters(next);
+                }}
+                options={queueFilterOptions}
+                shownCount={shownClipCount}
+                totalCount={totalClipCount}
+              />
+            </motion.div>
+          ) : filtersActive ? (
+            <motion.div key="filtered" variants={revealVariants} initial="hidden" animate="visible" exit="exit" className="pb-2">
+              <div className="flex min-h-8 items-center gap-2 rounded-md bg-fill-1 py-1 pr-1 pl-3 text-callout text-muted-foreground">
+                <ListFilter className="size-3.5 shrink-0" aria-hidden />
+                <span className="nums">
+                  Filtered: {shownClipCount} of {totalClipCount} clips
+                </span>
+                <Button variant="ghost" size="xs" className="ml-auto" onClick={() => setQueueFilters({ ...EMPTY_QUEUE_FILTERS })}>
+                  Clear
+                </Button>
+              </div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+      </AutoHeight>
 
       <div
         ref={playlistScrollRef}
         className={cn("min-h-0 flex-1 overflow-y-auto", selectedClipIds.size > 0 && "pb-16")}
       >
-      {filtersOpen && (
-        <PlaylistFilterBar
-          filters={queueFilters}
-          onChange={(next) => {
-            if (!filtersActive && queueFiltersActive(next)) trackEvent("playlist_filtered");
-            setQueueFilters(next);
-          }}
-          options={queueFilterOptions}
-          shownCount={queueItems.filter((i) => !isTextCard(i)).length}
-          totalCount={sortedEvents.filter((i) => !isTextCard(i)).length}
-        />
-      )}
-      {filtersActive && !filtersOpen && (
-        <div className="mb-2 flex items-center gap-2 rounded-md bg-amber-500/10 px-3 py-1.5 text-xs text-amber-700 dark:text-amber-300">
-          Filtered: showing {queueItems.filter((i) => !isTextCard(i)).length} of{" "}
-          {sortedEvents.filter((i) => !isTextCard(i)).length} clips
-          <button
-            type="button"
-            onClick={() => setQueueFilters({ ...EMPTY_QUEUE_FILTERS })}
-            className="font-medium underline underline-offset-2"
-          >
-            Clear
-          </button>
-        </div>
-      )}
       {queueItems.length === 0 ? (
         <div
           className={cn(
@@ -3826,26 +4028,39 @@ export function PlaylistsPage() {
         </div>
       ) : (
         <div
+          ref={gridRef}
           role="grid"
           aria-label="Clips"
-          className="overflow-hidden rounded-window bg-card ring-1 ring-separator [&>[role=row]:not(:first-child)]:shadow-[inset_0_1px_0_var(--separator)]"
+          aria-multiselectable="true"
+          aria-activedescendant={focusKey !== null ? rowDomId(focusKey) : undefined}
+          tabIndex={0}
+          onFocus={(e) => {
+            // Tabbing in shows where the keys will act.
+            if (e.target !== e.currentTarget || !isFocusVisible(e.currentTarget)) return;
+            setKeyboardNav(true);
+            if (focusKey === null) setFocusKey(activeKey ?? visibleKeys[0] ?? null);
+          }}
+          className="overflow-hidden rounded-window bg-card ring-1 ring-separator outline-none [&>[role=row]:not(:first-child)]:shadow-[inset_0_1px_0_var(--separator)]"
         >
           {queueItems.map((item, index) => {
             const key = itemKey(item);
             const drag = { rowKey: key, onPointerDown: (e: React.PointerEvent) => listDrag.onRowPointerDown(e, key) };
+            const focused = keyboardNav && focusKey === key;
             if (isTextCard(item)) {
               const card = item as PlaylistTextCard;
               return (
                 <TextCardRow
                   key={key}
+                  domId={rowDomId(key)}
                   card={card}
                   index={index}
-                  isActive={activeTextCard?.id === card.id}
+                  isActive={key === activeKey}
+                  focused={focused}
                   isSelected={selectedClipIds.has(key)}
                   anySelected={selectedClipIds.size > 0}
-                  onSelect={(e) => toggleSelectClip(key, e)}
+                  onSelect={(e) => handleRowCheckbox(key, e)}
                   drag={drag}
-                  onClick={(e) => { if (e.shiftKey || e.metaKey || e.ctrlKey) { toggleSelectClip(key, e); return; } handleRowClick(card); }}
+                  onClick={(e) => handleRowPress(card, e)}
                   onTextChange={handleTextCardTextChange}
                   onTextSave={handleTextCardTextSave}
                   onDurationChange={handleTextCardDurationChange}
@@ -3857,14 +4072,15 @@ export function PlaylistsPage() {
               );
             }
             const queueItem = item as QueueItem;
-            const rowKey = `${queueItem.matchId}:${queueItem.event.eventId}`;
-            const clip = clipByKey.get(rowKey);
+            const clip = clipByKey.get(key);
             return (
               <ClipRow
                 key={key}
+                domId={rowDomId(key)}
                 index={index}
                 event={queueItem.event}
-                isActive={queueItem.event.eventId === activeEventId}
+                isActive={key === activeKey}
+                focused={focused}
                 isMultiMatch={isMultiMatch}
                 matchTitle={matchLookup.get(queueItem.matchId)?.title}
                 preOffset={clip?.preRollOffset ?? 0}
@@ -3872,14 +4088,14 @@ export function PlaylistsPage() {
                 note={clip?.note}
                 isSelected={selectedClipIds.has(key)}
                 anySelected={selectedClipIds.size > 0}
-                onSelect={(e) => toggleSelectClip(key, e)}
+                onSelect={(e) => handleRowCheckbox(key, e)}
                 drag={drag}
-                onClick={(e) => { if (e.shiftKey || e.metaKey || e.ctrlKey) { toggleSelectClip(key, e); return; } handleRowClick(queueItem); }}
+                onClick={(e) => handleRowPress(queueItem, e)}
                 onInsertTextCardAbove={() => handleInsertTextCard(index)}
                 onRemove={() => { if (clip) handleRemoveSingleClip(clip); }}
                 labelControls={activeOrgId ? {
                   labels,
-                  assignedIds: clipAssignments.get(rowKey) ?? new Set<string>(),
+                  assignedIds: clipAssignments.get(key) ?? new Set<string>(),
                   onToggle: (labelId, state) => handleToggleClipLabel(queueItem.matchId, queueItem.event.eventId, labelId, state),
                   onCreate: handleCreateLabel,
                   onRename: handleRenameLabel,

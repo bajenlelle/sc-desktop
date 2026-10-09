@@ -127,6 +127,7 @@ function matchesSituation(e: PlayByPlayEvent, f: string): boolean {
 // ---------------------------------------------------------------------------
 
 function BrowserRow({
+  rowKey,
   event,
   matchTitle,
   showGame,
@@ -138,6 +139,8 @@ function BrowserRow({
   onClick,
   labelPicker,
 }: {
+  /** `matchId:eventId`: event ids repeat across games. */
+  rowKey: string;
   event: PlayByPlayEvent;
   matchTitle: string;
   showGame: boolean;
@@ -155,7 +158,7 @@ function BrowserRow({
   return (
     <div
       role="row"
-      data-event-id={event.eventId}
+      data-row-key={rowKey}
       aria-selected={isSelected}
       onClick={onClick}
       className={cn(
@@ -755,9 +758,8 @@ export function ClipBrowserPanel({
   // Keep the playing row in view
   useEffect(() => {
     if (activeEventKey === null) return;
-    const eventId = activeEventKey.split(":")[1];
     panelRef.current
-      ?.querySelector(`[data-event-id="${eventId}"]`)
+      ?.querySelector(`[data-row-key="${CSS.escape(activeEventKey)}"]`)
       ?.scrollIntoView({ block: "nearest" });
   }, [activeEventKey]);
 
@@ -951,6 +953,7 @@ export function ClipBrowserPanel({
                   return (
                     <BrowserRow
                       key={key}
+                      rowKey={key}
                       event={event}
                       matchTitle={matchTitle}
                       showGame={isMultiMatch}
