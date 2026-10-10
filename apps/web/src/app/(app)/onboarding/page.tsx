@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { joinByCode } from "@/lib/profile-db";
 import { trackEvent } from "@/lib/analytics";
-import { createClient } from "@/lib/supabase/client";
+import { signOutAndLeave } from "@/lib/sign-out";
 import { useAuth } from "@/components/auth-context";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
@@ -55,12 +55,6 @@ export default function OnboardingPage() {
     }
   }
 
-  async function handleSignOut() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/login");
-  }
-
   return (
     <Page width="narrow">
       <Toolbar title="Join a team" leading={hasSpace ? <BackButton href="/get-started" label="Get started" /> : undefined} />
@@ -85,7 +79,7 @@ export default function OnboardingPage() {
           {!hasSpace && (
             <button
               type="button"
-              onClick={handleSignOut}
+              onClick={() => void signOutAndLeave()}
               className="mt-3 justify-self-center text-callout text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
             >
               Sign out

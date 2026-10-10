@@ -9,7 +9,6 @@
  * safe to remove.
  */
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Globe, Loader2, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -24,6 +23,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
+import { signOutAndLeave } from "@/lib/sign-out";
 import { trackEvent } from "@/lib/analytics";
 import { APP_ICON, lastActive } from "@/lib/devices-ui";
 import { useAuth } from "@/components/auth-context";
@@ -47,7 +47,6 @@ export function DeviceGate({ children }: { children: React.ReactNode }) {
 }
 
 function GateScreen({ onRemoved }: { onRemoved: () => void }) {
-  const router = useRouter();
   const { retryDeviceGate } = useAuth();
   const [devices, setDevices] = useState<UserDevice[] | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<UserDevice | null>(null);
@@ -90,8 +89,7 @@ function GateScreen({ onRemoved }: { onRemoved: () => void }) {
 
   async function handleSignOut() {
     trackEvent("device_gate_signed_out");
-    await createClient().auth.signOut({ scope: "local" });
-    router.push("/login");
+    await signOutAndLeave();
   }
 
   return (

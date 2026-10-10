@@ -28,6 +28,11 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://app.scoutable.se"),
   title: "Scoutable",
   description: "Watch your team's playlists",
+  // Safari on iPhone turns emails, numbers and dates into links by wrapping
+  // them in elements of its own, inside text React owns; React then fails to
+  // update that text (see lib/sign-out.ts). Clock times and scores read as
+  // phone numbers to it, too.
+  formatDetection: { telephone: false, email: false, address: false, date: false },
 };
 
 // Edge to edge on phones (the shell pads for the notch and home indicator

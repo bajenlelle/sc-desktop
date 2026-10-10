@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import {
   Dialog,
@@ -14,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { createClient } from "@/lib/supabase/client";
+import { signOutAndLeave } from "@/lib/sign-out";
 import { trackEvent } from "@/lib/analytics";
 
 function mapDeleteAccountError(status: number, body: { error?: string; orgName?: string }): string {
@@ -32,7 +31,6 @@ export function DeleteAccountDialog({
   email: string;
   trigger: React.ReactNode;
 }) {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [deleting, setDeleting] = useState(false);
@@ -50,6 +48,7 @@ export function DeleteAccountDialog({
     // Before the call, not after — a successful deletion tears the session
     // down and the event would never leave the page.
     trackEvent("account_delete_requested");
+    let leaving = false;
     try {
       const res = await fetch("/api/delete-account", { method: "POST" });
       if (!res.ok) {
@@ -57,18 +56,14 @@ export function DeleteAccountDialog({
         setError(mapDeleteAccountError(res.status, body));
         return;
       }
-      // The server already revoked the user — local scope avoids a 401 from
-      // the server-side sign-out blocking the redirect.
-      try {
-        await createClient().auth.signOut({ scope: "local" });
-      } catch {
-        // ignore — session is dead either way
-      }
-      router.push("/login");
+      // The server already revoked the user; the page goes now, and the
+      // button stays busy until it has.
+      leaving = true;
+      await signOutAndLeave();
     } catch {
       setError("Couldn't delete your account. Check your connection and try again.");
     } finally {
-      setDeleting(false);
+      if (!leaving) setDeleting(false);
     }
   }
 

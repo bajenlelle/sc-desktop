@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { LogOut, MessageSquarePlus, MoreHorizontal, SunMoon, UserRound } from "lucide-react";
 import { ReportProblemDialog } from "@/components/report-problem-dialog";
@@ -20,7 +20,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { createClient } from "@/lib/supabase/client";
+import { signOutAndLeave } from "@/lib/sign-out";
 import { cn } from "@/lib/utils";
 import { useShell } from "./shell-context";
 
@@ -36,7 +36,6 @@ function initials(name: string): string {
  * Profile); the pick syncs to the account like the colour themes.
  */
 export function AccountMenu() {
-  const router = useRouter();
   const pathname = usePathname();
   const { user } = useAuth();
   const { profile } = useShell();
@@ -45,12 +44,6 @@ export function AccountMenu() {
 
   const email = profile?.email ?? user?.email ?? null;
   const name = profile?.fullName || email || "Account";
-
-  async function handleSignOut() {
-    const supabase = createClient();
-    await supabase.auth.signOut({ scope: "local" });
-    router.push("/login");
-  }
 
   return (
     <>
@@ -104,7 +97,7 @@ export function AccountMenu() {
             Send feedback…
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => void handleSignOut()}>
+          <DropdownMenuItem onSelect={() => void signOutAndLeave()}>
             <LogOut className="text-muted-foreground" />
             Sign out
           </DropdownMenuItem>

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTheme } from "next-themes";
 import posthog from "posthog-js";
@@ -28,6 +27,7 @@ import { Label } from "@/components/ui/label";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { createClient } from "@/lib/supabase/client";
+import { signOutAndLeave } from "@/lib/sign-out";
 import { getOrgContext, updateMyProfile, uploadAvatar, getSubscriptionStatus } from "@/lib/profile-db";
 import { trackEvent } from "@/lib/analytics";
 import { roleLabel } from "@/lib/roles";
@@ -58,7 +58,6 @@ function roleBadgeVariant(role: string, isPlatformAdmin: boolean): "default" | "
 
 export default function ProfilePage() {
   const { user, activeOrgId, activeOrgRole, activeOrgPlan, activeOrgIsPersonal, expectPlanChange } = useAuth();
-  const router = useRouter();
   const { theme, setTheme } = useTheme();
 
   const [ctx, setCtx] = useState<OrgContext | null>(null);
@@ -157,11 +156,6 @@ export default function ProfilePage() {
     toast.success("Password reset email sent");
   }
 
-  async function handleSignOut() {
-    const supabase = createClient();
-    await supabase.auth.signOut({ scope: "local" });
-    router.push("/login");
-  }
 
   async function handleManageSubscription() {
     setLoadingPortal(true);
@@ -513,9 +507,12 @@ export default function ProfilePage() {
         <ReportProblemDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
 
         <GroupedList>
-          <GroupRow onClick={handleSignOut}>
+          <GroupRow onClick={() => void signOutAndLeave()}>
             <LogOut className="size-4 shrink-0 text-muted-foreground" />
-            <span className="flex-1 text-sm text-foreground">Sign out of {user?.email}</span>
+            {/* One string, not text plus an email node: see lib/sign-out.ts. */}
+            <span className="flex-1 text-sm text-foreground">
+              {user?.email ? `Sign out of ${user.email}` : "Sign out"}
+            </span>
           </GroupRow>
         </GroupedList>
 
