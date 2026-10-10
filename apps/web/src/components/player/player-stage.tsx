@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { PortalContainerProvider } from "@/lib/portal-container";
 import { springs, useReducedMotionSafe } from "@/lib/motion";
 import { cn } from "@/lib/utils";
-import { ClipScrubber } from "./clip-scrubber";
+import { ClipProgress, ClipScrubber } from "./clip-scrubber";
 import {
   ControlButton,
   FullscreenButton,
@@ -63,6 +63,11 @@ export interface PlayerStageProps {
   /** The playing clip's length; no scrubber without one. */
   duration: number | null;
   onSeek: (t: number) => void;
+  /**
+   * False for a viewer who may not drag the timeline (a player): a read-only
+   * progress line instead, and none of the browser's own ways to seek.
+   */
+  canScrub?: boolean;
   transport: Omit<TransportProps, "paused" | "onTogglePlay"> & { onPlayAll?: () => void };
   speed: number;
   onSpeedChange: (speed: number) => void;
@@ -99,6 +104,7 @@ export function PlayerStage({
   src,
   duration,
   onSeek,
+  canScrub = true,
   transport,
   speed,
   onSpeedChange,
@@ -235,7 +241,13 @@ export function PlayerStage({
   const transportProps: TransportProps = { ...transport, paused: effectivePaused, onTogglePlay: togglePlay };
   const readout = position && position.total > 0 ? `${position.index + 1} of ${position.total}` : undefined;
   const scrubber =
-    video && duration !== null && !playback ? <ClipScrubber video={video} duration={duration} onSeek={onSeek} /> : null;
+    video && duration !== null && !playback ? (
+      canScrub ? (
+        <ClipScrubber video={video} duration={duration} onSeek={onSeek} />
+      ) : (
+        <ClipProgress video={video} duration={duration} />
+      )
+    ) : null;
 
   const stopBubbling = {
     onClick: (e: React.MouseEvent) => e.stopPropagation(),
@@ -291,10 +303,14 @@ export function PlayerStage({
       <PortalContainerProvider container={fullscreen.active ? stage : null}>
         {/* No src prop: the queue sets the source and plays it in one go,
             inside the tap that asked for it. */}
+        {/* Without the timeline, no picture-in-picture window and no
+            context menu either: both offer the browser's own seek bar. */}
         <video
           ref={attachVideo}
           playsInline
           preload="auto"
+          disablePictureInPicture={!canScrub || undefined}
+          onContextMenu={canScrub ? undefined : (e) => e.preventDefault()}
           className="absolute inset-0 h-full w-full object-contain"
         />
 
@@ -377,13 +393,15 @@ export function PlayerStage({
                   <SpeedMenu speed={speed} onSpeedChange={onSpeedChange} />
                   <FullscreenButton active={fullscreen.active} onToggle={fullscreen.toggle} />
                 </div>
+                {/* The read-only line lets a tap through to the footage. */}
                 {scrubber && (
                   <div
                     className={cn(
-                      "pointer-events-auto absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-3 pt-6 pb-1",
+                      "absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-3 pt-6 pb-1",
+                      canScrub && "pointer-events-auto",
                       fullscreen.layer && "pb-[calc(var(--safe-bottom)+0.25rem)]",
                     )}
-                    {...stopBubbling}
+                    {...(canScrub ? stopBubbling : {})}
                   >
                     {scrubber}
                   </div>

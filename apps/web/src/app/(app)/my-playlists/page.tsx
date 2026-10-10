@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { sharerFilterOptions } from "@scoutable/shared/lib/playlist-feed";
-import { isMultiGame } from "@scoutable/shared/lib/watch-queue";
+import { canScrubPlaylist, isMultiGame } from "@scoutable/shared/lib/watch-queue";
 import { isClipItem, type Playlist } from "@scoutable/shared/types/match";
 import { useAuth } from "@/components/auth-context";
 import { AdminSetupCard } from "@/components/admin-setup-card";
@@ -30,7 +30,7 @@ import { WelcomeCard } from "@/components/welcome-card";
  * playlist named in ?p=.
  */
 export default function MyPlaylistsPage() {
-  const { activeOrgRole, isPlayerOnly } = useAuth();
+  const { activeOrgRole, isPlayerOnly, myOrgs } = useAuth();
   const {
     loading,
     selectedId,
@@ -193,6 +193,7 @@ export default function MyPlaylistsPage() {
           startKey={startKey}
           autoplay={autoplay}
           onAutoplayStarted={consumeAutoplay}
+          canScrub={canScrubPlaylist({ userId: currentUserId, myOrgs }, selected)}
           emptyText={
             own
               ? "No clips yet. Add clips to this playlist in the desktop app."

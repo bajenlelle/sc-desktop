@@ -50,6 +50,7 @@ export function WatchView({
   autoplay,
   onAutoplayStarted,
   emptyText,
+  canScrub,
 }: {
   title: string;
   items: WatchItem[];
@@ -64,6 +65,8 @@ export function WatchView({
   autoplay: boolean;
   onAutoplayStarted: () => void;
   emptyText: string;
+  /** False for a player: no timeline to drag, and no seeking ahead (see canScrubPlaylist). */
+  canScrub: boolean;
 }) {
   const { element: video, ref: videoRef, attach: attachVideo } = useMediaElement<HTMLVideoElement>();
   const [stage, setStage] = useState<HTMLDivElement | null>(null);
@@ -105,10 +108,41 @@ export function WatchView({
   const seek = useCallback(
     (t: number) => {
       const el = videoRef.current;
-      if (el && duration !== null) el.currentTime = clamp(t, 0, Math.max(0, duration - 0.05));
+      if (!el || duration === null) return;
+      // Without the timeline, back but never ahead: ahead is where a clip
+      // counts as watched. Covers the arrow keys too.
+      if (!canScrub && t > el.currentTime) return;
+      el.currentTime = clamp(t, 0, Math.max(0, duration - 0.05));
     },
-    [videoRef, duration],
+    [videoRef, duration, canScrub],
   );
+
+  // The lock screen and Control Center scrub the playing video through the
+  // media session: send that through the same rule.
+  useEffect(() => {
+    if (canScrub || typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    const session = navigator.mediaSession;
+    const handlers: [MediaSessionAction, MediaSessionActionHandler][] = [
+      ["seekto", (d) => d.seekTime !== undefined && seek(d.seekTime)],
+      ["seekforward", () => {}],
+    ];
+    for (const [action, handler] of handlers) {
+      try {
+        session.setActionHandler(action, handler);
+      } catch {
+        // An action this browser doesn't know has nothing to guard.
+      }
+    }
+    return () => {
+      for (const [action] of handlers) {
+        try {
+          session.setActionHandler(action, null);
+        } catch {
+          // As above.
+        }
+      }
+    };
+  }, [canScrub, seek]);
 
   useKeyScope("watch", true);
   useHotkeys("watch", (e) => {
@@ -227,6 +261,7 @@ export function WatchView({
                 src={q.src}
                 duration={activeClip ? duration : null}
                 onSeek={seek}
+                canScrub={canScrub}
                 fullscreen={fullscreen}
                 title={title}
                 position={q.position >= 0 ? { index: q.position, total: items.length } : null}

@@ -195,3 +195,67 @@ export function ClipScrubber({
     </div>
   );
 }
+
+/**
+ * The playing clip's timeline for a viewer who may not drag it: a clip
+ * counts as watched near its end, so a player who could drag there would
+ * skip it. The scrubber's times around a thinner line with nothing to grab,
+ * painted each frame from the element.
+ */
+export function ClipProgress({
+  video,
+  duration: total,
+  className,
+}: {
+  video: HTMLVideoElement;
+  duration: number;
+  className?: string;
+}) {
+  const duration = Math.max(0.001, total);
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const fillRef = useRef<HTMLDivElement | null>(null);
+  const elapsedRef = useRef<HTMLSpanElement | null>(null);
+
+  useEffect(() => {
+    let raf = 0;
+    let shown = "";
+    const tick = () => {
+      const time = clamp(video.currentTime, 0, duration);
+      if (fillRef.current) fillRef.current.style.transform = `scaleX(${time / duration})`;
+      const label = formatClipTime(time);
+      if (label !== shown) {
+        shown = label;
+        if (elapsedRef.current) elapsedRef.current.textContent = label;
+        barRef.current?.setAttribute("aria-valuenow", String(Math.round(time * 10) / 10));
+        barRef.current?.setAttribute("aria-valuetext", label);
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [video, duration]);
+
+  return (
+    <div className={cn("flex items-center gap-2", className)}>
+      <span ref={elapsedRef} className="w-10 shrink-0 text-right text-xs nums text-white/80">
+        {formatClipTime(0)}
+      </span>
+      <div
+        ref={barRef}
+        role="progressbar"
+        aria-label="Clip position"
+        aria-valuemin={0}
+        aria-valuemax={Math.round(duration * 10) / 10}
+        // Constant here so React sets them once; the frame loop keeps them current.
+        aria-valuenow={0}
+        aria-valuetext={formatClipTime(0)}
+        className="relative h-6 flex-1"
+      >
+        <div className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 overflow-hidden rounded-full bg-white/25">
+          <div ref={fillRef} className="h-full w-full origin-left rounded-full bg-white/90" style={{ transform: "scaleX(0)" }} />
+        </div>
+      </div>
+      <span className="w-10 shrink-0 text-xs nums text-white/80">{formatClipTime(duration)}</span>
+    </div>
+  );
+}
