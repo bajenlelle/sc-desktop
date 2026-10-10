@@ -2,7 +2,7 @@
 import "@/lib/dev-read-only";
 import "../global.css";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import * as Sentry from "@sentry/react-native";
 import { setDbErrorReporter } from "@scoutable/shared/lib/report";
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider, usePathname, type ErrorBoundaryProps } from "expo-router";
@@ -97,10 +97,19 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   );
 }
 
+/**
+ * Routes shown as sheets over another screen. They aren't page views, and
+ * closing one isn't a new view of the screen underneath.
+ */
+const SHEET_PATHS = new Set(["/feedback", "/delete-account"]);
+
 /** Mobile twin of web's PostHogProvider pageview effect. */
 function PageTracker() {
   const pathname = usePathname();
+  const lastRef = useRef<string | null>(null);
   useEffect(() => {
+    if (SHEET_PATHS.has(pathname) || pathname === lastRef.current) return;
+    lastRef.current = pathname;
     trackEvent("page_viewed", { path: pathname });
   }, [pathname]);
   return null;

@@ -44,6 +44,7 @@ export const ICONS = {
   mail: { ios: "envelope", android: "mail" },
   feedback: { ios: "exclamationmark.bubble", android: "feedback" },
   trash: { ios: "trash", android: "delete" },
+  removeCircle: { ios: "minus.circle", android: "do_not_disturb_on" },
   signOut: { ios: "rectangle.portrait.and.arrow.right", android: "logout" },
   web: { ios: "globe", android: "language" },
   laptop: { ios: "laptopcomputer", android: "laptop" },
