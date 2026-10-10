@@ -37,7 +37,10 @@ function readSpeed(): number {
  * note right under the footage, where the eye already is), and the clip
  * list. Beside each other on a wide screen, where the player stays put
  * while the list scrolls; stacked on a phone, where the player sticks under
- * the navigation bar and the list scrolls beneath it.
+ * the navigation bar and the list scrolls beneath it. Stacked, the playing
+ * row says what's playing and carries the note: a block between the two
+ * would change height from clip to clip (and vanish for a text card),
+ * moving the list under the reader's finger.
  */
 export function WatchView({
   title,
@@ -309,7 +312,7 @@ export function WatchView({
           </div>
 
           {activeClip && activeColors && (
-            <div className="flex flex-col gap-2 px-4 pt-3 sm:px-6 @min-[860px]/watch:px-1 @min-[860px]/watch:pt-0">
+            <div className="hidden flex-col gap-2 px-1 @min-[860px]/watch:flex">
               <div className="flex min-w-0 items-center gap-2">
                 <span className={cn("inline-flex shrink-0 items-center rounded-full px-2 py-px text-callout font-medium", activeColors.badge)}>
                   {eventLabel(activeClip.event)}
