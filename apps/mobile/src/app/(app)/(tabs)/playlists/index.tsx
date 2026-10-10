@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, RefreshControl, ScrollView, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Platform, RefreshControl, ScrollView, View } from "react-native";
 import { Stack, router, useIsFocused } from "expo-router";
+import type { SearchBarCommands } from "react-native-screens";
 import { clipViewKey } from "@scoutable/shared/lib/clip-views-db";
 import { useAuth } from "@/lib/auth-context";
 import { trackEvent } from "@/lib/analytics";
@@ -10,15 +11,21 @@ import { PlaylistFeed } from "@/components/PlaylistFeed";
 import { SharedByMeDashboard } from "@/components/SharedByMeDashboard";
 import { LicenseNotice } from "@/components/LicenseNotice";
 import { NotificationPrimer } from "@/components/NotificationPrimer";
+import { SearchField } from "@/components/ui/SearchField";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import type { PopUpOption } from "@/components/ui/PopUpButton";
 
 /**
  * The Playlists tab, as the web's phone layout: one scroll view under the
- * native large title (so the title collapses as it scrolls), search in the
- * navigation bar, and for coaches a Shared by me / Shared with me switch at
- * the top. Pull to refresh reloads both views.
+ * native large title (so the title collapses as it scrolls), search under
+ * the title, and for coaches a Shared by me / Shared with me switch at the
+ * top. Pull to refresh reloads both views. Search is the navigation bar's
+ * own on iOS; Android's toolbar would hide it behind an icon, so there it is
+ * a field at the top of the content, as on the web.
  */
+const NATIVE_SEARCH = Platform.OS === "ios";
+
+
 export default function PlaylistsScreen() {
   const { activeOrgRole } = useAuth();
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
@@ -28,6 +35,12 @@ export default function PlaylistsScreen() {
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [coachTab, setCoachTab] = useState<"by-me" | "with-me">("by-me");
   const [query, setQuery] = useState("");
+  const searchBarRef = useRef<SearchBarCommands>(null);
+  /** Clear filters empties the search too, the native field included. */
+  const clearQuery = useCallback(() => {
+    searchBarRef.current?.clearText();
+    setQuery("");
+  }, []);
 
   // The feed view-model lives in the store (shared toFeedPlaylists): the
   // tab and app-icon badges derive from the same array, so counts can't drift.
@@ -104,20 +117,20 @@ export default function PlaylistsScreen() {
       <Stack.Screen
         options={{
           title: isCoachOrAdmin ? "Shared playlists" : "My playlists",
-          headerSearchBarOptions: searchable
-            ? {
-                placeholder: "Search playlists",
-                autoCapitalize: "none",
-                hideWhenScrolling: searchReleased,
-                tintColor: colors.primary,
-                textColor: colors.foreground,
-                hintTextColor: colors.mutedForeground,
-                headerIconColor: colors.foreground,
-                // iOS sends nil text when the bar is cleared programmatically.
-                onChangeText: (e) => setQuery(e.nativeEvent.text ?? ""),
-                onCancelButtonPress: () => setQuery(""),
-              }
-            : undefined,
+          headerSearchBarOptions:
+            NATIVE_SEARCH && searchable
+              ? {
+                  ref: searchBarRef,
+                  placeholder: "Search playlists",
+                  autoCapitalize: "none",
+                  hideWhenScrolling: searchReleased,
+                  tintColor: colors.primary,
+                  textColor: colors.foreground,
+                  // iOS sends nil text when the bar is cleared programmatically.
+                  onChangeText: (e) => setQuery(e.nativeEvent.text ?? ""),
+                  onCancelButtonPress: () => setQuery(""),
+                }
+              : undefined,
         }}
       />
       <ScrollView
@@ -127,6 +140,10 @@ export default function PlaylistsScreen() {
         contentContainerClassName="gap-5 px-4 pb-10 pt-2"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.mutedForeground} />}
       >
+        {!NATIVE_SEARCH && searchable && (
+          <SearchField value={query} onChangeText={setQuery} placeholder="Search playlists" accessibilityLabel="Search playlists" />
+        )}
+
         {/* Coaches get two views: who watched what they shared, and the
             playlists others shared with them (same split as web). */}
         {isCoachOrAdmin && (
@@ -151,13 +168,13 @@ export default function PlaylistsScreen() {
             <ActivityIndicator color={colors.mutedForeground} />
           </View>
         ) : showDashboard ? (
-          <SharedByMeDashboard query={query} onClearQuery={() => setQuery("")} refreshNonce={refreshNonce} />
+          <SharedByMeDashboard query={query} onClearQuery={clearQuery} refreshNonce={refreshNonce} />
         ) : (
           <PlaylistFeed
             playlists={feedItems}
             sourceOptions={sourceOptions}
             query={query}
-            onClearQuery={() => setQuery("")}
+            onClearQuery={clearQuery}
             onOpen={openPlaylist}
             onResume={resumePlaylist}
             emptyCopy={isCoachOrAdmin ? "Playlists other coaches share with you show up here." : undefined}
