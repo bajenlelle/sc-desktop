@@ -1,24 +1,18 @@
 import { useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  SectionList,
-  Text,
-  View,
-} from "react-native";
-import { Redirect, router, useLocalSearchParams } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, SectionList, View } from "react-native";
+import { Redirect, Stack, router, useLocalSearchParams } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/lib/auth-context";
 import { useMyTeam, useSpaceSuggestions, useTeamCatalog } from "@/lib/my-team";
 import { trackEvent } from "@/lib/analytics";
 import { useThemeColors } from "@/lib/theme-context";
-import { Button } from "@/components/Button";
-import { Input } from "@/components/Input";
 import { LeagueChip, TeamCrest } from "@/components/TeamCrest";
+import { Button } from "@/components/ui/Button";
+import { Icon } from "@/components/ui/Icon";
+import { Tappable } from "@/components/ui/Tappable";
+import { Text } from "@/components/ui/Text";
+import { TextField } from "@/components/ui/TextField";
+import { cn } from "@/lib/cn";
 import {
   TEAM_STEP_SUBTITLE,
   alsoUseLabel,
@@ -35,9 +29,11 @@ import { sortOrgsClubFirst } from "@scoutable/shared/lib/orgs";
 import type { LeagueTeam } from "@scoutable/shared/types/league-team";
 
 /**
- * "Which team do you coach / play for?" — the once-per-space step (mode=step,
+ * "Which team do you coach / play for?": the once-per-space step (mode=step,
  * opened by the tabs layout) and Profile's Change (mode=change). One answer
- * per space; the boxes below the list copy it to the user's other spaces.
+ * per space; the boxes at the bottom copy it to the user's other spaces.
+ * The teams are grouped lists (your club's teams first, then by league)
+ * under the platform's own search field.
  */
 export default function TeamScreen() {
   const params = useLocalSearchParams<{ mode?: string; orgId?: string }>();
@@ -46,6 +42,7 @@ export default function TeamScreen() {
   const { choices, save } = useMyTeam();
   const { teams, failed, retry } = useTeamCatalog();
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
 
   const spaces = useMemo(() => sortOrgsClubFirst(teamSpaces(myOrgs)), [myOrgs]);
   const org = spaces.find((o) => o.orgId === params.orgId) ?? null;
@@ -151,139 +148,185 @@ export default function TeamScreen() {
     });
   }
 
-  const renderTeam = ({ item }: { item: LeagueTeam }) => {
+  const intro = (
+    <View className="gap-1 px-1 pb-2 pt-2">
+      <Text variant="footnote" className="text-muted-foreground">
+        In <Text variant="footnote">{spaceLabel(org)}</Text>
+      </Text>
+      <Text variant="title2" accessibilityRole="header">
+        {teamStepTitle(role)}
+      </Text>
+      <Text variant="callout" className="text-muted-foreground">
+        {mode === "step" ? TEAM_STEP_SUBTITLE : "We'll use it to find your games when you import."}
+      </Text>
+    </View>
+  );
+
+  const renderTeam = ({ item, index, section }: { item: LeagueTeam; index: number; section: { data: readonly LeagueTeam[] } }) => {
     const selected = item.id === selectedId;
+    const first = index === 0;
+    const last = index === section.data.length - 1;
     return (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ selected }}
-        onPress={() => setSelectedId(item.id)}
-        className={`flex-row items-center gap-3 px-3 py-2.5 ${selected ? "bg-primary/10" : "active:bg-muted"}`}
+      <View
+        className={cn(
+          "overflow-hidden border-x border-separator bg-card",
+          first && "rounded-t-window border-t",
+          last && "rounded-b-window border-b",
+        )}
       >
-        <TeamCrest team={item} />
-        <View className="min-w-0 flex-1">
-          <View className="flex-row flex-wrap items-center gap-2">
-            <Text className="text-base font-medium text-foreground" numberOfLines={1}>
-              {item.name}
-            </Text>
-            <LeagueChip name={item.leagueName} />
+        {!first && <View className="h-px bg-separator" />}
+        <Tappable
+          scaleTo={1}
+          accessibilityRole="radio"
+          accessibilityState={{ checked: selected }}
+          accessibilityLabel={[item.name, item.leagueName, item.clubName !== item.name ? item.clubName : null].filter(Boolean).join(", ")}
+          onPress={() => setSelectedId(item.id)}
+          className={({ pressed }) =>
+            cn("min-h-14 flex-row items-center gap-3 px-4 py-2", selected ? "bg-primary/[0.08]" : pressed && "bg-fill-2")
+          }
+        >
+          <TeamCrest team={item} size={32} />
+          <View className="min-w-0 flex-1">
+            <View className="flex-row flex-wrap items-center gap-x-2 gap-y-1">
+              <Text numberOfLines={1} className="shrink font-medium">
+                {item.name}
+              </Text>
+              <LeagueChip name={item.leagueName} />
+            </View>
+            {item.clubName && item.clubName !== item.name ? (
+              <Text variant="subheadline" numberOfLines={1} className="text-muted-foreground">
+                {item.clubName}
+              </Text>
+            ) : null}
           </View>
-          {item.clubName && item.clubName !== item.name ? (
-            <Text className="text-xs text-muted-foreground" numberOfLines={1}>
-              {item.clubName}
-            </Text>
-          ) : null}
-        </View>
-        {selected ? <Ionicons name="checkmark" size={20} color={colors.primary} /> : null}
-      </Pressable>
+          {selected ? <Icon name="check" size={16} weight="semibold" color={colors.primary} /> : null}
+        </Tappable>
+      </View>
     );
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-background">
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} className="flex-1">
-        <View className="gap-1 px-4 pb-3 pt-4">
-          <Text className="text-xs font-medium text-muted-foreground">
-            In <Text className="text-foreground">{spaceLabel(org)}</Text>
-          </Text>
-          <Text className="font-heading text-3xl text-foreground">{teamStepTitle(role)}</Text>
-          <Text className="text-sm text-muted-foreground">
-            {mode === "step" ? TEAM_STEP_SUBTITLE : "We'll use it to find your games when you import."}
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} className="flex-1 bg-background">
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          title: mode === "step" ? "Your team" : "Change team",
+          headerTransparent: false,
+          headerShadowVisible: false,
+          headerStyle: { backgroundColor: colors.background },
+          headerTintColor: colors.foreground,
+          headerTitleStyle: { color: colors.foreground },
+          // The step at launch is answered or skipped, not backed out of.
+          headerBackVisible: mode === "change",
+          headerSearchBarOptions: noteMode
+            ? undefined
+            : {
+                placeholder: "Search teams or clubs",
+                autoCapitalize: "none",
+                hideWhenScrolling: false,
+                // Under the title on iOS 26 too, not down in a toolbar: the
+                // screen's own buttons live at the bottom.
+                placement: "stacked",
+                tintColor: colors.primary,
+                textColor: colors.foreground,
+                hintTextColor: colors.mutedForeground,
+                headerIconColor: colors.foreground,
+                onChangeText: (e) => setQuery(e.nativeEvent.text ?? ""),
+                onCancelButtonPress: () => setQuery(""),
+              },
+        }}
+      />
+
+      {noteMode ? (
+        <View className="flex-1 gap-4 px-4 pt-2">
+          {intro}
+          <TextField
+            label="Team and league"
+            value={note}
+            onChangeText={setNote}
+            maxLength={120}
+            autoFocus
+            placeholder="e.g. Sollentuna U16, Division 2"
+            returnKeyType="send"
+            onSubmitEditing={handleSave}
+          />
+          <Text variant="subheadline" className="text-muted-foreground">
+            We only cover a few leagues so far. Telling us yours helps us decide which to add next.
           </Text>
         </View>
-
-        {noteMode ? (
-          <View className="flex-1 gap-2 px-4">
-            <Input
-              label="Team and league"
-              value={note}
-              onChangeText={setNote}
-              maxLength={120}
-              autoFocus
-              placeholder="e.g. Sollentuna U16, Division 2"
-              onSubmitEditing={handleSave}
-            />
-            <Text className="text-xs text-muted-foreground">
-              We only cover a few leagues so far. Telling us yours helps us decide which to add next.
+      ) : failed ? (
+        <View className="flex-1 px-4 pt-2">
+          {intro}
+          <View className="items-center gap-3 py-10">
+            <Text variant="callout" className="text-muted-foreground">
+              Couldn&apos;t load the teams.
             </Text>
-          </View>
-        ) : (
-          <View className="flex-1 px-4">
-            <Input
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Search teams or clubs"
-              autoCorrect={false}
-              autoCapitalize="none"
-              clearButtonMode="while-editing"
-            />
-            {failed ? (
-              <View className="items-center gap-3 py-10">
-                <Text className="text-sm text-muted-foreground">Couldn't load the teams.</Text>
-                <Button title="Try again" variant="outline" onPress={retry} />
-              </View>
-            ) : teams === null ? (
-              <ActivityIndicator className="py-10" color={colors.primary} />
-            ) : (
-              <SectionList
-                className="mt-3 flex-1 rounded-lg border border-border"
-                sections={sections}
-                keyExtractor={(t) => t.id}
-                renderItem={renderTeam}
-                keyboardShouldPersistTaps="handled"
-                stickySectionHeadersEnabled
-                renderSectionHeader={({ section }) => (
-                  <Text className="bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground">
-                    {section.title}
-                  </Text>
-                )}
-                ListEmptyComponent={
-                  <Text className="px-3 py-8 text-center text-sm text-muted-foreground">
-                    No teams match “{query.trim()}”. Try the club name, or tell us your team isn't listed.
-                  </Text>
-                }
-              />
-            )}
-          </View>
-        )}
-
-        <View className="gap-3 px-4 pb-2 pt-3">
-          {setup.others.map((o) => {
-            const on = checked.has(o.orgId);
-            return (
-              <Pressable
-                key={o.orgId}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: on }}
-                onPress={() => toggle(o.orgId)}
-                className="flex-row items-center gap-2"
-              >
-                <Ionicons name={on ? "checkbox" : "square-outline"} size={22} color={on ? colors.primary : colors.mutedForeground} />
-                <Text className="flex-1 text-sm text-foreground">{alsoUseLabel(o)}</Text>
-              </Pressable>
-            );
-          })}
-          <Pressable onPress={() => setNoteMode((v) => !v)} accessibilityRole="button">
-            <Text className="text-sm text-primary">{noteMode ? "Back to the list" : "My team isn't listed"}</Text>
-          </Pressable>
-          <View className="flex-row gap-3">
-            <Button
-              className="flex-1"
-              variant="ghost"
-              title={mode === "step" ? "Skip for now" : "Cancel"}
-              onPress={mode === "step" ? handleSkip : leave}
-              disabled={saving}
-            />
-            <Button
-              className="flex-1"
-              title={noteMode ? "Send" : mode === "step" ? "Continue" : "Save"}
-              onPress={handleSave}
-              disabled={!canSave}
-              loading={saving}
-            />
+            <Button variant="outline" size="sm" onPress={retry}>
+              Try again
+            </Button>
           </View>
         </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+      ) : teams === null ? (
+        <View className="flex-1 px-4 pt-2">
+          {intro}
+          <ActivityIndicator className="py-10" color={colors.mutedForeground} />
+        </View>
+      ) : (
+        <SectionList
+          className="flex-1"
+          contentInsetAdjustmentBehavior="automatic"
+          contentContainerClassName="px-4 pb-6"
+          sections={sections}
+          keyExtractor={(t) => t.id}
+          renderItem={renderTeam}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          stickySectionHeadersEnabled={false}
+          ListHeaderComponent={intro}
+          renderSectionHeader={({ section }) => (
+            <Text variant="headline" className="px-1 pb-2 pt-5">
+              {section.title}
+            </Text>
+          )}
+          ListEmptyComponent={
+            <Text variant="callout" className="px-3 py-8 text-center text-muted-foreground">
+              No teams match “{query.trim()}”. Try the club name, or tell us your team isn&apos;t listed.
+            </Text>
+          }
+        />
+      )}
+
+      <View className="gap-3 border-t border-separator bg-background px-4 pt-3" style={{ paddingBottom: Math.max(insets.bottom, 12) }}>
+        {setup.others.map((o) => {
+          const on = checked.has(o.orgId);
+          return (
+            <Tappable
+              key={o.orgId}
+              scaleTo={1}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: on }}
+              onPress={() => toggle(o.orgId)}
+              className="min-h-9 flex-row items-center gap-2.5"
+            >
+              <Icon name={on ? "checkboxOn" : "checkboxOff"} size={20} color={on ? colors.primary : colors.mutedForeground} />
+              <Text variant="subheadline" className="flex-1">
+                {alsoUseLabel(o)}
+              </Text>
+            </Tappable>
+          );
+        })}
+        <Button variant="link" size="sm" className="self-start px-0" onPress={() => setNoteMode((v) => !v)}>
+          {noteMode ? "Back to the list" : "My team isn't listed"}
+        </Button>
+        <View className="flex-row gap-3">
+          <Button className="flex-1" variant="ghost" onPress={mode === "step" ? handleSkip : leave} disabled={saving}>
+            {mode === "step" ? "Skip for now" : "Cancel"}
+          </Button>
+          <Button className="flex-1" onPress={handleSave} disabled={!canSave} loading={saving}>
+            {noteMode ? "Send" : mode === "step" ? "Continue" : "Save"}
+          </Button>
+        </View>
+      </View>
+    </KeyboardAvoidingView>
   );
 }

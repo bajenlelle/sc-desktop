@@ -2,7 +2,7 @@
 import "@/lib/dev-read-only";
 import "../global.css";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as Sentry from "@sentry/react-native";
 import { setDbErrorReporter } from "@scoutable/shared/lib/report";
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider, usePathname, type ErrorBoundaryProps } from "expo-router";
@@ -52,6 +52,32 @@ setDbErrorReporter((fn, e) => {
  * it the app-wide render-error screen (replaces the dev-only red screen in
  * production builds).
  */
+/** The error screen's button, in plain styles (see ErrorBoundary). */
+function RetryButton({ onPress, background, color }: { onPress: () => void; background: string; color: string }) {
+  const [pressed, setPressed] = useState(false);
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
+      style={{
+        marginTop: 24,
+        width: "100%",
+        height: 44,
+        borderRadius: 4,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: background,
+        opacity: pressed ? 0.9 : 1,
+        transform: [{ scale: pressed ? 0.97 : 1 }],
+      }}
+    >
+      <Text style={{ fontSize: 17, fontWeight: "500", color }}>Try again</Text>
+    </Pressable>
+  );
+}
+
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   const scheme = useColorScheme();
   const colors = themeColors(scheme);
@@ -59,40 +85,40 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   // Render errors bypass Sentry's global handlers, so report explicitly.
   Sentry.captureException(error);
 
+  // The app's StatusScreen look, in plain styles: this renders in place of the
+  // root layout, outside the theme provider that NativeWind's tokens need.
   return (
-    <View
-      style={{
-        flex: 1,
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
-        backgroundColor: colors.background,
-      }}
-    >
-      <Text style={{ fontSize: 18, fontWeight: "600", color: colors.foreground, marginBottom: 8 }}>
-        Something went wrong
-      </Text>
-      <Text
-        style={{
-          fontSize: 14,
-          color: colors.mutedForeground,
-          textAlign: "center",
-          marginBottom: 20,
-        }}
-      >
-        The error has been reported automatically. Tap below to try again.
-      </Text>
-      <Pressable
-        onPress={retry}
-        style={{
-          backgroundColor: colors.primary,
-          borderRadius: 8,
-          paddingHorizontal: 20,
-          paddingVertical: 10,
-        }}
-      >
-        <Text style={{ color: colors.primaryForeground, fontWeight: "600" }}>Try again</Text>
-      </Pressable>
+    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, backgroundColor: colors.background }}>
+      <View style={{ width: "100%", maxWidth: 440, alignItems: "center" }}>
+        <View
+          style={{
+            width: 48,
+            height: 48,
+            borderRadius: 24,
+            alignItems: "center",
+            justifyContent: "center",
+            marginBottom: 16,
+            backgroundColor: scheme === "dark" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
+          }}
+        >
+          <SymbolView
+            name={{ ios: "exclamationmark.triangle", android: "warning" }}
+            size={24}
+            tintColor={colors.mutedForeground}
+            accessible={false}
+          />
+        </View>
+        <Text
+          accessibilityRole="header"
+          style={{ fontSize: 22, lineHeight: 28, fontWeight: "700", color: colors.foreground, textAlign: "center" }}
+        >
+          Something went wrong
+        </Text>
+        <Text style={{ marginTop: 6, fontSize: 17, lineHeight: 22, color: colors.mutedForeground, textAlign: "center" }}>
+          The error has been reported automatically. Tap below to try again.
+        </Text>
+        <RetryButton onPress={retry} background={colors.primary} color={colors.primaryForeground} />
+      </View>
     </View>
   );
 }

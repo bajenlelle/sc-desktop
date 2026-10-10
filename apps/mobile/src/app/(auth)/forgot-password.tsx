@@ -1,22 +1,31 @@
 import { useState } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from "react-native";
-import { Link } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { View } from "react-native";
+import { router } from "expo-router";
 import { supabase } from "@/lib/supabase";
-import { Button } from "@/components/Button";
-import { Input } from "@/components/Input";
+import { useThemeColors } from "@/lib/theme-context";
+import { AuthError, AuthFootnote, AuthHeading, AuthShell, FieldGroup, GroupField } from "@/components/auth/AuthFrame";
+import { Button } from "@/components/ui/Button";
+import { Icon } from "@/components/ui/Icon";
+import { Text } from "@/components/ui/Text";
+
+function backToSignIn() {
+  if (router.canGoBack()) router.back();
+  else router.replace("/sign-in");
+}
 
 export default function ForgotPassword() {
+  const colors = useThemeColors();
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [sent, setSent] = useState(false);
 
   async function handleReset() {
+    if (!email.trim() || submitting) return;
     setError(null);
     setSubmitting(true);
     try {
-      // The reset link completes on the web app, same as today.
+      // The reset link completes on the web app, as before.
       const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim());
       if (err) setError(err.message);
       else setSent(true);
@@ -25,61 +34,58 @@ export default function ForgotPassword() {
     }
   }
 
-  return (
-    <SafeAreaView className="flex-1 bg-background">
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        className="flex-1"
-      >
-        <ScrollView
-          contentContainerClassName="flex-grow justify-center px-6 py-8"
-          keyboardShouldPersistTaps="handled"
-        >
-          <Text className="font-heading text-4xl text-foreground">
-            Reset password
+  if (sent) {
+    return (
+      <AuthShell>
+        <View className="items-center">
+          <View className="mb-4 h-12 w-12 items-center justify-center rounded-full bg-primary/[0.12]">
+            <Icon name="mail" size={24} color={colors.primary} />
+          </View>
+          <Text variant="title1" accessibilityRole="header" className="text-center">
+            Check your inbox
           </Text>
-          {sent ? (
-            <>
-              <Text className="mt-2 text-base text-muted-foreground">
-                If an account exists for {email.trim()}, a reset link is on its way. Open it to set
-                a new password, then sign in here.
-              </Text>
-              <Link href="/sign-in" asChild>
-                <Text className="mt-6 text-base font-semibold text-primary">
-                  Back to sign in
-                </Text>
-              </Link>
-            </>
-          ) : (
-            <View className="mt-8 gap-4">
-              <Input
-                label="Email"
-                value={email}
-                onChangeText={setEmail}
-                autoCapitalize="none"
-                autoComplete="email"
-                keyboardType="email-address"
-                textContentType="emailAddress"
-                placeholder="you@example.com"
-              />
-              {error ? (
-                <Text className="text-sm text-destructive">{error}</Text>
-              ) : null}
-              <Button
-                title="Send reset link"
-                onPress={handleReset}
-                loading={submitting}
-                disabled={!email.trim()}
-              />
-              <Link href="/sign-in" asChild>
-                <Text className="text-center text-sm text-primary">
-                  Back to sign in
-                </Text>
-              </Link>
-            </View>
-          )}
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+          <Text variant="callout" className="mt-1.5 text-center text-muted-foreground">
+            If an account exists for <Text variant="callout" className="font-medium">{email.trim()}</Text>, a reset link is
+            on its way. Open it to set a new password, then sign in here.
+          </Text>
+        </View>
+        <AuthFootnote>
+          <Text variant="callout" accessibilityRole="link" onPress={backToSignIn} className="font-medium text-primary">
+            Back to sign in
+          </Text>
+        </AuthFootnote>
+      </AuthShell>
+    );
+  }
+
+  return (
+    <AuthShell>
+      <AuthHeading title="Reset your password" description="We'll email you a link to set a new one." />
+      <View className="gap-3">
+        <FieldGroup>
+          <GroupField
+            accessibilityLabel="Email"
+            placeholder="Email"
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            autoComplete="email"
+            keyboardType="email-address"
+            textContentType="emailAddress"
+            returnKeyType="send"
+            onSubmitEditing={handleReset}
+          />
+        </FieldGroup>
+        <AuthError message={error} />
+        <Button onPress={handleReset} loading={submitting} disabled={!email.trim()}>
+          Send reset link
+        </Button>
+      </View>
+      <AuthFootnote>
+        <Text variant="callout" accessibilityRole="link" onPress={backToSignIn} className="font-medium text-primary">
+          Back to sign in
+        </Text>
+      </AuthFootnote>
+    </AuthShell>
   );
 }

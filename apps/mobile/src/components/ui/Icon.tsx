@@ -21,6 +21,8 @@ export const ICONS = {
   close: { ios: "xmark", android: "close" },
   check: { ios: "checkmark", android: "check" },
   checkCircle: { ios: "checkmark.circle.fill", android: "check_circle" },
+  checkboxOn: { ios: "checkmark.circle.fill", android: "check_box" },
+  checkboxOff: { ios: "circle", android: "check_box_outline_blank" },
   chevronRight: { ios: "chevron.right", android: "chevron_right" },
   chevronDown: { ios: "chevron.down", android: "expand_more" },
   chevronUpDown: { ios: "chevron.up.chevron.down", android: "unfold_more" },
@@ -52,6 +54,9 @@ export const ICONS = {
   speed: { ios: "gauge.with.dots.needle.33percent", android: "speed" },
   basketball: { ios: "basketball", android: "sports_basketball" },
   plus: { ios: "plus", android: "add" },
+  wand: { ios: "wand.and.stars", android: "auto_fix_high" },
+  share: { ios: "square.and.arrow.up", android: "share" },
+  computer: { ios: "desktopcomputer", android: "computer" },
 } as const satisfies Record<string, { ios: SFSymbol; android: AndroidSymbol }>;
 
 export type IconName = keyof typeof ICONS;
