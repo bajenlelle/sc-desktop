@@ -271,7 +271,7 @@ describe("summarizeDashboard", () => {
     expect(s.recipients).toBe(2);
   });
 
-  it("dedupes behind targets to one per player, keeping the newest share", () => {
+  it("counts a player behind on several playlists once", () => {
     const s = summarizeDashboard([
       row({
         playlist: pl({ id: "A", name: "A" }),
@@ -286,10 +286,7 @@ describe("summarizeDashboard", () => {
         recipients: [rec("u1", 1, "Anna")],
       }),
     ]);
-    expect(s.behind).toBe(1);
-    expect(s.behindTargets).toEqual([
-      { userId: "u1", name: "Anna", playlistId: "B", sharedAt: "2026-02-01T00:00:00Z" },
-    ]);
+    expect(s).toEqual({ playlists: 2, recipients: 1, behind: 1 });
   });
 
   it("omits fully-done players and rows with nothing playable", () => {
@@ -308,7 +305,6 @@ describe("summarizeDashboard", () => {
       }),
     ]);
     expect(s.behind).toBe(0);
-    expect(s.behindTargets).toEqual([]);
     expect(s.recipients).toBe(2);
   });
 });

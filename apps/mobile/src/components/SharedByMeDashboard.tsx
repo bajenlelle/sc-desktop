@@ -56,8 +56,9 @@ function WatchBar({ done, started, total, className }: { done: number; started: 
 /**
  * The coach's side of sharing, as the web's Shared by me at phone width:
  * the roll-up in stat cells, then one grouped list whose rows open into their
- * recipients, with reminders where someone is behind. Renders inside the
- * screen's scroll view; search comes from the header.
+ * recipients, with reminders where someone is behind: per playlist, or per
+ * player in an opened row. Renders inside the screen's scroll view, which
+ * owns the search.
  */
 export function SharedByMeDashboard({ query, onClearQuery, refreshNonce }: { query: string; onClearQuery: () => void; refreshNonce: number }) {
   const colors = useThemeColors();
@@ -74,7 +75,6 @@ export function SharedByMeDashboard({ query, onClearQuery, refreshNonce }: { que
   const [sort, setSort] = useState<DashboardSort>("recent");
   /** key = `${playlistId}:${userId}` — per-recipient nudge lifecycle. */
   const [remindState, setRemindState] = useState<Map<string, "sending" | "sent">>(new Map());
-  const [remindingAll, setRemindingAll] = useState(false);
   const [remindingPlaylistId, setRemindingPlaylistId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -129,7 +129,7 @@ export function SharedByMeDashboard({ query, onClearQuery, refreshNonce }: { que
     }
   }
 
-  /** Shared by the global Remind all and the per-playlist button. */
+  /** Everyone behind on one playlist (its "Remind N" button). */
   async function bulkRemind(targets: { playlistId: string; userId: string }[]) {
     let sent = 0;
     let failed = 0;
@@ -152,16 +152,6 @@ export function SharedByMeDashboard({ query, onClearQuery, refreshNonce }: { que
       Alert.alert("Already reminded", "Everyone was already reminded recently");
     } else {
       Alert.alert("Couldn't send reminders", "Try again in a moment");
-    }
-  }
-
-  async function handleRemindAll() {
-    if (remindingAll || summary.behindTargets.length === 0) return;
-    setRemindingAll(true);
-    try {
-      await bulkRemind(summary.behindTargets);
-    } finally {
-      setRemindingAll(false);
     }
   }
 
@@ -218,17 +208,6 @@ export function SharedByMeDashboard({ query, onClearQuery, refreshNonce }: { que
           },
         ]}
       />
-
-      {summary.behind > 0 && (
-        <Button
-          variant="outline"
-          loading={remindingAll}
-          onPress={handleRemindAll}
-          icon={<Icon name="send" size={15} color={colors.foreground} />}
-        >
-          {`Remind all ${summary.behind} player${summary.behind === 1 ? "" : "s"}`}
-        </Button>
-      )}
 
       {uploadIssues > 0 && (
         <Callout
@@ -300,8 +279,8 @@ export function SharedByMeDashboard({ query, onClearQuery, refreshNonce }: { que
               row={row}
               expanded={expandedId === row.playlist.id}
               onToggle={() => setExpandedId(expandedId === row.playlist.id ? null : row.playlist.id)}
-              onRemindAll={() => handleRemindPlaylist(row)}
-              remindingAll={remindingPlaylistId === row.playlist.id}
+              onRemindPlaylist={() => handleRemindPlaylist(row)}
+              remindingPlaylist={remindingPlaylistId === row.playlist.id}
               remindBusy={remindingPlaylistId !== null}
               remindState={remindState}
               onRemind={(r) => handleRemind(row.playlist.id, r)}
@@ -317,8 +296,8 @@ function PlaylistRow({
   row,
   expanded,
   onToggle,
-  onRemindAll,
-  remindingAll,
+  onRemindPlaylist,
+  remindingPlaylist,
   remindBusy,
   remindState,
   onRemind,
@@ -326,8 +305,9 @@ function PlaylistRow({
   row: DashboardRow;
   expanded: boolean;
   onToggle: () => void;
-  onRemindAll: () => void;
-  remindingAll: boolean;
+  /** Reminds everyone behind on this playlist. */
+  onRemindPlaylist: () => void;
+  remindingPlaylist: boolean;
   remindBusy: boolean;
   remindState: Map<string, "sending" | "sent">;
   onRemind: (r: RecipientRow) => void;
@@ -399,9 +379,9 @@ function PlaylistRow({
           <Button
             size="xs"
             variant="outline"
-            loading={remindingAll}
-            disabled={remindBusy && !remindingAll}
-            onPress={onRemindAll}
+            loading={remindingPlaylist}
+            disabled={remindBusy && !remindingPlaylist}
+            onPress={onRemindPlaylist}
             icon={<Icon name="send" size={12} color={colors.foreground} />}
           >
             {`Remind ${behind}`}
