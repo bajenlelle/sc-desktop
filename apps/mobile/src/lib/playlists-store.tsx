@@ -31,6 +31,7 @@ import {
   mergeEventsIntoMatches,
 } from "@scoutable/shared/lib/playlist-matches";
 import { clipViewKey, listMyClipViews, markClipWatched } from "@scoutable/shared/lib/clip-views-db";
+import { recordOnce } from "@scoutable/shared/lib/watch-queue";
 import {
   playableClips,
   toFeedPlaylists,
@@ -84,6 +85,7 @@ export function PlaylistsProvider({ children }: { children: React.ReactNode }) {
   const clubOrgs = useMemo(() => myOrgs.filter((o) => !o.isPersonal), [myOrgs]);
   // Stable key so the load effect doesn't refire on referentially-new arrays.
   const clubOrgIdsKey = clubOrgs.map((o) => o.orgId).sort().join(",");
+  const userId = user?.id ?? null;
   const [loading, setLoading] = useState(true);
   const [teamPlaylists, setTeamPlaylists] = useState<Playlist[]>([]);
   const [directPlaylists, setDirectPlaylists] = useState<Playlist[]>([]);
@@ -95,10 +97,12 @@ export function PlaylistsProvider({ children }: { children: React.ReactNode }) {
   const [clipViews, setClipViews] = useState<Set<string>>(new Set());
   const [lastWatched, setLastWatched] = useState<Map<string, string>>(new Map());
 
-  const clipViewsRef = useRef(clipViews);
-  useEffect(() => {
-    clipViewsRef.current = clipViews;
-  }, [clipViews]);
+  // Every watch recorded (or loaded) this session, claimed synchronously:
+  // timeUpdate ticks past the watched point arrive faster than state
+  // settles, and each would otherwise count and send the watch again.
+  // Starts over for a different account on the same device.
+  const recordedRef = useRef<Set<string>>(new Set());
+  const recordedForRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     if (!aggregated && !activeOrgId) return;
@@ -169,7 +173,13 @@ export function PlaylistsProvider({ children }: { children: React.ReactNode }) {
 
     // Watch history drives the feed's NEW badges and progress bars.
     const views = await listMyClipViews(supabase).catch(() => []);
-    setClipViews(new Set(views.map((v) => clipViewKey(v.playlistId, v.matchId, v.eventId))));
+    const viewKeys = views.map((v) => clipViewKey(v.playlistId, v.matchId, v.eventId));
+    if (recordedForRef.current !== userId) {
+      recordedForRef.current = userId;
+      recordedRef.current = new Set();
+    }
+    for (const key of viewKeys) recordedRef.current.add(key);
+    setClipViews(new Set(viewKeys));
     const last = new Map<string, string>();
     for (const v of views) {
       const prev = last.get(v.playlistId);
@@ -179,7 +189,7 @@ export function PlaylistsProvider({ children }: { children: React.ReactNode }) {
     // clubOrgIdsKey stands in for clubOrgs (referentially unstable), and the
     // aggregated path ignores activeOrgId on purpose.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aggregated, activeOrgId, clubOrgIdsKey, isCoachOrAdmin]);
+  }, [aggregated, activeOrgId, clubOrgIdsKey, isCoachOrAdmin, userId]);
 
   useEffect(() => {
     // Auth still settling → stay in loading rather than flashing the
@@ -248,7 +258,7 @@ export function PlaylistsProvider({ children }: { children: React.ReactNode }) {
 
   const recordWatched = useCallback((playlistId: string, matchId: string, eventId: number) => {
     const key = clipViewKey(playlistId, matchId, eventId);
-    if (clipViewsRef.current.has(key)) return;
+    if (!recordOnce(recordedRef.current, key)) return;
     trackEvent("clip_watched", { playlist_id: playlistId });
     setClipViews((prev) => new Set(prev).add(key));
     setLastWatched((prev) => {

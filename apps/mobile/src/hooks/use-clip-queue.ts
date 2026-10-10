@@ -1,69 +1,79 @@
 /**
- * The playlist queue engine — a port of the web watch view's queue logic
- * (apps/web .../my-playlists/page.tsx startQueue/advanceQueue/startTextCard)
- * onto expo-video. One player instance is fed clip sources sequentially;
- * text cards pause the player and advance on a timer.
+ * Playback for the watch screen: the web's use-watch-queue
+ * (apps/web/src/components/playlist/use-watch-queue.ts) on expo-video. A
+ * queue over the playlist's items advances when a clip ends or a text card's
+ * time is up, and reports a clip as watched once playback passes the shared
+ * threshold. One player is fed each clip's own file in turn; nothing seeks
+ * into a game. The listeners read the queue's position from refs, so they
+ * never see a stale closure.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useVideoPlayer } from "expo-video";
 import { useEventListener } from "expo";
-import type { PlayByPlayEvent, PlaylistTextCard } from "@scoutable/shared/types/match";
 import { isWatchedPosition } from "@scoutable/shared/lib/clip-timing";
+import type { WatchItem } from "@scoutable/shared/lib/watch-queue";
 
-export interface QueueClip {
-  type: "clip";
-  event: PlayByPlayEvent;
-  matchId: string;
-  r2Url: string;
-  note?: string;
-}
+export const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
 
-export type PlaybackItem = QueueClip | PlaylistTextCard;
-
-export function isTextCard(i: PlaybackItem): i is PlaylistTextCard {
-  return i.type === "text";
-}
-
-export function itemKey(i: PlaybackItem): string {
-  return isTextCard(i) ? `text:${i.id}` : `${i.matchId}:${i.event.eventId}`;
-}
-
-export const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+/** The speed a player last chose, kept across playlists and launches (the web keeps it too). */
+const SPEED_KEY = "scoutable_watch_speed";
 
 export function useClipQueue({
-  playlistId,
-  playableQueue,
-  recordWatched,
+  items,
+  onWatched,
 }: {
-  playlistId: string | null;
-  playableQueue: PlaybackItem[];
-  recordWatched: (playlistId: string, matchId: string, eventId: number) => void;
+  items: WatchItem[];
+  /** Called once per play of a clip when it counts as watched. */
+  onWatched: (matchId: string, eventId: number) => void;
 }) {
-  const [isQueueActive, setIsQueueActive] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [activeItem, setActiveItem] = useState<PlaybackItem | null>(null);
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [isQueueActive, setQueueActive] = useState(false);
+  const [paused, setPaused] = useState(true);
+  /** A text card's timer can be paused like footage. */
+  const [cardPaused, setCardPaused] = useState(false);
+  /** The playing clip's file couldn't be loaded. */
+  const [failed, setFailed] = useState(false);
+  const [loading, setLoading] = useState(false);
+  /** The loaded clip's length; null until its file has loaded. */
+  const [duration, setDuration] = useState<number | null>(null);
   const [speed, setSpeedState] = useState(1);
 
-  // Refs mirror state so player-event handlers never read stale closures
-  // (same discipline as the web page).
-  const queueRef = useRef<PlaybackItem[]>([]);
-  const queueIdxRef = useRef(0);
-  const activeItemRef = useRef<PlaybackItem | null>(null);
-  // play() during "loading" is a no-op — this arms a retry once the player
-  // reports readyToPlay (the expo-video twin of web's canplay+pendingPlayRef).
+  const itemsRef = useRef(items);
+  const onWatchedRef = useRef(onWatched);
+  useLayoutEffect(() => {
+    itemsRef.current = items;
+    onWatchedRef.current = onWatched;
+  });
+
+  const indexRef = useRef(-1);
+  const activeRef = useRef(false);
+  /** This play of the clip has been reported. */
+  const watchedRef = useRef(false);
+  /**
+   * Stale-event gate: disarmed whenever a clip starts, re-armed only by a
+   * time near the START of playback (or the new file reporting ready), which
+   * only the new play can produce. Events still in flight from the previous
+   * clip carry near-end positions and would mark the new one watched.
+   */
+  const watchArmedRef = useRef(false);
+  /** play() while the file is loading is a no-op: this plays it once ready. */
   const pendingPlayRef = useRef(false);
   const speedRef = useRef(1);
-  const playlistIdRef = useRef(playlistId);
-  const textCardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const textCardDeadlineRef = useRef<number | null>(null);
-  const textCardRemainingRef = useRef<number | null>(null);
-  // Native-dispatched callbacks (AppState, the player's own events) and
-  // pending replaceAsync() continuations can all run after useVideoPlayer has
-  // released the native player on unmount. Touching it then throws
-  // NotFoundException, so every such path checks this first. Set on mount as
-  // well as cleared on cleanup: the ref outlives a mount/unmount/mount cycle,
-  // and leaving it false would silently disable playback for good.
+  const sourceRef = useRef<string | null>(null);
+  const textTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** When the running card's timer fires, or how much of it is left while held. */
+  const cardDeadlineRef = useRef(0);
+  const cardRemainingRef = useRef(0);
+  /** A running card held because the app went to the background (not by the player). */
+  const backgroundCardRef = useRef(false);
+  /** The latest playIndex, for the card timer and the player's events. */
+  const playIndexRef = useRef<(i: number) => void>(() => {});
+  // Native events and pending replaceAsync continuations can arrive after
+  // useVideoPlayer has released the player on unmount; touching it then
+  // throws, so each of those paths checks this first. Set on mount as well
+  // as cleared on cleanup, so a remount doesn't leave playback disabled.
   const isMountedRef = useRef(true);
   useEffect(() => {
     isMountedRef.current = true;
@@ -72,308 +82,284 @@ export function useClipQueue({
     };
   }, []);
 
-  useEffect(() => {
-    playlistIdRef.current = playlistId;
-  }, [playlistId]);
-
   const player = useVideoPlayer(null, (p) => {
-    // timeUpdate is disabled by default (interval 0) — the watched rule needs it.
-    p.timeUpdateEventInterval = 0.25;
+    // Ten a second: the watched rule and the scrubber's time readout (tenths).
+    p.timeUpdateEventInterval = 0.1;
     p.loop = false;
   });
 
-  const clearTextCardTimer = useCallback(() => {
-    if (textCardTimerRef.current) {
-      clearTimeout(textCardTimerRef.current);
-      textCardTimerRef.current = null;
-    }
-    textCardDeadlineRef.current = null;
-    textCardRemainingRef.current = null;
+  const clearTextTimer = useCallback(() => {
+    if (textTimerRef.current !== null) clearTimeout(textTimerRef.current);
+    textTimerRef.current = null;
   }, []);
 
-  // -- queue ops --------------------------------------------------------------
-
-  const advanceRef = useRef<(fromIdx: number) => void>(() => {});
-
-  const startClip = useCallback(
-    async (clip: QueueClip) => {
-      clearTextCardTimer();
-      setActiveItem(clip);
-      activeItemRef.current = clip;
-      // Disarm watch marking until the NEW source proves it's playing from
-      // the start: timeUpdate events carry their payload time, so one emitted
-      // by the outgoing clip near its end can be delivered after this ref
-      // swap and would otherwise mark the incoming clip watched instantly.
-      watchArmedRef.current = false;
-      try {
-        pendingPlayRef.current = true;
-        await player.replaceAsync(clip.r2Url);
-        if (!isMountedRef.current) return;
-        // Rate is a player-level property — re-apply after every source swap.
-        player.playbackRate = speedRef.current;
-        // If the source is already ready this starts playback; otherwise the
-        // statusChange listener fires it on readyToPlay.
-        if (player.status === "readyToPlay") {
-          pendingPlayRef.current = false;
-          player.play();
-        }
-      } catch {
-        // Source failed to load (network, deleted file) — skip ahead.
-        pendingPlayRef.current = false;
-        advanceRef.current(queueIdxRef.current);
-      }
+  const armCardTimer = useCallback(
+    (ms: number) => {
+      clearTextTimer();
+      cardDeadlineRef.current = Date.now() + ms;
+      textTimerRef.current = setTimeout(() => {
+        textTimerRef.current = null;
+        if (isMountedRef.current) playIndexRef.current(indexRef.current + 1);
+      }, ms);
     },
-    [player, clearTextCardTimer]
-  );
-
-  const armTextCardTimer = useCallback((ms: number) => {
-    textCardDeadlineRef.current = Date.now() + ms;
-    textCardTimerRef.current = setTimeout(() => {
-      textCardTimerRef.current = null;
-      textCardDeadlineRef.current = null;
-      advanceRef.current(queueIdxRef.current);
-    }, ms);
-  }, []);
-
-  const startTextCard = useCallback(
-    (card: PlaylistTextCard) => {
-      setActiveItem(card);
-      activeItemRef.current = card;
-      pendingPlayRef.current = false;
-      player.pause();
-      clearTextCardTimer();
-      armTextCardTimer(card.durationSeconds * 1000);
-    },
-    [player, clearTextCardTimer, armTextCardTimer]
-  );
-
-  const advance = useCallback(
-    (fromIdx: number) => {
-      // Reached from startClip's catch, the statusChange error branch and the
-      // text-card timer — all of which can fire after the player is gone, and
-      // all of which lead to player.pause() via startTextCard.
-      if (!isMountedRef.current) return;
-      const queue = queueRef.current;
-      const nextIdx = fromIdx + 1;
-      if (nextIdx >= queue.length) {
-        setIsQueueActive(false);
-        queueRef.current = [];
-        clearTextCardTimer();
-        return;
-      }
-      queueIdxRef.current = nextIdx;
-      const next = queue[nextIdx];
-      if (isTextCard(next)) startTextCard(next);
-      else void startClip(next);
-    },
-    [startClip, startTextCard, clearTextCardTimer]
-  );
-  useEffect(() => {
-    advanceRef.current = advance;
-  }, [advance]);
-
-  const startQueue = useCallback(
-    (queue: PlaybackItem[], startIdx = 0) => {
-      const sliced = queue.slice(startIdx);
-      if (sliced.length === 0) return;
-      queueRef.current = sliced;
-      queueIdxRef.current = 0;
-      setIsQueueActive(true);
-      const first = sliced[0];
-      if (isTextCard(first)) startTextCard(first);
-      else void startClip(first);
-    },
-    [startClip, startTextCard]
+    [clearTextTimer],
   );
 
   const stop = useCallback(() => {
-    queueRef.current = [];
-    queueIdxRef.current = 0;
-    setIsQueueActive(false);
-    setActiveItem(null);
-    activeItemRef.current = null;
+    clearTextTimer();
+    activeRef.current = false;
+    indexRef.current = -1;
     pendingPlayRef.current = false;
-    clearTextCardTimer();
-    player.pause();
-  }, [player, clearTextCardTimer]);
+    backgroundCardRef.current = false;
+    setQueueActive(false);
+    setActiveKey(null);
+    setCardPaused(false);
+    setFailed(false);
+    if (isMountedRef.current) player.pause();
+  }, [player, clearTextTimer]);
 
-  // -- watched marking ----------------------------------------------------------
-
-  /**
-   * Stale-event gate: disarmed on every source swap (startClip), re-armed
-   * only by a timeUpdate near the START of playback — which only the new
-   * source can produce, since clips always play from 0. Events straggling in
-   * from the previous clip carry near-end positions and never re-arm.
-   */
-  const watchArmedRef = useRef(false);
-
-  const markIfWatched = useCallback(
-    (currentTime: number) => {
-      const item = activeItemRef.current;
-      const plId = playlistIdRef.current;
-      if (!item || isTextCard(item) || !plId) return;
-      // Watched = playback reached 3s before clip end (post-roll) — shared
-      // rule, isWatchedPosition.
-      if (isWatchedPosition(currentTime, player.duration)) {
-        recordWatched(plId, item.matchId, item.event.eventId);
+  const playIndex = useCallback(
+    (i: number) => {
+      if (!isMountedRef.current) return;
+      const item = itemsRef.current[i];
+      if (!item) {
+        stop();
+        return;
       }
+      clearTextTimer();
+      indexRef.current = i;
+      activeRef.current = true;
+      backgroundCardRef.current = false;
+      setQueueActive(true);
+      setActiveKey(item.key);
+      setCardPaused(false);
+      setFailed(false);
+      if (item.kind === "text") {
+        pendingPlayRef.current = false;
+        player.pause();
+        armCardTimer(item.card.durationSeconds * 1000);
+        return;
+      }
+      watchedRef.current = false;
+      watchArmedRef.current = false;
+      // The same file again (the playing clip's row tapped): restart it, no reload.
+      if (sourceRef.current === item.r2Url && player.status === "readyToPlay") {
+        player.currentTime = 0;
+        player.playbackRate = speedRef.current;
+        player.play();
+        return;
+      }
+      sourceRef.current = item.r2Url;
+      setDuration(null);
+      pendingPlayRef.current = true;
+      const src = item.r2Url;
+      player
+        .replaceAsync(src)
+        .then(() => {
+          if (!isMountedRef.current || sourceRef.current !== src) return;
+          // Rate belongs to the player: set it again after every swap.
+          player.playbackRate = speedRef.current;
+          // Already loaded: play now. Otherwise statusChange plays it on readyToPlay.
+          if (pendingPlayRef.current && player.status === "readyToPlay") {
+            pendingPlayRef.current = false;
+            player.play();
+          }
+        })
+        .catch(() => {
+          if (!isMountedRef.current || sourceRef.current !== src) return;
+          pendingPlayRef.current = false;
+          setFailed(true);
+        });
     },
-    [player, recordWatched]
+    [player, stop, clearTextTimer, armCardTimer],
   );
+  useLayoutEffect(() => {
+    playIndexRef.current = playIndex;
+  });
+
+  // -- player → queue -----------------------------------------------------------
+
+  const report = useCallback(() => {
+    if (watchedRef.current || !activeRef.current) return;
+    const item = itemsRef.current[indexRef.current];
+    if (!item || item.kind !== "clip") return;
+    watchedRef.current = true;
+    onWatchedRef.current(item.matchId, item.event.eventId);
+  }, []);
 
   useEventListener(player, "timeUpdate", ({ currentTime }) => {
+    if (!isMountedRef.current) return;
     if (!watchArmedRef.current) {
-      if (currentTime > 1) return; // straggler from the previous clip
+      if (currentTime > 1) return; // a straggler from the previous clip
       watchArmedRef.current = true;
     }
-    markIfWatched(currentTime);
+    // Watched = playback reached the shared threshold (isWatchedPosition).
+    if (isWatchedPosition(currentTime, player.duration)) report();
   });
 
   useEventListener(player, "playToEnd", () => {
-    // Same stale-event gate: an end-event from the outgoing clip delivered
-    // after a skip would mis-mark the incoming clip AND double-advance.
-    if (!watchArmedRef.current) return;
-    const item = activeItemRef.current;
-    const plId = playlistIdRef.current;
-    if (item && !isTextCard(item) && plId) {
-      recordWatched(plId, item.matchId, item.event.eventId);
-    }
-    advanceRef.current(queueIdxRef.current);
+    // The same gate: an end from the outgoing clip, delivered after a skip,
+    // would mark the incoming clip AND advance twice.
+    if (!isMountedRef.current || !watchArmedRef.current) return;
+    report();
+    if (activeRef.current) playIndexRef.current(indexRef.current + 1);
   });
 
   useEventListener(player, "playingChange", ({ isPlaying }) => {
-    setIsPaused(!isPlaying);
+    if (isMountedRef.current) setPaused(!isPlaying);
+  });
+
+  useEventListener(player, "sourceLoad", ({ duration: d }) => {
+    if (isMountedRef.current && d > 0) setDuration(d);
   });
 
   useEventListener(player, "statusChange", ({ status, error }) => {
-    // Same exposure as the AppState handler below: the listener is removed on
-    // unmount, but an event already dispatched from native still arrives.
     if (!isMountedRef.current) return;
+    setLoading(status === "loading");
     if (status === "readyToPlay") {
-      // The new source is loaded — any straggler events from the previous
-      // clip were delivered before this point, so arming is safe. (Also
-      // covers sub-second clips whose playToEnd could beat the first
-      // timeUpdate.)
+      // The new file has loaded: anything from the previous clip has been
+      // delivered by now. (Also covers clips too short for a timeUpdate.)
       watchArmedRef.current = true;
-    }
-    if (status === "readyToPlay" && pendingPlayRef.current) {
-      pendingPlayRef.current = false;
-      player.playbackRate = speedRef.current;
-      player.play();
+      if (player.duration > 0) setDuration(player.duration);
+      if (pendingPlayRef.current) {
+        pendingPlayRef.current = false;
+        player.playbackRate = speedRef.current;
+        player.play();
+      }
     } else if (status === "error") {
-      // Unplayable source (network drop, deleted file) — skip ahead.
+      // Shown on the footage, as on the web; the player can retry or move on.
       console.warn("[queue] source error:", error?.message);
       pendingPlayRef.current = false;
-      advanceRef.current(queueIdxRef.current);
+      if (activeRef.current) setFailed(true);
     }
   });
 
-  // Pause on background; text-card timers freeze and resume with their
-  // remaining time.
+  // To the background: pause, and hold a running text card with its time left.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (!isMountedRef.current) return;
       if (state !== "active") {
         player.pause();
-        if (textCardTimerRef.current && textCardDeadlineRef.current) {
-          const remaining = Math.max(0, textCardDeadlineRef.current - Date.now());
-          clearTimeout(textCardTimerRef.current);
-          textCardTimerRef.current = null;
-          textCardDeadlineRef.current = null;
-          textCardRemainingRef.current = remaining;
+        if (textTimerRef.current !== null) {
+          cardRemainingRef.current = Math.max(0, cardDeadlineRef.current - Date.now());
+          clearTextTimer();
+          backgroundCardRef.current = true;
         }
-      } else if (textCardRemainingRef.current !== null) {
-        const remaining = textCardRemainingRef.current;
-        textCardRemainingRef.current = null;
-        armTextCardTimer(remaining);
+      } else if (backgroundCardRef.current) {
+        backgroundCardRef.current = false;
+        armCardTimer(cardRemainingRef.current);
       }
     });
     return () => sub.remove();
-  }, [player, armTextCardTimer]);
+  }, [player, clearTextTimer, armCardTimer]);
 
-  useEffect(() => clearTextCardTimer, [clearTextCardTimer]);
+  useEffect(() => clearTextTimer, [clearTextTimer]);
 
-  // -- derived + controls -------------------------------------------------------
+  // The remembered speed, once it's read.
+  useEffect(() => {
+    AsyncStorage.getItem(SPEED_KEY)
+      .then((v) => {
+        const s = Number(v);
+        if (!isMountedRef.current || !PLAYBACK_SPEEDS.includes(s)) return;
+        speedRef.current = s;
+        setSpeedState(s);
+        player.playbackRate = s;
+      })
+      .catch(() => {});
+  }, [player]);
 
-  const activeKey = activeItem ? itemKey(activeItem) : null;
-  const activeTextCard = activeItem && isTextCard(activeItem) ? activeItem : null;
+  // -- controls -----------------------------------------------------------------
 
-  const listPosition = useMemo(() => {
-    if (!activeKey) return -1;
-    return playableQueue.findIndex((i) => itemKey(i) === activeKey);
-  }, [playableQueue, activeKey]);
-
-  const canPrev = isQueueActive && listPosition > 0;
-  const canNext = isQueueActive && listPosition >= 0 && listPosition < playableQueue.length - 1;
-
-  const playItem = useCallback(
-    (item: PlaybackItem) => {
-      const idx = playableQueue.findIndex((i) => itemKey(i) === itemKey(item));
-      startQueue(playableQueue, idx >= 0 ? idx : 0);
+  const playFrom = useCallback(
+    (key: string) => {
+      const i = itemsRef.current.findIndex((item) => item.key === key);
+      playIndex(i >= 0 ? i : 0);
     },
-    [playableQueue, startQueue]
+    [playIndex],
   );
 
-  const playAll = useCallback(() => startQueue(playableQueue, 0), [playableQueue, startQueue]);
-
   const prev = useCallback(() => {
-    if (listPosition <= 0) return;
-    playItem(playableQueue[listPosition - 1]);
-  }, [listPosition, playableQueue, playItem]);
+    if (indexRef.current > 0) playIndex(indexRef.current - 1);
+  }, [playIndex]);
 
   const next = useCallback(() => {
-    if (listPosition < 0 || listPosition >= playableQueue.length - 1) return;
-    playItem(playableQueue[listPosition + 1]);
-  }, [listPosition, playableQueue, playItem]);
+    if (indexRef.current >= 0 && indexRef.current < itemsRef.current.length - 1) playIndex(indexRef.current + 1);
+  }, [playIndex]);
 
   const replay = useCallback(() => {
-    const item = queueRef.current[queueIdxRef.current];
-    if (!item) return;
-    if (isTextCard(item)) {
-      startTextCard(item);
-    } else {
+    if (indexRef.current < 0) return;
+    const item = itemsRef.current[indexRef.current];
+    if (item?.kind === "clip" && !failed) {
+      watchArmedRef.current = false;
       player.currentTime = 0;
       player.play();
+    } else if (item) {
+      playIndex(indexRef.current);
     }
-  }, [player, startTextCard]);
+  }, [player, playIndex, failed]);
 
-  const togglePlayPause = useCallback(() => {
-    if (!isQueueActive) {
-      playAll();
+  /** Play/pause while a text card shows: holds or resumes its timer. */
+  const toggleCard = useCallback(() => {
+    if (textTimerRef.current !== null) {
+      cardRemainingRef.current = Math.max(0, cardDeadlineRef.current - Date.now());
+      clearTextTimer();
+      setCardPaused(true);
+    } else if (itemsRef.current[indexRef.current]?.kind === "text") {
+      backgroundCardRef.current = false;
+      armCardTimer(cardRemainingRef.current);
+      setCardPaused(false);
+    }
+  }, [clearTextTimer, armCardTimer]);
+
+  /** Play/pause the footage; a clip that failed to load is tried again. */
+  const togglePlayback = useCallback(() => {
+    if (!activeRef.current) return;
+    if (failed) {
+      playIndex(indexRef.current);
       return;
     }
-    if (activeItemRef.current && isTextCard(activeItemRef.current)) return;
     if (player.playing) player.pause();
     else player.play();
-  }, [isQueueActive, playAll, player]);
+  }, [player, failed, playIndex]);
 
   const setSpeed = useCallback(
     (s: number) => {
       speedRef.current = s;
       setSpeedState(s);
       player.playbackRate = s;
+      AsyncStorage.setItem(SPEED_KEY, String(s)).catch(() => {
+        // Remembering the speed is a convenience.
+      });
     },
-    [player]
+    [player],
   );
+
+  const position = activeKey ? items.findIndex((i) => i.key === activeKey) : -1;
+  const activeItem = position >= 0 ? items[position] : null;
 
   return {
     player,
-    isQueueActive,
-    isPaused,
     activeKey,
-    activeTextCard,
+    activeItem,
+    isQueueActive,
+    position,
+    canPrev: isQueueActive && position > 0,
+    canNext: isQueueActive && position >= 0 && position < items.length - 1,
+    /** The footage is paused (or nothing is playing). */
+    paused,
+    cardPaused,
+    failed,
+    loading,
+    duration,
     speed,
     setSpeed,
-    listPosition,
-    canPrev,
-    canNext,
-    playAll,
-    playItem,
+    playFrom,
+    playIndex,
     prev,
     next,
     replay,
     stop,
-    togglePlayPause,
-    startQueue,
+    toggleCard,
+    togglePlayback,
   };
 }

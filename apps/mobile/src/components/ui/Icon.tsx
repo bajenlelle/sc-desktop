@@ -1,5 +1,6 @@
 import { Platform, View, type ColorValue, type StyleProp, type ViewStyle } from "react-native";
 import { SymbolView, type AndroidSymbol, type SFSymbol, type SymbolWeight } from "expo-symbols";
+import Svg, { Path } from "react-native-svg";
 
 /**
  * Every icon in the app by meaning, as an SF Symbol on iOS and a Material
@@ -54,6 +55,19 @@ export const ICONS = {
 
 export type IconName = keyof typeof ICONS;
 
+/**
+ * Material's filled transport glyphs (Material Icons, Apache 2.0), drawn on
+ * Android: expo-symbols there only has the outlined Material Symbols font,
+ * and a hollow play triangle isn't what an Android player shows.
+ */
+const ANDROID_FILLED: Partial<Record<IconName, string>> = {
+  play: "M8 5v14l11-7z",
+  pause: "M6 19h4V5H6v14zm8-14v14h4V5h-4z",
+  previous: "M6 6h2v12H6zm3.5 6l8.5 6V6z",
+  next: "M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z",
+  stop: "M6 6h12v12H6z",
+};
+
 export function Icon({
   name,
   size = 17,
@@ -68,8 +82,29 @@ export function Icon({
   weight?: SymbolWeight;
   style?: StyleProp<ViewStyle>;
 }) {
+  const filled = Platform.OS === "android" ? ANDROID_FILLED[name] : undefined;
+  if (filled) {
+    return (
+      <Svg
+        accessible={false}
+        importantForAccessibility="no-hide-descendants"
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        style={style}
+      >
+        <Path d={filled} fill={color ?? "#000000"} />
+      </Svg>
+    );
+  }
   return (
     <SymbolView
+      // Decorative: the control around an icon carries the name, and the
+      // symbol's own system label ("Close", in the device language) would be
+      // read in front of it.
+      accessible={false}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
       name={ICONS[name]}
       size={size}
       tintColor={color}
