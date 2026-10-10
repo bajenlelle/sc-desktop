@@ -84,6 +84,7 @@ export function SharedByMe({
   teamMap,
   currentUserId,
   query,
+  onClearQuery,
   onOpenPlaylist,
   onManageShare,
 }: {
@@ -98,6 +99,8 @@ export function SharedByMe({
   currentUserId: string | null;
   /** From the toolbar's search field. */
   query: string;
+  /** Empties that field: Clear filters clears the search too. */
+  onClearQuery: () => void;
   /** Opens the playlist in the page's watch view (?p= routing): see it as players do. */
   onOpenPlaylist: (id: string) => void;
   onManageShare: (pl: Playlist) => void;
@@ -334,6 +337,7 @@ export function SharedByMe({
               onClick={() => {
                 setStatusFilter("all");
                 setTeamFilter("all");
+                onClearQuery();
               }}
             >
               Clear filters

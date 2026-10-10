@@ -281,6 +281,7 @@ export default function MyPlaylistsPage() {
               teamMap={teamMap}
               currentUserId={currentUserId}
               query={dashboardQuery}
+              onClearQuery={() => setDashboardQuery("")}
               onOpenPlaylist={openPlaylist}
               onManageShare={openShare}
             />
