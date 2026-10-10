@@ -9,7 +9,9 @@
  */
 import type { Playlist, PlayByPlayEvent, PlaylistTextCard } from "../types/match";
 import { isClipItem } from "../types/match";
+import type { OrgMembership } from "../types/org";
 import { clipViewKey } from "./clip-views-db";
+import { isStaffRole } from "./orgs";
 import { playableClips } from "./playlist-feed";
 
 /** One item a recipient can watch: a clip's own uploaded file, or a timed text card. */
@@ -66,6 +68,23 @@ export function watchProgress(playlist: Playlist, watched: Set<string>): { watch
     watched: clips.filter((c) => watched.has(clipViewKey(playlist.id, c.matchId, c.eventId))).length,
     total: clips.length,
   };
+}
+
+/**
+ * Whether the viewer gets a timeline they can drag. A clip counts as watched
+ * once playback nears its end, so a player who could drag to the end would
+ * mark it watched without watching it: players get a read-only progress
+ * line. The playlist's owner and the coaches and admins of its club keep the
+ * timeline, wherever they open it. Someone outside the club (an ex-member, a
+ * playlist from another club) is a viewer like any player.
+ */
+export function canScrubPlaylist(
+  viewer: { userId: string | null | undefined; myOrgs: OrgMembership[] },
+  playlist: Pick<Playlist, "orgId" | "createdBy">,
+): boolean {
+  if (viewer.userId && playlist.createdBy === viewer.userId) return true;
+  if (!playlist.orgId) return false;
+  return isStaffRole(viewer.myOrgs.find((o) => o.orgId === playlist.orgId)?.role);
 }
 
 /**

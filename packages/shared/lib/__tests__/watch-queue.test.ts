@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildWatchItems,
+  canScrubPlaylist,
   clipKey,
   firstUnwatchedKey,
   isMultiGame,
@@ -9,6 +10,7 @@ import {
 } from "../watch-queue";
 import { clipViewKey } from "../clip-views-db";
 import type { Playlist, PlayByPlayEvent, PlaylistClipItem, PlaylistTextCard } from "../../types/match";
+import type { OrgMembership } from "../../types/org";
 
 function event(eventId: number): PlayByPlayEvent {
   return {
@@ -110,5 +112,37 @@ describe("recordOnce", () => {
     expect(recordOnce(recorded, clipKey("m1", 1))).toBe(false);
     expect(recordOnce(recorded, clipKey("m2", 1))).toBe(true);
     expect([...recorded]).toEqual(["m1:1", "m2:1"]);
+  });
+});
+
+describe("canScrubPlaylist", () => {
+  function member(orgId: string, role: OrgMembership["role"], isPersonal = false): OrgMembership {
+    return { orgId, orgName: orgId, role, isNtOrg: false, planTier: "pro", isPersonal };
+  }
+  const shared = { orgId: "club", createdBy: "coach-1" };
+
+  it("lets the playlist's owner scrub", () => {
+    expect(canScrubPlaylist({ userId: "coach-1", myOrgs: [] }, shared)).toBe(true);
+  });
+
+  it("lets the club's coaches and admins scrub", () => {
+    expect(canScrubPlaylist({ userId: "coach-2", myOrgs: [member("club", "coach")] }, shared)).toBe(true);
+    expect(canScrubPlaylist({ userId: "admin", myOrgs: [member("club", "admin")] }, shared)).toBe(true);
+  });
+
+  it("keeps players to the read-only line", () => {
+    expect(canScrubPlaylist({ userId: "p1", myOrgs: [member("club", "player")] }, shared)).toBe(false);
+  });
+
+  it("goes by the role in the playlist's club, not elsewhere", () => {
+    const myOrgs = [member("club", "player"), member("other", "coach"), member("me", "admin", true)];
+    expect(canScrubPlaylist({ userId: "p1", myOrgs }, shared)).toBe(false);
+  });
+
+  it("treats ex-members, unknown clubs and the signed-out as viewers", () => {
+    expect(canScrubPlaylist({ userId: "p1", myOrgs: [member("other", "coach")] }, shared)).toBe(false);
+    expect(canScrubPlaylist({ userId: "p1", myOrgs: [member("club", "coach")] }, { createdBy: "coach-1" })).toBe(false);
+    expect(canScrubPlaylist({ userId: null, myOrgs: [] }, { orgId: "club" })).toBe(false);
+    expect(canScrubPlaylist({ userId: undefined, myOrgs: [] }, { orgId: "club", createdBy: undefined })).toBe(false);
   });
 });
