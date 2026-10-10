@@ -60,6 +60,13 @@ Added while building, all in the same spirit:
 - **Join a team** (`/onboarding`) hides the tab bar. It's a focused task, and for an account with no space it's the only page there is, since `proxy.ts` sends every route there. Reached from Get started, it has a back button, and its Sign out shows only when there is no space.
 - **Errors inside the signed-in app** now keep the sidebar and tab bar (new `(app)/error.tsx`); unknown URLs get a not-found page.
 
+After review (2026-10-10):
+
+- **Players can't seek ahead.** A clip counts as watched near its end, so a player who dragged there skipped it. Players get the times around a read-only progress line, → and Shift+→ do nothing, the media session (lock screen, Control Center) can only go back, and the video has no picture in picture or context menu. ←, J, Replay, previous/next and speed still work. The playlist's owner and its club's coaches and admins keep the scrubber (`canScrubPlaylist` in `packages/shared/lib/watch-queue.ts`).
+- **At phone width the playing row says what's playing.** The "now playing" block under the player repeated the row and changed height between clips and text cards; below the side-by-side width it's hidden and rows show the coach's note in full. The wide layout is unchanged.
+- **Signing out loads `/login` fresh** (`src/lib/sign-out.ts`). It used to re-render the signed-in page without a user first, which crashed on iPhones that had wrapped the email in "Sign out of …" (Sentry SCOUTABLE-WEB-C, "Something went wrong" until a refresh). `format-detection` is now off, so Safari doesn't wrap emails, numbers or dates in React's text.
+- **Clear filters** on Shared by me also clears the search.
+
 ## 5. Verification
 
 - **Each milestone:** `tsc`, `npm run lint` (0 errors; warnings down from `main`'s 45 to 25), the shared tests, the analytics comparison and screenshots. `next build` passed once mid-way and again on the finished branch.
@@ -74,7 +81,7 @@ Not verified: Android, iPad, Safari on macOS, Windows browsers; a real share, in
 
 - **Dev server only:** under concurrent requests, Turbopack's dev server sometimes renders `ThemeSync` against a second copy of the colour-theme context. It throws "useColorTheme must be used within ColorThemeProvider" and falls back to client rendering. The page still works, but each failure reaches Sentry as a `development` event. The production build doesn't do this (section 5).
 - **Fixed here, still open on the desktop branch:** the reduced-transparency and increased-contrast overrides were scoped to `html`, which `:root` (where the variables are set) outranks. In light mode they did nothing. `globals.css` now uses `:root`. The desktop branch's `index.css` has the same selectors: increased contrast is dead in light mode there, and reduced transparency on Windows.
-- **Pre-existing, unchanged:** Sign out on `/onboarding` calls `signOut()` with the default global scope, which signs the account out on every device. Every other sign-out in the app is local.
+- **Fixed 2026-10-10:** Sign out on `/onboarding` used `signOut()`'s default global scope, which signed the account out on every device. Every sign-out in the app is now local.
 - The narrow-screen toolbar's primary actions are filled buttons; iOS would use a plain tinted glyph.
 - With classic (non-overlay) scrollbars, the toolbar's centred control shifts slightly between pages that scroll and pages that don't.
 - `global-error.tsx` still shows Next's default page, and `/view/[playlistId]` remains a bare redirect.
