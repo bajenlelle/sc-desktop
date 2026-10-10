@@ -17,7 +17,7 @@ import { VideoView, type VideoPlayer } from "expo-video";
 import { Icon } from "@/components/ui/Icon";
 import { Tappable } from "@/components/ui/Tappable";
 import { Text } from "@/components/ui/Text";
-import { ClipScrubber } from "./ClipScrubber";
+import { ClipProgress, ClipScrubber } from "./ClipScrubber";
 import { ControlButton, ControlRow, FullscreenButton, PlayPauseButton, PlayerMaterial, SpeedMenu } from "./controls";
 
 const IDLE_MS = 2500;
@@ -40,6 +40,7 @@ export interface Transport {
 export function PlayerStage({
   player,
   duration,
+  canScrub = true,
   paused,
   onTogglePlay,
   transport,
@@ -58,6 +59,8 @@ export function PlayerStage({
   player: VideoPlayer;
   /** The playing clip's length; no timeline without one (or during a text card). */
   duration: number | null;
+  /** False for a viewer who may not drag the timeline (a player): a read-only progress line instead. */
+  canScrub?: boolean;
   /** What the controls show: the footage's state, or a text card's. */
   paused: boolean;
   onTogglePlay: () => void;
@@ -126,7 +129,11 @@ export function PlayerStage({
   const readout = position && position.total > 0 ? `${position.index + 1} of ${position.total}` : undefined;
   const scrubber =
     duration !== null && duration > 0 ? (
-      <ClipScrubber player={player} duration={duration} onScrubbingChange={handleScrubbing} />
+      canScrub ? (
+        <ClipScrubber player={player} duration={duration} onScrubbingChange={handleScrubbing} />
+      ) : (
+        <ClipProgress player={player} duration={duration} />
+      )
     ) : null;
   // In full screen the controls keep clear of the notch and the home indicator.
   const edge = fullscreen.active

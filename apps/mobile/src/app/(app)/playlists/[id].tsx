@@ -5,7 +5,14 @@ import { Stack, router, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import type { PlayByPlayEvent } from "@scoutable/shared/types/match";
 import { playerName } from "@scoutable/shared/lib/events";
-import { buildWatchItems, clipKey, firstUnwatchedKey, isMultiGame, watchProgress } from "@scoutable/shared/lib/watch-queue";
+import {
+  buildWatchItems,
+  canScrubPlaylist,
+  clipKey,
+  firstUnwatchedKey,
+  isMultiGame,
+  watchProgress,
+} from "@scoutable/shared/lib/watch-queue";
 import { clipViewKey } from "@scoutable/shared/lib/clip-views-db";
 import { useAuth } from "@/lib/auth-context";
 import { usePlaylists } from "@/lib/playlists-store";
@@ -27,7 +34,7 @@ import { Text } from "@/components/ui/Text";
  */
 export default function WatchScreen() {
   const { id, resume } = useLocalSearchParams<{ id: string; resume?: string }>();
-  const { activeOrgRole } = useAuth();
+  const { activeOrgRole, user, myOrgs } = useAuth();
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   const { allPlaylists, loading, matchLookup, clipViews, recordWatched, refresh } = usePlaylists();
   const colors = useThemeColors();
@@ -36,6 +43,8 @@ export default function WatchScreen() {
   const [scrubbing, setScrubbing] = useState(false);
 
   const playlist = useMemo(() => allPlaylists.find((p) => p.id === id) ?? null, [allPlaylists, id]);
+  // Players get a read-only progress line: dragging to the end would count a clip as watched.
+  const canScrub = !!playlist && canScrubPlaylist({ userId: user?.id, myOrgs }, playlist);
 
   // A push tap can land here for a share newer than the mounted store
   // snapshot: one refetch before declaring the playlist unavailable.
@@ -174,6 +183,7 @@ export default function WatchScreen() {
         <PlayerStage
           player={queue.player}
           duration={activeClip ? queue.duration : null}
+          canScrub={canScrub}
           paused={activeCard ? queue.cardPaused : !queue.isQueueActive || queue.paused}
           onTogglePlay={onTogglePlay}
           transport={{

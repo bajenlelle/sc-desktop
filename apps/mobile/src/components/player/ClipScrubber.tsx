@@ -10,7 +10,7 @@
  * (clamp, rubberband); the thumb itself moves on the UI thread, gliding
  * between the player's time reports instead of jumping ten times a second.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { View, type LayoutChangeEvent } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
@@ -26,6 +26,32 @@ const THUMB_HIT = 24;
 /** The player's time-report interval, which the thumb glides across. */
 const REPORT_SECONDS = 0.1;
 
+/**
+ * Follows playback for a timeline: the elapsed time for the labels, and
+ * where playback is (0–1) for the UI thread. Each time report glides the
+ * line to where playback will be at the next one (no glide while paused:
+ * it's exactly there). Nothing follows while `held` is set: a finger is
+ * on the scrubber.
+ */
+function usePlaybackFollow(player: VideoPlayer, duration: number, held: RefObject<unknown>) {
+  const [elapsed, setElapsed] = useState(() => clamp(player.currentTime, 0, duration));
+  const progress = useSharedValue(clamp(player.currentTime / duration, 0, 1));
+  const follow = useCallback(
+    (time: number) => {
+      if (held.current) return;
+      setElapsed(clamp(time, 0, duration));
+      const lead = player.playing ? REPORT_SECONDS * player.playbackRate : 0;
+      const target = clamp((time + lead) / duration, 0, 1);
+      progress.value = lead > 0 ? withTiming(target, { duration: REPORT_SECONDS * 1000, easing: Easing.linear }) : target;
+    },
+    [duration, player, progress, held],
+  );
+  useEventListener(player, "timeUpdate", ({ currentTime }) => follow(currentTime));
+  useEventListener(player, "playingChange", () => follow(player.currentTime));
+  useEffect(() => follow(player.currentTime), [follow, player]);
+  return { elapsed, setElapsed, progress, follow };
+}
+
 export function ClipScrubber({
   player,
   duration: total,
@@ -37,31 +63,13 @@ export function ClipScrubber({
   onScrubbingChange?: (scrubbing: boolean) => void;
 }) {
   const duration = Math.max(0.001, total);
-  const [elapsed, setElapsed] = useState(() => clamp(player.currentTime, 0, duration));
   const width = useSharedValue(0);
-  /** Where playback is, 0–1. */
-  const progress = useSharedValue(clamp(player.currentTime / duration, 0, 1));
   /** How far the thumb is dragged past an end, after resistance (px). */
   const overshoot = useSharedValue(0);
   const pressed = useSharedValue(0);
   const scrubRef = useRef<{ grabOffset: number; wasPlaying: boolean; time: number } | null>(null);
   const seekRef = useRef<{ time: number; frame: number | null }>({ time: 0, frame: null });
-
-  // Follow playback: each report glides the thumb to where playback will be
-  // at the next one (no glide while paused: it's exactly there).
-  const follow = useCallback(
-    (time: number) => {
-      if (scrubRef.current) return;
-      setElapsed(clamp(time, 0, duration));
-      const lead = player.playing ? REPORT_SECONDS * player.playbackRate : 0;
-      const target = clamp((time + lead) / duration, 0, 1);
-      progress.value = lead > 0 ? withTiming(target, { duration: REPORT_SECONDS * 1000, easing: Easing.linear }) : target;
-    },
-    [duration, player, progress],
-  );
-  useEventListener(player, "timeUpdate", ({ currentTime }) => follow(currentTime));
-  useEventListener(player, "playingChange", () => follow(player.currentTime));
-  useEffect(() => follow(player.currentTime), [follow, player]);
+  const { elapsed, setElapsed, progress, follow } = usePlaybackFollow(player, duration, scrubRef);
 
   /** At most one seek per frame: the latest position wins. */
   const scheduleSeek = useCallback(
@@ -200,6 +208,38 @@ export function ClipScrubber({
           />
         </View>
       </GestureDetector>
+      <TimeLabel align="left">{formatClipTime(duration)}</TimeLabel>
+    </View>
+  );
+}
+
+/**
+ * The playing clip's timeline for a viewer who may not drag it (a player: a
+ * clip counts as watched near its end, so dragging there would skip it).
+ * The scrubber's times around a thinner line with nothing to grab; VoiceOver
+ * reads it as a progress bar, and a tap goes through to the footage.
+ */
+export function ClipProgress({ player, duration: total }: { player: VideoPlayer; duration: number }) {
+  const duration = Math.max(0.001, total);
+  const never = useRef(null);
+  const { elapsed, progress } = usePlaybackFollow(player, duration, never);
+  const fillStyle = useAnimatedStyle(() => ({ transform: [{ scaleX: progress.value }] }));
+  return (
+    <View pointerEvents="none" className="flex-row items-center gap-2">
+      <TimeLabel align="right">{formatClipTime(elapsed)}</TimeLabel>
+      <View
+        accessible
+        accessibilityRole="progressbar"
+        accessibilityLabel="Clip position"
+        accessibilityValue={{ text: `${formatClipTime(elapsed)} of ${formatClipTime(duration)}` }}
+        className="h-6 flex-1 justify-center"
+      >
+        <View className="h-1 overflow-hidden rounded-full bg-white/25">
+          <Animated.View
+            style={[{ height: "100%", width: "100%", borderRadius: 2, backgroundColor: "rgba(255,255,255,0.9)", transformOrigin: "left" }, fillStyle]}
+          />
+        </View>
+      </View>
       <TimeLabel align="left">{formatClipTime(duration)}</TimeLabel>
     </View>
   );
