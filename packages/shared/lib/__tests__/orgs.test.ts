@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isPlayerOnly, parseInviteInput, resolveGateState, sortOrgsClubFirst } from "../orgs";
+import { isPlayerOnly, isStaffRole, parseInviteInput, resolveGateState, sortOrgsClubFirst } from "../orgs";
 import type { GateSnapshot } from "../orgs";
 import type { OrgMembership } from "../../types/org";
 
@@ -55,6 +55,16 @@ describe("sortOrgsClubFirst", () => {
 
   it("handles an empty list", () => {
     expect(sortOrgsClubFirst([])).toEqual([]);
+  });
+});
+
+describe("isStaffRole", () => {
+  it("is true for coaches and admins only", () => {
+    expect(isStaffRole("coach")).toBe(true);
+    expect(isStaffRole("admin")).toBe(true);
+    expect(isStaffRole("player")).toBe(false);
+    expect(isStaffRole(null)).toBe(false);
+    expect(isStaffRole(undefined)).toBe(false);
   });
 });
 

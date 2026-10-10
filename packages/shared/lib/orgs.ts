@@ -16,6 +16,11 @@ export function sortOrgsClubFirst(orgs: OrgMembership[]): OrgMembership[] {
   });
 }
 
+/** Coaches and admins: the people who make and share playlists in a space. */
+export function isStaffRole(role: OrgMembership['role'] | null | undefined): boolean {
+  return role === 'coach' || role === 'admin';
+}
+
 /**
  * True when the user's only club-org roles are `player` (and they belong to
  * at least one club org). Player-only users get the two-destination nav
