@@ -1,7 +1,8 @@
 /**
  * The watch screen's list rows (the web's playlist/ClipRow.tsx): a clip's
  * event and player, then period, clock, team and (in multi-game playlists)
- * the game; whether it has been watched and whether the coach left a note.
+ * the game; whether it has been watched, and the coach's note in full (the
+ * rows are what say what's playing; nothing repeats them under the player).
  * A 3 pt strip in the event's colour makes a long list scannable. The
  * playing row's highlight is one pill that springs from row to row
  * (ActivePill), not a fill that appears and vanishes.
@@ -33,11 +34,11 @@ function splitBadgeClasses(badge: string): { bg: string; text: string } {
 }
 
 /** The event's pill: "Made 3PT", "Turnover"… */
-export function EventBadge({ event, large }: { event: PlayByPlayEvent; large?: boolean }) {
+function EventBadge({ event }: { event: PlayByPlayEvent }) {
   const badge = splitBadgeClasses(eventColors(event).badge);
   return (
-    <View className={cn("shrink-0 rounded-full px-2", large ? "py-0.5" : "py-px", badge.bg)}>
-      <Text variant={large ? "callout" : "footnote"} className={cn("font-medium", badge.text)}>
+    <View className={cn("shrink-0 rounded-full px-2 py-px", badge.bg)}>
+      <Text variant="footnote" className={cn("font-medium", badge.text)}>
         {eventLabel(event)}
       </Text>
     </View>
@@ -45,7 +46,7 @@ export function EventBadge({ event, large }: { event: PlayByPlayEvent; large?: b
 }
 
 /** "Q2 · 07:41 · Fryshuset · vs Viby", the clip's place in its game. */
-export function clipMeta(event: PlayByPlayEvent, matchTitle?: string): string {
+function clipMeta(event: PlayByPlayEvent, matchTitle?: string): string {
   return [`Q${event.period}`, formatGameClock(event.gameClockTime), event.eventTeam?.teamName, matchTitle]
     .filter(Boolean)
     .join(" · ");
@@ -76,7 +77,7 @@ export function WatchClipRow({
       scaleTo={1}
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
-      accessibilityLabel={[eventLabel(event), playerName(event), meta, note ? "note from your coach" : null, watched ? "watched" : null]
+      accessibilityLabel={[eventLabel(event), playerName(event), meta, note ? `note from your coach: ${note}` : null, watched ? "watched" : null]
         .filter(Boolean)
         .join(", ")}
       onPress={onPlay}
@@ -94,9 +95,16 @@ export function WatchClipRow({
         <Text variant="subheadline" nums numberOfLines={1} className="text-muted-foreground">
           {meta}
         </Text>
+        {note ? (
+          <View className="mt-1 min-w-0 flex-row items-start gap-1.5">
+            <Icon name="note" size={14} color={colors.primary} style={{ opacity: 0.7, marginTop: 3 }} />
+            <Text variant="subheadline" className="shrink text-foreground/80">
+              {note}
+            </Text>
+          </View>
+        ) : null}
       </View>
-      <View className="shrink-0 flex-row items-center gap-1.5">
-        {note ? <Icon name="note" size={14} color={colors.primary} style={{ opacity: 0.7 }} /> : null}
+      <View className="shrink-0 flex-row items-center">
         {active ? (
           <Icon name="play" size={14} color={colors.primary} />
         ) : watched ? (

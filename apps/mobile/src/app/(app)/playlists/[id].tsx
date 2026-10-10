@@ -4,7 +4,6 @@ import { useReducedMotion } from "react-native-reanimated";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import type { PlayByPlayEvent } from "@scoutable/shared/types/match";
-import { playerName } from "@scoutable/shared/lib/events";
 import {
   buildWatchItems,
   canScrubPlaylist,
@@ -20,7 +19,7 @@ import { useThemeColors } from "@/lib/theme-context";
 import { useClipQueue } from "@/hooks/use-clip-queue";
 import { PlayerStage } from "@/components/player/PlayerStage";
 import { useStageFullscreen } from "@/components/player/use-stage-fullscreen";
-import { ActivePill, EventBadge, WatchClipRow, WatchTextCardRow, clipMeta, useActivePill } from "@/components/WatchClipRow";
+import { ActivePill, WatchClipRow, WatchTextCardRow, useActivePill } from "@/components/WatchClipRow";
 import { Button } from "@/components/ui/Button";
 import { StatusScreen } from "@/components/ui/EmptyState";
 import { ProgressBar } from "@/components/ui/ProgressBar";
@@ -28,9 +27,12 @@ import { Text } from "@/components/ui/Text";
 
 /**
  * Watching a shared playlist (the web's watch-view.tsx at phone width): the
- * player under the navigation bar, then what's playing (with the coach's
- * note right under the footage, where the eye already is) and the clip
- * list, which scroll beneath it. Full screen turns the phone to landscape.
+ * player under the navigation bar, and the clip list scrolling beneath it.
+ * The playing row says what's playing (it carries the highlight, and the
+ * coach's note shows in full in its row): a block between player and list
+ * would change height from clip to clip, or vanish for a text card, and move
+ * the list under the reader's finger. Full screen turns the phone to
+ * landscape.
  */
 export default function WatchScreen() {
   const { id, resume } = useLocalSearchParams<{ id: string; resume?: string }>();
@@ -234,28 +236,6 @@ export default function WatchScreen() {
           scroll.current.height = e.nativeEvent.layout.height;
         }}
       >
-        {activeClip && (
-          <View className="gap-2 px-4 pt-3">
-            <View className="min-w-0 flex-row items-center gap-2">
-              <EventBadge event={activeClip.event} large />
-              <Text variant="title3" numberOfLines={1} className="shrink">
-                {playerName(activeClip.event)}
-              </Text>
-            </View>
-            <Text variant="callout" nums className="text-muted-foreground">
-              {clipMeta(activeClip.event, matchTitleFor(activeClip.matchId))}
-            </Text>
-            {activeClip.note ? (
-              <View className="rounded-window bg-fill-1 px-3.5 py-2.5">
-                <Text variant="subheadline" className="text-muted-foreground">
-                  Note from your coach
-                </Text>
-                <Text className="mt-0.5">{activeClip.note}</Text>
-              </View>
-            ) : null}
-          </View>
-        )}
-
         <View className="flex-row items-center gap-3 px-4 pb-2 pt-4">
           <Text variant="headline">Clips</Text>
           {progress.total > 0 && (
