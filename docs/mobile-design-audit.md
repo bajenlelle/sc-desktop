@@ -20,7 +20,7 @@ What `main` looked like before:
 ## 2. Decisions
 
 - **Ship path:** a new store build. Native modules were added (`expo-blur`, `expo-haptics`, `expo-screen-orientation`, `react-native-svg`), and `expo-symbols`, `expo-glass-effect` and `@expo/ui` became direct dependencies. All native changes went in at the start, so one EAS build covered the whole branch.
-- **Chrome per platform:** `NativeTabs` (`expo-router/unstable-native-tabs`) with a native stack per tab. Large titles and header search bars on iOS; Material on Android. Watch, team, sheets and gates sit in the `(app)` stack above the tabs.
+- **Chrome per platform:** `NativeTabs` (`expo-router/unstable-native-tabs`) with a native stack per tab. Large titles and header search bars on iOS; Material on Android, where search is the web's field at the top of the content (the toolbar would hide it behind an icon). Watch, team, sheets and gates sit in the `(app)` stack above the tabs.
 - **Type:** the system font (SF Pro / Roboto) with the web's touch text styles as a `Text` component (large title 34/41 … footnote 13/18), tabular figures for counts and clocks, and Dynamic Type left on.
 - **Colour:** the theme tokens plus colours derived from them in `packages/shared/lib/theme-derived.ts` (tested): fills 1–4, separators, popover, success, warning, materials. They're injected through the same NativeWind `vars()`, and the eight themes and their sync are unchanged.
 - **Icons:** SF Symbols on iOS and Material Symbols on Android through `expo-symbols`, from one meaning-based map. The transport glyphs (play, pause, previous, next, stop) are drawn filled on Android, because the bundled Material font is outlined only.
@@ -58,6 +58,13 @@ Added while building, all following the web:
 - **Play / Resume** in the player start at the first unwatched clip, as on web, rather than at clip 1.
 - **A clip that won't load** shows "Can't load this clip…" over the footage instead of skipping ahead, so a dropped connection no longer runs through the whole queue. Play retries it.
 - **The end of the queue** clears the active row (it used to stay highlighted).
+
+After review (2026-10-10), on mobile and on the web at phone width:
+
+- **Players can't drag the timeline.** A clip counts as watched near its end, so dragging there skipped it. Players get the times around a read-only progress line; the playlist's owner and its club's coaches and admins keep the scrubber (`canScrubPlaylist` in `packages/shared/lib/watch-queue.ts`). Previous/next, replay and speed are unchanged.
+- **No "now playing" block under the video.** It repeated the playing row and changed height between clips and text cards, so the list jumped. The playing row says what's playing, and rows show the coach's note in full.
+- **No "Remind all" on Shared by me.** Coaches remind per playlist ("Remind N") or per player, as on the web and desktop.
+- **Search:** a visible field on Android (see Chrome per platform); "Clear filters" also clears the search, the native iOS field included.
 - **Text cards can be paused.** While one shows, the phone layout's controls move to the bottom so the card's text isn't covered. The web's compact player covers it; worth carrying back.
 - **Watches** are claimed through `recordOnce` in the store, seeded from the loaded views and started over for a different account, which closes a double-record race.
 - **The team step at launch** has no back button; it's answered or skipped, as before.
@@ -72,9 +79,9 @@ App Store constraints (see the 3.1.3(c) notes in the code) are unchanged: no out
 - **Read-only mode:** Metro ran with `EXPO_PUBLIC_READ_ONLY=1` and empty PostHog and Sentry keys, so every write was refused in the app (watches, team choices, device touches, reminders) and logged. Nothing was submitted to production.
 - **Player, both platforms:** play, pause, auto-advance, scrubbing (grab, jump, past the ends), speed menu and remembered speed, full screen in landscape, Done and Android back, text card pause and resume, VoiceOver labels.
 - **Sheets:** native form sheets on iOS and Material bottom sheets on Android, both above the software keyboard.
-- **Accessibility:** iOS text size at accessibility-large and Android font scale 1.3; Increase Contrast. Large text found the layouts that couldn't take it, and they now adapt as iOS's own do (`useLargeText()` in `src/lib/a11y.ts`): segmented controls become a pop-up menu, rows put their trailing control under the text, stat cells stack, button pairs stack, and buttons grow with their labels. Icons are decorative to screen readers (the symbol's own system label was read in front of the button's), the timeline is adjustable, and the list under the full-screen player is hidden from VoiceOver. Reduce Motion is honoured through `ReduceMotion.System` in every spring; Reduce Transparency makes the player's dark glass solid.
+- **Accessibility:** iOS text size at accessibility-large and Android font scale 1.3; Increase Contrast. Large text found the layouts that couldn't take it, and they now adapt as iOS's own do (`useLargeText()` in `src/lib/a11y.ts`): segmented controls become a pop-up menu, rows put their trailing control under the text, stat cells stack, button pairs stack, and buttons grow with their labels. Icons are decorative to screen readers (the symbol's own system label was read in front of the button's), the coach's timeline is adjustable (a player's reads as a progress bar), and the list under the full-screen player is hidden from VoiceOver. Reduce Motion is honoured through `ReduceMotion.System` in every spring; Reduce Transparency makes the player's dark glass solid.
 
-Not verified: a physical iPhone or Android phone (blur, haptics and rotation feel), iPad, push notifications end to end, a real join, reminder, feedback report or account deletion (all refused by read-only mode), and Sign in with Apple (native SIWA doesn't run in an unsigned Simulator build).
+Not verified: playback in the iOS Simulator after the 2026-10-10 review changes (the Simulator's audio queue wouldn't start on this Mac, so AVPlayer stalled at 0:00 for every clip; the same code played on Android), Clear filters emptying the native iOS search field, a physical iPhone or Android phone (blur, haptics and rotation feel), iPad, push notifications end to end, a real join, reminder, feedback report or account deletion (all refused by read-only mode), and Sign in with Apple (native SIWA doesn't run in an unsigned Simulator build).
 
 ## 6. Known gaps and next steps
 
