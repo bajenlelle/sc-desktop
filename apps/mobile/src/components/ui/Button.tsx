@@ -10,10 +10,11 @@ type Size = "default" | "sm" | "xs" | "lg" | "icon" | "icon-sm" | "icon-xs";
 
 /** Touch sizes from the web (apps/web/src/components/ui/button.tsx, pointer: coarse). */
 const SIZE: Record<Size, { box: string; text: "body" | "footnote" }> = {
-  default: { box: "h-11 px-5 gap-2", text: "body" },
-  sm: { box: "h-10 px-4 gap-1.5", text: "body" },
-  xs: { box: "h-9 px-3 gap-1", text: "footnote" },
-  lg: { box: "h-12 px-6 gap-2", text: "body" },
+  // Minimum heights: at large text sizes a button grows with its label.
+  default: { box: "min-h-11 px-5 py-1.5 gap-2", text: "body" },
+  sm: { box: "min-h-10 px-4 py-1.5 gap-1.5", text: "body" },
+  xs: { box: "min-h-9 px-3 py-1 gap-1", text: "footnote" },
+  lg: { box: "min-h-12 px-6 py-2 gap-2", text: "body" },
   icon: { box: "h-11 w-11", text: "body" },
   "icon-sm": { box: "h-10 w-10", text: "body" },
   "icon-xs": { box: "h-9 w-9", text: "footnote" },

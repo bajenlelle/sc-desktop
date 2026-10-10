@@ -5,7 +5,9 @@ import { Tappable } from "@/components/ui/Tappable";
 import { Text } from "@/components/ui/Text";
 import { selectionHaptic } from "@/lib/haptics";
 import { springs } from "@/lib/motion";
-import { useThemeColors } from "@/lib/theme-context";
+import { useAppTheme, useThemeColors } from "@/lib/theme-context";
+import { useLargeText } from "@/lib/a11y";
+import { PopUpButton } from "@/components/ui/PopUpButton";
 import { cn } from "@/lib/cn";
 
 export interface Segment<T extends string> {
@@ -40,6 +42,7 @@ export function SegmentedControl<T extends string>({
   accessibilityLabel?: string;
 }): ReactNode {
   const colors = useThemeColors();
+  const dark = useAppTheme().resolvedMode === "dark";
   const [frames, setFrames] = useState<Record<string, { x: number; width: number }>>({});
   const x = useSharedValue(0);
   const width = useSharedValue(0);
@@ -61,10 +64,27 @@ export function SegmentedControl<T extends string>({
 
   const thumb = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }], width: width.value }));
 
+  const largeText = useLargeText();
+
   const onLayout = (v: T) => (e: LayoutChangeEvent) => {
     const { x: fx, width: fw } = e.nativeEvent.layout;
     setFrames((prev) => (prev[v]?.x === fx && prev[v]?.width === fw ? prev : { ...prev, [v]: { x: fx, width: fw } }));
   };
+
+  // At the largest text sizes the segments can't share a row: the choice
+  // becomes a pop-up menu, as iOS's own segmented controls do.
+  if (largeText) {
+    return (
+      <PopUpButton<T>
+        accessibilityLabel={accessibilityLabel}
+        title={accessibilityLabel}
+        value={(value ?? segments[0]?.value) as T}
+        onValueChange={onValueChange}
+        options={segments.map((s) => ({ value: s.value, label: s.detail != null ? `${s.label} (${s.detail})` : s.label }))}
+        className={fullWidth ? "self-stretch justify-between" : undefined}
+      />
+    );
+  }
 
   return (
     <View
@@ -84,10 +104,15 @@ export function SegmentedControl<T extends string>({
               borderRadius: 4,
               borderWidth: 0.5,
               borderColor: colors.separator,
-              backgroundColor: colors.card,
-              ...(Platform.OS === "ios"
-                ? { shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 1, shadowOffset: { width: 0, height: 1 } }
-                : { elevation: 1 }),
+              // In dark themes the card is darker than the track, which made the
+              // choice read as a hole: there the thumb is a lighter fill instead,
+              // as in Apple's own dark segmented control.
+              backgroundColor: dark ? colors.fill3 : colors.card,
+              ...(dark
+                ? null
+                : Platform.OS === "ios"
+                  ? { shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 1, shadowOffset: { width: 0, height: 1 } }
+                  : { elevation: 1 }),
             },
             thumb,
           ]}

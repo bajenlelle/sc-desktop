@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useMyTeam, useSpaceSuggestions, useTeamCatalog } from "@/lib/my-team";
 import { trackEvent } from "@/lib/analytics";
 import { useThemeColors } from "@/lib/theme-context";
+import { useLargeText } from "@/lib/a11y";
 import { LeagueChip, TeamCrest } from "@/components/TeamCrest";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
@@ -43,6 +44,7 @@ export default function TeamScreen() {
   const { teams, failed, retry } = useTeamCatalog();
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
+  const largeText = useLargeText();
 
   const spaces = useMemo(() => sortOrgsClubFirst(teamSpaces(myOrgs)), [myOrgs]);
   const org = spaces.find((o) => o.orgId === params.orgId) ?? null;
@@ -227,6 +229,8 @@ export default function TeamScreen() {
                 // Under the title on iOS 26 too, not down in a toolbar: the
                 // screen's own buttons live at the bottom.
                 placement: "stacked",
+                // An opaque bar leaves iOS drawing the field light in dark mode.
+                barTintColor: colors.fill2,
                 tintColor: colors.primary,
                 textColor: colors.foreground,
                 hintTextColor: colors.mutedForeground,
@@ -318,11 +322,11 @@ export default function TeamScreen() {
         <Button variant="link" size="sm" className="self-start px-0" onPress={() => setNoteMode((v) => !v)}>
           {noteMode ? "Back to the list" : "My team isn't listed"}
         </Button>
-        <View className="flex-row gap-3">
-          <Button className="flex-1" variant="ghost" onPress={mode === "step" ? handleSkip : leave} disabled={saving}>
+        <View className={largeText ? "flex-col-reverse gap-2" : "flex-row gap-3"}>
+          <Button className={largeText ? undefined : "flex-1"} variant="ghost" onPress={mode === "step" ? handleSkip : leave} disabled={saving}>
             {mode === "step" ? "Skip for now" : "Cancel"}
           </Button>
-          <Button className="flex-1" onPress={handleSave} disabled={!canSave} loading={saving}>
+          <Button className={largeText ? undefined : "flex-1"} onPress={handleSave} disabled={!canSave} loading={saving}>
             {noteMode ? "Send" : mode === "step" ? "Continue" : "Save"}
           </Button>
         </View>

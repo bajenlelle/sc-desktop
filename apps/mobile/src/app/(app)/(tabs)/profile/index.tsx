@@ -68,7 +68,7 @@ export default function ProfileScreen() {
       <View className="flex-row items-center gap-4">
         <Avatar name={profile?.fullName} url={profile?.avatarUrl} size={64} />
         <View className="min-w-0 flex-1 gap-1">
-          <Text variant="title1" numberOfLines={1}>
+          <Text variant="title1" numberOfLines={2}>
             {profile?.fullName || user?.email?.split("@")[0] || "—"}
           </Text>
           <View className="flex-row flex-wrap items-center gap-2">

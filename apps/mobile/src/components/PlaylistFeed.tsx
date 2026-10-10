@@ -21,6 +21,7 @@ import {
 } from "@scoutable/shared/lib/playlist-feed";
 import { relativeTime } from "@/lib/format";
 import { useThemeColors } from "@/lib/theme-context";
+import { useLargeText } from "@/lib/a11y";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -46,6 +47,7 @@ function FeedRow({
   onResume?: () => void;
 }) {
   const colors = useThemeColors();
+  const largeText = useLargeText();
   const state = watchStateOf(playlist);
   const progress = playlist.clipCount > 0 ? playlist.watchedCount / playlist.clipCount : 0;
   const left = playlist.clipCount - playlist.watchedCount;
@@ -57,6 +59,44 @@ function FeedRow({
   ]
     .filter(Boolean)
     .join(" · ");
+  // At the largest text sizes "n left" and Resume go under the text rather
+  // than squeezing the title to a few letters.
+  if (largeText && state === "progress" && onResume) {
+    return (
+      <View className="py-1">
+        <Tappable
+          scaleTo={1}
+          accessibilityRole="button"
+          accessibilityLabel={`${playlist.name}. ${detail}. ${left} left`}
+          onPress={onOpen}
+          className={({ pressed }) => cn("flex-row items-center gap-3 px-4 py-2", pressed && "bg-fill-2")}
+        >
+          <ProgressRing value={progress} />
+          <View className="min-w-0 flex-1 gap-0.5">
+            <Text numberOfLines={2}>{playlist.name}</Text>
+            <Text variant="callout" nums numberOfLines={2} className="text-muted-foreground">
+              {detail}
+            </Text>
+            <Text variant="callout" nums className="text-muted-foreground">
+              {left} left
+            </Text>
+          </View>
+        </Tappable>
+        <View className="items-start px-4 pb-2">
+          <Button
+            size="xs"
+            variant="secondary"
+            onPress={onResume}
+            accessibilityLabel={`Resume ${playlist.name}`}
+            icon={<Icon name="play" size={12} color={colors.foreground} />}
+          >
+            Resume
+          </Button>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View className="flex-row items-center">
       <Tappable
@@ -69,12 +109,12 @@ function FeedRow({
         <ProgressRing value={progress} />
         <View className="min-w-0 flex-1 gap-0.5">
           <View className="flex-row items-center gap-2">
-            <Text numberOfLines={1} className={cn("shrink", state === "new" && "font-semibold")}>
+            <Text numberOfLines={largeText ? 2 : 1} className={cn("shrink", state === "new" && "font-semibold")}>
               {playlist.name}
             </Text>
             {state === "new" && <Badge>New</Badge>}
           </View>
-          <Text variant="callout" nums numberOfLines={1} className="text-muted-foreground">
+          <Text variant="callout" nums numberOfLines={largeText ? 2 : 1} className="text-muted-foreground">
             {detail}
           </Text>
         </View>

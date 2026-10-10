@@ -4,6 +4,7 @@ import { Icon, type IconName } from "@/components/ui/Icon";
 import { Tappable } from "@/components/ui/Tappable";
 import { Text } from "@/components/ui/Text";
 import { useThemeColors } from "@/lib/theme-context";
+import { useLargeText } from "@/lib/a11y";
 import { cn } from "@/lib/cn";
 
 /**
@@ -76,7 +77,18 @@ export function GroupRow({
   children,
 }: GroupRowProps) {
   const colors = useThemeColors();
-  const body = children ?? (
+  // At the largest text sizes the trailing control moves under the text
+  // instead of squeezing it to a word per line, as iOS's own cells do.
+  const stacked = useLargeText() && trailing != null && !children;
+  const trailingView =
+    trailing == null ? null : typeof trailing === "string" ? (
+      <Text className={cn("text-muted-foreground", !stacked && "shrink-0")} numberOfLines={stacked ? undefined : 1}>
+        {trailing}
+      </Text>
+    ) : (
+      <View className={cn("flex-row flex-wrap items-center gap-2", !stacked && "shrink-0")}>{trailing}</View>
+    );
+  const main = (
     <>
       {(leading || icon) && (
         <View className="shrink-0 items-center justify-center">
@@ -85,7 +97,7 @@ export function GroupRow({
       )}
       <View className="min-w-0 flex-1">
         {typeof label === "string" ? (
-          <Text numberOfLines={1} className={destructive ? "text-destructive" : undefined}>
+          <Text numberOfLines={stacked ? undefined : 1} className={destructive ? "text-destructive" : undefined}>
             {label}
           </Text>
         ) : (
@@ -99,18 +111,29 @@ export function GroupRow({
           description
         )}
       </View>
-      {trailing != null &&
-        (typeof trailing === "string" ? (
-          <Text className="shrink-0 text-muted-foreground" numberOfLines={1}>
-            {trailing}
-          </Text>
-        ) : (
-          <View className="shrink-0 flex-row items-center gap-2">{trailing}</View>
-        ))}
-      {chevron && <Icon name="chevronRight" size={14} weight="semibold" color={colors.mutedForeground} style={{ opacity: 0.6 }} />}
     </>
   );
-  const box = "min-h-11 flex-row items-center gap-3 px-4 py-2";
+  const chevronView = chevron ? (
+    <Icon name="chevronRight" size={14} weight="semibold" color={colors.mutedForeground} style={{ opacity: 0.6 }} />
+  ) : null;
+  const body =
+    children ??
+    (stacked ? (
+      <>
+        <View className="flex-row items-center gap-3">
+          {main}
+          {chevronView}
+        </View>
+        <View className="self-start">{trailingView}</View>
+      </>
+    ) : (
+      <>
+        {main}
+        {trailingView}
+        {chevronView}
+      </>
+    ));
+  const box = stacked ? "min-h-11 gap-2 px-4 py-2.5" : "min-h-11 flex-row items-center gap-3 px-4 py-2";
   if (!onPress) return <View className={cn(box, className)}>{body}</View>;
   return (
     <Tappable

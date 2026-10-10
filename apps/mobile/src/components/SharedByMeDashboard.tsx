@@ -18,12 +18,15 @@ import {
   type DashboardSort,
   type RecipientRow,
 } from "@scoutable/shared/lib/shared-by-me";
+import { rgba } from "@scoutable/shared/lib/theme-derived";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { usePlaylists } from "@/lib/playlists-store";
 import { relativeTime } from "@/lib/format";
 import { successHaptic } from "@/lib/haptics";
 import { useThemeColors } from "@/lib/theme-context";
+import { useLargeText } from "@/lib/a11y";
+import { cn } from "@/lib/cn";
 import { Avatar } from "@/components/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -330,6 +333,7 @@ function PlaylistRow({
   onRemind: (r: RecipientRow) => void;
 }) {
   const colors = useThemeColors();
+  const largeText = useLargeText();
   const total = row.recipients.length;
   const behind = behindRecipients(row).length;
   const reach = [...row.teamNames, row.directCount > 0 ? `${row.directCount} member${row.directCount === 1 ? "" : "s"}` : null]
@@ -384,11 +388,13 @@ function PlaylistRow({
           icon={<Icon name="play" size={14} color={colors.primary} />}
         />
       </View>
-      <View className="flex-row items-center gap-3 pb-2.5 pl-12 pr-3">
-        <WatchBar done={row.completedCount} started={row.startedCount} total={total} className="flex-1" />
-        <Text variant="callout" nums className="shrink-0 text-muted-foreground">
-          {total > 0 ? `${row.completedCount} of ${total} finished` : "No recipients"}
-        </Text>
+      <View className={cn("gap-3 pb-2.5 pl-12 pr-3", largeText ? "items-start" : "flex-row items-center")}>
+        <View className={cn("flex-row items-center gap-3", largeText ? "self-stretch" : "flex-1")}>
+          <WatchBar done={row.completedCount} started={row.startedCount} total={total} className="flex-1" />
+          <Text variant="callout" nums className="shrink-0 text-muted-foreground">
+            {total > 0 ? `${row.completedCount} of ${total} finished` : "No recipients"}
+          </Text>
+        </View>
         {behind > 0 && (
           <Button
             size="xs"
@@ -404,7 +410,12 @@ function PlaylistRow({
       </View>
 
       {expanded && (
-        <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(120)} className="border-t border-separator bg-fill-1/50 py-1">
+        <Animated.View
+          entering={FadeIn.duration(180)}
+          exiting={FadeOut.duration(120)}
+          // Reanimated's views don't take className here: the web's border-t and bg-fill-1/50 by hand.
+          style={{ borderTopWidth: 1, borderTopColor: colors.separator, backgroundColor: rgba(colors.foreground, 0.025), paddingVertical: 4 }}
+        >
           {row.recipients.length === 0 ? (
             <Text variant="callout" className="px-12 py-3 text-muted-foreground">
               No recipients yet. Share this playlist with a team or a player.

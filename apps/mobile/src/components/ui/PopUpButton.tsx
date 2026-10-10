@@ -54,7 +54,7 @@ export function PopUpButton<T extends string>({
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel ? `${accessibilityLabel}: ${current?.label ?? ""}` : current?.label}
         hitSlop={4}
-        className={cn("h-9 flex-row items-center gap-1.5 self-start rounded-lg border border-separator bg-card pl-3 pr-2", className)}
+        className={cn("min-h-9 flex-row items-center gap-1.5 self-start rounded-lg border border-separator bg-card py-1 pl-3 pr-2", className)}
       >
         <Text variant="callout" numberOfLines={1}>
           {current?.label ?? "Choose…"}
