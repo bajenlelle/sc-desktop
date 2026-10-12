@@ -58,6 +58,7 @@ const EVENT_TYPE_OPTIONS = [
   { value: "steal", label: "Steal" },
   { value: "assist", label: "Assist" },
   { value: "foul", label: "Foul" },
+  { value: "foulon", label: "Foul drawn" },
   { value: "block", label: "Block" },
 ];
 
@@ -91,7 +92,6 @@ function matchesSingleType(e: PlayByPlayEvent, filter: string): boolean {
   if (e.type !== type) return false;
   if (outcome === "made") return e.isSuccessful === 1;
   if (outcome === "miss") return e.isSuccessful === 0;
-  if (type === "foul") return e.type === "foul" || e.type === "foulon";
   return true;
 }
 
