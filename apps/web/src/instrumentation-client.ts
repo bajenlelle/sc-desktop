@@ -10,6 +10,11 @@ Sentry.init({
 
   environment: process.env.NEXT_PUBLIC_VERCEL_ENV ?? "development",
 
+  // Only Vercel deployments (production and previews) report. A local
+  // `next dev` stays silent: its half-edited states used to reach GitHub as
+  // "high" issues (#91–#95).
+  enabled: Boolean(process.env.NEXT_PUBLIC_VERCEL_ENV),
+
   // No auto-collected user identity or request bodies — user context can be
   // attached explicitly where it's needed.
   dataCollection: {
