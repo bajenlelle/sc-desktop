@@ -319,9 +319,15 @@ export function PlaylistsPage() {
     if (!playerFsRef.current.active && !hasStageRef.current) return;
     playerFsRef.current.toggle();
   }, []);
-  // View → Fullscreen Player (⌘⇧F) — same CustomEvent bridge as ⌘B.
+  // View → Fullscreen Player (⌘⇧F) — same CustomEvent bridge as ⌘B. While
+  // Add clips is open its own player takes it (clip-browser-panel.tsx).
+  const showClipBrowserRef = useRef(false);
+  showClipBrowserRef.current = showClipBrowser;
   useEffect(() => {
-    const handler = () => toggleFullscreen();
+    const handler = () => {
+      if (showClipBrowserRef.current) return;
+      toggleFullscreen();
+    };
     window.addEventListener("player-fullscreen-toggle", handler);
     return () => window.removeEventListener("player-fullscreen-toggle", handler);
   }, [toggleFullscreen]);

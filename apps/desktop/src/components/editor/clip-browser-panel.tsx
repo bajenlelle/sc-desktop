@@ -11,7 +11,8 @@ import {
   playerName,
 } from "@scoutable/shared/lib/events";
 import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
-import { resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
+import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
+import { clickSelection, extendSelection, moveFocus, type FocusMove } from "@scoutable/shared/lib/list-selection";
 import type { PlayByPlayEvent, Playlist, PlaylistClipItem, StoredMatch } from "@/types/match";
 import { isClipItem } from "@/types/match";
 import { trackEvent } from "@/lib/analytics";
@@ -21,6 +22,7 @@ import {
   setClipAssignments as apiSetClipAssignments,
 } from "@/lib/labels-db";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
+import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import type { VideoFileStatus } from "@/lib/video-probe";
 import { cn } from "@/lib/utils";
@@ -148,8 +150,10 @@ function BrowserRow({
   alreadyIn: boolean;
   isActive: boolean;
   assignedLabels: Label[];
-  onToggle: () => void;
-  onClick: () => void;
+  /** The checkbox: a tick, or with Shift the range from the anchor. */
+  onToggle: (e: React.MouseEvent) => void;
+  /** The row: plain plays it, ⌘ ticks it, Shift ticks the range. */
+  onClick: (e: React.MouseEvent) => void;
   labelPicker?: React.ReactNode;
 }) {
   const colors = eventColors(event);
@@ -180,9 +184,12 @@ function BrowserRow({
             type="checkbox"
             checked={isSelected}
             onChange={() => {}}
+            // No focus on press: a focused checkbox counts as a text field
+            // for the sheet's keys, and they would stop after a tick.
+            onMouseDown={(e) => e.preventDefault()}
             onClick={(e) => {
               e.stopPropagation();
-              onToggle();
+              onToggle(e);
             }}
             aria-label="Select"
             className="size-3.5 rounded accent-primary"
@@ -524,6 +531,45 @@ export function ClipBrowserPanel({
     loadedMatchIdRef.current = localVideoUrl ? videoMatchId : null;
   }, [localVideoUrl, videoMatchId]);
 
+  // Full screen, as in the editor: native window full screen plus a fixed
+  // layer for the stage. The sheet owns it while it is open: F, double-click,
+  // the transport button and View → Fullscreen Player (the editor behind the
+  // sheet ignores that menu while the sheet is up). It needs footage to show,
+  // and it never outlives the sheet or the video.
+  const playerFs = usePlayerFullscreen();
+  const playerFsRef = useRef(playerFs);
+  playerFsRef.current = playerFs;
+  const hasStageRef = useRef(false);
+  hasStageRef.current = !!localVideoUrl;
+  const toggleFullscreen = useCallback(() => {
+    if (!playerFsRef.current.active && !hasStageRef.current) return;
+    playerFsRef.current.toggle();
+  }, []);
+  useEffect(() => {
+    const onToggle = () => toggleFullscreen();
+    window.addEventListener("player-fullscreen-toggle", onToggle);
+    return () => window.removeEventListener("player-fullscreen-toggle", onToggle);
+  }, [toggleFullscreen]);
+  // Escape leaves full screen instead of closing the sheet: this capture
+  // listener on window runs before the dialog's own Escape handling.
+  useEffect(() => {
+    if (!playerFs.active) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      void playerFsRef.current.exit();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [playerFs.active]);
+  useEffect(() => {
+    if (!localVideoUrl && playerFsRef.current.active) void playerFsRef.current.exit();
+  }, [localVideoUrl]);
+  useEffect(() => () => {
+    if (playerFsRef.current.active) void playerFsRef.current.exit();
+  }, []);
+
   // Seek to an event — pause → seek → play, sets clipEnd for auto-advance
   const seekToEvent = useCallback((event: PlayByPlayEvent, matchId: string) => {
     const match = matchLookup.get(matchId);
@@ -675,6 +721,8 @@ export function ClipBrowserPanel({
     const t = computeVideoTime(activeEntry.event, m.syncPoint);
     return t === null ? null : clipBounds(t, preRoll, postRoll);
   }, [activeEntry, matchLookup, preRoll, postRoll]);
+  const clipWindowRef = useRef(clipWindow);
+  clipWindowRef.current = clipWindow;
 
   const allSelected =
     filtered.length > 0 && filtered.every(({ event, matchId }) => selectedIds.has(`${matchId}:${event.eventId}`));
@@ -693,6 +741,84 @@ export function ClipBrowserPanel({
     });
   }
 
+  // Ticking the way the editor's list selects (list-selection.ts): a plain
+  // or ⌘ click, a tick and a plain arrow set the anchor; Shift-click and
+  // Shift+arrows tick everything from it to the clip. Clips already in the
+  // playlist are never ticked.
+  const anchorKeyRef = useRef<string | null>(null);
+  const extendFocusRef = useRef<string | null>(null);
+  function setAnchor(key: string | null) {
+    anchorKeyRef.current = key;
+    extendFocusRef.current = key;
+  }
+  const orderOf = () => filteredRef.current.map(({ event, matchId }) => `${matchId}:${event.eventId}`);
+  function withoutExisting(keys: Set<string>) {
+    for (const key of existingSet) keys.delete(key);
+    return keys;
+  }
+  function applyClick(key: string, shift: boolean, toggle: boolean) {
+    if (!shift && existingSet.has(key)) {
+      setAnchor(key);
+      return;
+    }
+    const next = clickSelection({
+      order: orderOf(),
+      selected: selectedIds,
+      anchor: anchorKeyRef.current,
+      focus: extendFocusRef.current,
+      key,
+      shift,
+      toggle,
+    });
+    setSelectedIds(withoutExisting(next.selected));
+    anchorKeyRef.current = next.anchor;
+    extendFocusRef.current = next.focus;
+  }
+  function handleRowPress(event: PlayByPlayEvent, matchId: string, e: React.MouseEvent) {
+    const key = `${matchId}:${event.eventId}`;
+    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+      applyClick(key, e.shiftKey, !e.shiftKey);
+      return;
+    }
+    setAnchor(key);
+    handleRowClick(event, matchId);
+  }
+  function playKey(key: string) {
+    const item = filteredRef.current.find(({ event, matchId }) => `${matchId}:${event.eventId}` === key);
+    if (item) handleRowClickRef.current(item.event, item.matchId);
+  }
+  /** ↑/↓, Home/End, ⌘↑/⌘↓: play the clip there. */
+  function walk(move: FocusMove) {
+    const to = moveFocus(orderOf(), activeEventKeyRef.current, move);
+    if (to === null) return;
+    if (to !== activeEventKeyRef.current) playKey(to);
+    setAnchor(to);
+  }
+  /** Shift+arrows: tick from the anchor to the clip there, and play it. */
+  function extendTicks(move: FocusMove) {
+    const order = orderOf();
+    const from = extendFocusRef.current ?? activeEventKeyRef.current;
+    const to = moveFocus(order, from, move);
+    if (to === null) return;
+    const shown = (key: string | null): key is string => key !== null && order.includes(key);
+    const anchor = shown(anchorKeyRef.current) ? anchorKeyRef.current : shown(from) ? from : to;
+    setSelectedIds((prev) =>
+      withoutExisting(extendSelection({ order, selected: prev, anchor, previousFocus: shown(from) ? from : null, focus: to })),
+    );
+    anchorKeyRef.current = anchor;
+    extendFocusRef.current = to;
+    if (to !== activeEventKeyRef.current) playKey(to);
+  }
+  /** ←/→ within the playing clip (Shift: further), as in the editor. */
+  function nudge(delta: number) {
+    const el = videoRef.current;
+    if (!el) return;
+    const w = clipWindowRef.current;
+    const lo = w ? w.start : 0;
+    const hi = w ? Math.max(w.start, w.end - 0.05) : el.duration || 0;
+    el.currentTime = Math.min(hi, Math.max(lo, el.currentTime + delta));
+  }
+
   function handleAdd() {
     const toAdd: PlaylistClipItem[] = filtered
       .filter(({ event, matchId }) => {
@@ -709,9 +835,11 @@ export function ClipBrowserPanel({
   const newCount = Array.from(selectedIds).filter((k) => !existingSet.has(k)).length;
   const isMultiMatch = filterMatchId === null;
 
-  // Keys belong to the sheet while it is open (one owner at a time): ↑/↓
-  // walk the clips, Space plays, R replays, Return ticks the playing clip,
-  // ⌘A ticks every shown clip, ⌘↩ adds.
+  // Keys belong to the sheet while it is open (one owner at a time), the
+  // editor's where they make sense here: ↑/↓, Home/End and ⌘↑/⌘↓ walk the
+  // clips, Shift with them ticks the range, ←/→ nudge (Shift: further),
+  // J/K/L shuttle, Space plays, R replays, F is full screen. Return ticks the
+  // playing clip, ⌘A ticks every shown clip, ⌘↩ adds.
   useKeyScope("clip-browser", true, panelRef);
   useHotkeys("clip-browser", (e) => {
     if (e.key === "Enter") {
@@ -722,6 +850,7 @@ export function ClipBrowserPanel({
       }
       const key = activeEventKeyRef.current;
       if (key && !existingSet.has(key)) toggleOne(key);
+      if (key) setAnchor(key);
       return;
     }
     const action = resolvePlayerKey(e);
@@ -740,18 +869,52 @@ export function ClipBrowserPanel({
       return;
     }
     if (action === "replay") { e.preventDefault(); handleReplayRef.current(); return; }
-    if (action !== "next" && action !== "prev") return;
-    e.preventDefault();
-    const items = filteredRef.current;
-    if (items.length === 0) return;
-    const cur = items.findIndex((x) => `${x.matchId}:${x.event.eventId}` === activeEventKeyRef.current);
-    const next =
-      action === "next"
-        ? cur === -1 ? 0 : Math.min(cur + 1, items.length - 1)
-        : cur === -1 ? items.length - 1 : Math.max(cur - 1, 0);
-    if (next !== cur || cur === -1) {
-      const { event, matchId } = items[next];
-      handleRowClickRef.current(event, matchId);
+    if (action === "fullscreen") { e.preventDefault(); toggleFullscreen(); return; }
+    switch (action) {
+      case "nudge-back":
+      case "nudge-forward":
+      case "nudge-back-far":
+      case "nudge-forward-far": {
+        e.preventDefault();
+        const far = action.endsWith("-far");
+        nudge((action.startsWith("nudge-back") ? -1 : 1) * (far ? NUDGE_FAR_SECONDS : NUDGE_SECONDS));
+        return;
+      }
+      case "shuttle-pause":
+        e.preventDefault();
+        videoRef.current?.pause();
+        return;
+      case "shuttle-forward": {
+        e.preventDefault();
+        const el = videoRef.current;
+        if (!el) return;
+        setSpeed(nextShuttleRate(speed));
+        if (el.paused) el.play().catch(() => {});
+        return;
+      }
+      case "shuttle-back":
+        // WebKit has no reverse playback; stepping back is the honest version.
+        e.preventDefault();
+        nudge(-5);
+        return;
+      case "next":
+      case "prev":
+      case "first":
+      case "last":
+        if (filteredRef.current.length === 0) return;
+        e.preventDefault();
+        walk(action === "next" ? 1 : action === "prev" ? -1 : action);
+        return;
+      case "extend-next":
+      case "extend-prev":
+      case "extend-first":
+      case "extend-last":
+        if (filteredRef.current.length === 0) return;
+        e.preventDefault();
+        extendTicks(
+          action === "extend-next" ? 1 : action === "extend-prev" ? -1 : action === "extend-first" ? "first" : "last",
+        );
+        return;
     }
   });
 
@@ -961,8 +1124,8 @@ export function ClipBrowserPanel({
                       alreadyIn={alreadyIn}
                       isActive={activeEventKey === key}
                       assignedLabels={assigned}
-                      onToggle={() => { if (!alreadyIn) toggleOne(key); }}
-                      onClick={() => handleRowClick(event, matchId)}
+                      onToggle={(e) => { if (!alreadyIn) applyClick(key, e.shiftKey, !e.shiftKey); }}
+                      onClick={(e) => handleRowPress(event, matchId, e)}
                       labelPicker={activeOrgId ? (
                         <LabelPickerPopover
                           trigger={
@@ -999,9 +1162,15 @@ export function ClipBrowserPanel({
         <ResizablePanel defaultSize="45" minSize="25">
           <div className="flex h-full flex-col gap-3 overflow-y-auto p-4">
             {localVideoUrl ? (
+              <div className={playerFs.active ? "fixed inset-0 z-50 flex flex-col bg-black" : "contents"}>
+              <div className={playerFs.active ? "relative min-h-0 flex-1" : "relative"}>
               <PlayerStage
                 video={video}
                 src={localVideoUrl}
+                fullscreen={playerFs.active}
+                onToggleFullscreen={toggleFullscreen}
+                onExitFullscreen={() => void playerFs.exit()}
+                title={activeEntry ? `${eventLabel(activeEntry.event)} · ${playerName(activeEntry.event)}` : undefined}
                 clipWindow={clipWindow}
                 position={activeIdx >= 0 ? { index: activeIdx, total: filtered.length } : null}
                 onSeek={(t) => { video.currentTime = t; }}
@@ -1029,6 +1198,8 @@ export function ClipBrowserPanel({
                   </div>
                 )}
               </PlayerStage>
+              </div>
+              </div>
             ) : (
               <div className="flex aspect-video w-full items-center justify-center rounded-lg bg-fill-1 px-6 text-center text-sm text-muted-foreground">
                 Select a game with video to preview clips
