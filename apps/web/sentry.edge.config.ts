@@ -10,6 +10,9 @@ Sentry.init({
 
   environment: process.env.VERCEL_ENV ?? "development",
 
+  // Vercel deployments only; local dev stays silent (see instrumentation-client.ts).
+  enabled: Boolean(process.env.VERCEL_ENV),
+
   // No auto-collected user identity or request bodies — user context can be
   // attached explicitly where it's needed.
   dataCollection: {
