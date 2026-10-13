@@ -77,6 +77,13 @@ playlists, and share them with teams; players watch on web/mobile.
   tauri.conf.json + Cargo.toml/lock), commit "X.Y.Z", annotated tag
   `vX.Y.Z`, `git push --follow-tags` → release.yml builds, notarizes, and
   publishes to `bajenlelle/scoutable-releases`; desktop apps self-update.
+- Windows code signing (Azure Artifact Signing) turns on in release.yml and
+  build.yml once the secrets `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`,
+  `AZURE_CLIENT_SECRET` and the variables `WINDOWS_SIGN_ENDPOINT`,
+  `WINDOWS_SIGN_ACCOUNT`, `WINDOWS_SIGN_PROFILE` exist. From then on a build
+  fails rather than ship an installer, app or ffmpeg.exe without a valid
+  signature. Without them Windows builds are unsigned, and Smart App Control
+  blocks unsigned programs (os error 4551).
 - Web ships on merge to `main`. Mobile JS fixes ship with `npm run ota`.
 
 ## Maintenance pipeline
