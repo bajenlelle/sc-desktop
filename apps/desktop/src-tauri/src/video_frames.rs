@@ -227,7 +227,7 @@ async fn run_ffmpeg(app: &tauri::AppHandle, args: &[String]) -> Result<(Vec<u8>,
         .args(args)
         .set_raw_out(true)
         .spawn()
-        .map_err(|e| e.to_string())?;
+        .map_err(crate::sidecar_error)?;
     let mut stdout: Vec<u8> = Vec::new();
     let mut stderr: Vec<u8> = Vec::new();
     let mut success = false;
