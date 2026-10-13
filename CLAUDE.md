@@ -84,6 +84,9 @@ playlists, and share them with teams; players watch on web/mobile.
   fails rather than ship an installer, app or ffmpeg.exe without a valid
   signature. Without them Windows builds are unsigned, and Smart App Control
   blocks unsigned programs (os error 4551).
+- The Intel-Mac ffmpeg is a pinned, SHA256-checked zip in this repo's
+  `ffmpeg-binaries` release (evermeet.cx's download API is gone); the update
+  steps are in the comment above it in release.yml.
 - Web ships on merge to `main`. Mobile JS fixes ship with `npm run ota`.
 
 ## Maintenance pipeline
