@@ -11,7 +11,9 @@ import type { PlayByPlayEvent } from "../types/match";
  * Human-readable event name, e.g. "3PT Made", "Def Rebound", "Bad Pass".
  *
  * Decodes `subType` where it carries meaning a player or coach would want —
- * "Bad Pass" says more than "Turnover", and "Charge" more than "Foul".
+ * "Bad Pass" says more than "Turnover", and "Charge" more than "Foul". The
+ * foul variants beyond technical/charge come from Profixio's district
+ * protocol (FIBA unsportsmanlike / disqualifying / flagrant).
  */
 export function eventLabel(e: PlayByPlayEvent): string {
   const sub = e.subType?.toLowerCase() ?? "";
@@ -39,6 +41,9 @@ export function eventLabel(e: PlayByPlayEvent): string {
     case "foul":
       if (sub === "offensive") return "Charge";
       if (["technical", "benchtechnical", "coachtechnical"].includes(sub)) return "Technical";
+      if (sub === "unsportsmanlike") return "Unsportsmanlike";
+      if (sub === "disqualifying") return "Disqualifying";
+      if (sub === "flagrant" || sub === "disruptive") return "Flagrant";
       return "Foul";
     case "foulon":
       return "Foul Drawn";
@@ -46,6 +51,8 @@ export function eventLabel(e: PlayByPlayEvent): string {
       return "Block";
     case "assist":
       return "Assist";
+    case "timeout":
+      return "Timeout";
     default:
       return e.type;
   }
@@ -104,6 +111,9 @@ export function eventColors(e: PlayByPlayEvent): { strip: string; badge: string 
     case "turnover": return { strip: "bg-amber-400",  badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300" };
     case "foul":
     case "foulon":   return { strip: "bg-orange-400", badge: "bg-orange-100 text-orange-700 dark:bg-orange-900/60 dark:text-orange-300" };
+    // Timeouts (Profixio) are team events with nothing to score — neutral, but
+    // distinct from the unknown-type fallback below.
+    case "timeout":  return { strip: "bg-slate-500",  badge: "bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-200" };
   }
   return { strip: "bg-slate-300", badge: "bg-muted text-muted-foreground" };
 }

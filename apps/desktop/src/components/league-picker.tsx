@@ -15,7 +15,15 @@ const NT_LEAGUE_IDS = new Set(NATIONAL_TEAM_LEAGUES.map((l) => l.id));
 
 function groupNameFor(league: League): string {
   if (NT_LEAGUE_IDS.has(league.id)) return NT_GROUP;
-  return COUNTRY_NAMES[league.country] ?? league.country;
+  // District leagues (Profixio) group by district — "Herrar U19" exists in
+  // every one of them — national leagues by country.
+  return league.region ?? COUNTRY_NAMES[league.country] ?? league.country;
+}
+
+/** Countries first, then districts alphabetically, national teams last. */
+function groupRank(groupName: string, leagues: League[]): number {
+  if (groupName === NT_GROUP) return 2;
+  return leagues.every((l) => l.region) ? 1 : 0;
 }
 
 interface LeaguePickerProps {
@@ -30,7 +38,8 @@ interface LeaguePickerProps {
  * import page expected to grow past ~15 options, so it gets a filter field;
  * season and stage stay simple dropdowns.
  *
- * Options are grouped by country (national-team leagues group separately),
+ * Options are grouped by country for national leagues and by district for
+ * Profixio's district leagues (national-team leagues group separately),
  * matching how sports-data tools present large competition lists.
  */
 export function LeaguePicker({ leagues, value, onChange, className }: LeaguePickerProps) {
@@ -48,7 +57,8 @@ export function LeaguePicker({ leagues, value, onChange, className }: LeaguePick
       ? leagues.filter(
           (l) =>
             l.name.toLowerCase().includes(q) ||
-            groupNameFor(l).toLowerCase().includes(q),
+            groupNameFor(l).toLowerCase().includes(q) ||
+            (l.region?.toLowerCase().includes(q) ?? false),
         )
       : leagues;
 
@@ -59,11 +69,10 @@ export function LeaguePicker({ leagues, value, onChange, className }: LeaguePick
       list.push(league);
       byGroup.set(key, list);
     }
-    // Countries alphabetically; national teams always last.
-    return Array.from(byGroup.entries()).sort(([a], [b]) => {
-      if (a === NT_GROUP) return 1;
-      if (b === NT_GROUP) return -1;
-      return a.localeCompare(b);
+    // Countries, then districts, each alphabetically; national teams always last.
+    return Array.from(byGroup.entries()).sort(([a, la], [b, lb]) => {
+      const rank = groupRank(a, la) - groupRank(b, lb);
+      return rank !== 0 ? rank : a.localeCompare(b);
     });
   }, [leagues, query]);
 

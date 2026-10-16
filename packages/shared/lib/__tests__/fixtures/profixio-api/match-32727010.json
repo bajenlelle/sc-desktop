@@ -1,0 +1,53 @@
+{
+ "data": {
+  "id": 32727010,
+  "tournamentId": 52949,
+  "number": "32727010",
+  "gameRound": 1,
+  "date": "2026-09-11",
+  "time": "19:30:00",
+  "datetimeStart": "2026-09-11T17:30:00Z",
+  "homeTeam": {
+   "teamRegistrationId": 1582934,
+   "globalTeamId": null,
+   "name": "Sollentuna Basket",
+   "goals": 90,
+   "isWinner": false,
+   "seeding": null
+  },
+  "awayTeam": {
+   "teamRegistrationId": 1586471,
+   "globalTeamId": null,
+   "name": "KFUM Blackebergs IK Röd",
+   "goals": 98,
+   "isWinner": true,
+   "seeding": null
+  },
+  "hasWinner": true,
+  "winnerTeam": "Away",
+  "field": {
+   "id": 1425850,
+   "name": "Töjna sporthall",
+   "arena": {
+    "id": 338467,
+    "arenaName": "Töjna sporthall"
+   }
+  },
+  "periodInfo": {
+   "periodLength": 15,
+   "slotLength": 105,
+   "numberOfPeriods": 4,
+   "pauseLength": 0,
+   "extraPeriodLength": 15
+  },
+  "matchCategory": {
+   "id": 1184312,
+   "name": "Herrar U19",
+   "categoryCode": "Nivå 1",
+   "matchGroups": null
+  },
+  "matchUrl": "https://www.profixio.com/app/leagueid27804/match/32727010",
+  "lineupAvailableFrom": "2026-09-11T16:30:00Z",
+  "isPlayoff": false
+ }
+}
