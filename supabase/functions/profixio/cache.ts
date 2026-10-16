@@ -11,7 +11,6 @@ import type {
 import type { LeagueDetail } from "./driver.ts";
 
 export const CATALOG_TTL_MS = 24 * 3_600_000;
-export const EMPTY_DISTRICT_TTL_MS = 6 * 3_600_000;
 export const LEAGUE_TTL_MS = 24 * 3_600_000;
 export const SCHEDULE_TTL_MS = 6 * 3_600_000;
 
@@ -22,14 +21,15 @@ export function isStale(fetchedAt: string, ttlMs: number): boolean {
 }
 
 // deno-lint-ignore no-explicit-any
-type Admin = SupabaseClient<any, any, any>;
+export type Admin = SupabaseClient<any, any, any>;
 
 function logError(where: string, error: { message: string } | null): void {
   if (error) console.error(`[profixio] ${where}:`, error.message);
 }
 
 // ---------------------------------------------------------------------------
-// Catalogue: one row per (district, season)
+// Catalogue: one row per (district, season) of accessible tournaments;
+// district 0 holds the national ones (Ungdoms-SM)
 // ---------------------------------------------------------------------------
 
 export interface CatalogRow {
@@ -37,7 +37,8 @@ export interface CatalogRow {
   season_id: number;
   district_name: string;
   season_label: string;
-  payload: Array<{ leagueId: number; name: string }>;
+  /** tournamentId is absent on rows written by the old public-page crawler. */
+  payload: Array<{ leagueId: number; name: string; tournamentId?: number }>;
   fetched_at: string;
 }
 
@@ -47,11 +48,30 @@ export async function readCatalogRows(admin: Admin): Promise<CatalogRow[]> {
   return (data ?? []) as CatalogRow[];
 }
 
-export async function upsertCatalogRow(admin: Admin, row: Omit<CatalogRow, "fetched_at">): Promise<void> {
-  const { error } = await admin
-    .from("profixio_catalog_cache")
-    .upsert({ ...row, fetched_at: new Date().toISOString() }, { onConflict: "district_id,season_id" });
-  logError("catalog upsert failed", error);
+/**
+ * Make the cached catalogue exactly `rows`: upsert them, then delete every
+ * other (district, season) row, so a tournament Profixio stops granting (or
+ * a row the old crawler left) drops out of the picker.
+ */
+export async function replaceCatalog(admin: Admin, rows: Array<Omit<CatalogRow, "fetched_at">>): Promise<CatalogRow[]> {
+  const fetched_at = new Date().toISOString();
+  const written = rows.map((r) => ({ ...r, fetched_at }));
+  if (written.length > 0) {
+    const { error } = await admin.from("profixio_catalog_cache").upsert(written, { onConflict: "district_id,season_id" });
+    logError("catalog upsert failed", error);
+    if (error) return readCatalogRows(admin);
+  }
+  const keep = new Set(written.map((r) => `${r.district_id}:${r.season_id}`));
+  for (const old of await readCatalogRows(admin)) {
+    if (keep.has(`${old.district_id}:${old.season_id}`)) continue;
+    const { error } = await admin
+      .from("profixio_catalog_cache")
+      .delete()
+      .eq("district_id", old.district_id)
+      .eq("season_id", old.season_id);
+    logError("catalog prune failed", error);
+  }
+  return written;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +175,7 @@ export interface MatchRow {
   state: string;
   final: boolean;
   pbp_status: "ok" | "empty";
+  /** "public" on rows the old crawler wrote (schema_version 1). */
   source: "public" | "api";
   schema_version: number;
   fetched_at: string;

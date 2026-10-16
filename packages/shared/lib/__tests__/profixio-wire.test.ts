@@ -5,10 +5,7 @@ import {
   inferGender,
   isFinal,
   mapApiEvent,
-  mapApiLineup,
   mapEventType,
-  mapPublicEvent,
-  mapPublicLineup,
   matchCacheTtlMs,
   otherTeamId,
   seasonFromLabel,
@@ -19,10 +16,10 @@ import {
 } from "../profixio-wire";
 import sample from "./fixtures/profixio-sample.json";
 
-// Anonymised Profixio public payload (see the fixture's _note). Events are
-// stored newest-first, as upstream serves them.
+// Anonymised Profixio match (see the fixture's _note). Events are stored
+// newest-first, as upstream serves them.
 const rawEvents = sample.events as Array<Record<string, unknown>>;
-const events = sortEvents(rawEvents.map(mapPublicEvent));
+const events = sortEvents(rawEvents.map(mapApiEvent));
 const byId = (id: number) => events.find((e) => e.id === id)!;
 
 describe("toIsoUtcSeconds", () => {
@@ -44,7 +41,7 @@ describe("toIsoUtcSeconds", () => {
   });
 });
 
-describe("mapPublicEvent", () => {
+describe("mapApiEvent", () => {
   it("trims a scoring event to the wire shape", () => {
     const e = byId(500902); // synthetic 2-pointer with no teamId
     expect(e).toMatchObject({
@@ -92,7 +89,7 @@ describe("mapPublicEvent", () => {
 
 describe("sortEvents", () => {
   it("orders oldest first, breaking timestamp ties by id, and does not mutate", () => {
-    const input = rawEvents.map(mapPublicEvent);
+    const input = rawEvents.map(mapApiEvent);
     const copy = [...input];
     const sorted = sortEvents(input);
     expect(input).toEqual(copy);
@@ -124,35 +121,7 @@ describe("deriveHomeWebId / otherTeamId", () => {
   });
 });
 
-describe("mapApiEvent parity", () => {
-  it("maps the documented-API event shape to exactly the same wire event", () => {
-    // The API serves the same fields with two differences we know of:
-    // teamId is a string ("" for none) and the clock fields are separate keys.
-    const apiTwin = (raw: Record<string, unknown>) => {
-      const { secondsSinceStartOfPeriod: _s, pausedAt: _p, ...rest } = raw;
-      return {
-        ...rest,
-        teamId: raw.teamId == null ? "" : String(raw.teamId),
-        totalGameTime: null,
-        timeInPeriod: raw.timeInPeriod ?? null,
-        displayGameTime: raw.displayGameTime ?? null,
-      };
-    };
-    expect(rawEvents.map((r) => mapApiEvent(apiTwin(r)))).toEqual(rawEvents.map(mapPublicEvent));
-  });
-});
-
-describe("lineup and event types", () => {
-  it("trims lineup rows and keeps staff distinguishable", () => {
-    const rows = (sample.lineup as Array<Record<string, unknown>>).map(mapPublicLineup);
-    expect(rows).toHaveLength(21);
-    expect(rows.filter((r) => r.type === "staff")).toHaveLength(3);
-    const home = rows.find((r) => r.webTeamId === 1001)!;
-    expect(home).toMatchObject({ webTeamId: 1001, teamRegistrationId: 2001, type: "player" });
-    expect(typeof home.personId).toBe("number");
-    expect(rows.map(mapApiLineup)).toEqual(rows); // the API driver reuses the trimmed shape
-  });
-
+describe("event types", () => {
   it("trims the event-type table to the flags the normaliser needs", () => {
     const types = (sample.eventtypes as Array<Record<string, unknown>>).map(mapEventType);
     expect(types).toHaveLength(27);

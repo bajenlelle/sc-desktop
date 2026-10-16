@@ -3,20 +3,20 @@
 // function authenticates every request itself (verify_jwt = false in
 // config.toml, same reasoning as genius). Four actions, all cached in the
 // profixio_* tables (migration 20261002100000):
-//   { action: "leagues" }                                → every district league, catalogue shape
+//   { action: "leagues" }                                → the accessible tournaments, catalogue shape
 //   { action: "categories", leagueId }                   → a league-season's categories (= stages)
 //   { action: "schedule", leagueId, categoryId }         → the category's matches
 //   { action: "match", leagueId, categoryId, matchId }   → events + lineup + sides
-// Upstream is Profixio's public pages today (driver-public.ts) and its
-// documented API once PROFIXIO_API_SECRET is set (driver-api.ts); both serve
-// the shapes in packages/shared/lib/profixio-wire.ts, so the client never
-// knows which. Normalisation to PlayByPlayEvent happens client-side
-// (packages/shared/lib/profixio.ts).
+// Upstream is Profixio's documented API (driver-api.ts), read with the
+// PROFIXIO_API_SECRET key; it serves the shapes in
+// packages/shared/lib/profixio-wire.ts. Normalisation to PlayByPlayEvent
+// happens client-side (packages/shared/lib/profixio.ts).
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import {
   PROFIXIO_MATCH_SCHEMA_VERSION,
   composeCatalog,
+  groupTournaments,
   isFinal,
   matchCacheTtlMs,
   type ProfixioCategoriesResponse,
@@ -26,35 +26,17 @@ import {
   type ProfixioScheduleRow,
 } from "../../../packages/shared/lib/profixio-wire.ts";
 import * as cache from "./cache.ts";
-import type { District, LeagueDetail, ProfixioDriver } from "./driver.ts";
+import type { CatalogTournament, LeagueDetail, ProfixioDriver } from "./driver.ts";
 import { createApiDriver } from "./driver-api.ts";
-import { publicDriver } from "./driver-public.ts";
 import { ClientError, ParseError, Upstream } from "./upstream.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const PROFIXIO_API_SECRET = Deno.env.get("PROFIXIO_API_SECRET") ?? "";
 
-/** SBBF's districts on profixio.com (/app/lx/SBBF), verified 2026-10-02. */
-const DISTRICTS: District[] = [
-  { id: 746, name: "Mellansvenska BDF" },
-  { id: 747, name: "Svea BDF" },
-  { id: 748, name: "Östsvenska BDF" },
-  { id: 749, name: "Stockholm Basket" },
-  { id: 750, name: "Mittsveriges BDF" },
-  { id: 751, name: "Norrbottens BDF" },
-  { id: 752, name: "Skånes BDF" },
-  { id: 753, name: "Västerbottens BDF" },
-  { id: 754, name: "Westra Basket" },
-  { id: 755, name: "Småland-Bleking BDF" },
-];
-/** Current + previous season — last season's games are the ones with video to import right now. */
-const SEASONS_PER_DISTRICT = 2;
-/** A cold catalogue crawl is 10 × (1 page + 2 Livewire calls); nothing else comes near this. */
+/** A cold catalogue is 1 userinfo call + one per tournament (17 today). */
 const MAX_FETCHES = 48;
 const REQUEST_DEADLINE_MS = 90_000;
-/** Stale districts refreshed in the background per `leagues` call. */
-const BACKGROUND_DISTRICTS_PER_REQUEST = 3;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -84,9 +66,15 @@ function background(p: Promise<unknown>): void {
   if (typeof EdgeRuntime !== "undefined" && EdgeRuntime) EdgeRuntime.waitUntil(safe);
 }
 
-const driver: ProfixioDriver = PROFIXIO_API_SECRET ? createApiDriver(PROFIXIO_API_SECRET) : publicDriver;
+const driver: ProfixioDriver | null = PROFIXIO_API_SECRET ? createApiDriver(PROFIXIO_API_SECRET) : null;
 
-type Admin = ReturnType<typeof createClient>;
+type Admin = cache.Admin;
+
+/** The API driver; without PROFIXIO_API_SECRET there is no upstream at all. */
+function api(): ProfixioDriver {
+  if (!driver) throw new ClientError(500, "server_misconfigured");
+  return driver;
+}
 
 function positiveInt(v: unknown, token: string): number {
   const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
@@ -102,51 +90,42 @@ function newUpstream(): Upstream {
 // leagues
 // ---------------------------------------------------------------------------
 
-async function refreshCatalog(admin: Admin, up: Upstream, districts: District[]): Promise<void> {
-  for (const district of districts) {
-    if (up.pastDeadline()) break;
-    try {
-      const seasons = await driver.listDistrictLeagues(district, SEASONS_PER_DISTRICT, up);
-      for (const s of seasons) {
-        await cache.upsertCatalogRow(admin, {
-          district_id: district.id,
-          season_id: s.seasonId,
-          district_name: district.name,
-          season_label: s.seasonLabel,
-          payload: s.leagues,
-        });
-      }
-    } catch (e) {
-      console.error(`[profixio] district ${district.id} crawl failed:`, e instanceof Error ? e.message : String(e));
-    }
-  }
+/** One catalogue row per (district, season); district 0 holds the national tournaments. */
+function catalogRows(tournaments: CatalogTournament[]): Array<Omit<cache.CatalogRow, "fetched_at">> {
+  return groupTournaments(tournaments).map((r) => ({
+    district_id: r.districtId,
+    season_id: r.seasonId,
+    district_name: r.districtName,
+    season_label: r.seasonLabel,
+    payload: r.leagues,
+  }));
 }
 
-function staleDistricts(rows: cache.CatalogRow[]): District[] {
-  return DISTRICTS.filter((d) => {
-    const mine = rows.filter((r) => r.district_id === d.id);
-    if (mine.length === 0) return true;
-    return mine.some((r) =>
-      cache.isStale(r.fetched_at, r.payload.length === 0 ? cache.EMPTY_DISTRICT_TTL_MS : cache.CATALOG_TTL_MS),
-    );
-  });
+/** Rows the old public-page crawler wrote carry no tournamentId and can't be read through the API. */
+function isApiCatalog(rows: cache.CatalogRow[]): boolean {
+  return rows.length > 0 && rows.every((r) => r.payload.every((l) => typeof l.tournamentId === "number" && l.tournamentId > 0));
+}
+
+async function refreshCatalog(admin: Admin, up: Upstream): Promise<{ rows: cache.CatalogRow[]; complete: boolean }> {
+  const { tournaments, complete } = await api().listTournaments(up);
+  // Never let a partial read shrink the picker: keep the old rows until a full one.
+  if (!complete && tournaments.length === 0) throw new ClientError(503, "catalog_unavailable");
+  if (!complete) {
+    const existing = await cache.readCatalogRows(admin);
+    if (isApiCatalog(existing)) return { rows: existing, complete };
+  }
+  return { rows: await cache.replaceCatalog(admin, catalogRows(tournaments)), complete };
 }
 
 async function leagues(admin: Admin, up: Upstream): Promise<ProfixioLeaguesResponse> {
   let rows = await cache.readCatalogRows(admin);
-  if (rows.length === 0) {
-    // Cold cache: crawl now, district by district, inside the deadline. The
-    // client shows the Genius leagues meanwhile (independent fetches).
-    await cache.dedupe("catalog:cold", () => refreshCatalog(admin, up, DISTRICTS));
-    rows = await cache.readCatalogRows(admin);
-    if (rows.length === 0) throw new ClientError(503, "catalog_unavailable");
-  } else {
-    const stale = staleDistricts(rows).slice(0, BACKGROUND_DISTRICTS_PER_REQUEST);
-    if (stale.length > 0) {
-      background(cache.dedupe("catalog:refresh", () => refreshCatalog(admin, newUpstream(), stale)));
-    }
+  let complete = true;
+  if (!isApiCatalog(rows)) {
+    // Cold (or still the crawler's): read the tournaments now.
+    ({ rows, complete } = await cache.dedupe("catalog:cold", () => refreshCatalog(admin, up)));
+  } else if (rows.some((r) => cache.isStale(r.fetched_at, cache.CATALOG_TTL_MS))) {
+    background(cache.dedupe("catalog:refresh", () => refreshCatalog(admin, newUpstream())));
   }
-  const covered = new Set(rows.map((r) => r.district_id));
   return {
     leagues: composeCatalog(
       rows.map((r) => ({
@@ -157,9 +136,20 @@ async function leagues(admin: Admin, up: Upstream): Promise<ProfixioLeaguesRespo
         leagues: r.payload,
       })),
     ),
-    complete: DISTRICTS.every((d) => covered.has(d.id)),
-    fetchedAt: rows.map((r) => r.fetched_at).sort()[0],
+    complete,
+    fetchedAt: rows.map((r) => r.fetched_at).sort()[0] ?? new Date().toISOString(),
   };
+}
+
+/** The accessible tournament behind a league id, from the catalogue (refreshed if it is cold). */
+async function tournamentFor(admin: Admin, up: Upstream, leagueId: number): Promise<number> {
+  let rows = await cache.readCatalogRows(admin);
+  if (!isApiCatalog(rows)) rows = (await cache.dedupe("catalog:cold", () => refreshCatalog(admin, up))).rows;
+  for (const r of rows) {
+    const hit = r.payload.find((l) => l.leagueId === leagueId);
+    if (hit?.tournamentId) return hit.tournamentId;
+  }
+  throw new ClientError(404, "unknown_league");
 }
 
 // ---------------------------------------------------------------------------
@@ -171,24 +161,21 @@ async function ensureLeague(
   up: Upstream,
   leagueId: number,
 ): Promise<{ detail: LeagueDetail; fetchedAt: string }> {
+  // Bounded proxy: only leagues whose tournament the key may view.
+  const tournamentId = await tournamentFor(admin, up, leagueId);
   const row = await cache.readLeague(admin, leagueId);
-  if (row && !cache.isStale(row.fetched_at, cache.LEAGUE_TTL_MS)) {
-    return { detail: cache.leagueRowToDetail(row), fetchedAt: row.fetched_at };
-  }
-  if (!row) {
-    // Bounded proxy: only leagues the catalogue knows (while it is warm).
-    const catalog = await cache.readCatalogRows(admin);
-    const known = catalog.length === 0 || catalog.some((r) => r.payload.some((l) => l.leagueId === leagueId));
-    if (!known) throw new ClientError(404, "unknown_league");
+  const current = row && row.tournament_id === tournamentId ? row : null;
+  if (current && !cache.isStale(current.fetched_at, cache.LEAGUE_TTL_MS)) {
+    return { detail: cache.leagueRowToDetail(current), fetchedAt: current.fetched_at };
   }
   try {
-    const detail = await cache.dedupe(`league:${leagueId}`, () => driver.leagueDetail(leagueId, up));
+    const detail = await cache.dedupe(`league:${leagueId}`, () => api().leagueDetail(tournamentId, up));
     const fetchedAt = await cache.upsertLeague(admin, detail);
     return { detail, fetchedAt };
   } catch (e) {
-    if (row) {
+    if (current && !(e instanceof ClientError)) {
       console.error(`[profixio] league ${leagueId} refresh failed, serving stale:`, e instanceof Error ? e.message : String(e));
-      return { detail: cache.leagueRowToDetail(row), fetchedAt: row.fetched_at };
+      return { detail: cache.leagueRowToDetail(current), fetchedAt: current.fetched_at };
     }
     throw e;
   }
@@ -229,13 +216,13 @@ async function ensureSchedule(
     // Stale-while-revalidate: a 6 h-old schedule beats waiting on a 1 MB page.
     background(
       cache.dedupe(key, async () => {
-        const res = await driver.schedule(league, categoryId, newUpstream());
+        const res = await api().schedule(league, categoryId, newUpstream());
         await cache.upsertSchedule(admin, league.leagueId, categoryId, res.rows, res.partial);
       }),
     );
     return { ...base, rows: row.payload, partial: row.partial, fetchedAt: row.fetched_at, stale: true };
   }
-  const res = await cache.dedupe(key, () => driver.schedule(league, categoryId, up));
+  const res = await cache.dedupe(key, () => api().schedule(league, categoryId, up));
   const fetchedAt = await cache.upsertSchedule(admin, league.leagueId, categoryId, res.rows, res.partial);
   return { ...base, rows: res.rows, partial: res.partial, fetchedAt, stale: false };
 }
@@ -277,7 +264,7 @@ async function match(
   }
 
   try {
-    const fetched = await cache.dedupe(`match:${matchId}`, () => driver.match(league, categoryId, matchId, up));
+    const fetched = await cache.dedupe(`match:${matchId}`, () => api().match(league, categoryId, matchId, up));
     const stored: cache.StoredMatch = {
       schemaVersion: PROFIXIO_MATCH_SCHEMA_VERSION,
       leagueId,
@@ -294,7 +281,7 @@ async function match(
       lineup: fetched.lineup,
       // 'empty' is a negative cache: paper protocol or not played yet.
       pbpStatus: fetched.events.length > 0 ? "ok" : "empty",
-      source: driver.kind,
+      source: "api",
     };
     const fetchedAt = await cache.upsertMatch(admin, stored);
     return withSchedule(stored, scheduleRow, fetchedAt);
@@ -361,7 +348,7 @@ Deno.serve(async (req) => {
   } catch (e) {
     if (e instanceof ClientError) return err(e.status, e.token);
     if (e instanceof ParseError) {
-      // Profixio changed its markup — a distinct token so it groups in Sentry/logs.
+      // Profixio changed the API's shape — a distinct token so it groups in Sentry/logs.
       console.error("[profixio] parse failed:", e.message);
       return err(502, "upstream_parse_failed");
     }

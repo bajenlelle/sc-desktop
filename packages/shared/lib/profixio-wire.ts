@@ -1,23 +1,23 @@
 /**
  * Profixio wire contract — the shapes the `profixio` edge function serves and
- * the pure, driver-agnostic helpers both it and the client share.
+ * the pure helpers both it and the client share.
  *
  * Imported by the Deno function via a relative path, so this file has NO
  * runtime imports (the one `import type` is erased) and uses no DOM, Node or
  * Deno globals.
  *
- * Two upstream drivers feed these shapes — Profixio's public pages today and
- * its documented API (`X-Api-Secret`) once SBBF issues a token. The field
- * coercions below absorb the differences we know of (the API serves `teamId`
- * as a string, "" for none, and the clock as separate keys), and a vitest
- * parity test keeps `mapApiEvent` and `mapPublicEvent` identical.
+ * Upstream is Profixio's documented API (`X-Api-Secret`), read with a key
+ * that may view a fixed set of tournaments. Shapes verified against the live
+ * API 2026-10-16.
  *
- * Identifiers (verified against live pages 2026-10-02):
- *   - leagueId    = public "avdelning" id (`/app/leagueid{N}`); a new id every season
- *   - tournamentId = the documented API's tournament id (`turnering_id` in page state)
- *   - categoryId  = match category ("Nivå 2A Herrar U19"); shared by site and API
- *   - matchId     = shared by site and API
- *   - teamId on events = the "web team id", also on lineup rows as `webTeamId`
+ * Identifiers:
+ *   - leagueId     = the tournament's `league.id`, also its public page
+ *                    (`/app/leagueid{N}`); a new id every season
+ *   - tournamentId = the API's tournament id, what every API path takes
+ *   - categoryId   = match category ("Nivå 1"); shared by site and API
+ *   - matchId      = shared by site and API
+ *   - teamId on events = the side's `teamRegistrationId`, also on lineup rows
+ *                    as `webTeamId` (the name predates the API)
  */
 // Structural twins of CatalogLeague / CatalogProfixioSeason (types/league.ts),
 // declared here so this file stays import-free for the Deno bundler. The
@@ -43,7 +43,8 @@ export interface ProfixioCatalogLeague {
 // Wire shapes
 // ---------------------------------------------------------------------------
 
-export const PROFIXIO_MATCH_SCHEMA_VERSION = 1 as const;
+/** 2 = read through the API (1 was the scraped public pages; those rows are refetched). */
+export const PROFIXIO_MATCH_SCHEMA_VERSION = 2 as const;
 
 export interface ProfixioCategory {
   categoryId: number;
@@ -99,7 +100,7 @@ export interface ProfixioEvent {
   id: number;
   typeId: number;
   description: string;
-  /** Web team id, or null for match-level events (period markers). */
+  /** The side's teamRegistrationId, or null for match-level events (period markers). */
   teamId: number | null;
   isTeamEvent: boolean;
   period: number;
@@ -137,7 +138,7 @@ export interface ProfixioLineupRow {
 
 export interface ProfixioLeaguesResponse {
   leagues: ProfixioCatalogLeague[];
-  /** false when a district-season row is missing from the cache (cold crawl cut short). */
+  /** false when an accessible tournament could not be read on the last refresh. */
   complete: boolean;
   fetchedAt: string;
 }
@@ -182,7 +183,7 @@ export interface ProfixioMatchResponse {
   events: ProfixioEvent[];
   lineup: ProfixioLineupRow[];
   pbpStatus: "ok" | "empty";
-  source: "public" | "api";
+  source: "api";
   fetchedAt: string;
 }
 
@@ -241,8 +242,8 @@ export function toIsoUtcSeconds(ts: string | null | undefined): string {
 // Upstream → wire mappers
 // ---------------------------------------------------------------------------
 
-/** One raw event from the public page's inline state → wire event. */
-export function mapPublicEvent(input: object): ProfixioEvent {
+/** One event from `GET /api/tournaments/{t}/matches/{m}/events` → wire event. */
+export function mapApiEvent(input: object): ProfixioEvent {
   const raw = input as Raw;
   const score = isObject(raw.currentScore) ? raw.currentScore : null;
   const person = isObject(raw.person) ? raw.person : null;
@@ -284,32 +285,44 @@ export function mapPublicEvent(input: object): ProfixioEvent {
 }
 
 /**
- * One raw event from `GET /api/tournaments/{t}/matches/{m}/events`. Same
- * field names as the public payload; the coercions absorb the string teamId
- * ("" for none) and the separate clock keys.
+ * `GET /api/tournaments/{t}/matches/{m}/lineup` → flat lineup rows. The body
+ * is `{ data: { home: { players, staff }, away: {...}, referees, matchStaff } }`
+ * and its rows carry no team id, so each side's teamRegistrationId comes from
+ * the match. Reads only what the roster needs: birth dates, positions,
+ * referees and table staff are personal data the importer has no use for and
+ * never leave this function.
  */
-export const mapApiEvent: (input: object) => ProfixioEvent = mapPublicEvent;
-
-/** One lineup row (public page or API; tolerant of both key spellings). */
-export function mapPublicLineup(input: object): ProfixioLineupRow {
-  const raw = input as Raw;
-  const registration = num(raw.teamRegistrationId) ?? num(raw.teamid);
-  return {
-    webTeamId: num(raw.webTeamId) ?? registration ?? 0,
-    teamRegistrationId: registration,
-    type: raw.type === "staff" ? "staff" : "player",
-    number: str(raw.number).trim(),
-    name: str(raw.name).trim(),
-    personId: num(raw.personId) ?? 0,
-    starter: bool(raw.starter),
-    played: bool(raw.played),
-    foulCount: num(raw.foulCount),
-  };
+export function mapApiLineup(
+  input: unknown,
+  sides: { homeTeamId: number | null; awayTeamId: number | null },
+): ProfixioLineupRow[] {
+  const body = isObject(input) ? input : {};
+  const data = isObject(body.data) ? body.data : body;
+  const rows: ProfixioLineupRow[] = [];
+  for (const [key, teamId] of [["home", sides.homeTeamId], ["away", sides.awayTeamId]] as const) {
+    const side = isObject(data[key]) ? (data[key] as Raw) : {};
+    for (const [list, type] of [["players", "player"], ["staff", "staff"]] as const) {
+      const entries = Array.isArray(side[list]) ? (side[list] as unknown[]) : [];
+      for (const entry of entries) {
+        if (!isObject(entry)) continue;
+        rows.push({
+          webTeamId: teamId ?? 0,
+          teamRegistrationId: teamId,
+          type,
+          number: str(entry.number).trim(),
+          name: `${str(entry.firstName).trim()} ${str(entry.lastName).trim()}`.trim(),
+          personId: num(entry.personId) ?? 0,
+          starter: bool(entry.starter),
+          played: bool(entry.played),
+          foulCount: num(entry.foulCount),
+        });
+      }
+    }
+  }
+  return rows;
 }
 
-export const mapApiLineup: (input: object) => ProfixioLineupRow = mapPublicLineup;
-
-/** One row of the event-type table (page inline state or `/matchEventTypes`). */
+/** One row of `GET /api/organisations/{org}/matchEventTypes`. */
 export function mapEventType(input: object): ProfixioEventType {
   const raw = input as Raw;
   return {
@@ -323,6 +336,69 @@ export function mapEventType(input: object): ProfixioEventType {
     gamestateStartStopType: num(raw.gamestateStartStopType),
     switches2Players: bool(raw.switches2Players),
   };
+}
+
+/** One tournament the API key may view, reduced to what the catalogue needs. */
+export interface ProfixioTournamentSummary {
+  tournamentId: number;
+  /** The tournament's `league.id` (= its public `leagueid{N}` page). */
+  leagueId: number;
+  name: string;
+  /** null for national tournaments (Ungdoms-SM). */
+  districtId: number | null;
+  districtName: string;
+  seasonId: number;
+  seasonLabel: string;
+}
+
+function positiveId(v: unknown): number | null {
+  const n = num(v);
+  return n != null && Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/** `GET /api/tournaments/{t}` `data` → summary; null for a cancelled, deactivated or league-less one. */
+export function mapApiTournament(input: unknown, tournamentId: number): ProfixioTournamentSummary | null {
+  if (!isObject(input) || input.isDeactivated === true || input.isCancelled === true) return null;
+  const league = isObject(input.league) ? input.league : null;
+  const season = league && isObject(league.season) ? league.season : null;
+  const leagueId = positiveId(league?.id);
+  const seasonId = positiveId(season?.id);
+  if (!league || !leagueId || !seasonId) return null;
+  const districtId = positiveId(league.districtId);
+  const category = isObject(league.category) ? league.category : {};
+  return {
+    tournamentId,
+    leagueId,
+    // league.name is the clean one; the tournament name may carry the
+    // division ("Seniorserier Herr - Herrar Division 2").
+    name: str(league.name).trim() || str(input.name).trim(),
+    districtId,
+    districtName: str(category.description).trim() || (districtId ? `District ${districtId}` : "Ungdoms-SM"),
+    seasonId,
+    seasonLabel: str(season?.name).trim(),
+  };
+}
+
+/**
+ * `GET /api/tournaments/{t}/matchCategories` → categories, each with its
+ * number of matches counted from `GET /api/tournaments/{t}/matches` (so the
+ * Stage dropdown can leave empty ones out). `categoryCode` is the level
+ * ("Nivå 1"); `name` only repeats the league's.
+ */
+export function mapApiCategories(categories: unknown[], matches: unknown[]): ProfixioCategory[] {
+  const counts = new Map<number, number>();
+  for (const m of matches) {
+    const id = isObject(m) && isObject(m.matchCategory) ? positiveId(m.matchCategory.id) : null;
+    if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  const out: ProfixioCategory[] = [];
+  for (const c of categories) {
+    if (!isObject(c)) continue;
+    const categoryId = positiveId(c.id);
+    if (!categoryId) continue;
+    out.push({ categoryId, name: str(c.categoryCode).trim() || str(c.name).trim(), matchCount: counts.get(categoryId) ?? 0 });
+  }
+  return out;
 }
 
 /** One match from `GET /api/tournaments/{t}/matches` → schedule row. */
@@ -365,9 +441,8 @@ export function sortEvents(events: ProfixioEvent[]): ProfixioEvent[] {
 }
 
 /**
- * The home side's web team id, from the first goal that raised the home
- * score and carries a team. Works for both drivers and for payloads that
- * omit `homewebid`.
+ * The home side's team id, from the first goal that raised the home score
+ * and carries a team — the fallback when a match arrives without its sides.
  */
 export function deriveHomeWebId(events: ProfixioEvent[]): number | null {
   let prevHome = 0;
@@ -421,16 +496,34 @@ export function matchCacheTtlMs(
 }
 
 // ---------------------------------------------------------------------------
-// Catalogue composition (district crawl → CatalogLeague[])
+// Catalogue composition (accessible tournaments → CatalogLeague[])
 // ---------------------------------------------------------------------------
 
+/** One (district, season) group of the tournaments the API key may view. */
 export interface CatalogCrawlRow {
+  /** The league's districtId; 0 for national tournaments (Ungdoms-SM). */
   districtId: number;
   districtName: string;
   seasonId: number;
   /** As Profixio shows it, e.g. "Säsongen 26/27". */
   seasonLabel: string;
-  leagues: Array<{ leagueId: number; name: string }>;
+  leagues: Array<{ leagueId: number; name: string; tournamentId?: number }>;
+}
+
+/** Tournaments → one catalogue row per (district, season); district 0 holds the national ones. */
+export function groupTournaments(tournaments: ProfixioTournamentSummary[]): CatalogCrawlRow[] {
+  const byKey = new Map<string, CatalogCrawlRow>();
+  for (const t of tournaments) {
+    const districtId = t.districtId ?? 0;
+    const key = `${districtId}:${t.seasonId}`;
+    let row = byKey.get(key);
+    if (!row) {
+      row = { districtId, districtName: t.districtName, seasonId: t.seasonId, seasonLabel: t.seasonLabel, leagues: [] };
+      byKey.set(key, row);
+    }
+    row.leagues.push({ leagueId: t.leagueId, name: t.name, tournamentId: t.tournamentId });
+  }
+  return [...byKey.values()];
 }
 
 /** Swedish league names carry the gender: Herrar/Pojkar (men), Damer/Flickor (women). */
@@ -493,7 +586,11 @@ export function composeCatalog(rows: CatalogCrawlRow[]): ProfixioCatalogLeague[]
         id: season.id,
         label: season.label,
         provider: "profixio",
-        profixio: { leagueId: l.leagueId, seasonId: row.seasonId },
+        profixio: {
+          leagueId: l.leagueId,
+          seasonId: row.seasonId,
+          ...(l.tournamentId ? { tournamentId: l.tournamentId } : {}),
+        },
       });
     }
   }

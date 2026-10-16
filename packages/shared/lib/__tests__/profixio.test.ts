@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { eventLabel } from "../events";
-import { mapEventType, mapPublicEvent, mapPublicLineup, type ProfixioMatchResponse } from "../profixio-wire";
+import { mapApiEvent, mapApiLineup, mapEventType, type ProfixioMatchResponse } from "../profixio-wire";
 import {
   FOUL_SUBTYPE_BY_TYPE_ID,
   assignGlobalPeriods,
@@ -20,15 +20,23 @@ import {
 } from "../profixio";
 import sample from "./fixtures/profixio-sample.json";
 
-// Anonymised Profixio public payload mapped to the wire shape (see the
-// fixture's _note). Upstream order is newest-first.
-const wireEvents = (sample.events as Array<Record<string, unknown>>).map(mapPublicEvent);
-const lineup = (sample.lineup as Array<Record<string, unknown>>).map(mapPublicLineup);
+// Anonymised Profixio match mapped to the wire shape (see the fixture's
+// _note). Upstream order is newest-first. The sample's lineup is a flat list
+// (it predates the API); the API nests it per side, so it is regrouped here.
+const wireEvents = (sample.events as Array<Record<string, unknown>>).map(mapApiEvent);
+const sampleLineup = sample.lineup as Array<Record<string, unknown>>;
+function apiSide(teamId: number) {
+  const rows = sampleLineup
+    .filter((r) => r.webTeamId === teamId)
+    .map((r): Record<string, unknown> => ({ ...r, firstName: r.name, lastName: "" }));
+  return { players: rows.filter((r) => r.type !== "staff"), staff: rows.filter((r) => r.type === "staff") };
+}
+const lineup = mapApiLineup({ data: { home: apiSide(1001), away: apiSide(1002) } }, { homeTeamId: 1001, awayTeamId: 1002 });
 const eventTypes = (sample.eventtypes as Array<Record<string, unknown>>).map(mapEventType);
 
 function match(partial: Partial<ProfixioMatchResponse> = {}): ProfixioMatchResponse {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     leagueId: 17550,
     categoryId: 1172071,
     matchId: 11111111,
@@ -47,7 +55,7 @@ function match(partial: Partial<ProfixioMatchResponse> = {}): ProfixioMatchRespo
     events: wireEvents,
     lineup,
     pbpStatus: "ok",
-    source: "public",
+    source: "api",
     fetchedAt: "2026-10-02T12:00:00Z",
     ...partial,
   };
