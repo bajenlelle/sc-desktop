@@ -1,19 +1,28 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, RotateCw, X } from "lucide-react";
+import { Loader2, Mail, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { GroupHeader, GroupedList } from "@/components/ui/group";
 import { listOrgInvites, resendOrgInvite, revokeOrgInvite } from "@/lib/profile-db";
-import { relativeTimeShort } from "@scoutable/shared/lib/playlist-feed";
+import { roleLabel } from "@/lib/roles";
+import { relativeTime } from "@/lib/format-date";
+import { cn } from "@/lib/utils";
 import { canManageInvite, inviteExpiryLabel, pendingEmailInvites } from "@scoutable/shared/lib/pending-invites";
 import type { OrgInvite, OrgTeam } from "@scoutable/shared/types/org";
 
 const COLLAPSED_COUNT = 5;
 
 /**
- * Emailed invites nobody has accepted yet, on the Members tab. Refreshes on
+ * Emailed invites nobody has accepted yet, under the members. Refreshes on
  * org-setup-changed, which the invite dialog fires after every send.
  */
 export function PendingInvites({
@@ -49,7 +58,7 @@ export function PendingInvites({
         toast.success(`Invite resent to ${invite.email}`);
       } else {
         await revokeOrgInvite(invite.id);
-        toast.success(`Invite to ${invite.email} revoked`);
+        toast.success(`Invite to ${invite.email} withdrawn`);
       }
       window.dispatchEvent(new CustomEvent("org-setup-changed"));
     } catch (e) {
@@ -65,69 +74,63 @@ export function PendingInvites({
   const teamName = (id: string | null) => orgTeams.find((t) => t.id === id)?.name ?? null;
 
   return (
-    <div className="space-y-1">
-      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-1">
-        Pending invites ({invites.length})
-      </p>
-      {shown.map((invite) => {
-        const expiry = inviteExpiryLabel(invite.expiresAt);
-        const expired = expiry === "Expired";
-        const team = teamName(invite.teamId);
-        const busy = busyId === invite.id;
-        return (
-          <div
-            key={invite.id}
-            className="flex items-center justify-between rounded-lg border border-border px-3 py-2"
-          >
-            <div className="min-w-0">
-              <p className="text-sm truncate">{invite.email}</p>
-              <p className="text-xs text-muted-foreground truncate">
-                {team ? `${team} · ` : ""}Sent {relativeTimeShort(invite.createdAt)} ·{" "}
-                <span className={expired ? "text-destructive" : undefined}>{expiry}</span>
-              </p>
-            </div>
-            <div className="flex items-center gap-1 shrink-0">
-              <Badge variant="outline" className="text-xs">{invite.role}</Badge>
+    <section>
+      <GroupHeader
+        title={
+          <>
+            Pending invites <span className="font-normal text-muted-foreground nums">{invites.length}</span>
+          </>
+        }
+        action={
+          invites.length > COLLAPSED_COUNT && (
+            <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={() => setShowAll((v) => !v)}>
+              {showAll ? "Show fewer" : `Show all ${invites.length}`}
+            </Button>
+          )
+        }
+      />
+      <GroupedList>
+        {shown.map((invite) => {
+          const expiry = inviteExpiryLabel(invite.expiresAt);
+          const expired = expiry === "Expired";
+          const team = teamName(invite.teamId);
+          return (
+            <div key={invite.id} className="flex min-h-11 items-center gap-3 px-4 py-2">
+              <Mail className="size-4 shrink-0 text-muted-foreground" />
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-sm">{invite.email}</span>
+                <span className="truncate text-callout text-muted-foreground nums">
+                  {[roleLabel(invite.role), team, `sent ${relativeTime(invite.createdAt)}`].filter(Boolean).join(" · ")}
+                  {" · "}
+                  <span className={cn(expired && "text-destructive")}>{expiry}</span>
+                </span>
+              </div>
               {canManageInvite(invite, isAdmin) &&
-                (busy ? (
-                  <Loader2 className="h-4 w-4 mx-1.5 animate-spin text-muted-foreground" />
+                (busyId === invite.id ? (
+                  <Loader2 className="size-4 animate-spin text-muted-foreground" />
                 ) : (
-                  <>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0"
-                      title="Resend invite"
-                      onClick={() => act(invite, "resend")}
-                    >
-                      <RotateCw className="h-3.5 w-3.5" />
-                      <span className="sr-only">Resend invite to {invite.email}</span>
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                      title="Revoke invite"
-                      onClick={() => act(invite, "revoke")}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                      <span className="sr-only">Revoke invite to {invite.email}</span>
-                    </Button>
-                  </>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button size="icon-xs" variant="ghost" aria-label={`Actions for ${invite.email}`}>
+                        <MoreHorizontal />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={() => void act(invite, "resend")}>Resend invite</DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="text-destructive focus:bg-destructive focus:text-white"
+                        onSelect={() => void act(invite, "revoke")}
+                      >
+                        Withdraw invite
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 ))}
             </div>
-          </div>
-        );
-      })}
-      {invites.length > COLLAPSED_COUNT && (
-        <button
-          type="button"
-          className="px-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          onClick={() => setShowAll((v) => !v)}
-        >
-          {showAll ? "Show fewer" : `Show all ${invites.length}`}
-        </button>
-      )}
-    </div>
+          );
+        })}
+      </GroupedList>
+    </section>
   );
 }

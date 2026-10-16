@@ -2,7 +2,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { Link2, MessageSquare, Play, Tag, Trash2, Type, X } from "lucide-react";
 import type { Label, LabelColor } from "@scoutable/shared/types/labels";
-import { eventColors, eventLabel, formatGameClock, playerName } from "@scoutable/shared/lib/events";
+import { eventColors, eventLabel, formatGameClock, periodLabel, playerName } from "@scoutable/shared/lib/events";
 import type { GroupRunInfo } from "@scoutable/shared/lib/clip-groups";
 import type { PlayByPlayEvent, PlaylistTextCard } from "@/types/match";
 import { LabelChip } from "@/components/labels/LabelChip";
@@ -257,7 +257,7 @@ export function ClipRow({
               )}
             </div>
             <div className={cn("flex min-w-0 items-center gap-1 text-subheadline nums", secondary)}>
-              <span className="shrink-0">Q{event.period}</span>
+              <span className="shrink-0">{periodLabel(event.period)}</span>
               <span aria-hidden>·</span>
               <span className="shrink-0">{formatGameClock(event.gameClockTime)}</span>
               {event.eventTeam?.teamName && (

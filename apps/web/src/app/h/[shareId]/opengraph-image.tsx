@@ -6,6 +6,7 @@
  */
 import { ImageResponse } from "next/og";
 import { createClient } from "@supabase/supabase-js";
+import { BRAND, brandAlpha } from "@/lib/brand";
 
 export const alt = "Basketball highlight made with Scoutable";
 export const size = { width: 1200, height: 630 };
@@ -34,7 +35,7 @@ export default async function OgImage({ params }: { params: Promise<{ shareId: s
   if (posterUrl) {
     return new ImageResponse(
       (
-        <div style={{ width: "100%", height: "100%", display: "flex", position: "relative", background: "#0c1018" }}>
+        <div style={{ width: "100%", height: "100%", display: "flex", position: "relative", background: BRAND.ink }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={posterUrl}
@@ -47,7 +48,7 @@ export default async function OgImage({ params }: { params: Promise<{ shareId: s
             style={{
               position: "absolute",
               inset: 0,
-              background: "linear-gradient(180deg, rgba(12,16,24,0.15) 40%, rgba(12,16,24,0.88) 100%)",
+              background: `linear-gradient(180deg, ${brandAlpha(BRAND.ink, 0.15)} 40%, ${brandAlpha(BRAND.ink, 0.88)} 100%)`,
             }}
           />
           <div
@@ -61,12 +62,12 @@ export default async function OgImage({ params }: { params: Promise<{ shareId: s
               width: 120,
               height: 120,
               borderRadius: 9999,
-              background: "rgba(12, 16, 24, 0.55)",
-              border: "3px solid #22d3ee",
+              background: brandAlpha(BRAND.ink, 0.55),
+              border: `3px solid ${BRAND.cyan}`,
             }}
           >
             <svg width="52" height="52" viewBox="0 0 24 24" style={{ marginLeft: 8 }}>
-              <path d="M8 5v14l11-7z" fill="#22d3ee" />
+              <path d="M8 5v14l11-7z" fill={BRAND.cyan} />
             </svg>
           </div>
           <div
@@ -79,17 +80,17 @@ export default async function OgImage({ params }: { params: Promise<{ shareId: s
               fontSize: title.length > 40 ? 44 : 56,
               fontWeight: 800,
               letterSpacing: -1,
-              color: "#f1f5f9",
+              color: BRAND.paper,
               lineHeight: 1.15,
             }}
           >
             {title}
           </div>
           <div style={{ position: "absolute", left: 56, bottom: 44, display: "flex", alignItems: "baseline" }}>
-            <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: 3, color: "rgba(241, 245, 249, 0.75)" }}>
+            <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: 3, color: brandAlpha(BRAND.paper, 0.75) }}>
               MADE WITH SCOUTABLE
             </div>
-            <div style={{ width: 8, height: 8, borderRadius: 9999, background: "#22d3ee", marginLeft: 4 }} />
+            <div style={{ width: 8, height: 8, borderRadius: 9999, background: BRAND.cyan, marginLeft: 4 }} />
           </div>
         </div>
       ),
@@ -107,7 +108,7 @@ export default async function OgImage({ params }: { params: Promise<{ shareId: s
           flexDirection: "column",
           justifyContent: "center",
           alignItems: "center",
-          background: "linear-gradient(160deg, #0c1018 0%, #161b24 55%, #1a1430 100%)",
+          background: `linear-gradient(160deg, ${BRAND.ink} 0%, ${BRAND.inkRaised} 55%, ${BRAND.plum} 100%)`,
           position: "relative",
         }}
       >
@@ -119,7 +120,7 @@ export default async function OgImage({ params }: { params: Promise<{ shareId: s
             width: 560,
             height: 560,
             borderRadius: 9999,
-            background: "radial-gradient(circle, rgba(34, 211, 238, 0.25) 0%, rgba(34, 211, 238, 0) 65%)",
+            background: `radial-gradient(circle, ${brandAlpha(BRAND.cyan, 0.25)} 0%, ${brandAlpha(BRAND.cyan, 0)} 65%)`,
           }}
         />
 
@@ -132,13 +133,13 @@ export default async function OgImage({ params }: { params: Promise<{ shareId: s
             width: 120,
             height: 120,
             borderRadius: 9999,
-            background: "rgba(34, 211, 238, 0.14)",
-            border: "3px solid #22d3ee",
+            background: brandAlpha(BRAND.cyan, 0.14),
+            border: `3px solid ${BRAND.cyan}`,
             marginBottom: 48,
           }}
         >
           <svg width="52" height="52" viewBox="0 0 24 24" style={{ marginLeft: 8 }}>
-            <path d="M8 5v14l11-7z" fill="#22d3ee" />
+            <path d="M8 5v14l11-7z" fill={BRAND.cyan} />
           </svg>
         </div>
 
@@ -148,7 +149,7 @@ export default async function OgImage({ params }: { params: Promise<{ shareId: s
             fontSize: title.length > 40 ? 52 : 64,
             fontWeight: 800,
             letterSpacing: -1.5,
-            color: "#f1f5f9",
+            color: BRAND.paper,
             textAlign: "center",
             maxWidth: 1000,
             lineHeight: 1.15,
@@ -159,7 +160,7 @@ export default async function OgImage({ params }: { params: Promise<{ shareId: s
 
         {/* Wordmark footer */}
         <div style={{ display: "flex", alignItems: "baseline", marginTop: 52 }}>
-          <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: 4, color: "rgba(241, 245, 249, 0.7)" }}>
+          <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: 4, color: brandAlpha(BRAND.paper, 0.7) }}>
             MADE WITH SCOUTABLE
           </div>
           <div
@@ -167,7 +168,7 @@ export default async function OgImage({ params }: { params: Promise<{ shareId: s
               width: 9,
               height: 9,
               borderRadius: 9999,
-              background: "#22d3ee",
+              background: BRAND.cyan,
               marginLeft: 5,
             }}
           />

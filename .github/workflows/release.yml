@@ -15,6 +15,11 @@ jobs:
             args: --target x86_64-pc-windows-msvc
 
     runs-on: ${{ matrix.platform }}
+    # Windows code signing (Azure Artifact Signing) turns on once the
+    # AZURE_CLIENT_ID secret exists; until then Windows builds stay unsigned.
+    # `if:` can't read secrets, so the switch goes through env.
+    env:
+      WIN_SIGNING: ${{ secrets.AZURE_CLIENT_ID != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -113,8 +118,18 @@ jobs:
         working-directory: apps/desktop
         run: |
           mkdir -p src-tauri/binaries
-          # x86_64 — static build from evermeet.cx
-          curl -L "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip" -o ffmpeg_x64.zip
+          # x86_64: evermeet.cx's static ffmpeg 9.0.2 (the build v0.7.2 shipped),
+          # kept as an asset of this repo's `ffmpeg-binaries` release: evermeet
+          # removed its download API on 2026-10-13 (HTTP 410) and rate-limits
+          # direct downloads. To update, fetch a new zip and its .sig from
+          # evermeet once, verify them with gpg (key 476C4B611A660874), upload
+          # the zip to that release, and change the name and hash in both
+          # release.yml and build.yml.
+          FFMPEG_X64_ZIP=ffmpeg-9.0.2-x86_64-apple-darwin.zip
+          FFMPEG_X64_SHA256=4acc0be580f9b2788029eb7bd4d645ff87968911b0a62aeeb3940d42d54558d5
+          curl -fsSL --retry 3 -o ffmpeg_x64.zip \
+            "https://github.com/bajenlelle/sc-desktop/releases/download/ffmpeg-binaries/${FFMPEG_X64_ZIP}"
+          echo "${FFMPEG_X64_SHA256}  ffmpeg_x64.zip" | shasum -a 256 -c -
           unzip -o ffmpeg_x64.zip ffmpeg
           mv ffmpeg src-tauri/binaries/ffmpeg-x86_64-apple-darwin
           rm ffmpeg_x64.zip
@@ -158,6 +173,29 @@ jobs:
           security list-keychain -d user -s $KEYCHAIN_PATH
           security set-key-partition-list -S apple-tool:,apple: -s -k "" $KEYCHAIN_PATH
 
+      # Smart App Control refuses unsigned programs, the bundled ffmpeg.exe
+      # included (os error 4551). With a signCommand set, the Tauri bundler
+      # signs ffmpeg.exe, the app, the NSIS plugins, the uninstaller and the
+      # installer. Tauri merges tauri.windows.conf.json into tauri.conf.json
+      # on Windows builds.
+      - name: Set up Windows code signing
+        if: matrix.platform == 'windows-latest' && env.WIN_SIGNING == 'true'
+        shell: pwsh
+        working-directory: apps/desktop
+        env:
+          WINDOWS_SIGN_ENDPOINT: ${{ vars.WINDOWS_SIGN_ENDPOINT }}
+          WINDOWS_SIGN_ACCOUNT: ${{ vars.WINDOWS_SIGN_ACCOUNT }}
+          WINDOWS_SIGN_PROFILE: ${{ vars.WINDOWS_SIGN_PROFILE }}
+        run: |
+          foreach ($name in 'WINDOWS_SIGN_ENDPOINT', 'WINDOWS_SIGN_ACCOUNT', 'WINDOWS_SIGN_PROFILE') {
+            if (-not [Environment]::GetEnvironmentVariable($name)) {
+              throw "AZURE_CLIENT_ID is set but the repository variable $name is empty"
+            }
+          }
+          $sign = "artifact-signing-cli -e $env:WINDOWS_SIGN_ENDPOINT -a $env:WINDOWS_SIGN_ACCOUNT -c $env:WINDOWS_SIGN_PROFILE -d Scoutable %1"
+          @{ bundle = @{ windows = @{ signCommand = $sign } } } | ConvertTo-Json -Depth 4 | Set-Content src-tauri/tauri.windows.conf.json
+          cargo install artifact-signing-cli --version 0.11.0 --locked
+
       - run: npm ci
 
       - uses: tauri-apps/tauri-action@v0
@@ -169,6 +207,9 @@ jobs:
           APPLE_PASSWORD: ${{ matrix.platform == 'macos-14' && secrets.APPLE_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ matrix.platform == 'macos-14' && secrets.APPLE_TEAM_ID || '' }}
           APPLE_SIGNING_IDENTITY: "Developer ID Application: Leonard Halling (3DJ5YZKR49)"
+          AZURE_TENANT_ID: ${{ matrix.platform == 'windows-latest' && secrets.AZURE_TENANT_ID || '' }}
+          AZURE_CLIENT_ID: ${{ matrix.platform == 'windows-latest' && secrets.AZURE_CLIENT_ID || '' }}
+          AZURE_CLIENT_SECRET: ${{ matrix.platform == 'windows-latest' && secrets.AZURE_CLIENT_SECRET || '' }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_POSTHOG_KEY: ${{ secrets.VITE_POSTHOG_KEY }}
@@ -179,6 +220,31 @@ jobs:
         with:
           projectPath: apps/desktop
           args: ${{ matrix.args }}
+
+      # Once signing is on, fail rather than ship an unsigned Windows build.
+      # The app and ffmpeg.exe are checked inside the installer: after
+      # packaging, the bundler puts the unsigned copy of the app back in
+      # target/, so that copy proves nothing.
+      - name: Check Windows signatures
+        if: matrix.platform == 'windows-latest' && env.WIN_SIGNING == 'true'
+        shell: pwsh
+        working-directory: apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis
+        run: |
+          $setup = Get-ChildItem -Filter *-setup.exe | Select-Object -First 1
+          if (-not $setup) { throw "No NSIS installer found" }
+          $out = Join-Path $env:RUNNER_TEMP setup-contents
+          7z x $setup.FullName "-o$out" -y | Out-Null
+          if ($LASTEXITCODE) { throw "7z could not unpack $($setup.Name)" }
+          $inner = Get-ChildItem $out -Recurse -Filter *.exe
+          $app = $inner | Where-Object Name -eq 'scoutable.exe' | Select-Object -First 1
+          $ffmpeg = $inner | Where-Object Name -eq 'ffmpeg.exe' | Select-Object -First 1
+          if (-not $app -or -not $ffmpeg) {
+            throw "Expected scoutable.exe and ffmpeg.exe in the installer, found: $($inner.Name -join ', ')"
+          }
+          $checked = $setup, $app, $ffmpeg | Get-AuthenticodeSignature
+          $checked | Format-Table Status, @{ n = 'Signer'; e = { $_.SignerCertificate.Subject } }, Path -AutoSize -Wrap
+          $bad = $checked | Where-Object Status -ne 'Valid'
+          if ($bad) { throw "Not validly signed: $($bad.Path -join ', ')" }
 
       - name: Sign macOS updater bundle
         if: matrix.platform == 'macos-14'

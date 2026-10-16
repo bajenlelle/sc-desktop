@@ -35,6 +35,7 @@ import { LabelChip } from "@/components/labels/LabelChip";
 import { LabelPickerPopover, type LabelTriState } from "@/components/labels/LabelPickerPopover";
 import type { Label, LabelColor, ClipKey } from "@scoutable/shared/types/labels";
 import { eventLabel, formatGameClock, parseGameClock, playerName } from "@scoutable/shared/lib/events";
+import { defaultPostRoll, defaultPostRollForMatches, defaultPreRoll, defaultPreRollForMatches } from "@scoutable/shared/lib/provider";
 import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import type { CropKeyframe } from "@scoutable/shared/lib/crop-path";
 import { CropEditorBar, CropOverlay, upsertKeyframe } from "@/components/crop-editor";
@@ -207,8 +208,12 @@ export function PlaylistsPage() {
   const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
   const [activeEventId, setActiveEventId] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [preRoll, setPreRoll] = useState(10);
-  const [postRoll, setPostRoll] = useState(3);
+  // Pre/post-roll defaults per provider (Profixio games get a longer tail);
+  // applied when the playlist changes, until the coach edits the field.
+  const [preRoll, setPreRoll] = useState(defaultPreRoll(null));
+  const [postRoll, setPostRoll] = useState(defaultPostRoll(null));
+  const preRollTouchedRef = useRef(false);
+  const postRollTouchedRef = useRef(false);
   const [folders, setFolders] = useState<PlaylistFolder[]>([]);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => {
     const saved = sessionStorage.getItem("expandedFolders");
@@ -890,6 +895,16 @@ export function PlaylistsPage() {
   );
   const matchLookupRef = useRef(matchLookup);
   useEffect(() => { matchLookupRef.current = matchLookup; }, [matchLookup]);
+  useEffect(() => { preRollTouchedRef.current = false; postRollTouchedRef.current = false; }, [selected?.id]);
+  useEffect(() => {
+    if (!selected) return;
+    const games = selected.items
+      .filter(isClipItem)
+      .map((c) => matchLookup.get(c.matchId))
+      .filter((m): m is StoredMatch => !!m);
+    if (!preRollTouchedRef.current) setPreRoll(defaultPreRollForMatches(games));
+    if (!postRollTouchedRef.current) setPostRoll(defaultPostRollForMatches(games));
+  }, [selected, matchLookup]);
 
   /**
    * Event lookup by `matchId:eventId`, built once per matches change.
@@ -1068,6 +1083,11 @@ export function PlaylistsPage() {
         return clockSort === "asc" ? aEv.period - bEv.period : bEv.period - aEv.period;
       const aT = parseGameClock(formatGameClock(aEv.gameClockTime));
       const bT = parseGameClock(formatGameClock(bEv.gameClockTime));
+      if (aT === bT) {
+        // Clock-less games (Profixio) sort by wall-clock instead of tying.
+        const d = (Date.parse(aEv.realWorldTime) || 0) - (Date.parse(bEv.realWorldTime) || 0);
+        return clockSort === "asc" ? d : -d;
+      }
       return clockSort === "asc" ? bT - aT : aT - bT;
     });
   }, [displayItems, clockSort, clockSortLocked]);

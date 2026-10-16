@@ -1,1320 +1,306 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Send, Share2, User2, Link2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { VideoClipControls } from "@/components/video-clip-controls";
-import { VideoPlayer } from "@/components/video-player";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { createClient } from "@/lib/supabase/client";
-import { currentUserId as sessionUserId } from "@scoutable/shared/lib/current-user";
-import { getMyTeamPlaylists, getMyDirectPlaylists, getMySharedPlaylists, setPlaylistTeams, setPlaylistUsers, type SharedPlaylist } from "@scoutable/shared/lib/playlists-db";
-import { listMatchesLight, listEventsForMatches } from "@scoutable/shared/lib/matches-db";
-import {
-  buildAggregatedTeamMap,
-  collectReferencedMatchIds,
-  mergeEventsIntoMatches,
-} from "@scoutable/shared/lib/playlist-matches";
-import { isWatchedPosition } from "@scoutable/shared/lib/clip-timing";
-import { getOrgContext, getOrgContextForOrg } from "@/lib/profile-db";
+import { sharerFilterOptions } from "@scoutable/shared/lib/playlist-feed";
+import { canScrubPlaylist, isMultiGame } from "@scoutable/shared/lib/watch-queue";
+import { isClipItem, type Playlist } from "@scoutable/shared/types/match";
 import { useAuth } from "@/components/auth-context";
-import { useRouter, useSearchParams } from "next/navigation";
-import { cn } from "@/lib/utils";
-import { ClipRow } from "@/components/playlist/ClipRow";
-import { PlaylistFeed, type SourceOption } from "@/components/playlist/PlaylistFeed";
-import { SharedByMe } from "@/components/playlist/SharedByMe";
-import { WelcomeCard } from "@/components/welcome-card";
 import { AdminSetupCard } from "@/components/admin-setup-card";
-import type { PlaylistCardData } from "@/components/playlist/PlaylistCard";
-import { listMyClipViews, markClipWatched, clipViewKey } from "@/lib/clip-views-db";
-import { trackEvent } from "@/lib/analytics";
-import type {
-  Playlist,
-  PlaylistItem,
-  PlaylistClipItem,
-  PlaylistTextCard,
-  PlayByPlayEvent,
-  StoredMatch,
-} from "@scoutable/shared/types/match";
-import type { OrgTeam, UserProfile } from "@scoutable/shared/types/org";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-type QueueItem = { event: PlayByPlayEvent; matchId: string; r2Url?: string; note?: string };
-type PlaybackItem = QueueItem | PlaylistTextCard;
-
-function isTextCard(i: PlaybackItem): i is PlaylistTextCard {
-  return (i as PlaylistTextCard).type === "text";
-}
-
-function isClipItem(i: PlaylistItem): i is PlaylistClipItem {
-  return i.type === "clip";
-}
+import { EMPTY_FEED_FILTERS, PlaylistFeed, type FeedFilters } from "@/components/playlist/PlaylistFeed";
+import { SharedByMe } from "@/components/playlist/SharedByMe";
+import { ShareRecipients } from "@/components/playlist/share-recipients";
+import { useSharedPlaylists } from "@/components/playlist/use-shared-playlists";
+import { WatchView } from "@/components/playlist/watch-view";
+import { BackButton } from "@/components/shell/back-button";
+import { Page, PageContent } from "@/components/shell/page";
+import { Toolbar } from "@/components/shell/toolbar";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Callout } from "@/components/ui/group";
+import { PopUpButton } from "@/components/ui/pop-up-button";
+import { SearchField } from "@/components/ui/search-field";
+import { SegmentedControl } from "@/components/ui/segmented-control";
+import { WelcomeCard } from "@/components/welcome-card";
 
 /**
- * The clips a recipient can actually watch — only those shipped to R2.
- * Unshipped clips are invisible on the player surface (not greyed out), and
- * every progress denominator counts these, so 100% is always reachable.
+ * Playlists shared with the user (and, for coaches, the ones they share):
+ * the feed, the coach's sharing dashboard, and the watch view for the
+ * playlist named in ?p=.
  */
-function playableClips(pl: Playlist): PlaylistClipItem[] {
-  return pl.items.filter(isClipItem).filter((c) => !!c.r2Url);
-}
-
-function itemKey(i: PlaybackItem): string {
-  if (isTextCard(i)) return `text:${i.id}`;
-  return `${(i as QueueItem).matchId}:${(i as QueueItem).event.eventId}`;
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
 export default function MyPlaylistsPage() {
-  const { activeOrgId, activeOrgIsPersonal, isPlayerOnly, myOrgs, profileLoading } = useAuth();
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  const { activeOrgRole, isPlayerOnly, myOrgs } = useAuth();
+  const {
+    loading,
+    selectedId,
+    selected,
+    openPlaylist,
+    resumePlaylist,
+    autoplay,
+    consumeAutoplay,
+    watchItems,
+    startKey,
+    matchLookup,
+    feedItems,
+    sourceOptions,
+    sharedOutPlaylists,
+    shareTo,
+    isClipWatched,
+    recordWatched,
+    selectedProgress,
+    currentUserId,
+    userRole,
+    allOrgTeams,
+    teamMap,
+    memberMap,
+  } = useSharedPlaylists();
 
-  // Which playlist is open lives in the URL rather than component state, so
-  // a phone's back gesture returns to the feed instead of leaving the page,
-  // and a refresh or shared link reopens the same playlist.
-  const selectedId = searchParams.get("p");
-
-  const clubOrgs = useMemo(() => myOrgs.filter((o) => !o.isPersonal), [myOrgs]);
-  // Stable key so the load effect doesn't refire on referentially-new arrays.
-  const clubOrgIdsKey = clubOrgs.map((o) => o.orgId).sort().join(",");
-
-  useEffect(() => {
-    if (profileLoading) return;
-    // Player-only users always see the aggregated feed — their film lives
-    // here regardless of which space happens to be "active".
-    if (isPlayerOnly) return;
-    // A personal-only user has nothing to watch here — send them to the
-    // get-started page (the desktop app is their product), not the profile.
-    if (activeOrgIsPersonal) router.replace("/get-started");
-  }, [activeOrgIsPersonal, isPlayerOnly, profileLoading, router]);
-
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  const [directPlaylists, setDirectPlaylists] = useState<Playlist[]>([]);
-  const [sharedOutPlaylists, setSharedOutPlaylists] = useState<SharedPlaylist[]>([]);
-  const [matches, setMatches] = useState<StoredMatch[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [clipViews, setClipViews] = useState<Set<string>>(new Set());
-  // Newest watch per playlist — orders "In progress" as continue-watching.
-  const [lastWatched, setLastWatched] = useState<Map<string, string>>(new Map());
-  const [teamMap, setTeamMap] = useState<Map<string, OrgTeam>>(new Map());
-  const [memberMap, setMemberMap] = useState<Map<string, UserProfile>>(new Map());
-  const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
-  const [directSectionExpanded, setDirectSectionExpanded] = useState(true);
-  const [sharedOutSectionExpanded, setSharedOutSectionExpanded] = useState(true);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [userRole, setUserRole] = useState<string | null>(null);
-  const [allOrgTeams, setAllOrgTeams] = useState<OrgTeam[]>([]);
   const [shareTarget, setShareTarget] = useState<Playlist | null>(null);
   // Which perspective a coach is on: their sharing dashboard or the
-  // received-playlists view. Players never see the tabs.
+  // received-playlists view. Players never see the switch.
   const [coachTab, setCoachTab] = useState<"by-me" | "with-me">("by-me");
-  const [pendingShareTeamIds, setPendingShareTeamIds] = useState<Set<string>>(new Set());
-  const [pendingShareUserIds, setPendingShareUserIds] = useState<Set<string>>(new Set());
-  const [playerSearchQuery, setPlayerSearchQuery] = useState("");
+  const [feedFilters, setFeedFilters] = useState<FeedFilters>(EMPTY_FEED_FILTERS);
+  const [dashboardQuery, setDashboardQuery] = useState("");
+  const [shareTeamIds, setShareTeamIds] = useState<Set<string>>(new Set());
+  const [shareUserIds, setShareUserIds] = useState<Set<string>>(new Set());
+  const [sharing, setSharing] = useState(false);
 
-  // Playback state
-  const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [activeEventId, setActiveEventId] = useState<number | null>(null);
-  const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [activeTextCard, setActiveTextCard] = useState<PlaylistTextCard | null>(null);
+  const sharerOptions = useMemo(() => sharerFilterOptions(feedItems), [feedItems]);
+  const multiGame = useMemo(() => isMultiGame(watchItems), [watchItems]);
 
-  // Every playlist the user can open, deduped — a playlist can arrive via both
-  // a team share and a direct share.
-  const allPlaylists = useMemo(() => {
-    const byId = new Map<string, Playlist>();
-    for (const p of [...directPlaylists, ...playlists, ...sharedOutPlaylists]) {
-      if (!byId.has(p.id)) byId.set(p.id, p);
-    }
-    return [...byId.values()];
-  }, [playlists, directPlaylists, sharedOutPlaylists]);
-
-  const selected = useMemo(
-    () => allPlaylists.find((p) => p.id === selectedId) ?? null,
-    [allPlaylists, selectedId],
-  );
-
-  const openPlaylist = useCallback((id: string, opts?: { resumed?: boolean }) => {
-    trackEvent("playlist_opened", { playlist_id: id, resumed: opts?.resumed ?? false });
-    router.push(`/my-playlists?p=${id}`);
-  }, [router]);
-
-  const closePlaylist = useCallback(() => {
-    router.push("/my-playlists");
-  }, [router]);
-
-  /** Set by Resume; consumed once the playlist's items have loaded. */
-  const resumeTargetRef = useRef<string | null>(null);
-  // The playback effect only re-subscribes on src change, so these keep its
-  // handlers reading current values instead of a stale closure.
-  const activeEventIdRef = useRef<number | null>(null);
-  const recordWatchedRef = useRef<(p: string, m: string, e: number) => void>(() => {});
-
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const clipListRef = useRef<HTMLDivElement | null>(null);
-  const queueRef = useRef<PlaybackItem[]>([]);
-  const queueIdxRef = useRef<number>(0);
-  const pendingPlayRef = useRef(false);
-  const activeMatchIdRef = useRef<string | null>(null);
-  const matchLookupRef = useRef<Map<string, StoredMatch>>(new Map());
-  const textCardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const activeTextCardRef = useRef<PlaylistTextCard | null>(null);
-  const selectedRef = useRef(selected);
-
-  const playableQueueRef = useRef<PlaybackItem[]>([]);
-
-  useEffect(() => { activeMatchIdRef.current = activeMatchId; }, [activeMatchId]);
-  useEffect(() => { activeEventIdRef.current = activeEventId; }, [activeEventId]);
-  useEffect(() => { activeTextCardRef.current = activeTextCard; }, [activeTextCard]);
-  useEffect(() => { selectedRef.current = selected; }, [selected]);
-
-  // Load playlists + matches + org context. Two modes:
-  // - Coach/admin (and legacy): scoped to the active org's teams.
-  // - Player-only: aggregated across ALL club orgs — no active-space concept.
-  //   Matches load unscoped (RLS already grants read on matches referenced by
-  //   shared playlists) and team/member context merges every club org, so
-  //   badges and sharer names resolve regardless of which club shared.
-  useEffect(() => {
-    if (profileLoading) return;
-    const supabase = createClient();
-    const aggregated = isPlayerOnly;
-    Promise.all([
-      sessionUserId(supabase),
-      // Light shells only — events arrive below, scoped to the matches the
-      // loaded playlists actually reference. Full listMatches pulled every
-      // accessible match's complete play-by-play (~500 events/game).
-      listMatchesLight(supabase, aggregated ? undefined : (activeOrgId ?? undefined)).catch(() => [] as StoredMatch[]),
-      // myOrgs is already resolved in the auth context and is identical for
-      // every org, so pass it in — otherwise a player in N clubs refetches
-      // get_my_orgs N times for the same answer.
-      aggregated
-        ? Promise.all(clubOrgs.map((o) => getOrgContextForOrg(o.orgId, { myOrgs }).catch(() => null)))
-        : (activeOrgId ? getOrgContextForOrg(activeOrgId, { myOrgs }) : getOrgContext()).catch(() => null),
-    ]).then(async ([uid, shells, orgCtxRaw]) => {
-      setCurrentUserId(uid);
-      const multiClub = aggregated && clubOrgs.length > 1;
-      const rawCtxList = Array.isArray(orgCtxRaw) ? orgCtxRaw : [orgCtxRaw];
-      // Zip org names before filtering nulls so a club whose context failed
-      // to load doesn't shift the org↔teams pairing.
-      const teamMapEntries = rawCtxList.map((c, i) =>
-        c ? { orgName: aggregated ? clubOrgs[i]?.orgName : undefined, teams: c.myTeams } : null,
-      );
-      const orgCtxs = rawCtxList.filter((c): c is NonNullable<typeof c> => c !== null);
-      const orgCtx = orgCtxs[0] ?? null;
-      if (orgCtx) {
-        setUserRole(orgCtx.profile?.role ?? null);
-        setAllOrgTeams(orgCtxs.flatMap((c) => c.allOrgTeams));
-        setTeamMap(buildAggregatedTeamMap(teamMapEntries, multiClub));
-        setMemberMap(new Map(orgCtxs.flatMap((c) => c.orgMembers.map((m) => [m.id, m] as const))));
-      }
-      const activeTeamIds = orgCtxs.flatMap((c) => c.myTeams.map((t) => t.id));
-      const [pls, directPls, sharedOutPls] = await Promise.all([
-        getMyTeamPlaylists(supabase, activeTeamIds).catch(() => [] as Playlist[]),
-        // Aggregated mode drops the team scoping for direct shares — every
-        // person-to-person share RLS permits shows, team-bound or not.
-        getMyDirectPlaylists(supabase, aggregated ? undefined : activeTeamIds).catch(() => [] as Playlist[]),
-        // Owner-based (not direct-shares-only): a coach's team-only-shared
-        // playlists must resolve here too, or ?p= deep links go blank.
-        getMySharedPlaylists(supabase, aggregated ? undefined : activeOrgId ?? undefined).catch(() => [] as SharedPlaylist[]),
-      ]);
-      // Events only for matches the loaded playlists can play, merged into
-      // the shells and published in ONE setMatches — clip rows silently drop
-      // when their event lookup misses, so light-shells-first would flash
-      // every playlist empty (and break ?p= deep links mid-load).
-      const referencedIds = collectReferencedMatchIds([...pls, ...directPls, ...sharedOutPls]);
-      const eventsByMatch = await listEventsForMatches(supabase, referencedIds).catch(
-        () => ({}) as Record<string, PlayByPlayEvent[]>,
-      );
-      setMatches(mergeEventsIntoMatches(shells, eventsByMatch));
-      setPlaylists(pls);
-      setDirectPlaylists(directPls);
-      setSharedOutPlaylists(sharedOutPls);
-      if (orgCtx) {
-        setExpandedTeams(new Set(pls.flatMap((p) => (p.teamIds && p.teamIds.length > 0) ? p.teamIds : [p.teamId ?? "__none__"])));
-      }
-      // Watch history drives the feed's NEW badges and progress bars.
-      const views = await listMyClipViews().catch(() => []);
-      setClipViews(new Set(views.map((v) => clipViewKey(v.playlistId, v.matchId, v.eventId))));
-      const last = new Map<string, string>();
-      for (const v of views) {
-        const prev = last.get(v.playlistId);
-        if (!prev || v.watchedAt > prev) last.set(v.playlistId, v.watchedAt);
-      }
-      setLastWatched(last);
-    }).finally(() => {
-      setLoading(false);
-    });
-    // clubOrgIdsKey stands in for clubOrgs (referentially unstable), and the
-    // aggregated path ignores activeOrgId on purpose.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeOrgId, isPlayerOnly, clubOrgIdsKey, profileLoading]);
-
-  const matchLookup = useMemo(() => new Map(matches.map((m) => [m.id, m])), [matches]);
-  useEffect(() => { matchLookupRef.current = matchLookup; }, [matchLookup]);
-
-  /**
-   * Event lookup by `matchId:eventId`, built once per matches change.
-   * Resolving a clip through `match.events.find(...)` scanned a full
-   * play-by-play array (~500 events per game) for every clip in the playlist.
-   */
-  const eventByKey = useMemo(() => {
-    const map = new Map<string, PlayByPlayEvent>();
-    for (const m of matches) {
-      for (const e of m.events) map.set(`${m.id}:${e.eventId}`, e);
-    }
-    return map;
-  }, [matches]);
-
-  /**
-   * What "Shared with me" actually means: playlists OTHERS sent.
-   *
-   * getMyTeamPlaylists returns everything shared to a team the user belongs
-   * to, regardless of who owns it — so a coach who shares their own playlist
-   * to their own team saw it listed here, under a tab that says otherwise.
-   * Their outbound playlists belong on the "Shared by me" dashboard.
-   *
-   * allPlaylists stays unfiltered on purpose: selection and ?p= deep links
-   * must still resolve a coach's own playlist when they open it from that
-   * dashboard. This only narrows what the sidebar LISTS.
-   */
-  const receivedTeamPlaylists = useMemo(
-    () => playlists.filter((pl) => !currentUserId || pl.createdBy !== currentUserId),
-    [playlists, currentUserId],
-  );
-  const receivedDirectPlaylists = useMemo(
-    () => directPlaylists.filter((pl) => !currentUserId || pl.createdBy !== currentUserId),
-    [directPlaylists, currentUserId],
-  );
-
-  const grouped = useMemo(() => {
-    const map = new Map<string, Playlist[]>();
-    for (const pl of receivedTeamPlaylists) {
-      const keys = (pl.teamIds && pl.teamIds.length > 0) ? pl.teamIds : [pl.teamId ?? "__none__"];
-      for (const key of keys) {
-        if (!map.has(key)) map.set(key, []);
-        map.get(key)!.push(pl);
-      }
-    }
-    return map;
-  }, [receivedTeamPlaylists]);
-
-  const { directOnlyPlaylists, overlappingDirectIds } = useMemo(() => {
-    const teamPlaylistIds = new Set(receivedTeamPlaylists.map((p) => p.id));
-    return {
-      directOnlyPlaylists: receivedDirectPlaylists.filter((p) => !teamPlaylistIds.has(p.id)),
-      overlappingDirectIds: new Set(
-        receivedDirectPlaylists.filter((p) => teamPlaylistIds.has(p.id)).map((p) => p.id)
-      ),
-    };
-  }, [receivedTeamPlaylists, receivedDirectPlaylists]);
-
-  const { sharedOutOnlyPlaylists, overlappingSharedOutIds } = useMemo(() => {
-    const teamPlaylistIds = new Set(playlists.map((p) => p.id));
-    return {
-      sharedOutOnlyPlaylists: sharedOutPlaylists.filter((p) => !teamPlaylistIds.has(p.id)),
-      overlappingSharedOutIds: new Set(
-        sharedOutPlaylists.filter((p) => teamPlaylistIds.has(p.id)).map((p) => p.id)
-      ),
-    };
-  }, [playlists, sharedOutPlaylists]);
-
-  function toggleTeam(key: string) {
-    setExpandedTeams((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+  function openShare(pl: Playlist) {
+    setShareTeamIds(new Set(pl.teamIds ?? []));
+    setShareUserIds(new Set(pl.userIds ?? []));
+    setShareTarget(pl);
   }
 
   async function handleShare(teamIds: string[], userIds: string[]) {
-    if (!shareTarget) return;
-    const supabase = createClient();
-    await Promise.all([
-      setPlaylistTeams(supabase, shareTarget.id, teamIds),
-      setPlaylistUsers(supabase, shareTarget.id, userIds),
-    ]);
-    trackEvent("playlist_shared", { team_count: teamIds.length, user_count: userIds.length });
-    setPlaylists((prev) => prev.map((p) =>
-      p.id === shareTarget.id ? { ...p, teamIds, teamId: teamIds[0], userIds } : p
-    ));
-    // SharedByMe now derives its recipient rows from this state instead of
-    // refetching, so the optimistic entry has to carry teamShares/userShares
-    // too — not just the id lists. Timestamps we don't have yet are null
-    // (already the type's "unknown" value); existing ones are preserved.
-    setSharedOutPlaylists((prev) => {
-      if (userIds.length === 0) return prev.filter((p) => p.id !== shareTarget.id);
-      const exists = prev.find((p) => p.id === shareTarget.id);
-      const teamShares = teamIds.map(
-        (teamId) => exists?.teamShares.find((t) => t.teamId === teamId) ?? { teamId, sharedAt: null },
-      );
-      const userShares = userIds.map(
-        (userId) => exists?.userShares.find((u) => u.userId === userId) ?? { userId, sharedAt: null },
-      );
-      if (exists) {
-        return prev.map((p) =>
-          p.id === shareTarget.id ? { ...p, teamIds, userIds, teamShares, userShares } : p,
-        );
-      }
-      return [...prev, { ...shareTarget, teamIds, userIds, teamShares, userShares }];
-    });
+    const target = shareTarget;
+    if (!target) return;
+    setSharing(true);
+    try {
+      await shareTo(target, teamIds, userIds);
+    } catch (e) {
+      toast.error("Couldn't update sharing", { description: (e as Error).message });
+      return;
+    } finally {
+      setSharing(false);
+    }
     setShareTarget(null);
   }
 
-  const handleStop = useCallback(() => {
-    queueRef.current = [];
-    queueIdxRef.current = 0;
-    setIsPlaying(false);
-    setActiveEventId(null);
-    setActiveTextCard(null);
-    pendingPlayRef.current = false;
-    if (textCardTimerRef.current) {
-      clearTimeout(textCardTimerRef.current);
-      textCardTimerRef.current = null;
-    }
-    videoRef.current?.pause();
-  }, []);
-
-  useEffect(() => {
-    handleStop();
-    const mId = selected?.items.find(isClipItem)?.matchId ?? null;
-    setActiveMatchId(mId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.id]);
-
-  // Swap video source when activeMatchId changes. matches.video_url can hold
-  // the coach's LOCAL filesystem path (desktop imports) — a browser can't
-  // play it and must never receive it as a src; only http(s) sources count.
-  useEffect(() => {
-    if (!activeMatchId) { setVideoUrl(null); return; }
-    const m = matchLookupRef.current.get(activeMatchId);
-    const url = m?.videoUrl;
-    setVideoUrl(url && /^https?:\/\//.test(url) ? url : null);
-  }, [activeMatchId]);
-
-
-  // Build display items for selected playlist
-  // For web: clips need r2Url to be playable; clips without r2Url are shown as greyed
-  const displayItems = useMemo((): (PlaybackItem & { hasR2?: boolean })[] => {
-    if (!selected) return [];
-    const items: (PlaybackItem & { hasR2?: boolean })[] = [];
-    for (const item of selected.items) {
-      if (isClipItem(item)) {
-        // Unshipped clips are invisible to recipients — a greyed row they
-        // can never play only reads as broken.
-        if (!item.r2Url) continue;
-        const event = eventByKey.get(`${item.matchId}:${item.eventId}`);
-        if (event) {
-          items.push({
-            event,
-            matchId: item.matchId,
-            r2Url: item.r2Url,
-            hasR2: true,
-            note: item.note,
-          });
-        }
-      } else {
-        items.push(item as PlaylistTextCard);
-      }
-    }
-    return items;
-  }, [selected, eventByKey]);
-
-  // Playable queue: only items with r2Url or text cards
-  const playableQueue = useMemo(
-    () => displayItems.filter((i) => isTextCard(i) || (i as QueueItem).r2Url),
-    [displayItems]
-  );
-
-  // ---------------------------------------------------------------------------
-  // Watch state
-  // ---------------------------------------------------------------------------
-
-  const isClipWatched = useCallback(
-    (playlistId: string, matchId: string, eventId: number) =>
-      clipViews.has(clipViewKey(playlistId, matchId, eventId)),
-    [clipViews],
-  );
-
-  /**
-   * Records a clip as watched once. Deduped against what we already know, so
-   * repeated timeupdate ticks and rewatches cost nothing.
-   */
-  const recordWatched = useCallback((playlistId: string, matchId: string, eventId: number) => {
-    const key = clipViewKey(playlistId, matchId, eventId);
-    let alreadyKnown = false;
-    setClipViews((prev) => {
-      if (prev.has(key)) { alreadyKnown = true; return prev; }
+  const toggleIn = (set: (fn: (prev: Set<string>) => Set<string>) => void) => (id: string) =>
+    set((prev) => {
       const next = new Set(prev);
-      next.add(key);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
-    if (alreadyKnown) return;
-    setLastWatched((prev) => new Map(prev).set(playlistId, new Date().toISOString()));
-    trackEvent("clip_watched", { playlist_id: playlistId });
-    void markClipWatched(playlistId, matchId, eventId);
-  }, []);
 
-  useEffect(() => { recordWatchedRef.current = recordWatched; }, [recordWatched]);
-
-  // Resume set a target before the playlist's items were available; start it
-  // once they are, then clear so a later manual open doesn't autoplay.
-  useEffect(() => {
-    const target = resumeTargetRef.current;
-    if (!target || !selected || playableQueue.length === 0) return;
-    resumeTargetRef.current = null;
-    const idx = playableQueue.findIndex((i) => itemKey(i) === target);
-    startQueue(playableQueue, idx >= 0 ? idx : 0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, playableQueue]);
-
-  // Cards for the landing feed, with per-playlist progress folded in.
-  // Own playlists are excluded: "Shared with me" means what OTHERS sent —
-  // a coach's outbound playlists live on the dashboard tab, and showing them
-  // here labeled them with the coach's own name as sharer.
-  const feedItems = useMemo<PlaylistCardData[]>(() => {
-    const directIds = new Set(directPlaylists.map((p) => p.id));
-    return allPlaylists
-      .filter((pl) => !currentUserId || pl.createdBy !== currentUserId)
-      .map((pl) => {
-      const clips = playableClips(pl);
-      const watchedCount = clips.filter((c) =>
-        clipViews.has(clipViewKey(pl.id, c.matchId, c.eventId)),
-      ).length;
-      const sharer = pl.sharedBy ? memberMap.get(pl.sharedBy) : undefined;
-      return {
-        id: pl.id,
-        name: pl.name,
-        clipCount: clips.length,
-        watchedCount,
-        sharedAt: pl.sharedAt,
-        lastWatchedAt: lastWatched.get(pl.id),
-        sharerId: pl.sharedBy,
-        // Email fallback: a sharer without full_name otherwise collapses to
-        // the anonymous "A coach".
-        sharerName: sharer?.fullName ?? sharer?.email ?? undefined,
-        sharerAvatarUrl: sharer?.avatarUrl ?? undefined,
-        isDirect: directIds.has(pl.id),
-        teamIds: pl.teamIds ?? [],
-        teamNames: (pl.teamIds ?? [])
-          .map((id) => teamMap.get(id)?.name)
-          .filter((n): n is string => !!n),
-      };
-    });
-  }, [allPlaylists, directPlaylists, clipViews, lastWatched, memberMap, currentUserId, teamMap]);
-
-  /**
-   * Source filter options — the feed's stand-in for the sidebar's grouping,
-   * which phones never see. Only teams that actually have playlists appear.
-   */
-  const sourceOptions = useMemo<SourceOption[]>(() => {
-    const opts: SourceOption[] = [{ value: "all", label: "All playlists" }];
-    if (receivedDirectPlaylists.length > 0) {
-      opts.push({ value: "direct", label: "Shared with me" });
-    }
-    for (const [teamId, team] of teamMap) {
-      if (receivedTeamPlaylists.some((p) => (p.teamIds ?? []).includes(teamId))) {
-        opts.push({ value: `team:${teamId}`, label: team.name });
-      }
-    }
-    return opts;
-  }, [receivedDirectPlaylists, receivedTeamPlaylists, teamMap]);
-
-  /** Watched/total for the open playlist, shown under the controls. */
-  const selectedProgress = useMemo(() => {
-    if (!selected) return { watched: 0, total: 0 };
-    const clips = playableClips(selected);
-    return {
-      watched: clips.filter((c) => clipViews.has(clipViewKey(selected.id, c.matchId, c.eventId))).length,
-      total: clips.length,
-    };
-  }, [selected, clipViews]);
-
-  /** Opens a playlist and starts from the first clip the player hasn't watched. */
-  const resumePlaylist = useCallback((id: string) => {
-    openPlaylist(id, { resumed: true });
-    const pl = allPlaylists.find((p) => p.id === id);
-    if (!pl) return;
-    // Playable clips only — an unshipped clip can't be the resume target
-    // (it isn't in the queue, and falling back to index 0 replays watched
-    // clips: the exact bug this fixed).
-    const firstUnwatched = playableClips(pl)
-      .find((c) => !clipViews.has(clipViewKey(pl.id, c.matchId, c.eventId)));
-    resumeTargetRef.current = firstUnwatched
-      ? `${firstUnwatched.matchId}:${firstUnwatched.eventId}`
-      : null;
-  }, [allPlaylists, clipViews, openPlaylist]);
-
-  useEffect(() => { playableQueueRef.current = playableQueue; }, [playableQueue]);
-
-  const advanceQueueRef = useRef<(fromIdx: number) => void>(() => {});
-  const advanceFromTextCardRef = useRef<() => void>(() => {});
-
-  function startTextCard(card: PlaylistTextCard) {
-    setActiveEventId(null);
-    setActiveTextCard(card);
-    activeTextCardRef.current = card;
-    videoRef.current?.pause();
-    if (textCardTimerRef.current) clearTimeout(textCardTimerRef.current);
-    textCardTimerRef.current = setTimeout(() => {
-      textCardTimerRef.current = null;
-      advanceFromTextCardRef.current();
-    }, card.durationSeconds * 1000);
-  }
-  const startTextCardRef = useRef(startTextCard);
-  startTextCardRef.current = startTextCard;
-
-  function advanceQueue(fromIdx: number) {
-    const queue = queueRef.current;
-    const nextIdx = fromIdx + 1;
-    if (nextIdx >= queue.length) {
-      setIsPlaying(false);
-      queueRef.current = [];
-      return;
-    }
-    queueIdxRef.current = nextIdx;
-    const nextItem = queue[nextIdx];
-    if (isTextCard(nextItem)) {
-      startTextCardRef.current(nextItem as PlaylistTextCard);
-    } else {
-      const clipItem = nextItem as QueueItem;
-      if (!clipItem.r2Url) {
-        advanceQueue(nextIdx);
-        return;
-      }
-      pendingPlayRef.current = true;
-      setActiveEventId(clipItem.event.eventId);
-      if (clipItem.matchId !== activeMatchIdRef.current) {
-        setActiveMatchId(clipItem.matchId);
-      }
-    }
-  }
-  advanceQueueRef.current = advanceQueue;
-
-  advanceFromTextCardRef.current = () => {
-    if (textCardTimerRef.current) {
-      clearTimeout(textCardTimerRef.current);
-      textCardTimerRef.current = null;
-    }
-    setActiveTextCard(null);
-    activeTextCardRef.current = null;
-    advanceQueue(queueIdxRef.current);
-  };
-
-  function startQueue(queue: PlaybackItem[], startIdx = 0) {
-    if (queue.length === 0) return;
-    const sliced = queue.slice(startIdx);
-    if (sliced.length === 0) return;
-    const firstItem = sliced[0];
-    queueRef.current = sliced;
-    queueIdxRef.current = 0;
-    setIsPlaying(true);
-    if (isTextCard(firstItem)) {
-      startTextCardRef.current(firstItem as PlaylistTextCard);
-      return;
-    }
-    const clipItem = firstItem as QueueItem;
-    if (!clipItem.r2Url) {
-      advanceQueue(0);
-      return;
-    }
-    if (textCardTimerRef.current) {
-      clearTimeout(textCardTimerRef.current);
-      textCardTimerRef.current = null;
-    }
-    setActiveTextCard(null);
-    activeTextCardRef.current = null;
-    pendingPlayRef.current = true;
-    setActiveEventId(clipItem.event.eventId);
-    if (clipItem.matchId !== activeMatchIdRef.current) {
-      setActiveMatchId(clipItem.matchId);
-    }
-  }
-
-  function handleRowClick(item: PlaybackItem & { hasR2?: boolean }) {
-    if (!isTextCard(item) && !item.hasR2) return; // greyed out
-    const idx = playableQueue.findIndex((i) => itemKey(i) === itemKey(item));
-    startQueue(playableQueue, idx >= 0 ? idx : 0);
-  }
-
-  const listPosition = useMemo(() => {
-    if (activeTextCard)
-      return playableQueue.findIndex(i => isTextCard(i) && (i as PlaylistTextCard).id === activeTextCard.id);
-    if (activeEventId !== null)
-      return playableQueue.findIndex(i => !isTextCard(i) && (i as QueueItem).event.eventId === activeEventId);
-    return -1;
-  }, [activeTextCard, activeEventId, playableQueue]);
-
-  const canPrev = isPlaying && listPosition > 0;
-  const canNext = isPlaying && listPosition >= 0 && listPosition < playableQueue.length - 1;
-  const isQueueActive = isPlaying;
-
-  function handlePrev() {
-    if (listPosition <= 0) return;
-    handleRowClick(playableQueueRef.current[listPosition - 1]);
-  }
-  function handleNext() {
-    if (listPosition < 0 || listPosition >= playableQueueRef.current.length - 1) return;
-    handleRowClick(playableQueueRef.current[listPosition + 1]);
-  }
-  function handleReplay() {
-    const item = queueRef.current[queueIdxRef.current];
-    if (!item) return;
-    if (isTextCard(item)) {
-      startTextCardRef.current(item as PlaylistTextCard);
-    } else {
-      const video = videoRef.current;
-      if (!video) return;
-      video.currentTime = 0;
-      video.play().catch(() => {});
-    }
-  }
-
-  const activeKey = activeTextCard
-    ? `text:${activeTextCard.id}`
-    : activeEventId !== null
-    ? displayItems.find((i) => !isTextCard(i) && (i as QueueItem).event.eventId === activeEventId)
-      ? itemKey(displayItems.find((i) => !isTextCard(i) && (i as QueueItem).event.eventId === activeEventId)!)
-      : null
-    : null;
-
-  // Keep the active row visible as the queue auto-advances — without this a
-  // long playlist plays on while the highlight drifts below the fold.
-  useEffect(() => {
-    if (!activeKey || !clipListRef.current) return;
-    clipListRef.current
-      .querySelector(`[data-item-key="${CSS.escape(activeKey)}"]`)
-      ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [activeKey]);
-
-  // ---------------------------------------------------------------------------
-  // Current video src: for R2-based playback, swap to clip's r2Url when active
-  // ---------------------------------------------------------------------------
-  const currentClipR2 = useMemo(() => {
-    if (!activeEventId) return null;
-    const item = displayItems.find(
-      (i) => !isTextCard(i) && (i as QueueItem).event.eventId === activeEventId
-    ) as QueueItem | undefined;
-    return item?.r2Url ?? null;
-  }, [activeEventId, displayItems]);
-
-  // For R2 clips: video src is the clip's r2Url directly (no server streaming)
-  // For match video: video src is the match videoUrl
-  const effectiveVideoSrc = currentClipR2 ?? videoUrl;
-
-  // Autoplay when src changes; auto-advance on clip end; record watch state.
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !effectiveVideoSrc) return;
-
-    function handleCanPlay() {
-      if (!pendingPlayRef.current) return;
-      pendingPlayRef.current = false;
-      video!.play().catch(() => {});
-    }
-
-    // Watched = playback reached 3s before clip end (the post-roll — the
-    // action is over, skipping ahead here is normal viewing). Shared rule:
-    // isWatchedPosition in @scoutable/shared/lib/clip-timing.
-    function markIfWatched() {
-      const playlistId = selectedRef.current?.id;
-      const matchId = activeMatchIdRef.current;
-      const eventId = activeEventIdRef.current;
-      if (!playlistId || !matchId || eventId === null) return;
-      if (isWatchedPosition(video!.currentTime, video!.duration)) {
-        recordWatchedRef.current(playlistId, matchId, eventId);
-      }
-    }
-
-    function handleEnded() {
-      markIfWatched();
-      advanceQueueRef.current(queueIdxRef.current);
-    }
-
-    video.addEventListener("canplay", handleCanPlay, { once: true });
-    video.addEventListener("timeupdate", markIfWatched);
-    video.addEventListener("ended", handleEnded);
-    return () => {
-      video.removeEventListener("canplay", handleCanPlay);
-      video.removeEventListener("timeupdate", markIfWatched);
-      video.removeEventListener("ended", handleEnded);
-    };
-  }, [effectiveVideoSrc]);
-
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
+  const isCoachOrAdmin = userRole === "coach" || userRole === "admin";
+  const showDashboard = isCoachOrAdmin && coachTab === "by-me";
+  // Matches the navigation's label for this page (shared/lib/app-nav.ts).
+  const title =
+    !isPlayerOnly && (activeOrgRole === "coach" || activeOrgRole === "admin") ? "Shared playlists" : "My playlists";
 
   if (loading) {
     return (
-      <div className="flex h-96 items-center justify-center">
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      </div>
+      <Page width="medium">
+        <Toolbar title={selectedId ? "" : title} inline={!!selectedId} />
+        <PageContent>
+          <div className="flex h-64 items-center justify-center">
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          </div>
+        </PageContent>
+      </Page>
     );
   }
 
-  /**
-   * Sidebar rows carry the same watch signals as the feed cards.
-   *
-   * The feed is only rendered when nothing is open, so without this a desktop
-   * player watching one playlist had no way to see that another was unwatched
-   * — the exact signal this feature exists to deliver.
-   */
-  function PlaylistRowBody({ pl, meta }: { pl: Playlist; meta?: string }) {
-    const clips = playableClips(pl);
-    const total = clips.length;
-    const watched = clips.filter((c) =>
-      clipViews.has(clipViewKey(pl.id, c.matchId, c.eventId)),
-    ).length;
-    const isNew = total > 0 && watched === 0;
-    const isComplete = total > 0 && watched >= total;
-    const partial = total > 0 && !isNew && !isComplete;
-
-    return (
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 min-w-0">
-          {isNew && (
-            <span
-              className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary"
-              title="Not watched yet"
-              aria-label="Not watched yet"
-            />
+  // This page can't upload (no footage on the web); the desktop app can.
+  const unshipped = shareTarget?.items.filter((i) => isClipItem(i) && !i.r2Url).length ?? 0;
+  const hasRecipients = (shareTarget?.teamIds?.length ?? 0) > 0 || (shareTarget?.userIds?.length ?? 0) > 0;
+  const shareDialog = (
+    <Dialog open={shareTarget !== null} onOpenChange={(open) => !open && !sharing && setShareTarget(null)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Share playlist</DialogTitle>
+          <DialogDescription>Choose the teams and members who can watch “{shareTarget?.name}”.</DialogDescription>
+        </DialogHeader>
+        <ShareRecipients
+          teams={allOrgTeams}
+          members={[...memberMap.values()].filter((m) => m.id !== currentUserId)}
+          teamIds={shareTeamIds}
+          userIds={shareUserIds}
+          onToggleTeam={toggleIn(setShareTeamIds)}
+          onToggleUser={toggleIn(setShareUserIds)}
+        />
+        {unshipped > 0 && (
+          <Callout tone="warning" icon={<AlertTriangle />}>
+            {unshipped === 1
+              ? "1 clip isn't uploaded yet, so recipients don't see it. Upload it from the desktop app."
+              : `${unshipped} clips aren't uploaded yet, so recipients don't see them. Upload them from the desktop app.`}
+          </Callout>
+        )}
+        <DialogFooter>
+          {hasRecipients && (
+            <Button variant="ghost" className="text-destructive sm:mr-auto" disabled={sharing} onClick={() => handleShare([], [])}>
+              Stop sharing
+            </Button>
           )}
-          {isComplete && <Check className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="Watched" />}
-          <p className={cn(
-            "truncate text-sm text-foreground",
-            isNew ? "font-semibold" : "font-medium",
-          )}>
-            {pl.name}
-          </p>
-        </div>
+          <Button variant="outline" disabled={sharing} onClick={() => setShareTarget(null)}>
+            Cancel
+          </Button>
+          <Button disabled={sharing} onClick={() => handleShare([...shareTeamIds], [...shareUserIds])}>
+            {sharing && <Loader2 className="animate-spin" />}
+            Done
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 
-        {partial && (
-          <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-primary transition-all"
-              style={{ width: `${(watched / total) * 100}%` }}
-            />
-          </div>
-        )}
-
-        <p className="mt-0.5 truncate text-xs text-muted-foreground">
-          {partial
-            ? `${watched}/${total} watched`
-            : `${pl.items.length} item${pl.items.length !== 1 ? "s" : ""}`}
-          {meta}
-        </p>
-      </div>
-    );
-  }
-
-  function PlaylistTree({ onSelect }: { onSelect: (pl: Playlist) => void }) {
-    if (receivedTeamPlaylists.length === 0 && directOnlyPlaylists.length === 0) {
-      return (
-        <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-          <p className="text-sm font-medium text-foreground">No playlists yet</p>
-          {/* Reachable for coaches now that their own outbound playlists are
-              excluded here — "your coach" would read as nonsense. Same wording
-              as the feed's coach empty state. */}
-          <p className="mt-1 text-xs text-muted-foreground">
-            {isCoachOrAdmin
-              ? "Playlists other coaches share with you show up here."
-              : <>When your coach shares clips with you, they show up here — we&apos;ll email you.</>}
-          </p>
-        </div>
-      );
-    }
+  // ---------------------------------------------------------------- watch
+  if (selected) {
+    const sharer = selected.sharedBy
+      ? memberMap.get(selected.sharedBy)
+      : selected.createdBy
+        ? memberMap.get(selected.createdBy)
+        : undefined;
+    const own = !!currentUserId && selected.createdBy === currentUserId;
+    // Named after where it goes: a coach returns to the view they came from
+    // (coachTab survives the ?p= round trip).
+    const backLabel = !isCoachOrAdmin ? "My playlists" : coachTab === "by-me" ? "Shared by me" : "Shared with me";
     return (
-      <>
-        {/* "Shared with me" section — direct shares only */}
-        {directOnlyPlaylists.length > 0 && (
-          <div>
-            <button
-              type="button"
-              onClick={() => setDirectSectionExpanded((v) => !v)}
-              className="flex w-full items-center gap-1.5 px-3 py-2 hover:bg-muted/50 transition-colors select-none"
-            >
-              {directSectionExpanded ? (
-                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              ) : (
-                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              )}
-              <User2 className="h-3 w-3 shrink-0 text-primary/70" />
-              <span className="flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Shared with me
-              </span>
-              <span className="text-xs text-muted-foreground">{directOnlyPlaylists.length}</span>
-            </button>
-            {directSectionExpanded && directOnlyPlaylists.map((pl) => {
-              const creatorName = pl.createdBy
-                ? (memberMap.get(pl.createdBy)?.fullName ?? null)
-                : null;
-              return (
-                <div
-                  key={pl.id}
-                  className={cn(
-                    "w-full flex items-center gap-1 px-4 py-2.5 transition-colors hover:bg-muted/50 cursor-pointer",
-                    pl.id === selected?.id && "bg-muted"
-                  )}
-                  onClick={() => onSelect(pl)}
-                >
-                  <PlaylistRowBody
-                    pl={pl}
-                    meta={creatorName ? ` · Shared by ${creatorName}` : ""}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {Array.from(grouped.entries()).map(([teamKey, teamPlaylists]) => {
-          const team = teamKey !== "__none__" ? teamMap.get(teamKey) : undefined;
-          const teamName = team?.name ?? "Unassigned";
-          const isExpanded = expandedTeams.has(teamKey);
-          return (
-            <div key={teamKey}>
-              <button
-                type="button"
-                onClick={() => toggleTeam(teamKey)}
-                className="flex w-full items-center gap-1.5 px-3 py-2 hover:bg-muted/50 transition-colors select-none"
-              >
-                {isExpanded ? (
-                  <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                ) : (
-                  <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                )}
-                <span className="flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  {teamName}
-                </span>
-                <span className="text-xs text-muted-foreground">{teamPlaylists.length}</span>
-              </button>
-
-              {isExpanded &&
-                teamPlaylists.map((pl) => {
-                  const creatorName = pl.createdBy
-                    ? (memberMap.get(pl.createdBy)?.fullName ?? null)
-                    : null;
-                  return (
-                    <div
-                      key={pl.id}
-                      className={cn(
-                        "group w-full flex items-center gap-1 px-4 py-2.5 transition-colors hover:bg-muted/50 cursor-pointer",
-                        pl.id === selected?.id && "bg-muted"
-                      )}
-                    >
-                      <div className="flex-1 min-w-0" onClick={() => onSelect(pl)}>
-                        <PlaylistRowBody pl={pl} meta={creatorName ? ` · ${creatorName}` : ""} />
-                      </div>
-                      {overlappingDirectIds.has(pl.id) && (
-                        <User2
-                          className="h-3 w-3 shrink-0 text-primary/60"
-                          aria-label="Also shared directly with you"
-                        />
-                      )}
-                      {overlappingSharedOutIds.has(pl.id) && (
-                        <User2
-                          className="h-3 w-3 shrink-0 text-primary/60"
-                          aria-label="Also shared directly with players"
-                        />
-                      )}
-                      {pl.createdBy === currentUserId && (
-                        <button
-                          type="button"
-                          className={cn(
-                            "shrink-0 rounded p-1 focus:outline-none transition-opacity",
-                            (pl.teamIds?.length ?? 0) > 0
-                              ? "text-primary"
-                              : "text-muted-foreground/50 opacity-0 group-hover:opacity-100"
-                          )}
-                          title={(pl.teamIds?.length ?? 0) > 0 ? "Manage sharing" : "Share with team"}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setPendingShareTeamIds(new Set(pl.teamIds ?? []));
-                            setPendingShareUserIds(new Set(pl.userIds ?? []));
-                            setShareTarget(pl);
-                          }}
-                        >
-                          <Share2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                      {(userRole === "coach" || userRole === "admin") && (
-                        <button
-                          type="button"
-                          className="shrink-0 rounded p-1 text-muted-foreground/50 opacity-0 group-hover:opacity-100 focus:outline-none transition-opacity hover:text-foreground"
-                          title="Copy share link"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigator.clipboard.writeText(`${window.location.origin}/view/${pl.id}`);
-                            toast.success("Share link copied");
-                          }}
-                        >
-                          <Link2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-            </div>
-          );
-        })}
-
-        {/* "Shared by me" moved to the coach dashboard tab. */}
-      </>
+      <Page width="full">
+        <Toolbar
+          inline
+          title={selected.name}
+          subtitle={[
+            own ? "Your playlist" : `From ${sharer?.fullName ?? sharer?.email ?? "your coach"}`,
+            `${selectedProgress.total} clip${selectedProgress.total === 1 ? "" : "s"}`,
+          ].join(" · ")}
+          leading={<BackButton href="/my-playlists" label={backLabel} />}
+        />
+        <WatchView
+          key={selected.id}
+          title={selected.name}
+          items={watchItems}
+          matchTitleFor={(id) => (multiGame ? matchLookup.get(id)?.title : undefined)}
+          isWatched={(m, e) => isClipWatched(selected.id, m, e)}
+          onWatched={(m, e) => recordWatched(selected.id, m, e)}
+          progress={selectedProgress}
+          startKey={startKey}
+          autoplay={autoplay}
+          onAutoplayStarted={consumeAutoplay}
+          canScrub={canScrubPlaylist({ userId: currentUserId, myOrgs }, selected)}
+          emptyText={
+            own
+              ? "No clips yet. Add clips to this playlist in the desktop app."
+              : isCoachOrAdmin
+                ? "No clips to watch yet."
+                : "No clips to watch yet. Your coach may still be uploading them."
+          }
+        />
+      </Page>
     );
   }
 
-  const isCoachOrAdmin = userRole === "coach" || userRole === "admin";
-  const showDashboard = isCoachOrAdmin && coachTab === "by-me" && !selected;
+  // ---------------------------------------------------------------- lists
+  const filterButtons = !showDashboard && (sharerOptions.length > 0 || sourceOptions.length > 1) && (
+    <>
+      {sharerOptions.length > 0 && (
+        <PopUpButton
+          aria-label="From"
+          align="end"
+          size="sm"
+          value={feedFilters.sharer}
+          onValueChange={(sharer) => setFeedFilters((f) => ({ ...f, sharer }))}
+          options={[
+            { value: "all", label: "From everyone" },
+            ...sharerOptions.filter((o) => o.value !== "all").map((o) => ({ value: o.value, label: `From ${o.label}` })),
+          ]}
+        />
+      )}
+      {sourceOptions.length > 1 && (
+        <PopUpButton
+          aria-label="Team"
+          align="end"
+          size="sm"
+          value={feedFilters.source}
+          onValueChange={(source) => setFeedFilters((f) => ({ ...f, source }))}
+          options={sourceOptions}
+        />
+      )}
+    </>
+  );
 
   return (
-    // dvh, not vh — mobile browsers shrink the viewport as the address bar
-    // collapses, and vh would leave the controls clipped below the fold.
-    <div className="flex h-[calc(100dvh-4rem)] flex-col overflow-hidden">
-    {/* Coaches get two perspectives: what they sent (dashboard) and what
-        they received (the player-style view below). Hidden while watching. */}
-    {isCoachOrAdmin && !selected && (
-      <div className="flex shrink-0 items-center gap-1 border-b border-border px-4 py-2">
-        {([
-          ["by-me", "Shared by me"],
-          ["with-me", "Shared with me"],
-        ] as const).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setCoachTab(key)}
-            className={cn(
-              "min-h-[36px] rounded-md px-3 text-sm font-medium transition-colors",
-              coachTab === key
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground active:text-foreground lg:hover:text-foreground",
-            )}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-    )}
-
-    {showDashboard ? (
-      <div className="flex-1 overflow-y-auto">
-        <AdminSetupCard className="mx-4 mt-4 sm:mx-6" />
-        <SharedByMe
-          shared={loading ? null : sharedOutPlaylists}
-          memberMap={memberMap}
-          teamMap={teamMap}
-          currentUserId={currentUserId}
-          onOpenPlaylist={openPlaylist}
-          onManageShare={(pl) => {
-            setPendingShareTeamIds(new Set(pl.teamIds ?? []));
-            setPendingShareUserIds(new Set(pl.userIds ?? []));
-            setShareTarget(pl);
-          }}
-        />
-      </div>
-    ) : (
-    <div className="flex flex-1 overflow-hidden">
-      {/* Left: playlist list (desktop only) */}
-      <aside className="w-72 shrink-0 flex flex-col border-r border-border bg-card overflow-hidden hidden lg:flex">
-        <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-          {(userRole === "coach" || userRole === "admin") ? (
-            <Share2 className="h-4 w-4 text-muted-foreground" />
-          ) : (
-            <BookOpen className="h-4 w-4 text-muted-foreground" />
-          )}
-          <span className="text-sm font-semibold text-foreground">
-            {(userRole === "coach" || userRole === "admin") ? "Shared Playlists" : "My Playlists"}
-          </span>
-          {receivedTeamPlaylists.length > 0 && (
-            <span className="ml-auto text-xs text-muted-foreground">{receivedTeamPlaylists.length}</span>
-          )}
-        </div>
-        <div className="flex-1 overflow-y-auto py-2">
-          <PlaylistTree onSelect={(pl) => (pl.id === selected?.id ? closePlaylist() : openPlaylist(pl.id))} />
-        </div>
-      </aside>
-
-      {/* Right: feed (nothing open) or watch view */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {!selected ? (
-          // The feed answers the player's actual question on arrival —
-          // "what's new for me?" — instead of an empty pane.
-          <div className="flex-1 overflow-y-auto">
-            <WelcomeCard />
-            <PlaylistFeed
-              playlists={feedItems}
-              sourceOptions={sourceOptions}
-              onOpen={openPlaylist}
-              onResume={resumePlaylist}
-              emptyCopy={
-                isCoachOrAdmin
-                  ? "Playlists other coaches share with you show up here."
-                  : undefined
-              }
+    <Page width="medium">
+      <Toolbar
+        title={title}
+        principal={
+          isCoachOrAdmin ? (
+            <SegmentedControl
+              aria-label="Shared playlists"
+              value={coachTab}
+              onValueChange={setCoachTab}
+              options={[
+                { value: "by-me", label: "Shared by me" },
+                { value: "with-me", label: "Shared with me" },
+              ]}
             />
-          </div>
-        ) : (
+          ) : undefined
+        }
+        search={
+          showDashboard ? (
+            <SearchField
+              placeholder="Search playlists"
+              aria-label="Search playlists"
+              value={dashboardQuery}
+              onChange={(e) => setDashboardQuery(e.target.value)}
+            />
+          ) : feedItems.length > 0 ? (
+            <SearchField
+              placeholder="Search playlists"
+              aria-label="Search playlists"
+              value={feedFilters.query}
+              onChange={(e) => setFeedFilters((f) => ({ ...f, query: e.target.value }))}
+            />
+          ) : undefined
+        }
+        actions={filterButtons ? <div className="hidden items-center gap-2 lg:flex">{filterButtons}</div> : undefined}
+      />
+      <PageContent>
+        {showDashboard ? (
           <>
-            {/* Page header — back-navigation and "what am I watching" belong
-                above the video, not below it: this is page chrome, and putting
-                it under a big black rectangle makes it read as video controls
-                while labelling the video only after you've seen it. */}
-            <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-1.5">
-              <button
-                type="button"
-                onClick={closePlaylist}
-                title={isCoachOrAdmin && coachTab === "by-me" ? "Back to Shared by me" : "Back to all playlists"}
-                className="flex min-h-[44px] shrink-0 items-center gap-1 rounded-md pr-1 text-sm font-medium text-muted-foreground transition-colors active:text-foreground lg:min-h-0 lg:py-1.5 lg:hover:text-foreground"
-              >
-                <ChevronLeft className="h-4 w-4" />
-                {/* Name the destination, not "back": the coach may have
-                    arrived from the dashboard tab, which is where closing
-                    returns them (coachTab survives the ?p= round-trip). */}
-                <span className="hidden sm:inline">
-                  {isCoachOrAdmin && coachTab === "by-me" ? "Shared by me" : "All playlists"}
-                </span>
-              </button>
-              <span className="h-4 w-px shrink-0 bg-border" aria-hidden />
-              <p className="flex-1 truncate text-sm font-semibold text-foreground">
-                {selected.name}
-              </p>
-            </div>
-
-            {/* Video area — pinned while the clip list scrolls beneath it. */}
-            <div className="relative bg-black shrink-0 max-h-[55vh]">
-              {effectiveVideoSrc ? (
-                <VideoPlayer src={effectiveVideoSrc} videoRef={videoRef} />
-              ) : (
-                <div className="aspect-video flex items-center justify-center bg-black">
-                  <p className="text-sm text-white/40">No video available</p>
-                </div>
-              )}
-              {activeTextCard && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/80">
-                  <p className="max-w-lg px-8 text-center text-2xl font-bold text-white">
-                    {activeTextCard.text}
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {/* Controls bar */}
-            <div className="border-b border-border shrink-0">
-              <div className="flex justify-center py-3">
-                <VideoClipControls
-                  videoRef={videoRef}
-                  canPrev={canPrev}
-                  canNext={canNext}
-                  isQueueActive={isQueueActive}
-                  onPrev={handlePrev}
-                  onNext={handleNext}
-                  onReplay={handleReplay}
-                  onStop={handleStop}
-                  onPlayAll={() => startQueue(playableQueue, 0)}
-                />
-              </div>
-              {selectedProgress.total > 0 && (
-                <div className="flex items-center gap-2 px-4 pb-2">
-                  <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-primary transition-all"
-                      style={{ width: `${(selectedProgress.watched / selectedProgress.total) * 100}%` }}
-                    />
-                  </div>
-                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                    {selectedProgress.watched}/{selectedProgress.total}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Clip list */}
-            <div ref={clipListRef} className="flex-1 overflow-y-auto">
-              {displayItems.length === 0 ? (
-                <div className="flex items-center justify-center py-12">
-                  <p className="text-sm text-muted-foreground">
-                    {selected && currentUserId && selected.createdBy === currentUserId
-                      ? "No clips yet — add clips from the desktop editor."
-                      : isCoachOrAdmin
-                        ? "No clips to watch yet."
-                        : "No clips to watch yet. Your coach may still be uploading."}
-                  </p>
-                </div>
-              ) : (
-                displayItems.map((item, idx) => {
-                  const key = itemKey(item);
-                  const isActive = activeKey === key;
-                  if (isTextCard(item)) {
-                    const card = item as PlaylistTextCard;
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        data-item-key={key}
-                        onClick={() => handleRowClick(item)}
-                        className={cn(
-                          "w-full px-4 py-2.5 text-left transition-colors hover:bg-muted/50 flex items-center gap-3",
-                          isActive && "bg-primary/10"
-                        )}
-                      >
-                        <span className="text-xs text-muted-foreground w-5 shrink-0 text-right">
-                          {idx + 1}
-                        </span>
-                        <span className="text-sm italic text-muted-foreground truncate">
-                          {card.text || "Text card"}
-                        </span>
-                      </button>
-                    );
-                  }
-                  const qi = item as QueueItem & { hasR2?: boolean; note?: string };
-                  const match = matchLookup.get(qi.matchId);
-                  return (
-                    <div key={key} data-item-key={key}>
-                      <ClipRow
-                        event={qi.event}
-                        matchTitle={match?.title}
-                        matchDate={match?.date}
-                        note={qi.note}
-                        playable={!!qi.r2Url}
-                        watched={isClipWatched(selected.id, qi.matchId, qi.event.eventId)}
-                        active={isActive}
-                        onSelect={() => handleRowClick(item)}
-                      />
-                    </div>
-                  );
-                })
-              )}
-            </div>
+            <AdminSetupCard className="mb-4" />
+            <SharedByMe
+              shared={sharedOutPlaylists}
+              memberMap={memberMap}
+              teamMap={teamMap}
+              currentUserId={currentUserId}
+              query={dashboardQuery}
+              onClearQuery={() => setDashboardQuery("")}
+              onOpenPlaylist={openPlaylist}
+              onManageShare={openShare}
+            />
           </>
+        ) : (
+          <PlaylistFeed
+            playlists={feedItems}
+            filters={feedFilters}
+            onWatchChange={(watch) => setFeedFilters((f) => ({ ...f, watch }))}
+            onClearFilters={() => setFeedFilters(EMPTY_FEED_FILTERS)}
+            onOpen={openPlaylist}
+            onResume={resumePlaylist}
+            welcome={<WelcomeCard />}
+            emptyBody={isCoachOrAdmin ? "Playlists other coaches share with you show up here." : undefined}
+            filterControls={filterButtons || undefined}
+          />
         )}
-      </div>
-    </div>
-    )}
-
-      <Dialog open={shareTarget !== null} onOpenChange={(open) => { if (!open) { setShareTarget(null); setPlayerSearchQuery(""); } }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Share Playlist</DialogTitle>
-            <DialogDescription>Choose which teams and players can see this playlist.</DialogDescription>
-          </DialogHeader>
-          <div className="py-2">
-            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Teams</p>
-            <div className="flex flex-col gap-1">
-              {allOrgTeams.map((team) => {
-                const checked = pendingShareTeamIds.has(team.id);
-                return (
-                  <button
-                    key={team.id}
-                    type="button"
-                    className={cn(
-                      "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-muted",
-                      checked && "bg-primary/10"
-                    )}
-                    onClick={() => {
-                      setPendingShareTeamIds((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(team.id)) next.delete(team.id);
-                        else next.add(team.id);
-                        return next;
-                      });
-                    }}
-                  >
-                    <span className={cn("flex h-4 w-4 items-center justify-center rounded border", checked ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40")}>
-                      {checked && <span className="text-[10px] font-bold">✓</span>}
-                    </span>
-                    {team.name}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="mt-4">
-              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Players</p>
-              <input
-                type="text"
-                placeholder="Search players…"
-                value={playerSearchQuery}
-                onChange={(e) => setPlayerSearchQuery(e.target.value)}
-                className="mb-2 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
-              />
-              <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
-                {Array.from(memberMap.values())
-                  .filter((m) => m.id !== currentUserId && (m.fullName ?? "").toLowerCase().includes(playerSearchQuery.toLowerCase()))
-                  .map((member) => {
-                    const checked = pendingShareUserIds.has(member.id);
-                    const initials = (member.fullName ?? "?")
-                      .split(" ")
-                      .map((w) => w[0])
-                      .slice(0, 2)
-                      .join("")
-                      .toUpperCase();
-                    return (
-                      <button
-                        key={member.id}
-                        type="button"
-                        className={cn(
-                          "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-muted",
-                          checked && "bg-primary/10"
-                        )}
-                        onClick={() => {
-                          setPendingShareUserIds((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(member.id)) next.delete(member.id);
-                            else next.add(member.id);
-                            return next;
-                          });
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          readOnly
-                          checked={checked}
-                          className="h-3.5 w-3.5 rounded border-border accent-primary pointer-events-none"
-                        />
-                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
-                          {initials}
-                        </span>
-                        <span className="flex-1 truncate">{member.fullName ?? member.email ?? "Unknown"}</span>
-                      </button>
-                    );
-                  })}
-              </div>
-            </div>
-          </div>
-          {(() => {
-            // Web can't upload clips — shares of unshipped clips stay silent
-            // until the desktop editor uploads them.
-            const unshipped = shareTarget?.items.filter((i) => isClipItem(i) && !i.r2Url).length ?? 0;
-            return unshipped > 0 ? (
-              <p className="text-xs text-amber-600 dark:text-amber-400">
-                {unshipped} clip{unshipped === 1 ? " isn't" : "s aren't"} uploaded yet — recipients
-                won&apos;t be notified until you upload them from the desktop editor.
-              </p>
-            ) : null;
-          })()}
-          <DialogFooter className="flex items-center">
-            {((shareTarget?.teamIds?.length ?? 0) > 0 || (shareTarget?.userIds?.length ?? 0) > 0) && (
-              <Button variant="ghost" size="sm" className="text-muted-foreground mr-auto" onClick={() => handleShare([], [])}>
-                Remove all
-              </Button>
-            )}
-            <Button size="sm" onClick={() => handleShare([...pendingShareTeamIds], [...pendingShareUserIds])}>
-              Done
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+      </PageContent>
+      {shareDialog}
+    </Page>
   );
 }

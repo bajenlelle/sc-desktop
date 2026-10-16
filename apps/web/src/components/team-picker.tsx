@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, Search } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { Check } from "lucide-react";
+import { SearchField } from "@/components/ui/search-field";
+import { pressable } from "@/lib/pressable";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { groupTeams, searchTeams } from "@scoutable/shared/lib/league-teams";
@@ -31,7 +32,7 @@ export function TeamCrest({ team, size = 28 }: { team: Pick<LeagueTeam, "name" |
         src={team.logoUrl}
         alt=""
         style={style}
-        className="shrink-0 rounded-full bg-white object-contain ring-1 ring-border"
+        className="shrink-0 rounded-full bg-white object-contain ring-1 ring-separator"
         onError={() => setBroken(true)}
       />
     );
@@ -39,7 +40,7 @@ export function TeamCrest({ team, size = 28 }: { team: Pick<LeagueTeam, "name" |
   return (
     <span
       style={style}
-      className="flex shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground ring-1 ring-border"
+      className="flex shrink-0 items-center justify-center rounded-full bg-muted text-caption font-semibold text-muted-foreground ring-1 ring-separator"
     >
       {initials(team.name)}
     </span>
@@ -73,55 +74,61 @@ export function TeamPicker({ teams, suggestedIds, selectedId, onSelect }: TeamPi
   );
 
   return (
-    <div className="space-y-2">
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          autoFocus
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search teams or clubs"
-          spellCheck={false}
-          autoCorrect="off"
-          autoComplete="off"
-          className="pl-8"
-          aria-label="Search teams or clubs"
-        />
-      </div>
-      <div className="h-72 overflow-y-auto rounded-md border border-border" role="listbox" aria-label="Teams">
+    <div className="grid gap-2">
+      <SearchField
+        autoFocus
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search teams or clubs"
+        spellCheck={false}
+        autoCorrect="off"
+        autoComplete="off"
+        aria-label="Search teams or clubs"
+      />
+      <div
+        className="h-72 overflow-y-auto rounded-window bg-card ring-1 ring-separator"
+        role="listbox"
+        aria-label="Teams"
+      >
         {sections.length === 0 && (
-          <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-            No teams match &ldquo;{query.trim()}&rdquo;. Try the club name, or tell us your team isn&apos;t listed.
+          <p className="px-4 py-8 text-center text-callout text-muted-foreground">
+            No teams match “{query.trim()}”. Try the club&apos;s name, or tell us your team isn&apos;t listed.
           </p>
         )}
         {sections.map((section) => (
           <div key={section.kind === "club" ? "club" : section.leagueId}>
-            <div className="sticky top-0 z-10 border-b border-border bg-muted/80 px-3 py-1.5 text-xs font-medium text-muted-foreground backdrop-blur">
+            {/* Section headers float over the list as it scrolls under them. */}
+            <div className="sticky top-0 z-10 border-b border-separator bg-material-toolbar px-3 py-1.5 text-subheadline font-medium text-muted-foreground backdrop-blur-xl">
               {section.kind === "club" ? "Your club's teams" : section.leagueName}
             </div>
             {section.teams.map((team) => {
               const selected = team.id === selectedId;
               return (
-                <button
+                <div
                   key={team.id}
-                  type="button"
+                  {...pressable(() => onSelect(team))}
                   role="option"
                   aria-selected={selected}
-                  onClick={() => onSelect(team)}
                   className={cn(
-                    "flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none",
-                    selected && "bg-primary/10 hover:bg-primary/15",
+                    "flex w-full cursor-default items-center gap-3 px-3 py-2 text-left text-sm outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection",
+                    selected && "bg-primary/12 hover:bg-primary/15",
                   )}
                 >
                   <TeamCrest team={team} />
                   <span className="min-w-0 flex-1">
                     <TeamLabel team={team} />
                     {team.clubName && team.clubName !== team.name && (
-                      <span className="block truncate text-xs text-muted-foreground">{team.clubName}</span>
+                      <span className="block truncate text-callout text-muted-foreground">{team.clubName}</span>
                     )}
                   </span>
-                  {selected && <Check className="h-4 w-4 shrink-0 text-primary" />}
-                </button>
+                  <Check
+                    aria-hidden
+                    className={cn(
+                      "size-4 shrink-0 stroke-[2.5] text-primary transition-[opacity,transform] duration-150",
+                      selected ? "scale-100 opacity-100" : "scale-75 opacity-0",
+                    )}
+                  />
+                </div>
               );
             })}
           </div>

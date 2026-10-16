@@ -154,7 +154,14 @@ export interface PlayByPlayEvent {
 
 export interface SyncPoint {
   syncVideoTime: number;    // seconds into the video
-  syncRealWorldTime: string; // ISO UTC of the reference event (Q1 tip-off)
+  syncRealWorldTime: string; // ISO UTC of the reference event (Q1 tip-off by default)
+  /**
+   * What the reference event is when it is not the tip-off, in words a coach
+   * can find in the video — e.g. "Örebro's first basket (2–0)". Profixio's
+   * table logs "Start period 1" minutes before the jump ball, so those games
+   * anchor on the first made basket instead. Absent on Genius imports.
+   */
+  anchor?: { kind: "first_basket" | "match_start"; label: string };
 }
 
 export interface PlaylistClipItem {

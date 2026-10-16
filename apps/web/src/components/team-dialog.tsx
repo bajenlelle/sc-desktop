@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -14,6 +15,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { AutoHeight } from "@/components/ui/auto-height";
+import { Callout, GroupedList } from "@/components/ui/group";
+import { Switch } from "@/components/ui/switch";
+import { fadeVariants } from "@/lib/motion";
 import { TeamPicker } from "@/components/team-picker";
 import { useMyTeam, useSpaceSuggestions, useTeamCatalog } from "@/lib/my-team";
 import { trackEvent } from "@/lib/analytics";
@@ -116,75 +121,84 @@ export function TeamDialog({ mode, org, otherSpaces, defaultChecked, initialTeam
     <Dialog open onOpenChange={(open) => { if (!open && !saving) onDismiss(); }}>
       <DialogContent className="max-w-lg" showCloseButton={mode === "change"}>
         <DialogHeader>
-          <p className="text-xs font-medium text-muted-foreground">
-            In {org.isPersonal ? spaceName : <span className="text-foreground">{spaceName}</span>}
-          </p>
           <DialogTitle>{teamStepTitle(role)}</DialogTitle>
           <DialogDescription>
-            {mode === "step" ? TEAM_STEP_SUBTITLE : "We'll use it to find your games when you import."}
+            {org.isPersonal ? "For your personal space. " : `For ${spaceName}. `}
+            {mode === "step" ? TEAM_STEP_SUBTITLE : "We use it to find your games when you import."}
           </DialogDescription>
         </DialogHeader>
 
-        {noteMode ? (
-          <div className="space-y-1.5">
-            <Label htmlFor="unlisted-team">Team and league</Label>
-            <Input
-              id="unlisted-team"
-              autoFocus
-              maxLength={120}
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") void handleSave(); }}
-              placeholder="e.g. Sollentuna U16, Division 2"
-            />
-            <p className="text-xs text-muted-foreground">
-              We only cover a few leagues so far. Telling us yours helps us decide which to add next.
-            </p>
-          </div>
-        ) : failed ? (
-          <div className="rounded-md border border-border px-3 py-6 text-center text-sm text-muted-foreground">
-            Couldn&apos;t load the teams.{" "}
-            <button type="button" className="text-primary underline-offset-2 hover:underline" onClick={retry}>
-              Try again
-            </button>
-          </div>
-        ) : teams === null ? (
-          <div className="flex h-40 items-center justify-center">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
-        ) : (
-          <TeamPicker
-            teams={teams}
-            suggestedIds={suggestedIds}
-            selectedId={selectedId}
-            onSelect={(t) => setSelectedId(t.id)}
-          />
-        )}
+        {/* The body changes shape (list, note, loading, error): the height
+            springs and the contents cross-fade. */}
+        <AutoHeight>
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.div
+              key={noteMode ? "note" : failed ? "failed" : teams === null ? "loading" : "list"}
+              variants={fadeVariants}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+            >
+              {noteMode ? (
+                <div className="grid gap-1.5">
+                  <Label htmlFor="unlisted-team">Team and league</Label>
+                  <Input
+                    id="unlisted-team"
+                    autoFocus
+                    maxLength={120}
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void handleSave();
+                    }}
+                    placeholder="Sollentuna U16, Division 2"
+                  />
+                  <p className="text-callout text-muted-foreground">
+                    We only cover a few leagues so far. Telling us yours helps us decide which to add next.
+                  </p>
+                </div>
+              ) : failed ? (
+                <Callout
+                  tone="neutral"
+                  action={
+                    <Button size="xs" variant="outline" onClick={retry}>
+                      Try again
+                    </Button>
+                  }
+                >
+                  Couldn&apos;t load the teams.
+                </Callout>
+              ) : teams === null ? (
+                <div className="flex h-40 items-center justify-center">
+                  <Loader2 className="size-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <TeamPicker
+                  teams={teams}
+                  suggestedIds={suggestedIds}
+                  selectedId={selectedId}
+                  onSelect={(t) => setSelectedId(t.id)}
+                />
+              )}
+            </motion.div>
+          </AnimatePresence>
+        </AutoHeight>
 
         {otherSpaces.length > 0 && (
-          <div className="space-y-1.5">
+          <GroupedList>
             {otherSpaces.map((o) => (
-              <label key={o.orgId} className="flex items-center gap-2 text-sm text-foreground">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 shrink-0 accent-primary"
-                  checked={checked.has(o.orgId)}
-                  onChange={(e) => toggle(o.orgId, e.target.checked)}
-                />
-                {alsoUseLabel(o)}
+              <label key={o.orgId} className="flex min-h-10 cursor-default items-center gap-3 px-4 py-2 text-sm">
+                <span className="flex-1">{alsoUseLabel(o)}</span>
+                <Switch checked={checked.has(o.orgId)} onCheckedChange={(v) => toggle(o.orgId, v)} />
               </label>
             ))}
-          </div>
+          </GroupedList>
         )}
 
         <DialogFooter className="items-center sm:justify-between">
-          <button
-            type="button"
-            className="text-xs text-primary underline-offset-2 hover:underline"
-            onClick={() => setNoteMode((v) => !v)}
-          >
+          <Button variant="ghost" size="sm" className="-ml-2 text-primary" onClick={() => setNoteMode((v) => !v)}>
             {noteMode ? "Back to the list" : "My team isn't listed"}
-          </button>
+          </Button>
           <div className="flex gap-2">
             {mode === "step" ? (
               <Button variant="ghost" onClick={handleSkip} disabled={saving}>
@@ -196,7 +210,7 @@ export function TeamDialog({ mode, org, otherSpaces, defaultChecked, initialTeam
               </Button>
             )}
             <Button onClick={handleSave} disabled={!canSave || saving}>
-              {saving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+              {saving && <Loader2 className="animate-spin" />}
               {noteMode ? "Send" : mode === "step" ? "Continue" : "Save"}
             </Button>
           </div>

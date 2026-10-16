@@ -21,26 +21,26 @@ export function RolePrompt() {
       .catch(() => {});
   }
 
+  const choices = [
+    ["coach", "Coach", "I scout and analyze games"],
+    ["player", "Player", "I study my games and build highlights"],
+  ] as const;
+
   return (
-    <div className="flex w-full max-w-md flex-col gap-2 rounded-xl border border-border bg-card p-4 text-left">
-      <span className="text-sm font-medium text-foreground">What describes you best?</span>
+    <div className="flex w-full flex-col gap-2 rounded-window bg-fill-1 p-3 text-left">
+      <span className="text-callout font-medium text-foreground">What describes you best?</span>
       <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={() => choose("coach")}
-          className="rounded-md border border-border px-3 py-2 text-left text-sm transition-colors hover:border-primary/50 hover:bg-primary/5"
-        >
-          <span className="font-medium text-foreground">Coach</span>
-          <span className="block text-xs text-muted-foreground">I scout and analyze games</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => choose("player")}
-          className="rounded-md border border-border px-3 py-2 text-left text-sm transition-colors hover:border-primary/50 hover:bg-primary/5"
-        >
-          <span className="font-medium text-foreground">Player</span>
-          <span className="block text-xs text-muted-foreground">I study my games and build highlights</span>
-        </button>
+        {choices.map(([role, label, hint]) => (
+          <button
+            key={role}
+            type="button"
+            onClick={() => choose(role)}
+            className="rounded-md bg-card px-3 py-2 text-left ring-1 ring-separator outline-none transition-[background-color,transform,box-shadow] duration-100 hover:bg-fill-1 active:scale-[0.99] active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection"
+          >
+            <span className="text-sm font-medium text-foreground">{label}</span>
+            <span className="block text-callout text-muted-foreground">{hint}</span>
+          </button>
+        ))}
       </div>
     </div>
   );

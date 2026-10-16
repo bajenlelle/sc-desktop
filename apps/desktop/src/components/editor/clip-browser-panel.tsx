@@ -3,13 +3,8 @@ import { Link } from "react-router-dom";
 import { Check, ChevronDown, Play, Plus, Scissors, Tag, VideoOff, X } from "lucide-react";
 import { toast } from "sonner";
 import type { ClipKey, Label, LabelColor } from "@scoutable/shared/types/labels";
-import {
-  eventColors,
-  eventLabel,
-  formatGameClock,
-  isBookkeepingEvent,
-  playerName,
-} from "@scoutable/shared/lib/events";
+import { eventColors, eventLabel, formatGameClock, isBookkeepingEvent, periodLabel, playerName } from "@scoutable/shared/lib/events";
+import { defaultPostRoll, defaultPostRollForMatches, defaultPreRoll, defaultPreRollForMatches } from "@scoutable/shared/lib/provider";
 import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
 import { clickSelection, extendSelection, moveFocus, type FocusMove } from "@scoutable/shared/lib/list-selection";
@@ -60,6 +55,7 @@ const EVENT_TYPE_OPTIONS = [
   { value: "foul", label: "Foul" },
   { value: "foulon", label: "Foul drawn" },
   { value: "block", label: "Block" },
+  { value: "timeout", label: "Timeout" },
 ];
 
 const SHOT_TYPE_OPTIONS = [
@@ -215,7 +211,7 @@ function BrowserRow({
           )}
         </div>
         <div className="flex min-w-0 items-center gap-1 text-subheadline nums text-muted-foreground">
-          <span className="shrink-0">Q{event.period}</span>
+          <span className="shrink-0">{periodLabel(event.period)}</span>
           <span aria-hidden>·</span>
           <span className="shrink-0">{formatGameClock(event.gameClockTime)}</span>
           {event.eventTeam?.teamName && (
@@ -314,8 +310,17 @@ export function ClipBrowserPanel({
   const [filterTeams, setFilterTeams] = useState<Set<string>>(new Set());
   const [filterPlayers, setFilterPlayers] = useState<Set<string>>(new Set());
   const [filterLabelIds, setFilterLabelIds] = useState<Set<string>>(new Set());
-  const [preRoll, setPreRoll] = useState(10);
-  const [postRoll, setPostRoll] = useState(3);
+  // Pre/post-roll follow the game shown (Profixio games get a longer tail,
+  // see provider.ts) until the coach changes them.
+  const [preRoll, setPreRoll] = useState(() => defaultPreRoll(filterMatchId ? matchLookup.get(filterMatchId) : null));
+  const [postRoll, setPostRoll] = useState(() => defaultPostRoll(filterMatchId ? matchLookup.get(filterMatchId) : null));
+  const preRollTouchedRef = useRef(false);
+  const postRollTouchedRef = useRef(false);
+  useEffect(() => {
+    const shown = filterMatchId ? matchLookup.get(filterMatchId) : null;
+    if (!preRollTouchedRef.current) setPreRoll(filterMatchId ? defaultPreRoll(shown) : defaultPreRollForMatches(matches));
+    if (!postRollTouchedRef.current) setPostRoll(filterMatchId ? defaultPostRoll(shown) : defaultPostRollForMatches(matches));
+  }, [filterMatchId, matchLookup, matches]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set()); // "matchId:eventId"
   // Local assignment state for the visible match.
   const [clipAssignments, setClipAssignments] = useState<Map<string, Set<string>>>(new Map());
@@ -1051,11 +1056,11 @@ export function ClipBrowserPanel({
                 </div>
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-sm">Before</span>
-                  <Stepper label="Pre-roll" value={preRoll} min={0} max={30} onChange={setPreRoll} format={(v) => `${v} s`} />
+                  <Stepper label="Pre-roll" value={preRoll} min={0} max={30} onChange={(v) => { preRollTouchedRef.current = true; setPreRoll(v); }} format={(v) => `${v} s`} />
                 </div>
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-sm">After</span>
-                  <Stepper label="Post-roll" value={postRoll} min={0} max={60} onChange={setPostRoll} format={(v) => `${v} s`} />
+                  <Stepper label="Post-roll" value={postRoll} min={0} max={60} onChange={(v) => { postRollTouchedRef.current = true; setPostRoll(v); }} format={(v) => `${v} s`} />
                 </div>
               </PopoverContent>
             </Popover>
@@ -1212,7 +1217,7 @@ export function ClipBrowserPanel({
                 </span>
                 <span className="truncate font-medium">{playerName(activeEntry.event)}</span>
                 <span className="shrink-0 text-subheadline nums text-muted-foreground">
-                  Q{activeEntry.event.period} · {formatGameClock(activeEntry.event.gameClockTime)}
+                  {periodLabel(activeEntry.event.period)} · {formatGameClock(activeEntry.event.gameClockTime)}
                 </span>
                 <span className="ml-auto shrink-0 text-subheadline nums text-muted-foreground">
                   {queueIdx + 1} of {queueRef.current.length || 1} queued

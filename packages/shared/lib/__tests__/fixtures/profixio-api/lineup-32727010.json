@@ -1,0 +1,390 @@
+{
+ "data": {
+  "matchStaff": {
+   "sekr": {
+    "id": "sekr",
+    "roleName": "Sekreterare",
+    "name": "Funktionär"
+   },
+   "timer": {
+    "id": "timer",
+    "roleName": "Tidtagare",
+    "name": "Funktionär"
+   },
+   "timer24": {
+    "id": "timer24",
+    "roleName": "24-sekunder",
+    "name": "Funktionär"
+   },
+   "signedby": {
+    "id": "signedby",
+    "roleName": "Protocol signed by",
+    "name": "Funktionär"
+   }
+  },
+  "referees": [
+   {
+    "id": 900050,
+    "refereeNumber": 3,
+    "refereeTitle": "Umpire 2",
+    "person": {
+     "id": 900049,
+     "firstName": "Domare 1",
+     "lastName": "Domare 1"
+    }
+   },
+   {
+    "id": 900052,
+    "refereeNumber": 2,
+    "refereeTitle": "Umpire 1",
+    "person": {
+     "id": 900051,
+     "firstName": "Domare 2",
+     "lastName": "Domare 2"
+    }
+   }
+  ],
+  "home": {
+   "staff": [
+    {
+     "id": 900019,
+     "addedManually": false,
+     "firstName": "Ledare",
+     "lastName": "home1",
+     "personId": 900020,
+     "birthDate": "2000-01-01",
+     "role": {
+      "id": 2,
+      "name": "Coach"
+     }
+    }
+   ],
+   "players": [
+    {
+     "id": 900001,
+     "number": "22",
+     "addedManually": false,
+     "firstName": "Spelare",
+     "lastName": "1",
+     "position": null,
+     "personId": 900002,
+     "birthDate": "2000-01-01",
+     "isCaptain": false,
+     "starter": true,
+     "played": true,
+     "current": true
+    },
+    {
+     "id": 900003,
+     "number": "3",
+     "addedManually": false,
+     "firstName": "Spelare",
+     "lastName": "2",
+     "position": null,
+     "personId": 900004,
+     "birthDate": "2000-01-01",
+     "isCaptain": false,
+     "starter": true,
+     "played": true,
+     "current": true
+    },
+    {
+     "id": 900005,
+     "number": "39",
+     "addedManually": false,
+     "firstName": "Spelare",
+     "lastName": "3",
+     "position": null,
+     "personId": 900006,
+     "birthDate": "2000-01-01",
+     "isCaptain": true,
+     "starter": true,
+     "played": true,
+     "current": true
+    },
+    {
+     "id": 900007,
+     "number": "2",
+     "addedManually": false,
+     "firstName": "Spelare",
+     "lastName": "4",
+     "position": null,
+     "personId": 900008,
+     "birthDate": "2000-01-01",
+     "isCaptain": false,
+     "starter": true,
+     "played": true,
+     "current": true
+    },
+    {
+     "id": 900009,
+     "number": "6",
+     "addedManually": false,
+     "firstName": "Spelare",
+     "lastName": "5",
+     "position": null,
+     "personId": 900010,
+     "birthDate": "2000-01-01",
+     "isCaptain": false,
+     "starter": false,
+     "played": false,
+     "current": false
+    },
+    {
+     "id": 900011,
+     "number": "7",
+     "addedManually": false,
+     "firstName": "Spelare",
+     "lastName": "6",
+     "position": null,
+     "personId": 900012,
+     "birthDate": "2000-01-01",
+     "isCaptain": false,
+     "starter": false,
+     "played": false,
+     "current": false
+    },
+    {
+     "id": 900013,
+     "number": "9",
+     "addedManually": false,
+     "firstName": "Spelare",
+     "lastName": "7",
+     "position": null,
+     "personId": 900014,
+     "birthDate": "2000-01-01",
+     "isCaptain": false,
+     "starter": true,
+     "played": true,
+     "current": true
+    },
+    {
+     "id": 900015,
+     "number": "11",
+     "addedManually": false,
+     "firstName": "Spelare",
+     "lastName": "8",
+     "position": null,
+     "personId": 900016,
+     "birthDate": "2000-01-01",
+     "isCaptain": false,
+     "starter": false,
+     "played": false,
+     "current": false
+    },
+    {
+     "id": 900017,
+     "number": "13",
+     "addedManually": false,
+     "firstName": "Spelare",
+     "lastName": "9",
+     "position": null,
+     "personId": 900018,
+     "birthDate": "2000-01-01",
+     "isCaptain": false,
+     "starter": false,
+     "played": false,
+     "current": false
+    }
+   ]
+  },
+  "away": {
+   "staff": [
+    {
+     "id": 900045,
+     "addedManually": false,
+     "firstName": "Ledare",
+     "lastName": "away1",
+     "personId": 900046,
+     "birthDate": "2000-01-01",
+     "role": {
+      "id": 2,
+      "name": "Coach"
+     }
+    },
+    {
+     "id": 900047,
+     "addedManually": true,
+     "firstName": "Ledare",
+     "lastName": "away2",
+     "personId": 900048,
+     "birthDate": "2000-01-01",
+     "role": {
+      "id": 3,
+      "name": "Assistant Coach"
+     }
+    }
+   ],
+   "players": [
+    {
+     "id": 900021,
+     "number": "17",
+     "addedManually": false,
+     "firstName": "Spelare",
+     "lastName": "10",
+     "position": null,
+     "personId": 900022,
+     "birthDate": "2000-01-01",
+     "isCaptain": false,
+     "starter": true,
+     "played": true,
+     "current": true
+    },
+    {
+     "id": 900023,
+     "number": "7",
+     "addedManually": false,
+     "firstName": "Spelare",
+     "lastName": "11",
+     "position": null,
+     "personId": 900024,
+     "birthDate": "2000-01-01",
+     "isCaptain": false,
+     "starter": false,
+     "played": false,
+     "current": false
+    },
+    {
+     "id": 900025,
+     "number": "6",
+     "addedManually": false,
+     "firstName": "Spelare",
+     "lastName": "12",
+     "position": null,
+     "personId": 900026,
+     "birthDate": "2000-01-01",
+     "isCaptain": false,
+     "starter": false,
+     "played": false,
+     "current": false
+    },
+    {
+     "id": 900027,
+     "number": "18",
+     "addedManually": false,
+     "firstName": "Spelare",
+     "lastName": "13",
+     "position": null,
+     "personId": 900028,
+     "birthDate": "2000-01-01",
+     "isCaptain": true,
+     "starter": true,
+     "played": true,
+     "current": true
+    },
+    {
+     "id": 900029,
+     "number": "16",
+     "addedManually": false,
+     "firstName": "Spelare",
+     "lastName": "14",
+     "position": null,
+     "personId": 900030,
+     "birthDate": "2000-01-01",
+     "isCaptain": false,
+     "starter": true,
+     "played": true,
+     "current": true
+    },
+    {
+     "id": 900031,
+     "number": "68",
+     "addedManually": false,
+     "firstName": "Spelare",
+     "lastName": "15",
+     "position": null,
+     "personId": 900032,
+     "birthDate": "2000-01-01",
+     "isCaptain": false,
+     "starter": false,
+     "played": false,
+     "current": false
+    },
+    {
+     "id": 900033,
+     "number": "1",
+     "addedManually": false,
+     "firstName": "Spelare",
+     "lastName": "16",
+     "position": null,
+     "personId": 900034,
+     "birthDate": "2000-01-01",
+     "isCaptain": false,
+     "starter": false,
+     "played": false,
+     "current": false
+    },
+    {
+     "id": 900035,
+     "number": "52",
+     "addedManually": false,
+     "firstName": "Spelare",
+     "lastName": "17",
+     "position": null,
+     "personId": 900036,
+     "birthDate": "2000-01-01",
+     "isCaptain": false,
+     "starter": false,
+     "played": false,
+     "current": false
+    },
+    {
+     "id": 900037,
+     "number": "19",
+     "addedManually": false,
+     "firstName": "Spelare",
+     "lastName": "18",
+     "position": null,
+     "personId": 900038,
+     "birthDate": "2000-01-01",
+     "isCaptain": false,
+     "starter": true,
+     "played": true,
+     "current": true
+    },
+    {
+     "id": 900039,
+     "number": "12",
+     "addedManually": false,
+     "firstName": "Spelare",
+     "lastName": "19",
+     "position": null,
+     "personId": 900040,
+     "birthDate": "2000-01-01",
+     "isCaptain": false,
+     "starter": false,
+     "played": false,
+     "current": false
+    },
+    {
+     "id": 900041,
+     "number": "13",
+     "addedManually": false,
+     "firstName": "Spelare",
+     "lastName": "20",
+     "position": null,
+     "personId": 900042,
+     "birthDate": "2000-01-01",
+     "isCaptain": false,
+     "starter": false,
+     "played": false,
+     "current": false
+    },
+    {
+     "id": 900043,
+     "number": "11",
+     "addedManually": false,
+     "firstName": "Spelare",
+     "lastName": "21",
+     "position": null,
+     "personId": 900044,
+     "birthDate": "2000-01-01",
+     "isCaptain": false,
+     "starter": true,
+     "played": true,
+     "current": true
+    }
+   ]
+  }
+ }
+}

@@ -118,6 +118,22 @@ fn assert_rendered_output(path: &std::path::Path, what: &str) -> Result<(), Stri
     Ok(())
 }
 
+/// Error text for a failed ffmpeg start. Smart App Control or an App Control
+/// for Business policy refuses an unsigned ffmpeg.exe with os error 4551
+/// (code integrity) or 1260 (group policy), and the raw OS text ("An
+/// Application Control policy has blocked this file") doesn't say what to do.
+pub(crate) fn sidecar_error(e: tauri_plugin_shell::Error) -> String {
+    match &e {
+        tauri_plugin_shell::Error::Io(io) if matches!(io.raw_os_error(), Some(4551 | 1260)) => format!(
+            "Windows blocked the video tool Scoutable uses (an app control policy on this \
+             computer, os error {}). On a work or school computer, ask your IT department to \
+             allow Scoutable. Otherwise update Scoutable from scoutable.se and try again.",
+            io.raw_os_error().unwrap_or_default()
+        ),
+        _ => e.to_string(),
+    }
+}
+
 // ── export_playlist argument builders ────────────────────────────────────────
 // Pure so the exact argv is unit-tested and the ignored end-to-end test can run
 // it against the bundled ffmpeg.
@@ -327,7 +343,7 @@ async fn run_ffmpeg(app: &tauri::AppHandle, args: &[String], job: Option<&JobHan
         .map_err(|e| e.to_string())?
         .args(args)
         .spawn()
-        .map_err(|e| e.to_string())?;
+        .map_err(sidecar_error)?;
     // Outside a job nobody can stop it; holding the child keeps the same
     // lifetime output() gives it.
     let _unmanaged = match job {
@@ -633,7 +649,7 @@ async fn extract_poster_frame(
             ])
             .output()
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(sidecar_error)?;
         // ffmpeg can exit 0 without producing a frame when -ss is past EOF,
         // so an empty or missing output means "try again", not success.
         let produced = std::fs::metadata(&output).map(|m| m.len() > 0).unwrap_or(false);
@@ -1035,6 +1051,29 @@ fn mime_for_path(path: &str) -> &'static str {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    // ── sidecar_error ────────────────────────────────────────────────────────
+
+    #[test]
+    fn sidecar_error_explains_app_control_blocks() {
+        for code in [4551, 1260] {
+            let e = tauri_plugin_shell::Error::Io(std::io::Error::from_raw_os_error(code));
+            let text = sidecar_error(e);
+            assert!(text.starts_with("Windows blocked the video tool Scoutable uses"), "{text}");
+            assert!(text.contains(&format!("os error {code}")), "{text}");
+        }
+    }
+
+    #[test]
+    fn sidecar_error_keeps_other_errors() {
+        let io = std::io::Error::from_raw_os_error(2);
+        let expected = io.to_string();
+        assert_eq!(sidecar_error(tauri_plugin_shell::Error::Io(io)), expected);
+        assert_eq!(
+            sidecar_error(tauri_plugin_shell::Error::UnknownProgramName("x".into())),
+            "unknown program x"
+        );
+    }
 
     // ── build_crop_x_expr goldens ────────────────────────────────────────────
     // The expression grammar is load-bearing: `\,` protects commas at the

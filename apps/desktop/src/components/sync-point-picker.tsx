@@ -16,6 +16,8 @@ import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { fadeVariants, springs } from "@/lib/motion";
 import { trackEvent } from "@/lib/analytics";
 
+export type SyncAnchorKind = "tipoff" | "first_basket";
+
 /** An external request to move the playhead (and optionally confirm); a new nonce re-applies the same second. */
 export interface SeekRequest {
   seconds: number;
@@ -26,6 +28,14 @@ export interface SeekRequest {
 export interface SyncPointPickerProps {
   videoPath: string;
   tipoffHint?: string;
+  /**
+   * Which moment the coach is asked to find. Genius games anchor on the
+   * tip-off; Profixio games on the first made basket, because the table's
+   * "Start period 1" is pressed minutes before the jump ball.
+   */
+  anchorKind?: SyncAnchorKind;
+  /** Where to look, in words: "Örebro's first basket (2–0), 16:30". */
+  anchorDetail?: string;
   initialSeconds?: number;
   onConfirm: (seconds: number) => void;
   onSkip?: () => void;
@@ -37,6 +47,24 @@ export interface SyncPointPickerProps {
   /** A suggestion is on offer above: its "Use" is the primary action, so this one steps back. */
   hasPendingSuggestion?: boolean;
 }
+
+const ANCHOR_COPY: Record<
+  SyncAnchorKind,
+  { title: string; instruction: string; button: string; confirmed: string }
+> = {
+  tipoff: {
+    title: "Set the tip-off",
+    instruction: "Find the frame where the ball goes up, then set it.",
+    button: "Set tip-off here",
+    confirmed: "Tip-off set at",
+  },
+  first_basket: {
+    title: "Set the first basket",
+    instruction: "Find the frame where the ball drops through the net on the first basket, then set it.",
+    button: "Set first basket here",
+    confirmed: "First basket set at",
+  },
+};
 
 /** m:ss.d; negative values (a recording that starts after the tip-off) keep their sign. */
 export function formatMSSd(secs: number): string {
@@ -71,6 +99,8 @@ const FALLBACK_FRAME = 1 / 25;
  */
 export function SyncPointPicker({
   videoPath,
+  anchorKind = "tipoff",
+  anchorDetail,
   initialSeconds,
   onConfirm,
   onSkip,
@@ -79,6 +109,7 @@ export function SyncPointPicker({
   onUserAction,
   hasPendingSuggestion = false,
 }: SyncPointPickerProps) {
+  const copy = ANCHOR_COPY[anchorKind];
   const videoRef = useRef<HTMLVideoElement>(null);
   const readoutRef = useRef<HTMLSpanElement>(null);
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
@@ -280,9 +311,9 @@ export function SyncPointPicker({
   return (
     <div>
       <div className="mb-3">
-        <p className="text-headline text-foreground">Set the tip-off</p>
+        <p className="text-headline text-foreground">{copy.title}</p>
         <p className="mt-0.5 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-callout text-muted-foreground">
-          Find the frame where the ball goes up, then set it.
+          {copy.instruction}
           <span className="inline-flex items-center gap-0.5">
             <Kbd>←</Kbd>
             <Kbd>→</Kbd>
@@ -293,7 +324,14 @@ export function SyncPointPicker({
             <Kbd>.</Kbd>
           </span>
           a frame.
+          {anchorDetail && <> Look for {anchorDetail}.</>}
         </p>
+        {anchorKind === "first_basket" && (
+          <p className="mt-1 text-callout text-muted-foreground">
+            Profixio's table marks the start of play a few minutes before the jump ball, so the first basket is the
+            reliable reference.
+          </p>
+        )}
       </div>
 
       {suggestionSlot}
@@ -368,7 +406,7 @@ export function SyncPointPicker({
               >
                 <Check className="size-3" strokeWidth={3} />
               </motion.span>
-              Tip-off set at <span className="nums">{formatMSSd(confirmedTime!)}</span>
+              {copy.confirmed} <span className="nums">{formatMSSd(confirmedTime!)}</span>
             </motion.span>
           ) : (
             <motion.span key="unset" variants={fadeVariants} initial="hidden" animate="visible" exit="exit" className="flex items-center gap-3">
@@ -378,7 +416,7 @@ export function SyncPointPicker({
                 title={failureMessage}
                 onClick={confirmHere}
               >
-                Set tip-off here
+                {copy.button}
               </Button>
               {confirmedTime !== null && (
                 <span className="text-callout text-muted-foreground">

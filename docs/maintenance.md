@@ -81,6 +81,7 @@ the way. Set up 2026-08 — see `.github/workflows/claude-*.yml`, the
 | `BASKETTV_USERNAME` / `BASKETTV_PASSWORD` (Leonard's BasketTV subscriber account) | GitHub Actions secrets | `nightly-tipoff.yml` reads replay frames; masked in logs, never printed |
 | `TIPOFF_BOT_EMAIL` / `TIPOFF_BOT_PASSWORD` (Supabase user `tipoff-bot@scoutable.se`, password only in GitHub secrets; reset it in the Supabase dashboard) | GitHub Actions secrets | the job signs in as this user; `app_config.tipoff_bot_email` lifts its hourly detection limit and admits it to the `baskettv_tipoff_runs` RPCs |
 | `SUPABASE_URL` / `SUPABASE_ANON_KEY` (public values) | GitHub Actions secrets | the job's Supabase client |
+| `PROFIXIO_API_SECRET` (Profixio API key, app "Scoutable", org SBBF.SE.BB; read access to the tournaments Profixio granted, see `/api/userinfo`) | Supabase function secrets | the `profixio` function reads catalogue, schedules and matches through the documented API; without it every call fails with `server_misconfigured` |
 
 Manual tip-off runs: Actions → nightly-tipoff → Run workflow (channels, look-back hours, max games, specific game slugs, dry run), or locally `npm run nightly-tipoff -- --channels superettanherr --since-hours 24 --dry-run` with the same env vars.
 | `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) | GitHub Actions | triage + fix agents |

@@ -5,6 +5,7 @@ import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { getMyProfile, getMyOrgs } from "@/lib/profile-db";
 import { touchThisDevice } from "@/lib/device-registry";
+import { isLeaving } from "@/lib/sign-out";
 import type { UserProfile, OrgMembership, OrgPlanTier } from "@scoutable/shared/types/org";
 import { sortOrgsClubFirst, isPlayerOnly as derivePlayerOnly } from "@scoutable/shared/lib/orgs";
 import {
@@ -209,6 +210,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const supabase = createClient();
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      // Signing out replaces the page (lib/sign-out.ts). Clearing the state
+      // first would re-render the signed-in page without a user on the way.
+      if (event === "SIGNED_OUT" && isLeaving()) {
+        trackEvent("signed_out");
+        resetUser();
+        stopPlanPoll();
+        userRef.current = null;
+        return;
+      }
       setUser(session?.user ?? null);
       userRef.current = session?.user ?? null;
 

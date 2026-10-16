@@ -303,7 +303,12 @@ export function MatchDetailPage() {
 
   async function saveSyncPoint(secs: number) {
     if (!storedMatch) return false;
-    const sp: SyncPoint = { syncVideoTime: secs, syncRealWorldTime: storedMatch.syncPoint?.syncRealWorldTime ?? "" };
+    // Spread keeps the anchor (which moment the time refers to).
+    const sp: SyncPoint = {
+      ...storedMatch.syncPoint,
+      syncVideoTime: secs,
+      syncRealWorldTime: storedMatch.syncPoint?.syncRealWorldTime ?? "",
+    };
     try {
       const { clearedShippedClips } = await updateSyncPoint(matchId, sp);
       setStoredMatch((m) => (m ? { ...m, syncPoint: sp } : m));
@@ -363,6 +368,11 @@ export function MatchDetailPage() {
   const tipoffSet = !!storedMatch.syncPoint;
   const showPicker = canPick && (!tipoffSet || adjustingTipoff);
   const manualSecs = parseMMSS(syncInput);
+  // Profixio games anchor on the first made basket, not the tip-off.
+  const syncAnchor = storedMatch.syncPoint?.anchor;
+  const firstBasket = syncAnchor?.kind === "first_basket";
+  const anchorTitle = firstBasket ? "First basket" : "Tip-off";
+  const anchorNoun = firstBasket ? "the first basket" : "tip-off";
 
   return (
     <Page>
@@ -504,14 +514,14 @@ export function MatchDetailPage() {
         </section>
 
         <section>
-          <GroupHeader title="Tip-off" />
+          <GroupHeader title={anchorTitle} />
           {canPick ? (
             <>
               {tipoffSet && (
                 <GroupedList>
                   <div className="flex min-h-11 items-center gap-3 px-4 py-2">
                     <span className="flex-1 text-sm">
-                      Tip-off at <span className="font-medium nums">{formatMSSd(storedMatch.syncPoint!.syncVideoTime)}</span>
+                      {anchorTitle} at <span className="font-medium nums">{formatMSSd(storedMatch.syncPoint!.syncVideoTime)}</span>
                     </span>
                     <Button size="xs" variant="outline" onClick={() => setAdjustingTipoff((v) => !v)}>
                       {adjustingTipoff ? "Done" : "Adjust…"}
@@ -533,6 +543,8 @@ export function MatchDetailPage() {
                       <SyncPointPicker
                         videoPath={storedMatch.videoUrl!}
                         tipoffHint={syncHint ?? undefined}
+                        anchorKind={firstBasket ? "first_basket" : "tipoff"}
+                        anchorDetail={syncAnchor ? `${syncAnchor.label}${syncHint ? `, ${syncHint}` : ""}` : undefined}
                         initialSeconds={storedMatch.syncPoint?.syncVideoTime}
                         seekRequest={tipoffSuggestion.seekRequest}
                         onUserAction={tipoffSuggestion.noteUserAction}
@@ -561,7 +573,7 @@ export function MatchDetailPage() {
           ) : (
             <>
               <GroupedList>
-                <FormRow label="Video time" htmlFor="sync-point" description="m:ss at tip-off">
+                <FormRow label="Video time" htmlFor="sync-point" description={`m:ss at ${anchorNoun}`}>
                   <Input
                     id="sync-point"
                     placeholder="0:35"
@@ -580,8 +592,10 @@ export function MatchDetailPage() {
                 {syncInput !== "" && manualSecs === null
                   ? "Use minutes and seconds, like 0:35."
                   : syncHint
-                    ? `The tip-off happened at ${syncHint}. Enter the video time for that moment.`
-                    : "Link the video to set the tip-off by watching it instead."}
+                    ? syncAnchor
+                      ? `The reference is ${syncAnchor.label}, logged at ${syncHint}. Enter the video time for that moment.`
+                      : `The tip-off happened at ${syncHint}. Enter the video time for that moment.`
+                    : `Link the video to set ${anchorNoun === "tip-off" ? "the tip-off" : anchorNoun} by watching it instead.`}
               </GroupFooter>
             </>
           )}
