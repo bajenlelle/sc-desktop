@@ -105,14 +105,9 @@ export function BrowserColumn({
     setDragMode(mode);
   }
 
-  function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
-    if (e.button !== 0 || collapsed) return;
-    startDrag(e, "resize");
-  }
-
-  function onGripPointerDown(e: React.PointerEvent<HTMLDivElement>) {
-    if (e.button !== 0 || !collapsed) return;
-    startDrag(e, "reveal");
+  function onEdgePointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.button !== 0) return;
+    startDrag(e, collapsed ? "reveal" : "resize");
   }
 
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
@@ -178,8 +173,6 @@ export function BrowserColumn({
     onWidthChange(final);
   }
 
-  const showGrip = collapsed || dragMode === "reveal";
-
   return (
     <motion.div style={{ width: w }} className="relative h-full shrink-0 select-none">
       <div
@@ -191,71 +184,58 @@ export function BrowserColumn({
         </motion.div>
         <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-px bg-separator" />
       </div>
-      {/* Open: the whole edge resizes it, grabbed at any height. It
-          straddles the divider; hovering or dragging shows the closed
-          grip's pill, centred on the line, instead of a highlight. */}
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize the playlist browser"
-        aria-hidden={collapsed || undefined}
-        aria-valuenow={Math.round(width)}
-        aria-valuemin={BROWSER_WIDTH.min}
-        aria-valuemax={BROWSER_WIDTH.max}
-        tabIndex={collapsed ? -1 : 0}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        onDoubleClick={() => onWidthChange(BROWSER_WIDTH.default)}
-        onKeyDown={(e) => {
-          if (e.key === "ArrowLeft") onWidthChange(clamp(width - 16, BROWSER_WIDTH.min, BROWSER_WIDTH.max));
-          if (e.key === "ArrowRight") onWidthChange(clamp(width + 16, BROWSER_WIDTH.min, BROWSER_WIDTH.max));
-        }}
-        className={cn(
-          "group/sep absolute inset-y-0 -right-1.5 z-20 flex w-3 cursor-col-resize items-center justify-center outline-none",
-          collapsed && "pointer-events-none",
-        )}
-      >
-        <div
-          className={cn(
-            "h-9 w-[5px] rounded-full bg-foreground/40 opacity-0 transition-opacity duration-150 motion-reduce:transition-none group-hover/sep:opacity-100 group-focus-visible/sep:bg-selection group-focus-visible/sep:opacity-100",
-            dragMode === "resize" && "opacity-100",
-          )}
-        />
-      </div>
-      {/* Closed: a grip on the browser's edge (the editor's left edge),
-          riding it while it is pulled back out. */}
+      {/* The edge, open or closed, is one element with one pill, so the
+          pill never doubles up while the browser opens or closes under the
+          pointer. Open, it resizes from any height, straddling the divider,
+          and its pill shows on hover or drag instead of a highlight. Closed,
+          it moves wholly onto the editor (the browser's edge may be the
+          window's), shows the pill, and pulls the browser back out 1:1. */}
       <Tooltip>
         <TooltipTrigger asChild>
           <div
             role="separator"
             aria-orientation="vertical"
-            aria-label="Show the playlist browser"
-            aria-hidden={!showGrip || undefined}
-            aria-valuenow={0}
-            aria-valuemin={0}
+            aria-label={collapsed ? "Show the playlist browser" : "Resize the playlist browser"}
+            aria-valuenow={collapsed ? 0 : Math.round(width)}
+            aria-valuemin={collapsed ? 0 : BROWSER_WIDTH.min}
             aria-valuemax={BROWSER_WIDTH.max}
-            tabIndex={showGrip ? 0 : -1}
-            onPointerDown={onGripPointerDown}
+            tabIndex={0}
+            onPointerDown={onEdgePointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp}
+            onDoubleClick={() => {
+              if (!collapsed) onWidthChange(BROWSER_WIDTH.default);
+            }}
             onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " " || e.key === "ArrowRight") {
-                e.preventDefault();
-                onExpand(widthRef.current);
+              if (collapsed) {
+                if (e.key === "Enter" || e.key === " " || e.key === "ArrowRight") {
+                  e.preventDefault();
+                  onExpand(widthRef.current);
+                }
+                return;
               }
+              if (e.key === "ArrowLeft") onWidthChange(clamp(width - 16, BROWSER_WIDTH.min, BROWSER_WIDTH.max));
+              if (e.key === "ArrowRight") onWidthChange(clamp(width + 16, BROWSER_WIDTH.min, BROWSER_WIDTH.max));
             }}
             className={cn(
-              "group/grip absolute inset-y-0 left-full z-20 flex w-3 cursor-col-resize items-center justify-center outline-none transition-opacity duration-200 motion-reduce:transition-none",
-              showGrip ? "opacity-100 delay-150" : "pointer-events-none opacity-0",
+              "group/edge absolute inset-y-0 -right-1.5 z-20 flex w-3 cursor-col-resize items-center justify-center outline-none transition-transform duration-200 motion-reduce:transition-none",
+              collapsed && "translate-x-1.5",
             )}
           >
-            <div className="h-9 w-1 rounded-full bg-foreground/20 transition-[background-color,width] duration-150 group-hover/grip:w-[5px] group-hover/grip:bg-foreground/40 group-focus-visible/grip:w-[5px] group-focus-visible/grip:bg-selection" />
+            <div
+              className={cn(
+                "h-9 rounded-full transition-[opacity,background-color,width] duration-150 motion-reduce:transition-none group-focus-visible/edge:bg-selection group-focus-visible/edge:opacity-100",
+                dragMode
+                  ? "w-[5px] bg-foreground/40 opacity-100"
+                  : collapsed
+                    ? "w-1 bg-foreground/20 opacity-100 group-hover/edge:w-[5px] group-hover/edge:bg-foreground/40"
+                    : "w-[5px] bg-foreground/40 opacity-0 group-hover/edge:opacity-100",
+              )}
+            />
           </div>
         </TooltipTrigger>
-        {showGrip && (
+        {collapsed && !dragMode && (
           <TooltipContent side="right" className="flex items-center gap-1.5">
             Show playlists
             <Kbd>{IS_MACOS ? "\u2318B" : "Ctrl B"}</Kbd>
