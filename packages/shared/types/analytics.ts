@@ -54,6 +54,7 @@ export type AnalyticsEvent =
   | "video_exported"
   | "playlist_shipped"
   | "playlist_ship_failed"
+  | "playlist_clip_length_reshipped"
   | "playlist_shared"
   | "highlight_sent_to_phone"
   | "highlight_page_viewed"

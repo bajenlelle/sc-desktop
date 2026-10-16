@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { PlayByPlayEvent, SyncPoint } from "../../types/match";
-import { clipBounds, clipShipKey, computeVideoTime, formatClipTime, isWatchedPosition } from "../clip-timing";
+import {
+  clipBounds,
+  clipShipKey,
+  computeVideoTime,
+  formatClipTime,
+  isShippedClipStale,
+  isWatchedPosition,
+  playlistRolls,
+  rebaseOffsets,
+  shippedTotals,
+} from "../clip-timing";
 
 function ev(partial: Partial<PlayByPlayEvent>): PlayByPlayEvent {
   return partial as PlayByPlayEvent;
@@ -119,5 +129,63 @@ describe("formatClipTime", () => {
   it("carries a rounded minute instead of showing 60 seconds", () => {
     expect(formatClipTime(59.96)).toBe("1:00.0");
     expect(formatClipTime(119.99)).toBe("2:00.0");
+  });
+});
+
+describe("playlistRolls", () => {
+  it("uses the playlist's saved pair, else the 10 s / 3 s default", () => {
+    expect(playlistRolls({ preRoll: 15, postRoll: 5 })).toEqual({ pre: 15, post: 5 });
+    expect(playlistRolls({ preRoll: 0, postRoll: 0 })).toEqual({ pre: 0, post: 0 });
+    expect(playlistRolls({})).toEqual({ pre: 10, post: 3 });
+    expect(playlistRolls(null)).toEqual({ pre: 10, post: 3 });
+    expect(playlistRolls({ postRoll: 6 }, { pre: 12, post: 4 })).toEqual({ pre: 12, post: 6 });
+  });
+});
+
+describe("shippedTotals", () => {
+  const base = "https://pub-x.r2.dev/";
+  it("reads the totals back from both key formats clipShipKey has written", () => {
+    expect(shippedTotals(base + clipShipKey("m1", 42, 15, 5, 754.2))).toEqual({ pre: 15, post: 5 });
+    expect(shippedTotals(base + "clips/m1/42_pre9.5_post3.0.mp4")).toEqual({ pre: 9.5, post: 3 });
+  });
+
+  it("returns null for anything else", () => {
+    expect(shippedTotals(base + "highlights/abc.mp4")).toBeNull();
+    expect(shippedTotals("")).toBeNull();
+  });
+});
+
+describe("isShippedClipStale", () => {
+  const url = (pre: number, post: number) => "https://pub-x.r2.dev/" + clipShipKey("m1", 42, pre, post, 100);
+
+  it("is fresh when the file was cut with the pair plus the clip's offsets", () => {
+    expect(isShippedClipStale({ r2Url: url(10, 3) }, { pre: 10, post: 3 })).toBe(false);
+    expect(isShippedClipStale({ r2Url: url(12.5, 2), preRollOffset: 2.5, postRollOffset: -1 }, { pre: 10, post: 3 })).toBe(false);
+  });
+
+  it("is stale once the pair changes", () => {
+    expect(isShippedClipStale({ r2Url: url(10, 3) }, { pre: 15, post: 3 })).toBe(true);
+    expect(isShippedClipStale({ r2Url: url(10, 3) }, { pre: 10, post: 5 })).toBe(true);
+  });
+
+  it("is never stale when unshipped or the key format is unknown", () => {
+    expect(isShippedClipStale({}, { pre: 15, post: 5 })).toBe(false);
+    expect(isShippedClipStale({ r2Url: "https://pub-x.r2.dev/odd.mp4" }, { pre: 15, post: 5 })).toBe(false);
+  });
+});
+
+describe("rebaseOffsets", () => {
+  it("keeps a clip's length under another pair", () => {
+    const r = rebaseOffsets({ preRollOffset: 2, postRollOffset: -1 }, { pre: 15, post: 5 }, { pre: 10, post: 3 });
+    expect(r).toEqual({ preRollOffset: 7, postRollOffset: 1 });
+    // Same effective totals before and after: 15+2 = 10+7, 5−1 = 3+1.
+  });
+
+  it("turns a previewed pair into offsets on the playlist's pair", () => {
+    expect(rebaseOffsets({}, { pre: 15, post: 3 }, { pre: 10, post: 3 })).toEqual({ preRollOffset: 5, postRollOffset: 0 });
+  });
+
+  it("is a no-op between equal pairs and keeps hundredths", () => {
+    expect(rebaseOffsets({ preRollOffset: 0.35 }, { pre: 10, post: 3 }, { pre: 10, post: 3 })).toEqual({ preRollOffset: 0.35, postRollOffset: 0 });
   });
 });

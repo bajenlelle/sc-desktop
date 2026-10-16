@@ -71,6 +71,70 @@ export function clipShipKey(
 /** Post-roll padding baked into shipped clips (desktop authoring default). */
 export const CLIP_POST_ROLL_SECONDS = 3;
 
+/** Pre-roll a playlist uses until the coach sets its own (desktop authoring default). */
+export const DEFAULT_PRE_ROLL_SECONDS = 10;
+
+/** A playlist's clip length: seconds before and after each event. */
+export interface RollPair {
+  pre: number;
+  post: number;
+}
+
+/** The playlist's saved pair, or `fallback` for a playlist that never set one. */
+export function playlistRolls(
+  playlist: { preRoll?: number; postRoll?: number } | null | undefined,
+  fallback: RollPair = { pre: DEFAULT_PRE_ROLL_SECONDS, post: CLIP_POST_ROLL_SECONDS },
+): RollPair {
+  return { pre: playlist?.preRoll ?? fallback.pre, post: playlist?.postRoll ?? fallback.post };
+}
+
+/**
+ * The effective totals a shipped clip was cut with, read back from its R2 key
+ * (see clipShipKey; keys from before the `_s` segment end in `.mp4` straight
+ * after the post-roll). Null for a key this format doesn't describe.
+ */
+export function shippedTotals(r2Url: string): RollPair | null {
+  const m = /_pre(-?\d+(?:\.\d+)?)_post(-?\d+(?:\.\d+)?)(?:_s|\.mp4)/.exec(r2Url);
+  return m ? { pre: Number(m[1]), post: Number(m[2]) } : null;
+}
+
+/**
+ * Whether a shipped clip's file no longer matches the playlist's pair plus
+ * the clip's own offsets, compared the way clipShipKey writes them (one
+ * decimal). An unshipped clip or an unknown key format is never stale: there
+ * is nothing to compare and nothing to replace.
+ */
+export function isShippedClipStale(
+  clip: { r2Url?: string; preRollOffset?: number; postRollOffset?: number },
+  pair: RollPair,
+): boolean {
+  if (!clip.r2Url) return false;
+  const shipped = shippedTotals(clip.r2Url);
+  if (!shipped) return false;
+  return (
+    shipped.pre.toFixed(1) !== (pair.pre + (clip.preRollOffset ?? 0)).toFixed(1) ||
+    shipped.post.toFixed(1) !== (pair.post + (clip.postRollOffset ?? 0)).toFixed(1)
+  );
+}
+
+const hundredths = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * A clip's offsets under another pair that keep its length unchanged: for a
+ * clip copied to a playlist with a different pair, or added from a preview
+ * whose pair differs from the playlist's.
+ */
+export function rebaseOffsets(
+  clip: { preRollOffset?: number; postRollOffset?: number },
+  from: RollPair,
+  to: RollPair,
+): { preRollOffset: number; postRollOffset: number } {
+  return {
+    preRollOffset: hundredths((clip.preRollOffset ?? 0) + from.pre - to.pre),
+    postRollOffset: hundredths((clip.postRollOffset ?? 0) + from.post - to.post),
+  };
+}
+
 /**
  * Playback-side watched rule, shared by all three players: a clip counts as
  * watched once playback reaches 3 seconds before the end of the FILE — the
