@@ -11,6 +11,13 @@ import { cn } from "@/lib/utils";
 
 export type SyncAnchorKind = "tipoff" | "first_basket";
 
+/** An external request to move the playhead (and optionally confirm); a new nonce re-applies the same second. */
+export interface SeekRequest {
+  seconds: number;
+  nonce: number;
+  confirm?: boolean;
+}
+
 export interface SyncPointPickerProps {
   videoPath: string;
   tipoffHint?: string;
@@ -25,6 +32,11 @@ export interface SyncPointPickerProps {
   initialSeconds?: number;
   onConfirm: (seconds: number) => void;
   onSkip?: () => void;
+  seekRequest?: SeekRequest | null;
+  /** Rendered between the prompt and the video, e.g. the automatic tip-off suggestion. */
+  suggestionSlot?: React.ReactNode;
+  /** The user moved the playhead or set the tip-off themselves (not through `seekRequest`). */
+  onUserAction?: (kind: "seek" | "confirm") => void;
 }
 
 const ANCHOR_COPY: Record<
@@ -45,11 +57,14 @@ const ANCHOR_COPY: Record<
   },
 };
 
-function formatMSSd(secs: number): string {
-  const m = Math.floor(secs / 60);
-  const s = Math.floor(secs % 60);
-  const d = Math.floor((secs % 1) * 10);
-  return `${m}:${String(s).padStart(2, "0")}.${d}`;
+/** m:ss.d; negative values (a recording that starts after the tip-off) keep their sign. */
+export function formatMSSd(secs: number): string {
+  const sign = secs < 0 ? "−" : "";
+  const a = Math.abs(secs);
+  const m = Math.floor(a / 60);
+  const s = Math.floor(a % 60);
+  const d = Math.floor((a % 1) * 10);
+  return `${sign}${m}:${String(s).padStart(2, "0")}.${d}`;
 }
 
 export function SyncPointPicker({
@@ -60,6 +75,9 @@ export function SyncPointPicker({
   initialSeconds,
   onConfirm,
   onSkip,
+  seekRequest,
+  suggestionSlot,
+  onUserAction,
 }: SyncPointPickerProps) {
   const copy = ANCHOR_COPY[anchorKind];
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -80,6 +98,12 @@ export function SyncPointPicker({
 
   // The sample game's video is a remote R2 URL, not a local file.
   const src = isLocalPath(videoPath) ? streamFileSrc(videoPath) : videoPath;
+
+  // Read from stable callbacks (seekBy, togglePlay, the window key handler).
+  const onUserActionRef = useRef(onUserAction);
+  useEffect(() => {
+    onUserActionRef.current = onUserAction;
+  }, [onUserAction]);
 
   // Wire up video events
   useEffect(() => {
@@ -125,12 +149,40 @@ export function SyncPointPicker({
     };
   }, [initialSeconds]);
 
+  // External seeks (a shared hint or the detector's suggestion). The element
+  // can't go below 0, but a negative confirmed time is a valid sync point for
+  // a recording that starts after the tip-off, so the display keeps it.
+  const seekNonceRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!seekRequest || seekRequest.nonce === seekNonceRef.current) return;
+    seekNonceRef.current = seekRequest.nonce;
+    const video = videoRef.current;
+    const target = Math.max(0, seekRequest.seconds);
+    const apply = () => {
+      if (video) video.currentTime = target;
+      setCurrentTime(seekRequest.seconds);
+      if (seekRequest.confirm) {
+        setConfirmedTime(seekRequest.seconds);
+        onConfirm(seekRequest.seconds);
+      } else {
+        setConfirmedTime(null);
+      }
+    };
+    if (!video || video.readyState >= 1) {
+      apply();
+      return;
+    }
+    video.addEventListener("loadedmetadata", apply, { once: true });
+    return () => video.removeEventListener("loadedmetadata", apply);
+  }, [seekRequest, onConfirm]);
+
   // play() rejects when the element has no playable source. The `error`
   // event above already carries that signal; the rejection is a stackless
   // duplicate, so it's swallowed here and in handleScrubberRelease.
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
+    onUserActionRef.current?.("seek");
     if (video.paused) { video.play().catch(() => {}); } else { video.pause(); }
   }, []);
 
@@ -141,6 +193,7 @@ export function SyncPointPicker({
     video.currentTime = next;
     setCurrentTime(next);
     setConfirmedTime(null);
+    onUserActionRef.current?.("seek");
   }, []);
 
   // Keyboard shortcuts (window-level so they work without focus tricks)
@@ -181,6 +234,7 @@ export function SyncPointPicker({
     const video = videoRef.current;
     if (video) video.currentTime = value;
     setCurrentTime(value);
+    onUserActionRef.current?.("seek");
   }
 
   function handleScrubberMouseDown() {
@@ -216,6 +270,8 @@ export function SyncPointPicker({
           </p>
         )}
       </div>
+
+      {suggestionSlot}
 
       {/* Video */}
       <VideoPlayer src={src} videoRef={videoRef} onLoadFailure={setLoadFailure} />
@@ -309,6 +365,7 @@ export function SyncPointPicker({
           onClick={() => {
             setConfirmedTime(currentTime);
             onConfirm(currentTime);
+            onUserActionRef.current?.("confirm");
           }}
         >
           {confirmedTime !== null ? (

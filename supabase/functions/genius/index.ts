@@ -14,8 +14,12 @@
 //                                                    once-a-season maintenance
 //                                                    tool for finding the new
 //                                                    season's competition ids
+//   { action: "sync_teams" }                       → rebuild the league team
+//                                                    catalogue from every
+//                                                    catalogued season,
+//                                                    platform-admin only
 
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -108,7 +112,7 @@ const COMPETITIONS = new Set<number>(
 );
 
 /** Actions that address no single competition, so they skip the id guard. */
-const COMPETITION_FREE_ACTIONS = new Set(["competitions", "leagues"]);
+const COMPETITION_FREE_ACTIONS = new Set(["competitions", "leagues", "sync_teams"]);
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -288,6 +292,97 @@ async function runSeasonAudit(): Promise<Json> {
   return { status: "findings", findings, issue: await fileAuditIssue(findings) };
 }
 
+// ---------------------------------------------------------------------------
+// Fixtures and the league team catalogue
+//
+// league_teams is the list users pick "their team" from. It is built from the
+// competitors of every catalogued league-season. Genius hands a team a new id
+// each season; sync_league_teams links them to one stable team through the
+// club id. It runs after every fresh fixture fetch, in the weekly audit, and
+// through the platform-admin `sync_teams` action (the one-off backfill).
+
+/** A competition's fixtures from the cache, refreshed from upstream when older than the TTL. */
+async function loadFixtures(
+  admin: SupabaseClient,
+  competitionId: number,
+): Promise<{ fixtures: Json[]; fresh: boolean }> {
+  const { data: cached } = await admin
+    .from("genius_fixture_cache")
+    .select("payload, fetched_at")
+    .eq("competition_id", competitionId)
+    .maybeSingle();
+
+  const stale = !cached || Date.now() - new Date(cached.fetched_at).getTime() > FIXTURES_TTL_MS;
+  if (!stale) return { fixtures: (cached.payload as Json[]) ?? [], fresh: false };
+
+  try {
+    const fixtures = await geniusAll(`/competitions/${competitionId}/matches`);
+    const { error: upsertError } = await admin
+      .from("genius_fixture_cache")
+      .upsert(
+        { competition_id: competitionId, payload: fixtures, fetched_at: new Date().toISOString() },
+        { onConflict: "competition_id" },
+      );
+    if (upsertError) console.error("[genius] fixture cache upsert failed:", upsertError.message);
+    return { fixtures, fresh: true };
+  } catch (e) {
+    // Serve stale data over an error when we have it.
+    if (!cached) throw e;
+    console.error("[genius] fixture refresh failed, serving stale:", e instanceof Error ? e.message : String(e));
+    return { fixtures: (cached.payload as Json[]) ?? [], fresh: false };
+  }
+}
+
+/** Each competitor once, in the shape sync_league_teams takes. */
+function competitorsOf(fixtures: Json[]): Json[] {
+  const byId = new Map<string, Json>();
+  for (const m of fixtures) {
+    for (const c of m.competitors ?? []) {
+      const id = c.teamId != null ? String(c.teamId) : "";
+      if (!id || byId.has(id)) continue;
+      byId.set(id, {
+        id,
+        name: c.teamName ?? "",
+        clubId: c.clubId != null ? String(c.clubId) : null,
+        clubName: c.clubName ?? null,
+        logoUrl: c.images?.logo?.S1?.url ?? null,
+      });
+    }
+  }
+  return [...byId.values()];
+}
+
+/** Upsert one league-season's teams. Returns how many were written. */
+async function syncTeams(admin: SupabaseClient, competitionId: number, fixtures: Json[]): Promise<number> {
+  const league = CATALOG.find((l) => l.seasons.some((s) => s.competitionId === competitionId));
+  const season = league?.seasons.find((s) => s.competitionId === competitionId);
+  if (!league || !season) return 0;
+  const teams = competitorsOf(fixtures);
+  if (teams.length === 0) return 0;
+  const { data, error } = await admin.rpc("sync_league_teams", {
+    p_source: "genius",
+    p_league_id: league.id,
+    p_league_name: league.name,
+    p_season_id: season.id,
+    p_gender: league.gender,
+    p_teams: teams,
+  });
+  if (error) throw new Error(`sync_league_teams failed: ${error.message}`);
+  return Number(data ?? 0);
+}
+
+/** Every catalogued season, oldest first, so a team's ids link forward in time. */
+async function syncAllTeams(admin: SupabaseClient): Promise<Json> {
+  const order = CATALOG.flatMap((league) => league.seasons.map((season) => ({ league, season })))
+    .sort((a, b) => a.season.id.localeCompare(b.season.id));
+  const synced: Json[] = [];
+  for (const { league, season } of order) {
+    const { fixtures } = await loadFixtures(admin, season.competitionId);
+    synced.push({ league: league.id, season: season.id, teams: await syncTeams(admin, season.competitionId, fixtures) });
+  }
+  return { synced };
+}
+
 /** Raw fixture → the trimmed shape clients receive (~10× smaller). */
 function trimFixture(m: Json): Json {
   return {
@@ -362,19 +457,31 @@ Deno.serve(async (req) => {
 
   // Cron carries a shared secret, not a user session — pg_cron has no JWT to
   // offer. Handled before the auth check below, which it could never pass.
+  const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
   const auditSecret = req.headers.get("x-audit-secret");
   if (auditSecret !== null) {
     if (!AUDIT_SECRET || auditSecret !== AUDIT_SECRET) return err(401, "bad_audit_secret");
+    let audit: Json;
     try {
-      return ok(await runSeasonAudit());
+      audit = await runSeasonAudit();
     } catch (e) {
       console.error("[genius] season audit failed:", e instanceof Error ? e.message : String(e));
       return err(502, "upstream_failed");
     }
+    // Same weekly run keeps the team catalogue current, so a new season's
+    // teams appear before anyone imports from it. Its failure never hides the audit.
+    let teams: Json;
+    try {
+      teams = await syncAllTeams(admin);
+    } catch (e) {
+      console.error("[genius] team sync failed:", e instanceof Error ? e.message : String(e));
+      teams = { error: "team_sync_failed" };
+    }
+    return ok({ ...audit, teams });
   }
 
   const jwt = req.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
   const { data: userData, error: userError } = await admin.auth.getUser(jwt);
   if (userError || !userData?.user) return err(401, "not_authenticated");
@@ -396,13 +503,14 @@ Deno.serve(async (req) => {
     // new season's ids (a Genius competition IS a league-season). Raw objects
     // on purpose — this is a discovery tool, trimming would hide the fields
     // you're looking for. Admin-gated: it always costs upstream quota.
-    if (payload.action === "competitions") {
+    if (payload.action === "competitions" || payload.action === "sync_teams") {
       const { data: prof } = await admin
         .from("profiles")
         .select("is_platform_admin")
         .eq("id", userData.user.id)
         .maybeSingle();
       if (!prof?.is_platform_admin) return err(403, "not_platform_admin");
+      if (payload.action === "sync_teams") return ok(await syncAllTeams(admin));
       const competitions = await geniusAll("/competitions");
       return ok({ competitions });
     }
@@ -415,34 +523,15 @@ Deno.serve(async (req) => {
     }
 
     if (payload.action === "fixtures") {
-      const { data: cached } = await admin
-        .from("genius_fixture_cache")
-        .select("payload, fetched_at")
-        .eq("competition_id", competitionId)
-        .maybeSingle();
-
-      let fixtures = cached?.payload as Json[] | undefined;
-      const stale =
-        !cached || Date.now() - new Date(cached.fetched_at).getTime() > FIXTURES_TTL_MS;
-
-      if (stale) {
+      const { fixtures, fresh } = await loadFixtures(admin, competitionId);
+      if (fresh) {
         try {
-          fixtures = await geniusAll(`/competitions/${competitionId}/matches`);
-          const { error: upsertError } = await admin
-            .from("genius_fixture_cache")
-            .upsert(
-              { competition_id: competitionId, payload: fixtures, fetched_at: new Date().toISOString() },
-              { onConflict: "competition_id" },
-            );
-          if (upsertError) console.error("[genius] fixture cache upsert failed:", upsertError.message);
+          await syncTeams(admin, competitionId, fixtures);
         } catch (e) {
-          // Serve stale data over an error when we have it.
-          if (!fixtures) throw e;
-          console.error("[genius] fixture refresh failed, serving stale:", e instanceof Error ? e.message : String(e));
+          console.error("[genius] team sync failed:", e instanceof Error ? e.message : String(e));
         }
       }
-
-      return ok({ fixtures: (fixtures ?? []).map(trimFixture) });
+      return ok({ fixtures: fixtures.map(trimFixture) });
     }
 
     if (payload.action === "match") {

@@ -55,14 +55,14 @@ function ThemeRow({
 
   return (
     <div className="space-y-1.5">
-      <p id={headingId} className="text-xs font-medium text-muted-foreground">
+      <p id={headingId} className="text-subheadline font-semibold text-muted-foreground">
         {heading}
       </p>
       <div
         role="radiogroup"
         aria-labelledby={headingId}
         onKeyDown={handleKeyDown}
-        className="grid grid-cols-4 gap-3"
+        className="grid grid-cols-3 gap-3 sm:grid-cols-4"
       >
         {themes.map((theme) => {
           const active = theme.id === activeThemeId;
@@ -80,13 +80,11 @@ function ThemeRow({
               onClick={() => onSelect(theme.id)}
               onFocus={() => setFocusedId(theme.id)}
               className={cn(
-                "overflow-hidden rounded-md border text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-                active
-                  ? "border-primary ring-2 ring-primary"
-                  : "border-border hover:border-muted-foreground/50",
+                "overflow-hidden rounded-lg text-left outline-none transition-[box-shadow,transform] duration-150 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-selection focus-visible:ring-offset-2 focus-visible:ring-offset-card",
+                active ? "ring-2 ring-selection" : "ring-1 ring-separator hover:ring-separator-strong",
               )}
             >
-              <div className="h-14 p-2" style={{ backgroundColor: theme.swatch.bg }}>
+              <div className="h-12 p-2" style={{ backgroundColor: theme.swatch.bg }}>
                 <div
                   className="flex h-full flex-col justify-between rounded-sm px-1.5 py-1"
                   style={{ backgroundColor: theme.swatch.surface }}
@@ -101,9 +99,9 @@ function ThemeRow({
                   />
                 </div>
               </div>
-              <div className="flex items-center justify-between gap-1 border-t border-border px-2 py-1.5">
-                <span className="truncate text-xs text-foreground">{theme.label}</span>
-                {active && <Check className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />}
+              <div className="flex items-center justify-between gap-1 border-t border-separator px-2 py-1.5">
+                <span className="truncate text-callout text-foreground">{theme.label}</span>
+                {active && <Check className="size-3.5 shrink-0 text-primary" aria-hidden />}
               </div>
             </button>
           );

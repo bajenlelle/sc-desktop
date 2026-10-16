@@ -244,6 +244,32 @@ export async function findMatchBySourceGame(
   };
 }
 
+/**
+ * Which of these games the caller already imported into the space — the
+ * picker's "Imported" tags. Same rows findMatchBySourceGame would find. A read
+ * error reads as "none imported": the tags are a hint, never a gate.
+ */
+export async function findImportedSourceGames(
+  supabase: SupabaseClient,
+  sourceGameIds: string[],
+  orgId?: string
+): Promise<Set<string>> {
+  if (sourceGameIds.length === 0) return new Set();
+  const uid = await currentUserId(supabase);
+  if (!uid) return new Set();
+
+  let query = supabase
+    .from("matches")
+    .select("source_game_id")
+    .eq("user_id", uid)
+    .in("source_game_id", sourceGameIds);
+  if (orgId) query = query.eq("org_id", orgId);
+
+  const { data, error } = await query;
+  if (error || !data) return new Set();
+  return new Set((data as { source_game_id: string | null }[]).map((r) => r.source_game_id).filter((x): x is string => !!x));
+}
+
 // ---------------------------------------------------------------------------
 // Load a single match with its events
 // ---------------------------------------------------------------------------

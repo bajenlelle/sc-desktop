@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { Navbar } from "@/components/navbar";
-import { LicenseBanner } from "@/components/license-banner";
-import { FeedbackFab } from "@/components/feedback-fab";
 import { AuthProvider } from "@/components/auth-context";
 import { ThemeSync } from "@/components/theme-sync";
-import { DeviceGate } from "@/components/device-gate";
 import { UpgradeCelebration } from "@/components/upgrade-celebration";
+import { MyTeamProvider } from "@/lib/my-team";
+import { TeamStep } from "@/components/team-step";
+import { AppProviders } from "@/components/providers";
+import { AppShell } from "@/components/shell/app-shell";
 import type { UserProfile } from "@scoutable/shared/types/org";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -19,7 +19,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     redirect("/login");
   }
 
-  // This server-side row feeds ONLY the Navbar. Do NOT seed AuthProvider with
+  // This server-side row feeds ONLY the shell. Do NOT seed AuthProvider with
   // it: ThemeSync's protocol requires profile to arrive asynchronously after
   // user (see theme-sync.ts header), and this select omits the theme_* columns
   // — a synchronous seed would adopt an all-null theme snapshot and push this
@@ -48,17 +48,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <AuthProvider>
-      <ThemeSync />
-      <UpgradeCelebration />
-      <div className="min-h-screen flex flex-col">
-        <Navbar profile={profile} />
-        <LicenseBanner />
-        <main className="flex-1">
-          <DeviceGate>{children}</DeviceGate>
-        </main>
-        <FeedbackFab />
-      </div>
-    </AuthProvider>
+    <AppProviders>
+      <AuthProvider>
+        <MyTeamProvider>
+          <ThemeSync />
+          <UpgradeCelebration />
+          <TeamStep />
+          <AppShell profile={profile}>{children}</AppShell>
+        </MyTeamProvider>
+      </AuthProvider>
+    </AppProviders>
   );
 }

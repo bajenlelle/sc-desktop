@@ -14,6 +14,7 @@ import { DevicesSection } from "@/components/DevicesSection";
 import { LicenseNotice } from "@/components/LicenseNotice";
 import { ReportProblemSheet } from "@/components/ReportProblemSheet";
 import { Select } from "@/components/Select";
+import { TeamSection } from "@/components/TeamSection";
 
 export default function ProfileScreen() {
   const { user, profile, myOrgs, activeOrg, activeOrgId, isPlayerOnly, setActiveOrg, reloadProfile } =
@@ -74,6 +75,8 @@ export default function ProfileScreen() {
             </Text>
           </View>
         </View>
+
+        <TeamSection />
 
         {isPlayerOnly ? (
           // Player-only users have no active-space concept — their feed

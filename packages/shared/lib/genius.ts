@@ -88,25 +88,27 @@ export interface GeniusPlayer {
   isPlayer: number;
 }
 
+/** One side of a schedule row. */
+export interface ScheduleTeam {
+  /** The source's team id for this season (Genius teamId as a string); matches league_team_sources. */
+  teamId?: string;
+  names: { short: string; long: string };
+  score: number;
+  icon: string;
+  status: string;
+}
+
 /** Schedule row shape the import UI renders (kept from the scrape era). */
 export interface ScheduleGame {
   uuid: string;
   rawStartDateTime: string;
   startDateTime: string;
-  homeTeamInfo: {
-    names: { short: string; long: string };
-    score: number;
-    icon: string;
-    status: string;
-  };
-  awayTeamInfo: {
-    names: { short: string; long: string };
-    score: number;
-    icon: string;
-    status: string;
-  };
+  homeTeamInfo: ScheduleTeam;
+  awayTeamInfo: ScheduleTeam;
   venueInfo: { name: string };
   seasonId?: string;
+  /** REGULAR | FINALS, when the source says. */
+  matchType?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -242,7 +244,8 @@ export function homeCompetitor(fixture: GeniusFixture): GeniusFixture["competito
 export function fixtureToScheduleGame(fixture: GeniusFixture): ScheduleGame {
   const home = homeCompetitor(fixture);
   const away = fixture.competitors.find((c) => c !== home);
-  const side = (c?: GeniusFixture["competitors"][number]) => ({
+  const side = (c?: GeniusFixture["competitors"][number]): ScheduleTeam => ({
+    teamId: c?.teamId != null ? String(c.teamId) : undefined,
     names: { short: c?.teamName ?? "", long: c?.teamName ?? "" },
     score: Number(c?.scoreString) || 0,
     icon: c?.logoUrl ?? "",
@@ -255,5 +258,16 @@ export function fixtureToScheduleGame(fixture: GeniusFixture): ScheduleGame {
     homeTeamInfo: side(home),
     awayTeamInfo: side(away),
     venueInfo: { name: fixture.venueName ?? "" },
+    matchType: fixture.matchType || undefined,
   };
+}
+
+/**
+ * Fixtures a coach can import: finished, with play-by-play upstream (anything
+ * else can't become clips), and of the given match type when one is asked.
+ */
+export function playableFixtures(fixtures: GeniusFixture[], matchType?: string): GeniusFixture[] {
+  return fixtures.filter(
+    (f) => f.matchStatus === "COMPLETE" && f.statsSource !== "" && (!matchType || f.matchType === matchType),
+  );
 }

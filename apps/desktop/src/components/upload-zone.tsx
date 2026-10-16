@@ -1,13 +1,15 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { trackEvent } from "@/lib/analytics";
 import { Film, X, Loader2, Search, ChevronRight } from "lucide-react";
 import { GeneratingSession } from "@/components/generating-session";
 import { SyncPointPicker } from "@/components/sync-point-picker";
+import { TipoffSuggestionStrip } from "@/components/tipoff-suggestion-strip";
+import { useTipoffSuggestion } from "@/lib/use-tipoff-suggestion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { saveMatch, findMatchBySourceGame } from "@/lib/matches-db";
+import { saveMatch, findMatchBySourceGame, findImportedSourceGames } from "@/lib/matches-db";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import type { OrgMembership } from "@/types/org";
@@ -23,6 +25,35 @@ import { LeaguePicker } from "@/components/league-picker";
 import { SingleSelectDropdown } from "@/components/ui/multi-select-dropdown";
 import type { StoredMatch, SyncPoint, PlayByPlayEvent } from "@/types/match";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useMyTeam } from "@/lib/my-team";
+import { TeamDialog } from "@/components/team-dialog";
+import { ImportViewToggle, type ImportView } from "@/components/import/import-view-toggle";
+import { ImportedTag, TeamGamesPanel, type PickedFrom } from "@/components/import/team-games-panel";
+import { choiceFor, spacesSharingAnswer, teamRoleIn, teamSpaces } from "@scoutable/shared/lib/league-teams";
+import { getTeamSources } from "@scoutable/shared/lib/league-teams-db";
+import { fromTeamSide, stageForMatchType, teamGames, teamSeasons, type TeamGame, type TeamSeason } from "@scoutable/shared/lib/team-games";
+import { sortOrgsClubFirst } from "@scoutable/shared/lib/orgs";
+
+// The import view a space last chose, on this computer. Only "all" is stored:
+// a space with a team opens on its own games unless the user switched away.
+const importViewKey = (orgId: string) => `scoutable_import_view:${orgId}`;
+function readImportView(orgId: string | null): ImportView | null {
+  if (!orgId) return null;
+  try {
+    return localStorage.getItem(importViewKey(orgId)) === "all" ? "all" : null;
+  } catch {
+    return null;
+  }
+}
+function writeImportView(orgId: string | null, view: ImportView) {
+  if (!orgId) return;
+  try {
+    if (view === "all") localStorage.setItem(importViewKey(orgId), "all");
+    else localStorage.removeItem(importViewKey(orgId));
+  } catch {
+    // Storage unavailable: the choice just isn't remembered.
+  }
+}
 
 const VIDEO_EXTS = ["mp4", "mov", "avi", "mkv", "webm", "m4v"];
 
@@ -65,11 +96,13 @@ function GameRow({
   game,
   selected,
   loading,
+  imported = false,
   onClick,
 }: {
   game: ScheduleGame;
   selected: boolean;
   loading: boolean;
+  imported?: boolean;
   onClick: () => void;
 }) {
   const date = new Date(game.rawStartDateTime).toLocaleDateString("sv-SE", {
@@ -111,6 +144,7 @@ function GameRow({
       <div className="shrink-0 text-xs text-muted-foreground hidden sm:block truncate max-w-[100px]">
         {game.venueInfo?.name}
       </div>
+      {imported && <ImportedTag />}
       {loading && selected ? (
         <Loader2 className="h-4 w-4 animate-spin shrink-0 text-primary" />
       ) : (
@@ -127,7 +161,8 @@ export function UploadZone({
   ntMemberships?: OrgMembership[];
   hasClubAccess?: boolean;
 }) {
-  const { activeOrgId, activeOrgPlan } = useAuth();
+  const { activeOrgId, activeOrg, activeOrgPlan, myOrgs, profile } = useAuth();
+  const { choices, loaded: teamsLoaded } = useMyTeam();
 
   const hasNtAccess = ntMemberships.length > 0;
   // Club leagues come from the edge function (see use-leagues); national teams
@@ -207,6 +242,97 @@ export function UploadZone({
       cancelled = true;
     };
   }, [selectedLeague, selectedSeason]);
+
+  // ── Your games: the space's team, its seasons, and its games ──
+  const activeChoice = choiceFor(choices, activeOrgId);
+  // National-team spaces import from their own leagues; they have no team.
+  const team = hasClubAccess ? activeChoice?.team ?? null : null;
+  const teamId = team?.id ?? null;
+  const [view, setView] = useState<ImportView>("all");
+  const viewDecidedFor = useRef<string | null>(null);
+  // Decide once per space and team: their own games, unless this space chose
+  // "All games" before. Setting a team from the prompt switches to it.
+  useEffect(() => {
+    if (!teamsLoaded) return;
+    const key = `${activeOrgId}:${teamId}`;
+    if (viewDecidedFor.current === key) return;
+    viewDecidedFor.current = key;
+    setView(teamId && readImportView(activeOrgId) !== "all" ? "team" : "all");
+  }, [teamsLoaded, activeOrgId, teamId]);
+
+  const [teamSeasonList, setTeamSeasonList] = useState<TeamSeason[] | null>(null);
+  const [teamSeason, setTeamSeason] = useState<TeamSeason | null>(null);
+  useEffect(() => {
+    setTeamSeasonList(null);
+    if (!teamId || clubLeagues.length === 0) return;
+    let cancelled = false;
+    getTeamSources(createClient(), teamId)
+      .then((sources) => {
+        if (cancelled) return;
+        const list = teamSeasons(sources, clubLeagues);
+        setTeamSeasonList(list);
+        const key = (s: TeamSeason) => `${s.league.id}/${s.season.id}`;
+        setTeamSeason((prev) => list.find((s) => prev && key(s) === key(prev)) ?? list[0] ?? null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("[import] team seasons", err);
+        Sentry.captureException(err);
+        setView("all"); // the full picker still works
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [teamId, clubLeagues]);
+
+  const [teamSchedule, setTeamSchedule] = useState<ScheduleGame[]>([]);
+  const [teamStatus, setTeamStatus] = useState<"loading" | "idle" | "error">("loading");
+  useEffect(() => {
+    if (view !== "team" || !teamSeason) return;
+    let cancelled = false;
+    setTeamStatus("loading");
+    getLeagueSchedule(teamSeason.league, teamSeason.season, null)
+      .then((games) => {
+        if (cancelled) return;
+        setTeamSchedule(games);
+        setTeamStatus("idle");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("[schedule]", err);
+        Sentry.captureException(err);
+        setTeamStatus("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [view, teamSeason]);
+  const myGames = useMemo(
+    () => (teamSeason ? teamGames(teamSchedule, teamSeason.teamIds) : []),
+    [teamSchedule, teamSeason],
+  );
+  // The team's ids across every season, to tell whether any picked game is theirs.
+  const allTeamIds = useMemo(
+    () => new Set((teamSeasonList ?? []).flatMap((s) => [...s.teamIds])),
+    [teamSeasonList],
+  );
+
+  // How the picked game was found, for game_synced.
+  const pickedFromRef = useRef<PickedFrom | "all_list">("all_list");
+  const [teamPromptOpen, setTeamPromptOpen] = useState(false);
+
+  // The full list opens on the team's league too, until the user picks another.
+  const leagueTouched = useRef(false);
+  const teamLeagueId = team?.leagueId ?? null;
+  useEffect(() => {
+    if (!teamLeagueId || leagueTouched.current) return;
+    const league = leagueList.find((l) => l.id === teamLeagueId);
+    if (!league || league.id === selectedLeague?.id) return;
+    setSelectedLeague(league);
+    setSelectedSeason(league.seasons[0] ?? null);
+    setSelectedStage(league.seasons[0]?.stages[0] ?? null);
+  }, [teamLeagueId, leagueList]);
+
   const [scheduleGames, setScheduleGames] = useState<ScheduleGame[]>([]);
   const [scheduleStatus, setScheduleStatus] = useState<"loading" | "idle" | "error">("loading");
   const [searchQuery, setSearchQuery] = useState("");
@@ -243,6 +369,8 @@ export function UploadZone({
   // Video state
   const [videoPath, setVideoPath] = useState<string | null>(null);
   const [syncSeconds, setSyncSeconds] = useState<number | null>(null);
+  // Shared hint lookup, then automatic detection, for the linked recording.
+  const tipoffSuggestion = useTipoffSuggestion(videoPath, selectedGame?.uuid, { surface: "import" });
   const [submitStatus, setSubmitStatus] = useState<"idle" | "saving" | "error">("idle");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [importLimitDialogOpen, setImportLimitDialogOpen] = useState(false);
@@ -315,6 +443,20 @@ export function UploadZone({
     };
   }, [selectedGame?.uuid, activeOrgId]);
 
+  // "Imported" tags for whichever list is showing.
+  const visibleIdsKey = (view === "team" ? myGames.map((g) => g.game.uuid) : scheduleGames.map((g) => g.uuid)).join(",");
+  const [importedIds, setImportedIds] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    const ids = visibleIdsKey ? visibleIdsKey.split(",") : [];
+    let cancelled = false;
+    findImportedSourceGames(ids, activeOrgId ?? undefined).then((set) => {
+      if (!cancelled) setImportedIds(set);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleIdsKey, activeOrgId]);
+
   const filteredGames = scheduleGames.filter((g) => {
     const q = searchQuery.toLowerCase();
     if (!q) return true;
@@ -329,6 +471,7 @@ export function UploadZone({
 
   function handleLeagueChange(league: League) {
     if (selectedLeague && league.id === selectedLeague.id) return;
+    leagueTouched.current = true;
     setSelectedLeague(league);
     setSelectedSeason(league.seasons[0] ?? null);
     setSelectedStage(null); // the stage effect fills it
@@ -339,6 +482,7 @@ export function UploadZone({
   function handleSeasonChange(seasonId: string | null) {
     const season = selectedLeague?.seasons.find((s) => s.id === seasonId);
     if (!season || season.id === selectedSeason?.id) return;
+    leagueTouched.current = true;
     setSelectedSeason(season);
     setSelectedStage(null); // the stage effect fills it
     setSelectedGame(null);
@@ -348,13 +492,44 @@ export function UploadZone({
   function handleStageChange(stageId: string | null) {
     const stage = stages.find((s) => s.id === stageId);
     if (!stage || stage.id === selectedStage?.id) return;
+    leagueTouched.current = true;
     setSelectedStage(stage);
     setSelectedGame(null);
     setSearchQuery("");
   }
 
-  async function handleSelectGame(game: ScheduleGame) {
-    if (!selectedLeague || !selectedSeason) return;
+  function changeView(next: ImportView) {
+    if (next === view) return;
+    setView(next);
+    writeImportView(activeOrgId, next);
+    trackEvent("import_view_changed", { view: next });
+  }
+
+  /** A game from "Your games": its league, season and stage come from the game. */
+  function handlePickTeamGame(tg: TeamGame, from: PickedFrom) {
+    if (!teamSeason?.season.competitionId) return; // Genius seasons only
+    const { league, season } = teamSeason;
+    setSelectedLeague(league);
+    setSelectedSeason(season);
+    setSelectedStage(stageForMatchType(season, tg.game.matchType));
+    pickedFromRef.current = from;
+    void handleSelectGame(tg.game, season);
+  }
+
+  function clearSelectedGame() {
+    setSelectedGame(null);
+    setFetchStatus("idle");
+    setFetchError(null);
+    setPlayByPlayEvents([]);
+    setTipoffRealWorldTime(null);
+    setHomeRoster([{ jerseyNumber: "", playerName: "" }]);
+    setAwayRoster([{ jerseyNumber: "", playerName: "" }]);
+  }
+
+  async function handleSelectGame(game: ScheduleGame, seasonOverride?: Season) {
+    const season = seasonOverride ?? selectedSeason;
+    if (!season) return;
+    if (!seasonOverride) pickedFromRef.current = "all_list";
     setSelectedGame(game);
     setFetchStatus("loading");
     setFetchError(null);
@@ -374,7 +549,7 @@ export function UploadZone({
     }
 
     try {
-      const data = await fetchGameData(selectedSeason, game, selectedStage);
+      const data = await fetchGameData(season, game, seasonOverride ? null : selectedStage);
 
       const home = data.homeName || fallbackHome;
       const away = data.awayName || fallbackAway;
@@ -481,13 +656,27 @@ export function UploadZone({
       await saveMatch(storedMatch, { refreshEvents: !!existingMatch });
       trackEvent('game_synced', {
         game_id: matchId,
+        // Which fixture: team names and league are public, so they can live in analytics.
+        title: storedMatch.title,
+        league: selectedLeague.name,
+        season: selectedSeason?.label ?? null,
+        source_game_id: storedMatch.sourceGameId ?? null,
+        match_date: storedMatch.date,
         has_video: !!videoPath,
         has_sync_point: !!syncPoint,
         has_play_by_play: playByPlayEvents.length > 0,
         event_count: playByPlayEvents.length,
         reimport: !!existingMatch,
         provider: selectedSeason ? seasonProvider(selectedSeason) : "genius",
+        tipoff_suggestion: tipoffSuggestion.source,
+        picked_from: pickedFromRef.current,
+        team_game: !!selectedGame && fromTeamSide(selectedGame, allTeamIds) !== null,
       })
+      if (syncPoint) {
+        // The confirmed offset becomes this recording's shared hint; never blocks the import.
+        tipoffSuggestion.recordResolved(syncPoint.syncVideoTime);
+        void tipoffSuggestion.saveConfirmed(syncPoint.syncVideoTime);
+      }
     } catch (err) {
       setSubmitStatus("error");
       setGeneratingVisible(false);
@@ -529,6 +718,19 @@ export function UploadZone({
 
   return (
     <>
+    {teamPromptOpen && activeOrg && (
+      <TeamDialog
+        mode="change"
+        surface="import"
+        org={activeOrg}
+        otherSpaces={sortOrgsClubFirst(teamSpaces(myOrgs)).filter((o) => o.orgId !== activeOrg.orgId)}
+        defaultChecked={spacesSharingAnswer(teamSpaces(myOrgs), choices, activeOrg.orgId).filter((id) => id !== activeOrg.orgId)}
+        initialTeamId={null}
+        role={teamRoleIn(activeOrg, profile?.declaredRole)}
+        onDone={() => setTeamPromptOpen(false)}
+        onDismiss={() => setTeamPromptOpen(false)}
+      />
+    )}
     <UpgradeDialog
       open={importLimitDialogOpen}
       onClose={() => setImportLimitDialogOpen(false)}
@@ -553,9 +755,41 @@ export function UploadZone({
         <StepLabel step={1} title="Pick a Game" />
         <Card>
           <CardContent className="p-4 space-y-3">
+            {!selectedGame && team && (
+              <ImportViewToggle team={team} view={view} onChange={changeView} />
+            )}
+            {!selectedGame && !team && hasClubAccess && teamsLoaded && !activeChoice?.unlistedTeam && activeOrg && (
+              <p className="text-xs text-muted-foreground">
+                See your team&apos;s games first.{" "}
+                <button
+                  type="button"
+                  className="font-medium text-primary underline-offset-2 hover:underline"
+                  onClick={() => setTeamPromptOpen(true)}
+                >
+                  Set your team
+                </button>
+              </p>
+            )}
+
+            {view === "team" && team && !selectedGame ? (
+              <TeamGamesPanel
+                team={team}
+                seasons={teamSeasonList}
+                selected={teamSeason}
+                onSeasonChange={setTeamSeason}
+                status={teamStatus}
+                games={myGames}
+                importedIds={importedIds}
+                onPick={handlePickTeamGame}
+                onShowAll={() => changeView("all")}
+              />
+            ) : (
+            <>
             {/* League · Season · Stage.
                 Season and Stage stay hidden while there's only one option —
-                no dead controls for single-season leagues. */}
+                no dead controls for single-season leagues. A game picked from
+                "Your games" shows on its own: the pickers belong to All games. */}
+            {!(view === "team" && team) && (
             <div className="flex flex-wrap items-center gap-2">
               <LeaguePicker
                 leagues={leagueList}
@@ -584,6 +818,7 @@ export function UploadZone({
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-label="Loading categories" />
               )}
             </div>
+            )}
             {isProfixioSeason && (
               <p className="text-xs text-muted-foreground">
                 This league records points, fouls and timeouts only.
@@ -626,7 +861,7 @@ export function UploadZone({
                   variant="ghost"
                   size="sm"
                   className="shrink-0 h-7 text-xs text-muted-foreground hover:text-foreground"
-                  onClick={() => setSelectedGame(null)}
+                  onClick={clearSelectedGame}
                 >
                   Change
                 </Button>
@@ -675,6 +910,7 @@ export function UploadZone({
                           game={game}
                           selected={false}
                           loading={false}
+                          imported={importedIds.has(game.uuid)}
                           onClick={() => handleSelectGame(game)}
                         />
                       ))
@@ -683,11 +919,13 @@ export function UploadZone({
                 )}
               </>
             )}
+            </>
+            )}
 
             {fetchStatus === "error" && fetchError && (
               <p className="text-xs text-red-500 dark:text-red-400">{fetchError}</p>
             )}
-            {fetchStatus === "loading" && selectedGame && !selectedGame && (
+            {fetchStatus === "loading" && selectedGame && (
               <p className="text-xs text-muted-foreground">Fetching game data…</p>
             )}
             {playByPlayEvents.length > 0 && (
@@ -750,7 +988,7 @@ export function UploadZone({
                       Choose a video file
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      MP4, MOV, AVI, MKV — plays locally, nothing is uploaded
+                      MP4, MOV, AVI, MKV — plays locally; a few stills from the first minutes go to Scoutable to find the tip-off
                     </p>
                     <Button
                       type="button"
@@ -788,6 +1026,16 @@ export function UploadZone({
                     syncAnchor ? `${syncAnchor.label}${tipoffLocalHint ? `, ${tipoffLocalHint}` : ""}` : undefined
                   }
                   onConfirm={(secs) => setSyncSeconds(secs)}
+                  seekRequest={tipoffSuggestion.seekRequest}
+                  onUserAction={tipoffSuggestion.noteUserAction}
+                  suggestionSlot={
+                    <TipoffSuggestionStrip
+                      state={tipoffSuggestion.state}
+                      onAccept={tipoffSuggestion.accept}
+                      onReject={tipoffSuggestion.reject}
+                      onCancel={tipoffSuggestion.cancel}
+                    />
+                  }
                 />
               </div>
             )}

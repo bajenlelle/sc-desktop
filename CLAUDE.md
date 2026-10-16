@@ -25,10 +25,21 @@ playlists, and share them with teams; players watch on web/mobile.
   `lib/report.ts`.
 - `supabase/` — migrations and edge functions (`send-email`, `send-push`,
   `report-issue`, `genius` — the Genius Sports proxy/cache; holds
-  `GENIUS_API_KEY`, all SBF match imports go through it; `profixio` — the
-  district-basketball provider: public pages today, documented API once
-  `PROFIXIO_API_SECRET` exists, four cache tables).
+  `GENIUS_API_KEY`, all SBF match imports go through it; it also keeps the
+  league team catalogue (`league_teams`, behind each user's "Your team") current
+  after fixture refreshes and in the weekly season audit; `profixio` — the
+  district-basketball provider, read through Profixio's documented API with
+  `PROFIXIO_API_SECRET` (only the tournaments that key may view), four cache
+  tables; `tipoff-detect` — reads
+  scoreboard clocks from video stills with Claude for the automatic tip-off
+  suggestion; `ANTHROPIC_API_KEY`, kill switch `app_config.tipoff_detect_enabled`).
   Remote project `nbmrujmazvdoaldirpyx`; apply with `npx supabase db push`.
+- `scripts/nightly-tipoff` — the nightly tip-off job (`nightly-tipoff.yml`,
+  02:00 Stockholm, pilot channel Superettan Herr; manual runs from the Actions
+  tab). Reads BasketTV replays through a range proxy, detects with the
+  `tipoff-detect` function as the bot user `tipoff-bot@scoutable.se`, and
+  writes `video_sync_hints`; bookkeeping in `baskettv_tipoff_runs`. Pure game
+  selection lives in `packages/shared/lib/baskettv.ts`.
 
 ## Conventions
 
@@ -69,6 +80,16 @@ playlists, and share them with teams; players watch on web/mobile.
   tauri.conf.json + Cargo.toml/lock), commit "X.Y.Z", annotated tag
   `vX.Y.Z`, `git push --follow-tags` → release.yml builds, notarizes, and
   publishes to `bajenlelle/scoutable-releases`; desktop apps self-update.
+- Windows code signing (Azure Artifact Signing) turns on in release.yml and
+  build.yml once the secrets `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`,
+  `AZURE_CLIENT_SECRET` and the variables `WINDOWS_SIGN_ENDPOINT`,
+  `WINDOWS_SIGN_ACCOUNT`, `WINDOWS_SIGN_PROFILE` exist. From then on a build
+  fails rather than ship an installer, app or ffmpeg.exe without a valid
+  signature. Without them Windows builds are unsigned, and Smart App Control
+  blocks unsigned programs (os error 4551).
+- The Intel-Mac ffmpeg is a pinned, SHA256-checked zip in this repo's
+  `ffmpeg-binaries` release (evermeet.cx's download API is gone); the update
+  steps are in the comment above it in release.yml.
 - Web ships on merge to `main`. Mobile JS fixes ship with `npm run ota`.
 
 ## Maintenance pipeline

@@ -9,6 +9,7 @@ import { dismissOnboardingChecklist, getOrgContextForOrg, listOrgSetupInvites } 
 import { trackEvent } from "@/lib/analytics";
 import { deriveOrgSetupProgress, type OrgSetupInvite } from "@scoutable/shared/lib/org-setup";
 import { cn } from "@/lib/utils";
+import { ProgressBar } from "@/components/ui/progress-bar";
 import type { OrgTeam, UserProfile } from "@scoutable/shared/types/org";
 
 interface Step {
@@ -131,39 +132,34 @@ export function AdminSetupCard({
   }
 
   return (
-    <div className={cn("rounded-xl border border-primary/30 bg-card p-4", className)}>
-      <div className="flex items-start justify-between gap-3">
+    <section className={cn("rounded-window bg-card ring-1 ring-separator", className)}>
+      <div className="flex items-start justify-between gap-4 px-5 pt-4">
         <div>
-          <h2 className="text-sm font-semibold text-foreground">
-            Welcome to {activeOrg?.orgName ?? "your organization"} 👋
+          <h2 className="text-title-3 text-foreground">
+            Welcome to {activeOrg?.orgName ?? "your club"}
           </h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            You&apos;re the admin — set up your club so coaches and players can get going.
+            You&apos;re the admin. Set up your club so coaches and players can get going.
           </p>
         </div>
         <button
           type="button"
           onClick={handleDismiss}
           aria-label="Dismiss setup checklist"
-          className="text-muted-foreground hover:text-foreground"
+          className="-mr-2 -mt-1 flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none transition-[background-color,transform] duration-100 hover:bg-fill-2 hover:text-foreground active:scale-95 focus-visible:ring-2 focus-visible:ring-selection pointer-coarse:size-10"
         >
-          <X className="h-4 w-4" />
+          <X className="size-3.5" />
         </button>
       </div>
 
-      <div className="mt-3 flex items-center gap-3">
-        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-          <div
-            className="h-full rounded-full bg-primary transition-all"
-            style={{ width: `${(progress.doneCount / progress.total) * 100}%` }}
-          />
-        </div>
-        <span className="text-xs text-muted-foreground">
+      <div className="mt-4 flex items-center gap-3 px-5">
+        <ProgressBar percent={(progress.doneCount / progress.total) * 100} className="flex-1" />
+        <span className="text-callout nums text-muted-foreground">
           {progress.doneCount} of {progress.total}
         </span>
       </div>
 
-      <ul className="mt-3 flex flex-col gap-1">
+      <ul className="mt-3 flex flex-col px-2">
         {steps.map((step) => (
           <li key={step.key}>
             <button
@@ -171,45 +167,32 @@ export function AdminSetupCard({
               onClick={() => handleStep(step)}
               disabled={step.done}
               className={cn(
-                "flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left",
-                !step.done && "hover:bg-muted/60"
+                "flex min-h-9 w-full items-center gap-3 rounded-md px-3 py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection pointer-coarse:min-h-11",
+                !step.done && "transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2",
               )}
             >
               <span
                 className={cn(
-                  "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border",
-                  step.done
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-muted-foreground/40"
+                  "flex size-5 shrink-0 items-center justify-center rounded-full",
+                  step.done ? "bg-primary text-primary-foreground" : "text-transparent ring-1 ring-inset ring-separator-strong",
                 )}
               >
-                {step.done && <Check className="h-3 w-3" />}
+                <Check className="size-3 stroke-[2.5]" />
               </span>
               <span className="min-w-0 flex-1">
-                <span
-                  className={cn(
-                    "block text-sm",
-                    step.done
-                      ? "text-muted-foreground line-through"
-                      : "font-medium text-foreground"
-                  )}
-                >
+                <span className={cn("block text-sm", step.done ? "text-muted-foreground line-through" : "text-foreground")}>
                   {step.title}
                 </span>
-                {step.hint && !step.done && (
-                  <span className="block text-xs text-muted-foreground">{step.hint}</span>
-                )}
+                {step.hint && !step.done && <span className="block text-callout text-muted-foreground">{step.hint}</span>}
               </span>
-              {!step.done && (
-                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-              )}
+              {!step.done && <ChevronRight className="size-4 shrink-0 text-muted-foreground/50" />}
             </button>
           </li>
         ))}
       </ul>
 
-      <p className="mt-3 flex items-start gap-1.5 border-t border-border pt-3 text-sm text-muted-foreground">
-        <Monitor className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary/70" aria-hidden />
+      <p className="mx-5 mt-2 flex items-start gap-1.5 border-t border-separator py-3 text-callout text-muted-foreground">
+        <Monitor className="mt-px size-3.5 shrink-0 text-primary/70" aria-hidden />
         <span>
           Import games and cut clips in the free{" "}
           <a
@@ -223,6 +206,6 @@ export function AdminSetupCard({
           .
         </span>
       </p>
-    </div>
+    </section>
   );
 }

@@ -17,6 +17,7 @@ import {
   buildRosters,
   findTipoff,
   fixtureToScheduleGame,
+  playableFixtures,
   homeCompetitor,
   normalizeGeniusActions,
   type ScheduleGame,
@@ -158,18 +159,39 @@ export function getSeasonStages(league: League, season: Season): Promise<Stage[]
   return pending;
 }
 
+// A competition's playable games, kept for a few minutes per app session, so
+// switching stage or between "Your games" and "All games" doesn't refetch.
+// The genius function caches upstream for 6 h either way.
+const SCHEDULE_TTL_MS = 5 * 60 * 1000;
+const scheduleCache = new Map<number, { at: number; games: Promise<ScheduleGame[]> }>();
+
+function playableSchedule(competitionId: number): Promise<ScheduleGame[]> {
+  const hit = scheduleCache.get(competitionId);
+  if (hit && Date.now() - hit.at < SCHEDULE_TTL_MS) return hit.games;
+  const games = (async () => {
+    const res = await getGeniusFixtures(createClient(), competitionId);
+    if (!res.ok) throw new Error(`Failed to fetch fixtures: ${res.error}`);
+    return playableFixtures(res.data.fixtures)
+      .map(fixtureToScheduleGame)
+      .sort((a, b) => Date.parse(b.rawStartDateTime) - Date.parse(a.rawStartDateTime));
+  })();
+  scheduleCache.set(competitionId, { at: Date.now(), games });
+  games.catch(() => scheduleCache.delete(competitionId)); // a failure is retried next time
+  return games;
+}
+
 /**
- * Playable schedule for a league season stage, newest first. Only COMPLETE
- * games that actually carry play-by-play (statsSource set) are shown —
- * anything else can't become clips, so coaches never see it.
+ * Playable schedule for a league season, newest first: COMPLETE games that
+ * carry play-by-play (anything else can't become clips). `stage: null` means
+ * every stage — the "Your games" view merges regular season and playoffs.
  */
 export async function getLeagueSchedule(
   _league: League,
   season: Season,
-  stage: Stage,
+  stage: Stage | null,
 ): Promise<ScheduleGame[]> {
   if (seasonProvider(season) === "profixio") {
-    if (!season.profixio || stage.categoryId == null) return [];
+    if (!season.profixio || stage?.categoryId == null) return [];
     const res = await getProfixioSchedule(createClient(), season.profixio.leagueId, stage.categoryId);
     if (!res.ok) throw new Error(`Failed to fetch schedule: ${res.error}`);
     // Only played games: the protocol fills in during the game, so an
@@ -178,18 +200,8 @@ export async function getLeagueSchedule(
   }
 
   if (!season.competitionId) return [];
-  const res = await getGeniusFixtures(createClient(), season.competitionId);
-  if (!res.ok) throw new Error(`Failed to fetch fixtures: ${res.error}`);
-
-  return res.data.fixtures
-    .filter(
-      (f) =>
-        f.matchStatus === "COMPLETE" &&
-        f.statsSource !== "" &&
-        (!stage.matchType || f.matchType === stage.matchType),
-    )
-    .map(fixtureToScheduleGame)
-    .sort(byNewest);
+  const games = await playableSchedule(season.competitionId);
+  return stage?.matchType ? games.filter((g) => g.matchType === stage.matchType) : games;
 }
 
 export interface GameData {

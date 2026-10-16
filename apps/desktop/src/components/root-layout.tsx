@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { AppSidebar } from "@/components/app-sidebar";
 import { LicenseBanner } from "@/components/license-banner";
 import { SpaceHeader } from "@/components/space-header";
+import { TeamStep } from "@/components/team-step";
 import { useAuth } from "@/lib/auth-context";
 import { useImportQuota } from "@/lib/use-import-quota";
 
@@ -34,6 +35,7 @@ export function RootLayout() {
           <Outlet />
         </motion.div>
       </main>
+      <TeamStep />
     </div>
   );
 }

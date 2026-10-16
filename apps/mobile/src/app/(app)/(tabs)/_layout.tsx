@@ -1,10 +1,13 @@
 import { useEffect, useMemo } from "react";
-import { Tabs } from "expo-router";
+import { Tabs, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { feedCounts } from "@scoutable/shared/lib/playlist-feed";
 import { useAuth } from "@/lib/auth-context";
 import { usePlaylists } from "@/lib/playlists-store";
 import { syncAppBadge } from "@/lib/notifications";
+import { offerTeamStepOnce, useMyTeam } from "@/lib/my-team";
+import { trackEvent } from "@/lib/analytics";
+import { needsTeamStep, teamRoleIn } from "@scoutable/shared/lib/league-teams";
 import { useThemeColors } from "@/lib/theme-context";
 
 /**
@@ -14,7 +17,8 @@ import { useThemeColors } from "@/lib/theme-context";
  * OUTSIDE this group so playback pushes fullscreen over the tab bar.
  */
 export default function TabsLayout() {
-  const { isPlayerOnly, activeOrgRole } = useAuth();
+  const { isPlayerOnly, activeOrgRole, activeOrg, profile } = useAuth();
+  const { choices, loaded: teamsLoaded } = useMyTeam();
   const { feedItems, loading } = usePlaylists();
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   const colors = useThemeColors();
@@ -29,6 +33,16 @@ export default function TabsLayout() {
   useEffect(() => {
     if (!loading) syncAppBadge(newCount);
   }, [newCount, loading]);
+
+  // "Which team do you play for?" once per club space: shown over the tabs
+  // until answered (skip counts), at most once per launch.
+  const declaredRole = profile?.declaredRole;
+  useEffect(() => {
+    if (!activeOrg || activeOrg.isNtOrg || !teamsLoaded) return;
+    if (!needsTeamStep(choices, activeOrg.orgId) || !offerTeamStepOnce(activeOrg.orgId)) return;
+    trackEvent("team_step_shown", { role: teamRoleIn(activeOrg, declaredRole) });
+    router.push({ pathname: "/team", params: { mode: "step", orgId: activeOrg.orgId } });
+  }, [activeOrg, teamsLoaded, choices, declaredRole]);
 
   return (
     <Tabs

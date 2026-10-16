@@ -3,6 +3,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   transpilePackages: ["@scoutable/shared"],
+  // The dev-mode badge sits bottom left, on top of the sidebar's account row
+  // and the tab bar's first tab. Build errors still show as an overlay.
+  devIndicators: false,
 };
 
 export default withSentryConfig(nextConfig, {

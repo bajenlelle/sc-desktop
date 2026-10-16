@@ -1,20 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FormRow, GroupedList } from "@/components/ui/group";
+import { Input } from "@/components/ui/input";
 import { createTeam } from "@/lib/profile-db";
 import { trackEvent } from "@/lib/analytics";
-import { toast } from "sonner";
 
 interface CreateTeamDialogProps {
   open: boolean;
@@ -37,7 +31,7 @@ export function CreateTeamDialog({ open, onClose, onCreated, orgId }: CreateTeam
   }
 
   async function handleCreate() {
-    if (!name.trim()) return;
+    if (!name.trim() || creating) return;
     setCreating(true);
     try {
       await createTeam(name.trim(), season.trim() || undefined, orgId);
@@ -54,40 +48,47 @@ export function CreateTeamDialog({ open, onClose, onCreated, orgId }: CreateTeam
     }
   }
 
+  const onEnter = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") void handleCreate();
+  };
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>New team</DialogTitle>
+          <DialogDescription>Invites can name a team, so new members land in the right place.</DialogDescription>
         </DialogHeader>
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <Label>Team name</Label>
+        <GroupedList>
+          <FormRow label="Name" htmlFor="team-name">
             <Input
-              placeholder="e.g. U21"
+              id="team-name"
+              className="h-7 border-0 bg-transparent px-0 text-right shadow-none ring-0 focus-visible:ring-0"
+              placeholder="U21"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
+              onKeyDown={onEnter}
               autoFocus
             />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Season <span className="text-muted-foreground font-normal">(optional)</span></Label>
+          </FormRow>
+          <FormRow label="Season" htmlFor="team-season" description="Optional">
             <Input
-              placeholder="e.g. 2024/25"
+              id="team-season"
+              className="h-7 border-0 bg-transparent px-0 text-right shadow-none ring-0 focus-visible:ring-0"
+              placeholder="2026/27"
               value={season}
               onChange={(e) => setSeason(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
+              onKeyDown={onEnter}
             />
-          </div>
-        </div>
+          </FormRow>
+        </GroupedList>
         <DialogFooter>
-          <Button variant="outline" size="sm" onClick={() => handleOpenChange(false)}>
+          <Button variant="outline" onClick={() => handleOpenChange(false)}>
             Cancel
           </Button>
-          <Button size="sm" onClick={handleCreate} disabled={!name.trim() || creating}>
-            {creating && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
-            {creating ? "Creating…" : "Create"}
+          <Button onClick={handleCreate} disabled={!name.trim() || creating}>
+            {creating && <Loader2 className="animate-spin" />}
+            Create team
           </Button>
         </DialogFooter>
       </DialogContent>

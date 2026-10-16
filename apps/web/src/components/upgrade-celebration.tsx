@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { motion } from "framer-motion";
 import { Check } from "lucide-react";
 import { useAuth } from "@/components/auth-context";
 import { markPlanCelebrated } from "@/lib/profile-db";
 import { trackEvent } from "@/lib/analytics";
-import { orgPlanLabel, orgPlanColors } from "@scoutable/shared/lib/plan-tier";
-import { cn } from "@/lib/utils";
+import { orgPlanLabel } from "@scoutable/shared/lib/plan-tier";
+import { springs } from "@/lib/motion";
 
 /** Only paid tiers rank above free; franchise is org licensing, never Stripe. */
 const TIER_RANK: Record<string, number> = { free: 0, rookie: 1, pro: 2 };
@@ -52,33 +53,35 @@ export function UpgradeCelebration() {
 
   if (!tier) return null;
 
-  const colors = orgPlanColors(tier);
-
   return (
     <Dialog open onOpenChange={(v) => { if (!v) setTier(null); }}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <div className={cn("mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full text-2xl", colors.badge)}>
-            🎉
-          </div>
-          <DialogTitle className="text-center">
-            You&apos;re on {orgPlanLabel(tier)} now!
-          </DialogTitle>
-          <DialogDescription className="text-center">
-            Thanks for upgrading — here&apos;s what you&apos;ve unlocked:
-          </DialogDescription>
-        </DialogHeader>
-        <ul className="mx-auto flex flex-col gap-2 py-1">
-          {TIER_PERKS[tier].map((perk) => (
-            <li key={perk} className="flex items-center gap-2 text-sm text-foreground">
-              <Check className="h-4 w-4 shrink-0 text-primary" />
-              {perk}
-            </li>
-          ))}
-        </ul>
+      <DialogContent className="max-w-sm">
+        <div className="flex flex-col items-center text-center">
+          {/* The one moment in the app that earns a little overshoot. */}
+          <motion.span
+            initial={{ scale: 0.4, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ ...springs.settle, delay: 0.12 }}
+            className="mb-4 flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground"
+          >
+            <Check className="size-7 stroke-[3]" />
+          </motion.span>
+          <DialogHeader className="items-center text-center">
+            <DialogTitle>You&apos;re on {orgPlanLabel(tier)}</DialogTitle>
+            <DialogDescription>Thanks for upgrading. Here&apos;s what&apos;s yours now:</DialogDescription>
+          </DialogHeader>
+          <ul className="mt-4 flex flex-col gap-2 self-center text-left">
+            {TIER_PERKS[tier].map((perk) => (
+              <li key={perk} className="flex items-center gap-2 text-sm text-foreground">
+                <Check className="size-4 shrink-0 text-primary" />
+                {perk}
+              </li>
+            ))}
+          </ul>
+        </div>
         <DialogFooter className="sm:justify-center">
           <Button className="w-full" onClick={() => setTier(null)}>
-            Let&apos;s go
+            Done
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -8,8 +8,8 @@
  * interpolation (`cxAt` from @scoutable/shared/lib/crop-path) the ffmpeg
  * export bakes in, so the preview pan is exactly the exported pan.
  *
- * Everything is plain divs — the player's WKWebView freeze-frame workaround
- * (video-player.tsx) breaks if a canvas is composited over the video.
+ * Everything is plain divs; nothing is composited over the video but the
+ * dimmed surround and the window outline.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, RectangleVertical, RotateCcw, X } from "lucide-react";

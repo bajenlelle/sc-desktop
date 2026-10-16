@@ -16,6 +16,8 @@ export const saveMatch = async (match: StoredMatch, opts?: { refreshEvents?: boo
 };
 export const findMatchBySourceGame = (sourceGameId: string, orgId?: string) =>
   db.findMatchBySourceGame(c(), sourceGameId, orgId);
+export const findImportedSourceGames = (sourceGameIds: string[], orgId?: string) =>
+  db.findImportedSourceGames(c(), sourceGameIds, orgId);
 export const getMatch = (id: string) => db.getMatch(c(), id);
 export const listMatches = (orgId?: string, opts?: { ownOnly?: boolean }) => db.listMatches(c(), orgId, opts);
 export const listEventsForMatches = (matchIds: string[]) => db.listEventsForMatches(c(), matchIds);

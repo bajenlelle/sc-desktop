@@ -17,11 +17,29 @@ export type AnalyticsEvent =
   | "login_provider_clicked"
   | "declared_role_selected"
   | "page_viewed"
+  // Your team (all apps). surface: step | profile | import
+  | "team_step_shown" // role
+  | "team_selected" // surface, league_id, team_name, suggested, spaces, includes_personal
+  | "team_step_skipped"
+  | "team_unlisted" // surface, spaces
   // Import funnel (desktop)
-  | "game_synced"
+  | "game_synced" // …, picked_from (latest_card | team_list | all_list), team_game
   | "game_sync_failed"
   | "sync_point_skipped"
+  | "import_view_changed" // view (team | all)
   | "demo_game_seeded"
+  // Automatic tip-off detection (desktop import). Props in comments.
+  // Tip-off flow (desktop). Every event carries surface (import | game_page). A suggestion's
+  // source is a hint (stored by an earlier import of the recording) or auto (a fresh search).
+  | "tipoff_hint_lookup" // hit, agreement, method, candidates
+  | "tipoff_detect_started" // trigger, duration_s
+  | "tipoff_detect_completed" // outcome, basis, confidence, seconds, elapsed_ms, api_calls, frames, view, user_activity (none = waited | seeked)
+  | "tipoff_detect_failed" // error
+  | "tipoff_detect_cancelled" // elapsed_ms, stage, reason (cancel_button | set_manually | left)
+  | "tipoff_suggestion_accepted" // source, kind, seconds, method, agreement (was tipoff_hint_used in 0.6.17, hints only)
+  | "tipoff_suggestion_dismissed" // source, kind, method, agreement (was tipoff_hint_rejected in 0.6.17, hints only)
+  | "tipoff_suggestion_resolved" // path (lib/tipoff-analytics.ts), source, suggested_seconds, confirmed_seconds, delta_seconds, ms_since_link
+  | "tipoff_hint_saved" // method
   // Playlist production (desktop)
   | "playlist_created"
   | "clip_added_to_playlist"

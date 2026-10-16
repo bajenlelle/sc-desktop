@@ -1,6 +1,6 @@
 [package]
 name = "scoutable"
-version = "0.6.16"
+version = "0.7.3"
 description = "Scoutable desktop"
 authors = ["Scoutable"]
 edition = "2021"
@@ -36,4 +36,5 @@ image = "0.25"
 imageproc = "0.25"
 machine-uid = "0.5"
 sha2 = "0.10"
+base64 = "0.22"
 hostname = "0.4"

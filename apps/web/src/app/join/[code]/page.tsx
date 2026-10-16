@@ -4,10 +4,10 @@ import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { Card, CardContent } from "@/components/ui/card";
+import { AuthHeading, AuthShell } from "@/components/auth/auth-frame";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/client";
+import { roleLabel } from "@/lib/roles";
 import { joinByCode } from "@/lib/profile-db";
 import { trackEvent } from "@/lib/analytics";
 import { setStoredActiveOrg } from "@/components/auth-context";
@@ -44,10 +44,10 @@ async function signOutAndRedirect(redirectTo: string) {
   window.location.href = redirectTo;
 }
 
-function roleBadgeVariant(role: string): "default" | "secondary" | "outline" {
-  if (role === "admin") return "default";
-  if (role === "coach") return "secondary";
-  return "outline";
+/** "a coach", "an admin": the role as the sentence says it. */
+function asRole(role: string): string {
+  const label = roleLabel(role).toLowerCase();
+  return `${/^[aeiou]/.test(label) ? "an" : "a"} ${label}`;
 }
 
 export default function JoinPage() {
@@ -148,178 +148,136 @@ export default function JoinPage() {
 
   if (loadError) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <Card className="w-full max-w-sm">
-          <CardContent className="p-6 text-center space-y-3">
-            <p className="text-sm text-red-500">{loadError}</p>
-            <Link href="/" className="text-sm text-primary underline">Go home</Link>
-          </CardContent>
-        </Card>
-      </div>
+      <AuthShell>
+        <AuthHeading title="Couldn't load the invite" description={loadError} />
+        <Button asChild variant="outline" className="w-full">
+          <Link href="/">Go home</Link>
+        </Button>
+      </AuthShell>
     );
   }
 
-  if (preview === null || userId === undefined || userEmail === undefined) {
+  if (preview === null || userId === undefined || userEmail === undefined || joining) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-      </div>
+      <AuthShell>
+        <div className="flex flex-col items-center gap-3 text-callout text-muted-foreground">
+          <Loader2 className="size-5 animate-spin" />
+          {joining && "Joining…"}
+        </div>
+      </AuthShell>
     );
   }
 
   if (joinError) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <Card className="w-full max-w-sm">
-          <CardContent className="p-6 text-center space-y-3">
-            <p className="font-semibold text-foreground">Unable to join</p>
-            <p className="text-sm text-muted-foreground">{joinError}</p>
-            <Button asChild variant="outline" className="w-full" size="sm">
-              <Link href="/">Go home</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (joining) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <p className="text-sm text-muted-foreground">Joining…</p>
-      </div>
+      <AuthShell>
+        <AuthHeading title="Couldn't join" description={joinError} />
+        <Button asChild variant="outline" className="w-full">
+          <Link href="/">Go home</Link>
+        </Button>
+      </AuthShell>
     );
   }
 
   if (!preview.valid) {
     const copy = INVALID_COPY[preview.reason ?? 'not_found'];
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <Card className="w-full max-w-sm">
-          <CardContent className="p-6 text-center space-y-3">
-            <p className="font-semibold text-foreground">{copy.title}</p>
-            <p className="text-sm text-muted-foreground">{copy.body}</p>
-            <Link href="/" className="text-sm text-primary underline">Go home</Link>
-          </CardContent>
-        </Card>
-      </div>
+      <AuthShell>
+        <AuthHeading title={copy.title} description={copy.body} />
+        <Button asChild variant="outline" className="w-full">
+          <Link href="/">Go home</Link>
+        </Button>
+      </AuthShell>
     );
   }
 
   if (userId !== null && emailMismatch && !mismatchConfirmed) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <Card className="w-full max-w-sm">
-          <CardContent className="p-6 space-y-4">
-            <div className="text-center space-y-1">
-              <p className="font-semibold text-foreground">Account mismatch</p>
-              <p className="text-sm text-muted-foreground">
-                This invite was sent to{" "}
-                <span className="font-medium text-foreground">{preview.email}</span>.
-              </p>
-              <p className="text-sm text-muted-foreground">
-                You&apos;re signed in as{" "}
-                <span className="font-medium text-foreground">{userEmail}</span>.
-              </p>
+      <AuthShell>
+        <AuthHeading
+          title="This invite is for another account"
+          description={
+            <>
+              It was sent to <span className="font-medium text-foreground">{preview.email}</span>, and you&apos;re
+              signed in as <span className="font-medium text-foreground">{userEmail}</span>.
               {mismatchBlocks && (
-                <p className="text-sm text-muted-foreground">
-                  {preview.role === "admin" ? "Admin" : "Coach"} invites only work for the address
-                  they were sent to.
-                </p>
+                <> {preview.role === "admin" ? "Admin" : "Coach"} invites only work for the address they were sent to.</>
               )}
-            </div>
-            <div className="space-y-2">
-              {!mismatchBlocks && (
-                <Button className="w-full" size="sm" onClick={() => setMismatchConfirmed(true)}>
-                  Accept as {userEmail}
-                </Button>
-              )}
-              <Button
-                variant={mismatchBlocks ? "default" : "outline"}
-                className="w-full"
-                size="sm"
-                onClick={() => signOutAndRedirect(`/login?next=/join/${code}`)}
-              >
-                Sign in with another account
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            </>
+          }
+        />
+        <div className="grid gap-2">
+          {!mismatchBlocks && (
+            <Button className="w-full" onClick={() => setMismatchConfirmed(true)}>
+              Accept as {userEmail}
+            </Button>
+          )}
+          <Button
+            variant={mismatchBlocks ? "default" : "outline"}
+            className="w-full"
+            onClick={() => signOutAndRedirect(`/login?next=/join/${code}`)}
+          >
+            Sign in with another account
+          </Button>
+        </div>
+      </AuthShell>
     );
   }
 
   if (joinResult) {
     const destination = preview.teamName
       ? `${preview.orgName} — ${preview.teamName}`
-      : preview.orgName ?? "the organization";
+      : preview.orgName ?? "the club";
 
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <Card className="w-full max-w-sm">
-          <CardContent className="p-6 space-y-4">
-            <div className="text-center space-y-1">
-              <p className="text-lg font-semibold text-foreground">
-                {isNewAccount ? "Welcome to Scoutable!" : "You're in!"}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                You&apos;ve been added to{" "}
-                <span className="font-medium text-foreground">{destination}</span>
-                {preview.role && (
-                  <> as <Badge variant={roleBadgeVariant(preview.role)} className="text-xs ml-0.5">{preview.role}</Badge></>
-                )}
-                .
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Button className="w-full" size="sm" onClick={() => { window.location.href = "/organization"; }}>
-                Go to organization
-              </Button>
-              <Button asChild variant="outline" className="w-full" size="sm">
-                <Link href="/my-playlists">Go to my playlists</Link>
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <AuthShell>
+        <AuthHeading
+          title={isNewAccount ? "Welcome to Scoutable" : "You're in"}
+          description={
+            <>
+              You&apos;ve been added to <span className="font-medium text-foreground">{destination}</span>
+              {preview.role && <> as {asRole(preview.role)}</>}.
+            </>
+          }
+        />
+        <div className="grid gap-2">
+          <Button className="w-full" onClick={() => { window.location.href = "/organization"; }}>
+            Go to your club
+          </Button>
+          <Button asChild variant="outline" className="w-full">
+            <Link href="/my-playlists">Go to my playlists</Link>
+          </Button>
+        </div>
+      </AuthShell>
     );
   }
 
   const destination = preview.teamName
     ? `${preview.orgName} — ${preview.teamName}`
-    : preview.orgName ?? "an organization";
+    : preview.orgName ?? "a club";
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <Card className="w-full max-w-sm">
-        <CardContent className="p-6 space-y-4">
-          <div className="text-center space-y-2">
-            <p className="text-lg font-semibold text-foreground">You&apos;re invited!</p>
-            <p className="text-sm text-muted-foreground">
-              Join <span className="font-medium text-foreground">{destination}</span> as{" "}
-              {preview.role && (
-                <Badge variant={roleBadgeVariant(preview.role)} className="text-xs ml-0.5">
-                  {preview.role}
-                </Badge>
-              )}
-            </p>
-          </div>
-
-          {userId === null && (
-            <div className="space-y-2">
-              <p className="text-xs text-muted-foreground text-center">Sign up or log in to join.</p>
-              <div className="flex gap-2">
-                <Button asChild className="flex-1" size="sm">
-                  <Link href={`/signup?next=/join/${code}`}>Sign up</Link>
-                </Button>
-                <Button asChild variant="outline" className="flex-1" size="sm">
-                  <Link href={`/login?next=/join/${code}`}>Log in</Link>
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+    <AuthShell>
+      <AuthHeading
+        title="You're invited"
+        description={
+          <>
+            Join <span className="font-medium text-foreground">{destination}</span>
+            {preview.role && <> as {asRole(preview.role)}</>}.
+          </>
+        }
+      />
+      {userId === null && (
+        <div className="grid gap-2">
+          <Button asChild className="w-full">
+            <Link href={`/signup?next=/join/${code}`}>Create an account</Link>
+          </Button>
+          <Button asChild variant="outline" className="w-full">
+            <Link href={`/login?next=/join/${code}`}>Sign in</Link>
+          </Button>
+          <p className="mt-1 text-center text-callout text-muted-foreground">Sign in or create an account to join.</p>
+        </div>
+      )}
+    </AuthShell>
   );
 }

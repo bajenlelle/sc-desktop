@@ -22,6 +22,7 @@ import { LogOut, Zap, Users, Building2, ArrowUpRight, Loader2 } from "lucide-rea
 import { orgPlanColors, orgPlanLabel, type ImportQuota } from "@scoutable/shared/lib/plan-tier";
 import { DevicesCard } from "@/components/devices-card";
 import { MarketingEmailToggle } from "@/components/marketing-email-toggle";
+import { MyTeamCard } from "@/components/my-team-card";
 
 
 type SubStatus = {
@@ -358,6 +359,8 @@ export function ProfilePage() {
           )}
         </CardContent>
       </Card>
+
+      <MyTeamCard />
 
       {/* ── My clubs ── membership across every club, mirroring the mobile
            profile. Answers "what am I part of?" (the one question players

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  playableFixtures,
   ACTIONABLE_TYPES,
   buildRosters,
   findTipoff,
@@ -195,5 +196,26 @@ describe("fixtureToScheduleGame", () => {
 
   it("emits an ISO-UTC start time the UI can hand to new Date()", () => {
     expect(game.rawStartDateTime).toBe("2025-09-19T17:04:00Z");
+  });
+
+  it("keeps each side's Genius team id and the match type", () => {
+    expect(game.homeTeamInfo.teamId).toBe("187007");
+    expect(game.awayTeamInfo.teamId).toBe("187005");
+    expect(game.matchType).toBe(fixture.matchType);
+  });
+});
+
+describe("playableFixtures", () => {
+  const f = (over: Partial<GeniusFixture>): GeniusFixture => ({ ...fixture, ...over });
+
+  it("keeps finished games with play-by-play, of the asked match type", () => {
+    const regular = f({ matchId: 1, matchType: "REGULAR" });
+    const playoff = f({ matchId: 2, matchType: "FINALS" });
+    const upcoming = f({ matchId: 3, matchStatus: "SCHEDULED" });
+    const noStats = f({ matchId: 4, statsSource: "" });
+    const all = [regular, playoff, upcoming, noStats];
+    expect(playableFixtures(all, "REGULAR").map((x) => x.matchId)).toEqual([1]);
+    expect(playableFixtures(all, "FINALS").map((x) => x.matchId)).toEqual([2]);
+    expect(playableFixtures(all).map((x) => x.matchId)).toEqual([1, 2]);
   });
 });
