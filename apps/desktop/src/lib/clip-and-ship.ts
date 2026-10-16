@@ -33,13 +33,18 @@ type ClipSegment = Extract<ExportSegment, { kind: "clip" }>;
  * caller can tell a clip that was trimmed while it uploaded. Aborting via opts.signal stops the clip being
  * cut (cancel_export kills its ffmpeg) or uploaded, and reports aborted:
  * never a failure.
+ *
+ * `replace` re-cuts clips that already have an r2Url, for files cut with an
+ * older clip length: the new file gets a new key (the totals are in it) and
+ * its URL overwrites the old one only once uploaded, so players keep the old
+ * cut until then and never lose the clip.
  */
 export async function clipAndShip(
   playlist: Playlist,
   segments: ExportSegment[],
   preRoll: number,
   postRoll: number,
-  opts?: { onProgress?: (done: number, total: number) => void; signal?: AbortSignal },
+  opts?: { onProgress?: (done: number, total: number) => void; signal?: AbortSignal; replace?: boolean },
 ): Promise<ClipShipResult> {
   const clipSegments = segments.filter((s): s is ClipSegment => s.kind === "clip");
 
@@ -87,7 +92,8 @@ export async function clipAndShip(
         item.matchId === seg.matchId &&
         item.eventId === event.eventId
     );
-    if ((existingClip?.type === "clip" && existingClip.r2Url) || uploadedKeys.has(itemKey)) {
+    const alreadyShipped = existingClip?.type === "clip" && !!existingClip.r2Url && !opts?.replace;
+    if (alreadyShipped || uploadedKeys.has(itemKey)) {
       result.skipped++;
       return null;
     }
@@ -119,6 +125,9 @@ export async function clipAndShip(
       );
       const r2Url = await uploadToR2(tempPath, key, undefined, opts?.signal);
 
+      // A replacement stopped after its upload (the clip length changed
+      // again) must not record a cut that is already out of date.
+      if (opts?.replace && opts.signal?.aborted) return null;
       // Persist the URL BEFORE deleting the temp file: a failed delete must
       // never leave an uploaded clip invisible (URL unrecorded).
       await updateClipR2Url(playlist.id, seg.matchId, event.eventId, r2Url);

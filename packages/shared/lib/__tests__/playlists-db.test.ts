@@ -53,6 +53,14 @@ function plRow(partial: Partial<PlaylistRow>): PlaylistRow {
 }
 
 describe("rowToPlaylist", () => {
+  it("carries the saved clip length, and leaves it out when NULL or absent", () => {
+    expect(rowToPlaylist(plRow({ pre_roll: 15, post_roll: 0 }))).toMatchObject({ preRoll: 15, postRoll: 0 });
+    const unset = rowToPlaylist(plRow({ pre_roll: null, post_roll: null }));
+    expect("preRoll" in unset || "postRoll" in unset).toBe(false);
+    const old = rowToPlaylist(plRow({}));
+    expect("preRoll" in old || "postRoll" in old).toBe(false);
+  });
+
   it("sorts items by position", () => {
     const p = rowToPlaylist(
       plRow({

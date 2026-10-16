@@ -51,6 +51,9 @@ export interface PlaylistRow {
   folder_id: string | null;
   team_id: string | null;
   org_id: string | null;
+  /** NULL = the app default; absent on rows from before 20261016100000. */
+  pre_roll?: number | null;
+  post_roll?: number | null;
   created_at: string;
   updated_at: string;
   playlist_clips: PlaylistClipRow[];
@@ -116,6 +119,8 @@ export function rowToPlaylist(row: PlaylistRow): Playlist {
     createdBy: row.user_id,
     ...(sharedAt ? { sharedAt } : {}),
     sharedBy: directShareRow?.shared_by ?? row.user_id,
+    ...(row.pre_roll != null ? { preRoll: row.pre_roll } : {}),
+    ...(row.post_roll != null ? { postRoll: row.post_roll } : {}),
   };
 }
 
@@ -142,6 +147,8 @@ const PLAYLIST_SELECT = `
   folder_id,
   team_id,
   org_id,
+  pre_roll,
+  post_roll,
   created_at,
   updated_at,
   playlist_clips (${CLIPS_SELECT}),
@@ -274,21 +281,30 @@ export async function createPlaylist(
     .select()
     .single();
   if (error || !data) throw new Error(`Failed to create playlist: ${error?.message}`);
-  return { id: data.id, name: data.name, items: [], folderId: data.folder_id ?? undefined, orgId: data.org_id ?? undefined };
+  return {
+    id: data.id,
+    name: data.name,
+    items: [],
+    folderId: data.folder_id ?? undefined,
+    orgId: data.org_id ?? undefined,
+    createdBy: user.id,
+  };
 }
 
 // ---------------------------------------------------------------------------
-// Update playlist metadata (name and/or folder assignment)
+// Update playlist metadata (name, folder assignment, clip length)
 // ---------------------------------------------------------------------------
 
 export async function updatePlaylist(
   supabase: SupabaseClient,
   id: string,
-  patch: { name?: string; folderId?: string | null }
+  patch: { name?: string; folderId?: string | null; preRoll?: number; postRoll?: number }
 ): Promise<void> {
   const row: Record<string, unknown> = {};
   if (patch.name !== undefined) row.name = patch.name;
   if ("folderId" in patch) row.folder_id = patch.folderId ?? null;
+  if (patch.preRoll !== undefined) row.pre_roll = Math.round(patch.preRoll);
+  if (patch.postRoll !== undefined) row.post_roll = Math.round(patch.postRoll);
   if (Object.keys(row).length === 0) return;
   const { error } = await supabase.from("playlists").update(row).eq("id", id);
   if (error) throw new Error(`Failed to update playlist: ${error.message}`);

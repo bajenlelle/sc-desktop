@@ -36,7 +36,7 @@ import { LabelPickerPopover, type LabelTriState } from "@/components/labels/Labe
 import type { Label, LabelColor, ClipKey } from "@scoutable/shared/types/labels";
 import { eventLabel, formatGameClock, parseGameClock, playerName } from "@scoutable/shared/lib/events";
 import { defaultPostRoll, defaultPostRollForMatches, defaultPreRoll, defaultPreRollForMatches } from "@scoutable/shared/lib/provider";
-import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
+import { clipBounds, computeVideoTime, isShippedClipStale, playlistRolls, rebaseOffsets, type RollPair } from "@scoutable/shared/lib/clip-timing";
 import type { CropKeyframe } from "@scoutable/shared/lib/crop-path";
 import { CropEditorBar, CropOverlay, upsertKeyframe } from "@/components/crop-editor";
 import { ExportFormatDialog, type ExportAction } from "@/components/export-format-dialog";
@@ -150,6 +150,19 @@ function itemKey(i: PlaybackItem): string {
   return `${i.matchId}:${i.event.eventId}`;
 }
 
+/** A clip's offsets as item fields: zero offsets stay absent, as rowToPlaylist reads them. */
+function offsetFields(o: { preRollOffset: number; postRollOffset: number }): Partial<PlaylistClipItem> {
+  return {
+    ...(o.preRollOffset !== 0 ? { preRollOffset: o.preRollOffset } : {}),
+    ...(o.postRollOffset !== 0 ? { postRollOffset: o.postRollOffset } : {}),
+  };
+}
+
+/** Clip lengths the inputs allow: whole seconds, pre-roll up to 30, post-roll up to 60. */
+function clampRoll(n: number, max: number): number {
+  return Number.isFinite(n) ? Math.min(max, Math.max(0, Math.round(n))) : 0;
+}
+
 /** items-space twin of itemKey (display-space). */
 function playlistItemKey(i: PlaylistItem): string {
   return isClipItem(i) ? `${i.matchId}:${i.eventId}` : `text:${i.id}`;
@@ -208,12 +221,10 @@ export function PlaylistsPage() {
   const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
   const [activeEventId, setActiveEventId] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  // Pre/post-roll defaults per provider (see provider.ts); applied when the
-  // playlist changes, until the coach edits the field.
+  // The playlist's clip length: its saved pair, else the provider default
+  // for its games (see the Clip length section below).
   const [preRoll, setPreRoll] = useState(defaultPreRoll(null));
   const [postRoll, setPostRoll] = useState(defaultPostRoll(null));
-  const preRollTouchedRef = useRef(false);
-  const postRollTouchedRef = useRef(false);
   const [folders, setFolders] = useState<PlaylistFolder[]>([]);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => {
     const saved = sessionStorage.getItem("expandedFolders");
@@ -446,6 +457,126 @@ export function PlaylistsPage() {
   useEffect(() => { activeMatchIdRef.current = activeMatchId; }, [activeMatchId]);
   useEffect(() => { selectedRef.current = selected; }, [selected]);
   useEffect(() => { playlistsRef.current = playlists; }, [playlists]);
+
+  // ── Clip length ──────────────────────────────────────────────────────────
+  // The pair belongs to the playlist (saved since migration 20261016100000)
+  // and each clip's offsets are relative to it, so it loads when another
+  // playlist opens instead of resetting with the page.
+  useEffect(() => {
+    if (!selected) return;
+    const games = selected.items
+      .filter(isClipItem)
+      .map((c) => matchLookupRef.current.get(c.matchId))
+      .filter((m): m is StoredMatch => !!m);
+    const r = playlistRolls(selected, { pre: defaultPreRollForMatches(games), post: defaultPostRollForMatches(games) });
+    setPreRoll(r.pre);
+    setPostRoll(r.post);
+  }, [selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Only the owner can save a playlist (playlists_owner policy). */
+  const isOwnPlaylist = (pl: Playlist | null | undefined) => !!pl && !!user && pl.createdBy === user.id;
+
+  const rollSaveTimerRef = useRef<number | null>(null);
+  function changeRolls(next: Partial<RollPair>) {
+    const pl = selectedRef.current;
+    if (!pl) return;
+    const pair: RollPair = {
+      pre: clampRoll(next.pre ?? preRollRef.current, 30),
+      post: clampRoll(next.post ?? postRollRef.current, 60),
+    };
+    setPreRoll(pair.pre);
+    setPostRoll(pair.post);
+    if (!isOwnPlaylist(pl)) return; // someone else's playlist: a local preview only
+    const patch = (p: Playlist): Playlist => (p.id === pl.id ? { ...p, preRoll: pair.pre, postRoll: pair.post } : p);
+    setSelected((prev) => (prev ? patch(prev) : prev));
+    setPlaylists((prev) => prev.map(patch));
+    if (rollSaveTimerRef.current) window.clearTimeout(rollSaveTimerRef.current);
+    rollSaveTimerRef.current = window.setTimeout(() => {
+      rollSaveTimerRef.current = null;
+      updatePlaylist(pl.id, { preRoll: pair.pre, postRoll: pair.post })
+        .then(() => scheduleShippedRefresh(pl.id, { announce: true, restart: true }))
+        .catch((err) => {
+          Sentry.captureException(err);
+          toast.error("Couldn't save the clip length");
+        });
+    }, 600);
+  }
+
+  // Players get the length the coach sees: shared clips cut with another
+  // pair (or older offsets) are re-cut in the background, and each new file
+  // replaces the old one only once it is uploaded.
+  const isShippingRef = useRef(false);
+  useEffect(() => { isShippingRef.current = isShipping; }, [isShipping]);
+  const refreshRef = useRef<{ playlistId: string; controller: AbortController } | null>(null);
+  const refreshTimerRef = useRef<number | null>(null);
+  /** Playlists whose quiet refresh failed this session (a missing video, say): no retry loop. */
+  const refreshFailedRef = useRef<Set<string>>(new Set());
+
+  function scheduleShippedRefresh(playlistId: string, opts: { announce: boolean; restart: boolean }) {
+    if (opts.restart && refreshRef.current?.playlistId === playlistId) refreshRef.current.controller.abort();
+    if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = window.setTimeout(() => {
+      refreshTimerRef.current = null;
+      void refreshShippedClips(playlistId, opts.announce);
+    }, 2000);
+  }
+
+  async function refreshShippedClips(playlistId: string, announce: boolean) {
+    const pl = selectedRef.current;
+    if (!pl || pl.id !== playlistId || !isOwnPlaylist(pl)) return;
+    // A share or ship in progress owns the uploads; this runs again after it.
+    if (isShippingRef.current || refreshRef.current) return;
+    if (!announce && refreshFailedRef.current.has(pl.id)) return;
+    const pair = playlistRolls(pl);
+    const stale = new Set(
+      pl.items.filter(isClipItem).filter((c) => isShippedClipStale(c, pair)).map((c) => `${c.matchId}:${c.eventId}`),
+    );
+    if (stale.size === 0 || demoShipBlockReason(pl)) return;
+    const segments = buildShipSegments(pl).filter(
+      (seg) => seg.kind === "clip" && isLocalPath(seg.videoPath) && stale.has(`${seg.matchId}:${seg.event.eventId}`),
+    );
+    if (segments.length === 0) return; // events not loaded yet: the next check gets them
+
+    const controller = new AbortController();
+    refreshRef.current = { playlistId: pl.id, controller };
+    const toastId = `clip-length-${pl.id}`;
+    toast.loading(`Updating shared clips · 0 of ${segments.length}`, {
+      id: toastId,
+      description: "Players keep the old cut until each clip is ready.",
+    });
+    try {
+      const result = await clipAndShip(pl, segments, pair.pre, pair.post, {
+        replace: true,
+        signal: controller.signal,
+        onProgress: (done, total) => toast.loading(`Updating shared clips · ${done} of ${total}`, { id: toastId }),
+      });
+      applyR2Urls(result.uploaded, pl.id);
+      if (result.aborted) {
+        toast.dismiss(toastId);
+      } else if (result.failures.length > 0) {
+        refreshFailedRef.current.add(pl.id);
+        toast.error(`${result.failures.length} of ${segments.length} shared clips weren't updated`, {
+          id: toastId,
+          description: "Players keep the old cut for those.",
+        });
+      } else {
+        toast.success("Shared clips updated", {
+          id: toastId,
+          description: `${result.shipped} clip${result.shipped === 1 ? "" : "s"} now play with the playlist's length.`,
+        });
+      }
+      trackEvent("playlist_clip_length_reshipped", { playlist_id: pl.id, clips: result.shipped, failed: result.failures.length });
+    } catch (e) {
+      refreshFailedRef.current.add(pl.id);
+      if (announce) {
+        toast.error("Couldn't update the shared clips", { id: toastId, description: e instanceof Error ? e.message : String(e) });
+      } else {
+        toast.dismiss(toastId);
+      }
+    } finally {
+      if (refreshRef.current?.controller === controller) refreshRef.current = null;
+    }
+  }
   useEffect(() => { sessionStorage.setItem("expandedFolders", JSON.stringify([...expandedFolders])); }, [expandedFolders]);
   useEffect(() => { sessionStorage.setItem("uncategorizedExpanded", String(uncategorizedExpanded)); }, [uncategorizedExpanded]);
 
@@ -895,16 +1026,6 @@ export function PlaylistsPage() {
   );
   const matchLookupRef = useRef(matchLookup);
   useEffect(() => { matchLookupRef.current = matchLookup; }, [matchLookup]);
-  useEffect(() => { preRollTouchedRef.current = false; postRollTouchedRef.current = false; }, [selected?.id]);
-  useEffect(() => {
-    if (!selected) return;
-    const games = selected.items
-      .filter(isClipItem)
-      .map((c) => matchLookup.get(c.matchId))
-      .filter((m): m is StoredMatch => !!m);
-    if (!preRollTouchedRef.current) setPreRoll(defaultPreRollForMatches(games));
-    if (!postRollTouchedRef.current) setPostRoll(defaultPostRollForMatches(games));
-  }, [selected, matchLookup]);
 
   /**
    * Event lookup by `matchId:eventId`, built once per matches change.
@@ -1234,6 +1355,16 @@ export function PlaylistsPage() {
     if (!before) return;
     const clip = before.items.filter(isClipItem).find((c) => c.matchId === matchId && c.eventId === eventId);
     if (!clip) return;
+    // Offsets are relative to the pair, so the first one pins the pair: a
+    // later default change must not move this clip.
+    if (isOwnPlaylist(before) && (before.preRoll === undefined || before.postRoll === undefined)) {
+      const pin = { preRoll: preRollRef.current, postRoll: postRollRef.current };
+      const pinned = (pl: Playlist): Playlist => (pl.id === before.id ? { ...pl, ...pin } : pl);
+      setSelected((prev) => (prev ? pinned(prev) : prev));
+      if (selectedRef.current) selectedRef.current = pinned(selectedRef.current);
+      setPlaylists((prev) => prev.map(pinned));
+      updatePlaylist(before.id, pin).catch((err) => Sentry.captureException(err));
+    }
     const shippedUrl = clip.r2Url;
     const isThisClip = (c: PlaylistItem): c is PlaylistClipItem =>
       isClipItem(c) && c.matchId === matchId && c.eventId === eventId;
@@ -2191,6 +2322,9 @@ export function PlaylistsPage() {
     void handleReorder(next);
   }
 
+  /** The playlist and pair a clip drag started in, so a drop in another playlist keeps the clip's length. */
+  const dragOriginRef = useRef<{ playlist: Playlist; pair: RollPair } | null>(null);
+
   /**
    * A clip carried in from another playlist (the drag spring-loaded into
    * this one). Foreign clips never enter a group implicitly: they land at
@@ -2211,7 +2345,15 @@ export function PlaylistsPage() {
       sortedEvents.map(itemKey),
       selected.items.map(playlistItemKey),
     );
-    const newClip: PlaylistClipItem = { type: "clip", matchId, eventId };
+    const origin = dragOriginRef.current;
+    const sourceClip = origin?.playlist.items.filter(isClipItem).find(isSame);
+    const newClip: PlaylistClipItem = {
+      type: "clip",
+      matchId,
+      eventId,
+      // Same length here: its offsets move onto this playlist's pair.
+      ...(origin && sourceClip ? offsetFields(rebaseOffsets(sourceClip, origin.pair, playlistRolls(selected))) : {}),
+    };
     const newItems = [...selected.items];
     newItems.splice(itemsInsertIndex, 0, newClip);
     const target = selected;
@@ -2243,6 +2385,8 @@ export function PlaylistsPage() {
         toast("Clear the filters to reorder");
         return false;
       }
+      const origin = selectedRef.current;
+      dragOriginRef.current = origin ? { playlist: origin, pair: { pre: preRollRef.current, post: postRollRef.current } } : null;
       return true;
     },
     blockFor: (anchorKey) => dragBlockKeys(anchorKey, selectedClipIds, sortedEvents.map(itemKey), itemGroupIds),
@@ -2279,7 +2423,10 @@ export function PlaylistsPage() {
     const found = selected?.items.filter(isClipItem).find((c) => c.matchId === matchId && c.eventId === eventId);
     // Copies never carry group membership into the target playlist.
     const { groupId: _g, ...cleanClip } = found ?? { type: 'clip' as const, matchId, eventId };
-    const sourceClip = cleanClip as PlaylistClipItem;
+    // Same length in the target: offsets move onto its pair.
+    const sourceClip = (found && selected
+      ? { ...cleanClip, preRollOffset: undefined, postRollOffset: undefined, ...offsetFields(rebaseOffsets(found, playlistRolls(selected), playlistRolls(target))) }
+      : cleanClip) as PlaylistClipItem;
     // The membership check above reads state that only updates once the await
     // below resolves, so two quick drops of the same clip both pass it.
     const inFlightKey = `${targetPlaylistId}:${clipKey}`;
@@ -2466,6 +2613,13 @@ export function PlaylistsPage() {
   // Built from pl.items (not the selected playlist's queue) so a deferred
   // ship stays correct when the coach has switched focus to another playlist.
   // Upload order doesn't matter, so no sort is applied.
+  // A playlist that opens with stale shared clips (an earlier run cut short,
+  // or nudges from versions that never re-cut) catches up quietly; so does
+  // one whose share or ship just finished.
+  useEffect(() => {
+    if (selected && !isShipping) scheduleShippedRefresh(selected.id, { announce: false, restart: false });
+  }, [selected?.id, eventByKey, isShipping]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function buildShipSegments(pl: Playlist): ExportSegment[] {
     return pl.items
       .filter(isClipItem)
@@ -2746,7 +2900,9 @@ export function PlaylistsPage() {
     setShipProgress(null);
     try {
       const segments = buildShipSegments(target);
-      const result = await clipAndShip(target, segments, preRoll, postRoll, {
+      // Another playlist (Shared by me's "Upload missing clips") ships with its own pair.
+      const pair = target.id === selectedRef.current?.id ? { pre: preRoll, post: postRoll } : playlistRolls(target);
+      const result = await clipAndShip(target, segments, pair.pre, pair.post, {
         onProgress: (done, total) => setShipProgress({ done, total }),
       });
       applyR2Urls(result.uploaded, target.id);
@@ -3705,9 +3861,13 @@ export function PlaylistsPage() {
       .map((item) => {
         const found = clipByKey.get(`${item.matchId}:${item.event.eventId}`)
           ?? { type: 'clip' as const, matchId: item.matchId, eventId: item.event.eventId };
-        // Copies never carry group membership into the target playlist.
-        const { groupId: _g, ...clean } = found;
-        return clean as PlaylistClipItem;
+        // Copies never carry group membership into the target playlist, and
+        // keep their length: offsets move onto the target's pair.
+        const { groupId: _g, preRollOffset: _pre, postRollOffset: _post, ...clean } = found;
+        return {
+          ...clean,
+          ...offsetFields(rebaseOffsets(found, playlistRolls(selected), playlistRolls(target))),
+        } as PlaylistClipItem;
       });
     await addClips(target.id, toAdd, target.items.length);
     toAdd.forEach((clip) => {
@@ -4440,8 +4600,8 @@ export function PlaylistsPage() {
         addTextCardDisabledReason={filtersActive ? "Clear filters to edit the playlist" : null}
         preRoll={preRoll}
         postRoll={postRoll}
-        onPreRollChange={setPreRoll}
-        onPostRollChange={setPostRoll}
+        onPreRollChange={(v) => changeRolls({ pre: v })}
+        onPostRollChange={(v) => changeRolls({ post: v })}
         clockSort={clockSort}
         clockSortLocked={clockSortLocked}
         onClockSortChange={setClockSort}

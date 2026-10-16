@@ -217,6 +217,13 @@ export interface Playlist {
   sharedAt?: string;
   /** Who shared it. Only direct shares record this; team shares fall back to createdBy. */
   sharedBy?: string;
+  /**
+   * Seconds of video before / after each event, for the whole playlist.
+   * Undefined = the app default (10 / 3). Each clip's preRollOffset /
+   * postRollOffset is relative to this pair, so it must outlive the session.
+   */
+  preRoll?: number;
+  postRoll?: number;
 }
 
 export interface StoredMatch {

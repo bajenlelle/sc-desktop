@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import type { ClipKey, Label, LabelColor } from "@scoutable/shared/types/labels";
 import { eventColors, eventLabel, formatGameClock, isBookkeepingEvent, periodLabel, playerName } from "@scoutable/shared/lib/events";
 import { defaultPostRoll, defaultPostRollForMatches, defaultPreRoll, defaultPreRollForMatches } from "@scoutable/shared/lib/provider";
-import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
+import { clipBounds, computeVideoTime, playlistRolls, rebaseOffsets } from "@scoutable/shared/lib/clip-timing";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
 import { clickSelection, extendSelection, moveFocus, type FocusMove } from "@scoutable/shared/lib/list-selection";
 import type { PlayByPlayEvent, Playlist, PlaylistClipItem, StoredMatch } from "@/types/match";
@@ -310,17 +310,28 @@ export function ClipBrowserPanel({
   const [filterTeams, setFilterTeams] = useState<Set<string>>(new Set());
   const [filterPlayers, setFilterPlayers] = useState<Set<string>>(new Set());
   const [filterLabelIds, setFilterLabelIds] = useState<Set<string>>(new Set());
-  // Pre/post-roll follow the game shown (per provider, see provider.ts)
-  // until the coach changes them.
-  const [preRoll, setPreRoll] = useState(() => defaultPreRoll(filterMatchId ? matchLookup.get(filterMatchId) : null));
-  const [postRoll, setPostRoll] = useState(() => defaultPostRoll(filterMatchId ? matchLookup.get(filterMatchId) : null));
+  // The playlist's own clip length, and what the preview starts from: its
+  // saved pair, else the provider default for its games (see provider.ts).
+  const playlistPair = useMemo(() => {
+    const games = playlist.items
+      .filter((i): i is PlaylistClipItem => i.type === "clip")
+      .map((c) => matchLookup.get(c.matchId))
+      .filter((m): m is StoredMatch => !!m);
+    return playlistRolls(playlist, { pre: defaultPreRollForMatches(games), post: defaultPostRollForMatches(games) });
+  }, [playlist, matchLookup]);
+  // A playlist without a saved pair follows the game shown (per provider)
+  // until the coach changes the preview; clips added with another length
+  // keep it, as offsets on the playlist's pair (see handleAdd).
+  const [preRoll, setPreRoll] = useState(() => playlistPair.pre);
+  const [postRoll, setPostRoll] = useState(() => playlistPair.post);
   const preRollTouchedRef = useRef(false);
   const postRollTouchedRef = useRef(false);
   useEffect(() => {
+    if (playlist.preRoll !== undefined && playlist.postRoll !== undefined) return;
     const shown = filterMatchId ? matchLookup.get(filterMatchId) : null;
     if (!preRollTouchedRef.current) setPreRoll(filterMatchId ? defaultPreRoll(shown) : defaultPreRollForMatches(matches));
     if (!postRollTouchedRef.current) setPostRoll(filterMatchId ? defaultPostRoll(shown) : defaultPostRollForMatches(matches));
-  }, [filterMatchId, matchLookup, matches]);
+  }, [filterMatchId, matchLookup, matches, playlist.preRoll, playlist.postRoll]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set()); // "matchId:eventId"
   // Local assignment state for the visible match.
   const [clipAssignments, setClipAssignments] = useState<Map<string, Set<string>>>(new Map());
@@ -830,7 +841,16 @@ export function ClipBrowserPanel({
         const key = `${matchId}:${event.eventId}`;
         return selectedIds.has(key) && !existingSet.has(key);
       })
-      .map(({ event, matchId }) => ({ type: "clip" as const, matchId, eventId: event.eventId }));
+      .map(({ event, matchId }) => {
+        const o = rebaseOffsets({}, { pre: preRoll, post: postRoll }, playlistPair);
+        return {
+          type: "clip" as const,
+          matchId,
+          eventId: event.eventId,
+          ...(o.preRollOffset !== 0 ? { preRollOffset: o.preRollOffset } : {}),
+          ...(o.postRollOffset !== 0 ? { postRollOffset: o.postRollOffset } : {}),
+        };
+      });
     onAddClips(toAdd);
     onClose();
   }
