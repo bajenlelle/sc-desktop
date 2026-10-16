@@ -50,6 +50,14 @@ export function BrowserColumn({
   const reduced = useReducedMotionSafe();
   /** A drag on the open browser's edge, or a pull on the closed browser's grip. */
   const [dragMode, setDragMode] = React.useState<"resize" | "reveal" | null>(null);
+  /** The closed grip's "Show playlists" label. */
+  const [tipOpen, setTipOpen] = React.useState(false);
+  /**
+   * A drag keeps the label away until the pointer comes back onto the edge
+   * afresh: the pointer moves of a drag would otherwise arm the tooltip,
+   * which then showed the moment the browser closed.
+   */
+  const tipSuppressed = React.useRef(false);
   const w = useMotionValue(collapsed ? 0 : width);
   const dragging = React.useRef(false);
   /** The release already started a spring (with the flick's velocity) here. */
@@ -103,6 +111,8 @@ export function BrowserColumn({
     };
     document.body.style.cursor = "col-resize";
     setDragMode(mode);
+    tipSuppressed.current = true;
+    setTipOpen(false);
   }
 
   function onEdgePointerDown(e: React.PointerEvent<HTMLDivElement>) {
@@ -190,7 +200,10 @@ export function BrowserColumn({
           and its pill shows on hover or drag instead of a highlight. Closed,
           it moves wholly onto the editor (the browser's edge may be the
           window's), shows the pill, and pulls the browser back out 1:1. */}
-      <Tooltip>
+      <Tooltip
+        open={tipOpen && collapsed && !dragMode}
+        onOpenChange={(open) => setTipOpen(open && !tipSuppressed.current)}
+      >
         <TooltipTrigger asChild>
           <div
             role="separator"
@@ -201,6 +214,9 @@ export function BrowserColumn({
             aria-valuemax={BROWSER_WIDTH.max}
             tabIndex={0}
             onPointerDown={onEdgePointerDown}
+            onPointerEnter={() => {
+              if (!drag.current) tipSuppressed.current = false;
+            }}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp}
@@ -235,7 +251,7 @@ export function BrowserColumn({
             />
           </div>
         </TooltipTrigger>
-        {collapsed && !dragMode && (
+        {collapsed && (
           <TooltipContent side="right" className="flex items-center gap-1.5">
             Show playlists
             <Kbd>{IS_MACOS ? "\u2318B" : "Ctrl B"}</Kbd>
