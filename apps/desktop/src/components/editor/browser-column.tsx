@@ -48,8 +48,8 @@ export function BrowserColumn({
   children: React.ReactNode;
 }) {
   const reduced = useReducedMotionSafe();
-  /** A pull on the closed browser's grip is under way. */
-  const [revealing, setRevealing] = React.useState(false);
+  /** A drag on the open browser's edge, or a pull on the closed browser's grip. */
+  const [dragMode, setDragMode] = React.useState<"resize" | "reveal" | null>(null);
   const w = useMotionValue(collapsed ? 0 : width);
   const dragging = React.useRef(false);
   /** The release already started a spring (with the flick's velocity) here. */
@@ -102,6 +102,7 @@ export function BrowserColumn({
       samples: [{ t: e.timeStamp, y: e.clientX }],
     };
     document.body.style.cursor = "col-resize";
+    setDragMode(mode);
   }
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
@@ -112,7 +113,6 @@ export function BrowserColumn({
   function onGripPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (e.button !== 0 || !collapsed) return;
     startDrag(e, "reveal");
-    setRevealing(true);
   }
 
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
@@ -137,6 +137,7 @@ export function BrowserColumn({
     if (!d || e.pointerId !== d.pointerId) return;
     drag.current = null;
     dragging.current = false;
+    setDragMode(null);
     document.body.style.cursor = "";
     try {
       e.currentTarget.releasePointerCapture(d.pointerId);
@@ -145,7 +146,6 @@ export function BrowserColumn({
     }
     const velocity = velocityFromSamples(d.samples);
     if (d.mode === "reveal") {
-      setRevealing(false);
       // A click opens at the width it had; the collapsed effect springs it.
       if (!d.moved) {
         onExpand(widthRef.current);
@@ -178,7 +178,7 @@ export function BrowserColumn({
     onWidthChange(final);
   }
 
-  const showGrip = collapsed || revealing;
+  const showGrip = collapsed || dragMode === "reveal";
 
   return (
     <motion.div style={{ width: w }} className="relative h-full shrink-0 select-none">
@@ -189,27 +189,40 @@ export function BrowserColumn({
         <motion.div style={{ width: innerW }} className="flex h-full flex-col">
           {children}
         </motion.div>
+        <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-px bg-separator" />
+      </div>
+      {/* Open: the whole edge resizes it, grabbed at any height. It
+          straddles the divider; hovering or dragging shows the closed
+          grip's pill, centred on the line, instead of a highlight. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize the playlist browser"
+        aria-hidden={collapsed || undefined}
+        aria-valuenow={Math.round(width)}
+        aria-valuemin={BROWSER_WIDTH.min}
+        aria-valuemax={BROWSER_WIDTH.max}
+        tabIndex={collapsed ? -1 : 0}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onDoubleClick={() => onWidthChange(BROWSER_WIDTH.default)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowLeft") onWidthChange(clamp(width - 16, BROWSER_WIDTH.min, BROWSER_WIDTH.max));
+          if (e.key === "ArrowRight") onWidthChange(clamp(width + 16, BROWSER_WIDTH.min, BROWSER_WIDTH.max));
+        }}
+        className={cn(
+          "group/sep absolute inset-y-0 -right-1.5 z-20 flex w-3 cursor-col-resize items-center justify-center outline-none",
+          collapsed && "pointer-events-none",
+        )}
+      >
         <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize the playlist browser"
-          aria-valuenow={Math.round(width)}
-          aria-valuemin={BROWSER_WIDTH.min}
-          aria-valuemax={BROWSER_WIDTH.max}
-          tabIndex={collapsed ? -1 : 0}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
-          onDoubleClick={() => onWidthChange(BROWSER_WIDTH.default)}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowLeft") onWidthChange(clamp(width - 16, BROWSER_WIDTH.min, BROWSER_WIDTH.max));
-            if (e.key === "ArrowRight") onWidthChange(clamp(width + 16, BROWSER_WIDTH.min, BROWSER_WIDTH.max));
-          }}
-          className="group/sep absolute inset-y-0 right-0 z-10 w-2 cursor-col-resize outline-none"
-        >
-          <div className="absolute inset-y-0 right-0 w-px bg-separator transition-[background-color,width] duration-150 group-hover/sep:w-0.5 group-hover/sep:bg-selection group-focus-visible/sep:w-0.5 group-focus-visible/sep:bg-selection" />
-        </div>
+          className={cn(
+            "h-9 w-[5px] rounded-full bg-foreground/40 opacity-0 transition-opacity duration-150 motion-reduce:transition-none group-hover/sep:opacity-100 group-focus-visible/sep:bg-selection group-focus-visible/sep:opacity-100",
+            dragMode === "resize" && "opacity-100",
+          )}
+        />
       </div>
       {/* Closed: a grip on the browser's edge (the editor's left edge),
           riding it while it is pulled back out. */}
