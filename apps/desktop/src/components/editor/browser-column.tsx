@@ -7,10 +7,18 @@ import {
   velocityFromSamples,
   type MotionSample,
 } from "@scoutable/shared/lib/motion-math";
+import { Kbd } from "@/components/ui/kbd";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { springs, useReducedMotionSafe } from "@/lib/motion";
+import { IS_MACOS } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 
 export const BROWSER_WIDTH = { default: 260, min: 200, max: 480 } as const;
+
+/** How far a pull on the closed browser's grip must head before it opens. */
+const REVEAL_THRESHOLD = BROWSER_WIDTH.min / 2;
+/** Movement under this is a click on the grip, not a drag. */
+const CLICK_SLOP = 4;
 
 /**
  * The playlist browser's column: resized 1:1 by its edge, rubber-banding
@@ -18,13 +26,15 @@ export const BROWSER_WIDTH = { default: 260, min: 200, max: 480 } as const;
  * well past the minimum) collapses it, and collapse/expand is one spring of
  * the width so the editor beside it reflows with the motion. The content
  * keeps its full width while the column animates, so nothing inside
- * re-wraps.
+ * re-wraps. Closed, a grip on the editor's left edge (Claude's sidebar
+ * has one) pulls it back out 1:1, or opens it with a click.
  */
 export function BrowserColumn({
   collapsed,
   width,
   onWidthChange,
   onCollapse,
+  onExpand,
   className,
   children,
 }: {
@@ -32,10 +42,14 @@ export function BrowserColumn({
   width: number;
   onWidthChange: (width: number) => void;
   onCollapse: () => void;
+  /** Open again at `width`: from the closed browser's grip. */
+  onExpand: (width: number) => void;
   className?: string;
   children: React.ReactNode;
 }) {
   const reduced = useReducedMotionSafe();
+  /** A pull on the closed browser's grip is under way. */
+  const [revealing, setRevealing] = React.useState(false);
   const w = useMotionValue(collapsed ? 0 : width);
   const dragging = React.useRef(false);
   /** The release already started a spring (with the flick's velocity) here. */
@@ -63,26 +77,42 @@ export function BrowserColumn({
   }, [collapsed, width, reduced, w]);
 
   const drag = React.useRef<{
+    /** resize: the open browser's edge. reveal: the closed browser's grip. */
+    mode: "resize" | "reveal";
     pointerId: number;
     startX: number;
     startWidth: number;
     raw: number;
+    moved: boolean;
     samples: MotionSample[];
   } | null>(null);
 
-  function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
-    if (e.button !== 0 || collapsed) return;
+  function startDrag(e: React.PointerEvent<HTMLDivElement>, mode: "resize" | "reveal") {
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
     dragging.current = true;
+    const startWidth = mode === "reveal" ? 0 : width;
     drag.current = {
+      mode,
       pointerId: e.pointerId,
       startX: e.clientX,
-      startWidth: width,
-      raw: width,
+      startWidth,
+      raw: startWidth,
+      moved: false,
       samples: [{ t: e.timeStamp, y: e.clientX }],
     };
     document.body.style.cursor = "col-resize";
+  }
+
+  function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.button !== 0 || collapsed) return;
+    startDrag(e, "resize");
+  }
+
+  function onGripPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.button !== 0 || !collapsed) return;
+    startDrag(e, "reveal");
+    setRevealing(true);
   }
 
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
@@ -90,11 +120,15 @@ export function BrowserColumn({
     if (!d || e.pointerId !== d.pointerId) return;
     const raw = d.startWidth + (e.clientX - d.startX);
     d.raw = raw;
+    if (Math.abs(e.clientX - d.startX) >= CLICK_SLOP) d.moved = true;
     d.samples.push({ t: e.timeStamp, y: e.clientX });
     if (d.samples.length > 16) d.samples.shift();
     let shown = raw;
-    if (raw < BROWSER_WIDTH.min) shown = BROWSER_WIDTH.min + rubberband(raw - BROWSER_WIDTH.min, 240);
-    else if (raw > BROWSER_WIDTH.max) shown = BROWSER_WIDTH.max + rubberband(raw - BROWSER_WIDTH.max, 240);
+    if (raw > BROWSER_WIDTH.max) shown = BROWSER_WIDTH.max + rubberband(raw - BROWSER_WIDTH.max, 240);
+    // Pulled out of the edge, the browser follows 1:1 from nothing; the open
+    // browser's edge resists under the minimum instead.
+    else if (d.mode === "reveal") shown = Math.max(0, raw);
+    else if (raw < BROWSER_WIDTH.min) shown = BROWSER_WIDTH.min + rubberband(raw - BROWSER_WIDTH.min, 240);
     w.set(shown);
   }
 
@@ -110,6 +144,25 @@ export function BrowserColumn({
       /* already released */
     }
     const velocity = velocityFromSamples(d.samples);
+    if (d.mode === "reveal") {
+      setRevealing(false);
+      // A click opens at the width it had; the collapsed effect springs it.
+      if (!d.moved) {
+        onExpand(widthRef.current);
+        return;
+      }
+      // Where the pull was heading decides, as for a collapse: far enough
+      // out opens at the dragged width, anything less springs back shut.
+      if (d.raw + project(velocity, 0.99) >= REVEAL_THRESHOLD) {
+        const final = clamp(d.raw, BROWSER_WIDTH.min, BROWSER_WIDTH.max);
+        settlingTo.current = final;
+        animate(w, final, reduced ? { duration: 0 } : { ...springs.settle, velocity });
+        onExpand(final);
+      } else {
+        animate(w, 0, reduced ? { duration: 0 } : { ...springs.settle, velocity });
+      }
+      return;
+    }
     // Where the pull was heading decides: a flick inward, or a pull well
     // under the minimum, collapses. The snappier rate keeps a slow drag that
     // merely dips under the minimum from counting as a flick.
@@ -125,36 +178,77 @@ export function BrowserColumn({
     onWidthChange(final);
   }
 
+  const showGrip = collapsed || revealing;
+
   return (
-    <motion.div
-      style={{ width: w }}
-      aria-hidden={collapsed || undefined}
-      className={cn("relative h-full shrink-0 overflow-hidden select-none", className)}
-    >
-      <motion.div style={{ width: innerW }} className="flex h-full flex-col">
-        {children}
-      </motion.div>
+    <motion.div style={{ width: w }} className="relative h-full shrink-0 select-none">
       <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize the playlist browser"
-        aria-valuenow={Math.round(width)}
-        aria-valuemin={BROWSER_WIDTH.min}
-        aria-valuemax={BROWSER_WIDTH.max}
-        tabIndex={collapsed ? -1 : 0}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        onDoubleClick={() => onWidthChange(BROWSER_WIDTH.default)}
-        onKeyDown={(e) => {
-          if (e.key === "ArrowLeft") onWidthChange(clamp(width - 16, BROWSER_WIDTH.min, BROWSER_WIDTH.max));
-          if (e.key === "ArrowRight") onWidthChange(clamp(width + 16, BROWSER_WIDTH.min, BROWSER_WIDTH.max));
-        }}
-        className="group/sep absolute inset-y-0 right-0 z-10 w-2 cursor-col-resize outline-none"
+        aria-hidden={collapsed || undefined}
+        className={cn("relative h-full w-full overflow-hidden", className)}
       >
-        <div className="absolute inset-y-0 right-0 w-px bg-separator transition-[background-color,width] duration-150 group-hover/sep:w-0.5 group-hover/sep:bg-selection group-focus-visible/sep:w-0.5 group-focus-visible/sep:bg-selection" />
+        <motion.div style={{ width: innerW }} className="flex h-full flex-col">
+          {children}
+        </motion.div>
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize the playlist browser"
+          aria-valuenow={Math.round(width)}
+          aria-valuemin={BROWSER_WIDTH.min}
+          aria-valuemax={BROWSER_WIDTH.max}
+          tabIndex={collapsed ? -1 : 0}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          onDoubleClick={() => onWidthChange(BROWSER_WIDTH.default)}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowLeft") onWidthChange(clamp(width - 16, BROWSER_WIDTH.min, BROWSER_WIDTH.max));
+            if (e.key === "ArrowRight") onWidthChange(clamp(width + 16, BROWSER_WIDTH.min, BROWSER_WIDTH.max));
+          }}
+          className="group/sep absolute inset-y-0 right-0 z-10 w-2 cursor-col-resize outline-none"
+        >
+          <div className="absolute inset-y-0 right-0 w-px bg-separator transition-[background-color,width] duration-150 group-hover/sep:w-0.5 group-hover/sep:bg-selection group-focus-visible/sep:w-0.5 group-focus-visible/sep:bg-selection" />
+        </div>
       </div>
+      {/* Closed: a grip on the browser's edge (the editor's left edge),
+          riding it while it is pulled back out. */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Show the playlist browser"
+            aria-hidden={!showGrip || undefined}
+            aria-valuenow={0}
+            aria-valuemin={0}
+            aria-valuemax={BROWSER_WIDTH.max}
+            tabIndex={showGrip ? 0 : -1}
+            onPointerDown={onGripPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " " || e.key === "ArrowRight") {
+                e.preventDefault();
+                onExpand(widthRef.current);
+              }
+            }}
+            className={cn(
+              "group/grip absolute inset-y-0 left-full z-20 flex w-3 cursor-col-resize items-center justify-center outline-none transition-opacity duration-200 motion-reduce:transition-none",
+              showGrip ? "opacity-100 delay-150" : "pointer-events-none opacity-0",
+            )}
+          >
+            <div className="h-9 w-1 rounded-full bg-foreground/20 transition-[background-color,width] duration-150 group-hover/grip:w-[5px] group-hover/grip:bg-foreground/40 group-focus-visible/grip:w-[5px] group-focus-visible/grip:bg-selection" />
+          </div>
+        </TooltipTrigger>
+        {showGrip && (
+          <TooltipContent side="right" className="flex items-center gap-1.5">
+            Show playlists
+            <Kbd>{IS_MACOS ? "\u2318B" : "Ctrl B"}</Kbd>
+          </TooltipContent>
+        )}
+      </Tooltip>
     </motion.div>
   );
 }
