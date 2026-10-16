@@ -11,9 +11,9 @@
  *     the player (or coach) attached, team timeouts, period markers,
  *     substitutions. No rebounds, assists, coordinates or game clock.
  *   - every event carries a wall-clock `startedAt`, so the sync model works
- *     unchanged; the "Start period 1" marker is the tip-off anchor.
- *   - the scorer's table types events 10–20 s after the play — see
- *     defaultPreRoll in provider.ts.
+ *     unchanged; the anchor is the first made basket (findProfixioSyncAnchor).
+ *   - the scorer's table types events in after the play, with a lag that
+ *     varies — see provider.ts for the pre/post-roll.
  */
 import type { Stage } from "../types/league";
 import type { PlayByPlayEvent } from "../types/match";
@@ -252,8 +252,8 @@ export interface ProfixioSyncAnchor {
  * The reference moment for video sync. NOT the "Start period 1" marker: the
  * table presses it when it opens the protocol, 3–4 minutes before the jump
  * ball (measured on three games), which would land every clip minutes late.
- * The first made basket is unambiguous on video and is stamped within the
- * table's usual 5–20 s entry lag, which the 20 s pre-roll covers. Falls back
+ * The first made basket is unambiguous on video and carries the table's
+ * usual entry lag, which then cancels out of every other event. Falls back
  * to the start marker (with a label that says so) when nobody scored.
  */
 export function findProfixioSyncAnchor(

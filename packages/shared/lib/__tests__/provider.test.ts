@@ -39,27 +39,27 @@ describe("matchProvider", () => {
 });
 
 describe("pre- and post-roll defaults", () => {
-  it("gives Profixio games a 20 s lead-in — measured entry lag varies up to 12 s past the anchor's", () => {
-    expect(defaultPreRoll({ sourceGameId: "profixio:1" })).toBe(20);
+  it("gives Profixio games the same 10 s lead-in as Genius", () => {
+    expect(defaultPreRoll({ sourceGameId: "profixio:1" })).toBe(10);
     expect(defaultPreRoll({ sourceGameId: "2668882" })).toBe(DEFAULT_PRE_ROLL);
     expect(defaultPreRoll(null)).toBe(10);
   });
 
-  it("takes the longest pre-roll across a mixed playlist (a long lead-in only lengthens a Genius clip)", () => {
-    expect(defaultPreRollForMatches([{ sourceGameId: "1" }, { sourceGameId: "profixio:2" }])).toBe(20);
+  it("gives a mixed playlist the same pre-roll", () => {
+    expect(defaultPreRollForMatches([{ sourceGameId: "1" }, { sourceGameId: "profixio:2" }])).toBe(10);
     expect(defaultPreRollForMatches([{ sourceGameId: "1" }])).toBe(10);
     expect(defaultPreRollForMatches([])).toBe(10);
   });
 
-  it("gives Profixio games a longer tail — events land up to ~4 s after the computed time", () => {
-    expect(defaultPostRoll({ sourceGameId: "profixio:1" })).toBe(6);
-    expect(defaultPostRoll({ leagueId: "profixio-749-herrar-u19" })).toBe(6);
+  it("gives Profixio games the same 3 s tail as Genius", () => {
+    expect(defaultPostRoll({ sourceGameId: "profixio:1" })).toBe(3);
+    expect(defaultPostRoll({ leagueId: "profixio-749-herrar-u19" })).toBe(3);
     expect(defaultPostRoll({ sourceGameId: "2668882" })).toBe(DEFAULT_POST_ROLL);
     expect(defaultPostRoll(null)).toBe(3);
   });
 
-  it("takes the longest post-roll across a mixed playlist", () => {
-    expect(defaultPostRollForMatches([{ sourceGameId: "1" }, { sourceGameId: "profixio:2" }])).toBe(6);
+  it("gives a mixed playlist the same post-roll", () => {
+    expect(defaultPostRollForMatches([{ sourceGameId: "1" }, { sourceGameId: "profixio:2" }])).toBe(3);
     expect(defaultPostRollForMatches([{ sourceGameId: "1" }])).toBe(3);
     expect(defaultPostRollForMatches([])).toBe(3);
   });
