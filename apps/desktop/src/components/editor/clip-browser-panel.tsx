@@ -310,8 +310,8 @@ export function ClipBrowserPanel({
   const [filterTeams, setFilterTeams] = useState<Set<string>>(new Set());
   const [filterPlayers, setFilterPlayers] = useState<Set<string>>(new Set());
   const [filterLabelIds, setFilterLabelIds] = useState<Set<string>>(new Set());
-  // Pre/post-roll follow the game shown (Profixio games get a longer tail,
-  // see provider.ts) until the coach changes them.
+  // Pre/post-roll follow the game shown (per provider, see provider.ts)
+  // until the coach changes them.
   const [preRoll, setPreRoll] = useState(() => defaultPreRoll(filterMatchId ? matchLookup.get(filterMatchId) : null));
   const [postRoll, setPostRoll] = useState(() => defaultPostRoll(filterMatchId ? matchLookup.get(filterMatchId) : null));
   const preRollTouchedRef = useRef(false);

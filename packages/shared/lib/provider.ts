@@ -29,38 +29,35 @@ export const DEFAULT_PRE_ROLL = 10;
 export const DEFAULT_POST_ROLL = 3;
 
 /**
- * Seconds of video before an event's wall-clock time.
- *
- * Genius actions are stamped by a clock operator at the play. Profixio events
- * are typed in by the table a few seconds after it; the sync anchor (the
- * first made basket) carries the same lag, so the common part cancels — but
- * the lag varies with how busy the table is. Measured on a real game (five
- * marked events plus the final buzzer): other events landed between 12 s
- * before and 4 s after the computed time. A 20 s pre-roll keeps ~8 s of play
- * ahead of the shot even in the slow-entry case; 10 s would start that clip
- * after the ball had left the shooter's hands.
+ * Seconds of video before and after an event's time, per provider. Equal
+ * since 2026-10-16 (Leonard's call). Profixio events are typed in by the
+ * table after the play, and the sync anchor (the first made basket) carries
+ * the same lag, so the common part cancels; what varies with how busy the
+ * table is does not. On the one measured game, events landed between 12 s
+ * before and 4 s after the computed time, so a clip logged late can start
+ * after the ball has left the shooter's hands; the coach can lengthen the
+ * clip or the playlist then.
  */
+const PRE_ROLL: Record<LeagueProvider, number> = { genius: DEFAULT_PRE_ROLL, profixio: DEFAULT_PRE_ROLL };
+const POST_ROLL: Record<LeagueProvider, number> = { genius: DEFAULT_POST_ROLL, profixio: DEFAULT_POST_ROLL };
+
 export function defaultPreRoll(
   match?: Pick<StoredMatch, "sourceGameId" | "leagueId"> | null,
 ): number {
-  return match && matchProvider(match) === "profixio" ? 20 : DEFAULT_PRE_ROLL;
+  return match ? PRE_ROLL[matchProvider(match)] : DEFAULT_PRE_ROLL;
 }
 
+/** Pre-roll for a playlist spanning several games: the longest default wins. */
 export function defaultPreRollForMatches(
   matches: Array<Pick<StoredMatch, "sourceGameId" | "leagueId">>,
 ): number {
   return matches.reduce((max, m) => Math.max(max, defaultPreRoll(m)), DEFAULT_PRE_ROLL);
 }
 
-/**
- * Seconds of video after an event's wall-clock time. Profixio events can also
- * fall up to ~4 s after the computed time (see above), so the clip gets a
- * longer tail there or it could end with the ball still in the air.
- */
 export function defaultPostRoll(
   match?: Pick<StoredMatch, "sourceGameId" | "leagueId"> | null,
 ): number {
-  return match && matchProvider(match) === "profixio" ? 6 : DEFAULT_POST_ROLL;
+  return match ? POST_ROLL[matchProvider(match)] : DEFAULT_POST_ROLL;
 }
 
 /** Post-roll for a playlist spanning several games: the longest default wins. */
