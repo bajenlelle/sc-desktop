@@ -4671,6 +4671,10 @@ export function PlaylistsPage() {
         width={browserWidth}
         onWidthChange={setBrowserWidth}
         onCollapse={() => setBrowserCollapsed(true)}
+        onExpand={(w) => {
+          setBrowserWidth(w);
+          setBrowserCollapsed(false);
+        }}
         className="bg-card"
       >
         <div className="flex h-11 shrink-0 items-center gap-1 px-3">
