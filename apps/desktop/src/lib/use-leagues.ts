@@ -25,7 +25,9 @@ import { createClient } from "@/lib/supabase/client";
 import { Sentry } from "@/lib/sentry";
 
 const GENIUS_CACHE_KEY = "scoutable_league_catalog";
-const PROFIXIO_CACHE_KEY = "scoutable_league_catalog_profixio";
+// _v2: the API's catalogue (the tournaments Profixio granted); v1 held the
+// scraped one, every district and two seasons.
+const PROFIXIO_CACHE_KEY = "scoutable_league_catalog_profixio_v2";
 
 /** Last good catalogue under a key, so the picker paints without waiting on the network. */
 function readCache(key: string): League[] | null {
