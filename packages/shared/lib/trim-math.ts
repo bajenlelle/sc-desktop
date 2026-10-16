@@ -2,12 +2,17 @@
  * Trim handles: one clip's in and out points, dragged on a bar under the
  * player. Times are seconds into the game's video; a clip stores its trim as
  * per-clip offsets on top of the playlist's clip length (see clipBounds).
+ * A trim may leave the logged play outside the clip: play-by-play times can
+ * be off, and the coach puts the clip on the footage that shows the play.
  */
+
+import { MIN_CLIP_SECONDS } from "./clip-timing";
+
+/** The shortest a clip can be trimmed to. */
+export { MIN_CLIP_SECONDS };
 
 /** Seconds of footage the bar shows either side of the clip, room to drag a handle out. */
 export const TRIM_MARGIN_SECONDS = 10;
-/** The shortest a clip can be trimmed to. */
-export const MIN_CLIP_SECONDS = 1;
 
 const tenths = (n: number) => Math.round(n * 10) / 10;
 const hundredths = (n: number) => Math.round(n * 100) / 100;
@@ -39,8 +44,6 @@ export function trimRange({
 }
 
 export interface TrimLimits {
-  /** When the play happens: the clip always contains it. */
-  eventTime: number;
   start: number;
   end: number;
   /** The video's length, null while unknown. */
@@ -49,16 +52,15 @@ export interface TrimLimits {
 }
 
 /**
- * Where a handle may go. The in point stays between the start of the video
- * and the play, the out point between the play and the end of the video,
- * and the two stay at least `minLength` apart.
+ * Where a handle may go: anywhere in the video, the play included, as long
+ * as the two ends stay at least `minLength` apart.
  */
 export function trimEdgeLimits(
   edge: "in" | "out",
-  { eventTime, start, end, duration, minLength = MIN_CLIP_SECONDS }: TrimLimits,
+  { start, end, duration, minLength = MIN_CLIP_SECONDS }: TrimLimits,
 ): { min: number; max: number } {
-  if (edge === "in") return { min: 0, max: Math.max(0, Math.min(eventTime, end - minLength)) };
-  const min = Math.max(eventTime, start + minLength);
+  if (edge === "in") return { min: 0, max: Math.max(0, end - minLength) };
+  const min = start + minLength;
   return { min, max: Math.max(min, videoEnd(duration)) };
 }
 
@@ -66,6 +68,33 @@ export function trimEdgeLimits(
 export function clampTrimEdge(edge: "in" | "out", value: number, limits: TrimLimits): number {
   const { min, max } = trimEdgeLimits(edge, limits);
   return Math.min(max, Math.max(min, tenths(value)));
+}
+
+/**
+ * The whole clip moved by `delta` seconds, its length unchanged: the start
+ * snapped to tenths, then held inside the video.
+ */
+export function slideWindow(
+  win: { start: number; end: number },
+  delta: number,
+  duration: number | null,
+): { start: number; end: number } {
+  const length = win.end - win.start;
+  const latest = Math.max(0, videoEnd(duration) - length);
+  const start = Math.min(latest, Math.max(0, tenths(win.start + delta)));
+  return { start, end: start + length };
+}
+
+/**
+ * The trim readout's words for where the play sits: "5 s before, 3.5 s
+ * after" while the clip contains it, else how far the clip is from it.
+ */
+export function describeTrim({ eventTime, start, end }: { eventTime: number; start: number; end: number }): string {
+  const before = tenths(eventTime - start);
+  const after = tenths(end - eventTime);
+  if (after < 0) return `ends ${formatSeconds(-after)} before the play`;
+  if (before < 0) return `starts ${formatSeconds(-before)} after the play`;
+  return `${formatSeconds(before)} before, ${formatSeconds(after)} after`;
 }
 
 /**
@@ -92,10 +121,11 @@ export function offsetsForTrim({
   };
 }
 
-/** Seconds for a readout: "8.5 s", or "3 s" when there are no tenths. */
+/** Seconds for a readout: "8.5 s", or "3 s" when there are no tenths; "−4 s" below zero. */
 export function formatSeconds(n: number): string {
   const t = tenths(n) || 0;
-  return `${Number.isInteger(t) ? t : t.toFixed(1)} s`;
+  const abs = Math.abs(t);
+  return `${t < 0 ? "\u2212" : ""}${Number.isInteger(abs) ? abs : abs.toFixed(1)} s`;
 }
 
 /**

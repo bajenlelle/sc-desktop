@@ -5,7 +5,9 @@ import { formatClipTime } from "@scoutable/shared/lib/clip-timing";
 import { clamp, rubberband } from "@scoutable/shared/lib/motion-math";
 import {
   clampTrimEdge,
+  describeTrim,
   formatSeconds,
+  slideWindow,
   trimEdgeLimits,
   trimRange,
   type TrimLimits,
@@ -28,6 +30,9 @@ export interface TrimWindow {
 
 type Edge = "in" | "out";
 
+/** Grab strips along the frame's top and bottom edges: they move the whole clip. */
+const GRIP_CLASS = "absolute z-[5] h-2.5 touch-none outline-none";
+
 function knownDuration(video: HTMLVideoElement): number | null {
   return Number.isFinite(video.duration) && video.duration > 0 ? video.duration : null;
 }
@@ -37,7 +42,11 @@ function knownDuration(video: HTMLVideoElement): number | null {
  * The track spans the footage around the clip, with the clip framed in
  * yellow and the play marked. A handle drags 1:1 from where it was grabbed,
  * shows the frame under it, and resists past its limits (the ends of the
- * video, the play itself, a clip of one second). Space plays the trimmed
+ * video, a clip of one second). Either end may pass the play: play-by-play
+ * times can be off, and the clip belongs on the footage of the play.
+ * Dragging the frame by its top or bottom edge moves the whole clip, its
+ * length unchanged. The track starts at the clip with a margin either side
+ * and widens after each drag that reaches its end. Space plays the trimmed
  * clip once; I and O set an end at the playhead; ←/→ step the playhead;
  * Return keeps the trim and Esc puts it back. Rendered inside PlayerStage's
  * bar material (`trimBar`).
@@ -62,11 +71,13 @@ export function ClipTrimmer({
   winRef.current = win;
   const [duration, setDuration] = React.useState(() => knownDuration(video));
   const [range, setRange] = React.useState(() => trimRange({ ...initial, duration: knownDuration(video) }));
-  const [dragging, setDragging] = React.useState<Edge | null>(null);
+  const [dragging, setDragging] = React.useState<Edge | "clip" | null>(null);
   const [width, setWidth] = React.useState(0);
   const [playing, setPlaying] = React.useState(!video.paused);
   const trackRef = React.useRef<HTMLDivElement | null>(null);
   const grabRef = React.useRef<{ edge: Edge; offset: number } | null>(null);
+  /** A frame drag: where the pointer went down, and the clip as it was. */
+  const slideRef = React.useRef<{ x: number; origin: TrimWindow } | null>(null);
   const scrubbingRef = React.useRef(false);
   const releasedRef = React.useRef(false);
   const laidOutRef = React.useRef(false);
@@ -87,8 +98,8 @@ export function ClipTrimmer({
   geometry.current = { xOf, width };
 
   const limitsFor = React.useCallback(
-    (w: TrimWindow): TrimLimits => ({ eventTime, start: w.start, end: w.end, duration }),
-    [eventTime, duration],
+    (w: TrimWindow): TrimLimits => ({ start: w.start, end: w.end, duration }),
+    [duration],
   );
 
   // The track's width, as laid out.
@@ -304,6 +315,61 @@ export function ClipTrimmer({
     video.currentTime = value;
   }
 
+  // --- The frame: its top or bottom edge moves the whole clip -------------
+
+  function onFramePointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    slideRef.current = { x: e.clientX, origin: winRef.current };
+    stopPlayback();
+    setDragging("clip");
+  }
+
+  function onFramePointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    const s = slideRef.current;
+    if (!s) return;
+    const { origin } = s;
+    const dx = e.clientX - s.x;
+    // 1:1 while the clip stays on the track, resisting past its ends.
+    const held = clamp(dx, Math.min(0, -xOf(origin.start)), Math.max(0, width - xOf(origin.end)));
+    const shown = held + rubberband(dx - held, width);
+    inX.set(xOf(origin.start) + shown);
+    outX.set(xOf(origin.end) + shown);
+    const next = slideWindow(origin, (held / Math.max(1, width)) * span, duration);
+    if (next.start !== winRef.current.start) {
+      setWin(next);
+      frameSeek.schedule(next.start);
+    }
+  }
+
+  function onFramePointerUp() {
+    if (!slideRef.current) return;
+    slideRef.current = null;
+    frameSeek.settle();
+    releasedRef.current = true;
+    setDragging(null);
+  }
+
+  function onFrameKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    e.stopPropagation();
+    stopPlayback();
+    const next = slideWindow(winRef.current, (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 1 : 0.1), duration);
+    setWin(next);
+    video.currentTime = next.start;
+  }
+
+  const frameGrip = {
+    onPointerDown: onFramePointerDown,
+    onPointerMove: onFramePointerMove,
+    onPointerUp: onFramePointerUp,
+    onPointerCancel: onFramePointerUp,
+    onLostPointerCapture: onFramePointerUp,
+  };
+
   // --- The track: press or drag to move the playhead ----------------------
 
   function onTrackPointerDown(e: React.PointerEvent<HTMLDivElement>) {
@@ -331,6 +397,7 @@ export function ClipTrimmer({
   const inLimits = trimEdgeLimits("in", limitsNow);
   const outLimits = trimEdgeLimits("out", limitsNow);
   const length = win.end - win.start;
+  const playOnTrack = eventTime >= range.from && eventTime <= range.to;
 
   function handle(edge: Edge) {
     const x = edge === "in" ? inX : outX;
@@ -394,15 +461,32 @@ export function ClipTrimmer({
           {/* The footage around the clip, then the clip itself. */}
           <div aria-hidden className="absolute inset-x-0 inset-y-1.5 rounded-md bg-white/12" />
           <motion.div aria-hidden className="absolute inset-y-1.5 bg-white/30" style={{ left: inX, width: clipWidth }} />
-          {/* The play: the clip always contains it. */}
-          <div
-            aria-hidden
-            className={cn(
-              "pointer-events-none absolute inset-y-1 w-0.5 -translate-x-1/2 rounded-full bg-primary",
-              !dragging && "transition-[left] duration-300",
-            )}
-            style={{ left: xOf(eventTime) }}
-          />
+          {/* The play, where the play-by-play puts it: inside the clip or
+              not. Off the track, a chevron at that end points to it. */}
+          {playOnTrack ? (
+            <div
+              aria-hidden
+              className={cn(
+                "pointer-events-none absolute inset-y-1 w-0.5 -translate-x-1/2 rounded-full bg-primary",
+                !dragging && "transition-[left] duration-300",
+              )}
+              style={{ left: xOf(eventTime) }}
+            />
+          ) : (
+            <div
+              aria-hidden
+              className={cn(
+                "pointer-events-none absolute inset-y-0 flex items-center text-primary",
+                eventTime < range.from ? "left-0.5" : "right-0.5",
+              )}
+            >
+              {eventTime < range.from ? (
+                <ChevronLeft className="size-3.5" strokeWidth={3} />
+              ) : (
+                <ChevronRight className="size-3.5" strokeWidth={3} />
+              )}
+            </div>
+          )}
           <motion.div
             aria-hidden
             className="pointer-events-none absolute -inset-y-0.5 left-0 w-0.5 -translate-x-1/2 rounded-full bg-white shadow-[0_0_2px_rgb(0_0_0/0.6)]"
@@ -414,6 +498,29 @@ export function ClipTrimmer({
             className="pointer-events-none absolute inset-y-0 border-y-[3px]"
             style={{ left: inX, width: clipWidth, borderColor: TRIM_YELLOW }}
           />
+          <motion.div
+            role="slider"
+            tabIndex={0}
+            aria-label="Clip position"
+            aria-valuemin={0}
+            aria-valuemax={duration !== null ? Math.round(Math.max(0, duration - length) * 10) / 10 : undefined}
+            aria-valuenow={Math.round(win.start * 10) / 10}
+            aria-valuetext={`Starts at ${formatClipTime(win.start)}`}
+            {...frameGrip}
+            onKeyDown={onFrameKeyDown}
+            style={{ left: inX, width: clipWidth }}
+            className={cn(
+              GRIP_CLASS,
+              "top-0 rounded-t-sm focus-visible:ring-2 focus-visible:ring-white",
+              dragging === "clip" ? "cursor-grabbing" : "cursor-grab",
+            )}
+          />
+          <motion.div
+            aria-hidden
+            {...frameGrip}
+            style={{ left: inX, width: clipWidth }}
+            className={cn(GRIP_CLASS, "bottom-0", dragging === "clip" ? "cursor-grabbing" : "cursor-grab")}
+          />
           {handle("in")}
           {handle("out")}
         </div>
@@ -422,7 +529,7 @@ export function ClipTrimmer({
         <p className="min-w-0 flex-1 truncate text-xs nums text-white/75" aria-live="polite">
           <span className="text-white">{formatSeconds(length)}</span>
           <span aria-hidden> · </span>
-          {formatSeconds(eventTime - win.start)} before, {formatSeconds(win.end - eventTime)} after
+          {describeTrim({ eventTime, start: win.start, end: win.end })}
         </p>
         <div className="flex shrink-0 items-center gap-1.5">
           <Tooltip>

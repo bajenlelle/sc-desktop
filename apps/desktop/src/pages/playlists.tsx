@@ -104,7 +104,7 @@ import { PlayerStage } from "@/components/editor/player-stage";
 import { usePersistentVideo } from "@/components/editor/use-persistent-video";
 import { ClipRow, TextCardRow } from "@/components/editor/clip-rows";
 import { ClipTrimmer, type TrimWindow } from "@/components/editor/clip-trimmer";
-import { formatSeconds, offsetsForTrim, stepToWhole } from "@scoutable/shared/lib/trim-math";
+import { formatSeconds, MIN_CLIP_SECONDS, offsetsForTrim, stepToWhole } from "@scoutable/shared/lib/trim-math";
 import { Kbd } from "@/components/ui/kbd";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
@@ -1328,8 +1328,15 @@ export function PlaylistsPage() {
     const { matchId, eventId } = activeClipKey;
     const existingClip = clipByKey.get(`${matchId}:${eventId}`);
     const hundredths = (n: number) => Math.round(n * 100) / 100;
-    const newPre = Math.max(-preRoll, hundredths((existingClip?.preRollOffset ?? 0) + preDelta));
-    const newPost = Math.max(-postRoll, hundredths((existingClip?.postRollOffset ?? 0) + postDelta));
+    let newPre = hundredths((existingClip?.preRollOffset ?? 0) + preDelta);
+    let newPost = hundredths((existingClip?.postRollOffset ?? 0) + postDelta);
+    // A stepper may take its side below zero (a clip trimmed off its play),
+    // but the clip keeps a second. Reset moves both sides and isn't held.
+    const short = MIN_CLIP_SECONDS - (preRoll + newPre + postRoll + newPost);
+    if (short > 0 && (preDelta === 0) !== (postDelta === 0)) {
+      if (preDelta !== 0) newPre = hundredths(newPre + short);
+      else newPost = hundredths(newPost + short);
+    }
     void commitClipOffsets(matchId, eventId, newPre, newPost);
     const curQueueItem = queueRef.current[queueIdxRef.current];
     if (!curQueueItem || isTextCard(curQueueItem)) return;
@@ -4219,7 +4226,9 @@ export function PlaylistsPage() {
               />
             )}
             {/* This clip's own length: the playlist's clip length plus the
-                clip's offsets, shown as the seconds that actually play. */}
+                clip's offsets, shown as the seconds that actually play. A
+                side below zero is a clip trimmed off its play ("−4 s
+                before" starts 4 s after it); the clip keeps a second. */}
             {activeEventId !== null && (() => {
               // A trim can leave fractions: shown to the tenth, and the
               // steppers move on to whole seconds from there.
@@ -4232,7 +4241,7 @@ export function PlaylistsPage() {
                     <Stepper
                       label="Seconds before the play"
                       value={before}
-                      min={0}
+                      min={MIN_CLIP_SECONDS - after}
                       disabled={!!trim}
                       onChange={(n) => adjustActiveClip(stepToWhole(before, n) - before, 0)}
                       format={formatSeconds}
@@ -4243,7 +4252,7 @@ export function PlaylistsPage() {
                     <Stepper
                       label="Seconds after the play"
                       value={after}
-                      min={0}
+                      min={MIN_CLIP_SECONDS - before}
                       disabled={!!trim}
                       onChange={(n) => adjustActiveClip(0, stepToWhole(after, n) - after)}
                       format={formatSeconds}

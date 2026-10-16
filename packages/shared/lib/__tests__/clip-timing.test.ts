@@ -59,6 +59,21 @@ describe("clipBounds", () => {
   it("defaults offsets to zero", () => {
     expect(clipBounds(100, 5, 3)).toEqual({ start: 95, end: 103 });
   });
+
+  it("takes negative totals: a clip after its play, or before it", () => {
+    expect(clipBounds(100, 10, 3, -14, 10)).toEqual({ start: 104, end: 113 });
+    expect(clipBounds(130, 10, 3, 9, -9)).toEqual({ start: 111, end: 124 });
+  });
+
+  it("never leaves a clip shorter than a second", () => {
+    // A clip trimmed to the play's second, then the playlist's length lowered.
+    expect(clipBounds(100, 5, 3, -10, -2)).toEqual({ start: 105, end: 106 });
+    expect(clipBounds(100, 0, 0)).toEqual({ start: 100, end: 101 });
+  });
+
+  it("keeps a second even near the top of the video, for a clip ending before its play", () => {
+    expect(clipBounds(3, 10, 3, 0, -9)).toEqual({ start: 0, end: 1 });
+  });
 });
 
 describe("clipShipKey", () => {
@@ -72,6 +87,12 @@ describe("clipShipKey", () => {
   // treatment.
   it("formats the R2 object key with one-decimal rolls and start", () => {
     expect(clipShipKey("m1", 42, 5, 3, 754.2)).toBe("clips/m1/42_pre5.0_post3.0_s754.2.mp4");
+  });
+
+  it("writes negative totals with a minus, and never -0.0", () => {
+    expect(clipShipKey("m1", 42, -4, 12, 754.2)).toBe("clips/m1/42_pre-4.0_post12.0_s754.2.mp4");
+    expect(clipShipKey("m1", 42, 19, -6, 754.2)).toBe("clips/m1/42_pre19.0_post-6.0_s754.2.mp4");
+    expect(clipShipKey("m1", 42, -0.04, 3, 0)).toBe("clips/m1/42_pre0.0_post3.0_s0.0.mp4");
   });
 
   it("rounds fractions with toFixed(1) semantics", () => {
@@ -149,6 +170,10 @@ describe("shippedTotals", () => {
     expect(shippedTotals(base + "clips/m1/42_pre9.5_post3.0.mp4")).toEqual({ pre: 9.5, post: 3 });
   });
 
+  it("reads negative totals back", () => {
+    expect(shippedTotals(base + clipShipKey("m1", 42, 19, -6, 754.2))).toEqual({ pre: 19, post: -6 });
+  });
+
   it("returns null for anything else", () => {
     expect(shippedTotals(base + "highlights/abc.mp4")).toBeNull();
     expect(shippedTotals("")).toBeNull();
@@ -161,6 +186,15 @@ describe("isShippedClipStale", () => {
   it("is fresh when the file was cut with the pair plus the clip's offsets", () => {
     expect(isShippedClipStale({ r2Url: url(10, 3) }, { pre: 10, post: 3 })).toBe(false);
     expect(isShippedClipStale({ r2Url: url(12.5, 2), preRollOffset: 2.5, postRollOffset: -1 }, { pre: 10, post: 3 })).toBe(false);
+  });
+
+  it("is fresh for a clip off its play, cut as it is now", () => {
+    expect(isShippedClipStale({ r2Url: url(19, -6), preRollOffset: 9, postRollOffset: -9 }, { pre: 10, post: 3 })).toBe(false);
+  });
+
+  it("is fresh when a total rounds to zero from below", () => {
+    // pre total -0.04: the key reads 0.0, and so does the comparison.
+    expect(isShippedClipStale({ r2Url: url(-0.04, 3), preRollOffset: -10.04 }, { pre: 10, post: 3 })).toBe(false);
   });
 
   it("is stale once the pair changes", () => {

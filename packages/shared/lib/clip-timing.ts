@@ -22,7 +22,16 @@ export function computeVideoTime(
   return sync.syncVideoTime + (eventMs - syncMs) / 1000;
 }
 
-/** Export window around an event time; start clamps at 0. */
+/** The shortest a clip plays, however its ends were set. */
+export const MIN_CLIP_SECONDS = 1;
+
+/**
+ * Export window around an event time; start clamps at 0. The totals
+ * (roll + offset) may be negative: a clip trimmed onto footage after its
+ * play, or before it. A playlist whose clip length was lowered under a
+ * heavily trimmed clip could leave it with no length at all, so the end
+ * keeps at least MIN_CLIP_SECONDS after the start.
+ */
 export function clipBounds(
   videoTime: number,
   preRoll: number,
@@ -30,9 +39,10 @@ export function clipBounds(
   preRollOffset = 0,
   postRollOffset = 0,
 ): { start: number; end: number } {
+  const start = Math.max(0, videoTime - preRoll - preRollOffset);
   return {
-    start: Math.max(0, videoTime - preRoll - preRollOffset),
-    end: videoTime + postRoll + postRollOffset,
+    start,
+    end: Math.max(videoTime + postRoll + postRollOffset, start + MIN_CLIP_SECONDS),
   };
 }
 
@@ -56,7 +66,8 @@ export function formatClipTime(seconds: number): string {
  * old cut. Already-uploaded clips are addressed by this exact string — the
  * golden test pins the format, and the presign-upload edge function's
  * CLIP_KEY allowlist must accept every format ever shipped (keys without the
- * _s segment stay valid: older desktop builds still mint them).
+ * _s segment stay valid: older desktop builds still mint them). A total is
+ * negative for a clip that starts after its play or ends before it.
  */
 export function clipShipKey(
   matchId: string,
@@ -65,7 +76,18 @@ export function clipShipKey(
   post: number,
   start: number,
 ): string {
-  return `clips/${matchId}/${eventId}_pre${pre.toFixed(1)}_post${post.toFixed(1)}_s${start.toFixed(1)}.mp4`;
+  return `clips/${matchId}/${eventId}_pre${keySeconds(pre)}_post${keySeconds(post)}_s${keySeconds(start)}.mp4`;
+}
+
+/**
+ * A number as clipShipKey writes it: toFixed(1), except that a value
+ * rounding to zero from below reads "0.0", not "-0.0". Otherwise a clip
+ * would mint a "-0.0" key that the stale check, reading it back as 0,
+ * finds out of date every time.
+ */
+function keySeconds(n: number): string {
+  const s = n.toFixed(1);
+  return s === "-0.0" ? "0.0" : s;
 }
 
 /** Post-roll padding baked into shipped clips (desktop authoring default). */
@@ -112,8 +134,8 @@ export function isShippedClipStale(
   const shipped = shippedTotals(clip.r2Url);
   if (!shipped) return false;
   return (
-    shipped.pre.toFixed(1) !== (pair.pre + (clip.preRollOffset ?? 0)).toFixed(1) ||
-    shipped.post.toFixed(1) !== (pair.post + (clip.postRollOffset ?? 0)).toFixed(1)
+    keySeconds(shipped.pre) !== keySeconds(pair.pre + (clip.preRollOffset ?? 0)) ||
+    keySeconds(shipped.post) !== keySeconds(pair.post + (clip.postRollOffset ?? 0))
   );
 }
 
