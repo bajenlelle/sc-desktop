@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PlayByPlayEvent, SyncPoint } from "../../types/match";
-import { clipBounds, clipShipKey, computeVideoTime, formatClipTime, isWatchedPosition } from "../clip-timing";
+import { clipBounds, clipShipKey, computeVideoTime, formatClipTime, isWatchedPosition, syncForPeriod } from "../clip-timing";
 
 function ev(partial: Partial<PlayByPlayEvent>): PlayByPlayEvent {
   return partial as PlayByPlayEvent;
@@ -119,5 +119,45 @@ describe("formatClipTime", () => {
   it("carries a rounded minute instead of showing 60 seconds", () => {
     expect(formatClipTime(59.96)).toBe("1:00.0");
     expect(formatClipTime(119.99)).toBe("2:00.0");
+  });
+});
+
+describe("per-period sync", () => {
+  // Q1 tip-off at 0:42 in the video, 17:30:00 on the wall clock. The video
+  // skips the breaks: Q2 starts 2 min early, Q3 11 min early.
+  const sync: SyncPoint = {
+    syncVideoTime: 42,
+    syncRealWorldTime: "2026-09-20T17:30:00Z",
+    periods: {
+      "2": { syncVideoTime: 642, syncRealWorldTime: "2026-09-20T17:42:00Z" },
+      "3": { syncVideoTime: 1300, syncRealWorldTime: "2026-09-20T18:04:00Z" },
+    },
+  };
+  const at = (period: number, realWorldTime: string) => ({ period, realWorldTime });
+
+  it("places Q1 plays with the game's sync point", () => {
+    expect(computeVideoTime(at(1, "2026-09-20T17:35:00Z"), sync)).toBe(342);
+  });
+
+  it("places a period with its own sync", () => {
+    expect(computeVideoTime(at(2, "2026-09-20T17:45:00Z"), sync)).toBe(822);
+    expect(computeVideoTime(at(3, "2026-09-20T18:04:30Z"), sync)).toBe(1330);
+  });
+
+  it("lets a period without one follow the nearest earlier period (Q4 and OT follow Q3)", () => {
+    expect(computeVideoTime(at(4, "2026-09-20T18:20:00Z"), sync)).toBe(2260);
+    expect(computeVideoTime(at(5, "2026-09-20T18:40:00Z"), sync)).toBe(3460);
+    expect(syncForPeriod(sync, 4)).toBe(sync.periods!["3"]);
+  });
+
+  it("uses Q1 for an event without a period, and ignores a stray period 1 entry", () => {
+    expect(computeVideoTime({ realWorldTime: "2026-09-20T17:35:00Z" }, sync)).toBe(342);
+    const odd: SyncPoint = { ...sync, periods: { "1": { syncVideoTime: 999, syncRealWorldTime: "2026-09-20T17:30:00Z" } } };
+    expect(computeVideoTime(at(1, "2026-09-20T17:35:00Z"), odd)).toBe(342);
+  });
+
+  it("is unchanged for a game without period syncs", () => {
+    const plain: SyncPoint = { syncVideoTime: 42, syncRealWorldTime: "2026-09-20T17:30:00Z" };
+    expect(computeVideoTime(at(3, "2026-09-20T18:10:00Z"), plain)).toBe(2442);
   });
 });
