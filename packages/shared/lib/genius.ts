@@ -19,7 +19,8 @@
  *     collision-free as event_id without any offset hack.
  */
 
-import type { PlayByPlayEvent } from "../types/match";
+import type { PeriodMark, PlayByPlayEvent } from "../types/match";
+import { periodLabel } from "./events";
 
 // ---------------------------------------------------------------------------
 // Payload shapes returned by the genius edge function
@@ -208,6 +209,36 @@ export function findTipoff(actions: GeniusAction[]): string | null {
       !(a.periodType ?? "").toUpperCase().includes("OVERTIME"),
   );
   return tip?.timeActual ? toIsoUtc(tip.timeActual) : null;
+}
+
+/**
+ * Each period's start and end on the wall clock, from the feed's period
+ * actions, anchored on the start ("Start of Q2 (clock 10:00)"): a video that
+ * skips the breaks syncs each quarter there. A period whose start the feed
+ * never logged is left out.
+ */
+export function findGeniusPeriodMarks(actions: GeniusAction[]): Record<string, PeriodMark> {
+  const starts = new Map<number, { at: string; clock: string }>();
+  const ends = new Map<number, string>();
+  for (const a of actions) {
+    if (a.actionType !== "period" || !a.timeActual) continue;
+    const period = globalPeriod(a.period, a.periodType ?? "");
+    if (!Number.isInteger(period) || period < 1) continue;
+    const at = toIsoUtc(a.timeActual);
+    if (a.subType === "start" && !starts.has(period)) starts.set(period, { at, clock: gameClock(a.clock ?? "") });
+    else if (a.subType === "end") ends.set(period, at);
+  }
+  const marks: Record<string, PeriodMark> = {};
+  for (const [period, start] of starts) {
+    const clock = /^\d+:\d{2}$/.test(start.clock) ? ` (clock ${start.clock})` : "";
+    const end = ends.get(period);
+    marks[String(period)] = {
+      startRealWorldTime: start.at,
+      ...(end ? { endRealWorldTime: end } : {}),
+      anchor: { realWorldTime: start.at, kind: "period_start", label: `Start of ${periodLabel(period)}${clock}` },
+    };
+  }
+  return marks;
 }
 
 /** Match participants → the {jerseyNumber, playerName} rosters saveMatch stores. */

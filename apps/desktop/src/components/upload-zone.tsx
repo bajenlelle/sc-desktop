@@ -395,6 +395,7 @@ export function UploadZone({
 
   const [playByPlayEvents, setPlayByPlayEvents] = useState<PlayByPlayEvent[]>([]);
   const [tipoffRealWorldTime, setTipoffRealWorldTime] = useState<string | null>(null);
+  const [periodMarks, setPeriodMarks] = useState<SyncPoint["marks"]>(undefined);
 
   // Video state
   const [videoPath, setVideoPath] = useState<string | null>(null);
@@ -563,6 +564,7 @@ export function UploadZone({
     setSelectedGame(game);
     setFetchStatus("loading");
     setFetchError(null);
+    setPeriodMarks(undefined);
 
     // Seed names and date from schedule data immediately so the match is always
     // populated even if the game-data call fails or the user submits quickly.
@@ -591,6 +593,7 @@ export function UploadZone({
 
       setPlayByPlayEvents(data.events);
       setTipoffRealWorldTime(data.tipoffRealWorldTime);
+      setPeriodMarks(data.periodMarks);
 
       // Schedule filtering hides PBP-less games, so this is belt-and-braces —
       // but if it ever happens, say so instead of showing an empty timeline.
@@ -667,6 +670,9 @@ export function UploadZone({
       syncPoint = {
         syncVideoTime: syncSeconds,
         syncRealWorldTime: tipoffRealWorldTime ?? "",
+        // Kept even for a video that holds the whole game: the quarters can
+        // still be synced later, from the game page or the editor.
+        ...(periodMarks && Object.keys(periodMarks).length > 0 ? { marks: periodMarks } : {}),
       };
     }
 

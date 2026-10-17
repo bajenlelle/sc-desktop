@@ -13,6 +13,7 @@ import { createClient } from "@/lib/supabase/client";
 import { getGeniusFixtures, getGeniusMatch } from "@scoutable/shared/lib/genius-client";
 import {
   buildRosters,
+  findGeniusPeriodMarks,
   findTipoff,
   fixtureToScheduleGame,
   playableFixtures,
@@ -20,7 +21,7 @@ import {
   normalizeGeniusActions,
   type ScheduleGame,
 } from "@scoutable/shared/lib/genius";
-import type { PlayByPlayEvent } from "@/types/match";
+import type { PlayByPlayEvent, SyncPoint } from "@/types/match";
 import { PLAYOFF, REGULAR, type League, type Season, type Stage } from "@scoutable/shared/types/league";
 
 export type { ScheduleGame };
@@ -164,6 +165,12 @@ export interface GeniusGameData {
   awayRoster: Array<{ jerseyNumber: string; playerName: string }>;
   events: PlayByPlayEvent[];
   tipoffRealWorldTime: string | null;
+  /**
+   * Each period's reference times from the league (start, end, and what to
+   * look for in the video), saved on the sync point so a video that skips
+   * the breaks can be synced quarter by quarter, now or later.
+   */
+  periodMarks?: SyncPoint["marks"];
   /** "empty" = the match exists but carries no play-by-play upstream. */
   pbpStatus: "ok" | "empty";
 }
@@ -195,6 +202,7 @@ export async function fetchGameData(
     awayRoster: rosters.away,
     events: normalizeGeniusActions(actions, homeTeamId),
     tipoffRealWorldTime: findTipoff(actions),
+    periodMarks: findGeniusPeriodMarks(actions),
     pbpStatus,
   };
 }
