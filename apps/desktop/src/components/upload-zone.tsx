@@ -3,7 +3,9 @@ import { trackEvent } from "@/lib/analytics";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, ChevronRight, Film, Loader2, X } from "lucide-react";
 import { GeneratingSession, type SavePhase } from "@/components/generating-session";
-import { SyncPointPicker } from "@/components/sync-point-picker";
+import { SyncPointPicker, type SeekRequest } from "@/components/sync-point-picker";
+import { followsSummary, QuarterSyncPanel, quarterCopy } from "@/components/quarter-sync";
+import { describePeriodSyncs, videoLooksCut } from "@scoutable/shared/lib/period-sync";
 import { isSuggestionPending, TipoffSuggestionStrip } from "@/components/tipoff-suggestion-strip";
 import { AutoHeight } from "@/components/ui/auto-height";
 import { SearchField } from "@/components/ui/search-field";
@@ -29,7 +31,7 @@ import { Sentry } from "@/lib/sentry";
 import type { GameData, ScheduleGame, League, Season, Stage } from "@/lib/basketball-api";
 import { LeaguePicker } from "@/components/league-picker";
 import { SingleSelectDropdown } from "@/components/ui/multi-select-dropdown";
-import type { StoredMatch, SyncPoint, PlayByPlayEvent } from "@/types/match";
+import type { PeriodSync, StoredMatch, SyncPoint, PlayByPlayEvent } from "@/types/match";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useMyTeam } from "@/lib/my-team";
 import { TeamDialog } from "@/components/team-dialog";
@@ -418,6 +420,15 @@ export function UploadZone({
     };
   }, [videoPath]);
   const [syncSeconds, setSyncSeconds] = useState<number | null>(null);
+  // Quarter-by-quarter sync, for a video that skips the breaks between
+  // quarters. breaksCutChoice null = follow the detection.
+  const [breaksCutChoice, setBreaksCutChoice] = useState<boolean | null>(null);
+  const [periodSyncs, setPeriodSyncs] = useState<Record<string, PeriodSync>>({});
+  const [activePeriod, setActivePeriod] = useState(1);
+  const [quarterSeek, setQuarterSeek] = useState<SeekRequest | null>(null);
+  /** The coach has moved between quarters: the picker's seeks are theirs from then on. */
+  const navigatedRef = useRef(false);
+  const cutReportedRef = useRef(false);
   // Shared hint lookup, then automatic detection, for the linked recording.
   const tipoffSuggestion = useTipoffSuggestion(videoPath, selectedGame?.uuid, { surface: "import" });
   const [submitStatus, setSubmitStatus] = useState<"idle" | "saving" | "error">("idle");
@@ -674,6 +685,11 @@ export function UploadZone({
         // Kept even for a video that holds the whole game: the quarters can
         // still be synced later, from the game page or the editor.
         ...(periodMarks && Object.keys(periodMarks).length > 0 ? { marks: periodMarks } : {}),
+        ...(breaksCut
+          ? { breaksCut: true, ...(Object.keys(periodSyncs).length > 0 ? { periods: periodSyncs } : {}) }
+          : breaksCutChoice === false
+            ? { breaksCut: false }
+            : {}),
       };
     }
 
@@ -718,6 +734,11 @@ export function UploadZone({
         match_date: storedMatch.date,
         has_video: !!videoPath,
         has_sync_point: !!syncPoint,
+        cut_detected: !!cutDetection?.cut,
+        cut_mode: breaksCut,
+        periods_set: breaksCut ? Object.keys(periodSyncs).length : 0,
+        periods_skipped: breaksCut ? periodRows.filter((r) => !r.set).length : 0,
+        overrun_s: cutDetection ? Math.round(cutDetection.overrunSeconds) : null,
         has_play_by_play: playByPlayEvents.length > 0,
         event_count: playByPlayEvents.length,
         reimport: !!existingMatch,
@@ -753,6 +774,7 @@ export function UploadZone({
       clipCount: playByPlayEvents.length,
       hasVideo: !!videoPath,
       hasSyncPoint: !!syncPoint,
+      needsQuarters: !!cutDetection?.cut && (!breaksCut || Object.keys(periodSyncs).length === 0),
       isUpdate: !!existingMatch,
     });
     // Long enough to read (a fast save would only flash), then a beat on
@@ -770,6 +792,123 @@ export function UploadZone({
       }, Math.max(0, 600 - shown)),
     );
   }
+
+  // A new video or game starts the quarters over.
+  useEffect(() => {
+    setBreaksCutChoice(null);
+    setPeriodSyncs({});
+    setActivePeriod(1);
+    setQuarterSeek(null);
+    navigatedRef.current = false;
+    cutReportedRef.current = false;
+  }, [videoPath, selectedGame?.uuid]);
+
+  const draftSync = useMemo<SyncPoint | null>(
+    () =>
+      syncSeconds !== null && tipoffRealWorldTime
+        ? {
+            syncVideoTime: syncSeconds,
+            syncRealWorldTime: tipoffRealWorldTime,
+            ...(periodMarks ? { marks: periodMarks } : {}),
+            periods: periodSyncs,
+          }
+        : null,
+    [syncSeconds, tipoffRealWorldTime, periodMarks, periodSyncs],
+  );
+  const cutDetection = useMemo(
+    () => (draftSync ? videoLooksCut({ durationSeconds: videoDuration, events: playByPlayEvents, sync: draftSync }) : null),
+    [draftSync, videoDuration, playByPlayEvents],
+  );
+  const breaksCut = breaksCutChoice ?? cutDetection?.cut ?? false;
+  const periodRows = useMemo(
+    () => (draftSync ? describePeriodSyncs(draftSync, playByPlayEvents) : []),
+    [draftSync, playByPlayEvents],
+  );
+  const activeRow = breaksCut && activePeriod >= 2 ? (periodRows.find((r) => r.period === activePeriod) ?? null) : null;
+
+  /** Puts the picker on a quarter: at its set time, else a beat before where it should be. */
+  function goToPeriod(period: number, sync: SyncPoint | null = draftSync) {
+    navigatedRef.current = true;
+    setActivePeriod(period);
+    if (!sync) return;
+    let target: number | null;
+    if (period <= 1) {
+      target = sync.syncVideoTime;
+    } else {
+      const row = describePeriodSyncs(sync, playByPlayEvents).find((r) => r.period === period);
+      target = row?.set ? row.videoTime : row?.suggested != null ? Math.max(0, row.suggested - 2) : (row?.videoTime ?? null);
+    }
+    if (target !== null) setQuarterSeek({ seconds: target, nonce: Date.now() });
+  }
+
+  function nextUnsetPeriod(after: number, sync: SyncPoint): number | null {
+    return describePeriodSyncs(sync, playByPlayEvents).find((r) => r.period > after && !r.set)?.period ?? null;
+  }
+
+  /** Q1 set: if the video looks cut, the quarters come next. */
+  function confirmQ1(secs: number) {
+    setSyncSeconds(secs);
+    if (!tipoffRealWorldTime) return;
+    const sync: SyncPoint = {
+      syncVideoTime: secs,
+      syncRealWorldTime: tipoffRealWorldTime,
+      ...(periodMarks ? { marks: periodMarks } : {}),
+      periods: periodSyncs,
+    };
+    const detected = videoLooksCut({ durationSeconds: videoDuration, events: playByPlayEvents, sync });
+    if (detected.cut && !cutReportedRef.current) {
+      cutReportedRef.current = true;
+      trackEvent("sync_cut_detected", { surface: "import", overrun_s: Math.round(detected.overrunSeconds) });
+    }
+    if ((breaksCutChoice ?? detected.cut) && Object.keys(periodSyncs).length === 0) {
+      const next = nextUnsetPeriod(1, sync);
+      if (next !== null) goToPeriod(next, sync);
+    }
+  }
+
+  function confirmPeriod(period: number, secs: number) {
+    const row = periodRows.find((r) => r.period === period);
+    if (!row?.anchor || !draftSync) return;
+    const next = {
+      ...periodSyncs,
+      [String(period)]: {
+        syncVideoTime: secs,
+        syncRealWorldTime: row.anchor.realWorldTime,
+        anchor: { kind: row.anchor.kind, label: row.anchor.label },
+      },
+    };
+    setPeriodSyncs(next);
+    trackEvent("period_sync_set", {
+      surface: "import",
+      period,
+      anchor_kind: row.anchor.kind,
+      predicted_delta_s: row.suggested !== null ? Math.round((secs - row.suggested) * 10) / 10 : null,
+    });
+    const sync = { ...draftSync, periods: next };
+    const after = nextUnsetPeriod(period, sync);
+    if (after !== null) goToPeriod(after, sync);
+  }
+
+  function skipPeriod(period: number) {
+    trackEvent("period_sync_skipped", { surface: "import", period });
+    const after = draftSync ? nextUnsetPeriod(period, draftSync) : null;
+    if (after !== null) goToPeriod(after);
+    else setActivePeriod(1);
+  }
+
+  function toggleBreaksCut(on: boolean) {
+    setBreaksCutChoice(on);
+    trackEvent("sync_cut_mode_toggled", { surface: "import", on, detected: !!cutDetection?.cut });
+    const next = on && draftSync ? nextUnsetPeriod(1, draftSync) : null;
+    if (next !== null) goToPeriod(next);
+    else setActivePeriod(1);
+  }
+
+  /** A wall-clock time as the coach's local hh:mm. */
+  const localClock = (iso: string) => {
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? null : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  };
 
   const tipoffLocalHint = tipoffRealWorldTime
     ? (() => {
@@ -1097,26 +1236,54 @@ export function UploadZone({
             {/* Sync point */}
             {videoPath && (
               <div className="border-t border-separator pt-4">
+                {/* One picker for Q1 and, in a video that skips the breaks, each
+                    later quarter: the footage stays loaded as the rows switch. */}
                 <SyncPointPicker
                   videoPath={videoPath}
                   tipoffHint={tipoffLocalHint ?? undefined}
                   anchorKind={syncAnchor?.kind === "first_basket" ? "first_basket" : "tipoff"}
                   anchorDetail={
-                    syncAnchor ? `${syncAnchor.label}${tipoffLocalHint ? `, ${tipoffLocalHint}` : ""}` : undefined
+                    activeRow
+                      ? activeRow.anchor
+                        ? `${activeRow.anchor.label}${localClock(activeRow.anchor.realWorldTime) ? `, ${localClock(activeRow.anchor.realWorldTime)}` : ""}`
+                        : undefined
+                      : syncAnchor
+                        ? `${syncAnchor.label}${tipoffLocalHint ? `, ${tipoffLocalHint}` : ""}`
+                        : undefined
                   }
-                  onConfirm={(secs) => setSyncSeconds(secs)}
-                  seekRequest={tipoffSuggestion.seekRequest}
-                  onUserAction={tipoffSuggestion.noteUserAction}
-                  hasPendingSuggestion={isSuggestionPending(tipoffSuggestion.state)}
+                  copy={activeRow ? quarterCopy(activeRow) : undefined}
+                  note={activeRow ? null : undefined}
+                  confirmedSeconds={activeRow ? (activeRow.set ? activeRow.videoTime : null) : syncSeconds}
+                  onConfirm={(secs) => (activeRow ? confirmPeriod(activeRow.period, secs) : confirmQ1(secs))}
+                  seekRequest={activeRow || navigatedRef.current ? quarterSeek : tipoffSuggestion.seekRequest}
+                  onUserAction={activeRow ? undefined : tipoffSuggestion.noteUserAction}
+                  hasPendingSuggestion={!activeRow && isSuggestionPending(tipoffSuggestion.state)}
                   suggestionSlot={
-                    <TipoffSuggestionStrip
-                      state={tipoffSuggestion.state}
-                      onAccept={tipoffSuggestion.accept}
-                      onReject={tipoffSuggestion.reject}
-                      onCancel={tipoffSuggestion.cancel}
-                    />
+                    activeRow ? undefined : (
+                      <TipoffSuggestionStrip
+                        state={tipoffSuggestion.state}
+                        onAccept={tipoffSuggestion.accept}
+                        onReject={tipoffSuggestion.reject}
+                        onCancel={tipoffSuggestion.cancel}
+                      />
+                    )
                   }
                 />
+                {syncSeconds !== null && periodRows.length > 0 && (
+                  <div className="mt-4 border-t border-separator pt-4">
+                    <QuarterSyncPanel
+                      q1Label={syncAnchor?.label ?? "Tip-off"}
+                      q1Time={syncSeconds}
+                      rows={periodRows}
+                      active={breaksCut ? activePeriod : 1}
+                      breaksCut={breaksCut}
+                      detection={cutDetection}
+                      onToggle={toggleBreaksCut}
+                      onSelect={(p) => goToPeriod(p)}
+                      onSkip={skipPeriod}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </AutoHeight>
@@ -1150,7 +1317,16 @@ export function UploadZone({
                             text: `Set the ${syncAnchor?.kind === "first_basket" ? "first basket" : "tip-off"} to continue.`,
                             tone: "muted",
                           }
-                        : { key: "ready", text: existingMatch ? "Ready to update." : "Ready to import.", tone: "muted" };
+                        : {
+                            key: "ready",
+                            text: [
+                              existingMatch ? "Ready to update." : "Ready to import.",
+                              breaksCut ? followsSummary(periodRows) : null,
+                            ]
+                              .filter(Boolean)
+                              .join(" "),
+                            tone: "muted",
+                          };
               return (
                 <motion.p
                   key={status.key}

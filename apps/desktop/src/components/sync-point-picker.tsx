@@ -46,12 +46,28 @@ export interface SyncPointPickerProps {
   onUserAction?: (kind: "seek" | "confirm") => void;
   /** A suggestion is on offer above: its "Use" is the primary action, so this one steps back. */
   hasPendingSuggestion?: boolean;
+  /** Words for another moment than the anchor kind's (a quarter in a video that skips the breaks). */
+  copy?: Partial<AnchorCopy>;
+  /** Replaces the anchor kind's note under the instructions; null for none. */
+  note?: string | null;
+  /**
+   * The moment already set, when the parent decides it: one picker can step
+   * through several moments (the quarters), each with its own. Undefined =
+   * the picker keeps its own.
+   */
+  confirmedSeconds?: number | null;
+  /** The recording's length, once known. */
+  onDuration?: (seconds: number) => void;
 }
 
-const ANCHOR_COPY: Record<
-  SyncAnchorKind,
-  { title: string; instruction: string; button: string; confirmed: string }
-> = {
+export interface AnchorCopy {
+  title: string;
+  instruction: string;
+  button: string;
+  confirmed: string;
+}
+
+const ANCHOR_COPY: Record<SyncAnchorKind, AnchorCopy> = {
   tipoff: {
     title: "Set the tip-off",
     instruction: "Find the frame where the ball goes up, then set it.",
@@ -108,8 +124,12 @@ export function SyncPointPicker({
   suggestionSlot,
   onUserAction,
   hasPendingSuggestion = false,
+  copy: copyOverride,
+  note,
+  confirmedSeconds,
+  onDuration,
 }: SyncPointPickerProps) {
-  const copy = ANCHOR_COPY[anchorKind];
+  const copy = { ...ANCHOR_COPY[anchorKind], ...copyOverride };
   const videoRef = useRef<HTMLVideoElement>(null);
   const readoutRef = useRef<HTMLSpanElement>(null);
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
@@ -117,7 +137,12 @@ export function SyncPointPicker({
   const [currentTime, setCurrentTime] = useState(initialSeconds ?? 0);
   const [duration, setDuration] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [confirmedTime, setConfirmedTime] = useState<number | null>(initialSeconds ?? null);
+  const [confirmedTime, setConfirmedTime] = useState<number | null>(confirmedSeconds ?? initialSeconds ?? null);
+  useEffect(() => {
+    if (confirmedSeconds !== undefined) setConfirmedTime(confirmedSeconds);
+  }, [confirmedSeconds]);
+  const onDurationRef = useRef(onDuration);
+  onDurationRef.current = onDuration;
   const [frameSeconds, setFrameSeconds] = useState(FALLBACK_FRAME);
   // Reported by VideoPlayer, which also shows the user why. Confirming on a
   // dead element would silently persist 0:00 over a possibly-correct sync
@@ -163,6 +188,7 @@ export function SyncPointPicker({
     function onLoadedMetadata() {
       if (!video) return;
       setDuration(video.duration);
+      if (Number.isFinite(video.duration) && video.duration > 0) onDurationRef.current?.(video.duration);
       if (initialSeconds != null && initialSeconds > 0) {
         video.currentTime = initialSeconds;
         setCurrentTime(initialSeconds);
@@ -326,12 +352,14 @@ export function SyncPointPicker({
           a frame.
           {anchorDetail && <> Look for {anchorDetail}.</>}
         </p>
-        {anchorKind === "first_basket" && (
-          <p className="mt-1 text-callout text-muted-foreground">
-            Profixio's table marks the start of play a few minutes before the jump ball, so the first basket is the
-            reliable reference.
-          </p>
-        )}
+        {note !== undefined
+          ? note && <p className="mt-1 text-callout text-muted-foreground">{note}</p>
+          : anchorKind === "first_basket" && (
+              <p className="mt-1 text-callout text-muted-foreground">
+                Profixio's table marks the start of play a few minutes before the jump ball, so the first basket is the
+                reliable reference.
+              </p>
+            )}
       </div>
 
       {suggestionSlot}

@@ -40,6 +40,16 @@ export type AnalyticsEvent =
   | "tipoff_suggestion_dismissed" // source, kind, method, agreement (was tipoff_hint_rejected in 0.6.17, hints only)
   | "tipoff_suggestion_resolved" // path (lib/tipoff-analytics.ts), source, suggested_seconds, confirmed_seconds, delta_seconds, ms_since_link
   | "tipoff_hint_saved" // method
+  // Quarter-by-quarter sync, for a video that skips the breaks (desktop). surface: import | game_page | editor
+  | "sync_cut_detected" // surface, overrun_s
+  | "sync_cut_mode_toggled" // surface, on, detected
+  | "period_sync_set" // surface, period, anchor_kind, predicted_delta_s
+  | "period_sync_skipped" // surface, period
+  | "period_sync_cleared" // surface, period (all = every quarter)
+  | "sync_fix_opened" // entry (clip_menu | this_clip | hint)
+  | "sync_fix_applied" // scope (quarter | game | clip), period, delta_s
+  | "sync_hint_shown" // reason (past_end | looks_cut), clips
+  | "sync_hint_dismissed" // reason
   // Playlist production (desktop)
   | "playlist_created"
   | "clip_added_to_playlist"
@@ -55,7 +65,7 @@ export type AnalyticsEvent =
   | "video_exported"
   | "playlist_shipped"
   | "playlist_ship_failed"
-  | "playlist_clip_length_reshipped"
+  | "playlist_clip_length_reshipped" // reason (length | sync), clips, failed
   | "playlist_shared"
   | "highlight_sent_to_phone"
   | "highlight_page_viewed"
