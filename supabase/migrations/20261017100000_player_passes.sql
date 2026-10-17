@@ -2,7 +2,7 @@
 -- Player passes: Rookie's monthly subscription becomes one-time purchases
 --
 -- Leonard, 2026-10-17 (founder/pricing-strategy.md). A player buys a single
--- game (129 kr, any game) or a season pass (999 kr, every game of one team in
+-- game (129 kr, any game) or a season pass (799 kr, every game of one team in
 -- one season). Rookie stays a valid tier for legacy subscribers and review
 -- accounts but is no longer sold. The free trial drops from 3 games to 2 for
 -- accounts created from app_config.free_games_two_since (set at go-live);

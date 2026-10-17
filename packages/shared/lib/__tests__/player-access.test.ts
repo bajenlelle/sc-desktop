@@ -73,12 +73,12 @@ describe("parsePlayerAccess", () => {
     const a = parsePlayerAccess({
       ...RAW_ACCESS,
       passes: [{ id: "p", season_id: "2026-27", team_id: "t", team_name: "T", league_name: "L", moves_left: 0, status: "active", created_at: "x" }],
-      purchases: [{ id: "u", kind: "season_pass", quantity: 1, amount_total: 99900, currency: "sek", status: "paid", source: "stripe", receipt_url: "https://r", created_at: "y" }],
+      purchases: [{ id: "u", kind: "season_pass", quantity: 1, amount_total: 79900, currency: "sek", status: "paid", source: "stripe", receipt_url: "https://r", created_at: "y" }],
     });
     expect(a.trialGames).toBe(2);
     expect(a.team?.gamesInSeason).toBe(26);
     expect(a.passes[0]).toMatchObject({ seasonId: "2026-27", movesLeft: 0, status: "active" });
-    expect(a.purchases[0]).toMatchObject({ kind: "season_pass", amountTotal: 99900, receiptUrl: "https://r" });
+    expect(a.purchases[0]).toMatchObject({ kind: "season_pass", amountTotal: 79900, receiptUrl: "https://r" });
   });
 
   it("survives a missing or malformed payload", () => {
@@ -120,8 +120,8 @@ describe("export", () => {
 
 describe("passValueLine", () => {
   it("prices the pass per game of the team's season", () => {
-    expect(passValueLine(26)).toBe("26 games · 38 kr a game");
-    expect(passValueLine(33)).toBe("33 games · 30 kr a game");
+    expect(passValueLine(26)).toBe("26 games · 31 kr a game");
+    expect(passValueLine(33)).toBe("33 games · 24 kr a game");
   });
 
   it("says nothing without a schedule", () => {
@@ -154,7 +154,7 @@ describe("sheetOffers", () => {
     expect(offers.map((o) => o.kind)).toEqual(["single_game", "season_pass", "pro"]);
     expect(offers[1].title).toBe("Season pass 2026/27");
     expect(offers[1].detail).toContain("Every Fryshuset Basket game this season");
-    expect(offers[1].detail).toContain("38 kr a game");
+    expect(offers[1].detail).toContain("31 kr a game");
   });
 
   it("leaves the pass out for another team's game", () => {
@@ -225,7 +225,7 @@ describe("purchaseArrived", () => {
 
 describe("formatKronor", () => {
   it("prints whole kronor", () => {
-    expect(formatKronor(99900)).toBe("999 kr");
+    expect(formatKronor(79900)).toBe("799 kr");
     expect(formatKronor(12900)).toBe("129 kr");
   });
 });

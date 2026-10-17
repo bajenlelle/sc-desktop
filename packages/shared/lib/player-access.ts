@@ -12,7 +12,7 @@
 import type { OrgPlanTier } from "../types/org";
 
 /** Prices in SEK, VAT included. */
-export const PLAYER_PRICES = { singleGame: 129, seasonPass: 999 } as const;
+export const PLAYER_PRICES = { singleGame: 129, seasonPass: 799 } as const;
 
 /** Pro's monthly price, for the coach line in the purchase sheet. */
 export const PRO_MONTHLY_PRICE = 399;
@@ -178,7 +178,7 @@ export function watermarkForced(tier: OrgPlanTier, access: PlayerAccess | null):
   return tier === "rookie" || (tier === "free" && !!access?.hasPaid);
 }
 
-/** What the pass costs per game of the team's season: "26 games · 38 kr a game". */
+/** What the pass costs per game of the team's season: "26 games · 31 kr a game". */
 export function passValueLine(gamesInSeason: number): string | null {
   if (gamesInSeason <= 0) return null;
   const perGame = Math.round(PLAYER_PRICES.seasonPass / gamesInSeason);
@@ -324,7 +324,7 @@ export function purchaseArrived(before: PlayerAccess | null, after: PlayerAccess
   return paidCount(after, kind) > paidCount(before, kind);
 }
 
-/** "999 kr" from öre. */
+/** "799 kr" from öre. */
 export function formatKronor(ore: number): string {
   return `${Math.round(ore / 100).toLocaleString("sv-SE")} kr`;
 }

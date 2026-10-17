@@ -439,7 +439,7 @@ ${ctaButton(inviteUrl, "Accept Invitation")}`,
 <p style="margin:0 0 32px 0;font-size:14px;line-height:1.65;color:#6b7280;">
   ${
     d("offer") === "passes"
-      ? "Want more games? In the desktop app you can buy a single game for 129 kr or a season pass for 999 kr, with MP4 export included. Pro has no limit at all."
+      ? "Want more games? In the desktop app you can buy a single game for 129 kr or a season pass for 799 kr, with MP4 export included. Pro has no limit at all."
       : "Want to stop counting games? Rookie gives you 6 imports every month plus MP4 export, and Pro has no limit at all."
   }
 </p>
