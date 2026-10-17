@@ -80,6 +80,11 @@ export function SyncFixPanel({
   const [saving, setSaving] = React.useState(false);
   /** The sheet is a dialog: the picker's keys (Space, ←/→, ,/.) belong to all of it. */
   const rootRef = React.useRef<HTMLDivElement>(null);
+  // The sheet itself holds the focus when it opens, not its first button
+  // (−10s), so Space plays and pauses from the start.
+  React.useEffect(() => {
+    rootRef.current?.focus({ preventScroll: true });
+  }, []);
 
   const delta = found !== null && mapped !== null ? found - mapped : null;
   const moves = delta !== null && Math.abs(delta) >= 0.05;
@@ -114,7 +119,7 @@ export function SyncFixPanel({
   }
 
   return (
-    <div ref={rootRef} className="flex h-full min-h-0 flex-col">
+    <div ref={rootRef} tabIndex={-1} className="flex h-full min-h-0 flex-col outline-none">
       <div className="shrink-0 border-b border-separator px-5 py-4">
         <SheetTitle>Fix sync</SheetTitle>
         <SheetDescription>
