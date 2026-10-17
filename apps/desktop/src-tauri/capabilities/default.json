@@ -10,7 +10,8 @@
       "allow": [
         { "url": "https://*.supabase.co/**" },
         { "url": "https://app.scoutable.se/api/**" },
-        { "url": "https://*.r2.cloudflarestorage.com/**" }
+        { "url": "https://*.r2.cloudflarestorage.com/**" },
+        { "url": "https://hosted.dcd.shared.geniussports.com/SBF/**" }
       ]
     },
     "core:webview:allow-set-webview-zoom",
