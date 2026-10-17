@@ -8,6 +8,7 @@ import { videoLooksCut } from "@scoutable/shared/lib/period-sync";
 import { Sentry } from "@/lib/sentry";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
+  BarChart3,
   ChevronDown,
   ChevronRight,
   Folder,
@@ -29,7 +30,7 @@ import { CardImage } from "@/components/editor/card-image";
 import { StatsCardInspector } from "@/components/editor/stats-card-inspector";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import type { CardAspect } from "@scoutable/shared/lib/card-layout";
-import { fallbackText, pickDefaultPlayer, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
+import { cardContent, fallbackText, opponentLabel, pickDefaultPlayer, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
 import { loadGameStats, loadSeasonPlayer, makeGameCard, makeSeasonCard, seasonOf, statsKindOf } from "@/lib/stats-card-data";
 import { useLeagues } from "@/lib/use-leagues";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
@@ -205,6 +206,27 @@ const BROWSER_WIDTH_KEY = "scoutable_playlist_browser_width";
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
+
+
+// Playlists where the stats suggestion was dismissed: a per-viewer convenience.
+const STATS_HINT_KEY = "scoutable_stats_card_hint_dismissed";
+
+function readStatsHintDismissed(): ReadonlySet<string> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(STATS_HINT_KEY) ?? "[]");
+    return new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeStatsHintDismissed(ids: ReadonlySet<string>): void {
+  try {
+    localStorage.setItem(STATS_HINT_KEY, JSON.stringify([...ids].slice(-200)));
+  } catch {
+    // Storage unavailable: the suggestion just comes back next time.
+  }
+}
 
 export function PlaylistsPage() {
   const { user, activeOrgId, activeOrgPlan, activeOrgRole, activeOrgIsPersonal, myOrgs, profileLoading } = useAuth();
@@ -4160,6 +4182,45 @@ export function PlaylistsPage() {
     () => sortedEvents.filter((i): i is QueueItem => !isTextCard(i) && statsKindOf(matchLookup.get((i as QueueItem).matchId)) !== null),
     [sortedEvents, matchLookup],
   );
+  // The one-time suggestion in personal spaces: "Show your stats in the video".
+  const [statsHintDismissed, setStatsHintDismissed] = useState<ReadonlySet<string>>(() => readStatsHintDismissed());
+  const statsHint = useMemo(() => {
+    if (!activeOrgIsPersonal || !selected || filtersActive || statsHintDismissed.has(selected.id)) return null;
+    if (selected.items.some((i) => !isClipItem(i) && (i as PlaylistTextCard).card)) return null;
+    const top = pickDefaultPlayer(statsClips.map((c) => c.event));
+    if (!top || top.clips < 3) return null;
+    const theirGames = new Set(statsClips.filter((c) => String(c.event.player?.playerId) === top.playerId).map((c) => c.matchId));
+    const severalGames = new Set(statsClips.map((c) => c.matchId)).size > 1;
+    return { playerId: top.playerId, matchId: !severalGames && theirGames.size === 1 ? [...theirGames][0] : null, severalGames };
+  }, [activeOrgIsPersonal, selected, filtersActive, statsHintDismissed, statsClips]);
+  const [statsHintLine, setStatsHintLine] = useState<string | null>(null);
+  useEffect(() => {
+    setStatsHintLine(null);
+    const match = statsHint?.matchId ? matchLookup.get(statsHint.matchId) : undefined;
+    if (!statsHint || !match) return;
+    let cancelled = false;
+    loadGameStats(match, leagues)
+      .then((stats) => {
+        const option = stats?.players.find((p) => p.player.id === statsHint.playerId);
+        if (cancelled || !stats || !option) return;
+        const card = makeGameCard(match, stats, option, null);
+        const numbers = cardContent(card).cells.map((c) => `${c.value} ${c.label}`).join(" · ");
+        setStatsHintLine(`${numbers} ${opponentLabel(card.game)}`);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [statsHint?.playerId, statsHint?.matchId, leagues]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function dismissStatsHint() {
+    if (!selected) return;
+    const next = new Set(statsHintDismissed).add(selected.id);
+    setStatsHintDismissed(next);
+    writeStatsHintDismissed(next);
+    trackEvent("stats_card_suggestion_dismissed");
+  }
+
   /** Their games, once each, in playlist order. */
   const statsGames = useMemo(() => {
     const seen = new Set<string>();
@@ -4735,6 +4796,24 @@ export function PlaylistsPage() {
   const totalClipCount = sortedEvents.filter((i) => !isTextCard(i)).length;
   const clipListStack = (
     <div className="@container relative flex min-h-0 flex-1 flex-col">
+      {statsHint && (
+        <Callout className="mb-3 shrink-0" icon={<BarChart3 />}>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <span className="min-w-0 flex-1">
+              {statsHint.severalGames ? "Show your season averages in the video" : "Show your stats in the video"}
+              {statsHintLine && <span className="text-muted-foreground nums">{` · ${statsHintLine}`}</span>}
+            </span>
+            <span className="flex shrink-0 gap-1.5">
+              <Button size="xs" variant="ghost" onClick={dismissStatsHint}>
+                Not now
+              </Button>
+              <Button size="xs" variant="outline" onClick={() => void handleInsertCard("stats", { at: "start" }, "suggestion")}>
+                Add stats card
+              </Button>
+            </span>
+          </div>
+        </Callout>
+      )}
       {noSync && selected.items.filter(isClipItem).length > 0 && (
         <Callout tone="warning" className="mb-3 shrink-0">
           No sync point. Set one in the game to play these clips.
