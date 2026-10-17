@@ -57,6 +57,35 @@ describe("layoutStatsCard", () => {
     expect(values.filter((r) => r.y === rows[0])).toHaveLength(2);
   });
 
+  it("keeps a clear gap between neighbouring numbers, however long they are", () => {
+    const decimals: CardContent = {
+      ...content(0),
+      cells: ["11.8", "37.6", "82.1", "100.0", "+12.5", "1.8"].map((value, i) => ({ value, label: ["PTS", "3P%", "FT%", "FG%", "+/\u2212", "STL"][i] })),
+    };
+    for (const aspect of ["16:9", "9:16"] as const) {
+      for (const count of [3, 6]) {
+        const runs = layoutStatsCard({ ...decimals, cells: decimals.cells.slice(0, count) }, aspect, measure);
+        const values = runs.filter((r) => r.weight === "bold" && r.text !== decimals.heading);
+        for (const row of new Set(values.map((r) => r.y))) {
+          const inRow = values.filter((r) => r.y === row).sort((a, b) => a.x - b.x);
+          for (let i = 1; i < inRow.length; i++) {
+            const prevRight = inRow[i - 1].x + measure(inRow[i - 1].text, inRow[i - 1].px, "bold") / 2;
+            const left = inRow[i].x - measure(inRow[i].text, inRow[i].px, "bold") / 2;
+            expect(left - prevRight).toBeGreaterThanOrEqual(40);
+          }
+        }
+        inFrame(aspect, runs);
+      }
+    }
+  });
+
+  it("lines up the columns of a full vertical grid", () => {
+    const runs = layoutStatsCard(content(6), "9:16", measure);
+    const values = runs.filter((r) => r.weight === "bold" && r.text !== "Alva Berg");
+    const [top, bottom] = [...new Set(values.map((r) => r.y))];
+    expect(values.filter((r) => r.y === top).map((r) => r.x)).toEqual(values.filter((r) => r.y === bottom).map((r) => r.x));
+  });
+
   it("shrinks a long name to fit instead of overflowing", () => {
     const long = "Aleksandar Konstantinović-Westerberg Johansson";
     const [heading] = layoutStatsCard(content(3, long), "16:9", measure);

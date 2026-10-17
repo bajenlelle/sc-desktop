@@ -73,7 +73,9 @@ interface Geometry {
   gapHeaderCells: number;
   gapValueLabel: number;
   gapRows: number;
-  maxCellWidth: number;
+  /** Space between neighbouring stats, and the narrowest a stat may be. */
+  cellGap: number;
+  minCell: number;
 }
 
 const GEOMETRY: Record<CardAspect, Geometry> = {
@@ -81,13 +83,13 @@ const GEOMETRY: Record<CardAspect, Geometry> = {
     top: 60, bottom: 600, margin: 96,
     heading: 60, headingMin: 36, details: 28, context: 24, value: 88, valueMin: 48, label: 22,
     gapHeadingDetails: 22, gapDetailsContext: 14, gapHeaderCells: 64, gapValueLabel: 22, gapRows: 0,
-    maxCellWidth: 200,
+    cellGap: 64, minCell: 120,
   },
   "9:16": {
     top: 240, bottom: 1140, margin: 80,
     heading: 84, headingMin: 48, details: 38, context: 32, value: 130, valueMin: 64, label: 32,
     gapHeadingDetails: 26, gapDetailsContext: 18, gapHeaderCells: 96, gapValueLabel: 24, gapRows: 64,
-    maxCellWidth: 306,
+    cellGap: 72, minCell: 180,
   },
 };
 
@@ -109,11 +111,30 @@ export function layoutStatsCard(content: CardContent, aspect: CardAspect, measur
   const detailsPx = fitSize([content.details], g.details, 18, inner, "regular", measure);
   const contextPx = fitSize([content.context], g.context, 16, inner, "regular", measure);
 
-  const rows = cellRows(content.cells.length, aspect);
-  const columns = Math.max(0, ...rows);
-  const cellWidth = columns ? Math.min(g.maxCellWidth, inner / columns) : 0;
-  const valuePx = fitSize(content.cells.map((c) => c.value), g.value, g.valueMin, cellWidth - 16, "bold", measure);
-  const labelPx = fitSize(content.cells.map((c) => c.label), g.label, 14, cellWidth - 8, "regular", measure);
+  // Stats sit side by side, each as wide as its value or label plus a gap,
+  // so short and long numbers space evenly. A full vertical grid shares its
+  // column widths so the rows line up. The numbers shrink only when a row
+  // would otherwise overflow.
+  const rowCounts = cellRows(content.cells.length, aspect);
+  const rowCells: CardContent["cells"][] = [];
+  rowCounts.reduce((start, count) => {
+    rowCells.push(content.cells.slice(start, start + count));
+    return start + count;
+  }, 0);
+  const labelPx = g.label;
+  const sharedColumns = rowCells.length > 1 && rowCells.every((r) => r.length === rowCells[0].length);
+  const widthsAt = (px: number): number[][] => {
+    const own = rowCells.map((row) =>
+      row.map((c) => Math.max(g.minCell, Math.max(measure(c.value, px, "bold"), measure(c.label, labelPx, "regular")) + g.cellGap)),
+    );
+    if (!sharedColumns) return own;
+    const columns = own[0].map((_, i) => Math.max(...own.map((row) => row[i])));
+    return own.map(() => columns);
+  };
+  let valuePx = g.value;
+  const fits = (px: number) => widthsAt(px).every((row) => row.reduce((sum, w) => sum + w, 0) <= inner);
+  while (valuePx > g.valueMin && !fits(valuePx)) valuePx -= 2;
+  const rowWidths = widthsAt(valuePx);
 
   // Stack heights use cap heights, so the block centres on what the eye sees.
   type Line = { height: number; gapBefore: number; draw: (baseline: number) => TextRun[] };
@@ -137,12 +158,14 @@ export function layoutStatsCard(content: CardContent, aspect: CardAspect, measur
       draw: (y) => [{ text: content.context, x: centre, y, px: contextPx, weight: "regular", color: CONTEXT }],
     });
   }
-  let offset = 0;
-  rows.forEach((count, rowIndex) => {
-    const cells = content.cells.slice(offset, offset + count);
-    offset += count;
-    const left = centre - (count * cellWidth) / 2;
-    const xs = cells.map((_, i) => left + cellWidth * (i + 0.5));
+  rowCells.forEach((cells, rowIndex) => {
+    const widths = rowWidths[rowIndex];
+    let x = centre - widths.reduce((sum, w) => sum + w, 0) / 2;
+    const xs = widths.map((w) => {
+      const mid = x + w / 2;
+      x += w;
+      return mid;
+    });
     lines.push({
       height: CAP * valuePx,
       gapBefore: rowIndex === 0 ? g.gapHeaderCells : g.gapRows,
