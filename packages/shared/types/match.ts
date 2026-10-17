@@ -4,6 +4,7 @@
 // =============================================================================
 
 import type { CropKeyframe } from '../lib/crop-path';
+import type { StatsCardSpec } from '../lib/stats-card';
 export type { CropKeyframe };
 
 export type MatchStatus = "pending" | "processing" | "completed" | "failed";
@@ -215,9 +216,11 @@ export interface PlaylistClipItem {
 export interface PlaylistTextCard {
   type: 'text';
   id: string;          // UUID, stable key
-  text: string;
+  text: string;        // for a stats card: its readable fallback line (fallbackText)
   durationSeconds: number;
   groupId?: string;    // ordering-lock group (editor-only); members stay contiguous
+  /** A stats card's spec (lib/stats-card.ts); absent on a plain text card. */
+  card?: StatsCardSpec;
 }
 
 export type PlaylistItem = PlaylistClipItem | PlaylistTextCard;

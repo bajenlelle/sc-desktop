@@ -13,6 +13,7 @@ import { currentUserId } from "./current-user";
 import type { Playlist, PlaylistItem, PlaylistClipItem, PlaylistTextCard } from "../types/match";
 import type { CropKeyframe } from "./crop-path";
 import { shippedStart } from "./clip-timing";
+import { parseCardSpec, type StatsCardSpec } from "./stats-card";
 
 // ---------------------------------------------------------------------------
 // DB row types (snake_case columns from Postgres)
@@ -32,6 +33,8 @@ export interface PlaylistClipRow {
   r2_url: string | null;
   group_id: string | null;
   crop_keyframes: CropKeyframe[] | null;
+  /** A text item's card spec (20261017200000); absent from older selects. */
+  card?: unknown;
 }
 
 export interface PlaylistShareRow {
@@ -69,12 +72,15 @@ export function rowToPlaylist(row: PlaylistRow): Playlist {
     .map((c): PlaylistItem | null => {
       if (c.item_type === 'text') {
         if (!c.item_id) return null;
+        // A spec this build can't draw leaves a plain text card (its fallback line).
+        const card = parseCardSpec(c.card);
         return {
           type: 'text',
           id: c.item_id,
           text: c.text_content ?? '',
           durationSeconds: c.duration_seconds ?? 5,
           ...(c.group_id ? { groupId: c.group_id } : {}),
+          ...(card ? { card } : {}),
         } satisfies PlaylistTextCard;
       }
       // Default: clip
@@ -138,7 +144,8 @@ const CLIPS_SELECT = `
   duration_seconds,
   r2_url,
   group_id,
-  crop_keyframes
+  crop_keyframes,
+  card
 `;
 
 const PLAYLIST_SELECT = `
@@ -373,7 +380,8 @@ export async function insertTextCard(
   itemId: string,
   text: string,
   durationSeconds: number,
-  position: number
+  position: number,
+  card?: StatsCardSpec
 ): Promise<void> {
   const { error } = await supabase.from("playlist_clips").insert({
     playlist_id: playlistId,
@@ -386,23 +394,25 @@ export async function insertTextCard(
     event_id: null,
     pre_roll_offset: 0,
     post_roll_offset: 0,
+    ...(card ? { card } : {}),
   });
   if (error) throw new Error(`Failed to insert text card: ${error.message}`);
 }
 
 // ---------------------------------------------------------------------------
-// Update a text card's content or duration
+// Update a text card's content, duration or stats card spec
 // ---------------------------------------------------------------------------
 
 export async function updateTextCard(
   supabase: SupabaseClient,
   playlistId: string,
   itemId: string,
-  patch: { text?: string; durationSeconds?: number }
+  patch: { text?: string; durationSeconds?: number; card?: StatsCardSpec | null }
 ): Promise<void> {
   const row: Record<string, unknown> = {};
   if (patch.text !== undefined) row.text_content = patch.text;
   if (patch.durationSeconds !== undefined) row.duration_seconds = patch.durationSeconds;
+  if (patch.card !== undefined) row.card = patch.card;
   if (Object.keys(row).length === 0) return;
   const { error } = await supabase
     .from("playlist_clips")
