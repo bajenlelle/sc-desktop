@@ -8,7 +8,7 @@
 import * as React from "react";
 import { computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { eventLabel, formatGameClock, periodLabel, playerName } from "@scoutable/shared/lib/events";
-import { describePeriodSyncs, projectedSync, shiftPeriod, shiftWholeGame, videoLooksCut } from "@scoutable/shared/lib/period-sync";
+import { describePeriodSyncs, projectedSync, shiftPeriod, shiftWholeGame } from "@scoutable/shared/lib/period-sync";
 import { formatSpan } from "@/components/quarter-sync";
 import { SyncPointPicker, type SeekRequest } from "@/components/sync-point-picker";
 import { Button } from "@/components/ui/button";
@@ -66,12 +66,14 @@ export function SyncFixPanel({
 }) {
   const sync = match.syncPoint!;
   const mapped = computeVideoTime(event, sync);
-  const ownPeriod = event.period >= 2 && !!sync.periods?.[String(event.period)];
-  // A video that skips the breaks: open where the play should be, not where Q1's sync puts it.
-  const looksCut = sync.breaksCut ?? videoLooksCut({ durationSeconds: videoDuration, events: match.events, sync }).cut;
-  const start = looksCut && !ownPeriod ? (computeVideoTime(event, projectedSync(sync, match.events)) ?? mapped) : mapped;
+  // Open where the play is set now, so the coach starts from what the clip
+  // shows. Only when that spot isn't in the video at all (a later quarter of
+  // a video that skips the breaks can land past its end) open where the play
+  // should be instead.
+  const inVideo = mapped !== null && mapped >= 0 && (videoDuration === null || mapped < videoDuration);
+  const start = inVideo ? mapped : (computeVideoTime(event, projectedSync(sync, match.events)) ?? mapped);
   const [seek] = React.useState<SeekRequest | null>(() =>
-    start !== null ? { seconds: Math.max(0, start - 3), nonce: Date.now() } : null,
+    start !== null ? { seconds: Math.max(0, start), nonce: Date.now() } : null,
   );
   const [found, setFound] = React.useState<number | null>(null);
   const [scope, setScope] = React.useState<SyncFixScope>("quarter");
