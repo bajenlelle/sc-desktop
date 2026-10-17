@@ -6,7 +6,16 @@ import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 import { DeleteMatchDialog } from "@/components/delete-match-dialog";
 import { EmptyState } from "@/components/empty-state";
-import { formatMSSd, SyncPointPicker } from "@/components/sync-point-picker";
+import { formatMSSd, SyncPointPicker, type SeekRequest } from "@/components/sync-point-picker";
+import { formatSpan, QuarterSyncPanel, quarterCopy } from "@/components/quarter-sync";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { trackEvent } from "@/lib/analytics";
+import {
+  clearAllPeriodSyncs,
+  describePeriodSyncs,
+  setPeriodSync,
+  videoLooksCut,
+} from "@scoutable/shared/lib/period-sync";
 import { isSuggestionPending, TipoffSuggestionStrip } from "@/components/tipoff-suggestion-strip";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
@@ -23,7 +32,7 @@ import { listPlaylists } from "@/lib/playlists-db";
 import { isLocalPath } from "@/lib/stream";
 import { useTipoffSuggestion } from "@/lib/use-tipoff-suggestion";
 import { cn } from "@/lib/utils";
-import { probeVideoPath, videoBasename, type VideoFileStatus } from "@/lib/video-probe";
+import { probeVideoDuration, probeVideoPath, videoBasename, type VideoFileStatus } from "@/lib/video-probe";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import type { StoredMatch, SyncPoint } from "@/types/match";
 import { afterSyncChange } from "@/lib/sync-change";
@@ -213,6 +222,13 @@ export function MatchDetailPage() {
   const [saveState, setSaveState] = useState<"saved" | "error" | null>(null);
   /** Adjusting a tip-off that is already set reveals the picker. */
   const [adjustingTipoff, setAdjustingTipoff] = useState(false);
+  /** Which moment the picker sets: 1 = the game's sync point, 2+ = a quarter's own. */
+  const [activePeriod, setActivePeriod] = useState(1);
+  const [quarterSeek, setQuarterSeek] = useState<SeekRequest | null>(null);
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
+  const [videoDuration, setVideoDuration] = useState<number | null>(null);
+  /** Typed quarter times, for a game whose video isn't on this computer. */
+  const [periodInputs, setPeriodInputs] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -259,6 +275,19 @@ export function MatchDetailPage() {
     storedMatch?.sourceGameId,
     { surface: "game_page", autoDetect: !storedMatch?.syncPoint, existingSeconds: storedMatch?.syncPoint?.syncVideoTime },
   );
+  // The recording's length tells whether the play-by-play runs past its end (a video that skips the breaks).
+  const probeUrl = storedMatch?.videoUrl && isLocalPath(storedMatch.videoUrl) && videoStatus === "ok" ? storedMatch.videoUrl : null;
+  useEffect(() => {
+    setVideoDuration(null);
+    if (!probeUrl) return;
+    let cancelled = false;
+    void probeVideoDuration(probeUrl).then((d) => {
+      if (!cancelled) setVideoDuration(d);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [probeUrl]);
   useEffect(() => {
     const url = storedMatch?.videoUrl;
     if (!url || !isLocalPath(url)) {
@@ -383,6 +412,80 @@ export function MatchDetailPage() {
   const firstBasket = syncAnchor?.kind === "first_basket";
   const anchorTitle = firstBasket ? "First basket" : "Tip-off";
   const anchorNoun = firstBasket ? "the first basket" : "tip-off";
+
+  // Quarter by quarter, for a video that skips the breaks between quarters.
+  const sync = storedMatch.syncPoint;
+  const cutDetection = sync ? videoLooksCut({ durationSeconds: videoDuration, events: storedMatch.events, sync }) : null;
+  const breaksCut = sync?.breaksCut ?? cutDetection?.cut ?? false;
+  const periodRows = sync ? describePeriodSyncs(sync, storedMatch.events) : [];
+  const activeRow = adjustingTipoff && breaksCut && activePeriod >= 2 ? (periodRows.find((r) => r.period === activePeriod) ?? null) : null;
+
+  /** Opens the picker on a moment: at its set time, else a beat before where it should be. */
+  function openPeriod(period: number, s: SyncPoint | undefined = sync) {
+    setActivePeriod(period);
+    setAdjustingTipoff(true);
+    if (!s || !storedMatch) return;
+    const row = period >= 2 ? describePeriodSyncs(s, storedMatch.events).find((r) => r.period === period) : null;
+    const target =
+      period <= 1
+        ? s.syncVideoTime
+        : row?.set
+          ? row.videoTime
+          : row?.suggested != null
+            ? Math.max(0, row.suggested - 2)
+            : (row?.videoTime ?? null);
+    if (target !== null) setQuarterSeek({ seconds: target, nonce: Date.now() });
+  }
+
+  function closePicker() {
+    setAdjustingTipoff(false);
+    setActivePeriod(1);
+  }
+
+  async function savePeriod(period: number, secs: number) {
+    const row = periodRows.find((r) => r.period === period);
+    if (!sync || !row?.anchor) return false;
+    const next: SyncPoint = { ...setPeriodSync(sync, period, secs, row.anchor), breaksCut: true };
+    if (!(await saveSync(next))) return false;
+    trackEvent("period_sync_set", {
+      surface: "game_page",
+      period,
+      anchor_kind: row.anchor.kind,
+      predicted_delta_s: row.suggested !== null ? Math.round((secs - row.suggested) * 10) / 10 : null,
+    });
+    return next;
+  }
+
+  /** The next quarter without its own sync after `period`, if any. */
+  function nextUnset(period: number, s: SyncPoint) {
+    return describePeriodSyncs(s, storedMatch!.events).find((r) => r.period > period && !r.set)?.period ?? null;
+  }
+
+  async function toggleBreaksCut(on: boolean) {
+    if (!sync) return;
+    trackEvent("sync_cut_mode_toggled", { surface: "game_page", on, detected: !!cutDetection?.cut });
+    if (on) {
+      const next: SyncPoint = { ...sync, breaksCut: true };
+      if ((await saveSync(next)) && canPick) {
+        const first = nextUnset(1, next);
+        if (first !== null) openPeriod(first, next);
+      }
+    } else if (sync.periods && Object.keys(sync.periods).length > 0) {
+      setConfirmClearOpen(true);
+    } else {
+      closePicker();
+      void saveSync({ ...sync, breaksCut: false });
+    }
+  }
+
+  async function clearQuarters() {
+    setConfirmClearOpen(false);
+    if (!sync) return;
+    if (await saveSync({ ...clearAllPeriodSyncs(sync), breaksCut: false })) {
+      trackEvent("period_sync_cleared", { surface: "game_page", period: "all" });
+      closePicker();
+    }
+  }
 
   return (
     <Page>
@@ -524,7 +627,7 @@ export function MatchDetailPage() {
         </section>
 
         <section>
-          <GroupHeader title={anchorTitle} />
+          <GroupHeader title="Sync" />
           {canPick ? (
             <>
               {tipoffSet && (
@@ -533,7 +636,11 @@ export function MatchDetailPage() {
                     <span className="flex-1 text-sm">
                       {anchorTitle} at <span className="font-medium nums">{formatMSSd(storedMatch.syncPoint!.syncVideoTime)}</span>
                     </span>
-                    <Button size="xs" variant="outline" onClick={() => setAdjustingTipoff((v) => !v)}>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      onClick={() => (adjustingTipoff ? closePicker() : openPeriod(1))}
+                    >
                       {adjustingTipoff ? "Done" : "Adjust…"}
                     </Button>
                   </div>
@@ -550,28 +657,51 @@ export function MatchDetailPage() {
                     className="overflow-hidden"
                   >
                     <div className={cn(tipoffSet && "pt-4")}>
+                      {/* One picker for the game's sync point and each quarter's own. */}
                       <SyncPointPicker
                         videoPath={storedMatch.videoUrl!}
                         tipoffHint={syncHint ?? undefined}
                         anchorKind={firstBasket ? "first_basket" : "tipoff"}
-                        anchorDetail={syncAnchor ? `${syncAnchor.label}${syncHint ? `, ${syncHint}` : ""}` : undefined}
+                        anchorDetail={
+                          activeRow
+                            ? activeRow.anchor?.label
+                            : syncAnchor
+                              ? `${syncAnchor.label}${syncHint ? `, ${syncHint}` : ""}`
+                              : undefined
+                        }
                         initialSeconds={storedMatch.syncPoint?.syncVideoTime}
-                        seekRequest={tipoffSuggestion.seekRequest}
-                        onUserAction={tipoffSuggestion.noteUserAction}
-                        hasPendingSuggestion={isSuggestionPending(tipoffSuggestion.state)}
+                        copy={activeRow ? quarterCopy(activeRow) : undefined}
+                        note={activeRow ? null : undefined}
+                        confirmedSeconds={
+                          activeRow ? (activeRow.set ? activeRow.videoTime : null) : (storedMatch.syncPoint?.syncVideoTime ?? null)
+                        }
+                        seekRequest={activeRow || quarterSeek ? quarterSeek : tipoffSuggestion.seekRequest}
+                        onUserAction={activeRow ? undefined : tipoffSuggestion.noteUserAction}
+                        hasPendingSuggestion={!activeRow && isSuggestionPending(tipoffSuggestion.state)}
                         suggestionSlot={
-                          <TipoffSuggestionStrip
-                            state={tipoffSuggestion.state}
-                            onAccept={tipoffSuggestion.accept}
-                            onReject={tipoffSuggestion.reject}
-                            onCancel={tipoffSuggestion.cancel}
-                          />
+                          activeRow ? undefined : (
+                            <TipoffSuggestionStrip
+                              state={tipoffSuggestion.state}
+                              onAccept={tipoffSuggestion.accept}
+                              onReject={tipoffSuggestion.reject}
+                              onCancel={tipoffSuggestion.cancel}
+                            />
+                          )
                         }
                         onConfirm={async (secs) => {
+                          if (activeRow) {
+                            const next = await savePeriod(activeRow.period, secs);
+                            if (next) {
+                              const after = nextUnset(activeRow.period, next);
+                              if (after !== null) openPeriod(after, next);
+                              else closePicker();
+                            }
+                            return;
+                          }
                           if (await saveSyncPoint(secs)) {
                             tipoffSuggestion.recordResolved(secs);
                             void tipoffSuggestion.saveConfirmed(secs);
-                            setAdjustingTipoff(false);
+                            closePicker();
                           }
                         }}
                       />
@@ -579,6 +709,26 @@ export function MatchDetailPage() {
                   </motion.div>
                 )}
               </AnimatePresence>
+              {tipoffSet && periodRows.length > 0 && (
+                <div className="pt-4">
+                  <QuarterSyncPanel
+                    q1Label={syncAnchor?.label ?? "Tip-off"}
+                    q1Time={storedMatch.syncPoint!.syncVideoTime}
+                    rows={periodRows}
+                    active={adjustingTipoff ? activePeriod : 0}
+                    breaksCut={breaksCut}
+                    detection={cutDetection}
+                    onToggle={(on) => void toggleBreaksCut(on)}
+                    onSelect={(p) => openPeriod(p)}
+                    onSkip={(p) => {
+                      trackEvent("period_sync_skipped", { surface: "game_page", period: p });
+                      const after = sync ? nextUnset(p, sync) : null;
+                      if (after !== null) openPeriod(after);
+                      else closePicker();
+                    }}
+                  />
+                </div>
+              )}
             </>
           ) : (
             <>
@@ -597,6 +747,34 @@ export function MatchDetailPage() {
                     }}
                   />
                 </FormRow>
+                {/* A video that skips the breaks: each quarter's own time, typed. */}
+                {tipoffSet &&
+                  breaksCut &&
+                  periodRows.map((row) => {
+                    const key = String(row.period);
+                    const typed = periodInputs[key] ?? (row.set && row.videoTime !== null ? formatMMSS(row.videoTime) : "");
+                    const secs = parseMMSS(typed);
+                    return (
+                      <FormRow
+                        key={key}
+                        label={`${row.name} video time`}
+                        htmlFor={`sync-${key}`}
+                        description={row.anchor ? `m:ss at ${row.anchor.label}` : undefined}
+                      >
+                        <Input
+                          id={`sync-${key}`}
+                          placeholder={row.suggested !== null ? formatSpan(row.suggested) : `Follows ${row.follows === 1 ? "Q1" : `Q${row.follows}`}`}
+                          aria-invalid={typed !== "" && secs === null}
+                          className={cn(inlineField, "w-24 text-right nums")}
+                          value={typed}
+                          onChange={(e) => setPeriodInputs((prev) => ({ ...prev, [key]: e.target.value }))}
+                          onBlur={() => {
+                            if (secs !== null && (!row.set || secs !== row.videoTime)) void savePeriod(row.period, secs);
+                          }}
+                        />
+                      </FormRow>
+                    );
+                  })}
               </GroupedList>
               <GroupFooter className={cn(syncInput !== "" && manualSecs === null && "text-destructive")}>
                 {syncInput !== "" && manualSecs === null
@@ -607,8 +785,42 @@ export function MatchDetailPage() {
                       : `The tip-off happened at ${syncHint}. Enter the video time for that moment.`
                     : `Link the video to set ${anchorNoun === "tip-off" ? "the tip-off" : anchorNoun} by watching it instead.`}
               </GroupFooter>
+              {tipoffSet && periodRows.length > 0 && (
+                <div className="pt-4">
+                  <QuarterSyncPanel
+                    q1Label={syncAnchor?.label ?? "Tip-off"}
+                    q1Time={storedMatch.syncPoint!.syncVideoTime}
+                    rows={[]}
+                    active={0}
+                    breaksCut={breaksCut}
+                    detection={cutDetection}
+                    onToggle={(on) => void toggleBreaksCut(on)}
+                    onSelect={() => {}}
+                    onSkip={() => {}}
+                  />
+                </div>
+              )}
             </>
           )}
+          <Dialog open={confirmClearOpen} onOpenChange={setConfirmClearOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Remove the quarter syncs?</DialogTitle>
+                <DialogDescription>
+                  Every quarter follows the {anchorTitle.toLowerCase()} again. Clips from later quarters move back to where
+                  a video that holds the whole game would have them.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setConfirmClearOpen(false)}>
+                  Cancel
+                </Button>
+                <Button variant="destructive" onClick={() => void clearQuarters()}>
+                  Remove
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </section>
 
         <RosterGroup
