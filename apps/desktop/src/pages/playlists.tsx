@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { VideoPlaceholder } from "@/components/video-placeholder";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { CardImage } from "@/components/editor/card-image";
+import { StatsCardInspector } from "@/components/editor/stats-card-inspector";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import type { CardAspect } from "@scoutable/shared/lib/card-layout";
 import { fallbackText, pickDefaultPlayer, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
@@ -3848,6 +3849,16 @@ export function PlaylistsPage() {
     () => sortedEvents.filter((i): i is QueueItem => !isTextCard(i) && statsKindOf(matchLookup.get((i as QueueItem).matchId)) !== null),
     [sortedEvents, matchLookup],
   );
+  /** Their games, once each, in playlist order. */
+  const statsGames = useMemo(() => {
+    const seen = new Set<string>();
+    return statsClips.flatMap((c) => {
+      const m = matchLookup.get(c.matchId);
+      if (!m || seen.has(m.id)) return [];
+      seen.add(m.id);
+      return [m];
+    });
+  }, [statsClips, matchLookup]);
   const statsCardDisabledReason = filtersActive
     ? "Clear filters to edit the playlist"
     : statsClips.length === 0
@@ -3975,6 +3986,27 @@ export function PlaylistsPage() {
     setSelected(updated);
     setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updated : p));
     updateTextCard(selected.id, id, { durationSeconds }).catch(() => {});
+  }
+
+  // Stats card edits show at once and save after a pause in the typing.
+  const statsSaveTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  function handleStatsCardChange(id: string, spec: StatsCardSpec) {
+    const pl = selectedRef.current;
+    if (!pl) return;
+    const text = fallbackText(spec);
+    const newItems = pl.items.map((c) =>
+      !isClipItem(c) && (c as PlaylistTextCard).id === id ? { ...c, card: spec, text } : c
+    );
+    const updated = { ...pl, items: newItems };
+    selectedRef.current = updated;
+    setSelected(updated);
+    setPlaylists((prev) => prev.map((p) => p.id === pl.id ? updated : p));
+    const timers = statsSaveTimersRef.current;
+    clearTimeout(timers.get(id));
+    timers.set(id, setTimeout(() => {
+      timers.delete(id);
+      updateTextCard(pl.id, id, { card: spec, text }).catch(() => toast.error("Couldn't save the stats card. Try again."));
+    }, 400));
   }
 
   // ---------------------------------------------------------------------------
@@ -4211,9 +4243,23 @@ export function PlaylistsPage() {
         </div>
         {!playerFs.active && (
           <div className="flex flex-col gap-2">
-            {stageCard && (
+            {stageCard?.card && (
+              <StatsCardInspector
+                cardId={stageCard.id}
+                spec={stageCard.card}
+                durationSeconds={stageCard.durationSeconds}
+                games={statsGames}
+                leagues={leagues}
+                aspect={cardAspect}
+                onAspectChange={setCardAspect}
+                onChange={(spec) => handleStatsCardChange(stageCard.id, spec)}
+                onDurationChange={(n) => handleTextCardDurationChange(stageCard.id, n)}
+                onHold={pauseCard}
+              />
+            )}
+            {stageCard && !stageCard.card && (
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1">
-                <span className="text-callout text-muted-foreground">{stageCard.card ? "Stats card" : "Text card"}</span>
+                <span className="text-callout text-muted-foreground">Text card</span>
                 <SegmentedControl
                   aria-label="Preview the card as"
                   value={cardAspect}
