@@ -5118,7 +5118,8 @@ export function PlaylistsPage() {
             )}
           </div>
           <Sheet open={!!syncFix} onOpenChange={(open) => !open && setSyncFix(null)}>
-            <SheetContent>
+            {/* No first-button focus: the panel focuses itself, so Space plays. */}
+            <SheetContent onOpenAutoFocus={(e) => e.preventDefault()}>
               {(() => {
                 const match = syncFix ? matchLookup.get(syncFix.matchId) : undefined;
                 const event = syncFix ? eventByKey.get(`${syncFix.matchId}:${syncFix.eventId}`) : undefined;

@@ -309,10 +309,15 @@ export function SyncPointPicker({
   useHotkeys("tipoff", (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     switch (e.key) {
-      case " ":
+      case " ": {
         e.preventDefault();
+        // Space is play/pause here. A focused button would also press
+        // itself when the key comes up, so it lets go of the focus first.
+        const button = e.target instanceof HTMLElement ? e.target.closest<HTMLElement>("button, [role='button']") : null;
+        button?.blur();
         togglePlay();
         return;
+      }
       case "ArrowLeft":
         e.preventDefault();
         seekBy(e.shiftKey ? -10 : -1);
