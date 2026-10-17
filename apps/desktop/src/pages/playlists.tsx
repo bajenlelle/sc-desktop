@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAuth } from "@/lib/auth-context";
 import { trackEvent } from "@/lib/analytics";
-import { CLIPS_PATCHED_EVENT, isSyncRefreshRunning, type ClipPatch } from "@/lib/sync-change";
+import { afterSyncChange, CLIPS_PATCHED_EVENT, isSyncRefreshRunning, type ClipPatch } from "@/lib/sync-change";
+import { describeShift, quartersMoved, SyncFixPanel, type SyncFixScope } from "@/components/editor/sync-fix-sheet";
+import { videoLooksCut } from "@scoutable/shared/lib/period-sync";
 import { Sentry } from "@/lib/sentry";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -24,9 +26,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { VideoPlaceholder } from "@/components/video-placeholder";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
-import { listMatchesLight, listEventsForMatches, listFolders, createFolder, updateFolder, deleteFolder, updateVideoUrl } from "@/lib/matches-db";
+import { listMatchesLight, listEventsForMatches, listFolders, createFolder, updateFolder, deleteFolder, updateSyncPoint, updateVideoUrl } from "@/lib/matches-db";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { probeMatches, type VideoFileStatus } from "@/lib/video-probe";
+import { probeMatches, probeVideoDuration, type VideoFileStatus } from "@/lib/video-probe";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { cn } from "@/lib/utils";
 import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderItems, updateClip, clearShippedClip, insertTextCard, updateTextCard, setPlaylistTeams, setPlaylistUsers, notifyPendingPlaylistShares } from "@/lib/playlists-db";
@@ -95,7 +97,7 @@ import { ProgressBar } from "@/components/ui/progress-bar";
 import { getExportWatermarkDisabled, setHasExported } from "@/lib/prefs";
 import { clipAndShip } from "@/lib/clip-and-ship";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import type { Playlist, PlaylistFolder, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch } from "@/types/match";
+import type { Playlist, PlaylistFolder, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 import { isClipItem } from "@/types/match";
 import { toast } from "sonner";
 import { Page } from "@/components/shell/page";
@@ -296,6 +298,19 @@ export function PlaylistsPage() {
   const [sharedSectionExpanded, setSharedSectionExpanded] = useState(true);
   // Clip browser panel
   const [showClipBrowser, setShowClipBrowser] = useState(false);
+  /** The clip whose game is being re-synced from the editor ("Fix sync…"). */
+  const [syncFix, setSyncFix] = useState<{ matchId: string; eventId: number } | null>(null);
+  /** Each linked recording's length, by path: shows when clips land past a video's end. */
+  const [videoDurations, setVideoDurations] = useState<Record<string, number>>({});
+  /** Games whose "skips the breaks" hint the coach dismissed (kept per game). */
+  const [hintDismissed, setHintDismissed] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem("sync-hint-dismissed") ?? "[]") as string[]);
+    } catch {
+      return new Set();
+    }
+  });
+  const hintShownRef = useRef<Set<string>>(new Set());
   // Getting Started checklist arrival: which button to pulse until clicked
   // or a few seconds pass.
   const [onboardingHighlight, setOnboardingHighlight] = useState<"add-clips" | "export" | "share" | null>(null);
@@ -1079,6 +1094,63 @@ export function PlaylistsPage() {
     }
     return map;
   }, [matches]);
+
+  // Each linked recording's length, for the "skips the breaks" hint and Fix sync.
+  useEffect(() => {
+    if (!selected) return;
+    const paths = new Set<string>();
+    for (const c of selected.items.filter(isClipItem)) {
+      const url = matchLookup.get(c.matchId)?.videoUrl;
+      if (url && isLocalPath(url) && !(url in videoDurations)) paths.add(url);
+    }
+    let cancelled = false;
+    for (const path of paths) {
+      void probeVideoDuration(path).then((d) => {
+        if (!cancelled && d) setVideoDurations((prev) => ({ ...prev, [path]: d }));
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id, matchLookup]);
+
+  /**
+   * A game in this playlist whose clips land past the end of its video, or
+   * whose play-by-play runs past it with no quarter syncs: the video
+   * probably skips the breaks between quarters. One hint at a time.
+   */
+  const syncHint = useMemo(() => {
+    if (!selected) return null;
+    const pair = playlistRolls(selected);
+    const clipsByMatch = new Map<string, PlaylistClipItem[]>();
+    for (const c of selected.items.filter(isClipItem)) clipsByMatch.set(c.matchId, [...(clipsByMatch.get(c.matchId) ?? []), c]);
+    for (const [matchId, clips] of clipsByMatch) {
+      const m = matchLookup.get(matchId);
+      if (!m?.syncPoint || !m.videoUrl || m.isDemo || hintDismissed.has(matchId) || m.syncPoint.breaksCut === false) continue;
+      const duration = videoDurations[m.videoUrl];
+      if (!duration) continue;
+      let pastEnd = 0;
+      for (const c of clips) {
+        const event = eventByKey.get(`${matchId}:${c.eventId}`);
+        const t = event ? computeVideoTime(event, m.syncPoint) : null;
+        if (t !== null && clipBounds(t, pair.pre, pair.post, c.preRollOffset, c.postRollOffset).start >= duration - 0.25) pastEnd++;
+      }
+      const looksCut =
+        !m.syncPoint.periods &&
+        m.events.length > 0 &&
+        videoLooksCut({ durationSeconds: duration, events: m.events, sync: m.syncPoint }).cut;
+      if (pastEnd > 0 || looksCut) {
+        return { matchId, title: m.title, pastEnd, reason: pastEnd > 0 ? "past_end" : "looks_cut" };
+      }
+    }
+    return null;
+  }, [selected, matchLookup, eventByKey, videoDurations, hintDismissed]);
+  useEffect(() => {
+    if (!syncHint || hintShownRef.current.has(syncHint.matchId)) return;
+    hintShownRef.current.add(syncHint.matchId);
+    trackEvent("sync_hint_shown", { reason: syncHint.reason, clips: syncHint.pastEnd });
+  }, [syncHint]);
 
   // Determine the primary match for a playlist (first clip item's match)
   function primaryMatchId(pl: Playlist): string | null {
@@ -1995,6 +2067,54 @@ export function PlaylistsPage() {
   }
 
   /** A row's "Trim clip…": that clip plays (paused) and opens for trimming. */
+  /** "Fix sync…": find where the play really happens and move the game's sync to it. */
+  function openSyncFix(item: QueueItem, entry: "clip_menu" | "this_clip") {
+    videoRef.current?.pause();
+    trackEvent("sync_fix_opened", { entry });
+    setSyncFix({ matchId: item.matchId, eventId: item.event.eventId });
+  }
+
+  async function applySyncFix(scope: SyncFixScope, next: SyncPoint | null, delta: number) {
+    const fix = syncFix;
+    const match = fix ? matchLookup.get(fix.matchId) : undefined;
+    const event = fix ? eventByKey.get(`${fix.matchId}:${fix.eventId}`) : undefined;
+    if (!fix || !match || !event) return;
+    const hundredths = (n: number) => Math.round(n * 100) / 100;
+    if (scope === "clip" || !next) {
+      const { pre, post } = getClipOffsets(fix.matchId, fix.eventId);
+      await commitClipOffsets(fix.matchId, fix.eventId, hundredths(pre - delta), hundredths(post + delta));
+      toast.success(`This clip moved ${describeShift(delta)}`);
+    } else {
+      const before = match.syncPoint;
+      try {
+        await updateSyncPoint(match.id, next);
+      } catch (e) {
+        Sentry.captureException(e);
+        toast.error("Couldn't save the sync", { description: e instanceof Error ? e.message : String(e) });
+        return;
+      }
+      setMatches((prev) => prev.map((m) => (m.id === match.id ? { ...m, syncPoint: next } : m)));
+      const moved = scope === "quarter" && before ? quartersMoved(before, match.events, event.period) : null;
+      toast.success(moved ? `${moved.join(", ")} moved ${describeShift(delta)}` : `The whole game moved ${describeShift(delta)}`);
+      void afterSyncChange({ ...match, syncPoint: next }, before);
+    }
+    trackEvent("sync_fix_applied", { scope, period: event.period, delta_s: Math.round(delta * 10) / 10 });
+    setSyncFix(null);
+  }
+
+  function dismissSyncHint(matchId: string, reason: string) {
+    trackEvent("sync_hint_dismissed", { reason });
+    setHintDismissed((prev) => {
+      const next = new Set(prev).add(matchId);
+      try {
+        localStorage.setItem("sync-hint-dismissed", JSON.stringify([...next]));
+      } catch {
+        /* the hint just comes back next time */
+      }
+      return next;
+    });
+  }
+
   function trimRow(item: QueueItem) {
     const key = itemKey(item);
     if (key === activeKey) {
@@ -4314,6 +4434,22 @@ export function PlaylistsPage() {
                       <Kbd>T</Kbd>
                     </TooltipContent>
                   </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        disabled={!!trim || cropMode || !!activeTextCard}
+                        onClick={() => {
+                          const item = queueRef.current[queueIdxRef.current];
+                          if (item && !isTextCard(item)) openSyncFix(item as QueueItem, "this_clip");
+                        }}
+                      >
+                        Fix sync…
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Clips of this game off? Move its sync, or one quarter</TooltipContent>
+                  </Tooltip>
                   {(activeClipOffsets.pre !== 0 || activeClipOffsets.post !== 0) && !trim && (
                     <Button
                       variant="ghost"
@@ -4392,6 +4528,26 @@ export function PlaylistsPage() {
       {noSync && selected.items.filter(isClipItem).length > 0 && (
         <Callout tone="warning" className="mb-3 shrink-0">
           No sync point. Set one in the game to play these clips.
+        </Callout>
+      )}
+      {syncHint && (
+        <Callout tone="warning" className="mb-3 shrink-0">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <span className="min-w-0 flex-1">
+              {syncHint.pastEnd > 0
+                ? `${syncHint.pastEnd} clip${syncHint.pastEnd === 1 ? "" : "s"} from ${syncHint.title} start after the video ends.`
+                : `The play-by-play of ${syncHint.title} runs past the end of its video.`}{" "}
+              The video probably skips the breaks between quarters.
+            </span>
+            <span className="flex shrink-0 gap-1.5">
+              <Button size="xs" variant="ghost" onClick={() => dismissSyncHint(syncHint.matchId, syncHint.reason)}>
+                Dismiss
+              </Button>
+              <Button size="xs" variant="outline" onClick={() => navigate(`/matches/${syncHint.matchId}`)}>
+                Set quarters…
+              </Button>
+            </span>
+          </div>
         </Callout>
       )}
 
@@ -4523,6 +4679,9 @@ export function PlaylistsPage() {
                 onClick={(e) => handleRowPress(queueItem, e)}
                 onInsertTextCardAbove={() => handleInsertTextCard(index)}
                 onTrim={noSync ? undefined : () => trimRow(queueItem)}
+                onFixSync={
+                  noSync || !matchLookup.get(queueItem.matchId)?.videoUrl ? undefined : () => openSyncFix(queueItem, "clip_menu")
+                }
                 onRemove={() => { if (clip) handleRemoveSingleClip(clip); }}
                 labelControls={activeOrgId ? {
                   labels,
@@ -4958,6 +5117,24 @@ export function PlaylistsPage() {
               </ResizablePanelGroup>
             )}
           </div>
+          <Sheet open={!!syncFix} onOpenChange={(open) => !open && setSyncFix(null)}>
+            <SheetContent>
+              {(() => {
+                const match = syncFix ? matchLookup.get(syncFix.matchId) : undefined;
+                const event = syncFix ? eventByKey.get(`${syncFix.matchId}:${syncFix.eventId}`) : undefined;
+                if (!match?.syncPoint || !match.videoUrl || !event) return null;
+                return (
+                  <SyncFixPanel
+                    match={match}
+                    event={event}
+                    videoDuration={videoDurations[match.videoUrl] ?? null}
+                    onApply={applySyncFix}
+                    onCancel={() => setSyncFix(null)}
+                  />
+                );
+              })()}
+            </SheetContent>
+          </Sheet>
           <Sheet open={showClipBrowser} onOpenChange={setShowClipBrowser}>
             <SheetContent>
               <ClipBrowserPanel

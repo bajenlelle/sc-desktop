@@ -171,6 +171,7 @@ export function ClipRow({
   drag,
   onInsertTextCardAbove,
   onTrim,
+  onFixSync,
   onRemove,
   labelControls,
   groupPos,
@@ -200,6 +201,8 @@ export function ClipRow({
   onInsertTextCardAbove: () => void;
   /** Opens the clip for trimming; absent when it can't play (no sync point). */
   onTrim?: () => void;
+  /** Find where the play really happens and move the game's sync (or this clip) to it. */
+  onFixSync?: () => void;
   onRemove: () => void;
   labelControls?: LabelRowControls;
   groupPos?: GroupRunInfo["pos"];
@@ -335,6 +338,7 @@ export function ClipRow({
       </ContextMenuTrigger>
       <ContextMenuContent>
         {onTrim && <ContextMenuItem onSelect={onTrim}>Trim clip…</ContextMenuItem>}
+        {onFixSync && <ContextMenuItem onSelect={onFixSync}>Fix sync…</ContextMenuItem>}
         <ContextMenuItem onSelect={onInsertTextCardAbove}>Insert text card above</ContextMenuItem>
         {canGroupSelection && isSelected && onGroupSelected && (
           <ContextMenuItem onSelect={onGroupSelected}>Group {selectionCount} selected items</ContextMenuItem>
