@@ -3,6 +3,7 @@ import {
   highlightContentKey,
   type HighlightContentSegment,
 } from "../highlight-shares-db";
+import type { StatsCardSpec } from "../stats-card";
 
 function clip(
   eventId: number,
@@ -104,5 +105,40 @@ describe("highlightContentKey", () => {
     expect(highlightContentKey([clip(1)], 10, 3, "16:9")).not.toBe(
       highlightContentKey(withSync, 10, 3, "16:9"),
     );
+  });
+});
+
+describe("highlightContentKey with stats cards", () => {
+  const spec: StatsCardSpec = {
+    type: "stats",
+    v: 1,
+    source: "genius_hosted",
+    scope: "game",
+    player: { id: "42", name: "Alva Berg", number: "7", teamId: "1", teamName: "Bajen" },
+    game: { matchId: "m1", sourceGameId: "9", competitionId: 1, opponent: "AIK", date: "2026-10-12", home: true, us: 84, them: 79 },
+    line: { min: 1800, pts: 24, fgm: 9, fga: 14, tpm: 3, tpa: 5, ftm: 3, fta: 4, oreb: 3, dreb: 7, ast: 5, stl: 1, blk: 0, tov: 2, pf: 3, pm: 12 },
+    columns: ["pts", "reb", "ast"],
+    heading: null,
+    details: null,
+    asOf: "2026-10-17T10:00:00Z",
+  };
+  const withCard = (card: StatsCardSpec): HighlightContentSegment[] => [
+    clip(1),
+    { kind: "text", text: "fallback", durationSeconds: 5, card },
+  ];
+  const key = (card: StatsCardSpec) => highlightContentKey(withCard(card), 10, 3, "16:9");
+
+  it("changes when what the card draws changes", () => {
+    expect(key({ ...spec, columns: ["pts", "reb"] })).not.toBe(key(spec));
+    expect(key({ ...spec, heading: "AB" })).not.toBe(key(spec));
+  });
+
+  it("stays put when the numbers are read again unchanged", () => {
+    expect(key({ ...spec, asOf: "2026-10-18T09:00:00Z" })).toBe(key(spec));
+  });
+
+  it("differs from a plain text card with the same text", () => {
+    const plain: HighlightContentSegment[] = [clip(1), { kind: "text", text: "fallback", durationSeconds: 5 }];
+    expect(highlightContentKey(plain, 10, 3, "16:9")).not.toBe(key(spec));
   });
 });
