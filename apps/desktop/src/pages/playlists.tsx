@@ -23,6 +23,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { VideoPlaceholder } from "@/components/video-placeholder";
 import { togglePlayerMuted } from "@/lib/player-sound";
+import { CardImage } from "@/components/editor/card-image";
+import { SegmentedControl } from "@/components/ui/segmented-control";
+import type { CardAspect } from "@scoutable/shared/lib/card-layout";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { listMatchesLight, listMatchesByIds, listEventsForMatches, listFolders, createFolder, updateFolder, deleteFolder, updateVideoUrl } from "@/lib/matches-db";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
@@ -398,6 +401,12 @@ export function PlaylistsPage() {
   // Text card playback
   const [activeTextCard, setActiveTextCard] = useState<PlaylistTextCard | null>(null);
   const textCardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // A card on the stage can be held: its timer keeps the time it has left.
+  const [cardPaused, setCardPaused] = useState(false);
+  const cardRemainingRef = useRef(0);
+  const cardStartedAtRef = useRef(0);
+  // How the stage previews cards: as the widescreen or the vertical export.
+  const [cardAspect, setCardAspect] = useState<CardAspect>("16:9");
   const activeTextCardRef = useRef<PlaylistTextCard | null>(null);
   useEffect(() => { activeTextCardRef.current = activeTextCard; }, [activeTextCard]);
 
@@ -1199,6 +1208,7 @@ export function PlaylistsPage() {
     setIsPlaying(false);
     setActiveEventId(null);
     setActiveTextCard(null);
+    setCardPaused(false);
     clipEndRef.current = undefined;
     pendingSeekRef.current = null;
     if (textCardTimerRef.current) {
@@ -1482,6 +1492,7 @@ export function PlaylistsPage() {
       textCardTimerRef.current = null;
     }
     setActiveTextCard(null);
+    setCardPaused(false);
     activeTextCardRef.current = null;
     const nextIdx = queueIdxRef.current + 1;
     const queue = queueRef.current;
@@ -1511,19 +1522,48 @@ export function PlaylistsPage() {
   const advanceFromTextCardRef = useRef(advanceFromTextCard);
   advanceFromTextCardRef.current = advanceFromTextCard;
 
-  function startTextCard(card: PlaylistTextCard) {
+  /** Shows a card on the stage; `hold` keeps it there until Play. */
+  function startTextCard(card: PlaylistTextCard, hold = false) {
     setActiveEventId(null);
     setActiveTextCard(card);
     activeTextCardRef.current = card;
     videoRef.current?.pause();
     if (textCardTimerRef.current) clearTimeout(textCardTimerRef.current);
-    textCardTimerRef.current = setTimeout(() => {
-      textCardTimerRef.current = null;
-      advanceFromTextCardRef.current();
-    }, card.durationSeconds * 1000);
+    textCardTimerRef.current = null;
+    cardRemainingRef.current = card.durationSeconds * 1000;
+    setCardPaused(hold);
+    if (!hold) runCardTimer();
   }
   const startTextCardRef = useRef(startTextCard);
   startTextCardRef.current = startTextCard;
+
+  function runCardTimer() {
+    cardStartedAtRef.current = performance.now();
+    textCardTimerRef.current = setTimeout(() => {
+      textCardTimerRef.current = null;
+      advanceFromTextCardRef.current();
+    }, cardRemainingRef.current);
+  }
+
+  /** Holds the card on screen (editing it, or Space); the rest of its time waits. */
+  function pauseCard() {
+    if (!activeTextCardRef.current || !textCardTimerRef.current) return;
+    clearTimeout(textCardTimerRef.current);
+    textCardTimerRef.current = null;
+    cardRemainingRef.current = Math.max(0, cardRemainingRef.current - (performance.now() - cardStartedAtRef.current));
+    setCardPaused(true);
+  }
+
+  function resumeCard() {
+    if (!activeTextCardRef.current || textCardTimerRef.current) return;
+    setCardPaused(false);
+    setIsPlaying(true);
+    runCardTimer();
+  }
+
+  const toggleCard = () => (textCardTimerRef.current ? pauseCard() : resumeCard());
+  const toggleCardRef = useRef(toggleCard);
+  toggleCardRef.current = toggleCard;
 
   // Auto-advance via timeupdate — re-binds when video source changes
   useEffect(() => {
@@ -1573,7 +1613,7 @@ export function PlaylistsPage() {
     return () => video.removeEventListener("timeupdate", handleTimeUpdate);
   }, [localVideoUrl]);
 
-  function startQueue(queue: PlaybackItem[]) {
+  function startQueue(queue: PlaybackItem[], holdFirstCard = false) {
     if (queue.length === 0) return;
     abandonTrim();
     const firstItem = queue[0];
@@ -1581,7 +1621,7 @@ export function PlaylistsPage() {
     queueIdxRef.current = 0;
     setIsPlaying(true);
     if (isTextCard(firstItem)) {
-      startTextCardRef.current(firstItem as PlaylistTextCard);
+      startTextCardRef.current(firstItem as PlaylistTextCard, holdFirstCard);
       return;
     }
     const clipItem = firstItem as QueueItem;
@@ -1593,6 +1633,7 @@ export function PlaylistsPage() {
       textCardTimerRef.current = null;
     }
     setActiveTextCard(null);
+    setCardPaused(false);
     activeTextCardRef.current = null;
     setActiveEventId(clipItem.event.eventId);
     if (clipItem.matchId !== activeMatchIdRef.current) {
@@ -1607,7 +1648,8 @@ export function PlaylistsPage() {
   function handleRowClick(item: PlaybackItem) {
     const idx = queueItems.findIndex((i) => itemKey(i) === itemKey(item));
     const queue = idx >= 0 ? queueItems.slice(idx) : [item];
-    startQueue(queue);
+    // A card shows held, so it can be read and edited; Play carries on from it.
+    startQueue(queue, isTextCard(item));
   }
 
   const _sortedEventsRef = useRef(queueItems);
@@ -1913,6 +1955,10 @@ export function PlaylistsPage() {
         return;
       case "toggle-play": {
         e.preventDefault();
+        if (activeTextCardRef.current) {
+          toggleCardRef.current();
+          return;
+        }
         if (!video) return;
         if (activeEventId === null && activeTextCard === null && video.paused) {
           if (queueItems.length > 0) startQueue(queueItems);
@@ -3976,7 +4022,12 @@ export function PlaylistsPage() {
   // Theater and split layouts render the SAME player and clip-list stacks —
   // they were duplicated verbatim before; only the ResizablePanel wrappers
   // and padding differ per layout. Edit these once for both.
-  const playerStack = localVideoUrl ? (
+  // The card on the stage as the playlist holds it now, so edits show at once.
+  const stageCard = activeTextCard
+    ? (selected?.items.find((i): i is PlaylistTextCard => i.type === 'text' && i.id === activeTextCard.id) ?? activeTextCard)
+    : null;
+
+  const playerStack = localVideoUrl || stageCard ? (
       <div className={playerFs.active ? "fixed inset-0 z-50 flex flex-col bg-black" : "contents"}>
         {/* Stage: in fullscreen it fills the layer; every overlay's coordinate
             system (crop window, keyframes, text cards) is the rendered video
@@ -4010,6 +4061,7 @@ export function PlaylistsPage() {
             speed={playbackSpeed}
             onSpeedChange={setPlaybackSpeed}
             interactive={!cropMode}
+            playback={stageCard ? { paused: cardPaused, toggle: toggleCard } : undefined}
             trimBar={
               trim ? (
                 <ClipTrimmer
@@ -4053,15 +4105,29 @@ export function PlaylistsPage() {
                 </Button>
               </div>
             )}
-            {activeTextCard && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-black">
-                <p className="px-8 text-center text-4xl font-semibold text-white">{activeTextCard.text}</p>
+            {stageCard && (
+              <div className="absolute inset-0 z-10 bg-black">
+                <CardImage source={stageCard} aspect={cardAspect} className="size-full" />
               </div>
             )}
           </PlayerStage>
         </div>
         {!playerFs.active && (
           <div className="flex flex-col gap-2">
+            {stageCard && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1">
+                <span className="text-callout text-muted-foreground">{stageCard.card ? "Stats card" : "Text card"}</span>
+                <SegmentedControl
+                  aria-label="Preview the card as"
+                  value={cardAspect}
+                  onValueChange={setCardAspect}
+                  options={[
+                    { value: "16:9", label: "Widescreen", title: "As the 16:9 export" },
+                    { value: "9:16", label: "Vertical", title: "As the 9:16 export" },
+                  ]}
+                />
+              </div>
+            )}
             {activeClipKey && (
               <CropEditorBar
                 active={cropMode}
