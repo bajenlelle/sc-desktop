@@ -121,6 +121,35 @@ describe("rowToPlaylist", () => {
     });
   });
 
+  it("attaches a stats card spec to its text item, keeping the fallback line as text", () => {
+    const spec = {
+      type: "stats",
+      v: 1,
+      source: "genius_hosted",
+      scope: "game",
+      player: { id: "42", name: "Alva Berg", number: "7", teamId: "1", teamName: "Bajen" },
+      game: { matchId: "m1", sourceGameId: "9", competitionId: 1, opponent: "AIK", date: "2026-10-12", home: true, us: 84, them: 79 },
+      line: { min: 1800, pts: 24, fgm: 9, fga: 14, tpm: 3, tpa: 5, ftm: 3, fta: 4, oreb: 3, dreb: 7, ast: 5, stl: 1, blk: 0, tov: 2, pf: 3, pm: 12 },
+      columns: ["pts", "reb"],
+      heading: null,
+      details: null,
+      asOf: "2026-10-17T10:00:00Z",
+    };
+    const p = rowToPlaylist(
+      plRow({
+        playlist_clips: [
+          textRow({ text_content: "Alva Berg · 24 PTS · 10 REB · vs AIK", card: spec }),
+          textRow({ item_id: "t2", text_content: "Focus", card: { type: "title", v: 9 }, position: 1 }),
+          clipRow({ card: spec, position: 2 }),
+        ],
+      }),
+    );
+    expect(p.items[0]).toMatchObject({ type: "text", id: "t1", text: "Alva Berg · 24 PTS · 10 REB · vs AIK", card: spec });
+    // A spec this build can't draw is a plain text card.
+    expect(p.items[1]).toEqual({ type: "text", id: "t2", text: "Focus", durationSeconds: 5 });
+    expect(p.items[2]).not.toHaveProperty("card");
+  });
+
   it("drops text cards without an item id and clips without match or event", () => {
     const p = rowToPlaylist(
       plRow({
