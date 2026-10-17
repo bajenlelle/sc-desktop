@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Link2, MessageSquare, Play, Tag, Trash2, Type, X } from "lucide-react";
+import { BarChart3, Link2, MessageSquare, Play, Tag, Trash2, Type, X } from "lucide-react";
 import type { Label, LabelColor } from "@scoutable/shared/types/labels";
 import { eventColors, eventLabel, formatGameClock, playerName } from "@scoutable/shared/lib/events";
 import type { GroupRunInfo } from "@scoutable/shared/lib/clip-groups";
+import { cardContent, opponentLabel } from "@scoutable/shared/lib/stats-card";
 import type { PlayByPlayEvent, PlaylistTextCard } from "@/types/match";
 import { LabelChip } from "@/components/labels/LabelChip";
 import { LabelPickerPopover, type LabelTriState } from "@/components/labels/LabelPickerPopover";
@@ -170,6 +171,7 @@ export function ClipRow({
   onClick,
   drag,
   onInsertTextCardAbove,
+  onInsertStatsCardAbove,
   onTrim,
   onRemove,
   labelControls,
@@ -198,6 +200,8 @@ export function ClipRow({
   onClick: (e: React.MouseEvent) => void;
   drag: RowDragProps;
   onInsertTextCardAbove: () => void;
+  /** Absent when this clip's game has no stats. */
+  onInsertStatsCardAbove?: () => void;
   /** Opens the clip for trimming; absent when it can't play (no sync point). */
   onTrim?: () => void;
   onRemove: () => void;
@@ -336,6 +340,7 @@ export function ClipRow({
       <ContextMenuContent>
         {onTrim && <ContextMenuItem onSelect={onTrim}>Trim clip…</ContextMenuItem>}
         <ContextMenuItem onSelect={onInsertTextCardAbove}>Insert text card above</ContextMenuItem>
+        {onInsertStatsCardAbove && <ContextMenuItem onSelect={onInsertStatsCardAbove}>Insert stats card above</ContextMenuItem>}
         {canGroupSelection && isSelected && onGroupSelected && (
           <ContextMenuItem onSelect={onGroupSelected}>Group {selectionCount} selected items</ContextMenuItem>
         )}
@@ -348,6 +353,21 @@ export function ClipRow({
   );
 }
 
+/** "24 PTS · 10 REB · 5 AST" over "vs AIK · Game stats". */
+function statsSummary(card: NonNullable<PlaylistTextCard["card"]>): { title: string; detail: string } {
+  const content = cardContent(card);
+  const numbers = content.cells.map((c) => `${c.value} ${c.label}`).join(" · ");
+  return {
+    title: numbers ? `${content.heading} · ${numbers}` : content.heading,
+    detail: card.scope === "game" ? `${opponentLabel(card.game)} · Game stats` : `${card.season.label} · Season averages`,
+  };
+}
+
+/**
+ * A text or stats card in the list. Cards share one neutral look with an
+ * icon (amber is kept for warnings): a text card is edited right in its
+ * row, a stats card is summarised here and edited under the player.
+ */
 export function TextCardRow({
   domId,
   card,
@@ -363,6 +383,9 @@ export function TextCardRow({
   onDurationChange,
   onClick,
   onRemove,
+  onInsertTextCardAbove,
+  onInsertStatsCardAbove,
+  autoFocusText,
   groupPos,
   groupSize,
   onUngroup,
@@ -381,103 +404,140 @@ export function TextCardRow({
   onDurationChange: (id: string, duration: number) => void;
   onClick: (e: React.MouseEvent) => void;
   onRemove: () => void;
+  onInsertTextCardAbove: () => void;
+  /** Absent when no game in the playlist has stats. */
+  onInsertStatsCardAbove?: () => void;
+  /** A text card just added: its text field takes focus. */
+  autoFocusText?: boolean;
   groupPos?: GroupRunInfo["pos"];
   groupSize?: number;
   onUngroup?: () => void;
 }) {
   const [durationOpen, setDurationOpen] = useState(false);
   const [draftDuration, setDraftDuration] = useState(card.durationSeconds);
+  const stats = card.card ? statsSummary(card.card) : null;
+  const Icon = stats ? BarChart3 : Type;
+  const secondary = isSelected ? "text-selection-foreground/80" : "text-muted-foreground";
 
   return (
-    <div
-      id={domId}
-      role="row"
-      data-row-key={drag.rowKey}
-      data-row-index={index}
-      data-focused={focused || undefined}
-      aria-selected={isSelected}
-      className={cn(rowClasses({ isSelected }), !isSelected && "bg-amber-500/6 hover:bg-amber-500/12")}
-      onClick={onClick}
-      onMouseDown={(e) => {
-        if (e.shiftKey) e.preventDefault();
-      }}
-      onPointerDown={drag.onPointerDown}
-    >
-      {isActive && !isSelected && <ActiveRowPill />}
-      {focused && <FocusRing onSelection={isSelected} />}
-      <div className="relative z-10 w-[3px] shrink-0 self-stretch bg-amber-400" aria-hidden />
-      <RowLead groupPos={groupPos} isSelected={isSelected} showCheckbox={anySelected} onSelect={onSelect} />
-
-      <div role="gridcell" className="relative z-10 flex min-w-0 flex-1 items-center gap-2 py-1.5">
-        {(groupPos === "first" || groupPos === "only") && <GroupPill size={groupSize} onUngroup={onUngroup} />}
-        <Type className="size-3.5 shrink-0 text-amber-500" />
-        <input
-          type="text"
-          value={card.text}
-          placeholder="Text card…"
-          aria-label="Text card"
-          className={cn(
-            "min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50",
-            isSelected ? "text-selection-foreground placeholder:text-selection-foreground/60" : "text-foreground",
-          )}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => onTextChange(card.id, e.target.value)}
-          onBlur={(e) => onTextSave(card.id, e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div
+          id={domId}
+          role="row"
+          data-row-key={drag.rowKey}
+          data-row-index={index}
+          data-focused={focused || undefined}
+          aria-selected={isSelected}
+          className={rowClasses({ isSelected })}
+          onClick={onClick}
+          onMouseDown={(e) => {
+            if (e.shiftKey) e.preventDefault();
           }}
-        />
-        <Popover
-          open={durationOpen}
-          onOpenChange={(open) => {
-            setDurationOpen(open);
-            if (open) setDraftDuration(card.durationSeconds);
-          }}
+          onPointerDown={drag.onPointerDown}
         >
-          <PopoverTrigger asChild>
+          {isActive && !isSelected && <ActiveRowPill />}
+          {focused && <FocusRing onSelection={isSelected} />}
+          <div className="relative z-10 w-[3px] shrink-0 self-stretch" aria-hidden />
+          <RowLead groupPos={groupPos} isSelected={isSelected} showCheckbox={anySelected} onSelect={onSelect} />
+
+          <div role="gridcell" className="relative z-10 flex min-w-0 flex-1 items-center gap-2 py-1.5">
+            {(groupPos === "first" || groupPos === "only") && <GroupPill size={groupSize} onUngroup={onUngroup} />}
+            <span
+              aria-hidden
+              className={cn(
+                "flex size-6 shrink-0 items-center justify-center rounded-md",
+                isSelected ? "bg-white/20" : "bg-fill-2",
+              )}
+            >
+              <Icon className={cn("size-3.5", secondary)} />
+            </span>
+            {stats ? (
+              <div className="flex min-w-0 flex-1 flex-col justify-center">
+                <span className="truncate text-sm font-medium nums">{stats.title}</span>
+                <span className={cn("truncate text-subheadline", secondary)}>{stats.detail}</span>
+              </div>
+            ) : (
+              <input
+                type="text"
+                value={card.text}
+                autoFocus={autoFocusText}
+                placeholder="Text card…"
+                aria-label="Text card"
+                className={cn(
+                  "min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50",
+                  isSelected ? "text-selection-foreground placeholder:text-selection-foreground/60" : "text-foreground",
+                )}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => onTextChange(card.id, e.target.value)}
+                onBlur={(e) => onTextSave(card.id, e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
+              />
+            )}
+            <Popover
+              open={durationOpen}
+              onOpenChange={(open) => {
+                setDurationOpen(open);
+                if (open) setDraftDuration(card.durationSeconds);
+              }}
+            >
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className={cn(
+                    "inline-flex shrink-0 items-center rounded-full px-2 py-px text-[11px] font-medium nums transition-[background-color,transform] duration-100 active:scale-95",
+                    isSelected ? "bg-white/20 text-selection-foreground" : "bg-fill-2 text-muted-foreground hover:bg-fill-3",
+                  )}
+                  title="How long the card shows"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {card.durationSeconds} s
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-52 space-y-2" onClick={(e) => e.stopPropagation()}>
+                <p className="text-headline">Duration</p>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm text-muted-foreground">Seconds</span>
+                  <Stepper
+                    label="Duration"
+                    value={draftDuration}
+                    min={1}
+                    max={120}
+                    onChange={(n) => {
+                      setDraftDuration(n);
+                      onDurationChange(card.id, n);
+                    }}
+                  />
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          <div className="relative z-10 flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
               className={cn(
-                "inline-flex shrink-0 items-center rounded-full px-2 py-px text-[11px] font-medium nums transition-[background-color,transform] duration-100 active:scale-95",
-                isSelected ? "bg-white/20 text-selection-foreground" : "bg-amber-500/15 text-amber-700 hover:bg-amber-500/25 dark:text-amber-300",
+                "flex size-6 items-center justify-center rounded-md transition-[opacity,background-color] duration-100 hover:bg-destructive/10 hover:text-destructive active:scale-95",
+                REVEAL,
               )}
-              onClick={(e) => e.stopPropagation()}
+              onClick={onRemove}
+              title="Remove from playlist"
             >
-              {card.durationSeconds} s
+              <Trash2 className="size-3.5" />
             </button>
-          </PopoverTrigger>
-          <PopoverContent className="w-52 space-y-2" onClick={(e) => e.stopPropagation()}>
-            <p className="text-headline">Duration</p>
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm text-muted-foreground">Seconds</span>
-              <Stepper
-                label="Duration"
-                value={draftDuration}
-                min={1}
-                max={120}
-                onChange={(n) => {
-                  setDraftDuration(n);
-                  onDurationChange(card.id, n);
-                }}
-              />
-            </div>
-          </PopoverContent>
-        </Popover>
-      </div>
-
-      <div className="relative z-10 flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
-        <button
-          type="button"
-          className={cn(
-            "flex size-6 items-center justify-center rounded-md transition-[opacity,background-color] duration-100 hover:bg-destructive/10 hover:text-destructive active:scale-95",
-            REVEAL,
-          )}
-          onClick={onRemove}
-          title="Remove from playlist"
-        >
-          <Trash2 className="size-3.5" />
-        </button>
-      </div>
-    </div>
+          </div>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onSelect={onInsertTextCardAbove}>Insert text card above</ContextMenuItem>
+        {onInsertStatsCardAbove && <ContextMenuItem onSelect={onInsertStatsCardAbove}>Insert stats card above</ContextMenuItem>}
+        {groupPos && onUngroup && <ContextMenuItem onSelect={onUngroup}>Ungroup ({groupSize} items)</ContextMenuItem>}
+        <ContextMenuItem onSelect={onRemove} className="text-destructive focus:bg-destructive focus:text-white">
+          Remove from playlist
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }

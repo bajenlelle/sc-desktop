@@ -26,6 +26,9 @@ import { togglePlayerMuted } from "@/lib/player-sound";
 import { CardImage } from "@/components/editor/card-image";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import type { CardAspect } from "@scoutable/shared/lib/card-layout";
+import { fallbackText, pickDefaultPlayer, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
+import { loadGameStats, loadSeasonPlayer, makeGameCard, makeSeasonCard, seasonOf, statsKindOf } from "@/lib/stats-card-data";
+import { useLeagues } from "@/lib/use-leagues";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { listMatchesLight, listMatchesByIds, listEventsForMatches, listFolders, createFolder, updateFolder, deleteFolder, updateVideoUrl } from "@/lib/matches-db";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
@@ -407,6 +410,9 @@ export function PlaylistsPage() {
   const cardStartedAtRef = useRef(0);
   // How the stage previews cards: as the widescreen or the vertical export.
   const [cardAspect, setCardAspect] = useState<CardAspect>("16:9");
+  // A card just added, to show held on the stage once the list has it.
+  const [pendingShowCardId, setPendingShowCardId] = useState<string | null>(null);
+  const leagues = useLeagues();
   const activeTextCardRef = useRef<PlaylistTextCard | null>(null);
   useEffect(() => { activeTextCardRef.current = activeTextCard; }, [activeTextCard]);
 
@@ -3808,51 +3814,142 @@ export function PlaylistsPage() {
   // Text card operations
   // ---------------------------------------------------------------------------
 
-  async function handleInsertTextCard(insertAboveIndex: number) {
-    // Inserting against a filtered (partial) list computes the wrong
-    // position — locked until filters clear (the toolbar buttons are
-    // disabled too; this guards the per-row shortcut).
-    if (filtersActive) return;
-    if (!selected) return;
-    const newCard: PlaylistTextCard = {
-      type: 'text',
-      id: crypto.randomUUID(),
-      text: '',
-      durationSeconds: 5,
-    };
-    // "Insert above" a mid-group row means above the whole group — inserting
-    // inside the run would silently break its contiguity.
-    let gap = insertAboveIndex;
+  /**
+   * Where a new card goes. From the toolbar: after the focused (or playing)
+   * row, else at the start, where an intro card belongs. From a row: above
+   * it. Never inside a group: above or after the whole run instead.
+   */
+  type CardPlace = { at: "toolbar" } | { at: "above"; index: number } | { at: "start" };
+
+  function cardInsertTarget(place: CardPlace): string | null {
+    let gap: number;
+    let after = false;
+    if (place.at === "above") gap = place.index;
+    else if (place.at === "start") gap = 0;
+    else {
+      const key = focusKey ?? activeKey;
+      const idx = key ? sortedEvents.findIndex((i) => itemKey(i) === key) : -1;
+      gap = idx >= 0 ? idx + 1 : 0;
+      after = idx >= 0;
+    }
     if (gap > 0 && gap < sortedEvents.length) {
       const gid = itemGroupIds.get(itemKey(sortedEvents[gap]));
       if (gid && itemGroupIds.get(itemKey(sortedEvents[gap - 1])) === gid) {
-        while (gap > 0 && itemGroupIds.get(itemKey(sortedEvents[gap - 1])) === gid) gap--;
+        if (after) while (gap < sortedEvents.length && itemGroupIds.get(itemKey(sortedEvents[gap])) === gid) gap++;
+        else while (gap > 0 && itemGroupIds.get(itemKey(sortedEvents[gap - 1])) === gid) gap--;
       }
     }
-    // Find the target item in selected.items that corresponds to displayItems[gap]
-    const targetDisplayItem = sortedEvents[gap];
-    const targetKey = targetDisplayItem ? itemKey(targetDisplayItem) : null;
-    const insertAt = targetKey
-      ? selected.items.findIndex((item) =>
-          isClipItem(item)
-            ? `${item.matchId}:${item.eventId}` === targetKey
-            : `text:${(item as PlaylistTextCard).id}` === targetKey
-        )
-      : selected.items.length;
-    const finalInsertAt = insertAt >= 0 ? insertAt : selected.items.length;
-    const newItems: PlaylistItem[] = [
-      ...selected.items.slice(0, finalInsertAt),
-      newCard,
-      ...selected.items.slice(finalInsertAt),
-    ];
-    const updated = { ...selected, items: newItems };
-    setSelected(updated);
-    setNewlyInsertedCardId(newCard.id);
-    setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updated : p));
-    await insertTextCard(selected.id, newCard.id, '', 5, finalInsertAt);
-    await reorderItems(selected.id, newItems);
-    trackEvent("text_card_inserted");
+    // The item the card goes before, by key, so a slow stats lookup can't misplace it.
+    return sortedEvents[gap] ? itemKey(sortedEvents[gap]) : null;
   }
+
+  /** Clips whose game has stats, in playlist order. */
+  const statsClips = useMemo(
+    () => sortedEvents.filter((i): i is QueueItem => !isTextCard(i) && statsKindOf(matchLookup.get((i as QueueItem).matchId)) !== null),
+    [sortedEvents, matchLookup],
+  );
+  const statsCardDisabledReason = filtersActive
+    ? "Clear filters to edit the playlist"
+    : statsClips.length === 0
+      ? "Needs clips from a game with league play-by-play"
+      : null;
+
+  /**
+   * A new stats card's defaults: from a row, that clip's player and game;
+   * otherwise the player with the most clips, in their most-clipped game.
+   * One game shows its stat line; several games show the season averages.
+   */
+  async function defaultStatsCard(anchor?: QueueItem): Promise<StatsCardSpec | null> {
+    const anchorOk = anchor && anchor.event.player && statsKindOf(matchLookup.get(anchor.matchId));
+    const playing = statsClips.find((c) => c.matchId === activeMatchId && c.event.eventId === activeEventId);
+    const personId = anchorOk
+      ? String(anchor.event.player!.playerId)
+      : pickDefaultPlayer(statsClips.map((c) => c.event), { activePlayerId: playing?.event.player?.playerId != null ? String(playing.event.player.playerId) : null })?.playerId;
+    if (!personId) return null;
+    const theirs = statsClips.filter((c) => String(c.event.player?.playerId) === personId);
+    const counts = new Map<string, number>();
+    for (const c of theirs) counts.set(c.matchId, (counts.get(c.matchId) ?? 0) + 1);
+    const matchId = anchorOk ? anchor.matchId : [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
+    const match = matchId ? matchLookup.get(matchId) : undefined;
+    if (!match) return null;
+    const stats = await loadGameStats(match, leagues);
+    const option = stats?.players.find((p) => p.player.id === personId);
+    if (!stats || !option) return null;
+    const season = seasonOf(match, leagues);
+    const severalGames = new Set(statsClips.map((c) => c.matchId)).size > 1;
+    if (!anchorOk && severalGames && season) {
+      const seasonPlayer = await loadSeasonPlayer(season.competitionId, personId).catch(() => null);
+      if (seasonPlayer) return makeSeasonCard(season, option.player, seasonPlayer);
+    }
+    return makeGameCard(match, stats, option, season?.competitionId ?? null);
+  }
+
+  async function handleInsertCard(kind: "text" | "stats", place: CardPlace, entry: "menu" | "row" | "suggestion", anchor?: QueueItem) {
+    // Inserting against a filtered (partial) list computes the wrong position.
+    if (filtersActive || !selected) return;
+    const playlistId = selected.id;
+    const targetKey = cardInsertTarget(place);
+
+    let spec: StatsCardSpec | null = null;
+    if (kind === "stats") {
+      const reading = toast.loading("Reading the official stats…");
+      try {
+        spec = await defaultStatsCard(anchor);
+      } finally {
+        toast.dismiss(reading);
+      }
+      if (!spec) {
+        toast.error("No stats for this player in this game");
+        return;
+      }
+    }
+    const before = selectedRef.current;
+    if (!before || before.id !== playlistId) return;
+
+    const newCard: PlaylistTextCard = {
+      type: 'text',
+      id: crypto.randomUUID(),
+      text: spec ? fallbackText(spec) : '',
+      durationSeconds: 5,
+      ...(spec ? { card: spec } : {}),
+    };
+    const found = targetKey ? before.items.findIndex((item) => playlistItemKey(item) === targetKey) : -1;
+    const insertAt = found >= 0 ? found : before.items.length;
+    const newItems: PlaylistItem[] = [...before.items.slice(0, insertAt), newCard, ...before.items.slice(insertAt)];
+    const updated = { ...before, items: newItems };
+    selectedRef.current = updated;
+    setSelected(updated);
+    setPlaylists((prev) => prev.map((p) => p.id === playlistId ? updated : p));
+    setNewlyInsertedCardId(newCard.id);
+    setFocusKey(`text:${newCard.id}`);
+    setPendingShowCardId(newCard.id);
+    try {
+      await insertTextCard(playlistId, newCard.id, newCard.text, newCard.durationSeconds, insertAt, spec ?? undefined);
+      await reorderItems(playlistId, newItems);
+    } catch {
+      toast.error("Couldn't add the card. Try again.");
+      if (selectedRef.current?.id === playlistId) {
+        selectedRef.current = before;
+        setSelected(before);
+      }
+      setPlaylists((prev) => prev.map((p) => p.id === playlistId ? before : p));
+      return;
+    }
+    if (spec) {
+      trackEvent("stats_card_inserted", { entry, scope: spec.scope, source: spec.source, columns: spec.columns.length });
+    } else {
+      trackEvent("text_card_inserted", { entry });
+    }
+  }
+
+  // Show a card just added, held on the stage, once the list has it.
+  useEffect(() => {
+    if (!pendingShowCardId) return;
+    const item = queueItems.find((i) => isTextCard(i) && (i as PlaylistTextCard).id === pendingShowCardId);
+    if (!item) return;
+    setPendingShowCardId(null);
+    handleRowClick(item);
+  }, [pendingShowCardId, queueItems]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleTextCardTextChange(id: string, text: string) {
     if (!selected) return;
@@ -4369,6 +4466,9 @@ export function PlaylistsPage() {
                   onTextSave={handleTextCardTextSave}
                   onDurationChange={handleTextCardDurationChange}
                   onRemove={() => handleRemoveSingleTextCard(card)}
+                  onInsertTextCardAbove={() => void handleInsertCard("text", { at: "above", index }, "row")}
+                  onInsertStatsCardAbove={statsCardDisabledReason ? undefined : () => void handleInsertCard("stats", { at: "above", index }, "row")}
+                  autoFocusText={card.id === newlyInsertedCardId && !card.card}
                   groupPos={!filtersActive ? groupRuns.get(key)?.pos : undefined}
                   groupSize={groupRuns.get(key)?.size}
                   onUngroup={!filtersActive && groupRuns.get(key) ? () => handleUngroup(groupRuns.get(key)!.groupId) : undefined}
@@ -4395,7 +4495,12 @@ export function PlaylistsPage() {
                 onSelect={(e) => handleRowCheckbox(key, e)}
                 drag={drag}
                 onClick={(e) => handleRowPress(queueItem, e)}
-                onInsertTextCardAbove={() => handleInsertTextCard(index)}
+                onInsertTextCardAbove={() => void handleInsertCard("text", { at: "above", index }, "row")}
+                onInsertStatsCardAbove={
+                  statsCardDisabledReason || !statsKindOf(matchLookup.get(queueItem.matchId)) || !queueItem.event.player
+                    ? undefined
+                    : () => void handleInsertCard("stats", { at: "above", index }, "row", queueItem)
+                }
                 onTrim={noSync ? undefined : () => trimRow(queueItem)}
                 onRemove={() => { if (clip) handleRemoveSingleClip(clip); }}
                 labelControls={activeOrgId ? {
@@ -4517,8 +4622,10 @@ export function PlaylistsPage() {
         filtersActive={filtersActive}
         activeFilterDims={activeFilterDims}
         onToggleFilters={() => setFiltersOpen((v) => !v)}
-        onAddTextCard={() => handleInsertTextCard(sortedEvents.length)}
+        onAddTextCard={() => void handleInsertCard("text", { at: "toolbar" }, "menu")}
         addTextCardDisabledReason={filtersActive ? "Clear filters to edit the playlist" : null}
+        onAddStatsCard={() => void handleInsertCard("stats", { at: "toolbar" }, "menu")}
+        addStatsCardDisabledReason={statsCardDisabledReason}
         preRoll={preRoll}
         postRoll={postRoll}
         onPreRollChange={setPreRoll}
