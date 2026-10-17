@@ -74,7 +74,7 @@ describe("formatStat", () => {
     expect(formatStat("pts", card)).toBe("24");
     expect(formatStat("reb", card)).toBe("10");
     expect(formatStat("fg", card)).toBe("9/14");
-    expect(formatStat("fgPct", card)).toBe("64%");
+    expect(formatStat("fgPct", card)).toBe("64");
     expect(formatStat("tp", card)).toBe("3/5");
     expect(formatStat("min", card)).toBe("31");
     expect(formatStat("pm", card)).toBe("+12");
@@ -83,11 +83,11 @@ describe("formatStat", () => {
     expect(formatStat("gp", card)).toBeNull();
   });
 
-  it("prints season averages to one decimal and percentages as published", () => {
+  it("prints season averages to one decimal and percentages bare, as published", () => {
     const card = seasonCard();
     expect(formatStat("pts", card)).toBe("13.3");
-    expect(formatStat("fgPct", card)).toBe("38.7%");
-    expect(formatStat("ftPct", card)).toBe("90.0%");
+    expect(formatStat("fgPct", card)).toBe("38.7");
+    expect(formatStat("ftPct", card)).toBe("90.0");
     expect(formatStat("tpm", card)).toBe((64 / 30).toFixed(1));
     expect(formatStat("pm", card)).toBe("−8.0");
     expect(formatStat("gp", card)).toBe("30");

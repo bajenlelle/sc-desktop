@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   HostedLayoutError,
@@ -7,11 +6,7 @@ import {
   parseHostedBoxScore,
   parseHostedPlayerStats,
 } from "../hosted-stats";
-
-// Trimmed copies of real pages (2026-10-17) with names and ids replaced; the
-// markup and the numbers are the federation's.
-const boxHtml = readFileSync(new URL("./fixtures/hosted-boxscore.html", import.meta.url), "utf8");
-const seasonHtml = readFileSync(new URL("./fixtures/hosted-player-stats.html", import.meta.url), "utf8");
+import { HOSTED_BOXSCORE_HTML as boxHtml, HOSTED_PLAYER_STATS_HTML as seasonHtml } from "./fixtures/hosted-pages";
 
 describe("hosted stats URLs", () => {
   it("builds the box score and player statistics pages", () => {

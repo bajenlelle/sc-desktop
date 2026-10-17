@@ -121,12 +121,13 @@ function madeOnly(made: number | null, attempted: number | null): string | null 
   return attempted === null ? int(made) : null;
 }
 
+// Percentages print bare under a "%" label, as in a box score ("64" over "FG%").
 function gamePct(made: number | null, attempted: number | null): string | null {
-  return made === null || attempted === null || attempted === 0 ? null : `${Math.round((100 * made) / attempted)}%`;
+  return made === null || attempted === null || attempted === 0 ? null : String(Math.round((100 * made) / attempted));
 }
 
 function seasonPct(p: number | null): string | null {
-  return p === null ? null : `${p.toFixed(1)}%`;
+  return p === null ? null : p.toFixed(1);
 }
 
 interface StatDef {
