@@ -152,6 +152,30 @@ export interface PlayByPlayEvent {
   scoreAway?: number | null;
 }
 
+/** What a sync's reference event is, so a coach can find it in the video. */
+export type SyncAnchorKind = "first_basket" | "match_start" | "period_start" | "play";
+
+/**
+ * One period's own sync, for a video that skips the breaks between quarters:
+ * each cut moves every later play, so each quarter is placed on its own.
+ */
+export interface PeriodSync {
+  syncVideoTime: number;
+  syncRealWorldTime: string;
+  anchor?: { kind: SyncAnchorKind; label: string };
+}
+
+/**
+ * A period's reference times from the league's play-by-play, kept at import
+ * so a quarter can be synced (or predicted) later: when the period started
+ * and ended on the wall clock, and the event to look for in the video.
+ */
+export interface PeriodMark {
+  startRealWorldTime?: string;
+  endRealWorldTime?: string;
+  anchor: { realWorldTime: string; kind: SyncAnchorKind; label: string };
+}
+
 export interface SyncPoint {
   syncVideoTime: number;    // seconds into the video
   syncRealWorldTime: string; // ISO UTC of the reference event (Q1 tip-off by default)
@@ -162,6 +186,17 @@ export interface SyncPoint {
    * anchor on the first made basket instead. Absent on Genius imports.
    */
   anchor?: { kind: "first_basket" | "match_start"; label: string };
+  /**
+   * Per-period syncs, keyed by global period ("2" … "4", "5" = OT1), for a
+   * video that skips the breaks. A period without one follows the nearest
+   * earlier period that has one, and Q1 is the fields above. Released
+   * clients before 0.8 ignore (and on re-save drop) this and the fields below.
+   */
+  periods?: Record<string, PeriodSync>;
+  /** The league's reference times per global period, from the import. */
+  marks?: Record<string, PeriodMark>;
+  /** The coach's answer to "does the video skip the breaks?"; undefined = never asked. */
+  breaksCut?: boolean;
 }
 
 export interface PlaylistClipItem {

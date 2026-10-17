@@ -11,6 +11,7 @@ import { currentUserId } from "./current-user";
 import { applyOrgScope, clearShippedClipsForMatch, type OrgScopeOpts } from "./playlists-db";
 import { reportDbError } from "./report";
 import type { PlaylistFolder, PlayByPlayEvent, StoredMatch, SyncPoint } from "../types/match";
+import { normalizeSyncPoint } from "./period-sync";
 
 // ---------------------------------------------------------------------------
 // DB row types (snake_case columns from Postgres)
@@ -100,7 +101,7 @@ function rowToStoredMatch(row: MatchRow, events: EventRow[]): StoredMatch {
     homeRoster: row.home_roster,
     awayRoster: row.away_roster,
     videoUrl: row.video_url ?? undefined,
-    syncPoint: row.sync_point ?? undefined,
+    syncPoint: row.sync_point ? normalizeSyncPoint(row.sync_point) : undefined,
     leagueId: row.league_id ?? undefined,
     seasonId: row.season_id ?? undefined,
     stageId: row.stage_id ?? undefined,
@@ -240,7 +241,7 @@ export async function findMatchBySourceGame(
     id: row.id,
     title: row.title,
     videoUrl: row.video_url ?? undefined,
-    syncPoint: row.sync_point ?? undefined,
+    syncPoint: row.sync_point ? normalizeSyncPoint(row.sync_point) : undefined,
   };
 }
 

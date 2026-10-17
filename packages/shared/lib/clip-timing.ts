@@ -8,18 +8,42 @@
 import type { SyncPoint } from "../types/match";
 
 /**
+ * The sync a period's plays are placed with: the period's own (a video that
+ * skips the breaks syncs each quarter), else the nearest earlier period's,
+ * else the game's Q1 sync point.
+ */
+export function syncForPeriod(
+  sync: SyncPoint,
+  period?: number | null,
+): { syncVideoTime: number; syncRealWorldTime: string } {
+  if (!sync.periods || period == null || !Number.isFinite(period)) return sync;
+  let chosen: { syncVideoTime: number; syncRealWorldTime: string } = sync;
+  let chosenPeriod = 1;
+  for (const [key, ps] of Object.entries(sync.periods)) {
+    const p = Number(key);
+    if (Number.isInteger(p) && p > chosenPeriod && p <= period) {
+      chosen = ps;
+      chosenPeriod = p;
+    }
+  }
+  return chosen;
+}
+
+/**
  * Seconds into the video for an event, derived from the match's realtime
- * sync point. Null when either timestamp is missing or unparseable.
+ * sync point (its period's own, when the video skips the breaks). Null when
+ * either timestamp is missing or unparseable.
  */
 export function computeVideoTime(
-  event: { realWorldTime?: string | null },
+  event: { realWorldTime?: string | null; period?: number | null },
   sync: SyncPoint,
 ): number | null {
-  if (!event.realWorldTime || !sync.syncRealWorldTime) return null;
+  const s = syncForPeriod(sync, event.period);
+  if (!event.realWorldTime || !s.syncRealWorldTime) return null;
   const eventMs = new Date(event.realWorldTime).getTime();
-  const syncMs = new Date(sync.syncRealWorldTime).getTime();
+  const syncMs = new Date(s.syncRealWorldTime).getTime();
   if (isNaN(eventMs) || isNaN(syncMs)) return null;
-  return sync.syncVideoTime + (eventMs - syncMs) / 1000;
+  return s.syncVideoTime + (eventMs - syncMs) / 1000;
 }
 
 /** The shortest a clip plays, however its ends were set. */

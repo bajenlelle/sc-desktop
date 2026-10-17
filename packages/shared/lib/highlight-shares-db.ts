@@ -37,7 +37,7 @@ export type HighlightContentSegment =
   | {
       kind: "clip";
       matchId: string;
-      event: { eventId: number; realWorldTime?: string };
+      event: { eventId: number; realWorldTime?: string; period?: number };
       /** The match's sync point at key time — it positions the cut, so it's part of the content. */
       syncPoint?: SyncPoint;
       preRollOffset?: number;
