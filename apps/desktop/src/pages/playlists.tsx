@@ -2510,7 +2510,7 @@ export function PlaylistsPage() {
       });
       if (exportedPath) {
         notifyExportSuccess(exportedPath);
-        trackEvent('video_exported', { playlist_id: selected!.id, clip_count: segmentCount, status: 'success', selection_only: selectedClipIds.size > 0, ...(vertical ? { aspect: '9:16' } : {}) });
+        trackEvent('video_exported', { playlist_id: selected!.id, clip_count: segmentCount, status: 'success', selection_only: selectedClipIds.size > 0, stats_cards: segments.filter((seg) => seg.kind === 'text' && seg.card).length, ...(vertical ? { aspect: '9:16' } : {}) });
         // Completes the Getting Started "export a playlist" step (local-only
         // is fine — the checklist is a first-session aid, not a record).
         setHasExported(user?.id);
@@ -4591,7 +4591,7 @@ export function PlaylistsPage() {
                   onTextSave={handleTextCardTextSave}
                   onDurationChange={handleTextCardDurationChange}
                   onRemove={() => handleRemoveSingleTextCard(card)}
-                  onInsertTextCardAbove={() => void handleInsertCard("text", { at: "above", index }, "row")}
+                  onInsertTextCardAbove={filtersActive ? undefined : () => void handleInsertCard("text", { at: "above", index }, "row")}
                   onInsertStatsCardAbove={statsCardDisabledReason ? undefined : () => void handleInsertCard("stats", { at: "above", index }, "row")}
                   autoFocusText={card.id === newlyInsertedCardId && !card.card}
                   groupPos={!filtersActive ? groupRuns.get(key)?.pos : undefined}
@@ -4620,7 +4620,7 @@ export function PlaylistsPage() {
                 onSelect={(e) => handleRowCheckbox(key, e)}
                 drag={drag}
                 onClick={(e) => handleRowPress(queueItem, e)}
-                onInsertTextCardAbove={() => void handleInsertCard("text", { at: "above", index }, "row")}
+                onInsertTextCardAbove={filtersActive ? undefined : () => void handleInsertCard("text", { at: "above", index }, "row")}
                 onInsertStatsCardAbove={
                   statsCardDisabledReason || !statsKindOf(matchLookup.get(queueItem.matchId)) || !queueItem.event.player
                     ? undefined

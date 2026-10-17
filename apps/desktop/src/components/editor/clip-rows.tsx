@@ -199,7 +199,8 @@ export function ClipRow({
   onSelect: (e: React.MouseEvent) => void;
   onClick: (e: React.MouseEvent) => void;
   drag: RowDragProps;
-  onInsertTextCardAbove: () => void;
+  /** Absent while filters are on (a filtered list can't place it). */
+  onInsertTextCardAbove?: () => void;
   /** Absent when this clip's game has no stats. */
   onInsertStatsCardAbove?: () => void;
   /** Opens the clip for trimming; absent when it can't play (no sync point). */
@@ -339,7 +340,7 @@ export function ClipRow({
       </ContextMenuTrigger>
       <ContextMenuContent>
         {onTrim && <ContextMenuItem onSelect={onTrim}>Trim clip…</ContextMenuItem>}
-        <ContextMenuItem onSelect={onInsertTextCardAbove}>Insert text card above</ContextMenuItem>
+        {onInsertTextCardAbove && <ContextMenuItem onSelect={onInsertTextCardAbove}>Insert text card above</ContextMenuItem>}
         {onInsertStatsCardAbove && <ContextMenuItem onSelect={onInsertStatsCardAbove}>Insert stats card above</ContextMenuItem>}
         {canGroupSelection && isSelected && onGroupSelected && (
           <ContextMenuItem onSelect={onGroupSelected}>Group {selectionCount} selected items</ContextMenuItem>
@@ -404,7 +405,8 @@ export function TextCardRow({
   onDurationChange: (id: string, duration: number) => void;
   onClick: (e: React.MouseEvent) => void;
   onRemove: () => void;
-  onInsertTextCardAbove: () => void;
+  /** Absent while filters are on (a filtered list can't place it). */
+  onInsertTextCardAbove?: () => void;
   /** Absent when no game in the playlist has stats. */
   onInsertStatsCardAbove?: () => void;
   /** A text card just added: its text field takes focus. */
@@ -531,7 +533,7 @@ export function TextCardRow({
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem onSelect={onInsertTextCardAbove}>Insert text card above</ContextMenuItem>
+        {onInsertTextCardAbove && <ContextMenuItem onSelect={onInsertTextCardAbove}>Insert text card above</ContextMenuItem>}
         {onInsertStatsCardAbove && <ContextMenuItem onSelect={onInsertStatsCardAbove}>Insert stats card above</ContextMenuItem>}
         {groupPos && onUngroup && <ContextMenuItem onSelect={onUngroup}>Ungroup ({groupSize} items)</ContextMenuItem>}
         <ContextMenuItem onSelect={onRemove} className="text-destructive focus:bg-destructive focus:text-white">
