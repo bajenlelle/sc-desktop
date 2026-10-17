@@ -16,6 +16,7 @@ import { useReducedMotionSafe } from "@/lib/motion";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { cn } from "@/lib/utils";
 import { WatchClipRow, WatchTextCardRow } from "./ClipRow";
+import { CardImage } from "@/components/editor/card-image";
 import { useWatchQueue, type WatchItem } from "./use-watch-queue";
 
 const SPEED_KEY = "scoutable_watch_speed";
@@ -261,7 +262,11 @@ export function WatchView({
                     className="absolute inset-0 z-10 flex items-center justify-center bg-black"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <p className="px-8 text-center text-4xl font-semibold text-white">{activeCard.text}</p>
+                    {activeCard.card ? (
+                      <CardImage source={activeCard} aspect="16:9" className="size-full" />
+                    ) : (
+                      <p className="px-8 text-center text-4xl font-semibold text-white">{activeCard.text}</p>
+                    )}
                   </div>
                 )}
                 {!q.isQueueActive && q.src === null && items.length > 0 && (
