@@ -235,14 +235,17 @@ export function SyncPointPicker({
 
   // External seeks (a shared hint or the detector's suggestion). The element
   // can't go below 0, but a negative confirmed time is a valid sync point for
-  // a recording that starts after the tip-off, so the display keeps it.
+  // a recording that starts after the tip-off, so the display keeps it. A
+  // request counts as handled only once applied: one made before the video
+  // has loaded waits for its metadata, and StrictMode's cleanup-and-rerun
+  // must not drop it on the way.
   const seekNonceRef = useRef<number | null>(null);
   useEffect(() => {
     if (!seekRequest || seekRequest.nonce === seekNonceRef.current) return;
-    seekNonceRef.current = seekRequest.nonce;
     const video = videoRef.current;
     const target = Math.max(0, seekRequest.seconds);
     const apply = () => {
+      seekNonceRef.current = seekRequest.nonce;
       if (video) video.currentTime = target;
       setCurrentTime(seekRequest.seconds);
       if (seekRequest.confirm) {
