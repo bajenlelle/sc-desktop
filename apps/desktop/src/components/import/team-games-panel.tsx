@@ -10,6 +10,9 @@ import {
   type TeamSeason,
 } from "@scoutable/shared/lib/team-games";
 import type { LeagueTeam } from "@scoutable/shared/types/league-team";
+import type { GameBadge } from "@scoutable/shared/lib/player-access";
+import type { ScheduleGame } from "@/lib/basketball-api";
+import { PlayerBadge } from "@/components/import/player-badge";
 import { formatDate } from "@/lib/format-date";
 
 export type PickedFrom = "latest_card" | "team_list";
@@ -62,6 +65,8 @@ export function ImportedTag() {
 }
 
 interface TeamGamesPanelProps {
+  /** Player passes: what importing each game would use. Replaces the Imported tag when given. */
+  badgeFor?: (game: ScheduleGame) => GameBadge | null;
   team: LeagueTeam;
   /** null while loading. */
   seasons: TeamSeason[] | null;
@@ -88,6 +93,7 @@ export function TeamGamesPanel({
   importedIds,
   onPick,
   onShowAll,
+  badgeFor,
 }: TeamGamesPanelProps) {
   if (seasons !== null && seasons.length === 0) {
     return (
@@ -173,7 +179,11 @@ export function TeamGamesPanel({
                   </div>
                   <Result result={latest.result} ours={latest.ours} theirs={latest.theirs} large />
                 </div>
-                <div className="mt-3 flex justify-end">
+                <div className="mt-3 flex items-center justify-end gap-3">
+                  {(() => {
+                    const badge = badgeFor?.(latest.game);
+                    return badge ? <PlayerBadge badge={badge} /> : null;
+                  })()}
                   <Button onClick={() => onPick(latest, "latest_card")}>Import this game</Button>
                 </div>
               </div>
@@ -199,7 +209,16 @@ export function TeamGamesPanel({
                     <span className="min-w-0 flex-1 truncate font-medium text-foreground">{g.opponent.name}</span>
                     {g.playoff && <PlayoffChip />}
                     <Result result={g.result} ours={g.ours} theirs={g.theirs} />
-                    <span className="w-16 shrink-0 text-right">{importedIds.has(g.game.uuid) && <ImportedTag />}</span>
+                    {badgeFor ? (
+                      <span className="min-w-16 shrink-0 text-right">
+                        {(() => {
+                          const badge = badgeFor(g.game);
+                          return badge ? <PlayerBadge badge={badge} /> : null;
+                        })()}
+                      </span>
+                    ) : (
+                      <span className="w-16 shrink-0 text-right">{importedIds.has(g.game.uuid) && <ImportedTag />}</span>
+                    )}
                     <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                   </button>
                 ))}

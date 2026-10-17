@@ -8,6 +8,7 @@ import { initAnalytics, trackEvent } from "@/lib/analytics";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/lib/auth-context";
 import { MyTeamProvider } from "@/lib/my-team";
+import { PlayerAccessProvider } from "@/lib/player-access";
 import { ProtectedRoute } from "@/components/protected-route";
 import { RootLayout } from "@/components/root-layout";
 import { HomePage } from "@/pages/home";
@@ -185,6 +186,7 @@ export default function App() {
   return (
     <AuthProvider>
       <MyTeamProvider>
+      <PlayerAccessProvider>
       <ThemeProvider>
         <ColorThemeProvider>
         {/* reducedMotion="user": transform and layout animations switch off
@@ -278,6 +280,7 @@ export default function App() {
         </MotionConfig>
         </ColorThemeProvider>
       </ThemeProvider>
+      </PlayerAccessProvider>
       </MyTeamProvider>
     </AuthProvider>
   );

@@ -26,6 +26,8 @@ import { orgPlanColors, orgPlanLabel, type ImportQuota } from "@scoutable/shared
 import { DevicesCard } from "@/components/devices-card";
 import { MarketingEmailToggle } from "@/components/marketing-email-toggle";
 import { MyTeamCard } from "@/components/my-team-card";
+import { PlayerGamesCard } from "@/components/player-games-card";
+import { usePlayerAccess } from "@/lib/player-access";
 import { cn } from "@/lib/utils";
 import { formatDate as formatLongDate } from "@/lib/format-date";
 
@@ -50,6 +52,7 @@ function roleBadgeVariant(role: string | null, isPlatformAdmin: boolean): "defau
 
 export function ProfilePage() {
   const { user, activeOrgId, activeOrgPlan, activeOrgRole, activeOrgIsPersonal, expectPlanChange, setActiveOrg } = useAuth();
+  const { playerMode } = usePlayerAccess();
   const navigate = useNavigate();
 
   const [ctx, setCtx] = useState<OrgContext | null>(null);
@@ -222,7 +225,9 @@ export function ProfilePage() {
   // Stripe sub state only drives ancillaries (period-end date, Manage button visibility).
   const planColors = orgPlanColors(activeOrgPlan);
   const planName = orgPlanLabel(activeOrgPlan);
-  const showUsage = importQuota !== null;
+  // Player passes (sales on, Free personal space): "Your games" below takes
+  // over from the import meter, and only Pro is offered as an upgrade here.
+  const showUsage = importQuota !== null && !playerMode;
   const usageRatio = importQuota?.limit ? importQuota.used / importQuota.limit : 0;
   const usageAtCap = showUsage && (importQuota!.remaining ?? 0) <= 0;
   // Lifetime pools are small (Free = 3): warn from 65% so 2 of 3 used already shows the warning.
@@ -341,8 +346,8 @@ export function ProfilePage() {
               )}
               {activeOrgIsPersonal && isFreeOrRookie && (
                 <GroupRow
-                  label={activeOrgPlan === 'free' ? "Upgrade to Rookie or Pro" : "Upgrade to Pro"}
-                  description="More imports and clean exports"
+                  label={activeOrgPlan === 'free' && !playerMode ? "Upgrade to Rookie or Pro" : "Upgrade to Pro"}
+                  description={playerMode ? "Unlimited games of any team" : "More imports and clean exports"}
                   trailing={
                     <Button size="sm" onClick={handleUpgrade} disabled={loadingPortal}>
                       <ArrowUpRight />
@@ -353,6 +358,8 @@ export function ProfilePage() {
               )}
             </GroupedList>
           </section>
+
+          <PlayerGamesCard />
 
           <MyTeamCard />
 

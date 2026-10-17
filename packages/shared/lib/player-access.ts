@@ -212,6 +212,20 @@ export function gameBadge(game: GameAccess, access: PlayerAccess): GameBadge | n
   }
 }
 
+/**
+ * The badge for a game in a list, from what the client already knows: is it
+ * imported, and does the live pass cover it (one of the game's team ids is
+ * the pass team's in the pass's season). The same order as the import
+ * trigger: pass, free game, bought game, otherwise the single price.
+ */
+export function importBadge(game: { imported: boolean; covered: boolean }, access: PlayerAccess): GameBadge | null {
+  if (game.imported) return { label: "Imported", tone: "imported" };
+  if (game.covered) return { label: "In your season pass", tone: "covered" };
+  if (access.trialLeft > 0) return { label: `Free game · ${access.trialLeft} left`, tone: "free" };
+  if (access.singlesLeft > 0) return { label: `Uses 1 bought game · ${access.singlesLeft} left`, tone: "bought" };
+  return access.enabled ? { label: `${PLAYER_PRICES.singleGame} kr`, tone: "price" } : null;
+}
+
 export type SheetOfferKind = PurchaseKind | "pro";
 export interface SheetOffer {
   kind: SheetOfferKind;

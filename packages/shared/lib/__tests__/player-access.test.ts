@@ -4,6 +4,7 @@ import {
   canExport,
   formatKronor,
   gameBadge,
+  importBadge,
   parseGameAccess,
   parsePlayerAccess,
   passNotOfferedReason,
@@ -235,5 +236,18 @@ describe("purchaseLabel", () => {
     expect(purchaseLabel({ ...base, kind: "season_pass", quantity: 1 })).toBe("Season pass");
     expect(purchaseLabel({ ...base, kind: "single_game", quantity: 1 })).toBe("Single game");
     expect(purchaseLabel({ ...base, kind: "single_game", quantity: 3 })).toBe("3 single games");
+  });
+});
+
+describe("importBadge", () => {
+  it("follows the import trigger's order", () => {
+    const a = access({ trialLeft: 1, singlesLeft: 2 });
+    expect(importBadge({ imported: true, covered: true }, a)?.label).toBe("Imported");
+    expect(importBadge({ imported: false, covered: true }, a)?.label).toBe("In your season pass");
+    expect(importBadge({ imported: false, covered: false }, a)?.label).toBe("Free game · 1 left");
+    expect(importBadge({ imported: false, covered: false }, access({ trialLeft: 0, singlesLeft: 2 }))?.label).toBe(
+      "Uses 1 bought game · 2 left",
+    );
+    expect(importBadge({ imported: false, covered: false }, access({ trialLeft: 0 }))).toEqual({ label: "129 kr", tone: "price" });
   });
 });

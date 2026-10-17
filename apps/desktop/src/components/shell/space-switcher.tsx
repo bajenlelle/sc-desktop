@@ -1,4 +1,5 @@
-import { ArrowUpRight, Building2, Check, ChevronsUpDown, Settings, User } from "lucide-react";
+import { useState } from "react";
+import { ArrowUpRight, Building2, Check, ChevronsUpDown, Settings, ShoppingBag, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import type { OrgMembership } from "@scoutable/shared/types/org";
@@ -7,6 +8,9 @@ import { orgPlanLabel, type ImportQuota } from "@scoutable/shared/lib/plan-tier"
 import { PlanBadge } from "@/components/plan-badge";
 import { useAuth } from "@/lib/auth-context";
 import { openUpgradeFlow } from "@/lib/billing";
+import { usePlayerAccess } from "@/lib/player-access";
+import { PurchaseSheet } from "@/components/purchase-sheet";
+import { playerMeterLabel } from "@scoutable/shared/lib/player-access";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,6 +49,11 @@ export function SpaceSwitcher({
 }) {
   const { user, expectPlanChange } = useAuth();
   const navigate = useNavigate();
+  const { access, playerMode } = usePlayerAccess();
+  const [buyOpen, setBuyOpen] = useState(false);
+  // Player passes: the personal space counts free, bought and season-pass games.
+  const playerLine = org.isPersonal && playerMode && access ? playerMeterLabel(access) : null;
+  const playerOut = playerLine === "No games left";
 
   const canSwitch = myOrgs.length > 1;
   const canManage = !org.isPersonal && (org.role === "coach" || org.role === "admin");
@@ -56,11 +65,13 @@ export function SpaceSwitcher({
   const atCap = showQuota && quota.remaining! <= 0;
   const lifetime = showQuota && quota.window === "lifetime";
   const warn = showQuota && !atCap && quota.used / quota.limit! >= (lifetime ? 0.65 : 0.8);
-  const secondLine = !showQuota
-    ? orgPlanLabel(org.planTier)
-    : atCap
-      ? "Import limit reached"
-      : `${quota.remaining} of ${quota.limit} imports left`;
+  const secondLine = playerLine
+    ? playerLine
+    : !showQuota
+      ? orgPlanLabel(org.planTier)
+      : atCap
+        ? "Import limit reached"
+        : `${quota.remaining} of ${quota.limit} imports left`;
 
   async function upgrade() {
     const err = await openUpgradeFlow(user?.email);
@@ -69,6 +80,7 @@ export function SpaceSwitcher({
   }
 
   return (
+    <>
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
@@ -88,7 +100,7 @@ export function SpaceSwitcher({
             <span
               className={cn(
                 "block truncate text-subheadline nums",
-                atCap || warn ? "text-warning" : "text-muted-foreground",
+                (playerLine ? playerOut : atCap || warn) ? "text-warning" : "text-muted-foreground",
               )}
             >
               {secondLine}
@@ -123,13 +135,32 @@ export function SpaceSwitcher({
         {org.isPersonal && (
           <>
             <DropdownMenuSeparator />
+            {playerLine && (
+              <DropdownMenuItem onSelect={() => setBuyOpen(true)}>
+                <ShoppingBag className="text-muted-foreground" />
+                <span className="flex-1">Buy games…</span>
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onSelect={() => void upgrade()}>
               <ArrowUpRight className="text-muted-foreground" />
-              <span className="flex-1">{atCap ? "Upgrade to keep importing…" : "Upgrade plan…"}</span>
+              <span className="flex-1">
+                {playerLine ? "Upgrade to Pro…" : atCap ? "Upgrade to keep importing…" : "Upgrade plan…"}
+              </span>
             </DropdownMenuItem>
           </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+    {playerLine && (
+      <PurchaseSheet
+        open={buyOpen}
+        onClose={() => setBuyOpen(false)}
+        title="Buy games"
+        surface="profile"
+        game={null}
+        analyticsFeature="space_switcher"
+      />
+    )}
+    </>
   );
 }
