@@ -12,9 +12,10 @@ import { Sentry } from "@/lib/sentry";
 import { Wordmark } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { springs, useReducedMotionSafe } from "@/lib/motion";
+import { onSoundAnnounced, usePlayerSound } from "@/lib/player-sound";
 import { cn } from "@/lib/utils";
 import { ClipScrubber } from "./clip-scrubber";
-import { TransportBar, type TransportProps } from "./transport-bar";
+import { SoundIcon, TransportBar, type TransportProps } from "./transport-bar";
 
 /** Local footage comes over the stream protocol — stream:// on macOS, http://stream.localhost on Windows. */
 function isLocalSource(src: string): boolean {
@@ -94,7 +95,8 @@ export function PlayerStage({
   const [paused, setPaused] = React.useState(video.paused);
   const [buffering, setBuffering] = React.useState(false);
   const [failure, setFailure] = React.useState<MediaFailure | null>(null);
-  const [flash, setFlash] = React.useState<{ id: number; kind: "play" | "pause" } | null>(null);
+  const [flash, setFlash] = React.useState<{ id: number; kind: "play" | "pause" | "sound" } | null>(null);
+  const sound = usePlayerSound();
   const [active, setActive] = React.useState(true);
   const [chromeHover, setChromeHover] = React.useState(false);
   const idleTimer = React.useRef<number | null>(null);
@@ -122,6 +124,15 @@ export function PlayerStage({
     }
     video.playbackRate = speed;
   }, [video, src, speed]);
+
+  // One volume and mute for every player (lib/player-sound.ts).
+  React.useEffect(() => {
+    video.volume = sound.volume;
+    video.muted = sound.muted;
+  }, [video, sound]);
+
+  // M toggles sound while the controls may be hidden: say so on the footage.
+  React.useEffect(() => onSoundAnnounced(() => setFlash({ id: Date.now(), kind: "sound" })), []);
 
   // Media state → UI. Why the box is black, when it is: every player used to
   // go silently dark; the only report was an unhandled play() rejection.
@@ -313,7 +324,13 @@ export function PlayerStage({
             className="pointer-events-none absolute inset-0 z-[15] flex items-center justify-center"
           >
             <div className="flex size-16 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm [&_svg]:size-7">
-              {flash.kind === "play" ? <Play className="translate-x-0.5 fill-current" /> : <Pause className="fill-current" />}
+              {flash.kind === "sound" ? (
+                <SoundIcon volume={sound.volume} muted={sound.muted} />
+              ) : flash.kind === "play" ? (
+                <Play className="translate-x-0.5 fill-current" />
+              ) : (
+                <Pause className="fill-current" />
+              )}
             </div>
           </motion.div>
         )}

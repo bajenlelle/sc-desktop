@@ -33,6 +33,7 @@ import type { CardAspect } from "@scoutable/shared/lib/card-layout";
 import { cardContent, fallbackText, opponentLabel, pickDefaultPlayer, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
 import { loadGameStats, loadSeasonPlayer, makeGameCard, makeSeasonCard, seasonOf, statsKindOf } from "@/lib/stats-card-data";
 import { useLeagues } from "@/lib/use-leagues";
+import { togglePlayerMuted } from "@/lib/player-sound";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { listMatchesLight, listEventsForMatches, listFolders, createFolder, updateFolder, deleteFolder, updateSyncPoint, updateVideoUrl } from "@/lib/matches-db";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
@@ -2263,6 +2264,10 @@ export function PlaylistsPage() {
         if (!activeClipKey) return;
         e.preventDefault();
         startTrim();
+        return;
+      case "toggle-mute":
+        e.preventDefault();
+        togglePlayerMuted({ announce: true });
         return;
       case "toggle-play": {
         e.preventDefault();

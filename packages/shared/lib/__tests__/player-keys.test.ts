@@ -22,6 +22,9 @@ describe("resolvePlayerKey", () => {
     expect(resolvePlayerKey(key("KeyL"))).toBe("shuttle-forward");
     expect(resolvePlayerKey(key("KeyR"))).toBe("replay");
     expect(resolvePlayerKey(key("Space"))).toBe("toggle-play");
+    expect(resolvePlayerKey(key("KeyM"))).toBe("toggle-mute");
+    expect(resolvePlayerKey(key("KeyM", { shiftKey: true }))).toBeNull();
+    expect(resolvePlayerKey(key("KeyM", { metaKey: true }))).toBeNull(); // ⌘M is Minimize
     expect(resolvePlayerKey(key("KeyF"))).toBe("fullscreen");
     expect(resolvePlayerKey(key("Escape"))).toBe("escape");
     expect(resolvePlayerKey(key("Backspace"))).toBe("remove");
