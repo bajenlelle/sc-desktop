@@ -1,6 +1,7 @@
 import * as React from "react";
 import {
   ArrowDownUp,
+  BarChart3,
   ChevronDown,
   CircleX,
   Columns2,
@@ -76,6 +77,8 @@ export interface EditorToolbarProps {
 
   onAddTextCard: () => void;
   addTextCardDisabledReason: string | null;
+  onAddStatsCard: () => void;
+  addStatsCardDisabledReason: string | null;
 
   preRoll: number;
   postRoll: number;
@@ -125,10 +128,34 @@ function Explained({ reason, children }: { reason: string | null; children: Reac
 
 const highlightRing = "ring-2 ring-selection ring-offset-2 ring-offset-background animate-pulse";
 
+/** A menu item that, when it can't be used, says why underneath. */
+function CardMenuItem({
+  icon,
+  label,
+  reason,
+  onSelect,
+}: {
+  icon: React.ReactElement;
+  label: string;
+  reason: string | null;
+  onSelect: () => void;
+}) {
+  return (
+    <DropdownMenuItem onSelect={onSelect} disabled={!!reason} className="items-start">
+      <span className="mt-0.5 text-muted-foreground [&_svg]:size-4">{icon}</span>
+      <span className="flex flex-col">
+        {label}
+        {reason && <span className="text-caption text-muted-foreground">{reason}</span>}
+      </span>
+    </DropdownMenuItem>
+  );
+}
+
 /**
  * The editor's toolbar: the playlist's name (click to rename), its size,
  * then the actions a coach reaches for every session. Settings that are
- * set once (clip length, sort, text cards) sit one level deeper.
+ * set once (clip length, sort) sit one level deeper; cards are added from
+ * the menu beside Add clips, everything that goes into the video in one place.
  */
 export function EditorToolbar(p: EditorToolbarProps) {
   const inputRef = React.useRef<HTMLInputElement | null>(null);
@@ -221,10 +248,28 @@ export function EditorToolbar(p: EditorToolbarProps) {
             </Button>
           )}
 
-          <Button size="sm" className={cn(p.highlightAddClips && highlightRing)} onClick={p.onAddClips}>
-            <Plus />
-            Add clips
-          </Button>
+          <div className={cn("flex items-center rounded-md", p.highlightAddClips && highlightRing)}>
+            <Button size="sm" className="rounded-r-none" onClick={p.onAddClips}>
+              <Plus />
+              Add clips
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  className="rounded-l-none border-l border-primary-foreground/25 px-1.5"
+                  aria-label="Add a card"
+                  title="Add a text or stats card"
+                >
+                  <ChevronDown className="size-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <CardMenuItem icon={<Type />} label="Add text card" reason={p.addTextCardDisabledReason} onSelect={p.onAddTextCard} />
+                <CardMenuItem icon={<BarChart3 />} label="Add stats card" reason={p.addStatsCardDisabledReason} onSelect={p.onAddStatsCard} />
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
 
           {p.isExporting ? (
             // Progress with its own stop control, like a download in Safari.
@@ -323,10 +368,6 @@ export function EditorToolbar(p: EditorToolbarProps) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuItem onSelect={p.onAddTextCard} disabled={!!p.addTextCardDisabledReason}>
-                <Type className="text-muted-foreground" />
-                Add text card
-              </DropdownMenuItem>
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger disabled={p.clockSortLocked}>
                   <ArrowDownUp className="text-muted-foreground" />
