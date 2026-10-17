@@ -53,6 +53,16 @@ playlists, and share them with teams; players watch on web/mobile.
   single source of truth (free = 3 lifetime, rookie = 6/month, paid =
   unlimited). `packages/shared/lib/plan-tier.ts` mirrors it for display only
   — change both together.
+- **Playlist cards**: a text item (`playlist_clips.item_type 'text'`) may
+  carry a stats card spec in `playlist_clips.card`
+  (`packages/shared/lib/stats-card.ts`); `text_content` keeps a readable
+  fallback line for builds and apps that don't draw specs. The numbers come
+  from Genius's public hosted statistics pages (`lib/hosted-stats.ts`,
+  server-rendered HTML read by the desktop through plugin-http), parsed by
+  header label; a layout change throws `hosted_layout_changed` (reported to
+  Sentry). The desktop draws text and stats cards with one painter
+  (`apps/desktop/src/lib/card-painter.ts` over `lib/card-layout.ts`) for the
+  stage and the export (`ExportSegment::Image`), so the preview is the export.
 - **Errors**: Sentry on all three apps (org `scoutable`, EU). DSNs are
   hardcoded (public); desktop/mobile dev builds are offline unless the DSN
   env var is set. Don't add error tracking dependencies to `packages/shared`.
