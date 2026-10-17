@@ -22,7 +22,9 @@ export const NT_LEAGUE_IDS: string[] = [
  * single source of truth. Keep the two in sync when tiers change.
  */
 export function getOrgImportLimit(tier: OrgPlanTier): number | null {
-  if (tier === "free") return 3;
+  // Free is 2 for accounts created from app_config.free_games_two_since and 3
+  // before; the fallback shows the new size.
+  if (tier === "free") return 2;
   if (tier === "rookie") return 6;
   return null;
 }
@@ -31,7 +33,8 @@ export type ImportWindow = "month" | "lifetime" | "unlimited";
 
 /**
  * How a tier's import cap counts: Free is a lifetime trial pool (deleting a
- * game never refunds it), Rookie resets each calendar month.
+ * game never refunds it; bought single games add to it, season-pass games
+ * never count), Rookie resets each calendar month.
  */
 export function getImportWindow(tier: OrgPlanTier): ImportWindow {
   if (tier === "free") return "lifetime";

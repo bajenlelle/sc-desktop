@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { ArrowUpRight, Building2, Laptop, Loader2, LogOut, MessageSquarePlus } from "lucide-react";
 import type { OrgContext } from "@scoutable/shared/types/org";
 import { orgPlanColors, orgPlanLabel, type ImportQuota } from "@scoutable/shared/lib/plan-tier";
+import { activePass, formatKronor, purchaseLabel, seasonLabel } from "@scoutable/shared/lib/player-access";
 import { useAuth } from "@/components/auth-context";
 import { DeleteAccountDialog } from "@/components/delete-account-dialog";
 import { DevicesCard } from "@/components/devices-card";
@@ -30,6 +31,7 @@ import { createClient } from "@/lib/supabase/client";
 import { signOutAndLeave } from "@/lib/sign-out";
 import { getOrgContext, updateMyProfile, uploadAvatar, getSubscriptionStatus } from "@/lib/profile-db";
 import { trackEvent } from "@/lib/analytics";
+import { usePlayerAccess } from "@/lib/use-player-access";
 import { roleLabel } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import { formatDate as formatLongDate } from "@/lib/format-date";
@@ -67,6 +69,7 @@ export default function ProfilePage() {
   const [importQuota, setImportQuota] = useState<ImportQuota | null>(null);
   const [loadingPortal, setLoadingPortal] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const { access: playerAccess } = usePlayerAccess();
 
   const [fullName, setFullName] = useState("");
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -254,7 +257,12 @@ export default function ProfilePage() {
   const planStatus = activeOrgIsPersonal ? (sub?.isActive ? (isTrialing ? "Trial" : "Active") : "Free") : "Active";
   // Usage only for personal spaces on limited plans (free / rookie); club
   // spaces have no limit and don't show the count.
-  const showUsage = activeOrgIsPersonal && importQuota !== null;
+  // Player passes (sales on): a Free personal space shows its games below
+  // instead of the import meter, and only Pro is offered as an upgrade here
+  // (single games and the season pass are bought in the desktop app).
+  const playerMode = !!playerAccess?.enabled && activeOrgIsPersonal && activeOrgPlan === "free";
+  const pass = playerAccess ? activePass(playerAccess) : null;
+  const showUsage = activeOrgIsPersonal && importQuota !== null && !playerMode;
   const usageRatio = importQuota?.limit ? importQuota.used / importQuota.limit : 0;
   const usageAtCap = showUsage && (importQuota!.remaining ?? 0) <= 0;
   // Lifetime pools are small (Free = 3): warn from 65% so 2-of-3 shows amber.
@@ -368,8 +376,8 @@ export default function ProfilePage() {
             )}
             {activeOrgIsPersonal && isFreeOrRookie && (
               <GroupRow
-                label={activeOrgPlan === "free" ? "Upgrade to Rookie or Pro" : "Upgrade to Pro"}
-                description="More imports and clean exports"
+                label={activeOrgPlan === "free" && !playerMode ? "Upgrade to Rookie or Pro" : "Upgrade to Pro"}
+                description={playerMode ? "Unlimited games of any team" : "More imports and clean exports"}
                 trailing={
                   <Button size="sm" onClick={handleUpgrade} disabled={loadingPortal}>
                     <ArrowUpRight />
@@ -380,6 +388,55 @@ export default function ProfilePage() {
             )}
           </GroupedList>
         </section>
+
+        {playerMode && playerAccess && (
+          <section>
+            <GroupHeader title="Your games" />
+            <GroupedList>
+              {pass && (
+                <GroupRow
+                  label={`Season pass ${seasonLabel(pass.seasonId)}`}
+                  description={`${pass.teamName} · ${pass.leagueName}`}
+                />
+              )}
+              <GroupRow
+                label="Free games"
+                trailing={
+                  <span className="nums">
+                    {playerAccess.trialLeft} of {playerAccess.trialGames} left
+                  </span>
+                }
+              />
+              {playerAccess.purchases.some((p) => p.kind === "single_game") && (
+                <GroupRow label="Bought games" trailing={<span className="nums">{playerAccess.singlesLeft} left</span>} />
+              )}
+              {playerAccess.purchases.map((p) => (
+                <GroupRow
+                  key={p.id}
+                  label={purchaseLabel(p)}
+                  description={[
+                    formatDate(p.createdAt),
+                    p.source === "admin" ? "Added by Scoutable" : formatKronor(p.amountTotal),
+                    p.status === "refunded" ? "Refunded" : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                  trailing={
+                    p.receiptUrl ? (
+                      <a href={p.receiptUrl} target="_blank" rel="noreferrer" className="font-medium text-primary hover:underline">
+                        Receipt
+                      </a>
+                    ) : undefined
+                  }
+                />
+              ))}
+            </GroupedList>
+            <GroupFooter>
+              Buy a single game or the season pass in the Scoutable desktop app, when you import or export.
+              Re-importing a game is always free.
+            </GroupFooter>
+          </section>
+        )}
 
         <MyTeamCard />
 

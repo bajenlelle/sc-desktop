@@ -22,6 +22,7 @@ import { createClient } from "@/lib/supabase/client";
 import { trackEvent } from "@/lib/analytics";
 import { listPlaylists } from "@scoutable/shared/lib/playlists-db";
 import { isClipItem, type Playlist } from "@scoutable/shared/types/match";
+import { usePlayerAccess } from "@/lib/use-player-access";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
 
@@ -193,8 +194,11 @@ function OwnPlaylists() {
 export default function MyHighlightsPage() {
   const { myOrgs, profileLoading } = useAuth();
 
+  const { access } = usePlayerAccess();
+
   const personalOrg = myOrgs.find((o) => o.isPersonal) ?? null;
-  const upgraded = personalOrg != null && personalOrg.planTier !== "free";
+  // A bought game or season pass counts: any purchase opens the player's own space.
+  const upgraded = personalOrg != null && (personalOrg.planTier !== "free" || !!access?.hasPaid);
 
   return (
     <Page width="medium">

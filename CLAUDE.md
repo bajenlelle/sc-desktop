@@ -49,11 +49,18 @@ playlists, and share them with teams; players watch on web/mobile.
   (`not_owner`, `import_limit_reached`), and end with `GRANT EXECUTE ... TO
   authenticated`. Tables get RLS; client-written tables get explicit
   policies, server-written tables get none (service role bypasses).
-- **Import quota**: `_import_allowance` (latest definition in
-  `supabase/migrations/20261001130000_rookie_six_imports.sql`) is the
-  single source of truth (free = 3 lifetime, rookie = 6/month, paid =
-  unlimited). `packages/shared/lib/plan-tier.ts` mirrors it for display only
-  — change both together.
+- **Import quota**: `_game_access` (latest definition in
+  `supabase/migrations/20261017100000_player_passes.sql`) decides each new
+  game, and `import_log.via` records what paid for it. Free = a season pass
+  that covers the game, else a trial slot (2 for accounts created from
+  `app_config.free_games_two_since`, 3 before, plus refill grants), else a
+  bought single game; rookie = 6/month (legacy, no longer sold); paid =
+  unlimited. `_import_allowance` summarises it for the meters, and
+  `packages/shared/lib/plan-tier.ts` and `player-access.ts` mirror it for
+  display only — change them together. Player purchases (`purchases`,
+  `season_passes`) are written only by apps/web's Stripe player webhook
+  (`/api/stripe/player-webhook`) or `/admin/imports`; sales are switched on
+  with `app_config.player_pass_enabled`.
 - **Errors**: Sentry on all three apps (org `scoutable`, EU). DSNs are
   hardcoded (public); desktop/mobile dev builds are offline unless the DSN
   env var is set. Don't add error tracking dependencies to `packages/shared`.
