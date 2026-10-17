@@ -78,6 +78,8 @@ export function SyncFixPanel({
   const [found, setFound] = React.useState<number | null>(null);
   const [scope, setScope] = React.useState<SyncFixScope>("quarter");
   const [saving, setSaving] = React.useState(false);
+  /** The sheet is a dialog: the picker's keys (Space, ←/→, ,/.) belong to all of it. */
+  const rootRef = React.useRef<HTMLDivElement>(null);
 
   const delta = found !== null && mapped !== null ? found - mapped : null;
   const moves = delta !== null && Math.abs(delta) >= 0.05;
@@ -112,7 +114,7 @@ export function SyncFixPanel({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div ref={rootRef} className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 border-b border-separator px-5 py-4">
         <SheetTitle>Fix sync</SheetTitle>
         <SheetDescription>
@@ -133,6 +135,7 @@ export function SyncFixPanel({
           confirmedSeconds={found}
           seekRequest={seek}
           onConfirm={setFound}
+          keyContainer={rootRef}
         />
         <div className="space-y-2">
           <SegmentedControl<SyncFixScope>

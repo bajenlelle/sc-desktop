@@ -58,6 +58,12 @@ export interface SyncPointPickerProps {
   confirmedSeconds?: number | null;
   /** The recording's length, once known. */
   onDuration?: (seconds: number) => void;
+  /**
+   * The surface the picker's keys belong to, when it sits in a dialog (the
+   * Fix sync sheet): without one, its keys yield to any open dialog, its own
+   * included. Keys from inside the container reach the picker.
+   */
+  keyContainer?: React.RefObject<HTMLElement | null>;
 }
 
 export interface AnchorCopy {
@@ -128,6 +134,7 @@ export function SyncPointPicker({
   note,
   confirmedSeconds,
   onDuration,
+  keyContainer,
 }: SyncPointPickerProps) {
   const copy = { ...ANCHOR_COPY[anchorKind], ...copyOverride };
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -298,7 +305,7 @@ export function SyncPointPicker({
     onUserActionRef.current?.("confirm");
   }
 
-  useKeyScope("tipoff", true);
+  useKeyScope("tipoff", true, keyContainer);
   useHotkeys("tipoff", (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     switch (e.key) {
