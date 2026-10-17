@@ -35,6 +35,30 @@ enum ExportSegment {
         text: String,
         duration_seconds: f64,
     },
+    /// A card the app drew (a text or stats card) as a base64 PNG at the
+    /// export's own size, so the editor's preview and the export share the
+    /// same pixels.
+    Image {
+        png_base64: String,
+        duration_seconds: f64,
+    },
+}
+
+/// Decode a drawn card and check it's a PNG of the export's size: the concat
+/// filter needs every segment to share one WxH.
+fn decode_card_png(png_base64: &str, vertical: bool) -> Result<Vec<u8>, String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(png_base64.trim())
+        .map_err(|e| format!("Card image isn't valid base64: {e}"))?;
+    let (w, h) = image::ImageReader::with_format(std::io::Cursor::new(&bytes), image::ImageFormat::Png)
+        .into_dimensions()
+        .map_err(|e| format!("Card image isn't a PNG: {e}"))?;
+    let expected = if vertical { (1080, 1920) } else { (1280, 720) };
+    if (w, h) != expected {
+        return Err(format!("Card image is {w}x{h}, expected {}x{}", expected.0, expected.1));
+    }
+    Ok(bytes)
 }
 
 #[derive(serde::Deserialize, Clone, Copy)]
@@ -408,7 +432,7 @@ async fn export_playlist(
     // One constant rate for every segment, from the first clip's source.
     let first_clip = segments.iter().find_map(|s| match s {
         ExportSegment::Clip { video_path, .. } => Some(video_path.as_str()),
-        ExportSegment::Text { .. } => None,
+        ExportSegment::Text { .. } | ExportSegment::Image { .. } => None,
     });
     let probed_fps = match first_clip {
         Some(path) => video_frames::probe_fps(&app, path).await,
@@ -501,6 +525,23 @@ async fn export_playlist(
                 let png_path = temp.track(std::env::temp_dir().join(format!("sc_text_{}_{}.png", timestamp, i)));
                 img.save(&png_path)
                     .map_err(|e| format!("Failed to save text frame: {e}"))?;
+
+                let args = text_card_args(
+                    png_path.to_str().unwrap(),
+                    *duration_seconds,
+                    &rate,
+                    temp_path.to_str().unwrap(),
+                );
+
+                let result = run_ffmpeg(&app, &args, job).await;
+                let _ = std::fs::remove_file(&png_path);
+                result?
+            }
+            ExportSegment::Image { png_base64, duration_seconds } => {
+                let bytes = decode_card_png(png_base64, vertical)?;
+                let png_path = temp.track(std::env::temp_dir().join(format!("sc_card_{}_{}.png", timestamp, i)));
+                std::fs::write(&png_path, &bytes)
+                    .map_err(|e| format!("Failed to save card frame: {e}"))?;
 
                 let args = text_card_args(
                     png_path.to_str().unwrap(),
@@ -1372,6 +1413,38 @@ mod tests {
              fade=t=in:st=0:d=0.25,fade=t=out:st=1.750:d=0.25"
         );
         assert_eq!(arg_after(&args, "-pix_fmt"), "yuv420p");
+    }
+
+    fn png_base64(w: u32, h: u32) -> String {
+        use base64::Engine;
+        let img = image::RgbImage::new(w, h);
+        let mut out = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut out, image::ImageFormat::Png).unwrap();
+        base64::engine::general_purpose::STANDARD.encode(out.into_inner())
+    }
+
+    #[test]
+    fn image_segment_deserializes_from_the_app() {
+        let json = r#"[{"kind":"image","png_base64":"AAAA","duration_seconds":5.0}]"#;
+        let segments: Vec<ExportSegment> = serde_json::from_str(json).unwrap();
+        assert!(matches!(&segments[0], ExportSegment::Image { png_base64, duration_seconds }
+            if png_base64 == "AAAA" && (*duration_seconds - 5.0).abs() < f64::EPSILON));
+    }
+
+    #[test]
+    fn card_png_must_match_the_export_size() {
+        assert!(decode_card_png(&png_base64(1280, 720), false).is_ok());
+        assert!(decode_card_png(&png_base64(1080, 1920), true).is_ok());
+        let err = decode_card_png(&png_base64(1280, 720), true).unwrap_err();
+        assert_eq!(err, "Card image is 1280x720, expected 1080x1920");
+    }
+
+    #[test]
+    fn card_png_rejects_bad_input() {
+        assert!(decode_card_png("not base64!", false).unwrap_err().contains("base64"));
+        use base64::Engine;
+        let not_png = base64::engine::general_purpose::STANDARD.encode(b"GIF89a....");
+        assert!(decode_card_png(&not_png, false).unwrap_err().contains("PNG"));
     }
 
     #[test]

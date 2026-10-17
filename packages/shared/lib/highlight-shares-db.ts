@@ -6,6 +6,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { computeVideoTime } from "./clip-timing";
 import type { SyncPoint } from "../types/match";
+import { CARD_RENDER_VERSION } from "./card-layout";
+import { cardContent, type StatsCardSpec } from "./stats-card";
 
 export interface HighlightShare {
   id: string;
@@ -44,7 +46,7 @@ export type HighlightContentSegment =
       postRollOffset?: number;
       cropKeyframes?: { t: number; cx: number }[];
     }
-  | { kind: "text"; text: string; durationSeconds: number };
+  | { kind: "text"; text: string; durationSeconds: number; card?: StatsCardSpec };
 
 /** cyrb53 — small, fast, deterministic 53-bit string hash (public domain). */
 function cyrb53(str: string, seed = 0): string {
@@ -64,7 +66,7 @@ function cyrb53(str: string, seed = 0): string {
  * Fingerprint of exactly what a send-to-phone render contains: clip
  * identities IN ORDER, each clip's computed in-video time (sync-dependent —
  * a re-synced game re-cuts every clip, so a sync edit must invalidate the
- * link; that gap was the v1→v2 bump), roll settings, text cards — and, for
+ * link; that gap was the v1→v2 bump), roll settings, cards as drawn — and, for
  * 9:16 only, the crop-pan keyframes (pans don't shape a widescreen render,
  * so a pan edit must not invalidate a 16:9 link). Reuse requires an
  * identical key, so any relevant edit between sends re-renders instead of
@@ -78,7 +80,12 @@ export function highlightContentKey(
   aspect: HighlightAspect
 ): string {
   const parts = segments.map((s) => {
-    if (s.kind === "text") return `t|${s.durationSeconds}|${s.text}`;
+    // Cards are keyed on what they draw (plus the drawing's version), so
+    // re-reading unchanged numbers keeps the link and a new look renews it.
+    if (s.kind === "text") {
+      const drawn = s.card ? JSON.stringify(cardContent(s.card)) : s.text;
+      return `${s.card ? "s" : "t"}|${s.durationSeconds}|${drawn}|r${CARD_RENDER_VERSION}`;
+    }
     const videoTime = s.syncPoint ? computeVideoTime(s.event, s.syncPoint) : null;
     return `c|${s.matchId}|${s.event.eventId}|${videoTime?.toFixed(1) ?? "x"}|${
       s.preRollOffset ?? 0

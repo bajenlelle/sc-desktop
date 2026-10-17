@@ -2637,7 +2637,8 @@ export function PlaylistsPage() {
     return itemsToExport
       .map((item): ExportSegment | null => {
         if (isTextCard(item)) {
-          return { kind: 'text', text: (item as PlaylistTextCard).text, durationSeconds: (item as PlaylistTextCard).durationSeconds };
+          const card = item as PlaylistTextCard;
+          return { kind: 'text', text: card.text, durationSeconds: card.durationSeconds, ...(card.card ? { card: card.card } : {}) };
         }
         const qi = item as QueueItem;
         const m = matchLookup.get(qi.matchId);

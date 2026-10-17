@@ -8,6 +8,8 @@ import { probeVideoDuration, probeVideoPath, videoBasename } from "@/lib/video-p
 import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { toSegmentKeyframes, type CropKeyframe } from "@scoutable/shared/lib/crop-path";
 import { isExportCancelled, type ExportProgress } from "@scoutable/shared/lib/export-progress";
+import { fallbackText, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
+import { cardPngBase64 } from "@/lib/card-painter";
 import type { PlayByPlayEvent, SyncPoint } from "@/types/match";
 
 export type { ExportProgress };
@@ -66,7 +68,7 @@ async function invokeExportPlaylist(
 
 export type ExportSegment =
   | { kind: 'clip'; videoPath: string; matchId: string; event: PlayByPlayEvent; syncPoint: SyncPoint; preRollOffset?: number; postRollOffset?: number; cropKeyframes?: CropKeyframe[] }
-  | { kind: 'text'; text: string; durationSeconds: number };
+  | { kind: 'text'; text: string; durationSeconds: number; card?: StatsCardSpec };
 
 // Legacy interface kept for callers that haven't migrated yet
 export interface ExportItem {
@@ -79,7 +81,27 @@ export interface ExportItem {
 
 type RustSegment =
   | { kind: 'clip'; video_path: string; start: number; end: number; crop_keyframes?: CropKeyframe[] }
-  | { kind: 'text'; text: string; duration_seconds: number };
+  | { kind: 'text'; text: string; duration_seconds: number }
+  | { kind: 'image'; png_base64: string; duration_seconds: number };
+
+/**
+ * Cards are drawn by the app (card-painter), so the export shows exactly
+ * what the stage did. If drawing fails, the card still renders through
+ * Rust's own text card; a stats card then shows its fallback line.
+ */
+async function cardSegment(
+  seg: Extract<ExportSegment, { kind: 'text' }>,
+  vertical: boolean,
+): Promise<RustSegment> {
+  try {
+    const png = await cardPngBase64(seg, vertical ? "9:16" : "16:9");
+    return { kind: 'image', png_base64: png, duration_seconds: seg.durationSeconds };
+  } catch (e) {
+    console.warn("Card drawing failed; exporting it as plain text", e);
+    const text = seg.card ? fallbackText(seg.card) : seg.text;
+    return { kind: 'text', text, duration_seconds: seg.durationSeconds };
+  }
+}
 
 /**
  * A moved/deleted source file (machine switch) would otherwise surface as
@@ -201,22 +223,25 @@ async function assertClipsWithinVideos(rustSegments: RustSegment[]): Promise<voi
   }
 }
 
-function buildRustSegments(
+async function buildRustSegments(
   segments: ExportSegment[],
   preRoll: number,
   postRoll: number,
   vertical: boolean,
-): RustSegment[] {
+): Promise<RustSegment[]> {
   for (const seg of segments) {
     if (seg.kind === 'clip' && !isLocalPath(seg.videoPath))
       throw new Error("Export requires a local video file for every session.");
   }
 
+  const cards = new Map<ExportSegment, RustSegment>();
+  for (const seg of segments) {
+    if (seg.kind === 'text') cards.set(seg, await cardSegment(seg, vertical));
+  }
+
   const rustSegments: RustSegment[] = segments
     .map((seg): RustSegment | null => {
-      if (seg.kind === 'text') {
-        return { kind: 'text', text: seg.text, duration_seconds: seg.durationSeconds };
-      }
+      if (seg.kind === 'text') return cards.get(seg) ?? null;
       const t = computeVideoTime(seg.event, seg.syncPoint);
       if (t === null) return null;
       const { start, end } = clipBounds(t, preRoll, postRoll, seg.preRollOffset, seg.postRollOffset);
@@ -256,7 +281,7 @@ export async function exportPlaylistToPath(
   opts?: ExportOptions,
 ): Promise<void> {
   await assertVideosPresent(segments);
-  const rustSegments = buildRustSegments(segments, preRoll, postRoll, vertical);
+  const rustSegments = await buildRustSegments(segments, preRoll, postRoll, vertical);
   await assertClipsWithinVideos(rustSegments);
   await invokeExportPlaylist(rustSegments, outputPath, watermark, vertical, opts);
 }
@@ -285,7 +310,7 @@ export async function exportPlaylist(
     );
   }
   if (skipped > 0 && note) toast.warning(note, { duration: 8000 });
-  const rustSegments = buildRustSegments(kept, preRoll, postRoll, vertical);
+  const rustSegments = await buildRustSegments(kept, preRoll, postRoll, vertical);
   await assertClipsWithinVideos(rustSegments);
 
   const outputPath = await save({
