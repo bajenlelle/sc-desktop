@@ -8,7 +8,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { currentUserId } from "./current-user";
-import { applyOrgScope, clearShippedClipsForMatch, type OrgScopeOpts } from "./playlists-db";
+import { applyOrgScope, clearLegacyShippedClipsForMatch, type OrgScopeOpts } from "./playlists-db";
 import { reportDbError } from "./report";
 import type { PlaylistFolder, PlayByPlayEvent, StoredMatch, SyncPoint } from "../types/match";
 import { normalizeSyncPoint } from "./period-sync";
@@ -367,19 +367,21 @@ export async function updateSyncPoint(
 }
 
 /**
- * A sync change re-cuts every clip of the match, so uploads made with the old
- * sync must stop being served (see clearShippedClipsForMatch). Best-effort:
- * a failed invalidation must never fail the sync save itself — report it and
- * move on (the stale clips are then no worse than before this existed).
+ * A sync change moves the cut of every clip it reaches. Uploads whose key
+ * records where they were cut are compared and re-cut by the desktop in the
+ * background (players keep the old file until the new one is up); uploads
+ * from before keys carried a start can't be compared, so they stop being
+ * served (see clearLegacyShippedClipsForMatch). Best-effort: a failed
+ * invalidation must never fail the sync save itself.
  */
 async function invalidateShippedClips(
   supabase: SupabaseClient,
   matchId: string,
 ): Promise<number> {
   try {
-    return await clearShippedClipsForMatch(supabase, matchId);
+    return await clearLegacyShippedClipsForMatch(supabase, matchId);
   } catch (e) {
-    reportDbError("clearShippedClipsForMatch", {
+    reportDbError("clearLegacyShippedClipsForMatch", {
       message: e instanceof Error ? e.message : String(e),
     });
     return 0;

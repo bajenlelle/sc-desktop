@@ -145,22 +145,39 @@ export function shippedTotals(r2Url: string): RollPair | null {
 }
 
 /**
+ * The in-video start a shipped clip was cut from, read back from its R2 key
+ * (clipShipKey's `_s` segment). Null for keys minted before that segment.
+ */
+export function shippedStart(r2Url: string): number | null {
+  const m = /_s(\d+(?:\.\d+)?)\.mp4/.exec(r2Url);
+  return m ? Number(m[1]) : null;
+}
+
+/**
  * Whether a shipped clip's file no longer matches the playlist's pair plus
- * the clip's own offsets, compared the way clipShipKey writes them (one
- * decimal). An unshipped clip or an unknown key format is never stale: there
- * is nothing to compare and nothing to replace.
+ * the clip's own offsets, or (given `expectedStart`) where the game's sync
+ * now puts it, compared the way clipShipKey writes them (one decimal). An
+ * unshipped clip or an unknown key format is never stale: there is nothing
+ * to compare and nothing to replace. A key without a start is never stale on
+ * its start alone.
  */
 export function isShippedClipStale(
   clip: { r2Url?: string; preRollOffset?: number; postRollOffset?: number },
   pair: RollPair,
+  expectedStart?: number | null,
 ): boolean {
   if (!clip.r2Url) return false;
   const shipped = shippedTotals(clip.r2Url);
   if (!shipped) return false;
-  return (
+  if (
     keySeconds(shipped.pre) !== keySeconds(pair.pre + (clip.preRollOffset ?? 0)) ||
     keySeconds(shipped.post) !== keySeconds(pair.post + (clip.postRollOffset ?? 0))
-  );
+  ) {
+    return true;
+  }
+  if (expectedStart == null) return false;
+  const start = shippedStart(clip.r2Url);
+  return start !== null && keySeconds(start) !== keySeconds(expectedStart);
 }
 
 const hundredths = (n: number) => Math.round(n * 100) / 100;

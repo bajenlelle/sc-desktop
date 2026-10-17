@@ -9,6 +9,7 @@ import {
   isWatchedPosition,
   playlistRolls,
   rebaseOffsets,
+  shippedStart,
   shippedTotals,
   syncForPeriod,
 } from "../clip-timing";
@@ -262,6 +263,30 @@ describe("per-period sync", () => {
   it("is unchanged for a game without period syncs", () => {
     const plain: SyncPoint = { syncVideoTime: 42, syncRealWorldTime: "2026-09-20T17:30:00Z" };
     expect(computeVideoTime(at(3, "2026-09-20T18:10:00Z"), plain)).toBe(2442);
+  });
+});
+
+describe("shippedStart", () => {
+  it("reads where a clip was cut from its key, and nothing from a key without a start", () => {
+    expect(shippedStart("https://pub-x.r2.dev/" + clipShipKey("m1", 42, 10, 3, 754.2))).toBe(754.2);
+    expect(shippedStart("https://pub-x.r2.dev/clips/m1/42_pre9.5_post3.0.mp4")).toBeNull();
+  });
+});
+
+describe("isShippedClipStale with a start", () => {
+  const url = (start: number) => "https://pub-x.r2.dev/" + clipShipKey("m1", 42, 10, 3, start);
+  const pair = { pre: 10, post: 3 };
+
+  it("is stale once the sync moves the cut, and fresh where it still is", () => {
+    expect(isShippedClipStale({ r2Url: url(754.2) }, pair, 754.2)).toBe(false);
+    expect(isShippedClipStale({ r2Url: url(754.2) }, pair, 754.24)).toBe(false);
+    expect(isShippedClipStale({ r2Url: url(754.2) }, pair, 93.2)).toBe(true);
+  });
+
+  it("can't tell for a key without a start, or without an expected start", () => {
+    expect(isShippedClipStale({ r2Url: "https://pub-x.r2.dev/clips/m1/42_pre10.0_post3.0.mp4" }, pair, 93.2)).toBe(false);
+    expect(isShippedClipStale({ r2Url: url(754.2) }, pair, null)).toBe(false);
+    expect(isShippedClipStale({ r2Url: url(754.2) }, pair)).toBe(false);
   });
 });
 

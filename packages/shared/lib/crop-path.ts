@@ -95,3 +95,12 @@ export function toSegmentKeyframes(
   }
   return deduped;
 }
+
+/**
+ * A pan path moved with its clip: keyframe times are absolute video seconds,
+ * so when a sync change moves a clip's cut by `deltaSeconds`, its pan has to
+ * move the same way to keep following the same frames.
+ */
+export function shiftKeyframes(kfs: CropKeyframe[], deltaSeconds: number): CropKeyframe[] {
+  return kfs.map((k) => ({ ...k, t: Math.round((k.t + deltaSeconds) * 1000) / 1000 }));
+}

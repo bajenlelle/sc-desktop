@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { probeVideoPath, videoBasename, type VideoFileStatus } from "@/lib/video-probe";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import type { StoredMatch, SyncPoint } from "@/types/match";
+import { afterSyncChange } from "@/lib/sync-change";
 
 interface RosterEntry {
   jerseyNumber: string;
@@ -33,14 +34,15 @@ interface RosterEntry {
 }
 
 /**
- * A sync change re-cuts every clip of this game, so shipped uploads were
- * invalidated (their r2_url cleared): recipients can't see those clips again
- * until the coach re-uploads them with the new sync.
+ * A sync change re-cuts the clips it moves in the background (see
+ * afterSyncChange). Uploads from before clips recorded where they were cut
+ * can't be compared, so those were invalidated (r2_url cleared): recipients
+ * can't see them again until the coach re-uploads them.
  */
 function notifyClearedShippedClips(count: number) {
   if (count === 0) return;
-  toast.info(`${count} shared clip${count === 1 ? "" : "s"} from this game will re-render with the new tip-off`, {
-    description: "They're hidden from recipients until re-uploaded: in Shared playlists, use Upload missing clips.",
+  toast.info(`${count} older shared clip${count === 1 ? "" : "s"} from this game are hidden until uploaded again`, {
+    description: "They were shared before clips recorded where they're cut. In Shared playlists, use Upload missing clips.",
     duration: 10000,
   });
 }
@@ -301,24 +303,32 @@ export function MatchDetailPage() {
     }
   }
 
-  async function saveSyncPoint(secs: number) {
+  /** Saves a new sync for the game; its clips in the coach's playlists follow in the background. */
+  async function saveSync(next: SyncPoint) {
     if (!storedMatch) return false;
-    // Spread keeps the anchor (which moment the time refers to).
-    const sp: SyncPoint = {
-      ...storedMatch.syncPoint,
-      syncVideoTime: secs,
-      syncRealWorldTime: storedMatch.syncPoint?.syncRealWorldTime ?? "",
-    };
+    const before = storedMatch.syncPoint;
     try {
-      const { clearedShippedClips } = await updateSyncPoint(matchId, sp);
-      setStoredMatch((m) => (m ? { ...m, syncPoint: sp } : m));
+      const { clearedShippedClips } = await updateSyncPoint(matchId, next);
+      const updated = { ...storedMatch, syncPoint: next };
+      setStoredMatch((m) => (m ? { ...m, syncPoint: next } : m));
       flashSaved("saved");
       notifyClearedShippedClips(clearedShippedClips);
+      void afterSyncChange(updated, before);
       return true;
     } catch {
       flashSaved("error");
       return false;
     }
+  }
+
+  async function saveSyncPoint(secs: number) {
+    if (!storedMatch) return false;
+    // Spread keeps the anchor (which moment the time refers to) and the quarters.
+    return saveSync({
+      ...storedMatch.syncPoint,
+      syncVideoTime: secs,
+      syncRealWorldTime: storedMatch.syncPoint?.syncRealWorldTime ?? "",
+    });
   }
 
   if (notFound || !storedMatch) {

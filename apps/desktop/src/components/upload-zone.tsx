@@ -14,6 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { saveMatch, findMatchBySourceGame, findImportedSourceGames } from "@/lib/matches-db";
+import { clearLegacyShippedClipsForMatch } from "@/lib/playlists-db";
+import { afterSyncChange } from "@/lib/sync-change";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import type { OrgMembership } from "@/types/org";
@@ -374,7 +376,7 @@ export function UploadZone({
   const [fetchError, setFetchError] = useState<string | null>(null);
   // The same fixture already imported into this space — re-importing updates
   // that row in place instead of creating an identically-named duplicate.
-  const [existingMatch, setExistingMatch] = useState<{ id: string; title: string } | null>(null);
+  const [existingMatch, setExistingMatch] = useState<{ id: string; title: string; syncPoint?: SyncPoint } | null>(null);
 
   // Match data state
   const [matchTitle, setMatchTitle] = useState("");
@@ -474,7 +476,7 @@ export function UploadZone({
     let cancelled = false;
     findMatchBySourceGame(uuid, activeOrgId ?? undefined)
       .then((m) => {
-        if (!cancelled) setExistingMatch(m ? { id: m.id, title: m.title } : null);
+        if (!cancelled) setExistingMatch(m ? { id: m.id, title: m.title, syncPoint: m.syncPoint } : null);
       })
       .catch(() => {
         if (!cancelled) setExistingMatch(null);
@@ -700,6 +702,12 @@ export function UploadZone({
 
     try {
       await saveMatch(storedMatch, { refreshEvents: !!existingMatch });
+      if (existingMatch?.syncPoint && syncPoint) {
+        // A re-import can move the sync: uploads that can't say where they
+        // were cut stop being served, and the rest follow in the background.
+        void clearLegacyShippedClipsForMatch(matchId).catch((e) => Sentry.captureException(e));
+        void afterSyncChange(storedMatch, existingMatch.syncPoint);
+      }
       trackEvent('game_synced', {
         game_id: matchId,
         // Which fixture: team names and league are public, so they can live in analytics.

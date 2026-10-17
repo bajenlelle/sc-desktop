@@ -12,6 +12,7 @@ import { reportDbError } from "./report";
 import { currentUserId } from "./current-user";
 import type { Playlist, PlaylistItem, PlaylistClipItem, PlaylistTextCard } from "../types/match";
 import type { CropKeyframe } from "./crop-path";
+import { shippedStart } from "./clip-timing";
 
 // ---------------------------------------------------------------------------
 // DB row types (snake_case columns from Postgres)
@@ -541,6 +542,94 @@ export async function clearShippedClipsForMatch(
     .select("id");
   if (error) throw new Error(`Failed to clear shipped clips: ${error.message}`);
   return data?.length ?? 0;
+}
+
+/** One of the caller's playlist clips of a match, with what its playlist cuts it to. */
+export interface OwnMatchClip {
+  playlistId: string;
+  playlistName: string;
+  /** The playlist's saved clip length; undefined = the app default. */
+  preRoll?: number;
+  postRoll?: number;
+  clip: PlaylistClipItem;
+}
+
+/**
+ * The caller's own playlist clips of a match that a sync change can affect:
+ * those already shared (an r2_url, cut with the old sync) and those with a
+ * vertical pan (keyframes in absolute video seconds). Own playlists only,
+ * since only the owner can rewrite them.
+ */
+export async function listOwnClipsForMatch(supabase: SupabaseClient, matchId: string): Promise<OwnMatchClip[]> {
+  const uid = await currentUserId(supabase);
+  if (!uid) return [];
+  const { data, error } = await supabase
+    .from("playlist_clips")
+    .select(
+      "playlist_id, match_id, event_id, pre_roll_offset, post_roll_offset, r2_url, crop_keyframes, playlists!inner(name, pre_roll, post_roll, user_id)",
+    )
+    .eq("match_id", matchId)
+    .eq("playlists.user_id", uid)
+    .or("r2_url.not.is.null,crop_keyframes.not.is.null");
+  if (error) throw new Error(`Failed to list clips of the game: ${error.message}`);
+  type Row = {
+    playlist_id: string;
+    match_id: string;
+    event_id: number;
+    pre_roll_offset: number | string | null;
+    post_roll_offset: number | string | null;
+    r2_url: string | null;
+    crop_keyframes: CropKeyframe[] | null;
+    playlists: { name: string; pre_roll: number | null; post_roll: number | null } | { name: string; pre_roll: number | null; post_roll: number | null }[];
+  };
+  return ((data ?? []) as unknown as Row[]).map((r) => {
+    const pl = Array.isArray(r.playlists) ? r.playlists[0] : r.playlists;
+    const pre = Number(r.pre_roll_offset ?? 0);
+    const post = Number(r.post_roll_offset ?? 0);
+    const clip: PlaylistClipItem = {
+      type: "clip",
+      matchId: r.match_id,
+      eventId: r.event_id,
+      ...(pre ? { preRollOffset: pre } : {}),
+      ...(post ? { postRollOffset: post } : {}),
+      ...(r.r2_url ? { r2Url: r.r2_url } : {}),
+      ...(r.crop_keyframes && r.crop_keyframes.length > 0 ? { cropKeyframes: r.crop_keyframes } : {}),
+    };
+    return {
+      playlistId: r.playlist_id,
+      playlistName: pl?.name ?? "",
+      ...(pl?.pre_roll != null ? { preRoll: pl.pre_roll } : {}),
+      ...(pl?.post_roll != null ? { postRoll: pl.post_roll } : {}),
+      clip,
+    };
+  });
+}
+
+/**
+ * After a sync change, null the shipped URLs of a match's clips whose key
+ * can't say where they were cut (minted before clipShipKey's `_s` segment):
+ * nothing can tell whether they moved, so they stop being served until the
+ * coach re-uploads. Keys with a start are compared and re-cut instead. RLS
+ * scopes the update to the caller's own playlists. Returns how many.
+ */
+export async function clearLegacyShippedClipsForMatch(supabase: SupabaseClient, matchId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from("playlist_clips")
+    .select("id, r2_url")
+    .eq("match_id", matchId)
+    .not("r2_url", "is", null);
+  if (error) throw new Error(`Failed to read shipped clips: ${error.message}`);
+  const ids = ((data ?? []) as { id: string; r2_url: string }[])
+    .filter((r) => shippedStart(r.r2_url) === null)
+    .map((r) => r.id);
+  if (ids.length === 0) return 0;
+  const { data: cleared, error: clearError } = await supabase
+    .from("playlist_clips")
+    .update({ r2_url: null })
+    .in("id", ids)
+    .select("id");
+  if (clearError) throw new Error(`Failed to clear shipped clips: ${clearError.message}`);
+  return cleared?.length ?? 0;
 }
 
 /**

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAuth } from "@/lib/auth-context";
 import { trackEvent } from "@/lib/analytics";
+import { CLIPS_PATCHED_EVENT, isSyncRefreshRunning, type ClipPatch } from "@/lib/sync-change";
 import { Sentry } from "@/lib/sentry";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -456,6 +457,31 @@ export function PlaylistsPage() {
   useEffect(() => { postRollRef.current = postRoll; }, [postRoll]);
   useEffect(() => { activeMatchIdRef.current = activeMatchId; }, [activeMatchId]);
   useEffect(() => { selectedRef.current = selected; }, [selected]);
+
+  // A sync change re-cut shared clips or moved pans in the background
+  // (lib/sync-change.ts): keep this copy of those playlists in step.
+  useEffect(() => {
+    const onPatched = (e: Event) => {
+      const { patches } = (e as CustomEvent<{ patches: ClipPatch[] }>).detail;
+      const patch = (pl: Playlist): Playlist => {
+        const mine = new Map(patches.filter((x) => x.playlistId === pl.id).map((x) => [`${x.matchId}:${x.eventId}`, x]));
+        if (mine.size === 0) return pl;
+        return {
+          ...pl,
+          items: pl.items.map((item) => {
+            const x = item.type === "clip" ? mine.get(`${item.matchId}:${item.eventId}`) : undefined;
+            if (!x || item.type !== "clip") return item;
+            return { ...item, ...(x.r2Url ? { r2Url: x.r2Url } : {}), ...(x.cropKeyframes ? { cropKeyframes: x.cropKeyframes } : {}) };
+          }),
+        };
+      };
+      if (selectedRef.current) selectedRef.current = patch(selectedRef.current);
+      setSelected((prev) => (prev ? patch(prev) : prev));
+      setPlaylists((prev) => prev.map(patch));
+    };
+    window.addEventListener(CLIPS_PATCHED_EVENT, onPatched);
+    return () => window.removeEventListener(CLIPS_PATCHED_EVENT, onPatched);
+  }, []);
   useEffect(() => { playlistsRef.current = playlists; }, [playlists]);
 
   // ── Clip length ──────────────────────────────────────────────────────────
@@ -528,8 +554,20 @@ export function PlaylistsPage() {
     if (isShippingRef.current || refreshRef.current) return;
     if (!announce && refreshFailedRef.current.has(pl.id)) return;
     const pair = playlistRolls(pl);
+    // Where the game's sync now puts each clip: a re-sync made elsewhere (or
+    // in an older app) leaves shared clips cut at the old spot.
+    const cutStart = (c: PlaylistClipItem): number | null => {
+      const sync = matchLookup.get(c.matchId)?.syncPoint;
+      const event = eventByKey.get(`${c.matchId}:${c.eventId}`);
+      const t = sync && event ? computeVideoTime(event, sync) : null;
+      return t === null ? null : clipBounds(t, pair.pre, pair.post, c.preRollOffset, c.postRollOffset).start;
+    };
     const stale = new Set(
-      pl.items.filter(isClipItem).filter((c) => isShippedClipStale(c, pair)).map((c) => `${c.matchId}:${c.eventId}`),
+      pl.items
+        .filter(isClipItem)
+        // A game whose sync just changed is being re-cut everywhere already.
+        .filter((c) => !isSyncRefreshRunning(c.matchId) && isShippedClipStale(c, pair, cutStart(c)))
+        .map((c) => `${c.matchId}:${c.eventId}`),
     );
     if (stale.size === 0 || demoShipBlockReason(pl)) return;
     const segments = buildShipSegments(pl).filter(
