@@ -113,6 +113,7 @@ export function SendToPhoneDialog({
         trackEvent("highlight_sent_to_phone", {
           playlist_id: pl.id,
           clip_count: kept.filter((s) => s.kind === "clip").length,
+          stats_cards: kept.filter((s) => s.kind === "text" && s.card).length,
           reused: false,
           is_selection: isSelection,
           ...(vertical ? { aspect: "9:16" } : {}),
