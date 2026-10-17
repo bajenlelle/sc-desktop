@@ -16,7 +16,9 @@ import {
   findProfixioSyncAnchor,
   normalizeProfixioEvents,
   resolveSides,
+  findProfixioPeriodMarks,
 } from "../profixio";
+import { breakSeconds } from "../period-sync";
 import userinfo from "./fixtures/profixio-api/userinfo.json";
 import tournaments from "./fixtures/profixio-api/tournaments.json";
 import categoriesBody from "./fixtures/profixio-api/match-categories-52949.json";
@@ -189,6 +191,23 @@ describe("a whole match through the normaliser", () => {
     expect(events).toHaveLength(157);
     expect(new Set(events.filter((e) => e.teamId != null).map((e) => e.teamId))).toEqual(new Set([HOME, AWAY]));
     expect(resolveSides(m)).toEqual({ homeWebId: HOME, awayWebId: AWAY });
+  });
+
+  it("keeps each period's start and end as the table logged them, anchored on its first basket", () => {
+    const marks = findProfixioPeriodMarks(m, ctx);
+    expect(Object.keys(marks)).toEqual(["1", "2", "3", "4"]);
+    for (const mark of Object.values(marks)) {
+      expect(mark.anchor.kind).toBe("first_basket");
+      expect(mark.anchor.label).toMatch(/^(Sollentuna Basket|KFUM Blackebergs IK Röd)'s first basket of Q[1-4] \(\d+–\d+\)$/);
+      expect(new Date(mark.anchor.realWorldTime).getTime()).toBeGreaterThanOrEqual(new Date(mark.startRealWorldTime!).getTime());
+    }
+    // The breaks a video that skips them would cut: 1:49, 8:55 and 1:43.
+    const events = normalizeProfixioEvents(m, ctx);
+    expect(breakSeconds({ syncVideoTime: 0, syncRealWorldTime: marks["1"].anchor.realWorldTime, marks }, events)).toEqual({
+      "2": 109,
+      "3": 535,
+      "4": 103,
+    });
   });
 
   it("produces clips whose running score reaches the final 90–98", () => {

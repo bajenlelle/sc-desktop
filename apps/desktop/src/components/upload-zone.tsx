@@ -395,6 +395,7 @@ export function UploadZone({
   const [tipoffRealWorldTime, setTipoffRealWorldTime] = useState<string | null>(null);
   // Set when the reference moment is not the tip-off (Profixio: first basket).
   const [syncAnchor, setSyncAnchor] = useState<GameData["syncAnchor"]>(undefined);
+  const [periodMarks, setPeriodMarks] = useState<GameData["periodMarks"]>(undefined);
   // Events arrived but no tip-off marker did (a Profixio protocol without a
   // "Start period 1") — importing still works, timing won't.
   const [tipoffMissing, setTipoffMissing] = useState(false);
@@ -575,6 +576,7 @@ export function UploadZone({
     setFetchError(null);
     setTipoffMissing(false);
     setSyncAnchor(undefined);
+    setPeriodMarks(undefined);
 
     // Seed names and date from schedule data immediately so the match is always
     // populated even if the game-data call fails or the user submits quickly.
@@ -604,6 +606,7 @@ export function UploadZone({
       setPlayByPlayEvents(data.events);
       setTipoffRealWorldTime(data.tipoffRealWorldTime);
       setSyncAnchor(data.syncAnchor);
+      setPeriodMarks(data.periodMarks);
       setTipoffMissing(data.events.length > 0 && !data.tipoffRealWorldTime);
 
       // Schedule filtering hides PBP-less games, so this is belt-and-braces —
@@ -666,6 +669,9 @@ export function UploadZone({
         syncVideoTime: syncSeconds,
         syncRealWorldTime: tipoffRealWorldTime ?? "",
         ...(syncAnchor ? { anchor: syncAnchor } : {}),
+        // Kept even for a video that holds the whole game: the quarters can
+        // still be synced later, from the game page or the editor.
+        ...(periodMarks && Object.keys(periodMarks).length > 0 ? { marks: periodMarks } : {}),
       };
     }
 

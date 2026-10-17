@@ -16,7 +16,8 @@
  *     varies — see provider.ts for the pre/post-roll.
  */
 import type { Stage } from "../types/league";
-import type { PlayByPlayEvent } from "../types/match";
+import type { PeriodMark, PlayByPlayEvent } from "../types/match";
+import { periodLabel } from "./events";
 import type { ScheduleGame } from "./genius";
 import { PROFIXIO_SOURCE_PREFIX } from "./provider";
 import {
@@ -286,6 +287,61 @@ export function findProfixioSyncAnchor(
   return start
     ? { realWorldTime: start, kind: "match_start", label: "the start of period 1 as logged by the table" }
     : null;
+}
+
+/**
+ * Each period's start and end as the table logged them, anchored on the
+ * period's first made basket ("Lidingö's first basket of Q2 (18–15)"):
+ * the table presses "start period" early (see findProfixioSyncAnchor), so a
+ * basket is what a coach can find in the video. A period nobody scored in
+ * anchors on its start marker instead, with a label that says so.
+ */
+export function findProfixioPeriodMarks(
+  m: Pick<ProfixioMatchResponse, "homeWebId" | "awayWebId" | "events" | "lineup" | "matchPeriods">,
+  ctx: NormalizeContext,
+): Record<string, PeriodMark> {
+  const sorted = sortEvents(m.events);
+  const periods = assignGlobalPeriods(sorted, m.matchPeriods || 4);
+  const sides = resolveSides(m);
+  const periodOf = (e: ProfixioEvent) => periods.get(e.id) ?? Math.max(1, e.period || 1);
+  const starts = new Map<number, string>();
+  const ends = new Map<number, string>();
+  const baskets = new Map<number, { at: string; label: string }>();
+  let prev = { home: 0, away: 0 };
+  for (const e of sorted) {
+    const period = periodOf(e);
+    if ((e.startsMatch || e.startsPeriod || e.startsExtraPeriod) && e.startedAt && !starts.has(period)) {
+      starts.set(period, e.startedAt);
+    }
+    if ((e.stopsPeriod || e.stopsExtraPeriod || e.stopsMatch) && e.startedAt) ends.set(period, e.startedAt);
+    const home = e.scoreHome ?? prev.home;
+    const away = e.scoreAway ?? prev.away;
+    if (e.goals != null && GOAL_TYPE_BY_POINTS[e.goals] && e.startedAt && !baskets.has(period)) {
+      const homeScored = home > prev.home;
+      const awayScored = away > prev.away;
+      const side: 1 | 2 =
+        homeScored !== awayScored
+          ? homeScored ? 1 : 2
+          : e.teamId === sides.awayWebId ? 2 : 1;
+      const team = (side === 1 ? ctx.homeName : ctx.awayName).trim();
+      baskets.set(period, { at: e.startedAt, label: `${team}'s first basket of ${periodLabel(period)} (${home}\u2013${away})` });
+    }
+    prev = { home, away };
+  }
+  const marks: Record<string, PeriodMark> = {};
+  for (const period of new Set([...starts.keys(), ...baskets.keys()])) {
+    const basket = baskets.get(period);
+    const start = starts.get(period);
+    const anchor = basket
+      ? { realWorldTime: basket.at, kind: "first_basket" as const, label: basket.label }
+      : { realWorldTime: start!, kind: "period_start" as const, label: `the start of ${periodLabel(period)} as logged by the table` };
+    marks[String(period)] = {
+      ...(start ? { startRealWorldTime: start } : {}),
+      ...(ends.get(period) ? { endRealWorldTime: ends.get(period) } : {}),
+      anchor,
+    };
+  }
+  return marks;
 }
 
 /**

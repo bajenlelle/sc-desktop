@@ -15,6 +15,7 @@ import { createClient } from "@/lib/supabase/client";
 import { getGeniusFixtures, getGeniusMatch } from "@scoutable/shared/lib/genius-client";
 import {
   buildRosters,
+  findGeniusPeriodMarks,
   findTipoff,
   fixtureToScheduleGame,
   playableFixtures,
@@ -26,6 +27,7 @@ import { getProfixioCategories, getProfixioMatch, getProfixioSchedule } from "@s
 import {
   buildProfixioRosters,
   categoriesToStages,
+  findProfixioPeriodMarks,
   findProfixioSyncAnchor,
   normalizeProfixioEvents,
   parseProfixioSourceGameId,
@@ -33,7 +35,7 @@ import {
   resolveSides,
 } from "@scoutable/shared/lib/profixio";
 import { seasonProvider } from "@scoutable/shared/lib/provider";
-import type { PlayByPlayEvent } from "@/types/match";
+import type { PlayByPlayEvent, SyncPoint } from "@/types/match";
 import { PLAYOFF, REGULAR, type League, type Season, type Stage } from "@scoutable/shared/types/league";
 
 export type { ScheduleGame };
@@ -220,6 +222,12 @@ export interface GameData {
    * pressed minutes early); `label` is what the coach should look for.
    */
   syncAnchor?: { kind: "first_basket" | "match_start"; label: string };
+  /**
+   * Each period's reference times from the league (start, end, and what to
+   * look for in the video), saved on the sync point so a video that skips
+   * the breaks can be synced quarter by quarter, now or later.
+   */
+  periodMarks?: SyncPoint["marks"];
   /** "empty" = the match exists but carries no play-by-play upstream. */
   pbpStatus: "ok" | "empty";
 }
@@ -260,6 +268,7 @@ export async function fetchGameData(
       events,
       tipoffRealWorldTime: anchor?.realWorldTime ?? null,
       syncAnchor: anchor ? { kind: anchor.kind, label: anchor.label } : undefined,
+      periodMarks: findProfixioPeriodMarks(m, ctx),
       pbpStatus: events.length > 0 ? "ok" : "empty",
     };
   }
@@ -282,6 +291,7 @@ export async function fetchGameData(
     awayRoster: rosters.away,
     events: normalizeGeniusActions(actions, homeTeamId),
     tipoffRealWorldTime: findTipoff(actions),
+    periodMarks: findGeniusPeriodMarks(actions),
     pbpStatus,
   };
 }

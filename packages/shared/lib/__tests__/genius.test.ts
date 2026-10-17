@@ -3,6 +3,7 @@ import {
   playableFixtures,
   ACTIONABLE_TYPES,
   buildRosters,
+  findGeniusPeriodMarks,
   findTipoff,
   fixtureToScheduleGame,
   gameClock,
@@ -158,6 +159,27 @@ describe("findTipoff", () => {
     const otOnly = actions.filter((a) => (a.periodType ?? "").includes("OVERTIME"));
     expect(otOnly.some((a) => a.actionType === "period" && a.period === 1)).toBe(true);
     expect(findTipoff(otOnly)).toBeNull();
+  });
+});
+
+describe("findGeniusPeriodMarks", () => {
+  it("anchors each period on its logged start, with the clock it starts from", () => {
+    const marks = findGeniusPeriodMarks(actions);
+    expect(marks["1"]).toEqual({
+      startRealWorldTime: "2025-09-19T17:06:08Z",
+      anchor: { realWorldTime: "2025-09-19T17:06:08Z", kind: "period_start", label: "Start of Q1 (clock 10:00)" },
+    });
+    // Overtime resets the feed's period to 1; the marks use the global period.
+    expect(marks["5"].anchor.label).toBe("Start of OT1 (clock 05:00)");
+    expect(marks["6"].anchor.label).toBe("Start of OT2 (clock 05:00)");
+  });
+
+  it("records a period's end when the feed logs one, and skips a period without a start", () => {
+    const end = { ...actions.find((a) => a.actionNumber === 2)!, actionNumber: 99, subType: "end", timeActual: "2025-09-19 17:28:41" };
+    const orphan = { ...end, actionNumber: 98, period: 3 };
+    const marks = findGeniusPeriodMarks([...actions, end, orphan]);
+    expect(marks["1"].endRealWorldTime).toBe("2025-09-19T17:28:41Z");
+    expect(marks["3"]).toBeUndefined();
   });
 });
 
