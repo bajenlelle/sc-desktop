@@ -147,3 +147,33 @@ jobs:
 
       - name: Type-check the nightly tip-off script
         run: npx tsc -p scripts/nightly-tipoff
+
+  game-video-convert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm install -g npm@11
+
+      - run: npm ci
+
+      - name: Type-check node-video
+        working-directory: packages/node-video
+        run: npm run typecheck
+
+      - name: Test node-video
+        working-directory: packages/node-video
+        run: npm test
+
+      - name: Type-check the converter worker
+        working-directory: workers/game-video-convert
+        run: npm run typecheck
+
+      - name: Test the converter worker
+        working-directory: workers/game-video-convert
+        run: npm test

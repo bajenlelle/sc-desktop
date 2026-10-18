@@ -1,0 +1,21 @@
+{
+  // The Node side: the converter program and its tests. The Worker script has
+  // its own config (tsconfig.worker.json) because the two runtimes' global
+  // types can't share one program. `npm run typecheck` runs both.
+  "compilerOptions": {
+    "target": "ES2022",
+    // DOM alongside Node: the shared package is written against the browser's fetch types (Response.json() as any).
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"]
+  },
+  "include": ["src", "test"],
+  "exclude": ["src/worker.ts"]
+}

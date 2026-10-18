@@ -1,0 +1,56 @@
+// The converter Worker and its container (see README.md and src/worker.ts).
+// Top level is prod; `env.staging` is the staging project. Bindings and the
+// container list are not inherited by environments in wrangler, so both are
+// spelled out twice; `migrations` is inherited and stays top level.
+// The Supabase values here are the projects' public ones (the same keys the
+// apps ship); the real secrets are set with `wrangler secret put`.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "scoutable-game-video-convert",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-01",
+  "observability": { "enabled": true },
+  "containers": [
+    {
+      "class_name": "GameVideoConverter",
+      "image": "./Dockerfile",
+      "image_build_context": "../..",
+      "instance_type": "standard-4",
+      "max_instances": 20,
+      "constraints": { "jurisdiction": "eu" }
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "CONVERTER", "class_name": "GameVideoConverter" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GameVideoConverter"] }],
+  "vars": {
+    "SUPABASE_URL": "https://nbmrujmazvdoaldirpyx.supabase.co",
+    "SUPABASE_ANON_KEY": "sb_publishable_y5d7KzGE283MKtXsxE9jpg_plZaH14I",
+    "GAME_VIDEO_FN_URL": "https://nbmrujmazvdoaldirpyx.supabase.co/functions/v1"
+  },
+  "env": {
+    "staging": {
+      "name": "scoutable-game-video-convert-staging",
+      "observability": { "enabled": true },
+      "containers": [
+        {
+          "class_name": "GameVideoConverter",
+          "image": "./Dockerfile",
+          "image_build_context": "../..",
+          "instance_type": "standard-4",
+          "max_instances": 20,
+          "constraints": { "jurisdiction": "eu" }
+        }
+      ],
+      "durable_objects": {
+        "bindings": [{ "name": "CONVERTER", "class_name": "GameVideoConverter" }]
+      },
+      "vars": {
+        "SUPABASE_URL": "https://edalihizooqdxeekaklf.supabase.co",
+        "SUPABASE_ANON_KEY": "sb_publishable_Vz4A8gxRND1eg-sNHYSIBg_cncYB3wy",
+        "GAME_VIDEO_FN_URL": "https://edalihizooqdxeekaklf.supabase.co/functions/v1"
+      }
+    }
+  }
+}

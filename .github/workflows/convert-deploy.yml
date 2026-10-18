@@ -1,0 +1,65 @@
+name: convert-deploy
+
+# Builds the converter image and deploys the Worker + container
+# (workers/game-video-convert) with wrangler. Runs on pushes to main that
+# touch the converter or the packages it runs from source, and by hand from
+# the Actions tab for staging or prod. Never on pull requests: the Cloudflare
+# token stays out of fork builds. The Worker's secrets (CONVERT_SECRET,
+# WORKER_SECRET, BOT_EMAIL, BOT_PASSWORD) are set once with
+# `wrangler secret put … [--env staging]`, not here.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "workers/game-video-convert/**"
+      - "packages/shared/**"
+      - "packages/node-video/**"
+      - ".github/workflows/convert-deploy.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which project's Worker to deploy"
+        type: choice
+        options: [staging, prod]
+        default: staging
+
+permissions:
+  contents: read
+
+concurrency:
+  group: convert-deploy-${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'prod' }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # A push to main deploys prod; a manual run deploys the chosen environment.
+      TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'prod' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Match the npm version used to generate package-lock.json (see release.yml).
+      - run: npm install -g npm@11
+
+      - run: npm ci
+
+      - name: Type-check the converter
+        working-directory: workers/game-video-convert
+        run: npm run typecheck
+
+      - name: Deploy ${{ env.TARGET }}
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: workers/game-video-convert
+          packageManager: npm
+          command: ${{ env.TARGET == 'staging' && 'deploy --env staging' || 'deploy' }}
