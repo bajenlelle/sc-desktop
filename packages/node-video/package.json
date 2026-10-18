@@ -1,0 +1,22 @@
+{
+  "name": "@scoutable/node-video",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Frame access through a local ffmpeg and the local tip-off detection wiring, for Node only (the nightly job and the converter)",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "exports": {
+    "./lib/*": "./lib/*.ts"
+  },
+  "dependencies": {
+    "@scoutable/shared": "*",
+    "@supabase/supabase-js": "^2.112.4"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15",
+    "typescript": "~5.8.3"
+  }
+}

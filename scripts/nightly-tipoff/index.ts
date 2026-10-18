@@ -19,7 +19,9 @@
  */
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createClient } from "@supabase/supabase-js";
+import { detectDeps, fingerprint } from "@scoutable/node-video/lib/detect-local";
+import { probe } from "@scoutable/node-video/lib/ffmpeg";
 import {
   PILOT_CHANNELS,
   gameUrl,
@@ -29,18 +31,9 @@ import {
   type RecordedRun,
   type RunStatus,
 } from "@scoutable/shared/lib/baskettv";
-import { runTipoffDetection, type DetectDeps, type Frame, type OverlayBox } from "@scoutable/shared/lib/tipoff-detect";
-import { locateOverlay, readFrames } from "@scoutable/shared/lib/tipoff-detect-client";
-import {
-  FINGERPRINT_VERSION,
-  dhashFromGray9x8,
-  fingerprintKey,
-  fingerprintOffsetsFor,
-  type VideoFingerprint,
-} from "@scoutable/shared/lib/video-fingerprint";
+import { runTipoffDetection } from "@scoutable/shared/lib/tipoff-detect";
 import { saveVideoSyncHint } from "@scoutable/shared/lib/video-sync-hints-db";
 import { BaskettvError, downloadUrl, login, pastGames, watch } from "./baskettv-client.ts";
-import { grabGray9x8, grabJpeg, grabRange, jpegSize, probe, type Probe } from "./ffmpeg.ts";
 import { startRangeProxy } from "./range-proxy.ts";
 
 // ── configuration ─────────────────────────────────────────────────────────────
@@ -80,52 +73,7 @@ const safeError = (e: unknown) =>
     .replace(/https?:\/\/\S+/g, "<url>")
     .slice(0, 300);
 
-// ── per-game pipeline ─────────────────────────────────────────────────────────
-const WHOLE_WIDTH = 640;
-
-/** Scoreboard crops read at native resolution (2× for < 720p sources), whole frames at 640 px. */
-const outputWidth = (srcWidth: number, crop?: OverlayBox | null) => (!crop ? WHOLE_WIDTH : srcWidth >= 1280 ? WHOLE_WIDTH : Math.min(1920, Math.round(srcWidth * crop.w * 2)));
-
-async function parallel<T, R>(items: T[], fn: (item: T) => Promise<R>, concurrency = 4): Promise<R[]> {
-  const out = new Array<R>(items.length);
-  let next = 0;
-  await Promise.all(
-    Array.from({ length: concurrency }, async () => {
-      for (;;) {
-        const i = next++;
-        if (i >= items.length) return;
-        out[i] = await fn(items[i]);
-      }
-    }),
-  );
-  return out;
-}
-
-async function fingerprint(source: string, p: Probe): Promise<VideoFingerprint> {
-  const offsetsS = fingerprintOffsetsFor(p.durationS);
-  const hashes = await parallel(offsetsS, async (t) => dhashFromGray9x8(await grabGray9x8(source, t)));
-  return { version: FINGERPRINT_VERSION, durationMs: p.durationMs, offsetsS, hashes, key: await fingerprintKey(p.durationMs, hashes) };
-}
-
-function detectDeps(supabase: SupabaseClient, source: string, p: Probe, log: (s: string) => void): DetectDeps {
-  const toFrame = (t: number, jpeg: Buffer): Frame => ({ t, jpegBase64: jpeg.toString("base64"), ...jpegSize(jpeg) });
-  return {
-    grab: (times, o) => parallel(times, async (t) => toFrame(t, await grabJpeg(source, t, { width: outputWidth(p.width, o.crop), crop: o.crop }))),
-    grabRange: async (startS, durationS, fps, o) =>
-      (await grabRange(source, startS, durationS, fps, { width: outputWidth(p.width, o.crop), crop: o.crop })).map((f) => toFrame(f.t, f.jpeg)),
-    read: async (frames, view) => {
-      const res = await readFrames(supabase, { frames: frames.map((f) => ({ jpegBase64: f.jpegBase64 })), view, periodLengthS: 600 });
-      if (!res.ok) throw new Error(`tipoff-detect: ${res.error}`);
-      return res.data.readings;
-    },
-    locate: async (frames) => {
-      const res = await locateOverlay(supabase, { frames: frames.map((f) => ({ jpegBase64: f.jpegBase64 })) });
-      return res.ok && res.data.box ? { box: res.data.box, confidence: res.data.confidence } : null;
-    },
-    log,
-  };
-}
-
+// ── per-game pipeline (frame grabbing and detection wiring: @scoutable/node-video) ──
 interface Outcome {
   game: BaskettvGame;
   status: RunStatus;

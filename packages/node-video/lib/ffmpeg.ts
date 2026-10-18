@@ -1,14 +1,17 @@
 /**
- * Frame access through the system ffmpeg (apt on the runner, Homebrew locally).
- * The argv shapes match the desktop sidecar's (src-tauri/src/video_frames.rs);
- * `source` is a local path or the range proxy's URL.
+ * Frame access through a local ffmpeg: the system one (apt on the runner and
+ * in the converter image, Homebrew locally) or the path in the FFMPEG env
+ * var, read once at load. The argv shapes match the desktop sidecar's
+ * (src-tauri/src/video_frames.rs); `source` is a local path or a URL ffmpeg
+ * can read, such as the nightly job's range proxy.
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { OverlayBox } from "@scoutable/shared/lib/tipoff-detect";
 
 const run = promisify(execFile);
-const FFMPEG = process.env.FFMPEG ?? "ffmpeg";
+/** The ffmpeg binary every call here (and the converter's encode) uses. */
+export const FFMPEG = process.env.FFMPEG?.trim() || "ffmpeg";
 const MAX_BUFFER = 256 * 1024 * 1024;
 
 export interface Probe {
