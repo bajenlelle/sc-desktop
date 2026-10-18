@@ -1,16 +1,21 @@
 "use client";
 
 /**
- * Cloud game videos on the web: the viewer's own copies (RLS shows nobody
- * else's) and the presigned play URLs the `game-video` function mints for
- * them. URLs live 12 hours and are shared by every component on the page
- * through a module cache, so a game is signed once per visit; a URL inside
- * its last ten minutes is treated as gone and fetched again.
+ * Cloud game videos on the web: the viewer's own rows (RLS shows nobody
+ * else's) in every state, the presigned play URLs the `game-video` function
+ * mints for the ready ones, and the poll that follows a row while our
+ * converter works on it.
+ *
+ * URLs live 12 hours and are shared by every component on the page through
+ * a module cache, so a game is signed once per visit; a URL inside its last
+ * ten minutes is treated as gone and fetched again. The row list is a
+ * short-lived memo shared by the sidebar, the tab bar and the pages.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { playGameVideo } from "@scoutable/shared/lib/game-video-client";
-import { isSignedUrlFresh, type GameVideoPlayResponse } from "@scoutable/shared/lib/game-video-wire";
-import { listMyGameVideos, type GameVideo } from "@scoutable/shared/lib/game-videos-db";
+import { isSignedUrlFresh, type GameVideoPlayResponse, type GameVideoStatus } from "@scoutable/shared/lib/game-video-wire";
+import { gameVideoIsSettling, getGameVideoForMatch, listMyGameVideos, type GameVideo } from "@scoutable/shared/lib/game-videos-db";
+import { trackEvent } from "@/lib/analytics";
 import { createClient } from "@/lib/supabase/client";
 
 const urlCache = new Map<string, GameVideoPlayResponse>();
@@ -78,35 +83,65 @@ export function usePlayUrls(matchIds: readonly string[]): {
   return { urlFor, refresh, version };
 }
 
-/** A short-lived memo of "my ready copies", shared by the sidebar, the tab bar and the pages. */
-let readyCache: { at: number; promise: Promise<GameVideo[]> } | null = null;
-const READY_TTL_MS = 60_000;
-const listeners = new Set<() => void>();
+// ---------------------------------------------------------------------------
+// My rows
+// ---------------------------------------------------------------------------
 
-function loadReady(force = false): Promise<GameVideo[]> {
-  if (!force && readyCache && Date.now() - readyCache.at < READY_TTL_MS) return readyCache.promise;
-  const promise = listMyGameVideos(createClient(), { status: "ready" });
-  readyCache = { at: Date.now(), promise };
-  return promise;
-}
+/** Fired on window when a game's cloud video changed here (an upload finished, was cancelled or removed), with `{ matchId, expect }`. */
+export const GAME_VIDEO_CHANGED = "game-video-changed";
 
-/** The viewer's ready copies, from the same short-lived memo the hook below uses. */
-export function fetchMyCloudGames(): Promise<GameVideo[]> {
-  return loadReady();
-}
+/** What the row is known to be now, before it has been read again; "removed" = gone. */
+export type GameVideoExpectation = GameVideoStatus | "removed";
 
-/** Forgets the cached list (after a change elsewhere) and tells every subscriber to reload. */
-export function invalidateCloudGames() {
-  readyCache = null;
-  for (const l of listeners) l();
+interface GameVideoChangeDetail {
+  matchId: string;
+  expect?: GameVideoExpectation;
 }
 
 /**
- * The viewer's games with a ready cloud copy. Null while loading. Scoped to
- * a space when `orgId` is given (a copy carries the game's space); the
- * player-only navigation passes none and sees them all.
+ * Tells every list and row hook that a game's video changed. `expect` lets
+ * the row hook show the new state at once instead of the old one for the
+ * length of a re-read (an upload that just completed is converting, not
+ * interrupted).
  */
-export function useMyCloudGames(opts: { orgId?: string | null; enabled?: boolean } = {}): {
+export function announceGameVideoChange(matchId: string, expect?: GameVideoExpectation) {
+  invalidateGameVideos();
+  window.dispatchEvent(new CustomEvent<GameVideoChangeDetail>(GAME_VIDEO_CHANGED, { detail: { matchId, expect } }));
+}
+
+/** A short-lived memo of "my rows, every state", shared by the sidebar, the tab bar and the pages. */
+let rowsCache: { at: number; promise: Promise<GameVideo[]> } | null = null;
+const ROWS_TTL_MS = 60_000;
+const listeners = new Set<() => void>();
+
+function loadRows(): Promise<GameVideo[]> {
+  if (rowsCache && Date.now() - rowsCache.at < ROWS_TTL_MS) return rowsCache.promise;
+  const promise = listMyGameVideos(createClient());
+  rowsCache = { at: Date.now(), promise };
+  return promise;
+}
+
+/** The viewer's ready copies, from the same short-lived memo the hooks below use. */
+export function fetchMyCloudGames(): Promise<GameVideo[]> {
+  return loadRows().then((rows) => rows.filter((r) => r.status === "ready"));
+}
+
+/** Forgets the cached list (after a change elsewhere) and tells every subscriber to reload. */
+export function invalidateGameVideos() {
+  rowsCache = null;
+  for (const l of listeners) l();
+}
+
+/** The older name, kept for the callers that have it. */
+export const invalidateCloudGames = invalidateGameVideos;
+
+/**
+ * The viewer's games in the cloud, in every state (uploading, converting,
+ * ready, failed). Null while loading. Scoped to a space when `orgId` is
+ * given (a row carries the game's space); the player-only navigation passes
+ * none and sees them all. `status` narrows to one state.
+ */
+export function useMyGameVideos(opts: { orgId?: string | null; enabled?: boolean; status?: GameVideoStatus } = {}): {
   games: GameVideo[] | null;
   byMatch: Map<string, GameVideo>;
   reload: () => void;
@@ -126,18 +161,146 @@ export function useMyCloudGames(opts: { orgId?: string | null; enabled?: boolean
   }, []);
   useEffect(() => {
     if (!enabled) return;
-    void loadReady().then((rows) => {
+    void loadRows().then((rows) => {
       if (alive.current) setAll(rows);
     });
   }, [enabled, tick]);
   const games = useMemo(() => {
     if (!all) return null;
-    if (opts.orgId === undefined || opts.orgId === null) return all;
-    return all.filter((g) => g.orgId === opts.orgId);
-  }, [all, opts.orgId]);
+    let rows = all;
+    if (opts.status) rows = rows.filter((g) => g.status === opts.status);
+    if (opts.orgId !== undefined && opts.orgId !== null) rows = rows.filter((g) => g.orgId === opts.orgId);
+    return rows;
+  }, [all, opts.orgId, opts.status]);
   const byMatch = useMemo(() => new Map((games ?? []).map((g) => [g.matchId, g])), [games]);
   const reload = useCallback(() => {
-    invalidateCloudGames();
+    invalidateGameVideos();
   }, []);
   return { games, byMatch, reload };
+}
+
+/**
+ * The viewer's games with a READY cloud copy, the ones that play. The
+ * playlists depend on this meaning (a clip of one of them plays as a window
+ * of the copy), so it stays ready-only; useMyGameVideos has every state.
+ */
+export function useMyCloudGames(opts: { orgId?: string | null; enabled?: boolean } = {}): {
+  games: GameVideo[] | null;
+  byMatch: Map<string, GameVideo>;
+  reload: () => void;
+} {
+  return useMyGameVideos({ ...opts, status: "ready" });
+}
+
+// ---------------------------------------------------------------------------
+// One game's row
+// ---------------------------------------------------------------------------
+
+/** How often the row is read while our converter works on it, and after two minutes of that. */
+const POLL_MS = 5_000;
+const POLL_SLOW_MS = 15_000;
+const POLL_SLOW_AFTER_MS = 2 * 60_000;
+
+/**
+ * The row that speaks for a game (getGameVideoForMatch), kept current: read
+ * again whenever this device changes it (GAME_VIDEO_CHANGED) and polled
+ * every 5 s while the converter works or hasn't reported its sync yet (15 s
+ * after two minutes, paused while the tab is hidden, at once when it comes
+ * back). Fires the conversion's analytics when the row settles under watch.
+ */
+export function useGameVideoRow(
+  matchId: string | null,
+  opts: { enabled?: boolean } = {},
+): { video: GameVideo | null; loaded: boolean; reload: () => Promise<void> } {
+  const enabled = (opts.enabled ?? true) && !!matchId;
+  const [state, setState] = useState<{ matchId: string; video: GameVideo | null } | null>(null);
+  const alive = useRef(true);
+  const lastRef = useRef<GameVideo | null>(null);
+  const pollStartedRef = useRef<number | null>(null);
+
+  const load = useCallback(async () => {
+    if (!matchId) return;
+    const video = await getGameVideoForMatch(createClient(), matchId);
+    if (!alive.current) return;
+    const last = lastRef.current;
+    if (last && last.matchId === matchId && last.status === "converting" && video && video.id === last.id) {
+      if (video.status === "ready") {
+        trackEvent("game_video_converted", {
+          match_id: matchId,
+          sync_status: video.syncStatus,
+          confidence: video.suggestedConfidence,
+          wall_s: Math.round((Date.now() - Date.parse(video.createdAt)) / 1000),
+        });
+      } else if (video.status === "failed") {
+        trackEvent("game_video_convert_failed", { match_id: matchId, error: video.convertError });
+      }
+    }
+    lastRef.current = video;
+    setState({ matchId, video });
+  }, [matchId]);
+
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
+  // The first read, and one after every change announced on this device;
+  // what the announcement says the row is now shows meanwhile.
+  useEffect(() => {
+    if (!enabled) return;
+    void load();
+    const onChange = (e: Event) => {
+      const detail = (e as CustomEvent<GameVideoChangeDetail>).detail;
+      if (detail?.matchId !== matchId) return;
+      if (detail.expect) {
+        setState((prev) => {
+          if (prev?.matchId !== matchId) return prev;
+          if (detail.expect === "removed") return { matchId, video: null };
+          return prev.video ? { matchId, video: { ...prev.video, status: detail.expect! } } : prev;
+        });
+      }
+      void load();
+    };
+    window.addEventListener(GAME_VIDEO_CHANGED, onChange);
+    return () => window.removeEventListener(GAME_VIDEO_CHANGED, onChange);
+  }, [enabled, matchId, load]);
+
+  const loaded = state?.matchId === matchId;
+  const video = loaded ? state.video : null;
+  const settling = enabled && gameVideoIsSettling(video);
+
+  useEffect(() => {
+    if (!settling) {
+      pollStartedRef.current = null;
+      return;
+    }
+    pollStartedRef.current ??= Date.now();
+    let timer: number | undefined;
+    const schedule = () => {
+      const slow = Date.now() - (pollStartedRef.current ?? Date.now()) > POLL_SLOW_AFTER_MS;
+      timer = window.setTimeout(tick, slow ? POLL_SLOW_MS : POLL_MS);
+    };
+    const tick = () => {
+      // A hidden tab waits; the next look happens when it comes back.
+      if (document.hidden) return;
+      void load().finally(schedule);
+    };
+    const onVisible = () => {
+      if (document.hidden) return;
+      window.clearTimeout(timer);
+      void load().finally(schedule);
+    };
+    schedule();
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [settling, load]);
+
+  return { video, loaded, reload: load };
 }

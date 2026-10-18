@@ -7,6 +7,7 @@ import { MyTeamProvider } from "@/lib/my-team";
 import { TeamStep } from "@/components/team-step";
 import { AppProviders } from "@/components/providers";
 import { AppShell } from "@/components/shell/app-shell";
+import { GameUploadProvider } from "@/components/game-upload-provider";
 import type { UserProfile } from "@scoutable/shared/types/org";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -51,10 +52,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <AppProviders>
       <AuthProvider>
         <MyTeamProvider>
-          <ThemeSync />
-          <UpgradeCelebration />
-          <TeamStep />
-          <AppShell profile={profile}>{children}</AppShell>
+          <GameUploadProvider>
+            <ThemeSync />
+            <UpgradeCelebration />
+            <TeamStep />
+            <AppShell profile={profile}>{children}</AppShell>
+          </GameUploadProvider>
         </MyTeamProvider>
       </AuthProvider>
     </AppProviders>

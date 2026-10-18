@@ -6,6 +6,7 @@ import { GroupFooter, GroupHeader, GroupedList } from "@/components/ui/group";
 import { RolePrompt } from "@/components/role-prompt";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
+import { ImportEntryLink } from "@/components/import/import-entry-link";
 
 /**
  * Landing page for signed-in users whose only space is their personal org —
@@ -19,7 +20,8 @@ export default function GetStartedPage() {
     {
       icon: Film,
       title: "Import a game",
-      body: "Pick a league game — every clip is generated automatically from the play-by-play.",
+      body: "Pick a league game and upload its video; every clip is generated from the play-by-play. You can start right here on the web.",
+      href: "/games/import",
     },
     {
       icon: ListVideo,
@@ -58,19 +60,34 @@ export default function GetStartedPage() {
         </section>
 
         <section>
-          <GroupHeader title="In the desktop app" />
+          <GroupHeader title="How it works" />
           <GroupedList>
-            {steps.map((step) => (
-              <div key={step.title} className="flex items-start gap-3 px-4 py-3">
-                <step.icon className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground">{step.title}</p>
-                  <p className="text-callout text-muted-foreground">{step.body}</p>
+            {steps.map((step) =>
+              step.href ? (
+                <ImportEntryLink
+                  key={step.title}
+                  placement="get_started"
+                  className="flex items-start gap-3 px-4 py-3 outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection"
+                >
+                  <step.icon className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-foreground">{step.title}</p>
+                    <p className="text-callout text-muted-foreground">{step.body}</p>
+                  </div>
+                  <ChevronRight className="mt-0.5 size-4 shrink-0 text-muted-foreground/60" />
+                </ImportEntryLink>
+              ) : (
+                <div key={step.title} className="flex items-start gap-3 px-4 py-3">
+                  <step.icon className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground">{step.title}</p>
+                    <p className="text-callout text-muted-foreground">{step.body}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ),
+            )}
           </GroupedList>
-          <GroupFooter>On the web you can watch playlists shared with you and manage your plan.</GroupFooter>
+          <GroupFooter>Importing works here on the web; cutting clips and building playlists happen in the desktop app.</GroupFooter>
         </section>
 
         <GroupedList>
