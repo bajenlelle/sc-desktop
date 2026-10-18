@@ -265,6 +265,21 @@ export async function listPlaylists(
   return (data as PlaylistRow[]).map(rowToPlaylist);
 }
 
+/**
+ * One playlist with its items and shares, as the owner (or anyone RLS lets
+ * read it) sees it. Null when it does not exist or is not visible.
+ */
+export async function getPlaylist(supabase: SupabaseClient, id: string): Promise<Playlist | null> {
+  const { data, error } = await supabase
+    .from("playlists")
+    .select(PLAYLIST_SELECT)
+    .eq("id", id)
+    .maybeSingle();
+  if (error) { reportDbError("getPlaylist", error); return null; }
+  if (!data) return null;
+  return rowToPlaylist(data as unknown as PlaylistRow);
+}
+
 // ---------------------------------------------------------------------------
 // Create a new playlist (empty — items are added separately)
 // ---------------------------------------------------------------------------

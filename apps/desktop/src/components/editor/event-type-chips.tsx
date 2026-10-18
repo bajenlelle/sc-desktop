@@ -25,7 +25,7 @@ export function EventTypeChips({
   onChange,
   className,
 }: {
-  options: ChipOption[];
+  options: readonly ChipOption[];
   selected: Set<string>;
   onChange: (next: Set<string>) => void;
   className?: string;

@@ -24,6 +24,7 @@ import type {
   GameVideoSignPartsResponse,
   GameVideoSyncSetRequest,
   GameVideoSyncSetResponse,
+  ShipResponse,
 } from "./game-video-wire";
 
 export const GAME_VIDEO_FUNCTION = "game-video";
@@ -79,6 +80,15 @@ export function retryGameVideoConvert(
   body: Body<GameVideoRetryConvertRequest>,
 ): Promise<FunctionResult<GameVideoRetryConvertResponse>> {
   return invokeEdgeFunction<GameVideoRetryConvertResponse>(supabase, GAME_VIDEO_FUNCTION, { action: "retry_convert", ...body });
+}
+
+/**
+ * Cut the playlist's clips into their own files from the cloud copies, so the
+ * people it is shared with can watch. `renderer_unavailable` when the project
+ * has no converter configured; `not_owner` for anyone but the owner.
+ */
+export function shipPlaylist(supabase: SupabaseClient, playlistId: string): Promise<FunctionResult<ShipResponse>> {
+  return invokeEdgeFunction<ShipResponse>(supabase, GAME_VIDEO_FUNCTION, { action: "ship", playlistId });
 }
 
 /** Confirm the sync the converter found, or set it by hand; `sync_locked` when the coach's own sync is in place. */

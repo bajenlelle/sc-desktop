@@ -28,6 +28,12 @@ export type WatchItem =
 /** The games whose cloud copy the viewer may watch, with the sync that places their plays. */
 export interface CloudGames {
   syncByMatch: ReadonlyMap<string, SyncPoint>;
+  /**
+   * Play every clip of a game the viewer has the copy of as a window, even
+   * one with an uploaded file: the editor's owner sees a trim the moment it
+   * is made, not when the file is cut again.
+   */
+  preferWindows?: boolean;
 }
 
 /** The key a clip goes by in the watch list. */
@@ -53,14 +59,18 @@ export function buildWatchItems(
       const key = clipKey(item.matchId, item.eventId);
       const event = eventByKey.get(key);
       if (!event) continue;
-      if (item.r2Url) {
-        items.push({ kind: "clip", key, event, matchId: item.matchId, r2Url: item.r2Url, note: item.note });
+      const sync = cloud?.syncByMatch.get(item.matchId);
+      const asWindow = sync && (!item.r2Url || cloud?.preferWindows);
+      if (!asWindow) {
+        if (item.r2Url) items.push({ kind: "clip", key, event, matchId: item.matchId, r2Url: item.r2Url, note: item.note });
         continue;
       }
-      const sync = cloud?.syncByMatch.get(item.matchId);
-      if (!sync) continue;
       const time = computeVideoTime(event, sync);
-      if (time === null) continue;
+      if (time === null) {
+        // The copy can't place the play; its own file, when it has one, still can.
+        if (item.r2Url) items.push({ kind: "clip", key, event, matchId: item.matchId, r2Url: item.r2Url, note: item.note });
+        continue;
+      }
       const { start, end } = clipBounds(time, rolls.pre, rolls.post, item.preRollOffset, item.postRollOffset);
       items.push({ kind: "window", key, event, matchId: item.matchId, start, end, note: item.note });
     } else {

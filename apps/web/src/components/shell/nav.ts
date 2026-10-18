@@ -4,8 +4,9 @@ import {
   BookOpen,
   Building2,
   CircleUserRound,
-  Clapperboard,
-  Compass,
+  Film,
+  Home,
+  ListVideo,
   Share2,
   ShieldCheck,
   Sparkles,
@@ -17,11 +18,12 @@ import { useMyGameVideos } from "@/lib/game-videos";
 import { useShell } from "./shell-context";
 
 export const DESTINATION_ICON: Record<DestinationId, LucideIcon> = {
+  home: Home,
+  editor: ListVideo,
   playlists: BookOpen,
   "shared-playlists": Share2,
-  games: Clapperboard,
+  library: Film,
   highlights: Sparkles,
-  "get-started": Compass,
   club: Building2,
   admin: ShieldCheck,
   profile: CircleUserRound,

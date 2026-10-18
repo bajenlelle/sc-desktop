@@ -95,9 +95,18 @@ export type AnalyticsEvent =
   | "game_opened" // match_id, from
   | "clip_played_from_game" // playlist_id
   // Importing on the web and checking the server's tip-off
-  | "import_entry_clicked" // placement: games_toolbar | games_empty | get_started | game_page
+  | "import_entry_clicked" // placement: games_toolbar | games_empty | get_started | game_page | library_row | home_toolbar | add_clips
   | "tipoff_check_shown" // sync_status, confidence
   | "tipoff_check_resolved" // action: looks_right | adjusted | set_manually, delta_s
+  // The web playlist editor (the desktop's production events above are reused with origin: "web")
+  | "playlist_renamed" // playlist_id
+  | "playlist_deleted" // playlist_id, clips
+  | "clips_reordered" // playlist_id, block_size, via: pointer | keyboard
+  | "clips_removed" // playlist_id, count, undone
+  | "clip_note_saved" // playlist_id, length
+  | "playlist_clip_length_changed" // playlist_id, pre, post
+  | "playlist_ship_requested" // playlist_id, trigger: share | add | trim | rolls | retry, total, no_copy
+  | "editor_layout_changed" // layout: split | theater
   | "reminder_sent"
   // Push notifications (mobile)
   | "notification_prompt_shown"

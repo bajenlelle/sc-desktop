@@ -56,6 +56,25 @@ export const GAME_VIDEO_SOURCE_KEEP_DAYS = 7;
 /** How often the converter reports progress and renews its heartbeat. */
 export const GAME_VIDEO_PROGRESS_INTERVAL_SECONDS = 30;
 
+// ---------------------------------------------------------------------------
+// Render jobs: shipping a playlist's clips (and, later, exporting it)
+// ---------------------------------------------------------------------------
+
+/** How many times a render job is attempted before it fails for good. */
+export const RENDER_MAX_ATTEMPTS = 3;
+/** How long the presigned URLs a render job works with live: enough for a long playlist. */
+export const RENDER_URL_SECONDS = 2 * 60 * 60;
+/** Render containers running at once across every user (conversions have their own cap; 15 + 4 stays under the Worker's 20). */
+export const MAX_ACTIVE_RENDERS = 4;
+/**
+ * A shipped clip's key in the PUBLIC media bucket, as the desktop mints it and
+ * presign-upload admits it (older desktop builds leave the `_s` segment out).
+ */
+export const CLIP_SHIP_KEY_RE = /^clips\/([A-Za-z0-9-]{1,64})\/\d{1,12}_pre-?\d{1,4}\.\d_post-?\d{1,4}\.\d(?:_s\d{1,6}\.\d)?\.mp4$/;
+
+export type RenderJobKind = "ship" | "export";
+export type RenderJobStatus = "queued" | "running" | "done" | "failed";
+
 export type GameVideoStatus = "uploading" | "converting" | "ready" | "failed";
 export type GameVideoSourceKind = "unknown" | "broadcast" | "own";
 /** Who made the copy: the desktop on the user's computer, or our converter from a browser upload. */
@@ -322,7 +341,12 @@ export type GameVideoAction =
   | "job_progress"
   | "job_sign_parts"
   | "job_done"
-  | "job_failed";
+  | "job_failed"
+  | "ship"
+  | "render_take"
+  | "render_progress"
+  | "render_done"
+  | "render_failed";
 
 export interface GameVideoBeginRequest {
   action: "begin";
@@ -553,6 +577,124 @@ export interface GameVideoSweepResponse {
   expired: number;
 }
 
+// ---------------------------------------------------------------------------
+// Requests and responses: render jobs (ship now; export in a later milestone)
+// ---------------------------------------------------------------------------
+
+/**
+ * The owner asks for the playlist's clips to be cut from the cloud copies
+ * into their own files, so people the playlist is shared with can watch.
+ * Clips already cut for the current window are skipped; a game without a
+ * cloud copy the owner may use is reported, not cut. A job already queued is
+ * returned as is; one already running is marked to run again afterwards.
+ */
+export interface ShipRequest {
+  action: "ship";
+  playlistId: string;
+}
+
+export interface ShipSkipped {
+  matchId: string;
+  eventId: number;
+  reason: "up_to_date" | "no_time";
+}
+
+export interface ShipNoCopy {
+  matchId: string;
+  eventIds: number[];
+}
+
+export interface ShipResponse {
+  /** Null when nothing needed cutting (then `status` is "done"). */
+  jobId: string | null;
+  status: RenderJobStatus;
+  /** Clips the job will cut. */
+  total: number;
+  skipped: ShipSkipped[];
+  noCopy: ShipNoCopy[];
+  /** The request landed on a running job, which will run again when it finishes. */
+  requeued: boolean;
+}
+
+export interface RenderTakeRequest {
+  action: "render_take";
+  jobId: string;
+}
+
+/** One clip to cut: the window in the copy's timeline and where the file goes. */
+export interface RenderShipClip {
+  clipId: string;
+  matchId: string;
+  eventId: number;
+  /** The game_videos row whose copy to cut from; its URL is in `copies`. */
+  videoId: string;
+  start: number;
+  end: number;
+  /** The public key (clipShipKey) the file is stored under. */
+  key: string;
+  /** Presigned PUT for that key, Content-Type video/mp4 signed in. */
+  putUrl: string;
+}
+
+export interface RenderTakeResponse {
+  jobId: string;
+  /** This run's attempt number: every later call must carry it back. */
+  attempt: number;
+  kind: RenderJobKind;
+  /** Presigned GET URLs of the copies, by game_videos id. */
+  copies: Record<string, { url: string }>;
+  clips: RenderShipClip[];
+  /** The public base the keys are served from (R2_MEDIA_PUBLIC_URL). */
+  publicBase: string;
+}
+
+export interface RenderProgressRequest {
+  action: "render_progress";
+  jobId: string;
+  attempt: number;
+  /** 0..1 over the job's clips. */
+  progress: number;
+}
+
+export interface RenderClipResult {
+  matchId: string;
+  eventId: number;
+  key: string;
+  ok: boolean;
+  error?: string;
+}
+
+export interface RenderDoneRequest {
+  action: "render_done";
+  jobId: string;
+  attempt: number;
+  results: RenderClipResult[];
+}
+
+export interface RenderDoneResponse {
+  jobId: string;
+  status: "done";
+  shipped: number;
+  failed: number;
+  /** Clips whose window changed while the job ran: their file was not used; the requeue cuts them again. */
+  superseded: number;
+}
+
+export interface RenderFailedRequest {
+  action: "render_failed";
+  jobId: string;
+  attempt: number;
+  error: string;
+  /** Another attempt may succeed (the sweep schedules it); false fails the job now. */
+  retryable: boolean;
+}
+
+export interface RenderFailedResponse {
+  jobId: string;
+  status: RenderJobStatus;
+  attempt: number;
+}
+
 export type GameVideoRequest =
   | GameVideoBeginRequest
   | GameVideoSignPartsRequest
@@ -568,7 +710,12 @@ export type GameVideoRequest =
   | GameVideoJobProgressRequest
   | GameVideoJobSignPartsRequest
   | GameVideoJobDoneRequest
-  | GameVideoJobFailedRequest;
+  | GameVideoJobFailedRequest
+  | ShipRequest
+  | RenderTakeRequest
+  | RenderProgressRequest
+  | RenderDoneRequest
+  | RenderFailedRequest;
 
 /** Every `{ error }` token the function answers with. */
 export const GAME_VIDEO_ERRORS = [
@@ -603,6 +750,8 @@ export const GAME_VIDEO_ERRORS = [
   "stale_attempt",
   /** job_take on a row another converter holds. */
   "job_busy",
+  /** Shipping needs the media bucket's credentials and the converter, and this project has neither configured. */
+  "renderer_unavailable",
 ] as const;
 
 export type GameVideoError = (typeof GAME_VIDEO_ERRORS)[number];

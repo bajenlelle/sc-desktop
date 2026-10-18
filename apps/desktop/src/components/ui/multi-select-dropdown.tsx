@@ -45,7 +45,7 @@ export function SingleSelectDropdown({
   placeholder = "All",
   required = false,
 }: {
-  options: { value: string; label: string }[];
+  options: readonly { value: string; label: string }[];
   value: string | null;
   onChange: (next: string | null) => void;
   placeholder?: string;
@@ -87,7 +87,7 @@ export function MultiSelectDropdown({
   onChange,
   placeholder,
 }: {
-  options: { value: string; label: string }[];
+  options: readonly { value: string; label: string }[];
   selected: Set<string>;
   onChange: (next: Set<string>) => void;
   placeholder: string;

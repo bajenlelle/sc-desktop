@@ -6,6 +6,7 @@ import type { ClipKey, Label, LabelColor } from "@scoutable/shared/types/labels"
 import { eventColors, eventLabel, formatGameClock, isBookkeepingEvent, periodLabel, playerName } from "@scoutable/shared/lib/events";
 import { defaultPostRoll, defaultPostRollForMatches, defaultPreRoll, defaultPreRollForMatches } from "@scoutable/shared/lib/provider";
 import { clipBounds, computeVideoTime, playlistRolls, rebaseOffsets } from "@scoutable/shared/lib/clip-timing";
+import { EVENT_TYPE_OPTIONS, SHOT_TYPE_OPTIONS, SITUATION_OPTIONS, matchesClipFilters, type ClipFilters } from "@scoutable/shared/lib/clip-filters";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
 import { clickSelection, extendSelection, moveFocus, type FocusMove } from "@scoutable/shared/lib/list-selection";
 import type { PlayByPlayEvent, Playlist, PlaylistClipItem, StoredMatch } from "@/types/match";
@@ -36,90 +37,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { EventTypeChips } from "./event-type-chips";
 import { PlayerStage } from "./player-stage";
 import { usePersistentVideo } from "./use-persistent-video";
-
-// ---------------------------------------------------------------------------
-// Filter vocabulary
-// ---------------------------------------------------------------------------
-
-const EVENT_TYPE_OPTIONS = [
-  { value: "2pt-made", label: "2PT made" },
-  { value: "2pt-miss", label: "2PT miss" },
-  { value: "3pt-made", label: "3PT made" },
-  { value: "3pt-miss", label: "3PT miss" },
-  { value: "freethrow-made", label: "FT made" },
-  { value: "freethrow-miss", label: "FT miss" },
-  { value: "rebound-off", label: "Off. rebound" },
-  { value: "rebound-def", label: "Def. rebound" },
-  { value: "turnover", label: "Turnover" },
-  { value: "steal", label: "Steal" },
-  { value: "assist", label: "Assist" },
-  { value: "foul", label: "Foul" },
-  { value: "foulon", label: "Foul drawn" },
-  { value: "block", label: "Block" },
-  { value: "timeout", label: "Timeout" },
-];
-
-const SHOT_TYPE_OPTIONS = [
-  { value: "subtype:layup", label: "Layup" },
-  { value: "subtype:floater", label: "Floater" },
-  { value: "subtype:jumpshot", label: "Jump shot" },
-  { value: "subtype:dunk", label: "Dunk / alley-oop" },
-  { value: "subtype:tipin", label: "Tip-in" },
-];
-
-const SITUATION_OPTIONS = [
-  { value: "qual:fastbreak", label: "Fast break" },
-  { value: "qual:pointsinthepaint", label: "In the paint" },
-  { value: "qual:2ndchance", label: "2nd chance" },
-  { value: "qual:fromturnover", label: "From turnover" },
-  { value: "qual:shooting", label: "Shooting foul" },
-  { value: "subtype:charge", label: "Charge" },
-  { value: "subtype:technical", label: "Technical foul" },
-  { value: "subtype:badpass", label: "Bad pass" },
-  { value: "subtype:ballhandling", label: "Ball handling" },
-  { value: "subtype:travel", label: "Travel" },
-  { value: "subtype:24sec", label: "Shot clock" },
-];
-
-function matchesSingleType(e: PlayByPlayEvent, filter: string): boolean {
-  if (filter === "rebound-off") return e.type === "rebound" && e.subType === "offensive";
-  if (filter === "rebound-def") return e.type === "rebound" && e.subType === "defensive";
-  if (filter === "rebound-inbound") return e.type === "rebound" && e.subType === "offensivedeadball";
-  const [type, outcome] = filter.split("-");
-  if (e.type !== type) return false;
-  if (outcome === "made") return e.isSuccessful === 1;
-  if (outcome === "miss") return e.isSuccessful === 0;
-  return true;
-}
-
-function matchesShotType(e: PlayByPlayEvent, f: string): boolean {
-  const sub = e.subType ?? "";
-  switch (f) {
-    case "subtype:layup":    return ["layup", "drivinglayup", "reverselayup"].includes(sub);
-    case "subtype:floater":  return sub === "floatingjumpshot";
-    case "subtype:jumpshot": return ["jumpshot", "pullupjumpshot", "turnaroundjumpshot", "fadeaway", "stepbackjumpshot", "hookshot"].includes(sub);
-    case "subtype:dunk":     return ["dunk", "alleyoop", "alleyoopdunk"].includes(sub);
-    case "subtype:tipin":    return ["tipinlayup", "tipindunk"].includes(sub);
-    default: return false;
-  }
-}
-
-function matchesSituation(e: PlayByPlayEvent, f: string): boolean {
-  switch (f) {
-    case "qual:fastbreak":        return e.qualifiers.includes("fastbreak");
-    case "qual:pointsinthepaint": return e.qualifiers.includes("pointsinthepaint");
-    case "qual:2ndchance":        return e.qualifiers.includes("2ndchance");
-    case "qual:fromturnover":     return e.qualifiers.includes("fromturnover");
-    case "qual:shooting":         return e.type === "foul" && e.qualifiers.includes("shooting");
-    case "subtype:charge":        return e.type === "foul" && e.subType === "offensive";
-    case "subtype:technical":     return e.type === "foul" && ["technical", "benchTechnical", "coachTechnical"].includes(e.subType ?? "");
-    case "subtype:badpass":       return e.type === "turnover" && e.subType === "badpass";
-    case "subtype:ballhandling":  return e.type === "turnover" && e.subType === "ballhandling";
-    case "subtype:travel":        return e.type === "turnover" && e.subType === "travel";
-    case "subtype:24sec":         return e.type === "turnover" && e.subType === "24sec";
-    default: return false;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // A row in the browser
@@ -403,18 +320,18 @@ export function ClipBrowserPanel({
     });
   }, []);
 
-  const filtered = useMemo(() => allEvents.filter(({ event, matchId }) => {
-    if (filterTypes.size > 0 && !Array.from(filterTypes).some((f) => matchesSingleType(event, f))) return false;
-    if (filterSubTypes.size > 0 && !Array.from(filterSubTypes).some((f) => matchesShotType(event, f))) return false;
-    if (filterSituations.size > 0 && !Array.from(filterSituations).some((f) => matchesSituation(event, f))) return false;
-    if (filterTeams.size > 0 && !filterTeams.has(event.eventTeam?.teamName ?? "")) return false;
-    if (filterPlayers.size > 0 && !filterPlayers.has(playerName(event))) return false;
-    if (filterLabelIds.size > 0) {
-      const assigned = clipAssignments.get(`${matchId}:${event.eventId}`);
-      if (!assigned || ![...filterLabelIds].some((id) => assigned.has(id))) return false;
-    }
-    return true;
-  }), [allEvents, filterTypes, filterSubTypes, filterSituations, filterTeams, filterPlayers, filterLabelIds, clipAssignments]);
+  const filtered = useMemo(() => {
+    // The event filters are shared with the web's add-clips panel (clip-filters.ts); labels are desktop-only.
+    const filters: ClipFilters = { types: filterTypes, shotTypes: filterSubTypes, situations: filterSituations, teams: filterTeams, players: filterPlayers };
+    return allEvents.filter(({ event, matchId }) => {
+      if (!matchesClipFilters(event, filters)) return false;
+      if (filterLabelIds.size > 0) {
+        const assigned = clipAssignments.get(`${matchId}:${event.eventId}`);
+        if (!assigned || ![...filterLabelIds].some((id) => assigned.has(id))) return false;
+      }
+      return true;
+    });
+  }, [allEvents, filterTypes, filterSubTypes, filterSituations, filterTeams, filterPlayers, filterLabelIds, clipAssignments]);
 
   // Load bank-scope assignments for the visible match(es) — refreshes on
   // game change. The bank surfaces only playlist_id IS NULL rows.

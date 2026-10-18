@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  SHIP_MIN_OUTPUT_BYTES,
   copyLooksWhole,
   isRetryableConvertError,
   parseProgressUs,
   progressFraction,
+  shipClipArgs,
   sourceRefusal,
   syncStatusFor,
   transcodeArgs,
@@ -92,6 +94,28 @@ describe("progressFraction", () => {
     expect(progressFraction("detect", 1)).toBe(1);
     expect(progressFraction("encode", 7)).toBe(0.75);
     expect(progressFraction("encode", Number.NaN)).toBe(0.05);
+  });
+});
+
+describe("shipClipArgs", () => {
+  // The desktop's export_clip_for_ship (lib.rs:614-636), from -ss on.
+  const RUST_TAIL = (start: string, end: string, fadeOut: string) => [
+    "-ss", start, "-to", end, "-i", "/tmp/game.mp4",
+    "-vf", `setpts=PTS-STARTPTS,scale=960:540:force_original_aspect_ratio=decrease,pad=960:540:(ow-iw)/2:(oh-ih)/2:color=black,fade=t=in:st=0:d=0.25,fade=t=out:st=${fadeOut}:d=0.25`,
+    "-af", "asetpts=PTS-STARTPTS", "-c:v", "libx264", "-preset", "fast", "-crf", "28", "-c:a", "aac", "-b:a", "96k", "/tmp/out.mp4",
+  ];
+
+  it("cuts a local file exactly as the desktop does", () => {
+    const args = shipClipArgs("/tmp/game.mp4", 754.2, 767.2, "/tmp/out.mp4");
+    expect(args.slice(0, 4)).toEqual(["-y", "-hide_banner", "-loglevel", "error"]);
+    expect(args.slice(4)).toEqual(RUST_TAIL("754.200", "767.200", "12.750"));
+  });
+
+  it("adds the reconnect flags for an https input and never a negative fade start", () => {
+    const args = shipClipArgs("https://bucket.example/copy.mp4?X-Amz-Signature=abc", 0, 0.1, "out.mp4");
+    expect(args.slice(4, 10)).toEqual(["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5"]);
+    expect(args.join(" ")).toContain("fade=t=out:st=0.000:d=0.25");
+    expect(SHIP_MIN_OUTPUT_BYTES).toBe(4096);
   });
 });
 
