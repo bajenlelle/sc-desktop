@@ -21,6 +21,7 @@ import {
 import { listMatchesLight, listEventsForMatches } from "@scoutable/shared/lib/matches-db";
 import {
   buildAggregatedTeamMap,
+  collectClipMatchIds,
   collectReferencedMatchIds,
   mergeEventsIntoMatches,
 } from "@scoutable/shared/lib/playlist-matches";
@@ -32,7 +33,7 @@ import { useAuth } from "@/components/auth-context";
 import type { SourceOption } from "@/components/playlist/PlaylistFeed";
 import { listMyClipViews, markClipWatched, clipViewKey } from "@/lib/clip-views-db";
 import { trackEvent } from "@/lib/analytics";
-import { useMyCloudGames, usePlayUrls } from "@/lib/game-videos";
+import { fetchMyCloudGames, useMyCloudGames, usePlayUrls } from "@/lib/game-videos";
 import type { Playlist, PlayByPlayEvent, StoredMatch, SyncPoint } from "@scoutable/shared/types/match";
 import type { OrgTeam, UserProfile } from "@scoutable/shared/types/org";
 
@@ -159,8 +160,14 @@ export function useSharedPlaylists() {
       // Events only for matches the loaded playlists can play, merged into
       // the shells and published in ONE setMatches — clip rows silently drop
       // when their event lookup misses, so light-shells-first would flash
-      // every playlist empty (and break ?p= deep links mid-load).
-      const referencedIds = collectReferencedMatchIds([...pls, ...directPls, ...sharedOutPls]);
+      // every playlist empty (and break ?p= deep links mid-load). A game the
+      // viewer has in the cloud plays its file-less clips as windows, so its
+      // events load too even when none of its clips is uploaded.
+      const loaded = [...pls, ...directPls, ...sharedOutPls];
+      const cloudIds = new Set((await fetchMyCloudGames().catch(() => [])).map((g) => g.matchId));
+      const referencedIds = [
+        ...new Set([...collectReferencedMatchIds(loaded), ...collectClipMatchIds(loaded).filter((id) => cloudIds.has(id))]),
+      ];
       const eventsByMatch = await listEventsForMatches(supabase, referencedIds).catch(
         () => ({}) as Record<string, PlayByPlayEvent[]>,
       );

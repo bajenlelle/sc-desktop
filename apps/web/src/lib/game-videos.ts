@@ -90,6 +90,11 @@ function loadReady(force = false): Promise<GameVideo[]> {
   return promise;
 }
 
+/** The viewer's ready copies, from the same short-lived memo the hook below uses. */
+export function fetchMyCloudGames(): Promise<GameVideo[]> {
+  return loadReady();
+}
+
 /** Forgets the cached list (after a change elsewhere) and tells every subscriber to reload. */
 export function invalidateCloudGames() {
   readyCache = null;
