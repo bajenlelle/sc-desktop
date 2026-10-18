@@ -35,7 +35,7 @@ import { Button } from "@/components/ui/button";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { trackEvent } from "@/lib/analytics";
 import { useGameUploadJob } from "@/lib/game-upload";
-import { useGameVideoRow } from "@/lib/game-videos";
+import { useGameVideoRow, useMyGameVideos } from "@/lib/game-videos";
 import { fadeVariants } from "@/lib/motion";
 import { createClient } from "@/lib/supabase/client";
 import { useLeagues } from "@/lib/use-leagues";
@@ -153,8 +153,21 @@ export function ImportFlow() {
   const resumeMissing = !!resumeId && resumed?.matchId === resumeId && resumed.current === null;
 
   const matchId = current?.match.id ?? null;
-  const { video, loaded: videoLoaded, reload: reloadVideo } = useGameVideoRow(matchId);
+  const { video: leadRow, loaded: videoLoaded, reload: reloadVideo } = useGameVideoRow(matchId);
   const job = useGameUploadJob(matchId);
+  // A replacement on its way (uploading, or converting) sits behind the
+  // game's ready copy, the row that speaks for the game elsewhere; here it
+  // is the one to follow. Finishing its upload replaces the copy, so no
+  // second question about that.
+  const { games: allRows } = useMyGameVideos();
+  const pendingReplacement = useMemo(
+    () =>
+      matchId && leadRow?.status === "ready"
+        ? (allRows?.find((g) => g.matchId === matchId && (g.status === "uploading" || g.status === "converting")) ?? null)
+        : null,
+    [allRows, matchId, leadRow?.status],
+  );
+  const video = pendingReplacement ?? leadRow;
   // An interrupted upload's row carries the anchor the function already has.
   const anchor: ImportAnchor | null = useMemo(() => {
     if (video && video.origin === "browser" && video.anchorKind) {
@@ -163,13 +176,18 @@ export function ImportFlow() {
     return current?.anchor ?? null;
   }, [video, current?.anchor]);
 
+  // A game whose video is in the cloud already lands on "ready"; the user can
+  // still ask for another file, which replaces the copy once it is up.
+  const [replaceWanted, setReplaceWanted] = useState<string | null>(null);
+  const replacing = !!current && replaceWanted === current.match.id && leadRow?.status === "ready" && !(job && job.phase !== "checking");
+
   const phase: Phase = !current
     ? "pick_game"
     : job && job.phase !== "checking"
       ? "uploading"
       : video?.status === "converting"
         ? "converting"
-        : video?.status === "ready"
+        : video?.status === "ready" && !replacing
           ? "done"
           : video?.status === "failed"
             ? "failed"
@@ -246,12 +264,21 @@ export function ImportFlow() {
                   </div>
                 )}
                 {phase === "pick_file" && current && (
-                  <PickFile match={current.match} anchor={anchor} isUpdate={current.isUpdate} video={video} job={job} />
+                  <PickFile
+                    match={current.match}
+                    anchor={anchor}
+                    isUpdate={current.isUpdate}
+                    video={video}
+                    job={job}
+                    resumeReplaces={pendingReplacement?.status === "uploading"}
+                  />
                 )}
                 {phase === "uploading" && job && <UploadCard job={job} />}
                 {phase === "converting" && video && <ConvertingCard video={video} />}
                 {phase === "failed" && video && <ConvertFailedCard video={video} onChanged={() => void reloadVideo()} />}
-                {phase === "done" && current && video && <DoneScreen match={current.match} video={video} />}
+                {phase === "done" && current && video && (
+                  <DoneScreen match={current.match} video={video} onReplace={() => setReplaceWanted(current.match.id)} />
+                )}
               </motion.div>
             </AnimatePresence>
           </AutoHeight>
@@ -274,9 +301,14 @@ export function ImportFlow() {
   );
 }
 
-/** The game is ready to watch; what to do about the tip-off depends on what the converter found. */
-function DoneScreen({ match, video }: { match: StoredMatch; video: GameVideo }) {
-  const synced = typeof match.syncPoint?.syncVideoTime === "number" || video.syncStatus === "applied";
+/**
+ * The game is ready to watch; what to do about the tip-off depends on what
+ * the converter found and whether the user has set the sync since (the row's
+ * status; a freshly re-saved match in memory carries no sync point).
+ */
+function DoneScreen({ match, video, onReplace }: { match: StoredMatch; video: GameVideo; onReplace: () => void }) {
+  const synced =
+    video.syncStatus === "confirmed" || video.syncStatus === "manual" || typeof match.syncPoint?.syncVideoTime === "number";
   const body =
     video.syncStatus === "applied"
       ? "We found the tip-off and lined the plays up. Check it when you open the game."
@@ -292,9 +324,14 @@ function DoneScreen({ match, video }: { match: StoredMatch; video: GameVideo }) 
       body={body}
       className="min-h-[18rem] bg-transparent"
       actions={
-        <Button asChild>
-          <Link href={`/games/${encodeURIComponent(match.id)}?from=games`}>Watch the game</Link>
-        </Button>
+        <>
+          <Button asChild>
+            <Link href={`/games/${encodeURIComponent(match.id)}?from=games`}>Watch the game</Link>
+          </Button>
+          <Button variant="ghost" onClick={onReplace}>
+            Upload a different video
+          </Button>
+        </>
       }
     />
   );

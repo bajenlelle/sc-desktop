@@ -44,6 +44,7 @@ export function PickFile({
   isUpdate,
   video,
   job,
+  resumeReplaces = false,
 }: {
   match: StoredMatch;
   /** Null while the anchor is still being worked out for a resumed flow. */
@@ -53,6 +54,8 @@ export function PickFile({
   video: GameVideo | null;
   /** This device's job for the game, while it checks the file. */
   job: GameUploadJob | null;
+  /** The interrupted upload was replacing a copy in the cloud: finishing it replaces that copy, with no second question. */
+  resumeReplaces?: boolean;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [replaceAsk, setReplaceAsk] = useState<{ file: File; expectResume: boolean } | null>(null);
@@ -91,7 +94,7 @@ export function PickFile({
       {isUpdate && <Callout>Already in your library; this updates that game. Its playlists keep working.</Callout>}
 
       {interrupted ? (
-        <UploadInterruptedCard video={video} busy={checking || !anchor} onFile={(f) => start(f, { expectResume: true })} />
+        <UploadInterruptedCard video={video} busy={checking || !anchor} onFile={(f) => start(f, { expectResume: true, replace: resumeReplaces })} />
       ) : file ? (
         <div className="rounded-window bg-card p-4 ring-1 ring-separator sm:p-5">
           <div className="flex items-start gap-3">
