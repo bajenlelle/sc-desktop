@@ -68,19 +68,39 @@ playlists, and share them with teams; players watch on web/mobile.
 - **Cloud game videos**: a game's 720p copy in the PRIVATE R2 bucket
   (`R2_VIDEOS_*` secrets), rows in `game_videos` (written by the `game-video`
   function only; the uploader reads their own), keys
-  `<project ref>/games/<matchId>/<videoId>.mp4` so staging and prod share the
-  bucket and a project never touches another's objects (`guardKey`). The
-  desktop encodes (libx264 veryfast, `src-tauri/src/game_video.rs`) and
-  uploads 32 MiB parts to presigned URLs; the web plays the copy through a
-  12 h presigned GET (`/games`). Caps per tier in `app_config.game_video_limits`
-  (enforced by the insert trigger), kill switch `app_config.cloud_video_enabled`,
-  deletions queued in `game_video_deletions` and purged nightly by pg_cron
-  through the function's `purge` action (`GAME_VIDEO_PURGE_SECRET` =
-  `app_config.game_video_purge_secret`). Wire contract and pure helpers in
-  `packages/shared/lib/game-video-wire.ts`; end-to-end check
-  `node --env-file=apps/web/.env.staging scripts/game-video-smoke.mjs` with
-  `SUPABASE_SERVICE_ROLE_KEY` in the environment. Deploy the function by
-  name only.
+  `<project ref>/games/<matchId>/<videoId>.mp4` for copies and
+  `<project ref>/sources/<matchId>/<videoId>.<ext>` for browser-uploaded
+  originals, so staging and prod share the bucket and a project never touches
+  another's objects (`guardKey`). The desktop encodes (libx264 veryfast,
+  `src-tauri/src/game_video.rs`) and uploads 32 MiB parts to presigned URLs.
+  The web imports a game and uploads the ORIGINAL the same way (`origin:
+  "browser"`); `complete` then moves the row to `converting` and the function
+  starts the converter: a Cloudflare Worker + container in
+  `workers/game-video-convert` (EU-pinned, `standard-4`, deployed by
+  `convert-deploy.yml`) that runs `src/convert.ts` (download → probe →
+  fingerprint → hints → ffmpeg with the desktop's exact arguments, shared in
+  `packages/shared/lib/game-video-convert.ts` → upload → tip-off detection as
+  the bot) and reports through the `job_*` actions behind
+  `GAME_VIDEO_WORKER_SECRET`, every write fenced by the attempt number. A
+  confident tip-off is applied to an unsynced game (`_game_video_finish_convert`),
+  the web confirms or sets it through `sync_set` (`_game_video_set_sync`, a
+  coach's own sync stays locked), a ten-minute pg_cron sweep re-runs dead
+  conversions, and `game_video_ready` mails the uploader. The web plays the
+  copy through a 12 h presigned GET (`/games`). Caps per tier in
+  `app_config.game_video_limits` (enforced by the insert trigger; conversions
+  in flight count), kill switch `app_config.cloud_video_enabled`, deletions
+  queued in `game_video_deletions` and purged nightly by pg_cron through the
+  function's `purge` action (`GAME_VIDEO_PURGE_SECRET` =
+  `app_config.game_video_purge_secret`; `GAME_VIDEO_WORKER_SECRET` =
+  `app_config.game_video_worker_secret`; `GAME_VIDEO_CONVERT_URL/SECRET` point
+  at the Worker). Wire contract and pure helpers in
+  `packages/shared/lib/game-video-wire.ts`; end-to-end checks
+  `node --env-file=apps/web/.env.staging scripts/game-video-smoke.mjs`
+  (desktop path), `--browser` (the script plays the converter) and
+  `--browser --local-convert [--file game.mp4]` (the real converter program on
+  this machine), all with `SUPABASE_SERVICE_ROLE_KEY` in the environment.
+  Deploy the function by name only. The browser upload needs the bucket's
+  CORS rule (PUT from the app's origin, `ExposeHeaders: ETag`).
 - **Errors**: Sentry on all three apps (org `scoutable`, EU). DSNs are
   hardcoded (public); desktop/mobile dev builds are offline unless the DSN
   env var is set. Don't add error tracking dependencies to `packages/shared`.
@@ -109,6 +129,14 @@ playlists, and share them with teams; players watch on web/mobile.
   Desktop against staging: `cp .env.staging .env && npm run tauri dev`
   (restore with `npm run use:prod`); web: use `apps/web/.env.staging` as
   `.env.local` for the session.
+- Converter (`workers/game-video-convert`): typecheck `npx tsc --noEmit` there;
+  deploy from GitHub Actions (`convert-deploy.yml`, dispatch with the
+  environment) or locally with Docker running:
+  `npx wrangler deploy [--env staging]` in that directory. Run the program on
+  this Mac against staging with
+  `FFMPEG=apps/desktop/src-tauri/binaries/ffmpeg-aarch64-apple-darwin` through
+  the smoke script's `--local-convert`, or `DRY_RUN_SOURCE=<file>` for the
+  pipeline alone (see its README).
 - Mobile dev: `npx expo start` in `apps/mobile` (dev client build required).
 
 ## CI / Releases
