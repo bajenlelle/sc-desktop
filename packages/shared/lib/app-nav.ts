@@ -9,9 +9,11 @@
  *   (staff see them as "Shared playlists", the ones they share) and, for
  *   staff, the club itself; web is where clubs are managed. A personal space
  *   has no playlists to watch on web, so its home is the get-started page.
- * - Anyone with a game in the cloud (a copy uploaded from the desktop) gets
- *   Games, right after their playlists; a personal space then has something
- *   to watch on web after all.
+ * - Anyone with a game in the cloud (uploaded from the desktop or the
+ *   browser) gets Games, right after their playlists; a personal space then
+ *   has something to watch on web after all. So does anyone who may import a
+ *   game from the browser (canImportGames), since Games is where importing
+ *   starts.
  * - Platform admins also get Admin.
  * - Tabs add Profile, which the sidebar keeps in its account menu.
  */
@@ -41,8 +43,30 @@ export interface NavUser {
   activeOrgIsPersonal: boolean;
   activeOrgRole: OrgMembership['role'] | null;
   isPlatformAdmin: boolean;
-  /** The user has at least one game copy in the cloud to watch (see game-videos-db.ts). */
+  /** The user has at least one game in the cloud, in any state (see game-videos-db.ts). */
   hasCloudGames: boolean;
+  /** The user may import a league game from the browser in the active space (canImportGames). */
+  canImport: boolean;
+}
+
+/** What canImportGames decides on: the active space and the user's standing in it. */
+export interface ImportUser {
+  isPlayerOnly: boolean;
+  hasSpace: boolean;
+  activeOrgIsPersonal: boolean;
+  activeOrgRole: OrgMembership['role'] | null;
+  /** National-team spaces import from their own leagues, which the web doesn't offer. */
+  activeOrgIsNt: boolean;
+}
+
+/**
+ * Whether the browser import is offered: staff of a club space (coach or
+ * admin) and anyone in their personal space; never a player-only user or a
+ * player in a club space, never a national-team space.
+ */
+export function canImportGames(u: ImportUser): boolean {
+  if (u.isPlayerOnly || !u.hasSpace || u.activeOrgIsNt) return false;
+  return u.activeOrgIsPersonal || u.activeOrgRole === 'coach' || u.activeOrgRole === 'admin';
 }
 
 const PROFILE: Destination = { id: 'profile', href: '/profile', label: 'Profile' };
@@ -50,7 +74,7 @@ const GAMES: Destination = { id: 'games', href: '/games', label: 'Games' };
 
 export function sidebarDestinations(user: NavUser): Destination[] {
   const admin: Destination[] = user.isPlatformAdmin ? [{ id: 'admin', href: '/admin', label: 'Admin' }] : [];
-  const games: Destination[] = user.hasCloudGames ? [GAMES] : [];
+  const games: Destination[] = user.hasCloudGames || user.canImport ? [GAMES] : [];
   if (user.isPlayerOnly) {
     return [
       { id: 'playlists', href: '/my-playlists', label: 'My playlists' },

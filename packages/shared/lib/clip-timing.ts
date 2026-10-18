@@ -83,6 +83,21 @@ export function formatClipTime(seconds: number): string {
 }
 
 /**
+ * m:ss.d for the tip-off picker's readout, floored to the tenth so the
+ * displayed frame is never ahead of the playhead; negative values (a
+ * recording that starts after the tip-off) keep their sign. The desktop's
+ * sync-point-picker.tsx carries the same function until it imports this one.
+ */
+export function formatMSSd(secs: number): string {
+  const sign = secs < 0 ? "−" : "";
+  const a = Math.abs(secs);
+  const m = Math.floor(a / 60);
+  const s = Math.floor(a % 60);
+  const d = Math.floor((a % 1) * 10);
+  return `${sign}${m}:${String(s).padStart(2, "0")}.${d}`;
+}
+
+/**
  * R2 object key for a shipped clip. pre/post are the EFFECTIVE totals
  * (base roll + per-clip offset); start is the computed in-video start second,
  * which depends on the match's sync point — so a re-synced game mints NEW

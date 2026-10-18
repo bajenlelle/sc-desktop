@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeDestination, sidebarDestinations, tabDestinations, type NavUser } from "../app-nav";
+import { activeDestination, canImportGames, sidebarDestinations, tabDestinations, type ImportUser, type NavUser } from "../app-nav";
 
 const base: NavUser = {
   isPlayerOnly: false,
@@ -8,6 +8,7 @@ const base: NavUser = {
   activeOrgRole: "coach",
   isPlatformAdmin: false,
   hasCloudGames: false,
+  canImport: false,
 };
 
 const labels = (user: NavUser) => sidebarDestinations(user).map((d) => d.label);
@@ -69,6 +70,14 @@ describe("sidebarDestinations", () => {
     expect(activeDestination("/games/2583394", sidebarDestinations(cloud))).toBe("games");
   });
 
+  it("adds Games for anyone who may import from the browser, even before they have a game", () => {
+    const importer = { ...base, canImport: true };
+    expect(labels(importer)).toEqual(["Shared playlists", "Games", "Club"]);
+    expect(labels({ ...importer, activeOrgIsPersonal: true, activeOrgRole: "admin" })).toEqual(["Games", "Get started"]);
+    // One Games entry whichever reason applies.
+    expect(labels({ ...importer, hasCloudGames: true })).toEqual(["Shared playlists", "Games", "Club"]);
+  });
+
   it("links each destination to its page", () => {
     const all = sidebarDestinations({ ...base, isPlatformAdmin: true });
     expect(all.map((d) => d.href)).toEqual(["/my-playlists", "/organization", "/admin"]);
@@ -100,5 +109,24 @@ describe("activeDestination", () => {
     expect(activeDestination("/onboarding", all)).toBeNull();
     expect(activeDestination("/my-playlistsx", all)).toBeNull();
     expect(activeDestination("/my-highlights", all)).toBeNull();
+  });
+});
+
+describe("canImportGames", () => {
+  const coach: ImportUser = { isPlayerOnly: false, hasSpace: true, activeOrgIsPersonal: false, activeOrgRole: "coach", activeOrgIsNt: false };
+
+  it("lets club staff and anyone in their personal space import", () => {
+    expect(canImportGames(coach)).toBe(true);
+    expect(canImportGames({ ...coach, activeOrgRole: "admin" })).toBe(true);
+    expect(canImportGames({ ...coach, activeOrgIsPersonal: true, activeOrgRole: "admin" })).toBe(true);
+  });
+
+  it("refuses players, player-only users, national-team spaces and users without a space", () => {
+    expect(canImportGames({ ...coach, activeOrgRole: "player" })).toBe(false);
+    expect(canImportGames({ ...coach, isPlayerOnly: true, activeOrgRole: "player" })).toBe(false);
+    expect(canImportGames({ ...coach, activeOrgIsNt: true })).toBe(false);
+    expect(canImportGames({ ...coach, hasSpace: false, activeOrgRole: null })).toBe(false);
+    // A player-only user in their personal space still can't: the import is a coach's tool.
+    expect(canImportGames({ ...coach, isPlayerOnly: true, activeOrgIsPersonal: true, activeOrgRole: "admin" })).toBe(false);
   });
 });

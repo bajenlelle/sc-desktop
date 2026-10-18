@@ -5,6 +5,7 @@ import {
   clipShipKey,
   computeVideoTime,
   formatClipTime,
+  formatMSSd,
   isShippedClipStale,
   isWatchedPosition,
   playlistRolls,
@@ -290,3 +291,12 @@ describe("isShippedClipStale with a start", () => {
   });
 });
 
+describe("formatMSSd", () => {
+  it("reads m:ss.d, floored to the tenth, and keeps the sign of a time before the recording", () => {
+    expect(formatMSSd(0)).toBe("0:00.0");
+    expect(formatMSSd(252.37)).toBe("4:12.3");
+    expect(formatMSSd(59.99)).toBe("0:59.9");
+    expect(formatMSSd(3600)).toBe("60:00.0");
+    expect(formatMSSd(-105.2)).toBe("−1:45.2");
+  });
+});

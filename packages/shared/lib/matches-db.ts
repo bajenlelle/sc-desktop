@@ -116,6 +116,21 @@ function rowToStoredMatch(row: MatchRow, events: EventRow[]): StoredMatch {
 // Save (upsert match + bulk-insert events)
 // ---------------------------------------------------------------------------
 
+/** Why the database refused a save: the space's import allowance, or the club's expired license. */
+export type MatchSaveToken = "import_limit_reached" | "license_locked";
+
+/** The error saveMatch throws, with the gate's token when the database named one. */
+export interface MatchSaveError extends Error {
+  token?: MatchSaveToken;
+}
+
+/** The gate token in a Postgres error message raised by the import triggers, or null. */
+export function matchSaveToken(message: string): MatchSaveToken | null {
+  if (message.includes("import_limit_reached")) return "import_limit_reached";
+  if (message.includes("license_locked")) return "license_locked";
+  return null;
+}
+
 export async function saveMatch(
   supabase: SupabaseClient,
   match: StoredMatch,
@@ -162,11 +177,17 @@ export async function saveMatch(
   }
   const { error: matchError } = await supabase.from("matches").upsert(matchData, { onConflict: "id" });
   if (matchError) {
-    if (matchError.message.includes("license_locked"))
-      throw new Error(
-        "This organization's license has expired — importing is paused until it's renewed."
-      );
-    throw new Error(`Failed to save match: ${matchError.message}`);
+    // The database's gates (the import allowance and the license lock are
+    // triggers) arrive as exceptions; the token on the error lets callers
+    // branch without matching the message (see import-session.ts).
+    const token = matchSaveToken(matchError.message);
+    const err: MatchSaveError = new Error(
+      token === "license_locked"
+        ? "This organization's license has expired — importing is paused until it's renewed."
+        : `Failed to save match: ${matchError.message}`,
+    );
+    if (token) err.token = token;
+    throw err;
   }
 
   if (match.events.length > 0) {
