@@ -18,10 +18,11 @@ import { formatGameDate, formatGameLength } from "@/lib/format-game";
 import { fetchPlayUrl } from "@/lib/game-videos";
 import { createClient } from "@/lib/supabase/client";
 
-type State =
+type State = { matchId: string } & (
   | { status: "loading" }
   | { status: "unavailable" }
-  | { status: "ready"; match: StoredMatch; play: GameVideoPlayResponse };
+  | { status: "ready"; match: StoredMatch; play: GameVideoPlayResponse }
+);
 
 /**
  * A whole game from its cloud copy, with the play-by-play beside it. Only
@@ -36,18 +37,19 @@ export default function GamePage() {
     return Number.isFinite(t) && t > 0 ? t : null;
   }, [searchParams]);
   const from = searchParams.get("from");
-  const [state, setState] = useState<State>({ status: "loading" });
+  // Keyed by game, so a navigation to another game reads as loading at once.
+  const [loaded, setLoaded] = useState<State>({ matchId, status: "loading" });
+  const state: State = loaded.matchId === matchId ? loaded : { matchId, status: "loading" };
 
   useEffect(() => {
     let cancelled = false;
-    setState({ status: "loading" });
     void Promise.all([getMatch(createClient(), matchId), fetchPlayUrl(matchId)]).then(([match, play]) => {
       if (cancelled) return;
       if (!match || !play) {
-        setState({ status: "unavailable" });
+        setLoaded({ matchId, status: "unavailable" });
         return;
       }
-      setState({ status: "ready", match, play });
+      setLoaded({ matchId, status: "ready", match, play });
       trackEvent("game_opened", { match_id: matchId, from: from === "games" || from === "clip" ? from : "link" });
     });
     return () => {
