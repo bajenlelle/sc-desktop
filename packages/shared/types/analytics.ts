@@ -80,14 +80,24 @@ export type AnalyticsEvent =
   // Consumption & engagement (web + desktop players)
   | "playlist_opened"
   | "clip_watched"
-  // Cloud game videos: a 720p copy of a game kept in the cloud (desktop
-  // uploads it; web plays it). from: games | clip | link; stage: encode | upload | complete
-  | "game_video_upload_started" // match_id, source_mb, duration_s
-  | "game_video_uploaded" // match_id, copy_mb, encode_s, upload_s, resumed
-  | "game_video_upload_failed" // match_id, stage, error
+  // Cloud game videos: a 720p copy of a game kept in the cloud (the desktop
+  // uploads the copy; the browser uploads the original and our converter makes
+  // the copy; web plays it). origin: desktop | browser; from: games | clip | link;
+  // stage: encode | upload | complete
+  | "game_video_upload_started" // match_id, origin, source_mb, duration_s
+  | "game_video_uploaded" // match_id, origin, copy_mb, encode_s, upload_s, resumed
+  | "game_video_upload_failed" // match_id, origin, stage, error
+  | "game_video_upload_cancelled" // match_id, origin, done_fraction
   | "game_video_removed" // match_id
+  | "game_video_converted" // match_id, sync_status, confidence, wall_s (the web, when the row turns ready)
+  | "game_video_convert_failed" // match_id, error
+  | "game_video_convert_retried" // match_id
   | "game_opened" // match_id, from
   | "clip_played_from_game" // playlist_id
+  // Importing on the web and checking the server's tip-off
+  | "import_entry_clicked" // placement: games_toolbar | games_empty | get_started | game_page
+  | "tipoff_check_shown" // sync_status, confidence
+  | "tipoff_check_resolved" // action: looks_right | adjusted | set_manually, delta_s
   | "reminder_sent"
   // Push notifications (mobile)
   | "notification_prompt_shown"

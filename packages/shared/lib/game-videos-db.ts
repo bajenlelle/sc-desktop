@@ -4,11 +4,22 @@
  * Rows are written by the `game-video` edge function only; see
  * game-video-client.ts for the upload and playback calls.
  *
+ * A desktop row goes uploading → ready. A browser row goes uploading (the
+ * original) → converting (our converter makes the copy) → ready, and carries
+ * the conversion's progress, the detected tip-off and the sync status.
+ *
  * Each function takes a SupabaseClient so this module is isomorphic.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { reportDbError } from "./report";
-import type { GameVideoSourceKind, GameVideoStatus } from "./game-video-wire";
+import type {
+  GameVideoAnchorKind,
+  GameVideoConvertError,
+  GameVideoOrigin,
+  GameVideoSourceKind,
+  GameVideoStatus,
+  GameVideoSyncStatus,
+} from "./game-video-wire";
 
 export interface GameVideoRow {
   id: string;
@@ -21,9 +32,23 @@ export interface GameVideoRow {
   duration_seconds: number | null;
   width: number | null;
   height: number | null;
+  fps?: number | null;
   source_fingerprint: string | null;
   created_at: string;
   ready_at: string | null;
+  // Added by the browser-upload migration; optional so older row literals still type.
+  origin?: GameVideoOrigin;
+  source_name?: string | null;
+  source_size_bytes?: number | string | null;
+  anchor_kind?: GameVideoAnchorKind | null;
+  anchor_label?: string | null;
+  anchor_real_world_time?: string | null;
+  convert_progress?: number | null;
+  convert_attempts?: number;
+  convert_error?: string | null;
+  sync_status?: GameVideoSyncStatus | null;
+  suggested_tipoff_seconds?: number | null;
+  suggested_confidence?: number | null;
 }
 
 export interface GameVideo {
@@ -37,16 +62,39 @@ export interface GameVideo {
   durationSeconds: number | null;
   width: number | null;
   height: number | null;
+  fps: number | null;
   sourceFingerprint: string | null;
   createdAt: string;
   readyAt: string | null;
+  origin: GameVideoOrigin;
+  /** Browser uploads: the original file's name and size. */
+  sourceName: string | null;
+  sourceSizeBytes: number | null;
+  anchorKind: GameVideoAnchorKind | null;
+  anchorLabel: string | null;
+  anchorRealWorldTime: string | null;
+  /** 0..1 while converting; null while the job waits for a converter. */
+  convertProgress: number | null;
+  convertAttempts: number;
+  convertError: GameVideoConvertError | string | null;
+  /** Null on desktop rows (see game-video-wire.ts). */
+  syncStatus: GameVideoSyncStatus | null;
+  suggestedTipoffSeconds: number | null;
+  suggestedConfidence: number | null;
 }
 
 export const GAME_VIDEO_SELECT =
-  "id, match_id, uploaded_by, org_id, status, source_kind, size_bytes, duration_seconds, width, height, source_fingerprint, created_at, ready_at";
+  "id, match_id, uploaded_by, org_id, status, source_kind, size_bytes, duration_seconds, width, height, fps, source_fingerprint, created_at, ready_at, " +
+  "origin, source_name, source_size_bytes, anchor_kind, anchor_label, anchor_real_world_time, " +
+  "convert_progress, convert_attempts, convert_error, sync_status, suggested_tipoff_seconds, suggested_confidence";
+
+function optBig(v: number | string | null | undefined): number | null {
+  if (v === null || v === undefined) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
 
 export function rowToGameVideo(row: GameVideoRow): GameVideo {
-  const size = row.size_bytes === null ? null : Number(row.size_bytes);
   return {
     id: row.id,
     matchId: row.match_id,
@@ -54,13 +102,26 @@ export function rowToGameVideo(row: GameVideoRow): GameVideo {
     orgId: row.org_id,
     status: row.status,
     sourceKind: row.source_kind,
-    sizeBytes: size !== null && Number.isFinite(size) ? size : null,
+    sizeBytes: optBig(row.size_bytes),
     durationSeconds: row.duration_seconds,
     width: row.width,
     height: row.height,
+    fps: row.fps ?? null,
     sourceFingerprint: row.source_fingerprint,
     createdAt: row.created_at,
     readyAt: row.ready_at,
+    origin: row.origin ?? "desktop",
+    sourceName: row.source_name ?? null,
+    sourceSizeBytes: optBig(row.source_size_bytes),
+    anchorKind: row.anchor_kind ?? null,
+    anchorLabel: row.anchor_label ?? null,
+    anchorRealWorldTime: row.anchor_real_world_time ?? null,
+    convertProgress: row.convert_progress ?? null,
+    convertAttempts: row.convert_attempts ?? 0,
+    convertError: row.convert_error ?? null,
+    syncStatus: row.sync_status ?? null,
+    suggestedTipoffSeconds: row.suggested_tipoff_seconds ?? null,
+    suggestedConfidence: row.suggested_confidence ?? null,
   };
 }
 
@@ -76,10 +137,21 @@ export async function listMyGameVideos(
   // Never silently: an empty list from a failed query reads as "no copies".
   if (error) reportDbError("listMyGameVideos", error);
   if (error || !data) return [];
-  return (data as GameVideoRow[]).map(rowToGameVideo);
+  return (data as unknown as GameVideoRow[]).map(rowToGameVideo);
 }
 
-/** The game's copy as its uploader sees it: ready first, else the upload in progress, else a failed one, else null. */
+/** The row that speaks for a game among several: ready, else converting, else the upload in progress, else a failed one. */
+export function pickGameVideoRow<T extends { status: GameVideoStatus }>(rows: readonly T[]): T | null {
+  return (
+    rows.find((r) => r.status === "ready") ??
+    rows.find((r) => r.status === "converting") ??
+    rows.find((r) => r.status === "uploading") ??
+    rows.find((r) => r.status === "failed") ??
+    null
+  );
+}
+
+/** The game's copy as its uploader sees it (pickGameVideoRow over the game's rows), or null. */
 export async function getGameVideoForMatch(supabase: SupabaseClient, matchId: string): Promise<GameVideo | null> {
   const { data, error } = await supabase
     .from("game_videos")
@@ -90,13 +162,15 @@ export async function getGameVideoForMatch(supabase: SupabaseClient, matchId: st
     reportDbError("getGameVideoForMatch", error);
     return null;
   }
-  const rows = (data ?? []) as GameVideoRow[];
-  const row =
-    rows.find((r) => r.status === "ready") ??
-    rows.find((r) => r.status === "uploading") ??
-    rows.find((r) => r.status === "failed") ??
-    null;
+  const row = pickGameVideoRow((data ?? []) as unknown as GameVideoRow[]);
   return row ? rowToGameVideo(row) : null;
+}
+
+/** True while the row will still change on its own: the converter is working or hasn't reported its sync yet. */
+export function gameVideoIsSettling(video: GameVideo | null): boolean {
+  if (!video) return false;
+  if (video.status === "converting") return true;
+  return video.status === "ready" && video.syncStatus === "pending";
 }
 
 export interface GameVideoQuota {

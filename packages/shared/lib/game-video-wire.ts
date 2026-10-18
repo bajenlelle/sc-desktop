@@ -1,22 +1,28 @@
 /**
- * Cloud game videos: the wire contract between the apps and the `game-video`
- * edge function, and the pure helpers both sides share (the key scheme, the
- * part plan, the S3 multipart XML, play-URL freshness).
+ * Cloud game videos: the wire contract between the apps, the converter and
+ * the `game-video` edge function, and the pure helpers all sides share (the
+ * key scheme, the part plan, the S3 multipart XML, play-URL freshness).
  *
  * Imported by the Deno function via a relative path, so this file has NO
  * runtime imports and uses no DOM, Node or Deno globals.
  *
- * A copy is a whole game file re-encoded to 720p by the desktop, uploaded in
- * equal parts (R2's rule: every part the same size except the last, at least
- * 5 MiB) through presigned part URLs, and played through a presigned GET.
- * Object keys are `<prefix>/games/<matchId>/<videoId>.mp4`, where the prefix
- * is the Supabase project ref, so staging and prod can share one bucket and
- * a project only ever touches its own objects.
+ * A copy is a whole game file re-encoded to 720p, uploaded in equal parts
+ * (R2's rule: every part the same size except the last, at least 5 MiB)
+ * through presigned part URLs, and played through a presigned GET. The
+ * desktop encodes on the user's computer and uploads the copy itself; the
+ * browser uploads the ORIGINAL to a source key and our converter (a
+ * container the function starts) makes the copy, finds the tip-off and
+ * reports back through the `job_*` actions.
+ *
+ * Object keys are `<prefix>/games/<matchId>/<videoId>.mp4` for copies and
+ * `<prefix>/sources/<matchId>/<videoId>.<ext>` for originals, where the
+ * prefix is the Supabase project ref, so staging and prod can share one
+ * bucket and a project only ever touches its own objects.
  */
 
 /** Every part the same size: 32 MiB. A 3 GB game is about 90 parts. */
 export const GAME_VIDEO_PART_SIZE = 32 * 1024 * 1024;
-/** The biggest copy the function accepts: 8 GiB, about four hours of 720p at the encoder's ceiling. */
+/** The biggest file the function accepts, copy or original: 8 GiB. */
 export const GAME_VIDEO_MAX_BYTES = 8 * 1024 * 1024 * 1024;
 /** S3 and R2 stop at 10,000 parts; with 32 MiB parts the size cap comes long before. */
 export const GAME_VIDEO_MAX_PARTS = 10_000;
@@ -29,8 +35,82 @@ export const GAME_VIDEO_PLAY_URL_SECONDS = 12 * 60 * 60;
 /** A play URL this close to expiry is refreshed before use. */
 export const GAME_VIDEO_URL_MARGIN_SECONDS = 10 * 60;
 
-export type GameVideoStatus = "uploading" | "ready" | "failed";
+// ---------------------------------------------------------------------------
+// Browser uploads and the converter
+// ---------------------------------------------------------------------------
+
+/** File extensions a browser may upload as an original; the converter probes the content anyway. */
+export const GAME_VIDEO_SOURCE_EXTS = ["mp4", "mov", "m4v", "mkv", "webm", "ts"] as const;
+/** The longest original the converter takes on: four hours covers any game with its pre- and post-game. */
+export const GAME_VIDEO_MAX_SOURCE_SECONDS = 4 * 60 * 60;
+/** How long the converter's presigned GET of the original lives. */
+export const GAME_VIDEO_SOURCE_URL_SECONDS = 12 * 60 * 60;
+/** A converting row whose heartbeat is older than this is considered dead and re-run by the sweep. */
+export const GAME_VIDEO_HEARTBEAT_STALE_SECONDS = 10 * 60;
+/** How many times a conversion is attempted before the row fails for good. */
+export const GAME_VIDEO_MAX_ATTEMPTS = 3;
+/** A detected tip-off at least this confident is applied to the game; weaker ones are only suggested. */
+export const GAME_VIDEO_SYNC_APPLY_CONFIDENCE = 0.75;
+/** How long a failed conversion keeps its original for a retry. */
+export const GAME_VIDEO_SOURCE_KEEP_DAYS = 7;
+/** How often the converter reports progress and renews its heartbeat. */
+export const GAME_VIDEO_PROGRESS_INTERVAL_SECONDS = 30;
+
+export type GameVideoStatus = "uploading" | "converting" | "ready" | "failed";
 export type GameVideoSourceKind = "unknown" | "broadcast" | "own";
+/** Who made the copy: the desktop on the user's computer, or our converter from a browser upload. */
+export type GameVideoOrigin = "desktop" | "browser";
+/**
+ * The moment the sync anchors on: the Q1 tip-off (Genius games; what the
+ * detector finds), the first made basket (Profixio games), or the match start
+ * when a feed offers only that.
+ */
+export type GameVideoAnchorKind = "tipoff" | "first_basket" | "match_start";
+/**
+ * Where a browser-imported game's sync stands. NULL on desktop rows.
+ *   pending    the converter hasn't reported yet
+ *   applied    the converter wrote the sync (a confident detection or a confirmed hint); the user is asked to check it
+ *   suggested  a weaker detection, stored on the row only (or the coach had synced the game already)
+ *   not_found  the detector found nothing
+ *   skipped    detection doesn't apply (first-basket anchor, no anchor time)
+ *   confirmed  the user confirmed the applied or suggested time
+ *   manual     the user set the time themselves
+ */
+export type GameVideoSyncStatus = "pending" | "applied" | "suggested" | "not_found" | "skipped" | "confirmed" | "manual";
+/** What the converter's detection step concluded. */
+export type GameVideoSyncOutcome = "confirmed" | "estimate" | "not_found" | "skipped";
+/** Why a conversion failed, for the row's `convert_error` and the apps' copy. */
+export type GameVideoConvertError =
+  | "too_long"
+  | "no_video_stream"
+  | "unsupported_type"
+  | "transcode_incomplete"
+  | "source_unreadable"
+  | "size_mismatch"
+  | "upload_failed"
+  | "gave_up"
+  | "converter_unavailable";
+
+export const GAME_VIDEO_CONVERT_ERRORS: readonly GameVideoConvertError[] = [
+  "too_long",
+  "no_video_stream",
+  "unsupported_type",
+  "transcode_incomplete",
+  "source_unreadable",
+  "size_mismatch",
+  "upload_failed",
+  "gave_up",
+  "converter_unavailable",
+];
+
+/** The content fingerprint (lib/video-fingerprint.ts), restated here so this file stays import-free. */
+export interface GameVideoFingerprint {
+  version: number;
+  durationMs: number;
+  offsetsS: number[];
+  hashes: string[];
+  key: string;
+}
 
 /** One uploaded part, as S3 names it. The ETag is kept bare (no quotes). */
 export interface GameVideoPart {
@@ -102,6 +182,7 @@ export function isValidKeyPrefix(prefix: string): boolean {
 // string, a legacy gameUuid, a Profixio id or "demo-<uuid>".
 const MATCH_ID = "[A-Za-z0-9-]{1,64}";
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const EXT = "[a-z0-9]{1,5}";
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -111,10 +192,38 @@ export function gameVideoKey(prefix: string, matchId: string, videoId: string): 
   return `${prefix}/games/${matchId}/${videoId}.mp4`;
 }
 
-/** True when `key` is a game video key under exactly this prefix. */
-export function isGameVideoKey(key: string, prefix: string): boolean {
+/** The original's key for a browser upload; `ext` comes from sourceExtension(). */
+export function gameVideoSourceKey(prefix: string, matchId: string, videoId: string, ext: string): string {
+  return `${prefix}/sources/${matchId}/${videoId}.${ext}`;
+}
+
+/**
+ * The lowercase extension of an uploaded file's name, when it is one the
+ * converter takes ("Game.MP4" → "mp4"); null for anything else. The content
+ * is probed anyway: the name only decides the key and the first refusal.
+ */
+export function sourceExtension(fileName: string): string | null {
+  const m = /\.([A-Za-z0-9]{1,5})$/.exec(fileName.trim());
+  if (!m) return null;
+  const ext = m[1].toLowerCase();
+  return (GAME_VIDEO_SOURCE_EXTS as readonly string[]).includes(ext) ? ext : null;
+}
+
+/** True when `key` is a copy's key under exactly this prefix. */
+export function isGameVideoCopyKey(key: string, prefix: string): boolean {
   if (!isValidKeyPrefix(prefix)) return false;
   return new RegExp(`^${escapeRegExp(prefix)}/games/${MATCH_ID}/${UUID}\\.mp4$`).test(key);
+}
+
+/** True when `key` is an original's key under exactly this prefix. */
+export function isGameVideoSourceKey(key: string, prefix: string): boolean {
+  if (!isValidKeyPrefix(prefix)) return false;
+  return new RegExp(`^${escapeRegExp(prefix)}/sources/${MATCH_ID}/${UUID}\\.${EXT}$`).test(key);
+}
+
+/** True when `key` is any game video key (a copy or an original) under exactly this prefix. */
+export function isGameVideoKey(key: string, prefix: string): boolean {
+  return isGameVideoCopyKey(key, prefix) || isGameVideoSourceKey(key, prefix);
 }
 
 // ---------------------------------------------------------------------------
@@ -195,23 +304,50 @@ export function isSignedUrlFresh(
 }
 
 // ---------------------------------------------------------------------------
-// Requests and responses
+// Requests and responses: the apps
 // ---------------------------------------------------------------------------
 
-export type GameVideoAction = "begin" | "sign_parts" | "complete" | "abort" | "remove" | "play" | "purge";
+export type GameVideoAction =
+  | "begin"
+  | "sign_parts"
+  | "complete"
+  | "abort"
+  | "remove"
+  | "play"
+  | "retry_convert"
+  | "sync_set"
+  | "purge"
+  | "sweep"
+  | "job_take"
+  | "job_progress"
+  | "job_sign_parts"
+  | "job_done"
+  | "job_failed";
 
 export interface GameVideoBeginRequest {
   action: "begin";
   matchId: string;
-  /** The finished copy's size; the part plan follows from it. */
+  /** The uploaded file's size: the finished copy for the desktop, the original for the browser. The part plan follows from it. */
   sizeBytes: number;
   durationSeconds: number | null;
   width: number | null;
   height: number | null;
-  /** fingerprint_key of the local file the copy was made from; an interrupted upload resumes only for the same file. */
+  /**
+   * Which file this is, so an interrupted upload resumes only for the same
+   * one: the desktop sends the local file's content fingerprint key, the
+   * browser a `wb1:` byte-sample key (lib/game-upload-core.ts).
+   */
   fingerprintKey: string | null;
   /** Start over although a ready copy exists (it is swapped out when this one completes). */
   replace?: boolean;
+  /** Omitted or "desktop": the copy is uploaded. "browser": the original is uploaded and the converter makes the copy. */
+  origin?: GameVideoOrigin;
+  /** Browser uploads: the file's name; its extension must be one of GAME_VIDEO_SOURCE_EXTS. */
+  sourceName?: string;
+  /** Browser uploads: what the sync anchors on, and the anchor's real-world time from the play-by-play (null when the feed has none). */
+  anchorKind?: GameVideoAnchorKind;
+  anchorLabel?: string | null;
+  anchorRealWorldTime?: string | null;
 }
 
 export interface GameVideoBeginResponse {
@@ -242,7 +378,8 @@ export interface GameVideoCompleteRequest {
 
 export interface GameVideoCompleteResponse {
   videoId: string;
-  status: "ready";
+  /** "ready" for a desktop copy; "converting" for a browser original, which the converter now turns into the copy. */
+  status: "ready" | "converting";
 }
 
 export interface GameVideoAbortRequest {
@@ -269,6 +406,37 @@ export interface GameVideoPlayResponse {
   height: number | null;
 }
 
+/** Run the conversion again for a failed browser upload whose original is still kept. */
+export interface GameVideoRetryConvertRequest {
+  action: "retry_convert";
+  videoId: string;
+}
+
+export interface GameVideoRetryConvertResponse {
+  videoId: string;
+  status: "converting";
+}
+
+/**
+ * The uploader confirms the sync the converter applied or suggested
+ * ("confirmed"; `seconds` defaults to that value) or sets it themselves
+ * ("manual"; `seconds` required). Writes the game's sync point, a confirmed
+ * hint for this recording and the row's sync status in one go.
+ */
+export interface GameVideoSyncSetRequest {
+  action: "sync_set";
+  videoId: string;
+  status: "confirmed" | "manual";
+  seconds?: number;
+}
+
+export interface GameVideoSyncSetResponse {
+  videoId: string;
+  syncStatus: GameVideoSyncStatus;
+  /** The sync point's video time as written. */
+  seconds: number;
+}
+
 export interface GameVideoPurgeRequest {
   action: "purge";
 }
@@ -281,6 +449,110 @@ export interface GameVideoPurgeResponse {
   remaining: number;
 }
 
+// ---------------------------------------------------------------------------
+// Requests and responses: the converter (header x-worker-secret; every write fenced by `attempt`)
+// ---------------------------------------------------------------------------
+
+export interface GameVideoJobTakeRequest {
+  action: "job_take";
+  videoId: string;
+}
+
+export interface GameVideoJobMatch {
+  id: string;
+  title: string;
+  sourceGameId: string | null;
+  leagueId: string | null;
+  /** Profixio games anchor on the first basket: no tip-off detection. */
+  isProfixio: boolean;
+  anchorKind: GameVideoAnchorKind | null;
+  anchorRealWorldTime: string | null;
+}
+
+export interface GameVideoJobTakeResponse {
+  videoId: string;
+  /** This run's attempt number: every later call must carry it back. */
+  attempt: number;
+  /** Presigned GET of the original, GAME_VIDEO_SOURCE_URL_SECONDS long. */
+  sourceUrl: string;
+  sourceSizeBytes: number;
+  sourceName: string | null;
+  /** The copy's multipart upload is open; parts are this big. */
+  partSize: number;
+  match: GameVideoJobMatch;
+}
+
+export interface GameVideoJobProgressRequest {
+  action: "job_progress";
+  videoId: string;
+  attempt: number;
+  /** 0..1 over the whole job (lib/game-video-convert.ts progressFraction). */
+  progress: number;
+}
+
+export interface GameVideoJobSignPartsRequest {
+  action: "job_sign_parts";
+  videoId: string;
+  attempt: number;
+  partNumbers: number[];
+}
+
+export interface GameVideoJobSync {
+  outcome: GameVideoSyncOutcome;
+  /** The tip-off's video time for confirmed and estimate outcomes. */
+  seconds?: number;
+  /** 0..1 for an estimate (a confirmed hint needs none). */
+  confidence?: number;
+}
+
+export interface GameVideoJobDoneRequest {
+  action: "job_done";
+  videoId: string;
+  attempt: number;
+  /** The copy's parts, every one. */
+  parts: GameVideoPart[];
+  sizeBytes: number;
+  durationSeconds: number;
+  width: number;
+  height: number;
+  fps: number | null;
+  fingerprint: GameVideoFingerprint | null;
+  sync: GameVideoJobSync;
+}
+
+export interface GameVideoJobDoneResponse {
+  videoId: string;
+  status: "ready";
+  syncStatus: GameVideoSyncStatus;
+}
+
+export interface GameVideoJobFailedRequest {
+  action: "job_failed";
+  videoId: string;
+  attempt: number;
+  error: GameVideoConvertError | string;
+  /** Another attempt may succeed (the sweep schedules it); false fails the row now. */
+  retryable: boolean;
+}
+
+export interface GameVideoJobFailedResponse {
+  videoId: string;
+  status: "converting" | "failed";
+  attempt: number;
+}
+
+/** Housekeeping for conversions, every 10 minutes from pg_cron: start waiting rows, re-run dead ones, expire old originals. */
+export interface GameVideoSweepRequest {
+  action: "sweep";
+}
+
+export interface GameVideoSweepResponse {
+  examined: number;
+  started: number;
+  failed: number;
+  expired: number;
+}
+
 export type GameVideoRequest =
   | GameVideoBeginRequest
   | GameVideoSignPartsRequest
@@ -288,7 +560,15 @@ export type GameVideoRequest =
   | GameVideoAbortRequest
   | GameVideoRemoveRequest
   | GameVideoPlayRequest
-  | GameVideoPurgeRequest;
+  | GameVideoRetryConvertRequest
+  | GameVideoSyncSetRequest
+  | GameVideoPurgeRequest
+  | GameVideoSweepRequest
+  | GameVideoJobTakeRequest
+  | GameVideoJobProgressRequest
+  | GameVideoJobSignPartsRequest
+  | GameVideoJobDoneRequest
+  | GameVideoJobFailedRequest;
 
 /** Every `{ error }` token the function answers with. */
 export const GAME_VIDEO_ERRORS = [
@@ -310,6 +590,19 @@ export const GAME_VIDEO_ERRORS = [
   "bad_purge_secret",
   /** The row's key belongs to another project's prefix: never touched. */
   "foreign_object",
+  /** The file's name isn't one of GAME_VIDEO_SOURCE_EXTS. */
+  "unsupported_type",
+  /** Browser uploads need the converter, and this project has none configured. */
+  "converter_unavailable",
+  /** A retry after the original was deleted (GAME_VIDEO_SOURCE_KEEP_DAYS). */
+  "source_expired",
+  /** The game's sync is the coach's own: the web can't change it here. */
+  "sync_locked",
+  "bad_worker_secret",
+  /** A converter call carrying an attempt number that is no longer the row's. */
+  "stale_attempt",
+  /** job_take on a row another converter holds. */
+  "job_busy",
 ] as const;
 
 export type GameVideoError = (typeof GAME_VIDEO_ERRORS)[number];

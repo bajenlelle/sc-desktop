@@ -18,8 +18,17 @@ describe("rowToGameVideo", () => {
     ready_at: "2026-10-19T10:20:00Z",
   };
 
+  it("gives a desktop row the browser-path defaults: desktop origin, no conversion, no sync status", () => {
+    const v = rowToGameVideo(row);
+    expect(v.origin).toBe("desktop");
+    expect(v.convertProgress).toBeNull();
+    expect(v.convertAttempts).toBe(0);
+    expect(v.syncStatus).toBeNull();
+    expect(v.sourceSizeBytes).toBeNull();
+  });
+
   it("maps columns and reads a bigint that arrived as text", () => {
-    expect(rowToGameVideo(row)).toEqual({
+    expect(rowToGameVideo(row)).toMatchObject({
       id: "v1",
       matchId: "m1",
       uploadedBy: "u1",

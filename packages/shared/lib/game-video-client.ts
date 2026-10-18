@@ -18,8 +18,12 @@ import type {
   GameVideoCompleteResponse,
   GameVideoPlayResponse,
   GameVideoRemoveRequest,
+  GameVideoRetryConvertRequest,
+  GameVideoRetryConvertResponse,
   GameVideoSignPartsRequest,
   GameVideoSignPartsResponse,
+  GameVideoSyncSetRequest,
+  GameVideoSyncSetResponse,
 } from "./game-video-wire";
 
 export const GAME_VIDEO_FUNCTION = "game-video";
@@ -67,4 +71,20 @@ export function playGameVideo(
   matchId: string,
 ): Promise<FunctionResult<GameVideoPlayResponse>> {
   return invokeEdgeFunction<GameVideoPlayResponse>(supabase, GAME_VIDEO_FUNCTION, { action: "play", matchId });
+}
+
+/** Run a failed browser upload's conversion again; `source_expired` once the original is gone. */
+export function retryGameVideoConvert(
+  supabase: SupabaseClient,
+  body: Body<GameVideoRetryConvertRequest>,
+): Promise<FunctionResult<GameVideoRetryConvertResponse>> {
+  return invokeEdgeFunction<GameVideoRetryConvertResponse>(supabase, GAME_VIDEO_FUNCTION, { action: "retry_convert", ...body });
+}
+
+/** Confirm the sync the converter found, or set it by hand; `sync_locked` when the coach's own sync is in place. */
+export function setGameVideoSync(
+  supabase: SupabaseClient,
+  body: Body<GameVideoSyncSetRequest>,
+): Promise<FunctionResult<GameVideoSyncSetResponse>> {
+  return invokeEdgeFunction<GameVideoSyncSetResponse>(supabase, GAME_VIDEO_FUNCTION, { action: "sync_set", ...body });
 }
