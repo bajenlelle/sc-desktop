@@ -32,7 +32,9 @@ playlists, and share them with teams; players watch on web/mobile.
   `PROFIXIO_API_SECRET` (only the tournaments that key may view), four cache
   tables; `tipoff-detect` — reads
   scoreboard clocks from video stills with Claude for the automatic tip-off
-  suggestion; `ANTHROPIC_API_KEY`, kill switch `app_config.tipoff_detect_enabled`).
+  suggestion; `ANTHROPIC_API_KEY`, kill switch `app_config.tipoff_detect_enabled`;
+  `game-video` — the private game-video bucket's broker, see Cloud game
+  videos below).
   Remote project `nbmrujmazvdoaldirpyx`; apply with `npx supabase db push`.
 - `scripts/nightly-tipoff` — the nightly tip-off job (`nightly-tipoff.yml`,
   02:00 Stockholm, pilot channel Superettan Herr; manual runs from the Actions
@@ -63,6 +65,22 @@ playlists, and share them with teams; players watch on web/mobile.
   Sentry). The desktop draws text and stats cards with one painter
   (`apps/desktop/src/lib/card-painter.ts` over `lib/card-layout.ts`) for the
   stage and the export (`ExportSegment::Image`), so the preview is the export.
+- **Cloud game videos**: a game's 720p copy in the PRIVATE R2 bucket
+  (`R2_VIDEOS_*` secrets), rows in `game_videos` (written by the `game-video`
+  function only; the uploader reads their own), keys
+  `<project ref>/games/<matchId>/<videoId>.mp4` so staging and prod share the
+  bucket and a project never touches another's objects (`guardKey`). The
+  desktop encodes (libx264 veryfast, `src-tauri/src/game_video.rs`) and
+  uploads 32 MiB parts to presigned URLs; the web plays the copy through a
+  12 h presigned GET (`/games`). Caps per tier in `app_config.game_video_limits`
+  (enforced by the insert trigger), kill switch `app_config.cloud_video_enabled`,
+  deletions queued in `game_video_deletions` and purged nightly by pg_cron
+  through the function's `purge` action (`GAME_VIDEO_PURGE_SECRET` =
+  `app_config.game_video_purge_secret`). Wire contract and pure helpers in
+  `packages/shared/lib/game-video-wire.ts`; end-to-end check
+  `node --env-file=apps/web/.env.staging scripts/game-video-smoke.mjs` with
+  `SUPABASE_SERVICE_ROLE_KEY` in the environment. Deploy the function by
+  name only.
 - **Errors**: Sentry on all three apps (org `scoutable`, EU). DSNs are
   hardcoded (public); desktop/mobile dev builds are offline unless the DSN
   env var is set. Don't add error tracking dependencies to `packages/shared`.
@@ -81,6 +99,16 @@ playlists, and share them with teams; players watch on web/mobile.
 - Lint (web only): `npm run lint` in `apps/web`.
 - Rust: `cargo clippy --no-deps -- -D warnings` in `apps/desktop/src-tauri`.
 - Desktop dev: `npm run tauri dev` in `apps/desktop`.
+- Staging (sc-staging, `edalihizooqdxeekaklf`): the CLI stays linked to
+  prod. Migrations: `npx supabase db push --db-url <session pooler URL>`
+  (the URL is `apps/desktop/.env.staging`'s connection string on the
+  `aws-1-eu-west-1.pooler.supabase.com:5432` host; never print it).
+  Functions: `npx supabase functions deploy <name> --project-ref edalihizooqdxeekaklf`.
+  SQL probes: `SUPABASE_DB_URL=<pooler URL> supabase/tests/game_videos.sh`
+  (runs through psql; `db query --db-url` can't hold a transaction).
+  Desktop against staging: `cp .env.staging .env && npm run tauri dev`
+  (restore with `npm run use:prod`); web: use `apps/web/.env.staging` as
+  `.env.local` for the session.
 - Mobile dev: `npx expo start` in `apps/mobile` (dev client build required).
 
 ## CI / Releases
