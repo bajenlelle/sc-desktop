@@ -31,7 +31,8 @@ import type { StoredMatch } from "@/types/match";
 export function CloudCopyRow({ match }: { match: StoredMatch }) {
   const job = useCloudCopyJob(match.id);
   const [copy, setCopy] = useState<GameVideo | null | undefined>(undefined);
-  const [quota, setQuota] = useState<GameVideoQuota | null>(null);
+  /** undefined while loading; null when the meter couldn't be read (a server without copies yet). */
+  const [quota, setQuota] = useState<GameVideoQuota | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
 
   const reload = useCallback(() => {
@@ -58,7 +59,8 @@ export function CloudCopyRow({ match }: { match: StoredMatch }) {
     }
   }
 
-  const block = gameVideoBlock(quota);
+  const loading = copy === undefined || quota === undefined;
+  const block = quota === undefined ? null : gameVideoBlock(quota);
   const size = copy?.sizeBytes ? `${(copy.sizeBytes / 1e9).toFixed(1)} GB` : null;
   const row = "flex min-h-11 items-center gap-3 px-4 py-2";
 
@@ -111,10 +113,10 @@ export function CloudCopyRow({ match }: { match: StoredMatch }) {
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="truncate text-sm">Keep a copy in the cloud</span>
         <span className="text-callout text-muted-foreground">
-          {quota ? gameVideoQuotaLabel(quota) : "A 720p copy, so the game plays on the web."}
+          {quota === undefined ? "A 720p copy, so the game plays on the web." : gameVideoQuotaLabel(quota)}
         </span>
       </span>
-      <Button size="xs" disabled={copy === undefined || block !== null} onClick={() => void startCloudCopy(match)}>
+      <Button size="xs" disabled={loading || block !== null} onClick={() => void startCloudCopy(match)}>
         Upload
       </Button>
     </div>

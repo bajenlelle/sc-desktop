@@ -49,6 +49,14 @@ const PARALLEL_PARTS = 3;
 const PART_ATTEMPTS = 3;
 /** Copies that waited this long never finished: R2 forgot their upload too. */
 const CACHE_MAX_AGE_DAYS = 7;
+/**
+ * No single step may hang the job: a 32 MiB part on a slow uplink gets this
+ * long, a function call this long. A webview that sat occluded behind other
+ * windows was once seen to stop resolving its waits with Rust already idle;
+ * a bounded wait turns that into a retry instead of a toast stuck for good.
+ */
+const PART_TIMEOUT_MS = 15 * 60_000;
+const CALL_TIMEOUT_MS = 90_000;
 
 // ---------------------------------------------------------------------------
 // The job store
@@ -235,6 +243,8 @@ function describe(token: string): string {
       return "No cloud games left on your plan.";
     case "feature_disabled":
       return "Cloud copies are turned off right now.";
+    case "unavailable":
+      return "Cloud copies aren't available right now. Try again later.";
     case "not_owner":
       return "Only the coach who imported the game can keep a copy of it.";
     case "too_large":
@@ -252,6 +262,29 @@ function describe(token: string): string {
 
 function throwIfAborted(signal: AbortSignal) {
   if (signal.aborted) throw new Cancelled();
+}
+
+class StepTimeout extends Error {
+  constructor(what: string) {
+    super(`timeout: ${what}`);
+  }
+}
+
+/** The promise, or a StepTimeout after `ms`. */
+function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new StepTimeout(what)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 async function inParallel<T>(items: readonly T[], limit: number, run: (item: T) => Promise<void>) {
@@ -303,10 +336,14 @@ export async function startCloudCopy(match: StoredMatch, opts: { replace?: boole
   let copyPath: string | null = null;
 
   try {
-    // The meter first: no encode for nothing.
-    const quota = await getGameVideoQuota(supabase, match.orgId ?? null);
+    // The meter first: no encode for nothing, and none at all for a server
+    // that doesn't know about copies yet.
+    const quota = await withTimeout(getGameVideoQuota(supabase, match.orgId ?? null), CALL_TIMEOUT_MS, "quota");
     const block = gameVideoBlock(quota);
-    if (block) throw new CloudCopyError(describe(block === "disabled" ? "feature_disabled" : "limit_reached"), "check", block);
+    if (block) {
+      const token = block === "disabled" ? "feature_disabled" : block;
+      throw new CloudCopyError(describe(token), "check", block);
+    }
     say("Checking the video");
 
     // The source, and what the copy will be made from.
@@ -363,15 +400,19 @@ export async function startCloudCopy(match: StoredMatch, opts: { replace?: boole
 
     // The upload: new, or resumed where it stopped.
     stage = "upload";
-    const begun = await beginGameVideo(supabase, {
-      matchId: match.id,
-      sizeBytes: info.sizeBytes,
-      durationSeconds: meta.durationMs / 1000,
-      width: meta.width,
-      height: meta.height,
-      fingerprintKey: fingerprint.key,
-      replace: opts.replace === true,
-    });
+    const begun = await withTimeout(
+      beginGameVideo(supabase, {
+        matchId: match.id,
+        sizeBytes: info.sizeBytes,
+        durationSeconds: meta.durationMs / 1000,
+        width: meta.width,
+        height: meta.height,
+        fingerprintKey: fingerprint.key,
+        replace: opts.replace === true,
+      }),
+      CALL_TIMEOUT_MS,
+      "begin",
+    );
     if (!begun.ok) {
       if (begun.error === "already_ready") {
         // Nothing to do: the game is in the cloud already.
@@ -398,7 +439,7 @@ export async function startCloudCopy(match: StoredMatch, opts: { replace?: boole
 
     const signed = new Map<number, string>();
     const sign = async (numbers: number[]) => {
-      const r = await signGameVideoParts(supabase, { videoId: videoId!, partNumbers: numbers });
+      const r = await withTimeout(signGameVideoParts(supabase, { videoId: videoId!, partNumbers: numbers }), CALL_TIMEOUT_MS, "sign_parts");
       if (!r.ok) throw new CloudCopyError(describe(r.error), "upload", r.error);
       for (const u of r.data.urls) signed.set(u.partNumber, u.url);
     };
@@ -414,20 +455,26 @@ export async function startCloudCopy(match: StoredMatch, opts: { replace?: boole
           const partJobId = `${jobId}:${partNumber}`;
           ctrl.partJobs.add(partJobId);
           try {
-            const etag = await invoke<string>("game_video_upload_part", {
-              path: copyPath,
-              offset,
-              length,
-              url: signed.get(partNumber),
-              jobId: partJobId,
-            });
+            const etag = await withTimeout(
+              invoke<string>("game_video_upload_part", {
+                path: copyPath,
+                offset,
+                length,
+                url: signed.get(partNumber),
+                jobId: partJobId,
+              }),
+              PART_TIMEOUT_MS,
+              `part ${partNumber}`,
+            );
             etags.set(partNumber, etag);
             doneBytes += length;
             report();
             return;
           } catch (e) {
-            const message = String(e);
+            const message = String(e instanceof Error ? e.message : e);
             if (message === "export_cancelled" || abort.signal.aborted) throw new Cancelled();
+            // A wait that ran out leaves nothing of the request behind.
+            if (e instanceof StepTimeout) await invoke("cancel_export", { id: partJobId }).catch(() => {});
             if (attempt >= PART_ATTEMPTS) {
               throw new CloudCopyError("The upload kept failing. Check your connection and try again.", "upload", "part_failed");
             }
@@ -447,7 +494,7 @@ export async function startCloudCopy(match: StoredMatch, opts: { replace?: boole
     const parts: GameVideoPart[] = [...etags.entries()]
       .map(([partNumber, etag]) => ({ partNumber, etag }))
       .sort((a, b) => a.partNumber - b.partNumber);
-    const done = await completeGameVideo(supabase, { videoId, parts });
+    const done = await withTimeout(completeGameVideo(supabase, { videoId, parts }), CALL_TIMEOUT_MS, "complete");
     if (!done.ok) throw new CloudCopyError(describe(done.error), "complete", done.error);
 
     await deleteCached(copyPath);

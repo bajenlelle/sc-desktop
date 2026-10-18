@@ -40,8 +40,9 @@ describe("rowToGameVideo", () => {
 });
 
 describe("the meter", () => {
-  it("blocks when switched off or at the cap, otherwise not", () => {
-    expect(gameVideoBlock(null)).toBeNull();
+  it("blocks when switched off, at the cap, or when the meter couldn't be read", () => {
+    expect(gameVideoBlock(null)).toBe("unavailable");
+    expect(gameVideoQuotaLabel(null)).toBe("Cloud copies aren't available right now");
     expect(gameVideoBlock({ enabled: false, tier: "pro", maxGames: 40, used: 0 })).toBe("disabled");
     expect(gameVideoBlock({ enabled: true, tier: "free", maxGames: 2, used: 2 })).toBe("limit_reached");
     expect(gameVideoBlock({ enabled: true, tier: "free", maxGames: 0, used: 0 })).toBe("limit_reached");

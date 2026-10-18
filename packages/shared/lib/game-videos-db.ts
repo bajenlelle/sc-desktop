@@ -124,18 +124,23 @@ export async function getGameVideoQuota(supabase: SupabaseClient, orgId: string 
   };
 }
 
-export type GameVideoBlock = "disabled" | "limit_reached";
+export type GameVideoBlock = "disabled" | "limit_reached" | "unavailable";
 
-/** Why a new copy can't start now, or null when it can (or when the meter is unknown). */
+/**
+ * Why a new copy can't start now, or null when it can. A meter that couldn't
+ * be read blocks too: a server without the cloud video tables (prod before
+ * its migration) must never get an eight-minute encode thrown at it.
+ */
 export function gameVideoBlock(quota: GameVideoQuota | null): GameVideoBlock | null {
-  if (!quota) return null;
+  if (!quota) return "unavailable";
   if (!quota.enabled) return "disabled";
   if (quota.used >= quota.maxGames) return "limit_reached";
   return null;
 }
 
 /** The meter's line, remaining-oriented like the import meter. */
-export function gameVideoQuotaLabel(quota: GameVideoQuota): string {
+export function gameVideoQuotaLabel(quota: GameVideoQuota | null): string {
+  if (!quota) return "Cloud copies aren't available right now";
   if (!quota.enabled) return "Cloud copies are turned off right now";
   if (quota.maxGames <= 0) return "Your plan doesn't include cloud copies";
   const left = Math.max(0, quota.maxGames - quota.used);
