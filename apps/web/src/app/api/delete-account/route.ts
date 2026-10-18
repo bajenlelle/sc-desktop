@@ -198,5 +198,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "delete_failed" }, { status: 500, headers: corsHeaders });
   }
 
+  // 9. Game videos in the private bucket: the cascade queued their keys in
+  //    game_video_deletions; ask the game-video function to drain it now
+  //    rather than at its nightly run (non-fatal; the cron catches up).
+  const purgeSecret = process.env.GAME_VIDEO_PURGE_SECRET;
+  if (purgeSecret) {
+    try {
+      await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/game-video`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-purge-secret": purgeSecret },
+        body: JSON.stringify({ action: "purge" }),
+      });
+    } catch (err) {
+      console.error("[delete-account] game video purge failed:", err);
+    }
+  }
+
   return NextResponse.json({ ok: true }, { headers: corsHeaders });
 }

@@ -7,6 +7,7 @@ const base: NavUser = {
   activeOrgIsPersonal: false,
   activeOrgRole: "coach",
   isPlatformAdmin: false,
+  hasCloudGames: false,
 };
 
 const labels = (user: NavUser) => sidebarDestinations(user).map((d) => d.label);
@@ -50,6 +51,22 @@ describe("sidebarDestinations", () => {
   it("offers nothing but Admin to a user without a space", () => {
     expect(labels({ ...base, hasSpace: false, activeOrgRole: null })).toEqual([]);
     expect(labels({ ...base, hasSpace: false, activeOrgRole: null, isPlatformAdmin: true })).toEqual(["Admin"]);
+  });
+
+  it("adds Games after the playlists for anyone with a game in the cloud", () => {
+    const cloud = { ...base, hasCloudGames: true };
+    expect(labels(cloud)).toEqual(["Shared playlists", "Games", "Club"]);
+    expect(labels({ ...cloud, activeOrgRole: "player" })).toEqual(["My playlists", "Games"]);
+    expect(labels({ ...cloud, isPlayerOnly: true, activeOrgRole: "player" })).toEqual([
+      "My playlists",
+      "Games",
+      "My highlights",
+    ]);
+    // A personal space finally has something to watch on web: it comes first.
+    expect(labels({ ...cloud, activeOrgIsPersonal: true, activeOrgRole: "admin" })).toEqual(["Games", "Get started"]);
+    expect(labels({ ...cloud, hasSpace: false, activeOrgRole: null })).toEqual([]);
+    expect(sidebarDestinations(cloud).find((d) => d.id === "games")?.href).toBe("/games");
+    expect(activeDestination("/games/2583394", sidebarDestinations(cloud))).toBe("games");
   });
 
   it("links each destination to its page", () => {

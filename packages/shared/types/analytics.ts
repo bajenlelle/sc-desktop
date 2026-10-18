@@ -80,6 +80,14 @@ export type AnalyticsEvent =
   // Consumption & engagement (web + desktop players)
   | "playlist_opened"
   | "clip_watched"
+  // Cloud game videos: a 720p copy of a game kept in the cloud (desktop
+  // uploads it; web plays it). from: games | clip | link; stage: encode | upload | complete
+  | "game_video_upload_started" // match_id, source_mb, duration_s
+  | "game_video_uploaded" // match_id, copy_mb, encode_s, upload_s, resumed
+  | "game_video_upload_failed" // match_id, stage, error
+  | "game_video_removed" // match_id
+  | "game_opened" // match_id, from
+  | "clip_played_from_game" // playlist_id
   | "reminder_sent"
   // Push notifications (mobile)
   | "notification_prompt_shown"

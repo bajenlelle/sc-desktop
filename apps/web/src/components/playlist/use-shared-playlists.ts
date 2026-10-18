@@ -26,12 +26,14 @@ import {
 } from "@scoutable/shared/lib/playlist-matches";
 import { toFeedPlaylists, type FeedPlaylist } from "@scoutable/shared/lib/playlist-feed";
 import { buildWatchItems, firstUnwatchedKey, recordOnce, watchProgress } from "@scoutable/shared/lib/watch-queue";
+import { DEFAULT_PRE_ROLL_SECONDS, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { getOrgContext, getOrgContextForOrg } from "@/lib/profile-db";
 import { useAuth } from "@/components/auth-context";
 import type { SourceOption } from "@/components/playlist/PlaylistFeed";
 import { listMyClipViews, markClipWatched, clipViewKey } from "@/lib/clip-views-db";
 import { trackEvent } from "@/lib/analytics";
-import type { Playlist, PlayByPlayEvent, StoredMatch } from "@scoutable/shared/types/match";
+import { useMyCloudGames, usePlayUrls } from "@/lib/game-videos";
+import type { Playlist, PlayByPlayEvent, StoredMatch, SyncPoint } from "@scoutable/shared/types/match";
 import type { OrgTeam, UserProfile } from "@scoutable/shared/types/org";
 
 export function useSharedPlaylists() {
@@ -187,6 +189,18 @@ export function useSharedPlaylists() {
 
   const matchLookup = useMemo(() => new Map(matches.map((m) => [m.id, m])), [matches]);
 
+  // The viewer's own games in the cloud (RLS shows nobody else's): a clip of
+  // one of them that has no uploaded file plays as a window of the copy.
+  const cloud = useMyCloudGames({ enabled: !profileLoading });
+  const cloudSyncByMatch = useMemo(() => {
+    const map = new Map<string, SyncPoint>();
+    for (const game of cloud.games ?? []) {
+      const sync = matchLookup.get(game.matchId)?.syncPoint;
+      if (sync) map.set(game.matchId, sync);
+    }
+    return map;
+  }, [cloud.games, matchLookup]);
+
   /**
    * Event lookup by `matchId:eventId`, built once per matches change.
    * Resolving a clip through `match.events.find(...)` scanned a full
@@ -320,12 +334,37 @@ export function useSharedPlaylists() {
    * far through it the user is, and where Play and Resume start (the first
    * uploaded clip not yet watched).
    */
-  const watchItems = useMemo(() => (selected ? buildWatchItems(selected, eventByKey) : []), [selected, eventByKey]);
+  const watchItems = useMemo(
+    () => (selected ? buildWatchItems(selected, eventByKey, { syncByMatch: cloudSyncByMatch }) : []),
+    [selected, eventByKey, cloudSyncByMatch],
+  );
   const selectedProgress = useMemo(
     () => (selected ? watchProgress(selected, clipViews) : { watched: 0, total: 0 }),
     [selected, clipViews],
   );
   const startKey = useMemo(() => (selected ? firstUnwatchedKey(selected, clipViews) : null), [selected, clipViews]);
+
+  // Play URLs for the games the open playlist plays as windows, signed as
+  // the playlist opens so a tap can play at once.
+  const windowMatchIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const item of watchItems) if (item.kind === "window") ids.add(item.matchId);
+    return [...ids];
+  }, [watchItems]);
+  const playUrls = usePlayUrls(windowMatchIds);
+
+  /** The game page at a clip's moment, for a viewer who has the game in the cloud. */
+  const gameHrefFor = useCallback(
+    (matchId: string, event: PlayByPlayEvent): string | null => {
+      const sync = cloudSyncByMatch.get(matchId);
+      if (!sync) return null;
+      const time = computeVideoTime(event, sync);
+      if (time === null) return null;
+      const at = Math.max(0, time - DEFAULT_PRE_ROLL_SECONDS);
+      return `/games/${encodeURIComponent(matchId)}?t=${at.toFixed(1)}&from=clip`;
+    },
+    [cloudSyncByMatch],
+  );
 
   return {
     loading,
@@ -350,5 +389,7 @@ export function useSharedPlaylists() {
     allOrgTeams,
     teamMap,
     memberMap,
+    windowSrc: playUrls.urlFor,
+    gameHrefFor,
   };
 }

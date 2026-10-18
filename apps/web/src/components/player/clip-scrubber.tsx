@@ -20,17 +20,28 @@ const THUMB_HIT = { mouse: 10, touch: 24 } as const;
  * is the task. Keys on the focused slider nudge by a second (Shift: ten) or
  * a frame (`,` and `.`). The time readouts are painted each frame, straight
  * from the element.
+ *
+ * The track spans `duration` seconds from `start` into the element: a clip
+ * file starts at 0; a window of a whole game starts where the clip does, and
+ * the readouts count from there.
  */
 export function ClipScrubber({
   video,
   duration: total,
+  start = 0,
+  markers,
   onSeek,
   frameSeconds = 1 / 25,
   className,
 }: {
   video: HTMLVideoElement;
-  /** The clip's length: each clip is its own file, so the track spans it. */
+  /** The clip's length: the track spans it. */
   duration: number;
+  /** Where the clip begins in the element's timeline (0 for a file of its own). */
+  start?: number;
+  /** Element times to tick on the track (quarter starts in a whole game). */
+  markers?: readonly number[];
+  /** Asked to seek to an element time. */
   onSeek: (t: number) => void;
   frameSeconds?: number;
   className?: string;
@@ -47,18 +58,19 @@ export function ClipScrubber({
 
   const paint = useCallback(
     (time: number) => {
-      const frac = clamp(time / duration, 0, 1);
+      const rel = time - start;
+      const frac = clamp(rel / duration, 0, 1);
       if (fillRef.current) fillRef.current.style.transform = `scaleX(${frac})`;
-      const label = formatClipTime(clamp(time, 0, duration));
+      const label = formatClipTime(clamp(rel, 0, duration));
       if (elapsedRef.current) elapsedRef.current.textContent = label;
       const track = trackRef.current;
       if (track) {
-        track.setAttribute("aria-valuenow", String(Math.round(clamp(time, 0, duration) * 10) / 10));
+        track.setAttribute("aria-valuenow", String(Math.round(clamp(rel, 0, duration) * 10) / 10));
         track.setAttribute("aria-valuetext", label);
       }
       return frac;
     },
-    [duration],
+    [duration, start],
   );
 
   // Follow playback at the display rate (timeupdate fires a few times a
@@ -75,10 +87,10 @@ export function ClipScrubber({
 
   function timeAtPointer(clientX: number, grabOffset = 0) {
     const track = trackRef.current;
-    if (!track) return { time: 0, raw: 0, width: 0 };
+    if (!track) return { time: start, raw: 0, width: 0 };
     const rect = track.getBoundingClientRect();
     const raw = clientX - rect.left - grabOffset;
-    return { time: clamp(raw / rect.width, 0, 1) * duration, raw, width: rect.width };
+    return { time: start + clamp(raw / rect.width, 0, 1) * duration, raw, width: rect.width };
   }
 
   function moveThumb(clientX: number) {
@@ -143,8 +155,10 @@ export function ClipScrubber({
     else return;
     e.preventDefault();
     e.stopPropagation();
-    onSeek(clamp(video.currentTime + delta, 0, duration));
+    onSeek(clamp(video.currentTime + delta, start, start + duration));
   }
+
+  const ticks = (markers ?? []).filter((m) => m > start && m < start + duration);
 
   return (
     <div className={cn("flex items-center gap-2", className)}>
@@ -175,6 +189,14 @@ export function ClipScrubber({
         <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-white/25 transition-[height] duration-150 group-hover/track:h-2">
           <div ref={fillRef} className="h-full w-full origin-left rounded-full bg-white/90" style={{ transform: "scaleX(0)" }} />
         </div>
+        {ticks.map((m) => (
+          <span
+            key={m}
+            aria-hidden
+            className="pointer-events-none absolute top-1/2 h-3 w-px -translate-y-1/2 bg-white/70"
+            style={{ left: `${((m - start) / duration) * 100}%` }}
+          />
+        ))}
         <motion.div
           aria-hidden
           className="pointer-events-none absolute top-1/2 left-0 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_1px_3px_rgb(0_0_0/0.5)] pointer-coarse:size-4"
@@ -187,7 +209,7 @@ export function ClipScrubber({
             className="pointer-events-none absolute -top-6 -translate-x-1/2 rounded bg-black/70 px-1.5 py-0.5 text-[11px] nums text-white backdrop-blur-sm"
             style={{ left: hover.x }}
           >
-            {formatClipTime(hover.time)}
+            {formatClipTime(hover.time - start)}
           </div>
         )}
       </div>
@@ -205,10 +227,13 @@ export function ClipScrubber({
 export function ClipProgress({
   video,
   duration: total,
+  start = 0,
   className,
 }: {
   video: HTMLVideoElement;
   duration: number;
+  /** Where the clip begins in the element's timeline (0 for a file of its own). */
+  start?: number;
   className?: string;
 }) {
   const duration = Math.max(0.001, total);
@@ -220,7 +245,7 @@ export function ClipProgress({
     let raf = 0;
     let shown = "";
     const tick = () => {
-      const time = clamp(video.currentTime, 0, duration);
+      const time = clamp(video.currentTime - start, 0, duration);
       if (fillRef.current) fillRef.current.style.transform = `scaleX(${time / duration})`;
       const label = formatClipTime(time);
       if (label !== shown) {
@@ -233,7 +258,7 @@ export function ClipProgress({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [video, duration]);
+  }, [video, duration, start]);
 
   return (
     <div className={cn("flex items-center gap-2", className)}>

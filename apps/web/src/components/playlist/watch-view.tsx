@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Play } from "lucide-react";
+import Link from "next/link";
+import { Clapperboard, Play } from "lucide-react";
 import { eventColors, eventLabel, formatGameClock, playerName } from "@scoutable/shared/lib/events";
 import { clamp } from "@scoutable/shared/lib/motion-math";
 import {
@@ -11,6 +12,7 @@ import {
   resolvePlayerKey,
 } from "@scoutable/shared/lib/player-keys";
 import type { WatchItem } from "@scoutable/shared/lib/watch-queue";
+import type { PlayByPlayEvent } from "@scoutable/shared/types/match";
 import { PlayerStage, type PlayerStageHandle } from "@/components/player/player-stage";
 import { useMediaDuration, useMediaElement } from "@/components/player/use-media";
 import { useStageFullscreen } from "@/components/player/use-stage-fullscreen";
@@ -41,6 +43,9 @@ function readSpeed(): number {
  * row says what's playing and carries the note: a block between the two
  * would change height from clip to clip (and vanish for a text card),
  * moving the list under the reader's finger.
+ *
+ * A clip is its own file, or (for a viewer who has the game in the cloud) a
+ * window of the whole game: the timeline then spans the clip's seconds of it.
  */
 export function WatchView({
   title,
@@ -54,6 +59,9 @@ export function WatchView({
   onAutoplayStarted,
   emptyText,
   canScrub,
+  windowSrc,
+  gameHrefFor,
+  onWindowPlayed,
 }: {
   title: string;
   items: WatchItem[];
@@ -70,6 +78,12 @@ export function WatchView({
   emptyText: string;
   /** False for a player: no timeline to drag, and no seeking ahead (see canScrubPlaylist). */
   canScrub: boolean;
+  /** The game copy's play URL for a clip played as a window (see buildWatchItems); null while it is still being fetched. */
+  windowSrc?: (matchId: string) => string | null;
+  /** Where to open a clip's game at that moment, for a viewer who has the game in the cloud. */
+  gameHrefFor?: (matchId: string, event: PlayByPlayEvent) => string | null;
+  /** A clip started playing out of the game's copy rather than its own file. */
+  onWindowPlayed?: (matchId: string) => void;
 }) {
   const { element: video, ref: videoRef, attach: attachVideo } = useMediaElement<HTMLVideoElement>();
   const [stage, setStage] = useState<HTMLDivElement | null>(null);
@@ -89,9 +103,18 @@ export function WatchView({
     }
   }, []);
 
-  const q = useWatchQueue({ video, videoRef, items, onWatched });
-  const activeClip = q.activeItem?.kind === "clip" ? q.activeItem : null;
+  const q = useWatchQueue({ video, videoRef, items, onWatched, windowSrc });
+  const activePlay = q.activeItem && q.activeItem.kind !== "text" ? q.activeItem : null;
+  const activeWindow = activePlay?.kind === "window" ? activePlay : null;
   const activeCard = q.activeItem?.kind === "text" ? q.activeItem.card : null;
+
+  const activeWindowKey = activeWindow?.key ?? null;
+  const activeWindowMatch = activeWindow?.matchId ?? null;
+  useEffect(() => {
+    if (activeWindowKey && activeWindowMatch) onWindowPlayed?.(activeWindowMatch);
+    // Once per window item that starts, not per render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeWindowKey]);
 
   const { playFrom } = q;
   const resume = useCallback(() => {
@@ -111,13 +134,17 @@ export function WatchView({
   const seek = useCallback(
     (t: number) => {
       const el = videoRef.current;
-      if (!el || duration === null) return;
+      if (!el) return;
+      // A window keeps seeks inside the clip's seconds of the game.
+      const lo = activeWindow ? activeWindow.start : 0;
+      const hi = activeWindow ? activeWindow.end - 0.05 : duration === null ? null : Math.max(0, duration - 0.05);
+      if (hi === null) return;
       // Without the timeline, back but never ahead: ahead is where a clip
       // counts as watched. Covers the arrow keys too.
       if (!canScrub && t > el.currentTime) return;
-      el.currentTime = clamp(t, 0, Math.max(0, duration - 0.05));
+      el.currentTime = clamp(t, lo, hi);
     },
-    [videoRef, duration, canScrub],
+    [videoRef, duration, canScrub, activeWindow],
   );
 
   // The lock screen and Control Center scrub the playing video through the
@@ -152,7 +179,7 @@ export function WatchView({
     const action = resolvePlayerKey(e);
     if (!action) return;
     const nudge = (delta: number) => {
-      if (!activeClip || !video) return;
+      if (!activePlay || !video) return;
       seek(video.currentTime + delta);
     };
     switch (action) {
@@ -207,7 +234,7 @@ export function WatchView({
       case "shuttle-forward":
         e.preventDefault();
         setSpeed(nextShuttleRate(speed));
-        if (activeClip && video?.paused) video.play().catch(() => {});
+        if (activePlay && video?.paused) video.play().catch(() => {});
         return;
       case "fullscreen":
         e.preventDefault();
@@ -233,7 +260,8 @@ export function WatchView({
   }, [q.activeKey, reduced]);
 
   const pct = progress.total > 0 ? (progress.watched / progress.total) * 100 : 0;
-  const activeColors = activeClip ? eventColors(activeClip.event) : null;
+  const activeColors = activePlay ? eventColors(activePlay.event) : null;
+  const gameHref = activePlay && gameHrefFor ? gameHrefFor(activePlay.matchId, activePlay.event) : null;
 
   return (
     <div className="@container/watch pb-[calc(var(--safe-bottom)+1.5rem)]">
@@ -262,7 +290,8 @@ export function WatchView({
                 stageRef={setStage}
                 stage={stage}
                 src={q.src}
-                duration={activeClip ? duration : null}
+                duration={activePlay ? (activeWindow ? activeWindow.end - activeWindow.start : duration) : null}
+                clipWindow={activeWindow ? { start: activeWindow.start, end: activeWindow.end } : null}
                 onSeek={seek}
                 canScrub={canScrub}
                 fullscreen={fullscreen}
@@ -311,28 +340,37 @@ export function WatchView({
             </div>
           </div>
 
-          {activeClip && activeColors && (
+          {activePlay && activeColors && (
             <div className="hidden flex-col gap-2 px-1 @min-[860px]/watch:flex">
               <div className="flex min-w-0 items-center gap-2">
                 <span className={cn("inline-flex shrink-0 items-center rounded-full px-2 py-px text-callout font-medium", activeColors.badge)}>
-                  {eventLabel(activeClip.event)}
+                  {eventLabel(activePlay.event)}
                 </span>
-                <span className="truncate text-title-3">{playerName(activeClip.event)}</span>
+                <span className="truncate text-title-3">{playerName(activePlay.event)}</span>
               </div>
               <p className="text-callout text-muted-foreground nums">
                 {[
-                  `Q${activeClip.event.period}`,
-                  formatGameClock(activeClip.event.gameClockTime),
-                  activeClip.event.eventTeam?.teamName,
-                  matchTitleFor(activeClip.matchId),
+                  `Q${activePlay.event.period}`,
+                  formatGameClock(activePlay.event.gameClockTime),
+                  activePlay.event.eventTeam?.teamName,
+                  matchTitleFor(activePlay.matchId),
                 ]
                   .filter(Boolean)
                   .join(" · ")}
               </p>
-              {activeClip.note && (
+              {gameHref && (
+                <Link
+                  href={gameHref}
+                  className="inline-flex w-fit items-center gap-1.5 text-callout font-medium text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-selection"
+                >
+                  <Clapperboard className="size-3.5" />
+                  Open in game
+                </Link>
+              )}
+              {activePlay.note && (
                 <figure className="rounded-window bg-fill-1 px-3.5 py-2.5">
                   <figcaption className="text-subheadline text-muted-foreground">Note from your coach</figcaption>
-                  <blockquote className="mt-0.5 whitespace-pre-wrap text-body text-foreground">{activeClip.note}</blockquote>
+                  <blockquote className="mt-0.5 whitespace-pre-wrap text-body text-foreground">{activePlay.note}</blockquote>
                 </figure>
               )}
             </div>

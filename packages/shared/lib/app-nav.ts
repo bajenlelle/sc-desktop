@@ -9,6 +9,9 @@
  *   (staff see them as "Shared playlists", the ones they share) and, for
  *   staff, the club itself; web is where clubs are managed. A personal space
  *   has no playlists to watch on web, so its home is the get-started page.
+ * - Anyone with a game in the cloud (a copy uploaded from the desktop) gets
+ *   Games, right after their playlists; a personal space then has something
+ *   to watch on web after all.
  * - Platform admins also get Admin.
  * - Tabs add Profile, which the sidebar keeps in its account menu.
  */
@@ -17,6 +20,7 @@ import type { OrgMembership } from '../types/org';
 export type DestinationId =
   | 'playlists'
   | 'shared-playlists'
+  | 'games'
   | 'highlights'
   | 'get-started'
   | 'club'
@@ -37,28 +41,34 @@ export interface NavUser {
   activeOrgIsPersonal: boolean;
   activeOrgRole: OrgMembership['role'] | null;
   isPlatformAdmin: boolean;
+  /** The user has at least one game copy in the cloud to watch (see game-videos-db.ts). */
+  hasCloudGames: boolean;
 }
 
 const PROFILE: Destination = { id: 'profile', href: '/profile', label: 'Profile' };
+const GAMES: Destination = { id: 'games', href: '/games', label: 'Games' };
 
 export function sidebarDestinations(user: NavUser): Destination[] {
   const admin: Destination[] = user.isPlatformAdmin ? [{ id: 'admin', href: '/admin', label: 'Admin' }] : [];
+  const games: Destination[] = user.hasCloudGames ? [GAMES] : [];
   if (user.isPlayerOnly) {
     return [
       { id: 'playlists', href: '/my-playlists', label: 'My playlists' },
+      ...games,
       { id: 'highlights', href: '/my-highlights', label: 'My highlights' },
       ...admin,
     ];
   }
   if (!user.hasSpace) return admin;
   if (user.activeOrgIsPersonal) {
-    return [{ id: 'get-started', href: '/get-started', label: 'Get started' }, ...admin];
+    return [...games, { id: 'get-started', href: '/get-started', label: 'Get started' }, ...admin];
   }
   const staff = user.activeOrgRole === 'coach' || user.activeOrgRole === 'admin';
   return [
     staff
       ? { id: 'shared-playlists', href: '/my-playlists', label: 'Shared playlists' }
       : { id: 'playlists', href: '/my-playlists', label: 'My playlists' },
+    ...games,
     ...(staff ? [{ id: 'club', href: '/organization', label: 'Club' } satisfies Destination] : []),
     ...admin,
   ];

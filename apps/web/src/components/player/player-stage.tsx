@@ -62,6 +62,13 @@ export interface PlayerStageProps {
   src: string | null;
   /** The playing clip's length; no scrubber without one. */
   duration: number | null;
+  /**
+   * The clip's place in the element when it is a window of a whole game
+   * (its length is then `duration`); null for a file of its own.
+   */
+  clipWindow?: { start: number; end: number } | null;
+  /** Element times to tick on the timeline (a whole game's quarter starts). */
+  markers?: readonly number[];
   onSeek: (t: number) => void;
   /**
    * False for a viewer who may not drag the timeline (a player): a read-only
@@ -103,6 +110,8 @@ export function PlayerStage({
   videoRef,
   src,
   duration,
+  clipWindow = null,
+  markers,
   onSeek,
   canScrub = true,
   transport,
@@ -240,12 +249,13 @@ export function PlayerStage({
 
   const transportProps: TransportProps = { ...transport, paused: effectivePaused, onTogglePlay: togglePlay };
   const readout = position && position.total > 0 ? `${position.index + 1} of ${position.total}` : undefined;
+  const windowStart = clipWindow?.start ?? 0;
   const scrubber =
     video && duration !== null && !playback ? (
       canScrub ? (
-        <ClipScrubber video={video} duration={duration} onSeek={onSeek} />
+        <ClipScrubber video={video} duration={duration} start={windowStart} markers={markers} onSeek={onSeek} />
       ) : (
-        <ClipProgress video={video} duration={duration} />
+        <ClipProgress video={video} duration={duration} start={windowStart} />
       )
     ) : null;
 

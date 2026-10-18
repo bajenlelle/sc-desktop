@@ -23,6 +23,7 @@ import { PopUpButton } from "@/components/ui/pop-up-button";
 import { SearchField } from "@/components/ui/search-field";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { WelcomeCard } from "@/components/welcome-card";
+import { trackEvent } from "@/lib/analytics";
 
 /**
  * Playlists shared with the user (and, for coaches, the ones they share):
@@ -54,6 +55,8 @@ export default function MyPlaylistsPage() {
     allOrgTeams,
     teamMap,
     memberMap,
+    windowSrc,
+    gameHrefFor,
   } = useSharedPlaylists();
 
   const [shareTarget, setShareTarget] = useState<Playlist | null>(null);
@@ -194,6 +197,9 @@ export default function MyPlaylistsPage() {
           autoplay={autoplay}
           onAutoplayStarted={consumeAutoplay}
           canScrub={canScrubPlaylist({ userId: currentUserId, myOrgs }, selected)}
+          windowSrc={windowSrc}
+          gameHrefFor={gameHrefFor}
+          onWindowPlayed={() => trackEvent("clip_played_from_game", { playlist_id: selected.id })}
           emptyText={
             own
               ? "No clips yet. Add clips to this playlist in the desktop app."
