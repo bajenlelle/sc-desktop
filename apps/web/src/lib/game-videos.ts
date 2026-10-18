@@ -112,6 +112,8 @@ export function announceGameVideoChange(matchId: string, expect?: GameVideoExpec
 /** A short-lived memo of "my rows, every state", shared by the sidebar, the tab bar and the pages. */
 let rowsCache: { at: number; promise: Promise<GameVideo[]> } | null = null;
 const ROWS_TTL_MS = 60_000;
+/** How often a list re-reads itself while one of its rows is being converted. */
+const LIST_POLL_MS = 10_000;
 const listeners = new Set<() => void>();
 
 function loadRows(): Promise<GameVideo[]> {
@@ -165,6 +167,17 @@ export function useMyGameVideos(opts: { orgId?: string | null; enabled?: boolean
       if (alive.current) setAll(rows);
     });
   }, [enabled, tick]);
+  // A list with a row our converter is working on reads itself again every
+  // ten seconds (when the tab is visible), so "Converting" turns into the
+  // finished row without a navigation.
+  const settling = !!all?.some((g) => gameVideoIsSettling(g));
+  useEffect(() => {
+    if (!enabled || !settling) return;
+    const timer = window.setInterval(() => {
+      if (!document.hidden) invalidateGameVideos();
+    }, LIST_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [enabled, settling]);
   const games = useMemo(() => {
     if (!all) return null;
     let rows = all;
