@@ -22,7 +22,8 @@ type TemplateId =
   | "removed_from_org"
   | "promoted_to_admin"
   | "org_invite"
-  | "free_refill";
+  | "free_refill"
+  | "game_video_ready";
 
 // Marketing templates (an offer, not a service notice) never go to anyone
 // who unsubscribed (email_preferences, 20261001110000; the SQL caller checks).
@@ -441,6 +442,35 @@ ${ctaButton(inviteUrl, "Accept Invitation")}`,
 ${ctaButton(pricingUrl, "See plans")}`,
           "You received this because you have a Scoutable account.",
           d("unsubscribe_url"),
+        ),
+      };
+    }
+
+    // A game uploaded from the browser finished converting (game_videos →
+    // ready, trigger notify_game_video_ready). Converting takes a while, so
+    // the uploader has usually left the page.
+    case "game_video_ready": {
+      const gameTitle = d("game_title", "Your game");
+      const matchId = d("match_id");
+      const gameUrl = d("game_url", matchId ? `${appUrl}/games/${encodeURIComponent(matchId)}` : `${appUrl}/games`);
+      const syncStatus = d("sync_status", "skipped");
+      const syncLine =
+        syncStatus === "applied"
+          ? "We found the tip-off too. Check it when you open the game, then every play lines up with the video."
+          : "Set the tip-off when you open the game, and every play lines up with the video.";
+      return {
+        subject: `${gameTitle} is ready to watch`,
+        html: wrapEmail(
+          `${gameTitle} is ready`,
+          `<h1 style="margin:0 0 12px 0;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">Your game is ready to watch</h1>
+<p style="margin:0 0 16px 0;font-size:14px;line-height:1.65;color:#6b7280;">
+  <strong>${esc(gameTitle)}</strong> is in the cloud and plays on the web now.
+</p>
+<p style="margin:0 0 32px 0;font-size:14px;line-height:1.65;color:#6b7280;">
+  ${esc(syncLine)}
+</p>
+${ctaButton(gameUrl, "Watch the game")}`,
+          "You received this because you uploaded this game to Scoutable.",
         ),
       };
     }

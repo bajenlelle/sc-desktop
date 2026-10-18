@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 #
-# Checks for cloud game videos (20261019100000).
+# Checks for cloud game videos (20261019100000) and browser uploads with the
+# converter (20261019200000).
 #
 # Only the uploader reads a copy's row; nobody writes rows from a client. The
 # cap per tier is enforced by the insert trigger, a replacement doesn't count
 # against it, _game_video_mark_ready swaps the game's older copy out, and a
-# match deleted by its owner queues the copy's key for the purge.
+# match deleted by its owner queues the copy's key for the purge. A conversion
+# in flight counts toward the cap, finishing one applies a confident tip-off
+# to an unsynced game only, the web's sync_set never touches a coach's own
+# sync, and the sweep is the function's alone.
 #
 # Every statement runs inside BEGIN … ROLLBACK, so nothing is committed.
 #
@@ -91,12 +95,19 @@ if [[ -n "${RLS_PREFLIGHT:-}" ]]; then
   echo "# Preflight: $RLS_PREFLIGHT applied inside every probe (rolled back)"
 fi
 
+d() { printf '$$%s$$' "$1"; }   # dollar-quote a literal
+
+# The uploader may own real copies on the target (the founder's staging
+# account does). Every probe starts from none, inside its own rolled-back
+# transaction, so the cap probes see exactly the rows they set up.
+CLEAN="DELETE FROM game_videos WHERE uploaded_by = $(d $U);"
+
 FAILED=0
 run() {  # $1=label  $2=expected  $3=sql as the actor  [$4=privileged setup sql, ending in ;]
   # expected: ALLOWED | ALLOWED rows=N | DENIED (RLS) | RAISES:<token> (guard) | BLOCKED (either)
   local out got st actor="${ACTOR:-$U}" role="${ROLE:-authenticated}" claims
   if [[ "$role" == "anon" ]]; then claims='{"role":"anon"}'; else claims="{\"sub\":\"$actor\",\"role\":\"$role\"}"; fi
-  out="$(probe "BEGIN; $PREFLIGHT ${4:-} SELECT set_config(\$\$request.jwt.claims\$\$, \$\$$claims\$\$, true); SET LOCAL ROLE $role; $3; ROLLBACK;" || true)"
+  out="$(probe "BEGIN; $PREFLIGHT $CLEAN ${4:-} SELECT set_config(\$\$request.jwt.claims\$\$, \$\$$claims\$\$, true); SET LOCAL ROLE $role; $3; ROLLBACK;" || true)"
   out="$(mask "$out")"
   if grep -q "42501\|violates row-level security\|permission denied" <<<"$out"; then
     got="DENIED"
@@ -113,8 +124,6 @@ run() {  # $1=label  $2=expected  $3=sql as the actor  [$4=privileged setup sql,
   esac
   printf "  %-62s expect=%-28s got=%-30s %s\n" "$1" "$2" "$got" "$st"
 }
-
-d() { printf '$$%s$$' "$1"; }   # dollar-quote a literal
 
 M=game-video-probe-match                         # a throwaway game owned by U
 M2=game-video-probe-match-2                      # a second one, to fill the cap
@@ -158,6 +167,40 @@ echo "== deleting"
 run "the owner deletes the game"                    "ALLOWED rows=1" "WITH x AS (DELETE FROM matches WHERE id = $(d $M) RETURNING 1) SELECT count(*) AS n FROM x" "$MAKE_MATCH $ROW_A"
 run "which queues the copy's key"                   "ALLOWED rows=1" "DELETE FROM matches WHERE id = $(d $M); RESET ROLE; SELECT count(*) AS n FROM game_video_deletions WHERE storage_key = $(d $KEY_A)" "$MAKE_MATCH $ROW_A"
 run "an unfinished upload queues its upload id too" "ALLOWED rows=1" "DELETE FROM matches WHERE id = $(d $M); RESET ROLE; SELECT count(*) AS n FROM game_video_deletions WHERE storage_key = $(d $KEY_B) AND upload_id = 'upl-1'" "$MAKE_MATCH $ROW_B"
+
+echo "== the converter (browser uploads)"
+C=00000000-0000-4000-8000-00000a0b0c03           # a browser upload being converted
+KEY_C=probe/games/$M/$C.mp4
+SRC_C=probe/sources/$M/$C.mp4
+FP='{"version":1,"durationMs":9350000,"offsetsS":[30,90],"hashes":["00ff00ff00ff00ff","0123456789abcdef"],"key":"0000000000000000000000000000000000000000000000000000000000000c03"}'
+ROW_C="INSERT INTO game_videos (id, match_id, uploaded_by, status, storage_key, origin, source_storage_key, source_size_bytes, anchor_kind, anchor_real_world_time, convert_attempts, convert_heartbeat_at, sync_status) VALUES ($(d $C), $(d $M), $(d $U), 'converting', $(d $KEY_C), 'browser', $(d $SRC_C), 100, 'tipoff', '2026-10-04T13:00:00Z', 1, now(), 'pending');"
+COACH_SYNC="UPDATE matches SET sync_point = '{\"syncVideoTime\": 100, \"syncRealWorldTime\": \"2026-10-04T13:00:00.000Z\"}' WHERE id = $(d $M);"
+finish() { echo "SELECT _game_video_finish_convert($(d $C), ${4:-1}, 100, 9350, 1280, 720, 25, $(d "$FP")::jsonb, $(d $1), $2, $3);"; }
+ROLE=service_role run "a conversion in flight counts toward the cap"   "RAISES:game_video_limit_reached" "$(insert_b)" "$MAKE_MATCH $MAKE_MATCH2 $LIMIT_ONE ${ROW_C//$(d $M)/$(d $M2)}"
+ROLE=service_role run "finishing applies a confident tip-off"          "ALLOWED rows=1" "SELECT count(*) AS n FROM matches WHERE id = $(d $M) AND (sync_point->>'syncVideoTime')::float = 336.5 AND sync_point->>'syncRealWorldTime' = '2026-10-04T13:00:00.000Z'" "$MAKE_MATCH $ROW_C $(finish estimate 336.5 0.92)"
+ROLE=service_role run "and the row is ready and applied"               "ALLOWED rows=1" "SELECT count(*) AS n FROM game_videos WHERE id = $(d $C) AND status = 'ready' AND sync_status = 'applied' AND suggested_tipoff_seconds = 336.5 AND convert_progress = 1" "$MAKE_MATCH $ROW_C $(finish estimate 336.5 0.92)"
+ROLE=service_role run "a confirmed hint is applied too"                "ALLOWED rows=1" "SELECT count(*) AS n FROM game_videos WHERE id = $(d $C) AND sync_status = 'applied' AND suggested_confidence = 1" "$MAKE_MATCH $ROW_C $(finish confirmed 336.5 NULL)"
+ROLE=service_role run "a weak estimate is only suggested"              "ALLOWED rows=1" "SELECT count(*) AS n FROM game_videos g JOIN matches m ON m.id = g.match_id WHERE g.id = $(d $C) AND g.sync_status = 'suggested' AND g.suggested_tipoff_seconds = 336.5 AND m.sync_point IS NULL" "$MAKE_MATCH $ROW_C $(finish estimate 336.5 0.55)"
+ROLE=service_role run "the coach's own sync stays"                     "ALLOWED rows=1" "SELECT count(*) AS n FROM game_videos g JOIN matches m ON m.id = g.match_id WHERE g.id = $(d $C) AND g.sync_status = 'suggested' AND (m.sync_point->>'syncVideoTime')::float = 100" "$MAKE_MATCH $COACH_SYNC $ROW_C $(finish estimate 336.5 0.92)"
+ROLE=service_role run "skipped passes through"                         "ALLOWED rows=1" "SELECT count(*) AS n FROM game_videos WHERE id = $(d $C) AND status = 'ready' AND sync_status = 'skipped'" "$MAKE_MATCH $ROW_C $(finish skipped NULL NULL)"
+ROLE=service_role run "an old attempt can't finish the job"            "RAISES:stale_attempt" "$(sed 's/;$//' <<<"$(finish estimate 336.5 0.92 2)")" "$MAKE_MATCH $ROW_C"
+ROLE=service_role run "mark ready flips a converting row"              "ALLOWED rows=1" "SELECT count(*) AS n FROM game_videos WHERE id = $(d $C) AND status = 'ready'" "$MAKE_MATCH $ROW_C SELECT _game_video_mark_ready($(d $C));"
+run "the uploader reads the converting row"                            "ALLOWED rows=1" "SELECT count(*) AS n FROM game_videos WHERE id = $(d $C) AND status = 'converting'" "$MAKE_MATCH $ROW_C"
+run "but can't touch its progress"                                     "ALLOWED rows=0" "WITH x AS (UPDATE game_videos SET convert_progress = 1 WHERE id = $(d $C) RETURNING 1) SELECT count(*) AS n FROM x" "$MAKE_MATCH $ROW_C"
+run "deleting the game queues the copy and the original"               "ALLOWED rows=2" "DELETE FROM matches WHERE id = $(d $M); RESET ROLE; SELECT count(*) AS n FROM game_video_deletions WHERE storage_key IN ($(d $KEY_C), $(d $SRC_C))" "$MAKE_MATCH $ROW_C"
+run "the sweep is not the user's to run"                               "DENIED"         "SELECT run_game_video_sweep()" ""
+
+echo "== the web sets the sync (sync_set)"
+READY_C="$(sed "s/'converting'/'ready'/; s/'pending'/'not_found'/" <<<"$ROW_C")"
+set_sync() { echo "SELECT _game_video_set_sync($(d $C), $(d $U), $(d $1), $2);"; }
+ROLE=service_role run "manual writes the sync point"                   "ALLOWED rows=1" "SELECT count(*) AS n FROM matches WHERE id = $(d $M) AND (sync_point->>'syncVideoTime')::float = 341 AND sync_point->>'syncRealWorldTime' = '2026-10-04T13:00:00.000Z'" "$MAKE_MATCH $READY_C UPDATE game_videos SET content_fingerprint = $(d "$FP")::jsonb WHERE id = $(d $C); $(set_sync manual 341)"
+ROLE=service_role run "and a confirmed hint for the recording"         "ALLOWED rows=1" "SELECT count(*) AS n FROM video_sync_hints WHERE detected_by = $(d $U) AND fingerprint_key = '0000000000000000000000000000000000000000000000000000000000000c03' AND method = 'confirmed' AND tipoff_video_time = 341" "$MAKE_MATCH $READY_C UPDATE game_videos SET content_fingerprint = $(d "$FP")::jsonb WHERE id = $(d $C); $(set_sync manual 341)"
+ROLE=service_role run "and the row's status"                           "ALLOWED rows=1" "SELECT count(*) AS n FROM game_videos WHERE id = $(d $C) AND sync_status = 'manual'" "$MAKE_MATCH $READY_C $(set_sync manual 341)"
+ROLE=service_role run "confirmed takes the suggested time by default"  "ALLOWED rows=1" "SELECT count(*) AS n FROM matches WHERE id = $(d $M) AND (sync_point->>'syncVideoTime')::float = 336.5" "$MAKE_MATCH $READY_C UPDATE game_videos SET sync_status = 'suggested', suggested_tipoff_seconds = 336.5 WHERE id = $(d $C); $(set_sync confirmed NULL)"
+ROLE=service_role run "quarter marks survive the merge"                "ALLOWED rows=1" "SELECT count(*) AS n FROM matches WHERE id = $(d $M) AND sync_point->'marks'->'2' IS NOT NULL AND (sync_point->>'syncVideoTime')::float = 341" "$MAKE_MATCH UPDATE matches SET sync_point = '{\"marks\": {\"2\": {\"anchor\": {\"realWorldTime\": \"2026-10-04T13:30:00Z\", \"kind\": \"period_start\", \"label\": \"Q2\"}}}}' WHERE id = $(d $M); $READY_C $(set_sync manual 341)"
+ROLE=service_role run "a coach's own sync is locked"                   "RAISES:sync_locked" "$(sed 's/;$//' <<<"$(set_sync manual 341)")" "$MAKE_MATCH $COACH_SYNC $READY_C"
+ROLE=service_role run "but an applied one can be adjusted"             "ALLOWED rows=1" "SELECT count(*) AS n FROM matches WHERE id = $(d $M) AND (sync_point->>'syncVideoTime')::float = 341" "$MAKE_MATCH $COACH_SYNC $(sed "s/'not_found'/'applied'/" <<<"$READY_C") $(set_sync manual 341)"
+ROLE=service_role run "someone else's row is not found"                "RAISES:not_found" "SELECT _game_video_set_sync($(d $C), $(d $V), 'manual', 341)" "$MAKE_MATCH $READY_C"
 
 echo
 if [[ $FAILED -eq 0 ]]; then echo "All probes passed."; else echo "Some probes FAILED."; exit 1; fi
