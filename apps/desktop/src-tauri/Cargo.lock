@@ -4982,6 +4982,7 @@ dependencies = [
  "imageproc",
  "machine-uid",
  "percent-encoding",
+ "reqwest 0.12.28",
  "sentry",
  "serde",
  "serde_json",
@@ -4997,6 +4998,7 @@ dependencies = [
  "tauri-plugin-shell",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tokio",
 ]
 
 [[package]]

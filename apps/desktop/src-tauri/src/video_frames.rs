@@ -198,7 +198,7 @@ pub fn is_video_file(path: &std::path::Path) -> bool {
         .unwrap_or(false)
 }
 
-fn checked_video_path(path: &str) -> Result<String, String> {
+pub(crate) fn checked_video_path(path: &str) -> Result<String, String> {
     let p = std::path::Path::new(path);
     if !is_video_file(p) {
         return Err("video: not a video file".into());
@@ -212,6 +212,12 @@ fn checked_video_path(path: &str) -> Result<String, String> {
 
 fn encode_base64(bytes: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+/// Runs ffmpeg to completion and hands back raw stdout, stderr and whether
+/// it exited cleanly; the cloud copy's probe reuses it.
+pub(crate) async fn run_ffmpeg_capture(app: &tauri::AppHandle, args: &[String]) -> Result<(Vec<u8>, String, bool), String> {
+    run_ffmpeg(app, args).await
 }
 
 async fn run_ffmpeg(app: &tauri::AppHandle, args: &[String]) -> Result<(Vec<u8>, String, bool), String> {

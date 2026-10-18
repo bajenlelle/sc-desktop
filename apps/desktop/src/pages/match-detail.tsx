@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { CalendarIcon, Check, ChevronLeft, ChevronsUpDown, Film, Loader2, MinusCircle, Plus, VideoOff } from "lucide-react";
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
+import { CloudCopyRow } from "@/components/cloud-copy-row";
 import { DeleteMatchDialog } from "@/components/delete-match-dialog";
 import { EmptyState } from "@/components/empty-state";
 import { formatMSSd, SyncPointPicker, type SeekRequest } from "@/components/sync-point-picker";
@@ -619,6 +620,7 @@ export function MatchDetailPage() {
                   {videoFileName ? "Change…" : "Choose video…"}
                 </Button>
               </div>
+              {videoFileName && <CloudCopyRow match={storedMatch} />}
             </GroupedList>
           )}
           {!videoFileName && !storedMatch.isDemo && (

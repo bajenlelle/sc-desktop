@@ -10,6 +10,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { removeCloudCopy } from "@/lib/game-video";
 import { deleteMatch } from "@/lib/matches-db";
 import { useImportQuota } from "@/lib/use-import-quota";
 
@@ -37,6 +38,9 @@ export function DeleteMatchDialog({
     setDeleting(true);
     setDeleteError(null);
     try {
+      // The game's cloud copy goes first (best effort: the row's cascade
+      // queues the file for the nightly purge if this fails).
+      await removeCloudCopy(matchId, { quiet: true }).catch(() => {});
       await deleteMatch(matchId);
       setOpen(false);
       onDeleted();

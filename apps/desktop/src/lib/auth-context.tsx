@@ -6,6 +6,7 @@ import { getMyProfile, getMyOrgs, ensurePersonalOrg } from "@/lib/profile-db";
 import { sortOrgsClubFirst } from "@scoutable/shared/lib/orgs";
 import { touchThisDevice } from "@/lib/device-registry";
 import { Sentry } from "@/lib/sentry";
+import { resumeCloudCopies } from "@/lib/game-video";
 import { seedDemoMatch } from "@/lib/matches-db";
 import type { UserProfile, OrgMembership, OrgPlanTier } from "@/types/org";
 
@@ -144,6 +145,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setActiveOrgIdState(resolveActiveOrg(orgs));
       if (!opts?.silent) {
         maybeSeedDemo(userId, orgs);
+        // Cloud copies interrupted by a quit pick up where they stopped.
+        void resumeCloudCopies();
         // Role isn't known at the SIGNED_IN identify (profile not loaded
         // yet) — merge it in once it is, so PostHog can segment by persona.
         if (p.declaredRole) {

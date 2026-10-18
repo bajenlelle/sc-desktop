@@ -7,6 +7,7 @@ use tauri::http::{Method, Response, StatusCode};
 
 mod device_identity;
 mod export_jobs;
+mod game_video;
 mod video_frames;
 mod menu;
 
@@ -1018,6 +1019,12 @@ pub fn run() {
             extract_poster_frame,
             video_frames::probe_video,
             video_frames::grab_frames,
+            game_video::game_video_cache_path,
+            game_video::game_video_file_info,
+            game_video::game_video_delete_cached,
+            game_video::game_video_prune_cache,
+            game_video::transcode_game_video,
+            game_video::game_video_upload_part,
             device_identity::get_device_identity,
             menu::menu_set_enabled,
             menu::menu_sync_theme

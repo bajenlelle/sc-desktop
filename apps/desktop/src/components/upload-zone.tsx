@@ -9,6 +9,9 @@ import { describePeriodSyncs, videoLooksCut } from "@scoutable/shared/lib/period
 import { isSuggestionPending, TipoffSuggestionStrip } from "@/components/tipoff-suggestion-strip";
 import { AutoHeight } from "@/components/ui/auto-height";
 import { SearchField } from "@/components/ui/search-field";
+import { Switch } from "@/components/ui/switch";
+import { gameVideoBlock, gameVideoQuotaLabel, getGameVideoQuota, type GameVideoQuota } from "@scoutable/shared/lib/game-videos-db";
+import { readCloudCopyDefault, startCloudCopy, writeCloudCopyDefault } from "@/lib/game-video";
 import { probeVideoDuration } from "@/lib/video-probe";
 import { fadeVariants, springs } from "@/lib/motion";
 import { useTipoffSuggestion } from "@/lib/use-tipoff-suggestion";
@@ -431,6 +434,20 @@ export function UploadZone({
   const cutReportedRef = useRef(false);
   // Shared hint lookup, then automatic detection, for the linked recording.
   const tipoffSuggestion = useTipoffSuggestion(videoPath, selectedGame?.uuid, { surface: "import" });
+  // "Also keep a copy in the cloud": remembered on this computer, offered
+  // only while the plan has cloud games left.
+  const [cloudCopy, setCloudCopy] = useState(readCloudCopyDefault);
+  const [cloudQuota, setCloudQuota] = useState<GameVideoQuota | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void getGameVideoQuota(createClient(), activeOrgId ?? null).then((q) => {
+      if (!cancelled) setCloudQuota(q);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeOrgId]);
+  const cloudCopyOffered = cloudQuota !== null && gameVideoBlock(cloudQuota) === null;
   const [submitStatus, setSubmitStatus] = useState<"idle" | "saving" | "error">("idle");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [importLimitDialogOpen, setImportLimitDialogOpen] = useState(false);
@@ -718,6 +735,9 @@ export function UploadZone({
 
     try {
       await saveMatch(storedMatch, { refreshEvents: !!existingMatch });
+      // The copy follows the import in the background; a game already in
+      // the cloud is left as it is.
+      if (cloudCopy && cloudCopyOffered && videoPath) void startCloudCopy(storedMatch);
       if (existingMatch?.syncPoint && syncPoint) {
         // A re-import can move the sync: uploads that can't say where they
         // were cut stop being served, and the rest follow in the background.
@@ -1297,6 +1317,27 @@ export function UploadZone({
           <span className="font-semibold">{existingMatch.title}</span>. Importing again
           updates that game — events and rosters refresh, and your playlists keep working.
         </p>
+      )}
+
+      {cloudCopyOffered && cloudQuota && (
+        <div className="flex items-center justify-between gap-4 rounded-window bg-fill-1 px-3.5 py-2.5">
+          <div className="min-w-0">
+            <label htmlFor="cloud-copy" className="text-sm text-foreground">
+              Also keep a copy in the cloud
+            </label>
+            <p className="text-callout text-muted-foreground">
+              A 720p copy uploads after the import, so the game plays on the web. {gameVideoQuotaLabel(cloudQuota)}.
+            </p>
+          </div>
+          <Switch
+            id="cloud-copy"
+            checked={cloudCopy}
+            onCheckedChange={(on) => {
+              setCloudCopy(on);
+              writeCloudCopyDefault(on);
+            }}
+          />
+        </div>
       )}
 
       {/* What the button is waiting for, in one line that changes in place. */}

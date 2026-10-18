@@ -41,3 +41,8 @@ machine-uid = "0.5"
 sha2 = "0.10"
 base64 = "0.22"
 hostname = "0.4"
+# The cloud copy's part uploads (game_video.rs): one PUT per 32 MiB range,
+# from Rust so the bytes never cross IPC. The same reqwest tauri-plugin-http
+# already builds (rustls), so no second copy.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+tokio = { version = "1", features = ["rt", "macros"] }
