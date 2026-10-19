@@ -20,9 +20,9 @@ export class ConvertFailure extends Error {
   }
 }
 
-export type AbortReason = "sigterm" | "stale_attempt";
+export type AbortReason = "sigterm" | "stale_attempt" | "cancelled";
 
-/** The run was told to stop: by SIGTERM, or because another attempt owns the row now. */
+/** The run was told to stop: by SIGTERM, because another attempt owns the row now, or because the owner cancelled the render. */
 export class Aborted extends Error {
   constructor(public reason: AbortReason) {
     super(reason);
@@ -31,7 +31,7 @@ export class Aborted extends Error {
 }
 
 export function abortReason(signal: AbortSignal): AbortReason {
-  return signal.reason === "stale_attempt" ? "stale_attempt" : "sigterm";
+  return signal.reason === "stale_attempt" || signal.reason === "cancelled" ? signal.reason : "sigterm";
 }
 
 export function throwIfAborted(signal: AbortSignal): void {

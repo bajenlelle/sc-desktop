@@ -1,7 +1,8 @@
 # Build context for workers/game-video-convert/Dockerfile, which wrangler builds
 # from this directory (image_build_context "../.."). Everything is excluded
-# unless named below: the manifests npm ci needs and the raw TypeScript the
-# converter runs. Exceptions are literal paths on purpose: Docker and BuildKit
+# unless named below: the manifests npm ci needs, the raw TypeScript the
+# converter runs and the export's fonts and wordmark (packages/node-video/assets).
+# Exceptions are literal paths on purpose: Docker and BuildKit
 # only descend into an excluded directory for an exception that starts with
 # that directory's path, so a wildcard here would silently match nothing.
 *
@@ -12,6 +13,7 @@
 !packages/shared/types
 !packages/node-video/package.json
 !packages/node-video/lib
+!packages/node-video/assets
 !workers/game-video-convert/package.json
 !workers/game-video-convert/tsconfig.json
 !workers/game-video-convert/src

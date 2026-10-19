@@ -24,6 +24,8 @@ RUN npm ci -w workers/game-video-convert -w packages/shared -w packages/node-vid
 COPY packages/shared/lib packages/shared/lib
 COPY packages/shared/types packages/shared/types
 COPY packages/node-video/lib packages/node-video/lib
+# The export's card fonts and wordmark (src/export.ts; twins of the desktop's, see its README).
+COPY packages/node-video/assets packages/node-video/assets
 COPY workers/game-video-convert/tsconfig.json workers/game-video-convert/
 COPY workers/game-video-convert/src workers/game-video-convert/src
 

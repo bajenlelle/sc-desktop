@@ -5,7 +5,7 @@
  * SIGTERM handling and the main() wrapper that settles the exit code.
  */
 import http from "node:http";
-import { StaleAttempt } from "./function-client.ts";
+import { Cancelled, StaleAttempt } from "./function-client.ts";
 import type { Logger, Program } from "./log.ts";
 
 /** The exit code after SIGTERM: ffmpeg killed, the failure reported, like a shell would say. */
@@ -139,14 +139,15 @@ export interface Heartbeat {
 /**
  * Progress and heartbeat together, on the wire's interval, whatever phase
  * the job is in. A `stale_attempt` answer means another attempt owns the
- * row: the run is aborted with that reason and stops without a report.
+ * row, a `cancelled` one that the owner stopped the render: either way the
+ * run is aborted with that reason and stops without a report.
  */
 export function startHeartbeat(o: HeartbeatOptions): Heartbeat {
   const beat = () => {
     o.progress.line({ heartbeat: true });
     o.report(o.progress.value).catch((e: unknown) => {
-      if (e instanceof StaleAttempt) {
-        if (!o.abort.signal.aborted) o.abort.abort("stale_attempt");
+      if (e instanceof StaleAttempt || e instanceof Cancelled) {
+        if (!o.abort.signal.aborted) o.abort.abort(e.token);
         return;
       }
       o.log({ phase: "progress", error: o.log.safe(e) });
@@ -156,6 +157,22 @@ export function startHeartbeat(o: HeartbeatOptions): Heartbeat {
   return {
     beat,
     stop: () => clearInterval(timer),
+  };
+}
+
+/**
+ * Reports between heartbeats (an export's progress): at once when the phase
+ * changes, otherwise at most once every `everyMs`.
+ */
+export function throttledReporter<P extends string>(beat: () => void, everyMs: number, now: () => number = Date.now): (phase: P) => void {
+  let lastPhase: P | null = null;
+  let lastAt = -Infinity;
+  return (phase) => {
+    const t = now();
+    if (phase === lastPhase && t - lastAt < everyMs) return;
+    lastPhase = phase;
+    lastAt = t;
+    beat();
   };
 }
 

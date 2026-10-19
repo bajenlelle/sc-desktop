@@ -115,6 +115,8 @@ const FONT_BYTES: &[u8] = include_bytes!("../resources/fonts/Roboto-Regular.ttf"
 /// in-app player overlay shows. Regenerate from components/logo.tsx's
 /// Wordmark SVG if the brand changes. Burned into exports by the final
 /// concat pass when the watermark is enabled.
+// Twin: packages/node-video/assets/watermark.png is the same file for the
+// server export (workers/game-video-convert/src/export.ts); change both together.
 const WATERMARK_BYTES: &[u8] = include_bytes!("../resources/watermark.png");
 
 fn render_watermark_png(path: &std::path::Path) -> Result<(), String> {

@@ -5,8 +5,10 @@
  * Two programs speak through it: the converter (`job_*`, about a `videoId`)
  * and the renderer (`render_*`, about a render job's `jobId`); both carry
  * the attempt number on every write, and a 409 `stale_attempt` means
- * another attempt owns the row now and this run must stop. 5xx answers and
- * network failures are retried with a growing pause; 4xx answers are not.
+ * another attempt owns the row now and this run must stop; a 409
+ * `cancelled` means the owner stopped the render job (render_cancel) and
+ * this run must stop too. 5xx answers and network failures are retried
+ * with a growing pause; 4xx answers are not.
  */
 import type {
   GameVideoConvertError,
@@ -16,8 +18,10 @@ import type {
   GameVideoJobTakeResponse,
   GameVideoSignPartsResponse,
   RenderClipResult,
+  RenderDoneRequest,
   RenderDoneResponse,
   RenderFailedResponse,
+  RenderPhase,
   RenderTakeResponse,
 } from "@scoutable/shared/lib/game-video-wire";
 
@@ -37,6 +41,14 @@ export class StaleAttempt extends FunctionError {
   constructor() {
     super("stale_attempt", 409);
     this.name = "StaleAttempt";
+  }
+}
+
+/** 409 cancelled: the owner stopped the render job; this run stops without reporting anything. */
+export class Cancelled extends FunctionError {
+  constructor() {
+    super("cancelled", 409);
+    this.name = "Cancelled";
   }
 }
 
@@ -105,6 +117,7 @@ export class FunctionCaller {
         if (res.ok) return json as T;
         const token = typeof (json as { error?: unknown } | null)?.error === "string" ? (json as { error: string }).error : `http_${res.status}`;
         if (token === "stale_attempt") throw new StaleAttempt();
+        if (token === "cancelled") throw new Cancelled();
         const err = new FunctionError(token, res.status);
         if (!isRetryableStatus(res.status)) throw err;
         last = err;
@@ -168,6 +181,9 @@ export interface RenderClientOptions extends FunctionCallerOptions {
   jobId: string;
 }
 
+/** What an export's render_done carries: the uploaded file's size and length, and whether a share's poster went up too. */
+export type RenderExportDone = NonNullable<RenderDoneRequest["export"]>;
+
 export class RenderClient extends FunctionCaller {
   constructor(o: RenderClientOptions) {
     super(o, "render", "jobId", o.jobId);
@@ -177,13 +193,17 @@ export class RenderClient extends FunctionCaller {
     return this.call<RenderTakeResponse>("take", {}, { tries: 3 });
   }
 
-  async progress(attempt: number, progress: number): Promise<void> {
-    await this.call<unknown>("progress", { attempt, progress }, { tries: 2 });
+  /** `phase` is an export's (clips, stitch, upload); a ship job sends none. */
+  async progress(attempt: number, progress: number, phase?: RenderPhase): Promise<void> {
+    await this.call<unknown>("progress", { attempt, progress, ...(phase ? { phase } : {}) }, { tries: 2 });
   }
 
-  /** Idempotent on the function's side: a repeat finds the job done and answers its counts. */
-  done(attempt: number, results: RenderClipResult[]): Promise<RenderDoneResponse> {
-    return this.call<RenderDoneResponse>("done", { attempt, results }, { tries: 5 });
+  /**
+   * A ship job sends a result per clip; an export sends `results: []` and what it uploaded.
+   * Idempotent on the function's side: a repeat finds the job done and answers the same.
+   */
+  done(attempt: number, results: RenderClipResult[], exportDone?: RenderExportDone): Promise<RenderDoneResponse> {
+    return this.call<RenderDoneResponse>("done", { attempt, results, ...(exportDone ? { export: exportDone } : {}) }, { tries: 5 });
   }
 
   failed(attempt: number, error: string, retryable: boolean, opts: CallOptions = {}): Promise<RenderFailedResponse> {

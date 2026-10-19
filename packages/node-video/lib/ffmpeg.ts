@@ -37,6 +37,96 @@ export async function probe(source: string): Promise<Probe | null> {
   return { durationMs: Math.round(durationS * 1000), durationS, width: v ? Number(v[1]) : 0, height: v ? Number(v[2]) : 0, fps: v ? Number(v[3]) : 0 };
 }
 
+/** What the server export needs to know about a copy (or a rendered file) before it cuts from it. */
+export interface StreamProbe {
+  /** An audio stream is there (a clip from a copy without one gets silence, so the concat filter has audio on every input). */
+  hasAudio: boolean;
+  /** The first video stream's `fps` as ffmpeg prints it; 0 when it prints none or there is no video stream. */
+  fps: number;
+  /** Null when ffmpeg prints no duration (a live stream, `N/A`). */
+  durationSeconds: number | null;
+  /** The first video stream's size; 0 × 0 without one. */
+  width: number;
+  height: number;
+}
+
+/**
+ * `ffmpeg -hide_banner -i <input>` stderr → the probe, read the way the
+ * desktop's parse_ffmpeg_probe (src-tauri/src/video_frames.rs) reads it:
+ * the `Duration:` line, then the first `Video:` stream line's `WxH` and
+ * `N fps` tokens; plus whether any `Audio:` stream line is there. Null when
+ * the stderr shows no input was opened (no `Input #` header).
+ */
+export function parseStreamProbe(stderr: string): StreamProbe | null {
+  const lines = stderr.split(/\r?\n/);
+  if (!lines.some((l) => /^Input #\d+,/.test(l.trim()))) return null;
+  let durationSeconds: number | null = null;
+  const durationLine = lines.find((l) => l.trim().startsWith("Duration:"));
+  const d = durationLine ? /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(durationLine) : null;
+  if (d) durationSeconds = Number(d[1]) * 3600 + Number(d[2]) * 60 + Number(d[3]);
+  const isStream = (l: string, type: string) => new RegExp(`^Stream #\\d+:\\d+.*?: ${type}:`).test(l.trim());
+
+  let width = 0;
+  let height = 0;
+  let fps = 0;
+  const video = lines.find((l) => isStream(l, "Video"));
+  if (video) {
+    for (const raw of video.split(",")) {
+      const token = raw.trim();
+      if (width === 0) {
+        const size = /^(\d+)x(\d+)/.exec(token);
+        if (size && Number(size[1]) >= 16 && Number(size[2]) >= 16) {
+          width = Number(size[1]);
+          height = Number(size[2]);
+        }
+      }
+      if (fps === 0) {
+        const rate = /^(\d+(?:\.\d+)?)\s+fps$/.exec(token);
+        if (rate) fps = Number(rate[1]);
+      }
+    }
+  }
+  return { hasAudio: lines.some((l) => isStream(l, "Audio")), fps, durationSeconds, width, height };
+}
+
+/** Why probeStreams could not read an input: ffmpeg would not start, or ffmpeg could not open the input. */
+export class ProbeFailure extends Error {
+  constructor(
+    public reason: "ffmpeg_unavailable" | "unreadable",
+    /** ffmpeg's stderr (empty when it never started), for classifying the failure. */
+    public stderr: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ProbeFailure";
+  }
+}
+
+const PROBE_TIMEOUT_MS = 2 * 60 * 1000;
+
+/**
+ * Streams, size, rate and duration of a local file or a URL ffmpeg can read
+ * (a presigned GET of a copy: only the header is read, the copies are
+ * faststart). Throws ProbeFailure when ffmpeg can't be started or can't open
+ * the input; a stuck read is killed after two minutes, or when `signal`
+ * aborts (then the AbortError is thrown as it is).
+ */
+export async function probeStreams(input: string, opts: { signal?: AbortSignal } = {}): Promise<StreamProbe> {
+  let stderr = "";
+  try {
+    await run(FFMPEG, ["-hide_banner", "-i", input], { maxBuffer: MAX_BUFFER, timeout: PROBE_TIMEOUT_MS, signal: opts.signal });
+  } catch (e) {
+    if ((e as Error)?.name === "AbortError") throw e;
+    const err = e as { code?: unknown; stderr?: string; message?: string };
+    // A string code (ENOENT, EACCES) is the spawn failing; a number is ffmpeg's exit (1 without an output file is normal).
+    if (typeof err.code === "string") throw new ProbeFailure("ffmpeg_unavailable", "", `ffmpeg could not start: ${err.message ?? err.code}`);
+    stderr = err.stderr ?? "";
+  }
+  const parsed = parseStreamProbe(stderr);
+  if (!parsed) throw new ProbeFailure("unreadable", stderr, `ffmpeg could not open the input: ${stderr.trim().split("\n").pop() ?? ""}`);
+  return parsed;
+}
+
 function cropFilter(crop: OverlayBox | null | undefined): string[] {
   if (!crop) return [];
   const f = (n: number) => n.toFixed(4);

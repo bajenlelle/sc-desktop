@@ -3,7 +3,8 @@
 The containers behind cloud game videos: a Cloudflare Worker that starts one
 container per job, and the two programs a container can run — the converter
 for a game uploaded from the browser, and the renderer that cuts a web
-playlist's clips into files.
+playlist's clips into files or renders the whole playlist into one MP4 (an
+export).
 
 ```
 game-video function ──POST /convert {videoId}──▶ Worker (src/worker.ts)
@@ -37,6 +38,41 @@ outside the clips (the copy unreachable, every PUT refused, no ffmpeg) is the
 job handed back with `render_failed(retryable)`. The function writes
 `playlist_clips.r2_url` and notifies pending shares.
 
+An `export` job (`render_take`'s `kind: "export"` and its `export` plan) runs
+`src/export.ts`: one MP4 of the playlist, or of a selection, made the way the
+desktop's `export_playlist` makes it (apps/desktop/src-tauri/src/lib.rs), with
+the desktop's argument lists ported to `packages/shared/lib/export-args.ts`
+and pinned there by lib.rs's golden strings. Each copy is probed once (a clip
+from a copy without audio gets the cards' silent track, since the concat
+filter needs audio on every input); each segment is rendered in playlist order
+into the work dir (`seg_<i>.mp4`): a clip cut straight from its copy's
+presigned GET, letterboxed to 1280×720 or panned in a 9:16 window scaled to
+1080×1920, quarter-second fades; a text or stats card painted at the export's
+size by `packages/node-video/lib/card-paint.ts` (the desktop painter's drawing
+calls over the shared `card-layout.ts`, Roboto from `packages/node-video/assets`)
+and looped for its duration. A clip must come out at least 4096 bytes and
+probe within half a second of its window (held to the copy's end), a card at
+least 1024 bytes. The concat pass joins them at the plan's one frame rate and
+overlays the wordmark when the plan says so (`assets/watermark.png`: bottom
+right in 16:9, centred 700 px up in 9:16), with `-movflags +faststart -pix_fmt
+yuv420p` for web playback; a share also gets a poster frame (0.6 s in, else
+the first). The video is PUT as `video/mp4` (and the poster as `image/jpeg`)
+to the plan's presigned URLs, three tries each, and `render_done` carries
+`{ results: [], export: { sizeBytes, durationSeconds, posterOk } }`. Progress
+goes out with its phase: `clips` (done segments / (segments + 1)), `stitch`
+(ffmpeg's `-progress` over the expected length), `upload`; at once when the
+phase changes, at most every 5 s between, and every 30 s.
+
+An export's `render_failed` tokens: `segment_failed:<n>` (segment n, counting
+from 1, failed on its own account: a window outside the copy, a card that
+can't be drawn; not retried), `stitch_failed` and `disk_full` (not retried),
+`invalid_plan` and `card_painter_unavailable` (not retried), and the retryable
+`ffmpeg_unavailable`, `ffmpeg_killed`, `source_unreachable` (a copy that can't
+be read; the next attempt gets fresh URLs) and `upload_failed`. A poster that
+can't be made or uploaded only sends `posterOk: false`. A 409 `cancelled` from
+any call (the owner's `render_cancel`) kills ffmpeg, removes the temp files
+and exits 0 without another report.
+
 Anything that fails is reported with a token from the wire contract
 (`packages/shared/lib/game-video-wire.ts`) and a `retryable` flag; the
 function's sweep decides whether another attempt runs. Every log line is
@@ -51,6 +87,7 @@ with no URL or secret in it.
 | `src/convert.ts` | The converter program; also runs on a Mac (`npx tsx …`) |
 | `src/render.ts` | The renderer program; also runs on a Mac |
 | `src/ship.ts` | The per-clip cut, checks and PUT, the passes (pure over injected ffmpeg/PUT, tested) |
+| `src/export.ts` | An export: probes, segments, the concat pass, the poster, the PUTs, the dry run's plan (pure over injected ffmpeg/probe/painter/PUT, tested) |
 | `src/runtime.ts` | What both programs share: progress, alive pings, health server, heartbeat, SIGTERM, main wrapper |
 | `src/function-client.ts` | `FunctionClient` (`job_*`, about a `videoId`) and `RenderClient` (`render_*`, about a `jobId`), retries, `stale_attempt` handling |
 | `src/download.ts` / `encode.ts` / `upload.ts` / `detect.ts` | The conversion's steps |
@@ -59,9 +96,10 @@ with no URL or secret in it.
 | `wrangler.jsonc` | Prod at the top level, `env.staging` for staging |
 | `test/` | `node --test` suites (`npm test`) |
 
-The frame grabbing and the detection wiring live in `packages/node-video`
-(shared with the nightly BasketTV job); the pure contract, the ffmpeg
-argument lists and the clip-window math (`clip-ship-plan.ts`) in `packages/shared`.
+The frame grabbing, the probe, the card painter and the export's assets live
+in `packages/node-video` (shared with the nightly BasketTV job); the pure
+contract, the ffmpeg argument lists (`game-video-convert.ts`, `export-args.ts`)
+and the clip-window math (`clip-ship-plan.ts`) in `packages/shared`.
 
 ## Configuration
 
@@ -151,6 +189,37 @@ given), each is checked like a real one, and the `render_done` payload the run
 would have sent is printed last; the exit code is 1 when a clip failed (a
 window past the file's end fails as `duration_mismatch`, for instance).
 
+**An export, no function** (the whole export pipeline on local files or any
+URL ffmpeg reads; no upload). The plan is JSON in the variable or a path to a
+`.json` file; copies map a video id to a file, segments are
+`RenderExportSegment`s (a clip may leave out `matchId`, `eventId` and
+`keyframes`, a card its `text` and `card`; `card` is a stats card's spec as
+`playlist_clips.card` stores it). Without `rate` the first clip's copy is
+probed for it, as the function picks it (`exportFrameRate`). A render_take
+response's `{ copies, export }` works as it is.
+
+```sh
+cat > /tmp/plan.json <<'EOF'
+{
+  "copies": { "v1": "/path/to/copy.mp4" },
+  "aspect": "9:16",
+  "purpose": "share",
+  "watermark": true,
+  "segments": [
+    { "kind": "card", "durationSeconds": 3, "text": "Defence, first half" },
+    { "kind": "clip", "videoId": "v1", "start": 10, "end": 16, "keyframes": [{ "t": 0, "cx": 0.3 }, { "t": 6, "cx": 0.7 }] },
+    { "kind": "clip", "videoId": "v1", "start": 40, "end": 47 }
+  ]
+}
+EOF
+WORK_DIR=/tmp/export DRY_RUN_EXPORT=/tmp/plan.json npx tsx workers/game-video-convert/src/render.ts
+```
+
+The export lands in `WORK_DIR` as `export.mp4`, with `poster.jpg` for a share
+(both kept when `WORK_DIR` is given; the segments are removed once joined), a
+line is logged per segment, and the `render_done` payload is printed last. The
+exit code is 1 when the export failed, with its token (`segment_failed:2`, …).
+
 **Against a real row or job** (what `scripts/game-video-smoke.mjs --browser
 --local-convert` and `… --ship --local-render` do for you): the row must be
 `converting`, or the job `queued`, and the secret is the function's worker secret.
@@ -165,17 +234,18 @@ npx tsx workers/game-video-convert/src/render.ts
 ```
 
 Exit codes (both programs): 0 done (also when another container holds the
-job, `job_busy`, another attempt took it over, `stale_attempt`, or the job is no
-longer waiting, `wrong_status`), 1 failed and reported, 143 after SIGTERM
-(ffmpeg killed, `job_failed('sigterm')` / `render_failed('sigterm')` sent).
+job, `job_busy`, another attempt took it over, `stale_attempt`, the job is no
+longer waiting, `wrong_status`, or its owner cancelled it, `cancelled`), 1
+failed and reported, 143 after SIGTERM (ffmpeg killed, `job_failed('sigterm')`
+/ `render_failed('sigterm')` sent).
 
 ## Checks
 
 ```sh
 cd workers/game-video-convert
 npm run typecheck   # tsconfig.json (Node side) and tsconfig.worker.json (Workers runtime)
-npm test            # node --test (ship passes, function clients, errors, download, upload, sync)
-cd ../../packages/node-video && npm run typecheck && npm test
+npm test            # node --test (ship passes, the export pipeline, function clients, runtime, errors, download, upload, sync)
+cd ../../packages/node-video && npm run typecheck && npm test   # card painter, probe parser, detection wiring
 ```
 
 `check.yml` runs all four in the `game-video-convert` job.
@@ -201,6 +271,14 @@ cd ../../packages/node-video && npm run typecheck && npm test
   gets fresh URLs. `cut_failed` / `duration_mismatch` on one clip: its window
   lies outside the copy (a sync far off, a trim past the end); the other clips
   ship and the failure is in the job's `result.failures`.
+- An export failing `segment_failed:<n>`: the log's `phase=failed` line says
+  why (rendered empty: the clip's window lies outside its copy; a duration off
+  by more than half a second; a card that couldn't be drawn). `stitch_failed`:
+  the concat pass refused the segments (the line carries ffmpeg's last stderr
+  line). `card_painter_unavailable`: `@napi-rs/canvas` didn't load in the
+  image (its `linux-x64-gnu` binary comes from the lockfile with `npm ci`).
+- `phase=cancelled`: the owner stopped the export (`render_cancel`); nothing
+  is wrong.
 - `job_failed … container_exit_137` / `render_failed … container_exit_137`:
   the container was killed (out of memory is the usual reason); the sweep
   reruns it up to three attempts.

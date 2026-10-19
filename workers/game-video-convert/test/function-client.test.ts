@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { FunctionClient, FunctionError, RenderClient, StaleAttempt } from "../src/function-client.ts";
+import { Cancelled, FunctionClient, FunctionError, RenderClient, StaleAttempt } from "../src/function-client.ts";
 
 interface Seen {
   url: string;
@@ -95,4 +95,27 @@ test("render_done carries the results and render_failed the flag; stale_attempt 
   const busy = fakeFetch([json({ error: "job_busy" }, 409)]);
   await assert.rejects(render(busy.fetch).take(), (e) => e instanceof FunctionError && e.token === "job_busy");
   assert.equal(busy.seen.length, 1);
+});
+
+test("render_progress carries an export's phase; without one (a ship) the body is as before", async () => {
+  const { fetch, seen } = fakeFetch([json({ jobId: "job-1", attempt: 1 }), json({ jobId: "job-1", attempt: 1 })]);
+  const c = render(fetch);
+  await c.progress(1, 0.4, "stitch");
+  await c.progress(1, 0.5);
+  assert.deepEqual(seen[0].body, { action: "render_progress", jobId: "job-1", attempt: 1, progress: 0.4, phase: "stitch" });
+  assert.deepEqual(seen[1].body, { action: "render_progress", jobId: "job-1", attempt: 1, progress: 0.5 });
+});
+
+test("an export's render_done carries what was uploaded beside empty results", async () => {
+  const { fetch, seen } = fakeFetch([json({ jobId: "job-1", status: "done", shipped: 0, failed: 0, superseded: 0 })]);
+  await render(fetch).done(2, [], { sizeBytes: 1001910, durationSeconds: 6.06, posterOk: true });
+  assert.deepEqual(seen[0].body, { action: "render_done", jobId: "job-1", attempt: 2, results: [], export: { sizeBytes: 1001910, durationSeconds: 6.06, posterOk: true } });
+});
+
+test("409 cancelled is Cancelled at once and never retried, whichever call gets it", async () => {
+  for (const call of [(c: RenderClient) => c.progress(1, 0.2, "clips"), (c: RenderClient) => c.done(1, [], { sizeBytes: 1, durationSeconds: 1, posterOk: false }), (c: RenderClient) => c.failed(1, "segment_failed:2", false)]) {
+    const { fetch, seen } = fakeFetch([json({ error: "cancelled" }, 409), json({})]);
+    await assert.rejects(call(render(fetch)), (e) => e instanceof Cancelled && e.token === "cancelled" && e.status === 409);
+    assert.equal(seen.length, 1);
+  }
 });
