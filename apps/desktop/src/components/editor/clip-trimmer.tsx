@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
+import { togglePlayerMuted } from "@/lib/player-sound";
 import { springs, useReducedMotionSafe } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { useFrameSeek } from "./use-frame-seek";
@@ -212,6 +213,11 @@ export function ClipTrimmer({
         if (onButton) return;
         e.preventDefault();
         togglePlayTrim();
+        return;
+      case "KeyM":
+        if (e.shiftKey) return;
+        e.preventDefault();
+        togglePlayerMuted({ announce: true });
         return;
       case "Enter":
       case "NumpadEnter":

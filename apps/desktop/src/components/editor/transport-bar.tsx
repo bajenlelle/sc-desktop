@@ -1,5 +1,6 @@
 import * as React from "react";
-import { Maximize2, Minimize2, Pause, Play, RotateCcw, SkipBack, SkipForward, Square } from "lucide-react";
+import { Maximize2, Minimize2, Pause, Play, RotateCcw, SkipBack, SkipForward, Square, Volume1, Volume2, VolumeX } from "lucide-react";
+import { Slider as SliderPrimitive } from "radix-ui";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,6 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { setPlayerVolume, togglePlayerMuted, usePlayerSound } from "@/lib/player-sound";
 import { cn } from "@/lib/utils";
 
 export const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -81,6 +83,55 @@ export function ControlButton({
 }
 
 /** Prev · Replay · Play/Pause · Next · Stop, with the speed menu and fullscreen. */
+/** The speaker icon for a level: off, quiet or loud. */
+export function SoundIcon({ volume, muted }: { volume: number; muted: boolean }) {
+  if (muted) return <VolumeX />;
+  return volume < 0.5 ? <Volume1 /> : <Volume2 />;
+}
+
+/**
+ * The players' sound: the speaker mutes and unmutes (M), and a level slider
+ * opens beside it on hover or focus, as in QuickTime. One setting for every
+ * player (lib/player-sound.ts), so this reads and writes the store itself.
+ */
+export function VolumeControl() {
+  const { volume, muted } = usePlayerSound();
+  const level = muted ? 0 : volume;
+  const percent = Math.round(level * 100);
+  return (
+    <div className="group/volume flex items-center">
+      <ControlButton
+        label={muted ? "Unmute" : "Mute"}
+        shortcut="M"
+        onClick={() => togglePlayerMuted()}
+        className={muted ? "text-primary" : undefined}
+      >
+        <SoundIcon volume={volume} muted={muted} />
+      </ControlButton>
+      {/* Stays open while dragging: the thumb holds focus. */}
+      <div className="w-0 overflow-hidden opacity-0 transition-[width,opacity] duration-200 ease-out group-hover/volume:w-[72px] group-hover/volume:opacity-100 group-focus-within/volume:w-[72px] group-focus-within/volume:opacity-100 motion-reduce:transition-none">
+        <SliderPrimitive.Root
+          aria-label="Volume"
+          value={[percent]}
+          max={100}
+          step={1}
+          onValueChange={([v]) => setPlayerVolume(v / 100)}
+          className="relative mx-2 flex h-8 w-14 touch-none select-none items-center"
+        >
+          <SliderPrimitive.Track className="relative h-1 grow overflow-hidden rounded-full bg-white/25">
+            <SliderPrimitive.Range className="absolute h-full rounded-full bg-white" />
+          </SliderPrimitive.Track>
+          <SliderPrimitive.Thumb
+            aria-label="Volume"
+            aria-valuetext={`${percent}%`}
+            className="block size-3 rounded-full bg-white shadow-[0_1px_2px_rgb(0_0_0/0.4)] outline-none transition-transform duration-100 active:scale-110 focus-visible:ring-2 focus-visible:ring-white/60"
+          />
+        </SliderPrimitive.Root>
+      </div>
+    </div>
+  );
+}
+
 export function TransportBar({
   transport,
   speed,
@@ -119,6 +170,7 @@ export function TransportBar({
       {readout && <span className="ml-2 truncate text-xs nums text-white/80">{readout}</span>}
 
       <div className="ml-auto flex items-center gap-0.5">
+        <VolumeControl />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button

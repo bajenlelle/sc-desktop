@@ -7,7 +7,8 @@ import { mediaFailureMessage, type MediaFailure } from "@scoutable/shared/lib/me
 import { clamp } from "@scoutable/shared/lib/motion-math";
 import { VideoPlayer } from "@/components/video-player";
 import { ClipScrubber } from "@/components/editor/clip-scrubber";
-import { ControlButton } from "@/components/editor/transport-bar";
+import { ControlButton, VolumeControl } from "@/components/editor/transport-bar";
+import { togglePlayerMuted } from "@/lib/player-sound";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
@@ -271,6 +272,11 @@ export function SyncPointPicker({
       case "l":
         seekBy(1);
         return;
+      case "m":
+      case "M":
+        if (e.shiftKey) return;
+        togglePlayerMuted();
+        return;
     }
   });
 
@@ -343,6 +349,7 @@ export function SyncPointPicker({
               <span ref={readoutRef} className="text-xl font-medium tracking-tight text-white nums" />
               {duration > 0 && <span className="text-xs text-white/50 nums">of {formatLength(duration)}</span>}
             </span>
+            <VolumeControl />
           </div>
         </div>
       </div>

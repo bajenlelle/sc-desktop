@@ -7,6 +7,7 @@ import {
   type MediaFailure,
 } from "@scoutable/shared/lib/media-failure";
 import { useAuth } from "@/lib/auth-context";
+import { usePlayerSound } from "@/lib/player-sound";
 import { releaseVideo } from "@/lib/release-video";
 import { Sentry } from "@/lib/sentry";
 import { Wordmark } from "@/components/logo";
@@ -32,6 +33,15 @@ export function VideoPlayer({ src, videoRef, onLoadFailure }: VideoPlayerProps) 
   // never flashes for paying users.
   const { activeOrgPlan, profileLoading } = useAuth();
   const showWatermark = !profileLoading && activeOrgPlan === "free";
+
+  // One volume and mute for every player (lib/player-sound.ts).
+  const sound = usePlayerSound();
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.volume = sound.volume;
+    video.muted = sound.muted;
+  }, [videoRef, src, sound]);
 
   // Why the box is black, when it is. Every player used to go silently dark —
   // the sync picker disabled its button with a tooltip, the others said

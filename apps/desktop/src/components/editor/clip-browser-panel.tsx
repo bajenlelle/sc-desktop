@@ -16,6 +16,7 @@ import { clickSelection, extendSelection, moveFocus, type FocusMove } from "@sco
 import type { PlayByPlayEvent, Playlist, PlaylistClipItem, StoredMatch } from "@/types/match";
 import { isClipItem } from "@/types/match";
 import { trackEvent } from "@/lib/analytics";
+import { togglePlayerMuted } from "@/lib/player-sound";
 import {
   bulkAssign as apiBulkAssign,
   listAssignmentsForClips,
@@ -870,6 +871,7 @@ export function ClipBrowserPanel({
     }
     if (action === "replay") { e.preventDefault(); handleReplayRef.current(); return; }
     if (action === "fullscreen") { e.preventDefault(); toggleFullscreen(); return; }
+    if (action === "toggle-mute") { e.preventDefault(); togglePlayerMuted({ announce: true }); return; }
     switch (action) {
       case "nudge-back":
       case "nudge-forward":

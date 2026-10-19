@@ -1,6 +1,7 @@
 /**
  * The editor's playback keys, QuickTime and Final Cut conventions: arrows
- * move through clips and nudge within one, J/K/L shuttle, Space toggles.
+ * move through clips and nudge within one, J/K/L shuttle, Space toggles,
+ * M mutes.
  * The clip list adds a macOS table's keys: Shift extends the selection,
  * ⌘↑/⌘↓ and Home/End jump to the ends, Return plays the focused row,
  * Shift+F10 opens its menu, T trims the playing clip. Every native menu
@@ -28,6 +29,7 @@ export type PlayerKeyAction =
   | "shuttle-forward"
   | "replay"
   | "toggle-play"
+  | "toggle-mute"
   | "fullscreen"
   | "escape"
   | "remove"
@@ -84,6 +86,8 @@ export function resolvePlayerKey(e: KeyChord): PlayerKeyAction | null {
       return e.shiftKey ? null : "trim";
     case "Space":
       return "toggle-play";
+    case "KeyM":
+      return e.shiftKey ? null : "toggle-mute";
     case "KeyF":
       return "fullscreen";
     case "Escape":

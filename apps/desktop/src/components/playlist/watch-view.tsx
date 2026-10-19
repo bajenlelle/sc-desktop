@@ -16,6 +16,7 @@ import { useReducedMotionSafe } from "@/lib/motion";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { cn } from "@/lib/utils";
 import { WatchClipRow, WatchTextCardRow } from "./ClipRow";
+import { togglePlayerMuted } from "@/lib/player-sound";
 import { useWatchQueue, type WatchItem } from "./use-watch-queue";
 
 const SPEED_KEY = "scoutable_watch_speed";
@@ -153,6 +154,10 @@ export function WatchView({
       case "toggle-play":
         e.preventDefault();
         stageRef.current?.togglePlay();
+        return;
+      case "toggle-mute":
+        e.preventDefault();
+        togglePlayerMuted({ announce: true });
         return;
       case "replay":
         e.preventDefault();

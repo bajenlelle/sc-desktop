@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VideoPlaceholder } from "@/components/video-placeholder";
+import { togglePlayerMuted } from "@/lib/player-sound";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { listMatchesLight, listEventsForMatches, listFolders, createFolder, updateFolder, deleteFolder, updateVideoUrl } from "@/lib/matches-db";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
@@ -1876,6 +1877,10 @@ export function PlaylistsPage() {
         if (!activeClipKey) return;
         e.preventDefault();
         startTrim();
+        return;
+      case "toggle-mute":
+        e.preventDefault();
+        togglePlayerMuted({ announce: true });
         return;
       case "toggle-play": {
         e.preventDefault();
