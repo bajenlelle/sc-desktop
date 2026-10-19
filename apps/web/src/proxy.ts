@@ -38,7 +38,11 @@ export async function proxy(request: NextRequest) {
 
   // Redirect unauthenticated users away from app routes
   const isAppRoute =
+    pathname.startsWith("/home") ||
+    pathname.startsWith("/playlists") ||
+    pathname.startsWith("/library") ||
     pathname.startsWith("/my-playlists") ||
+    pathname.startsWith("/my-highlights") ||
     pathname.startsWith("/organization") ||
     pathname.startsWith("/profile") ||
     pathname.startsWith("/admin") ||
@@ -50,17 +54,18 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Redirect authenticated users away from auth pages
+  // Redirect authenticated users away from auth pages. Home is the signed-in
+  // landing; it sends players on to their playlists itself.
   if (user && (pathname === "/login" || pathname === "/signup")) {
     const url = request.nextUrl.clone();
-    url.pathname = "/my-playlists";
+    url.pathname = "/home";
     return NextResponse.redirect(url);
   }
 
-  // Redirect root to playlists or login
+  // Redirect root to Home or login
   if (pathname === "/") {
     const url = request.nextUrl.clone();
-    url.pathname = user ? "/my-playlists" : "/login";
+    url.pathname = user ? "/home" : "/login";
     return NextResponse.redirect(url);
   }
 

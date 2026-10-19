@@ -1,29 +1,27 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, Loader2 } from "lucide-react";
-import { toast } from "sonner";
+import { Loader2 } from "lucide-react";
 import { sharerFilterOptions } from "@scoutable/shared/lib/playlist-feed";
 import { canScrubPlaylist, isMultiGame } from "@scoutable/shared/lib/watch-queue";
-import { isClipItem, type Playlist } from "@scoutable/shared/types/match";
+import type { Playlist } from "@scoutable/shared/types/match";
 import { useAuth } from "@/components/auth-context";
 import { AdminSetupCard } from "@/components/admin-setup-card";
 import { EMPTY_FEED_FILTERS, PlaylistFeed, type FeedFilters } from "@/components/playlist/PlaylistFeed";
 import { SharedByMe } from "@/components/playlist/SharedByMe";
-import { ShareRecipients } from "@/components/playlist/share-recipients";
+import { ShareDialog } from "@/components/playlist/share-dialog";
+import { shareReadiness } from "@/components/playlist/share-readiness";
 import { useSharedPlaylists } from "@/components/playlist/use-shared-playlists";
 import { WatchView } from "@/components/playlist/watch-view";
 import { BackButton } from "@/components/shell/back-button";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Callout } from "@/components/ui/group";
 import { PopUpButton } from "@/components/ui/pop-up-button";
 import { SearchField } from "@/components/ui/search-field";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { WelcomeCard } from "@/components/welcome-card";
 import { trackEvent } from "@/lib/analytics";
+import { useMyCloudGames } from "@/lib/game-videos";
 
 /**
  * Playlists shared with the user (and, for coaches, the ones they share):
@@ -31,7 +29,7 @@ import { trackEvent } from "@/lib/analytics";
  * playlist named in ?p=.
  */
 export default function MyPlaylistsPage() {
-  const { activeOrgRole, isPlayerOnly, myOrgs } = useAuth();
+  const { activeOrgId, activeOrgRole, isPlayerOnly, myOrgs, profileLoading } = useAuth();
   const {
     loading,
     selectedId,
@@ -52,12 +50,13 @@ export default function MyPlaylistsPage() {
     selectedProgress,
     currentUserId,
     userRole,
-    allOrgTeams,
     teamMap,
     memberMap,
     windowSrc,
     gameHrefFor,
   } = useSharedPlaylists();
+  // The viewer's ready copies: what the share dialog can promise to prepare.
+  const cloud = useMyCloudGames({ enabled: !profileLoading });
 
   const [shareTarget, setShareTarget] = useState<Playlist | null>(null);
   // Which perspective a coach is on: their sharing dashboard or the
@@ -65,41 +64,13 @@ export default function MyPlaylistsPage() {
   const [coachTab, setCoachTab] = useState<"by-me" | "with-me">("by-me");
   const [feedFilters, setFeedFilters] = useState<FeedFilters>(EMPTY_FEED_FILTERS);
   const [dashboardQuery, setDashboardQuery] = useState("");
-  const [shareTeamIds, setShareTeamIds] = useState<Set<string>>(new Set());
-  const [shareUserIds, setShareUserIds] = useState<Set<string>>(new Set());
-  const [sharing, setSharing] = useState(false);
 
   const sharerOptions = useMemo(() => sharerFilterOptions(feedItems), [feedItems]);
   const multiGame = useMemo(() => isMultiGame(watchItems), [watchItems]);
-
-  function openShare(pl: Playlist) {
-    setShareTeamIds(new Set(pl.teamIds ?? []));
-    setShareUserIds(new Set(pl.userIds ?? []));
-    setShareTarget(pl);
-  }
-
-  async function handleShare(teamIds: string[], userIds: string[]) {
-    const target = shareTarget;
-    if (!target) return;
-    setSharing(true);
-    try {
-      await shareTo(target, teamIds, userIds);
-    } catch (e) {
-      toast.error("Couldn't update sharing", { description: (e as Error).message });
-      return;
-    } finally {
-      setSharing(false);
-    }
-    setShareTarget(null);
-  }
-
-  const toggleIn = (set: (fn: (prev: Set<string>) => Set<string>) => void) => (id: string) =>
-    set((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const shareReady = useMemo(
+    () => (shareTarget ? shareReadiness(shareTarget, new Set(cloud.byMatch.keys()), matchLookup) : undefined),
+    [shareTarget, cloud.byMatch, matchLookup],
+  );
 
   const isCoachOrAdmin = userRole === "coach" || userRole === "admin";
   const showDashboard = isCoachOrAdmin && coachTab === "by-me";
@@ -120,47 +91,15 @@ export default function MyPlaylistsPage() {
     );
   }
 
-  // This page can't upload (no footage on the web); the desktop app can.
-  const unshipped = shareTarget?.items.filter((i) => isClipItem(i) && !i.r2Url).length ?? 0;
-  const hasRecipients = (shareTarget?.teamIds?.length ?? 0) > 0 || (shareTarget?.userIds?.length ?? 0) > 0;
+  // The shared dialog writes the shares; this page only updates its copy.
   const shareDialog = (
-    <Dialog open={shareTarget !== null} onOpenChange={(open) => !open && !sharing && setShareTarget(null)}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Share playlist</DialogTitle>
-          <DialogDescription>Choose the teams and members who can watch “{shareTarget?.name}”.</DialogDescription>
-        </DialogHeader>
-        <ShareRecipients
-          teams={allOrgTeams}
-          members={[...memberMap.values()].filter((m) => m.id !== currentUserId)}
-          teamIds={shareTeamIds}
-          userIds={shareUserIds}
-          onToggleTeam={toggleIn(setShareTeamIds)}
-          onToggleUser={toggleIn(setShareUserIds)}
-        />
-        {unshipped > 0 && (
-          <Callout tone="warning" icon={<AlertTriangle />}>
-            {unshipped === 1
-              ? "1 clip isn't uploaded yet, so recipients don't see it. Upload it from the desktop app."
-              : `${unshipped} clips aren't uploaded yet, so recipients don't see them. Upload them from the desktop app.`}
-          </Callout>
-        )}
-        <DialogFooter>
-          {hasRecipients && (
-            <Button variant="ghost" className="text-destructive sm:mr-auto" disabled={sharing} onClick={() => handleShare([], [])}>
-              Stop sharing
-            </Button>
-          )}
-          <Button variant="outline" disabled={sharing} onClick={() => setShareTarget(null)}>
-            Cancel
-          </Button>
-          <Button disabled={sharing} onClick={() => handleShare([...shareTeamIds], [...shareUserIds])}>
-            {sharing && <Loader2 className="animate-spin" />}
-            Done
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <ShareDialog
+      playlist={shareTarget}
+      orgId={activeOrgId}
+      onClose={() => setShareTarget(null)}
+      onShared={(pl, teamIds, userIds) => shareTo(pl, teamIds, userIds)}
+      readiness={shareReady}
+    />
   );
 
   // ---------------------------------------------------------------- watch
@@ -202,7 +141,7 @@ export default function MyPlaylistsPage() {
           onWindowPlayed={() => trackEvent("clip_played_from_game", { playlist_id: selected.id })}
           emptyText={
             own
-              ? "No clips yet. Add clips to this playlist in the desktop app."
+              ? "No clips yet. Open the playlist to add clips from your games."
               : isCoachOrAdmin
                 ? "No clips to watch yet."
                 : "No clips to watch yet. Your coach may still be uploading them."
@@ -289,7 +228,7 @@ export default function MyPlaylistsPage() {
               query={dashboardQuery}
               onClearQuery={() => setDashboardQuery("")}
               onOpenPlaylist={openPlaylist}
-              onManageShare={openShare}
+              onManageShare={setShareTarget}
             />
           </>
         ) : (

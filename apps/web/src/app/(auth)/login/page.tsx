@@ -15,7 +15,7 @@ import { trackEvent } from "@/lib/analytics";
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const nextParam = searchParams.get("next") ?? "/my-playlists";
+  const nextParam = searchParams.get("next") ?? "/home";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -35,13 +35,13 @@ function LoginContent() {
       return;
     }
 
-    const next = new URLSearchParams(window.location.search).get("next") ?? "/my-playlists";
+    const next = new URLSearchParams(window.location.search).get("next") ?? "/home";
     router.push(next);
   }
 
   async function signInWithProvider(provider: "google" | "apple") {
     trackEvent("login_provider_clicked", { provider });
-    const next = new URLSearchParams(window.location.search).get("next") ?? "/my-playlists";
+    const next = new URLSearchParams(window.location.search).get("next") ?? "/home";
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({
       provider,

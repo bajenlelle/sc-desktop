@@ -7,8 +7,8 @@ import { Page } from "@/components/shell/page";
 
 /**
  * Importing a league game from the browser: pick the game, upload its
- * video, and our converter does the rest. Under /games so Games stays
- * highlighted and the tab bar steps aside. `?match=<id>` resumes a flow
+ * video, and our converter does the rest. Under /library so the Library
+ * stays highlighted and the tab bar steps aside. `?match=<id>` resumes a flow
  * after a reload, or starts the upload for a game already in the library.
  */
 export default function ImportGamePage() {

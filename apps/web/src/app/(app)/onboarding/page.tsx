@@ -28,7 +28,7 @@ export default function OnboardingPage() {
   const { reloadProfile, setActiveOrg, myOrgs } = useAuth();
   // Without a space this is the only page there is (proxy.ts sends every
   // route here), so it carries its own way out; otherwise it's a step from
-  // Get started, and signing out lives in the account menu and Profile.
+  // Home, and signing out lives in the account menu and Profile.
   const hasSpace = myOrgs.length > 0;
   const [input, setInput] = useState("");
   const [joining, setJoining] = useState(false);
@@ -45,10 +45,10 @@ export default function OnboardingPage() {
       toast.success("You've joined successfully!");
       // Activate the joined space BEFORE reloading — resolveActiveOrg
       // validates the stored id against the fresh org list, so the new org
-      // sticks and /my-playlists doesn't bounce back to /get-started.
+      // sticks and Home opens in it (Home sends players on to their playlists).
       setActiveOrg(res.orgId);
       await reloadProfile();
-      router.push("/my-playlists");
+      router.push("/home");
     } catch (e) {
       setError((e as Error).message);
       setJoining(false);
@@ -57,7 +57,7 @@ export default function OnboardingPage() {
 
   return (
     <Page width="narrow">
-      <Toolbar title="Join a team" leading={hasSpace ? <BackButton href="/get-started" label="Get started" /> : undefined} />
+      <Toolbar title="Join a team" leading={hasSpace ? <BackButton href="/home" label="Home" /> : undefined} />
       <PageContent>
         <div className="mx-auto grid max-w-sm gap-3 pt-2 lg:pt-6">
           <p className="text-sm text-muted-foreground">

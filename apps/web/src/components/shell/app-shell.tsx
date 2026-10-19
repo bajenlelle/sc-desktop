@@ -9,15 +9,18 @@ import { Sidebar } from "./sidebar";
 import { TabBar } from "./tab-bar";
 
 /**
- * The tab bar steps aside for the watch view and for a game, which play edge
- * to edge as the iOS app's player covers its tabs, and for joining a team: a
- * focused task, and for an account with no space yet the only page there is.
+ * The tab bar steps aside for the watch view, for a game and for the
+ * playlist editor, which play edge to edge as the iOS app's player covers
+ * its tabs (the Library and Playlists lists themselves keep it), and for
+ * joining a team: a focused task, and for an account with no space yet the
+ * only page there is.
  */
 function TabBarUnlessFocused() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   if (pathname === "/my-playlists" && searchParams.has("p")) return null;
-  if (pathname.startsWith("/games/")) return null;
+  if (pathname.startsWith("/library/")) return null;
+  if (pathname.startsWith("/playlists/")) return null;
   if (pathname === "/onboarding") return null;
   return <TabBar />;
 }

@@ -38,8 +38,8 @@ export function GameUploadProvider({ children }: { children: React.ReactNode }) 
       subscribeGameUploadOutcomes(({ matchId, title, outcome }) => {
         if (outcome !== "converting" && outcome !== "ready") return;
         const path = pathnameRef.current ?? "";
-        const gamePath = `/games/${encodeURIComponent(matchId)}`;
-        const onImport = path === "/games/import" && new URLSearchParams(window.location.search).get("match") === matchId;
+        const gamePath = `/library/${encodeURIComponent(matchId)}`;
+        const onImport = path === "/library/import" && new URLSearchParams(window.location.search).get("match") === matchId;
         if (path === gamePath || onImport) return;
         toast.success(outcome === "ready" ? "Your game is ready" : "Your game is converting", {
           description: outcome === "ready" ? title : `${title}. We'll email you when it's ready to watch.`,

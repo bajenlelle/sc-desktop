@@ -6,6 +6,18 @@ const nextConfig: NextConfig = {
   // The dev-mode badge sits bottom left, on top of the sidebar's account row
   // and the tab bar's first tab. Build errors still show as an overlay.
   devIndicators: false,
+  // The routes the web had before it mirrored the desktop's structure
+  // (milestone 3 of the cloud game videos): Games became the Library and
+  // Get started folded into Home. Temporary, so a client keeps asking: the
+  // query string (`?match=`, the ready email's `?t=`) carries over on its own.
+  async redirects() {
+    return [
+      { source: "/games", destination: "/library", permanent: false },
+      { source: "/games/import", destination: "/library/import", permanent: false },
+      { source: "/games/:matchId", destination: "/library/:matchId", permanent: false },
+      { source: "/get-started", destination: "/home", permanent: false },
+    ];
+  },
 };
 
 export default withSentryConfig(nextConfig, {

@@ -93,7 +93,9 @@ export default function GamePage() {
   useEffect(() => {
     if (!match || video?.status !== "ready" || openedRef.current === matchId) return;
     openedRef.current = matchId;
-    trackEvent("game_opened", { match_id: matchId, from: from === "games" || from === "clip" ? from : "link" });
+    // `from`: the Library ("library"; "games" from links made before the rename), Home, a clip, or a link.
+    const known = from === "library" || from === "games" || from === "home" || from === "clip";
+    trackEvent("game_opened", { match_id: matchId, from: known ? from : "link" });
     // `from` only labels the first open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [match, video?.status, matchId]);
@@ -102,7 +104,7 @@ export default function GamePage() {
   const [resuming, setResuming] = useState(false);
   const checkContainer = useRef<HTMLDivElement | null>(null);
 
-  const back = <BackButton href="/games" label="Games" />;
+  const back = <BackButton href="/library" label="Library" />;
   const subtitle = (duration: number | null) => [formatGameDate(match?.date), formatGameLength(duration)].filter(Boolean).join(" · ");
 
   if (!state || !videoLoaded) {
@@ -128,7 +130,7 @@ export default function GamePage() {
           body="Only the person who keeps a game in the cloud can watch it here."
           actions={
             <Button asChild variant="outline">
-              <Link href="/games">Your games</Link>
+              <Link href="/library">Library</Link>
             </Button>
           }
         />

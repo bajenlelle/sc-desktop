@@ -51,7 +51,7 @@ export default function SignupPage() {
     }
 
     setLoading(true);
-    const next = new URLSearchParams(window.location.search).get("next") ?? "/my-playlists";
+    const next = new URLSearchParams(window.location.search).get("next") ?? "/home";
     const supabase = createClient();
     const { error } = await supabase.auth.signUp({
       email,
@@ -78,7 +78,7 @@ export default function SignupPage() {
 
   async function signInWithProvider(provider: "google" | "apple") {
     trackEvent("signup_provider_clicked", { provider });
-    const next = new URLSearchParams(window.location.search).get("next") ?? "/my-playlists";
+    const next = new URLSearchParams(window.location.search).get("next") ?? "/home";
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({
       provider,

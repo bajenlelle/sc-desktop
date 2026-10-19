@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import posthog from "posthog-js";
 import { toast } from "sonner";
 import { ArrowUpRight, Building2, Laptop, Loader2, LogOut, MessageSquarePlus } from "lucide-react";
+import { overflowDestinations } from "@scoutable/shared/lib/app-nav";
 import type { OrgContext } from "@scoutable/shared/types/org";
 import { orgPlanColors, orgPlanLabel, type ImportQuota } from "@scoutable/shared/lib/plan-tier";
 import { useAuth } from "@/components/auth-context";
@@ -15,6 +17,7 @@ import { MarketingEmailToggle } from "@/components/marketing-email-toggle";
 import { MyTeamCard } from "@/components/my-team-card";
 import { ReportProblemDialog } from "@/components/report-problem-dialog";
 import { ThemePicker } from "@/components/theme-picker";
+import { DESTINATION_ICON, useNavUser } from "@/components/shell/nav";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
 import { DESKTOP_APP_URL } from "@/components/shell/sidebar";
@@ -59,6 +62,11 @@ function roleBadgeVariant(role: string, isPlatformAdmin: boolean): "default" | "
 export default function ProfilePage() {
   const { user, activeOrgId, activeOrgRole, activeOrgPlan, activeOrgIsPersonal, expectPlanChange } = useAuth();
   const { theme, setTheme } = useTheme();
+  const router = useRouter();
+  const navUser = useNavUser();
+  // The sidebar's destinations the tab bar had no room for (Club, Admin): a
+  // group here, under the sidebar's breakpoint only, as iOS's More tab does.
+  const overflow = navUser ? overflowDestinations(navUser) : [];
 
   const [ctx, setCtx] = useState<OrgContext | null>(null);
   const [loading, setLoading] = useState(true);
@@ -486,6 +494,28 @@ export default function ProfilePage() {
         </section>
 
         <DevicesCard />
+
+        {/* ── Manage: the destinations the tab bar dropped ── */}
+        {overflow.length > 0 && (
+          <section className="lg:hidden">
+            <GroupHeader title="Manage" />
+            <GroupedList>
+              {overflow.map((d) => {
+                const Icon = DESTINATION_ICON[d.id];
+                return (
+                  <GroupRow
+                    key={d.id}
+                    leading={<Icon />}
+                    label={d.label}
+                    description={d.id === "club" ? "Teams, members and invites" : d.id === "admin" ? "Spaces, imports and feedback" : undefined}
+                    chevron
+                    onClick={() => router.push(d.href)}
+                  />
+                );
+              })}
+            </GroupedList>
+          </section>
+        )}
 
         {/* ── Help: beside the sidebar these live in its account menu ── */}
         <section className="lg:hidden">

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, Check, ChevronRight, Loader2, MoreHorizontal, Send } from "lucide-react";
 import { toast } from "sonner";
@@ -43,6 +45,7 @@ import { Callout, GroupedList } from "@/components/ui/group";
 import { PopUpButton } from "@/components/ui/pop-up-button";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { PersonAvatar } from "@/components/person-avatar";
+import { requestShipForMany } from "@/components/playlist/share-readiness";
 
 const SORT_OPTIONS: { value: DashboardSort; label: string }[] = [
   { value: "recent", label: "Recently shared" },
@@ -116,6 +119,9 @@ export function SharedByMe({
   /** key = `${playlistId}:${userId}`, each recipient's nudge. */
   const [remindState, setRemindState] = useState<Map<string, "sending" | "sent">>(new Map());
   const [remindingPlaylistId, setRemindingPlaylistId] = useState<string | null>(null);
+  /** The callout's "Prepare clips" is on its way to the server. */
+  const [preparing, setPreparing] = useState(false);
+  const router = useRouter();
 
   // Keyed on the id sets, so an unrelated re-render doesn't refetch.
   const isLoading = shared === null;
@@ -225,12 +231,10 @@ export function SharedByMe({
       <EmptyState
         icon={<Send />}
         title="Nothing shared yet"
-        body="Share a playlist from the desktop app and you'll see here who has watched what."
+        body="Share a playlist with a team or a player and you'll see here who has watched what."
         action={
           <Button variant="outline" size="sm" asChild>
-            <a href="https://scoutable.se/#download" target="_blank" rel="noreferrer">
-              Get the desktop app
-            </a>
+            <Link href="/playlists">Go to playlists</Link>
           </Button>
         }
       />
@@ -238,6 +242,35 @@ export function SharedByMe({
   }
 
   const withIssues = rows.filter((r) => r.uploadingCount > 0).length;
+
+  /**
+   * Asks the server to cut the missing clips of every playlist with issues
+   * from the owner's cloud copies; a game without a copy is named, since
+   * only an upload (the Library, or the desktop app) can help there.
+   */
+  async function handlePrepareAll() {
+    setPreparing(true);
+    try {
+      const ids = rows.filter((r) => r.uploadingCount > 0).map((r) => r.playlist.id);
+      const outcome = await requestShipForMany(ids);
+      if (outcome.unavailable && outcome.preparing === 0) {
+        toast.info("Clips can't be prepared yet", { description: "Try again later." });
+      } else if (outcome.preparing > 0) {
+        toast.success(outcome.preparing === 1 ? "Preparing 1 clip" : `Preparing ${outcome.preparing} clips`, {
+          description: "Recipients see them as they are ready.",
+        });
+      } else if (outcome.noCopy > 0) {
+        toast.info("These games have no cloud video", {
+          description: "Upload the video in the Library, or upload the clips from the desktop app.",
+          action: { label: "Library", onClick: () => router.push("/library") },
+        });
+      } else {
+        toast.info("Nothing to prepare");
+      }
+    } finally {
+      setPreparing(false);
+    }
+  }
 
   const remindPlaylistButton = (row: DashboardRow, behind: number) => (
     <Button
@@ -288,14 +321,20 @@ export function SharedByMe({
           tone="warning"
           icon={<AlertTriangle />}
           action={
-            <Button size="xs" variant="outline" onClick={() => setStatusFilter(statusFilter === "issues" ? "all" : "issues")}>
-              {statusFilter === "issues" ? "Show all" : "Show"}
-            </Button>
+            <span className="flex items-center gap-1.5">
+              <Button size="xs" variant="outline" onClick={() => setStatusFilter(statusFilter === "issues" ? "all" : "issues")}>
+                {statusFilter === "issues" ? "Show all" : "Show"}
+              </Button>
+              <Button size="xs" disabled={preparing} onClick={() => void handlePrepareAll()}>
+                {preparing && <Loader2 className="animate-spin" />}
+                Prepare clips
+              </Button>
+            </span>
           }
         >
           {withIssues === 1
-            ? "1 playlist has clips recipients can't see yet. Upload them from the desktop app."
-            : `${withIssues} playlists have clips recipients can't see yet. Upload them from the desktop app.`}
+            ? "1 playlist has clips recipients can't see yet. They can be prepared from your cloud videos."
+            : `${withIssues} playlists have clips recipients can't see yet. They can be prepared from your cloud videos.`}
         </Callout>
       )}
 
@@ -383,8 +422,8 @@ export function SharedByMe({
                       <span className="mt-0.5 flex items-center gap-1 text-callout text-warning">
                         <AlertTriangle className="size-3.5 shrink-0" />
                         {row.uploadingCount === 1
-                          ? "1 clip isn't uploaded, so recipients can't see it"
-                          : `${row.uploadingCount} clips aren't uploaded, so recipients can't see them`}
+                          ? "1 clip isn't ready yet, so recipients can't see it"
+                          : `${row.uploadingCount} clips aren't ready yet, so recipients can't see them`}
                       </span>
                     )}
                   </div>

@@ -30,7 +30,7 @@ interface Step {
  *
  * Pass `teams`/`members` where the page already holds the org context
  * (/organization) so the card tracks its reloads live; without them the
- * card fetches once on mount (/my-playlists).
+ * card fetches once on mount (Home, /my-playlists).
  */
 export function AdminSetupCard({
   teams,
@@ -194,7 +194,7 @@ export function AdminSetupCard({
       <p className="mx-5 mt-2 flex items-start gap-1.5 border-t border-separator py-3 text-callout text-muted-foreground">
         <Monitor className="mt-px size-3.5 shrink-0 text-primary/70" aria-hidden />
         <span>
-          Import games and cut clips in the free{" "}
+          Then import a game and build playlists from Home, or in the free{" "}
           <a
             href="https://scoutable.se/#download"
             target="_blank"

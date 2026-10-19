@@ -14,8 +14,6 @@ import {
   getMyTeamPlaylists,
   getMyDirectPlaylists,
   getMySharedPlaylists,
-  setPlaylistTeams,
-  setPlaylistUsers,
   type SharedPlaylist,
 } from "@scoutable/shared/lib/playlists-db";
 import { listMatchesLight, listEventsForMatches } from "@scoutable/shared/lib/matches-db";
@@ -56,9 +54,9 @@ export function useSharedPlaylists() {
     // Player-only users always see the aggregated feed — their film lives
     // here regardless of which space happens to be "active".
     if (isPlayerOnly) return;
-    // A personal-only user has nothing to watch here — send them to the
-    // get-started page (the desktop app is their product), not the profile.
-    if (activeOrgIsPersonal) router.replace("/get-started");
+    // A personal-only user has nothing to watch here: their own playlists
+    // live under Home and /playlists.
+    if (activeOrgIsPersonal) router.replace("/home");
   }, [activeOrgIsPersonal, isPlayerOnly, profileLoading, router]);
 
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -243,17 +241,12 @@ export function useSharedPlaylists() {
   );
 
   /**
-   * Updates who a playlist is shared with, and this page's copy of it: the
-   * dashboard derives its recipient rows from that state instead of
+   * This page's copy of who a playlist is shared with, after the share
+   * dialog has written the shares (components/playlist/share-dialog.tsx):
+   * the dashboard derives its recipient rows from that state instead of
    * refetching.
    */
-  const shareTo = useCallback(async (target: Playlist, teamIds: string[], userIds: string[]) => {
-    const supabase = createClient();
-    await Promise.all([
-      setPlaylistTeams(supabase, target.id, teamIds),
-      setPlaylistUsers(supabase, target.id, userIds),
-    ]);
-    trackEvent("playlist_shared", { team_count: teamIds.length, user_count: userIds.length });
+  const shareTo = useCallback((target: Playlist, teamIds: string[], userIds: string[]) => {
     setPlaylists((prev) => prev.map((p) =>
       p.id === target.id ? { ...p, teamIds, teamId: teamIds[0], userIds } : p
     ));
@@ -262,7 +255,8 @@ export function useSharedPlaylists() {
     // too — not just the id lists. Timestamps we don't have yet are null
     // (already the type's "unknown" value); existing ones are preserved.
     setSharedOutPlaylists((prev) => {
-      if (userIds.length === 0) return prev.filter((p) => p.id !== target.id);
+      // Unshared only when nobody is left: a team-only share stays a share.
+      if (teamIds.length === 0 && userIds.length === 0) return prev.filter((p) => p.id !== target.id);
       const exists = prev.find((p) => p.id === target.id);
       const teamShares = teamIds.map(
         (teamId) => exists?.teamShares.find((t) => t.teamId === teamId) ?? { teamId, sharedAt: null },
@@ -368,7 +362,7 @@ export function useSharedPlaylists() {
       const time = computeVideoTime(event, sync);
       if (time === null) return null;
       const at = Math.max(0, time - DEFAULT_PRE_ROLL_SECONDS);
-      return `/games/${encodeURIComponent(matchId)}?t=${at.toFixed(1)}&from=clip`;
+      return `/library/${encodeURIComponent(matchId)}?t=${at.toFixed(1)}&from=clip`;
     },
     [cloudSyncByMatch],
   );

@@ -196,7 +196,7 @@ export function ImportFlow() {
   function handlePicked(next: PickedGame) {
     setPicked(next);
     // The URL names the game, so a reload lands on the same step.
-    router.replace(`/games/import?match=${encodeURIComponent(next.match.id)}`, { scroll: false });
+    router.replace(`/library/import?match=${encodeURIComponent(next.match.id)}`, { scroll: false });
   }
 
   const canImport = navUser?.canImport ?? null;
@@ -216,7 +216,7 @@ export function ImportFlow() {
 
   return (
     <>
-      <Toolbar inline title={title} leading={<BackButton href="/games" label="Games" />} principal={viewToggle} />
+      <Toolbar inline title={title} leading={<BackButton href="/library" label="Library" />} principal={viewToggle} />
       <PageContent>
         {profileLoading || canImport === null || (phase !== "pick_game" && !videoLoaded) || resumeLoading ? (
           <div className="flex h-64 items-center justify-center">
@@ -229,7 +229,7 @@ export function ImportFlow() {
             body="Games are imported by a club's coaches and admins, or in your personal space."
             actions={
               <Button asChild variant="outline">
-                <Link href="/games">Your games</Link>
+                <Link href="/library">Library</Link>
               </Button>
             }
           />
@@ -239,7 +239,7 @@ export function ImportFlow() {
             title="This game isn't in your library"
             actions={
               <Button asChild variant="outline">
-                <Link href="/games/import">Import a game</Link>
+                <Link href="/library/import">Import a game</Link>
               </Button>
             }
           />
@@ -326,7 +326,7 @@ function DoneScreen({ match, video, onReplace }: { match: StoredMatch; video: Ga
       actions={
         <>
           <Button asChild>
-            <Link href={`/games/${encodeURIComponent(match.id)}?from=games`}>Watch the game</Link>
+            <Link href={`/library/${encodeURIComponent(match.id)}?from=library`}>Watch the game</Link>
           </Button>
           <Button variant="ghost" onClick={onReplace}>
             Upload a different video
