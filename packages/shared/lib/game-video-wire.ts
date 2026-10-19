@@ -75,6 +75,70 @@ export const CLIP_SHIP_KEY_RE = /^clips\/([A-Za-z0-9-]{1,64})\/\d{1,12}_pre-?\d{
 export type RenderJobKind = "ship" | "export";
 export type RenderJobStatus = "queued" | "running" | "done" | "failed";
 
+// ---------------------------------------------------------------------------
+// Exports: one MP4 of a playlist, rendered on the server from the cloud copies
+// ---------------------------------------------------------------------------
+
+export type ExportAspect = "16:9" | "9:16";
+/**
+ * `download`: a file in the PRIVATE bucket, fetched through a presigned link
+ * that saves it (the desktop's "Save to computer…"). `share`: a highlight
+ * link `/h/<shareId>` in the public media bucket with a poster (the
+ * desktop's "Send to my phone…"), always watermarked.
+ */
+export type ExportPurpose = "download" | "share";
+/** Where a running export is: cutting its segments, joining them, uploading the result. */
+export type RenderPhase = "clips" | "stitch" | "upload";
+
+/** How long a download link stays valid. */
+export const EXPORT_LINK_SECONDS = 24 * 60 * 60;
+/** How long a downloadable export is kept after its job (then queued for deletion). */
+export const EXPORT_KEEP_DAYS = 7;
+/** A share link's lifetime, as the desktop's highlight_shares rows default to. */
+export const SHARE_LINK_DAYS = 30;
+/** A rendered segment or export smaller than this is a failure in disguise (the desktop's assert_rendered_output). */
+export const EXPORT_MIN_SEGMENT_BYTES = 4096;
+
+/** A downloadable export's key in the private bucket: `<prefix>/exports/<userId>/<jobId>.mp4`. */
+export function gameVideoExportKey(prefix: string, userId: string, jobId: string): string {
+  return `${prefix}/exports/${userId}/${jobId}.mp4`;
+}
+
+const EXPORT_UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const EXPORT_KEY_RE = new RegExp(`^[A-Za-z0-9_-]{1,64}/exports/${EXPORT_UUID}/${EXPORT_UUID}\\.mp4$`, "i");
+
+export function isGameVideoExportKey(key: string): boolean {
+  return EXPORT_KEY_RE.test(key);
+}
+
+/** A highlight link's files in the PUBLIC media bucket, as presign-upload admits them (highlight-shares-db.ts mints the same). */
+export const HIGHLIGHT_KEY_RE = new RegExp(`^highlights/(${EXPORT_UUID})/(${EXPORT_UUID})\\.(mp4|jpg)$`, "i");
+
+/**
+ * The one constant frame rate (ffmpeg rate syntax) every segment of an export
+ * is rendered at, from the first clip's copy: the desktop's export_frame_rate
+ * (apps/desktop/src-tauri/src/lib.rs). NTSC-family rates are exact
+ * rationals; anything else is rounded and held to 1..60; unknown is 30.
+ * Mixed rates made x264 signal H.264 level 6.2, which iPhones refuse.
+ */
+export function exportFrameRate(fps: number | null | undefined): string {
+  if (typeof fps !== "number" || !Number.isFinite(fps) || fps <= 0) return "30";
+  for (const [ntsc, exact] of [
+    [23.976, "24000/1001"],
+    [29.97, "30000/1001"],
+    [59.94, "60000/1001"],
+  ] as const) {
+    if (Math.abs(fps - ntsc) < 0.01) return exact;
+  }
+  return String(Math.min(60, Math.max(1, Math.round(fps))));
+}
+
+/** An export's file name: the desktop's rule (non-alphanumerics → "_", "_vertical" for 9:16). */
+export function exportFileName(playlistName: string, aspect: ExportAspect): string {
+  const base = playlistName.replace(/[^a-z0-9]/gi, "_") || "playlist";
+  return `${base}${aspect === "9:16" ? "_vertical" : ""}.mp4`;
+}
+
 export type GameVideoStatus = "uploading" | "converting" | "ready" | "failed";
 export type GameVideoSourceKind = "unknown" | "broadcast" | "own";
 /** Who made the copy: the desktop on the user's computer, or our converter from a browser upload. */
@@ -343,6 +407,9 @@ export type GameVideoAction =
   | "job_done"
   | "job_failed"
   | "ship"
+  | "export"
+  | "export_link"
+  | "render_cancel"
   | "render_take"
   | "render_progress"
   | "render_done"
@@ -636,6 +703,47 @@ export interface RenderShipClip {
   putUrl: string;
 }
 
+/** One segment of an export, in playlist order, as the renderer gets it. */
+export type RenderExportSegment =
+  | {
+      kind: "clip";
+      matchId: string;
+      eventId: number;
+      /** The game_videos row whose copy to cut from; its URL is in `copies`. */
+      videoId: string;
+      start: number;
+      end: number;
+      /**
+       * 9:16 only: the clip's pan as the desktop stores it
+       * (playlist_clips.crop_keyframes), already rebased to the clip with
+       * crop-path's toSegmentKeyframes; null centres the window.
+       */
+      keyframes: { t: number; cx: number }[] | null;
+    }
+  | {
+      kind: "card";
+      durationSeconds: number;
+      /** The card's text (a stats card's fallback line when the spec can't be drawn). */
+      text: string;
+      /** A stats card's spec (playlist_clips.card); null for a text card. */
+      card: unknown | null;
+    };
+
+/** What the renderer makes of an export job (RenderTakeResponse.export). */
+export interface RenderExportPlan {
+  aspect: ExportAspect;
+  purpose: ExportPurpose;
+  watermark: boolean;
+  /** exportFrameRate of the first clip's copy: every segment and the final pass use it. */
+  rate: string;
+  title: string;
+  segments: RenderExportSegment[];
+  /** Presigned PUTs, content types signed in: the video (video/mp4) and, for a share, the poster (image/jpeg). */
+  put: { video: string; poster?: string };
+  /** The keys those PUTs write (logs and render_done). */
+  keys: { video: string; poster?: string };
+}
+
 export interface RenderTakeResponse {
   jobId: string;
   /** This run's attempt number: every later call must carry it back. */
@@ -643,17 +751,22 @@ export interface RenderTakeResponse {
   kind: RenderJobKind;
   /** Presigned GET URLs of the copies, by game_videos id. */
   copies: Record<string, { url: string }>;
+  /** Ship jobs: the clips to cut ([] for an export). */
   clips: RenderShipClip[];
-  /** The public base the keys are served from (R2_MEDIA_PUBLIC_URL). */
+  /** The public base the keys are served from (the media bucket's R2_PUBLIC_URL). */
   publicBase: string;
+  /** Export jobs: the plan. */
+  export?: RenderExportPlan;
 }
 
 export interface RenderProgressRequest {
   action: "render_progress";
   jobId: string;
   attempt: number;
-  /** 0..1 over the job's clips. */
+  /** 0..1 over the job's work (an export counts its segments, then the stitch). */
   progress: number;
+  /** Exports: where it is, for the editor's "Exporting · clip 3 of 8" / "Joining…". */
+  phase?: RenderPhase;
 }
 
 export interface RenderClipResult {
@@ -668,7 +781,10 @@ export interface RenderDoneRequest {
   action: "render_done";
   jobId: string;
   attempt: number;
+  /** Ship jobs: one per clip. */
   results: RenderClipResult[];
+  /** Export jobs: what was uploaded. */
+  export?: { sizeBytes: number; durationSeconds: number; posterOk: boolean };
 }
 
 export interface RenderDoneResponse {
@@ -695,6 +811,105 @@ export interface RenderFailedResponse {
   attempt: number;
 }
 
+/**
+ * The owner asks for one MP4 of the playlist (or of the items in
+ * `selection`), rendered from the cloud copies: clips with the desktop's
+ * fades and letterbox (16:9) or pan (9:16), text and stats cards, the
+ * Scoutable wordmark. Free plans get `upgrade_required`; a game without a
+ * copy the owner may use is left out and reported. For a share, an
+ * unexpired link of exactly this content is returned instead of a render
+ * (`reused`) unless `fresh`. A live job of the same purpose and aspect is
+ * returned as is.
+ */
+export interface ExportRequest {
+  action: "export";
+  playlistId: string;
+  aspect: ExportAspect;
+  purpose: ExportPurpose;
+  /** Downloads on Pro and Franchise only: false leaves the wordmark off. Rookie and every share carry it. */
+  watermark?: boolean;
+  /** Item keys (`<matchId>:<eventId>`, `text:<id>`) to export instead of the whole playlist; playlist order is kept. */
+  selection?: string[];
+  /**
+   * Shares: the desktop's highlightContentKey of what will render, computed
+   * by the client from the same shared code (the Deno function can't bundle
+   * the card code it needs). Only looks up the owner's own links; the
+   * function stores it on the new link only when its plan is unchanged at render time.
+   */
+  contentKey?: string;
+  /** Shares: render a new link even when one for this content exists. */
+  fresh?: boolean;
+}
+
+export interface ExportShare {
+  shareId: string;
+  /** `${app}/h/<shareId>`. */
+  url: string;
+  expiresAt: string | null;
+}
+
+export interface ExportDropped {
+  matchId: string;
+  eventId: number;
+  /** The copy can't place the play, or the clip starts past the copy's end (the desktop's dropClipsOutsideVideos). */
+  reason: "no_time" | "past_end";
+}
+
+export interface ExportResponse {
+  /** Null when an existing link was reused. */
+  jobId: string | null;
+  status: RenderJobStatus;
+  reused: boolean;
+  /** The reused link. */
+  share?: ExportShare;
+  /** What the export holds. */
+  clips: number;
+  cards: number;
+  noCopy: ShipNoCopy[];
+  dropped: ExportDropped[];
+  /** Whether the wordmark is drawn (forced on for Rookie and shares). */
+  watermark: boolean;
+}
+
+/** A fresh presigned link that saves a finished download export (the job's own one expires). */
+export interface ExportLinkRequest {
+  action: "export_link";
+  jobId: string;
+}
+
+export interface ExportLinkResponse {
+  url: string;
+  expiresAt: string;
+  filename: string;
+}
+
+/** The owner stops a queued or running render; the renderer stops at its next report. */
+export interface RenderCancelRequest {
+  action: "render_cancel";
+  jobId: string;
+}
+
+export interface RenderCancelResponse {
+  jobId: string;
+  status: RenderJobStatus;
+}
+
+/** What a finished export job records (render_jobs.result). */
+export interface ExportJobResult {
+  purpose: ExportPurpose;
+  aspect: ExportAspect;
+  watermark: boolean;
+  clips: number;
+  cards: number;
+  durationSeconds: number;
+  sizeBytes: number;
+  /** Shares: the new link. */
+  shareId?: string;
+  url?: string;
+  /** Downloads: the name the saved file gets. */
+  filename?: string;
+}
+
 export type GameVideoRequest =
   | GameVideoBeginRequest
   | GameVideoSignPartsRequest
@@ -712,6 +927,9 @@ export type GameVideoRequest =
   | GameVideoJobDoneRequest
   | GameVideoJobFailedRequest
   | ShipRequest
+  | ExportRequest
+  | ExportLinkRequest
+  | RenderCancelRequest
   | RenderTakeRequest
   | RenderProgressRequest
   | RenderDoneRequest
@@ -754,6 +972,14 @@ export const GAME_VIDEO_ERRORS = [
   "renderer_unavailable",
   /** `ship` on a playlist with clips of the sample game, which streams from Scoutable already and is never shared. */
   "demo_game",
+  /** `export` on a free plan: exports are a paid feature, as on the desktop. */
+  "upgrade_required",
+  /** `export` with nothing the copies can play (no clip with a copy, no card). */
+  "nothing_to_export",
+  /** `export_link` for a job whose file is gone (kept EXPORT_KEEP_DAYS) or that never finished. */
+  "export_expired",
+  /** A render the owner stopped (render_cancel); the renderer's later calls get it too. */
+  "cancelled",
 ] as const;
 
 export type GameVideoError = (typeof GAME_VIDEO_ERRORS)[number];

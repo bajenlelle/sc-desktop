@@ -25,6 +25,10 @@ import type {
   GameVideoSyncSetRequest,
   GameVideoSyncSetResponse,
   ShipResponse,
+  ExportRequest,
+  ExportResponse,
+  ExportLinkResponse,
+  RenderCancelResponse,
 } from "./game-video-wire";
 
 export const GAME_VIDEO_FUNCTION = "game-video";
@@ -89,6 +93,26 @@ export function retryGameVideoConvert(
  */
 export function shipPlaylist(supabase: SupabaseClient, playlistId: string): Promise<FunctionResult<ShipResponse>> {
   return invokeEdgeFunction<ShipResponse>(supabase, GAME_VIDEO_FUNCTION, { action: "ship", playlistId });
+}
+
+/**
+ * Render one MP4 of the playlist on the server: a download or a highlight
+ * link (see ExportRequest). `upgrade_required` on a free plan,
+ * `nothing_to_export` when no clip has a cloud copy, `renderer_unavailable`
+ * when the project has no renderer.
+ */
+export function exportPlaylist(supabase: SupabaseClient, request: Omit<ExportRequest, "action">): Promise<FunctionResult<ExportResponse>> {
+  return invokeEdgeFunction<ExportResponse>(supabase, GAME_VIDEO_FUNCTION, { action: "export", ...request });
+}
+
+/** A fresh link that saves a finished download export; `export_expired` once its file is gone. */
+export function exportDownloadLink(supabase: SupabaseClient, jobId: string): Promise<FunctionResult<ExportLinkResponse>> {
+  return invokeEdgeFunction<ExportLinkResponse>(supabase, GAME_VIDEO_FUNCTION, { action: "export_link", jobId });
+}
+
+/** Stop a queued or running render of the owner's. */
+export function cancelRender(supabase: SupabaseClient, jobId: string): Promise<FunctionResult<RenderCancelResponse>> {
+  return invokeEdgeFunction<RenderCancelResponse>(supabase, GAME_VIDEO_FUNCTION, { action: "render_cancel", jobId });
 }
 
 /** Confirm the sync the converter found, or set it by hand; `sync_locked` when the coach's own sync is in place. */

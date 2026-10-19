@@ -107,6 +107,12 @@ export type AnalyticsEvent =
   | "playlist_clip_length_changed" // playlist_id, pre, post
   | "playlist_ship_requested" // playlist_id, trigger: share | add | trim | rolls | retry, total, no_copy
   | "editor_layout_changed" // layout: split | theater
+  // Server export on the web (video_exported and highlight_sent_to_phone fire on success with origin: "web")
+  | "export_requested" // playlist_id, purpose (download | share), aspect, watermark, is_selection, clips, cards, reused
+  | "export_failed" // playlist_id, purpose, aspect, error
+  | "export_cancelled" // playlist_id, purpose, aspect, progress
+  | "export_link_copied" // playlist_id, aspect
+  | "export_downloaded" // playlist_id, aspect, size_mb
   | "reminder_sent"
   // Push notifications (mobile)
   | "notification_prompt_shown"
