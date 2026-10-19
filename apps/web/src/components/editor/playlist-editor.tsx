@@ -17,6 +17,7 @@ import { StatusScreen } from "@/components/status-screen";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { COMPACT_QUERY, useMediaQuery } from "@/components/ui/use-media-query";
 import { AddClipsPanel } from "./add-clips-panel";
 import { ClipList } from "./clip-list";
 import { EditorActions } from "./editor-actions";
@@ -55,6 +56,7 @@ export function PlaylistEditor({ playlistId }: { playlistId: string }) {
   const { createNew } = useNewPlaylist();
   const [layout, setLayout] = useEditorLayout();
   const [wide, setWide] = React.useState(false);
+  const compact = useMediaQuery(COMPACT_QUERY);
 
   const { playlist, status, isOwner, matches, eventsLoaded, eventByKey, cloud, rolls } = editor;
   const playback = useEditorPlayback({ playlist, eventByKey, cloud, rolls, onCommitOffsets: editor.commitClipOffsets });
@@ -215,12 +217,18 @@ export function PlaylistEditor({ playlistId }: { playlistId: string }) {
   const sharedTeams = playlist.teamIds?.length ?? (playlist.teamId ? 1 : 0);
   const sharedPeople = playlist.userIds?.length ?? 0;
 
+  // One title, mounted where it fits: in the bar, or on a phone, whose bar the
+  // actions fill, as a line of its own that scrolls away above the player.
+  const title = (
+    <EditorTitle name={playlist.name} editing={titleEditing} onEditingChange={setTitleEditing} onRename={(name) => void editor.rename(name)} />
+  );
+
   return (
     <Page width="full">
       <Toolbar
         inline
         leading={BACK}
-        title={<EditorTitle name={playlist.name} editing={titleEditing} onEditingChange={setTitleEditing} onRename={(name) => void editor.rename(name)} />}
+        title={compact ? null : title}
         subtitle={subtitleFor(clipCount, playlistMatchIds(playlist).length)}
         actions={
           <EditorActions
@@ -239,6 +247,12 @@ export function PlaylistEditor({ playlistId }: { playlistId: string }) {
           />
         }
       />
+
+      {compact && (
+        <div className="px-4 pt-1 pb-3">
+          <h1 className="truncate text-title-2 font-bold text-foreground">{title}</h1>
+        </div>
+      )}
 
       <EditorLayout
         layout={layout}

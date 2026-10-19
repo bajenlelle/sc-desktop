@@ -107,7 +107,10 @@ export function EditorTitle({
       onClick={() => onEditingChange(true)}
       title="Rename playlist"
       className={cn(
-        "inline-block max-w-full truncate rounded-md px-1 align-top text-foreground outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection lg:-mx-1",
+        // From lg the hover fill reaches past the text (the negative margin), so
+        // the width it may take reaches past the heading's by the same amount:
+        // a name that fits isn't cut by those 8 px.
+        "inline-block max-w-full truncate rounded-md px-1 align-top text-foreground outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection lg:-mx-1 lg:max-w-[calc(100%_+_0.5rem)]",
         className,
       )}
     >

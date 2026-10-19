@@ -98,9 +98,11 @@ export function useAddClips({
   const match = matchId ? (matches.get(matchId) ?? null) : null;
   const loading = matchId !== null && !eventsLoaded.has(matchId);
 
+  // Asked again whenever the game's plays go missing (the editor reloaded
+  // its playlist), not only when the game changes; ensureEventsFor dedupes.
   useEffect(() => {
-    if (matchId) void ensureEventsFor([matchId]);
-  }, [matchId, ensureEventsFor]);
+    if (matchId && loading) void ensureEventsFor([matchId]);
+  }, [matchId, loading, ensureEventsFor]);
 
   // ---------------------------------------------------------------------------
   // Filters

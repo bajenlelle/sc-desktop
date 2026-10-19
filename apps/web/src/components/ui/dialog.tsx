@@ -160,7 +160,10 @@ function DialogContent({
                 dragElastic={{ top: 0, bottom: 1 }}
                 onDragEnd={onDragEnd}
                 className={cn(
-                  "pointer-events-auto relative grid w-full gap-4 overflow-y-auto bg-material-sheet text-foreground shadow-dialog outline-none",
+                  // One column that may shrink to the panel's width: a wide child
+                  // (a row of chips that scrolls sideways) scrolls inside it
+                  // instead of widening the panel past the screen.
+                  "pointer-events-auto relative grid w-full grid-cols-[minmax(0,1fr)] gap-4 overflow-y-auto bg-material-sheet text-foreground shadow-dialog outline-none",
                   compact
                     ? "max-h-[calc(100dvh-var(--safe-top)-2.5rem)] rounded-t-[14px] px-5 pt-3 pb-[calc(1.5rem+var(--safe-bottom))]"
                     : "max-h-[calc(100vh-2rem)] max-w-lg rounded-window p-6",

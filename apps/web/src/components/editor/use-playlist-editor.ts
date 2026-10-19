@@ -147,8 +147,12 @@ export function usePlaylistEditor(playlistId: string) {
     setEventsLoaded(new Set(eventsLoadedRef.current));
   }, []);
 
+  // Keyed on the user's id, not the user object: every auth event (a token
+  // refresh, the tab coming back) hands out a new object, and a reload here
+  // would drop the plays the add-clips panel had loaded.
+  const userId = user?.id ?? null;
   useEffect(() => {
-    if (profileLoading || !user) return;
+    if (profileLoading || !userId) return;
     let cancelled = false;
     const supabase = createClient();
     (async () => {
@@ -192,7 +196,7 @@ export function usePlaylistEditor(playlistId: string) {
     return () => {
       cancelled = true;
     };
-  }, [playlistId, profileLoading, user, activeOrgIsPersonal, setPlaylist]);
+  }, [playlistId, profileLoading, userId, activeOrgIsPersonal, setPlaylist]);
 
   /** Loads the play-by-play of games the editor hasn't got yet (the picked game in the add-clips panel). */
   const ensureEventsFor = useCallback(

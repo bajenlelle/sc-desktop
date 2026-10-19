@@ -181,7 +181,8 @@ export function useShip({
       if (!alive.current) return;
       const generation = ++generationRef.current;
       stopPolling();
-      setState((s) => ({ ...s, phase: "requesting", failed: 0 }));
+      // The last job's counts don't describe this one: "Preparing clips…" until the server says how many.
+      setState((s) => ({ ...s, phase: "requesting", done: 0, total: 0, failed: 0 }));
       const result = await shipPlaylist(createClient(), playlistId);
       if (!alive.current || generation !== generationRef.current) return;
       if (!result.ok) {

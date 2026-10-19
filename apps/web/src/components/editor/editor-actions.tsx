@@ -100,7 +100,7 @@ export function EditorActions({
 
       {/* Add clips, with the cards one chevron away: everything that goes into the playlist in one place. */}
       <div className="flex items-center">
-        <Button size="sm" className="rounded-r-none" onClick={(e) => onAddClips(e.currentTarget.getBoundingClientRect())}>
+        <Button size="sm" aria-label="Add clips" className="rounded-r-none" onClick={(e) => onAddClips(e.currentTarget.getBoundingClientRect())}>
           <Plus />
           <span className="hidden sm:inline">Add clips</span>
         </Button>
