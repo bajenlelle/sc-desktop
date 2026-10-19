@@ -171,7 +171,12 @@ playlists, and share them with teams; players watch on web/mobile.
   `render_done` fails the job `output_missing`. Smoke: `--ship --export` (the
   script plays the renderer) or `--ship --export --local-render` (the real
   program); a `--file` of 47–61 s exercises both the cut at a copy's end and
-  `past_end`.
+  `past_end`. `--browser --cloud --file <video> --ship --export` runs the
+  whole chain on the DEPLOYED Worker (conversion, cuts, exports, cancel) and
+  only waits and checks the files; a job stuck queued means the function
+  can't reach the Worker or the secrets don't pair up (`GAME_VIDEO_CONVERT_SECRET`
+  = the Worker's `CONVERT_SECRET`, the Worker's `WORKER_SECRET` =
+  `app_config.game_video_worker_secret`).
 - **Errors**: Sentry on all three apps (org `scoutable`, EU). DSNs are
   hardcoded (public); desktop/mobile dev builds are offline unless the DSN
   env var is set. Don't add error tracking dependencies to `packages/shared`.

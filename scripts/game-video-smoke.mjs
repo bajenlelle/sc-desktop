@@ -16,6 +16,10 @@
 //                                                                                           # on the server (render jobs)
 //   … --ship --export [--local-render]                                                      # + the playlist exported on the
 //                                                                                           # server: a download and a share
+//   node --env-file=apps/web/.env.staging scripts/game-video-smoke.mjs --browser --cloud --file game.mp4 \
+//        [--ship [--export]]                                                                # the DEPLOYED Worker does it
+//                                                                                           # all: this script only asks,
+//                                                                                           # waits and checks the files
 //
 // The browser path uploads an ORIGINAL to a source key, completes into
 // `converting`, then either drives the job_* actions itself with the worker
@@ -78,6 +82,11 @@ const LOCAL_CONVERT = args.includes("--local-convert");
 const SHIP = args.includes("--ship");
 const EXPORT = args.includes("--export");
 const LOCAL_RENDER = args.includes("--local-render");
+// --cloud: the deployed Worker does the work (the conversion, the cuts, the
+// exports) and this script only asks, waits and checks the real files.
+const CLOUD = args.includes("--cloud");
+const REAL_COPY = LOCAL_CONVERT || CLOUD;
+const REAL_RENDER = LOCAL_RENDER || CLOUD;
 const fileArg = args.indexOf("--file") >= 0 ? args[args.indexOf("--file") + 1] : null;
 if (SHIP && !BROWSER) {
   console.error("--ship needs --browser (it goes on from the browser path's ready copy).");
@@ -85,6 +94,10 @@ if (SHIP && !BROWSER) {
 }
 if (EXPORT && !SHIP) {
   console.error("--export needs --ship (it goes on from the shipped playlist).");
+  process.exit(2);
+}
+if (CLOUD && (!BROWSER || !fileArg || LOCAL_CONVERT || LOCAL_RENDER)) {
+  console.error("--cloud needs --browser --file <video of at least 17 s>, and no --local-convert or --local-render (the deployed Worker plays both).");
   process.exit(2);
 }
 if (LOCAL_RENDER && !(SHIP && LOCAL_CONVERT && fileArg)) {
@@ -374,6 +387,10 @@ async function browserPath(user, userId) {
     expect(cur.status === "ready", `after the local converter the row is ${cur.status} (${cur.convert_error ?? "no error"})`);
     expect(["applied", "suggested", "not_found", "skipped"].includes(cur.sync_status), `sync status after the converter: ${cur.sync_status}`);
     log(`local converter: ready, sync ${cur.sync_status}${cur.suggested_tipoff_seconds !== null ? ` at ${cur.suggested_tipoff_seconds}s` : ""}, ${(Number(cur.size_bytes) / 1e6).toFixed(1)} MB copy, ${cur.width}x${cur.height}`);
+  } else if (CLOUD) {
+    const cur = await waitForConversion(videoId);
+    expect(["applied", "suggested", "not_found", "skipped"].includes(cur.sync_status), `sync status after the cloud converter: ${cur.sync_status}`);
+    log(`cloud converter: ready, sync ${cur.sync_status}${cur.suggested_tipoff_seconds !== null ? ` at ${cur.suggested_tipoff_seconds}s` : ""}, ${(Number(cur.size_bytes) / 1e6).toFixed(1)} MB copy, ${cur.width}x${cur.height}`);
   } else {
     const made = await convertAsWorker(user, videoId, original, { wsecret });
     copyBytes = made.copy;
@@ -386,17 +403,27 @@ async function browserPath(user, userId) {
   const m = await admin.from("matches").select("sync_point").eq("id", matchId).maybeSingle();
   expect(m.data?.sync_point?.syncVideoTime === 341, `sync point after sync_set: ${JSON.stringify(m.data?.sync_point)}`);
   const hints = await admin.from("video_sync_hints").select("id, method, tipoff_video_time").eq("detected_by", userId);
-  if (!LOCAL_CONVERT) expect(hints.data?.length === 1 && hints.data[0].method === "confirmed" && hints.data[0].tipoff_video_time === 341, `hints after sync_set: ${JSON.stringify(hints.data)}`);
+  if (!REAL_COPY) expect(hints.data?.length === 1 && hints.data[0].method === "confirmed" && hints.data[0].tipoff_video_time === 341, `hints after sync_set: ${JSON.stringify(hints.data)}`);
   r = await call(user, { action: "retry_convert", videoId });
   expect(!r.ok && r.error === "wrong_status", `retry_convert on a ready row answered ${r.ok ? "ok" : r.error}`);
-  log(`sync_set manual 341: the game follows${LOCAL_CONVERT ? "" : ", a confirmed hint is written"}; retry on a ready row is refused`);
+  log(`sync_set manual 341: the game follows${REAL_COPY ? "" : ", a confirmed hint is written"}; retry on a ready row is refused`);
 
   if (SHIP) {
     const shipped = await shipPath(user, userId, videoId, wsecret);
     if (EXPORT) await exportPath(user, userId, videoId, wsecret, shipped);
   }
 
-  // A conversion that fails: one retryable attempt, then a final one, then the original is gone.
+  // A conversion that fails: one retryable attempt, then a final one, then the
+  // original is gone. Played by this script, so not with --cloud, where the
+  // real Worker would take the row too.
+  if (CLOUD) {
+    r = await call(user, { action: "remove", videoId });
+    expect(r.ok, `remove (ready row) answered ${r.error}`);
+    const p0 = await purge();
+    expect(p0.refused === 0 && p0.remaining === 0, `purge after the remove: ${JSON.stringify(p0)}`);
+    log(`remove: the row gone, purge → ${JSON.stringify(p0)}`);
+    return;
+  }
   const match2 = `${matchId}-b`;
   matchIds.push(match2);
   const ins = await admin.from("matches").insert({ id: match2, user_id: userId, title: "Cloud smoke (failing)", league_id: "sweden-national-men" });
@@ -437,6 +464,45 @@ async function browserPath(user, userId) {
   const p = await purge();
   expect(p.refused === 0 && p.remaining === 0, `purge after removes: ${JSON.stringify(p)}`);
   log(`remove: both rows gone, play says not_found, purge → ${JSON.stringify(p)}`);
+}
+
+const WORKER_HINT =
+  "the function could not start the Worker, or the Worker could not reach the function: check that GAME_VIDEO_CONVERT_URL points at the Worker, that GAME_VIDEO_CONVERT_SECRET equals the Worker's CONVERT_SECRET and that the Worker's WORKER_SECRET equals app_config.game_video_worker_secret";
+
+/** --cloud: waits for the deployed converter to finish a row, logging where it is. */
+async function waitForConversion(videoId, timeoutMs = 20 * 60 * 1000) {
+  const started = Date.now();
+  let last = "";
+  for (;;) {
+    const cur = await row(videoId);
+    const where = `${cur.status}${cur.convert_progress !== null && cur.convert_progress !== undefined ? ` ${Math.round(Number(cur.convert_progress) * 100)}%` : ""}${cur.convert_heartbeat_at ? "" : " (no converter yet)"}`;
+    if (where !== last) {
+      log(`cloud converter: ${where} after ${((Date.now() - started) / 1000).toFixed(0)} s`);
+      last = where;
+    }
+    if (cur.status === "ready") return cur;
+    if (cur.status === "failed") fail(`the cloud conversion failed: ${cur.convert_error ?? "no error"}`);
+    if (Date.now() - started > timeoutMs) fail(`the row is still ${where} after ${timeoutMs / 60000} min: ${WORKER_HINT}`);
+    await sleep(10000);
+  }
+}
+
+/** --cloud: waits for the deployed renderer to settle a render job. */
+async function waitForJob(jobId, timeoutMs = 10 * 60 * 1000) {
+  const started = Date.now();
+  let last = "";
+  for (;;) {
+    const job = await jobRow(jobId);
+    const where = `${job.status}${job.phase ? ` ${job.phase}` : ""}${job.progress !== null && job.progress !== undefined ? ` ${Math.round(Number(job.progress) * 100)}%` : ""}`;
+    if (where !== last) {
+      log(`cloud renderer: job ${jobId.slice(0, 8)}… ${where} after ${((Date.now() - started) / 1000).toFixed(0)} s`);
+      last = where;
+    }
+    if (job.status === "done") return job;
+    if (job.status === "failed") fail(`the cloud render failed: ${job.error ?? "no error"}`);
+    if (Date.now() - started > timeoutMs) fail(`job ${jobId.slice(0, 8)}… is still ${where} after ${timeoutMs / 60000} min: ${WORKER_HINT}`);
+    await sleep(5000);
+  }
 }
 
 /** Runs the converter program on this machine against a converting row, the way the container would. */
@@ -601,6 +667,10 @@ async function renderAsWorker(jobId, wsecret, { cuts, videoId }) {
 
 /** A queued job gets its renderer: the real program (--local-render) or this script. Returns the public base when known. */
 async function settleJob(jobId, wsecret, expectations) {
+  if (CLOUD) {
+    await waitForJob(jobId);
+    return null;
+  }
   if (LOCAL_RENDER) {
     await runLocalRenderer(jobId, wsecret);
     return null;
@@ -611,7 +681,7 @@ async function settleJob(jobId, wsecret, expectations) {
 async function shipPath(user, userId, videoId, wsecret) {
   const copy = await row(videoId);
   const copySeconds = Number(copy.duration_seconds) || 0;
-  if (LOCAL_RENDER) expect(copySeconds >= 17, `--local-render needs a copy of at least 17 s (this one is ${copySeconds} s): use --file with a longer video`);
+  if (REAL_RENDER) expect(copySeconds >= 17, `--local-render needs a copy of at least 17 s (this one is ${copySeconds} s): use --file with a longer video`);
 
   // The tip-off at SHIP_TIP seconds into the copy, so the plays' windows sit inside it.
   let r = await call(user, { action: "sync_set", videoId, status: "manual", seconds: SHIP_TIP });
@@ -702,9 +772,9 @@ async function shipPath(user, userId, videoId, wsecret) {
   const base = publicBase ?? baseOf(clips[0].r2_url, cuts[0].key);
   expect(base && /^https:\/\//.test(base), `clip 0 has no https r2_url ending in its key (${clips[0].r2_url ? "set" : "null"})`);
   clips.forEach((c, i) => expect(c.r2_url === `${base}/${cuts[i].key}`, `clip ${i} r2_url is not publicBase + ${cuts[i].key}`));
-  if (LOCAL_RENDER) await checkShippedFiles(clips, cuts);
+  if (REAL_RENDER) await checkShippedFiles(clips, cuts);
   expect((await shareRow(playlistId, playerId)).notified_at, "the pending share was not notified once the files landed");
-  log(`render: done, 3 of 3 shipped, every r2_url is the public base + clipShipKey${LOCAL_RENDER ? ", every file GETs as video/mp4 and probes at 13 s" : ""}; the pending share is notified`);
+  log(`render: done, 3 of 3 shipped, every r2_url is the public base + clipShipKey${REAL_RENDER ? ", every file GETs as video/mp4 and probes at 13 s" : ""}; the pending share is notified`);
 
   // Nothing left to cut.
   r = await call(user, { action: "ship", playlistId });
@@ -722,8 +792,8 @@ async function shipPath(user, userId, videoId, wsecret) {
   clips = await clipRows(playlistId);
   expect(clips[1].r2_url === `${base}/${trimCuts[0].key}`, `the trimmed clip's r2_url is not the new key ${trimCuts[0].key}`);
   expect(clips[0].r2_url === `${base}/${cuts[0].key}` && clips[2].r2_url === `${base}/${cuts[2].key}`, "the other clips changed");
-  if (LOCAL_RENDER) await checkShippedFiles([clips[1]], trimCuts);
-  log(`a trim: ship → total 1, the clip's file replaced under its new key${LOCAL_RENDER ? ` (${trimCuts[0].seconds} s)` : ""}; the others untouched`);
+  if (REAL_RENDER) await checkShippedFiles([clips[1]], trimCuts);
+  log(`a trim: ship → total 1, the clip's file replaced under its new key${REAL_RENDER ? ` (${trimCuts[0].seconds} s)` : ""}; the others untouched`);
 
   // A sync change moves every play: the shared playlist's clips are cut again under keys with the new start.
   r = await call(user, { action: "sync_set", videoId, status: "manual", seconds: SHIP_TIP + 1 });
@@ -734,7 +804,7 @@ async function shipPath(user, userId, videoId, wsecret) {
   await settleJob(live.data.id, wsecret, { cuts: movedCuts, videoId });
   clips = await clipRows(playlistId);
   clips.forEach((c, i) => expect(c.r2_url === `${base}/${movedCuts[i].key}`, `after the sync change clip ${i} r2_url is not ${movedCuts[i].key}`));
-  if (LOCAL_RENDER) await checkShippedFiles(clips, movedCuts);
+  if (REAL_RENDER) await checkShippedFiles(clips, movedCuts);
   log("a sync change: a job is queued for the shared playlist and all three clips are cut again with the new start in their keys");
   return { playlistId, orgId: org.data.id, player, tip: SHIP_TIP + 1, publicBase: base };
 }
@@ -880,6 +950,10 @@ async function renderExportAsWorker(jobId, wsecret, expected, standIns) {
 
 /** An export job gets its renderer: the real program (--local-render) or this script. Returns the plan when this script played it. */
 async function settleExport(jobId, wsecret, expected, standIns) {
+  if (CLOUD) {
+    await waitForJob(jobId);
+    return null;
+  }
   if (LOCAL_RENDER) {
     await runLocalRenderer(jobId, wsecret);
     return null;
@@ -895,7 +969,7 @@ async function exportPath(user, userId, videoId, wsecret, { playlistId, orgId, p
   const cuts = exportCuts(tip, copySeconds);
   const work = mkdtempSync(path.join(tmpdir(), "game-video-smoke-"));
   try {
-    const standIns = LOCAL_RENDER ? null : await makeStandIns(work);
+    const standIns = REAL_RENDER ? null : await makeStandIns(work);
 
     // Two more plays after the card, and a pan on the first clip (absolute video seconds, as the desktop stores it).
     const more = EXPORT_PLAYS.slice(3).map((p, i) => ({
@@ -961,7 +1035,7 @@ async function exportPath(user, userId, videoId, wsecret, { playlistId, orgId, p
     r = await ex(user, { aspect: "16:9", purpose: "download" });
     expect(r.ok && r.data.jobId === downloadId && r.data.watermark === false, `a second download did not land on the live one: ${JSON.stringify(r.data ?? r.error)}`);
     const mine = await user.from("render_jobs").select(RENDER_JOB_SELECT).eq("id", downloadId).single();
-    expect(!mine.error && mine.data.kind === "export" && mine.data.request?.purpose === "download" && mine.data.request?.watermark === false && typeof mine.data.request?.fingerprint === "string" && mine.data.phase === null, `the owner's read of the export: ${mine.error?.message ?? JSON.stringify(mine.data)}`);
+    expect(!mine.error && mine.data.kind === "export" && mine.data.request?.purpose === "download" && mine.data.request?.watermark === false && typeof mine.data.request?.fingerprint === "string" && (CLOUD || mine.data.phase === null), `the owner's read of the export: ${mine.error?.message ?? JSON.stringify(mine.data)}`);
     log(`export (download, 16:9, no wordmark): job ${downloadId.slice(0, 8)}… queued with ${keptClips} clips and the card, ${cuts.dropped.length} dropped past the copy's end; a repeat lands on it; the owner reads it`);
 
     await settleExport(downloadId, wsecret, { aspect: "16:9", purpose: "download", watermark: false, rate, cuts, panned: pan, videoId, ref, userId }, standIns);
@@ -976,7 +1050,7 @@ async function exportPath(user, userId, videoId, wsecret, { playlistId, orgId, p
     expect(part.status === 206 && (part.headers.get("content-type") ?? "").startsWith("video/mp4") && /^attachment/.test(disposition) && disposition.includes(filename), `the download link answered ${part.status} ${part.headers.get("content-type")} "${disposition}"`);
     const firstBytes = Buffer.from(await part.arrayBuffer());
     if (standIns) expect(Buffer.compare(firstBytes, standIns.mp4.subarray(0, 16)) === 0, "the download's first bytes are not the uploaded file's");
-    if (LOCAL_RENDER) {
+    if (REAL_RENDER) {
       const whole = Buffer.from(await (await fetch(link.data.url)).arrayBuffer());
       const file = path.join(work, filename);
       writeFileSync(file, whole);
@@ -1013,7 +1087,7 @@ async function exportPath(user, userId, videoId, wsecret, { playlistId, orgId, p
     const video = await fetch(shareRow.r2_url, { method: "HEAD" });
     const poster = await fetch(shareRow.poster_url, { method: "HEAD" });
     expect(video.ok && (video.headers.get("content-type") ?? "").startsWith("video/mp4") && poster.ok && (poster.headers.get("content-type") ?? "").startsWith("image/jpeg"), `the link's files answered ${video.status} ${video.headers.get("content-type")} / ${poster.status} ${poster.headers.get("content-type")}`);
-    if (LOCAL_RENDER) {
+    if (REAL_RENDER) {
       const probed = await probeVideo(shareRow.r2_url);
       const want = cuts.kept.reduce((n, c) => n + (c.end - c.start), 0) + CARD_SECONDS;
       expect(probed.width === 1080 && probed.height === 1920 && probed.seconds !== null && Math.abs(probed.seconds - want) <= 1, `the share probes ${JSON.stringify(probed)}, expected 1080x1920 ≈ ${want.toFixed(1)} s`);
@@ -1030,6 +1104,18 @@ async function exportPath(user, userId, videoId, wsecret, { playlistId, orgId, p
 
     // Cancelled while a renderer holds it: every later call of that renderer is answered cancelled.
     const w = (body) => call(admin, body, { "x-worker-secret": wsecret });
+    if (CLOUD) {
+      // The deployed renderer has it (or is about to): cancel, then it must stay cancelled.
+      await sleep(8000);
+      r = await call(player, { action: "render_cancel", jobId: otherKey });
+      expect(!r.ok && r.error === "not_owner", `render_cancel by the player answered ${r.ok ? "ok" : r.error}`);
+      r = await call(user, { action: "render_cancel", jobId: otherKey });
+      expect(r.ok && r.data.status === "failed", `render_cancel answered ${r.ok ? JSON.stringify(r.data) : r.error}`);
+      await sleep(30000);
+      job = await jobRow(otherKey);
+      expect(job.status === "failed" && job.error === "cancelled", `the cancelled job 30 s later: ${JSON.stringify({ status: job.status, error: job.error })}`);
+      log("render_cancel while the cloud renderer works: failed cancelled, and it stays so (the renderer stops at its next call)");
+    } else {
     r = await w({ action: "render_take", jobId: otherKey });
     expect(r.ok && r.data.attempt === 1, `render_take (to cancel) failed: ${r.error}`);
     r = await call(player, { action: "render_cancel", jobId: otherKey });
@@ -1047,6 +1133,7 @@ async function exportPath(user, userId, videoId, wsecret, { playlistId, orgId, p
     r = await call(user, { action: "render_cancel", jobId: otherKey });
     expect(r.ok && r.data.status === "failed", `a second render_cancel answered ${r.ok ? JSON.stringify(r.data) : r.error}`);
     log("render_cancel while a renderer holds the job: failed cancelled; its progress, done and failed calls get 409 cancelled; the player can't cancel; a repeat is harmless");
+    }
 
     // A queued download of a selection, cancelled before any renderer took it.
     r = await ex(user, { aspect: "16:9", purpose: "download", selection: [`${matchId}:1001`, `text:${cardRow.item_id}`, "nope:1"] });
