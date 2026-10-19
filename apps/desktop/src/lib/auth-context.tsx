@@ -18,6 +18,21 @@ const FOCUS_REFRESH_MIN_MS = 30_000;
 const PLAN_POLL_INTERVAL_MS = 3_000;
 const PLAN_POLL_TIMEOUT_MS = 60_000;
 
+/**
+ * A live session, refreshed first if its token expired. False while the
+ * refresh fails (no network yet after the machine wakes): until then
+ * supabase-js sends requests with the anon key, which RLS answers with
+ * empty results.
+ */
+async function hasSession(): Promise<boolean> {
+  try {
+    const { data } = await createClient().auth.getSession();
+    return !!data.session;
+  } catch {
+    return false;
+  }
+}
+
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
@@ -122,6 +137,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    * than wiping the session over a transient network error.
    */
   async function loadProfile(userId: string, opts?: { silent?: boolean }): Promise<OrgMembership[] | null> {
+    // A background refresh needs a live session. Coming back to the app after
+    // sleep, the token has expired and its refresh can fail for a moment; the
+    // reads then go out as anon, RLS hides the profile and .single() fails
+    // ("Cannot coerce the result to a single JSON object", SCOUTABLE-DESKTOP-F).
+    // Skip instead: the snapshot stays and the next focus or poll tick retries.
+    if (opts?.silent && !(await hasSession())) return null;
     if (!opts?.silent) setProfileLoading(true);
     lastLoadedAtRef.current = Date.now();
     try {
@@ -158,8 +179,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error("[auth] loadProfile failed:", err);
       // This now drives a user-visible blocking screen, so it must not stay a
       // console line — a silent org-read failure is exactly what stranded
-      // people on the invite-code wall unnoticed.
-      Sentry.captureException(err);
+      // people on the invite-code wall unnoticed. A background refresh whose
+      // session lapsed mid-flight is the transient above, not a bug: it keeps
+      // the snapshot and isn't reported.
+      if (!opts?.silent || (await hasSession())) Sentry.captureException(err);
       if (!opts?.silent) {
         setProfile(null);
         setMyOrgs([]);

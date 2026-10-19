@@ -39,9 +39,8 @@ BEGIN
     END IF;
   END IF;
 
-  -- Use the creator's org role, clamped to coach/player (team_members doesn't allow 'admin')
-  SELECT CASE WHEN COALESCE(role, 'coach') = 'player' THEN 'player' ELSE 'coach' END
-  INTO v_creator_role
+  -- Use the creator's actual role in this org (defaults to 'coach' if not found)
+  SELECT COALESCE(role, 'coach') INTO v_creator_role
   FROM org_memberships
   WHERE user_id = v_uid AND org_id = v_org_id;
 
