@@ -30,7 +30,11 @@ playlists, and share them with teams; players watch on web/mobile.
   after fixture refreshes and in the weekly season audit; `tipoff-detect` — reads
   scoreboard clocks from video stills with Claude for the automatic tip-off
   suggestion; `ANTHROPIC_API_KEY`, kill switch `app_config.tipoff_detect_enabled`).
-  Remote project `nbmrujmazvdoaldirpyx`; apply with `npx supabase db push`.
+  Remote project `nbmrujmazvdoaldirpyx`; apply with `npx supabase db push`
+  after linking this machine once (`npx supabase link --project-ref
+  nbmrujmazvdoaldirpyx`; the link in `supabase/.temp/` is per machine and
+  untracked). Staging (`edalihizooqdxeekaklf`) always takes `--db-url` or
+  `--project-ref`, never the link.
 - `scripts/nightly-tipoff` — the nightly tip-off job (`nightly-tipoff.yml`,
   02:00 Stockholm, pilot channel Superettan Herr; manual runs from the Actions
   tab). Reads BasketTV replays through a range proxy, detects with the
