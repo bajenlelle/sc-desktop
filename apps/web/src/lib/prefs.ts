@@ -49,3 +49,46 @@ export function setEditorLayout(layout: EditorLayoutPref): void {
     // Remembering the arrangement is a convenience.
   }
 }
+
+/** An export's shape: the full frame, or the vertical window for phones. */
+export type ExportFormat = "16:9" | "9:16";
+
+/** The desktop's key: the format last picked in the export dialog, shown as a hint. */
+const LAST_EXPORT_FORMAT_KEY = "scoutable_last_export_format";
+/** The desktop's key: "1" when a Pro or Franchise user turned the mark off on downloads. */
+const EXPORT_WATERMARK_OFF_KEY = "scoutable_export_watermark_off";
+
+export function getLastExportFormat(): ExportFormat | null {
+  try {
+    const v = localStorage.getItem(LAST_EXPORT_FORMAT_KEY);
+    return v === "16:9" || v === "9:16" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setLastExportFormat(format: ExportFormat): void {
+  try {
+    localStorage.setItem(LAST_EXPORT_FORMAT_KEY, format);
+  } catch {
+    // A hint, nothing more.
+  }
+}
+
+/** Whether downloads leave the Scoutable mark off; only Pro and Franchise may, and links always carry it. */
+export function getExportWatermarkDisabled(): boolean {
+  try {
+    return localStorage.getItem(EXPORT_WATERMARK_OFF_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function setExportWatermarkDisabled(disabled: boolean): void {
+  try {
+    if (disabled) localStorage.setItem(EXPORT_WATERMARK_OFF_KEY, "1");
+    else localStorage.removeItem(EXPORT_WATERMARK_OFF_KEY);
+  } catch {
+    // The switch still applies to this export.
+  }
+}

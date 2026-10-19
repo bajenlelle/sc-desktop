@@ -2,9 +2,13 @@
 
 import * as React from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Trash2, X } from "lucide-react";
+import { FileDown, Trash2, X } from "lucide-react";
+import type { ExportPurpose } from "@scoutable/shared/lib/game-video-wire";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { fadeVariants, riseVariants, useReducedMotionSafe } from "@/lib/motion";
 import { cn } from "@/lib/utils";
+import { ExportMenuItems } from "./editor-actions";
+import type { UseExport } from "./use-export";
 
 /** Labels show when the list column is wide enough (a container query on the list); icons carry the meaning below that. */
 const PILL_LABEL = "hidden @min-[24rem]:inline";
@@ -37,9 +41,23 @@ function PillButton({
  * list the moment something is selected and leaving the same way. It never
  * pushes the rows around. The parent must be a `@container` and positioned.
  * Under reduced motion it cross-fades; the material goes solid under
- * reduced transparency (globals.css).
+ * reduced transparency (globals.css). Export offers the toolbar's two
+ * verbs for just the rows picked.
  */
-export function SelectionBar({ count, onRemove, onClear }: { count: number; onRemove: () => void; onClear: () => void }) {
+export function SelectionBar({
+  count,
+  onRemove,
+  onClear,
+  exporter,
+  onExport,
+}: {
+  count: number;
+  onRemove: () => void;
+  onClear: () => void;
+  /** With both, an Export menu: a download or a link of the selection. */
+  exporter?: UseExport;
+  onExport?: (purpose: ExportPurpose) => void;
+}) {
   const reduced = useReducedMotionSafe();
   return (
     <AnimatePresence>
@@ -61,6 +79,19 @@ export function SelectionBar({ count, onRemove, onClear }: { count: number; onRe
               {count}
               <span className={cn(PILL_LABEL, "ml-1")}>selected</span>
             </span>
+            {exporter && onExport && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <PillButton title="Export the selection" aria-label="Export the selection">
+                    <FileDown />
+                    <span className={PILL_LABEL}>Export</span>
+                  </PillButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="top" align="center" sideOffset={8} className="w-56">
+                  <ExportMenuItems exporter={exporter} onExport={onExport} />
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             <PillButton tone="destructive" onClick={onRemove} title="Remove from playlist">
               <Trash2 />
               <span className={PILL_LABEL}>Remove</span>

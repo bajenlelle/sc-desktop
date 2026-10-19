@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { BarChart3, ChevronDown, FileDown, MoreHorizontal, Pencil, Plus, Share2, SquareCheckBig, Timer, Trash2, Type } from "lucide-react";
+import { BarChart3, ChevronDown, Download, MoreHorizontal, Pencil, Plus, Share2, Smartphone, SquareCheckBig, Timer, Trash2, Type } from "lucide-react";
 import type { RollPair } from "@scoutable/shared/lib/clip-timing";
+import type { ExportPurpose } from "@scoutable/shared/lib/game-video-wire";
 import { MAX_POST_ROLL_SECONDS, MAX_PRE_ROLL_SECONDS } from "@scoutable/shared/lib/playlist-edits";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,7 +19,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Stepper } from "@/components/ui/stepper";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { ExportPill } from "./export-pill";
 import { ShipPill } from "./ship-pill";
+import type { UseExport } from "./use-export";
 import type { UseShip } from "./use-ship";
 
 /** "Shared with 2 teams and 3 people", for the Share button's tooltip. */
@@ -30,11 +33,40 @@ export function sharedWithLabel(teams: number, people: number): string {
 }
 
 /**
+ * The export verbs, for the ⋯ menu and the selection bar's Export menu.
+ * They stay enabled on a free plan (picking one leads to the upgrade path)
+ * and wait while an export of the playlist runs.
+ */
+export function ExportMenuItems({ exporter, onExport }: { exporter: UseExport; onExport: (purpose: ExportPurpose) => void }) {
+  const why = exporter.busy ? "An export is running" : !exporter.ready ? "Loading your cloud copies…" : null;
+  const item = (purpose: ExportPurpose, icon: React.ReactNode, label: string) => (
+    <DropdownMenuItem key={purpose} disabled={why !== null} onSelect={() => onExport(purpose)}>
+      {icon}
+      {why ? (
+        <span className="flex flex-col">
+          <span>{label}</span>
+          <span className="text-callout opacity-70">{why}</span>
+        </span>
+      ) : (
+        label
+      )}
+    </DropdownMenuItem>
+  );
+  return (
+    <>
+      {item("download", <Download />, "Download video…")}
+      {item("share", <Smartphone />, "Send to my phone…")}
+    </>
+  );
+}
+
+/**
  * The editor's toolbar actions, the desktop's in the web's bar: where the
- * server is with the shared clips, the playlist's clip length, Add clips
- * with the cards behind its chevron, Share (filled once anyone receives
- * it; hidden in a personal space, which has nobody to share with), and the
- * rest behind ⋯. Export waits for M3b and the stats card for M3c.
+ * server is with the shared clips and with an export, the playlist's clip
+ * length, Add clips with the cards behind its chevron, Share (filled once
+ * anyone receives it; hidden in a personal space, which has nobody to share
+ * with), and the rest behind ⋯, the two exports among them. The stats card
+ * waits for M3c.
  */
 export function EditorActions({
   rolls,
@@ -46,6 +78,8 @@ export function EditorActions({
   sharedPeople,
   onShare,
   ship,
+  exporter,
+  onExport,
   onSelectAll,
   onRename,
   onDelete,
@@ -60,6 +94,9 @@ export function EditorActions({
   sharedPeople: number;
   onShare: () => void;
   ship: UseShip;
+  exporter: UseExport;
+  /** Opens the export dialog for a download or a link. */
+  onExport: (purpose: ExportPurpose) => void;
   onSelectAll: () => void;
   onRename: () => void;
   onDelete: () => void;
@@ -68,6 +105,7 @@ export function EditorActions({
   return (
     <>
       <ShipPill ship={ship} />
+      <ExportPill activity={exporter.activity} onCancel={() => void exporter.cancel()} />
 
       <Popover>
         <Tooltip>
@@ -155,13 +193,8 @@ export function EditorActions({
             <Pencil />
             Rename…
           </DropdownMenuItem>
-          <DropdownMenuItem disabled>
-            <FileDown />
-            <span className="flex flex-col">
-              <span>Export…</span>
-              <span className="text-callout opacity-70">Coming soon</span>
-            </span>
-          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <ExportMenuItems exporter={exporter} onExport={onExport} />
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={onDelete} className="text-destructive focus:bg-destructive focus:text-white">
             <Trash2 />

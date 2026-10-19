@@ -70,6 +70,8 @@ export default function HomePage() {
   }, [editor, router]);
 
   const [data, setData] = useState<HomeData | null>(null);
+  /** Personal spaces: whether the user has made a highlight link (Send to my phone, on any device); their own rows, by RLS. */
+  const [links, setLinks] = useState<{ userId: string; any: boolean } | null>(null);
   const [dashboard, setDashboard] = useState<{ orgId: string; rows: DashboardRow[] } | null>(null);
   const [dashboardTick, setDashboardTick] = useState(0);
   const [reminding, setReminding] = useState(false);
@@ -93,6 +95,25 @@ export default function HomePage() {
     };
     // `games` changing (an import, a removal) re-reads the games too.
   }, [profileLoading, editor, activeOrgId, activeOrgIsPersonal, games?.length]);
+
+  const userId = user?.id ?? null;
+  useEffect(() => {
+    if (profileLoading || !editor || isClubSpace || !userId) return;
+    let cancelled = false;
+    void createClient()
+      .from("highlight_shares")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .then(({ count, error }) => {
+        // A failed read keeps the nudge away rather than repeating it.
+        if (!cancelled) setLinks({ userId, any: !!error || (count ?? 0) > 0 });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [profileLoading, editor, isClubSpace, userId]);
+  // Unknown until read: the hero and the checklist wait for it rather than change under the user.
+  const hasExported = isClubSpace ? true : links && links.userId === userId ? links.any : null;
 
   // Shared-by-me engagement (club spaces only). Name maps are left out on
   // purpose: the strip and the hero need counts and remind targets only.
@@ -159,10 +180,9 @@ export default function HomePage() {
         latestBehind: latestBehind
           ? { playlistId: latestBehind.playlistId, playlistName: latestBehind.playlistName, behindCount: latestBehind.behindCount }
           : null,
-        // Exporting reaches the web with the server export; until then the export hero stays away.
-        hasExported: true,
+        hasExported: hasExported ?? true,
       }),
-    [matches, demo?.id, playlists, isClubSpace, rows.length, latestBehind],
+    [matches, demo?.id, playlists, isClubSpace, rows.length, latestBehind, hasExported],
   );
 
   async function handleRemindLatest() {
@@ -229,6 +249,7 @@ export default function HomePage() {
           )}
 
           {!loading &&
+            hasExported !== null &&
             showChecklist &&
             (isClubAdmin ? (
               <AdminSetupCard />
@@ -237,6 +258,7 @@ export default function HomePage() {
                 matches={matches}
                 playlists={playlists}
                 readyMatchIds={readyMatchIds}
+                hasExported={hasExported}
                 onNewPlaylist={newPlaylist}
                 creating={creating}
                 addClipsHref={addClipsHref}
@@ -245,7 +267,7 @@ export default function HomePage() {
 
           {/* One next action at every stage; the checklist says the same
               things while it is up, so the hero waits for it to go. */}
-          {!loading && !showChecklist && (
+          {!loading && hasExported !== null && !showChecklist && (
             <>
               <RolePrompt />
               <NextActionHero

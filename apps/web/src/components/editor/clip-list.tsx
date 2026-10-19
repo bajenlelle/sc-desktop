@@ -3,6 +3,7 @@
 import * as React from "react";
 import { ListVideo, Plus } from "lucide-react";
 import { computeGroupRuns, snapGapToGroupBoundary } from "@scoutable/shared/lib/clip-groups";
+import type { ExportPurpose } from "@scoutable/shared/lib/game-video-wire";
 import { dragBlockKeys } from "@scoutable/shared/lib/list-reorder";
 import { itemKey } from "@scoutable/shared/lib/playlist-edits";
 import { isClipItem, type Playlist, type PlaylistClipItem } from "@scoutable/shared/types/match";
@@ -14,6 +15,7 @@ import { EditorClipRow } from "./editor-clip-row";
 import type { EditorRow } from "./editor-rows";
 import { SelectionBar } from "./selection-bar";
 import type { ClipSelection } from "./use-clip-selection";
+import type { UseExport } from "./use-export";
 import { useListDrag } from "./use-list-drag";
 
 /**
@@ -44,6 +46,8 @@ export function ClipList({
   autoFocusCardId,
   gridRef,
   onAddClips,
+  exporter,
+  onExport,
 }: {
   rows: EditorRow[];
   playlist: Playlist;
@@ -67,6 +71,9 @@ export function ClipList({
   /** The grid, for the keys' focus target and the drag engine's. */
   gridRef: React.RefObject<HTMLDivElement | null>;
   onAddClips: () => void;
+  /** The selection bar's Export menu (the owner's). */
+  exporter?: UseExport;
+  onExport?: (purpose: ExportPurpose) => void;
 }) {
   const baseId = React.useId();
   const reduced = useReducedMotionSafe();
@@ -219,7 +226,13 @@ export function ClipList({
           );
         })}
       </div>
-      <SelectionBar count={selection.selected.size} onRemove={() => onRemove(selection.selected)} onClear={selection.clear} />
+      <SelectionBar
+        count={selection.selected.size}
+        onRemove={() => onRemove(selection.selected)}
+        onClear={selection.clear}
+        exporter={isOwner ? exporter : undefined}
+        onExport={onExport}
+      />
     </div>
   );
 }

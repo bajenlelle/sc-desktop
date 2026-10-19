@@ -2,14 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChevronRight, Laptop, Loader2, Lock, X } from "lucide-react";
+import { Check, ChevronRight, Loader2, Lock, X } from "lucide-react";
 import { toast } from "sonner";
 import { getMySharedPlaylists } from "@scoutable/shared/lib/playlists-db";
 import type { Playlist, StoredMatch } from "@scoutable/shared/types/match";
 import { useAuth } from "@/components/auth-context";
 import { importHref } from "@/components/import/import-entry-link";
 import { RolePrompt } from "@/components/role-prompt";
-import { DESKTOP_APP_URL } from "@/components/shell/sidebar";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { trackEvent } from "@/lib/analytics";
 import { dismissOnboardingChecklist } from "@/lib/profile-db";
@@ -29,16 +28,17 @@ interface Step {
 /**
  * The first-session checklist on Home, for coaches and anyone in their
  * personal space (club admins get the AdminSetupCard instead): import a
- * game, build a playlist, add clips, then share it (club spaces) or export
- * it (personal spaces, locked until exporting reaches the web). Every step
- * is derived from real data so it stays honest across devices; shown until
- * the user dismisses it or finishes everything (the same server flag as the
- * desktop's checklist). A port of the desktop's getting-started.tsx.
+ * game, build a playlist, add clips, then share it (club spaces) or send it
+ * to the phone (personal spaces). Every step is derived from real data so
+ * it stays honest across devices; shown until the user dismisses it or
+ * finishes everything (the same server flag as the desktop's checklist). A
+ * port of the desktop's getting-started.tsx.
  */
 export function GettingStarted({
   matches,
   playlists,
   readyMatchIds,
+  hasExported,
   onNewPlaylist,
   creating,
   addClipsHref,
@@ -47,6 +47,8 @@ export function GettingStarted({
   playlists: Playlist[];
   /** Games with a cloud copy ready to clip. */
   readyMatchIds: ReadonlySet<string>;
+  /** Personal spaces: the user has made a highlight link (Send to my phone) on any device. */
+  hasExported: boolean;
   onNewPlaylist: () => void;
   creating: boolean;
   /** The editor on a playlist, with the add-clips panel open on a game when one has a cloud copy. */
@@ -84,6 +86,7 @@ export function GettingStarted({
   const hasClips = playlists.some((p) => p.items.length > 0);
   const hasReadyCopy = matches.some((m) => readyMatchIds.has(m.id));
   const first = playlists[0];
+  const firstWithClips = playlists.find((p) => p.items.length > 0);
 
   const steps: Step[] = [
     { key: "account", title: "Create your account", done: true },
@@ -113,10 +116,15 @@ export function GettingStarted({
     activeOrgIsPersonal
       ? {
           key: "export",
-          title: "Export a playlist as a video",
-          hint: "Coming to the web. The desktop app exports today.",
-          done: false,
-          locked: true,
+          title: "Send a playlist to your phone",
+          hint: "Get a link and a QR code to save or share the video",
+          done: hasExported,
+          // The editor opens on its export dialog; a playlist without clips gets them first.
+          onPress: firstWithClips
+            ? () => router.push(`/playlists/${encodeURIComponent(firstWithClips.id)}?export=share`)
+            : first
+              ? () => router.push(addClipsHref(first.id))
+              : onNewPlaylist,
         }
       : {
           key: "share",
@@ -187,10 +195,11 @@ export function GettingStarted({
         </span>
       </div>
 
-      <ul className="mt-3 flex flex-col px-2">
+      <ul className="mt-3 flex flex-col px-2 pb-3">
         {steps.map((step) => {
           const clickable = !step.done && !step.locked && !!step.onPress;
-          const busy = clickable && creating && (step.key === "playlist" || (!first && (step.key === "clips" || step.key === "share")));
+          const busy =
+            clickable && creating && (step.key === "playlist" || (!first && (step.key === "clips" || step.key === "share" || step.key === "export")));
           return (
             <li key={step.key}>
               <button
@@ -225,17 +234,6 @@ export function GettingStarted({
           );
         })}
       </ul>
-
-      <p className="mx-5 mt-2 flex items-start gap-1.5 border-t border-separator py-3 text-callout text-muted-foreground">
-        <Laptop className="mt-px size-3.5 shrink-0 text-primary/70" aria-hidden />
-        <span>
-          Exporting a playlist as a video file happens in the{" "}
-          <a href={DESKTOP_APP_URL} target="_blank" rel="noreferrer" className="font-medium text-primary underline-offset-2 hover:underline">
-            desktop app
-          </a>{" "}
-          for now.
-        </span>
-      </p>
     </section>
   );
 }

@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { ListVideo, LockKeyhole } from "lucide-react";
 import { toast } from "sonner";
+import type { ExportAspect, ExportPurpose } from "@scoutable/shared/lib/game-video-wire";
 import { itemKey, playlistMatchIds } from "@scoutable/shared/lib/playlist-edits";
 import { isClipItem } from "@scoutable/shared/types/match";
 import { useAuth } from "@/components/auth-context";
@@ -18,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { COMPACT_QUERY, useMediaQuery } from "@/components/ui/use-media-query";
+import { UpgradeDialog } from "@/components/upgrade-dialog";
 import { AddClipsPanel } from "./add-clips-panel";
 import { ClipList } from "./clip-list";
 import { EditorActions } from "./editor-actions";
@@ -26,11 +28,14 @@ import { EditorPlayer } from "./editor-player";
 import { buildEditorRows } from "./editor-rows";
 import { EditorSkeleton } from "./editor-skeleton";
 import { EditorTitle } from "./editor-title";
+import { ExportDialog, type ExportDialogCounts, type ExportDialogRequest } from "./export-dialog";
 import { NowPlaying } from "./now-playing";
+import { SendToPhoneSheet } from "./send-to-phone-sheet";
 import { useClipSelection } from "./use-clip-selection";
 import { useEditorKeys } from "./use-editor-keys";
 import { useEditorLayout } from "./use-editor-layout";
 import { useEditorPlayback } from "./use-editor-playback";
+import { exportContentFor, useExport } from "./use-export";
 import { itemKeysOf, usePlaylistEditor } from "./use-playlist-editor";
 
 const BACK = <BackButton href="/playlists" label="Playlists" />;
@@ -75,6 +80,53 @@ export function PlaylistEditor({ playlistId }: { playlistId: string }) {
   const [sharing, setSharing] = React.useState(false);
   const [confirmingDelete, setConfirmingDelete] = React.useState(false);
   const [autoFocusCardId, setAutoFocusCardId] = React.useState<string | null>(null);
+
+  // Exports: the format dialog, then the server's render, followed by the pill.
+  const exporter = useExport({ playlist, eventByKey, cloud, enabled: status === "ready" && isOwner });
+  const [exportRequest, setExportRequest] = React.useState<ExportDialogRequest | null>(null);
+  /**
+   * The dialog for a download or a link, of the ticked rows when there are
+   * any (the desktop's export honours the selection too). Every row ticked
+   * is the playlist itself, which may reuse its link.
+   */
+  const openExport = React.useCallback(
+    (purpose: ExportPurpose) => {
+      const picked = order.filter((k) => selection.selected.has(k));
+      setExportRequest({ open: true, purpose, selection: picked.length > 0 && picked.length < order.length ? picked : null });
+    },
+    [order, selection.selected],
+  );
+  // Home's export nudge arrives with ?export=: the dialog opens by itself,
+  // once, as soon as the copies are known (the content key reads them).
+  const [exportIntentHandled, setExportIntentHandled] = React.useState(false);
+  const intentPurpose = editor.intents.exportPurpose;
+  const dialogRequest: ExportDialogRequest | null =
+    exportRequest ??
+    (intentPurpose && !exportIntentHandled && exporter.ready && !exporter.busy ? { open: true, purpose: intentPurpose, selection: null } : null);
+  const closeExport = () => {
+    setExportIntentHandled(true);
+    // Kept, closed, so the dialog's words stay put on the way out.
+    setExportRequest(dialogRequest ? { ...dialogRequest, open: false } : null);
+  };
+  const { start: startExport } = exporter;
+  const pickExport = (aspect: ExportAspect, watermark: boolean) => {
+    if (!dialogRequest) return;
+    setExportIntentHandled(true);
+    setExportRequest({ ...dialogRequest, open: false });
+    void startExport({ purpose: dialogRequest.purpose, aspect, watermark, selection: dialogRequest.selection });
+  };
+  const dialogShown = dialogRequest !== null;
+  const dialogSelection = dialogRequest?.selection ?? null;
+  const exportCounts = React.useMemo<ExportDialogCounts>(() => {
+    if (!dialogShown || !playlist) return { clips: 0, pannedClips: 0, selectedClips: 0, selectedCards: 0 };
+    const vertical = exportContentFor({ playlist, eventByKey, cloud, aspect: "9:16", selection: dialogSelection });
+    return {
+      clips: vertical.clips,
+      pannedClips: vertical.pannedClips,
+      selectedClips: dialogSelection ? dialogSelection.filter((k) => !k.startsWith("text:")).length : 0,
+      selectedCards: dialogSelection ? dialogSelection.filter((k) => k.startsWith("text:")).length : 0,
+    };
+  }, [dialogShown, dialogSelection, playlist, eventByKey, cloud]);
 
   const rows = React.useMemo(
     () => (playlist ? buildEditorRows({ playlist, eventByKey, watchItems: playback.items, cloud, matches, eventsLoaded }) : []),
@@ -241,6 +293,8 @@ export function PlaylistEditor({ playlistId }: { playlistId: string }) {
             sharedPeople={sharedPeople}
             onShare={() => setSharing(true)}
             ship={editor.ship}
+            exporter={exporter}
+            onExport={openExport}
             onSelectAll={selection.selectAll}
             onRename={() => setTitleEditing(true)}
             onDelete={() => setConfirmingDelete(true)}
@@ -302,6 +356,8 @@ export function PlaylistEditor({ playlistId }: { playlistId: string }) {
               autoFocusCardId={autoFocusCardId}
               gridRef={gridRef}
               onAddClips={() => openPanel()}
+              exporter={exporter}
+              onExport={openExport}
             />
           </div>
         }
@@ -341,6 +397,26 @@ export function PlaylistEditor({ playlistId }: { playlistId: string }) {
         destructive
         busy={editor.deleting}
         onConfirm={editor.deletePlaylist}
+      />
+
+      <ExportDialog request={dialogRequest} plan={exporter.plan} counts={exportCounts} onClose={closeExport} onPick={pickExport} />
+
+      <SendToPhoneSheet
+        open={exporter.sheetOpen}
+        link={exporter.share}
+        working={exporter.activity?.purpose === "share" ? exporter.activity : null}
+        onClose={exporter.closeSheet}
+        onCreateNew={exporter.createNewLink}
+        onCancel={() => void exporter.cancel()}
+        onCopied={exporter.linkCopied}
+      />
+
+      <UpgradeDialog
+        open={!!exporter.upgrade?.open}
+        onClose={exporter.closeUpgrade}
+        title={exporter.upgrade?.purpose === "share" ? "Send your playlist to your phone" : "Download your playlist as a video"}
+        feature={`${exporter.upgrade?.purpose === "share" ? "send_to_phone" : "export_playlist"}${exporter.upgrade?.aspect === "9:16" ? "_vertical" : ""}`}
+        source="editor_export"
       />
     </Page>
   );

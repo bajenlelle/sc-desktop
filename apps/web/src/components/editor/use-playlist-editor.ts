@@ -14,6 +14,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { moveBlock, snapGapToGroupBoundary } from "@scoutable/shared/lib/clip-groups";
 import { playlistRolls, type RollPair } from "@scoutable/shared/lib/clip-timing";
+import type { ExportPurpose } from "@scoutable/shared/lib/game-video-wire";
 import { pickGameVideoRow, type GameVideo } from "@scoutable/shared/lib/game-videos-db";
 import { itemsIndexForGap } from "@scoutable/shared/lib/list-reorder";
 import { getMatch, listEventsForMatches, listMatchesLight } from "@scoutable/shared/lib/matches-db";
@@ -68,6 +69,12 @@ export interface EditorIntents {
   rename: boolean;
   /** `?add=<matchId>`: open the add-clips panel on that game. */
   addMatchId: string | null;
+  /** `?export=download|share`: open the export dialog for that (Home's export nudge). */
+  exportPurpose: ExportPurpose | null;
+}
+
+function exportIntent(value: string | null): ExportPurpose | null {
+  return value === "download" || value === "share" ? value : null;
 }
 
 /** The owner's cloud copies, as the editor reads them. */
@@ -130,13 +137,14 @@ export function usePlaylistEditor(playlistId: string) {
   const [intents, setIntents] = useState<EditorIntents>(() => ({
     rename: searchParams.get("rename") === "1",
     addMatchId: searchParams.get("add"),
+    exportPurpose: exportIntent(searchParams.get("export")),
   }));
   useEffect(() => {
-    if (searchParams.has("rename") || searchParams.has("add")) router.replace(pathname, { scroll: false });
+    if (searchParams.has("rename") || searchParams.has("add") || searchParams.has("export")) router.replace(pathname, { scroll: false });
     // Once, on arrival.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const consumeIntents = useCallback(() => setIntents({ rename: false, addMatchId: null }), []);
+  const consumeIntents = useCallback(() => setIntents({ rename: false, addMatchId: null, exportPurpose: null }), []);
 
   // ---------------------------------------------------------------------------
   // Load

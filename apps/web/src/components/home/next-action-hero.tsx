@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Download, Film, ListVideo, Loader2, Plus, Send, Share2, type LucideIcon } from "lucide-react";
+import { Film, ListVideo, Loader2, Plus, Send, Share2, Smartphone, type LucideIcon } from "lucide-react";
 import type { HomeHero } from "@scoutable/shared/lib/home-hero";
 import { ImportEntryLink } from "@/components/import/import-entry-link";
 import { Button } from "@/components/ui/button";
@@ -95,15 +95,18 @@ export function NextActionHero({
           label: "Share playlist",
           onCta: () => onShare(hero.playlist.id),
         };
-      case "export":
-        // Not reached while the web passes hasExported: true (exporting comes with M3b).
+      case "export": {
+        // Personal spaces that never made a highlight link: the editor opens on the export dialog.
+        const editorHref = `/playlists/${encodeURIComponent(hero.playlist.id)}`;
         return {
-          title: `Export “${hero.playlist.name}” as a video`,
-          body: "Exporting a playlist as a video file happens in the desktop app for now.",
-          icon: Download,
-          label: "Open playlist",
-          onCta: () => router.push(`/playlists/${encodeURIComponent(hero.playlist.id)}`),
+          title: `Send “${hero.playlist.name}” to your phone`,
+          body: "Get a link and a QR code, then save or share the video from your phone.",
+          icon: Smartphone,
+          label: "Send to my phone",
+          onCta: () => router.push(`${editorHref}?export=share`),
+          secondary: { label: "Download video", href: `${editorHref}?export=download` },
         };
+      }
       case "remind":
         return {
           title:
