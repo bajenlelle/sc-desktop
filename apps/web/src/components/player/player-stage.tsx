@@ -4,6 +4,7 @@ import * as React from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Loader2, Pause, Play, SkipBack, SkipForward, X } from "lucide-react";
 import { classifyMediaError, type MediaFailure } from "@scoutable/shared/lib/media-failure";
+import { AutoHeight } from "@/components/ui/auto-height";
 import { Button } from "@/components/ui/button";
 import { PortalContainerProvider } from "@/lib/portal-container";
 import { springs, useReducedMotionSafe } from "@/lib/motion";
@@ -89,6 +90,12 @@ export interface PlayerStageProps {
   playback?: { paused: boolean; toggle: () => void };
   /** Overlays on the footage (a text card, the Play button). */
   children?: React.ReactNode;
+  /**
+   * The trim bar (clip-trimmer.tsx): shown in place of the scrubber and the
+   * transport inside the same chrome, which stays up while it is there and
+   * springs to the new height.
+   */
+  trimBar?: React.ReactNode;
   className?: string;
   handleRef?: React.Ref<PlayerStageHandle>;
 }
@@ -124,6 +131,7 @@ export function PlayerStage({
   position,
   playback,
   children,
+  trimBar,
   className,
   handleRef,
 }: PlayerStageProps) {
@@ -222,7 +230,8 @@ export function PlayerStage({
     setActivity((n) => n + 1);
   };
 
-  const chromeVisible = effectivePaused || awake || chromeHover;
+  const trimming = !!trimBar;
+  const chromeVisible = effectivePaused || awake || chromeHover || trimming;
 
   const togglePlay = React.useCallback(() => {
     if (playback) {
@@ -302,6 +311,8 @@ export function PlayerStage({
         }
         // The second click of a double-click is the full-screen gesture.
         if (e.detail > 1) return;
+        // While trimming, the trim bar's own Play is the one that plays.
+        if (trimming) return;
         togglePlay();
       }}
       onDoubleClick={(e) => {
@@ -374,23 +385,25 @@ export function PlayerStage({
               >
                 {/* A wash so white controls read over bright footage. */}
                 <div className="absolute inset-0 bg-black/25" />
-                <div className="absolute inset-0 flex items-center justify-center gap-8">
-                  <div className="pointer-events-auto" {...stopBubbling}>
-                    <ControlButton label="Previous clip" onClick={transport.onPrev} disabled={!transport.canPrev} className="size-11 [&_svg]:size-6">
-                      <SkipBack className="fill-current" />
-                    </ControlButton>
+                {!trimming && (
+                  <div className="absolute inset-0 flex items-center justify-center gap-8">
+                    <div className="pointer-events-auto" {...stopBubbling}>
+                      <ControlButton label="Previous clip" onClick={transport.onPrev} disabled={!transport.canPrev} className="size-11 [&_svg]:size-6">
+                        <SkipBack className="fill-current" />
+                      </ControlButton>
+                    </div>
+                    <div className="pointer-events-auto" {...stopBubbling}>
+                      <ControlButton label={effectivePaused ? "Play" : "Pause"} onClick={togglePlay} size="xl">
+                        <PlayPauseGlyph paused={effectivePaused} />
+                      </ControlButton>
+                    </div>
+                    <div className="pointer-events-auto" {...stopBubbling}>
+                      <ControlButton label="Next clip" onClick={transport.onNext} disabled={!transport.canNext} className="size-11 [&_svg]:size-6">
+                        <SkipForward className="fill-current" />
+                      </ControlButton>
+                    </div>
                   </div>
-                  <div className="pointer-events-auto" {...stopBubbling}>
-                    <ControlButton label={effectivePaused ? "Play" : "Pause"} onClick={togglePlay} size="xl">
-                      <PlayPauseGlyph paused={effectivePaused} />
-                    </ControlButton>
-                  </div>
-                  <div className="pointer-events-auto" {...stopBubbling}>
-                    <ControlButton label="Next clip" onClick={transport.onNext} disabled={!transport.canNext} className="size-11 [&_svg]:size-6">
-                      <SkipForward className="fill-current" />
-                    </ControlButton>
-                  </div>
-                </div>
+                )}
                 {/* Speed and full screen in the top corner, as iOS's player
                     keeps them, so the timeline gets the whole width. */}
                 <div
@@ -403,18 +416,31 @@ export function PlayerStage({
                   <SpeedMenu speed={speed} onSpeedChange={onSpeedChange} />
                   <FullscreenButton active={fullscreen.active} onToggle={fullscreen.toggle} />
                 </div>
-                {/* The read-only line lets a tap through to the footage. */}
-                {scrubber && (
+                {/* The trim bar takes the timeline's place; the read-only
+                    line lets a tap through to the footage. */}
+                {trimming ? (
                   <div
                     className={cn(
-                      "absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-3 pt-6 pb-1",
-                      canScrub && "pointer-events-auto",
+                      "pointer-events-auto absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-3 pt-8 pb-1",
                       fullscreen.layer && "pb-[calc(var(--safe-bottom)+0.25rem)]",
                     )}
-                    {...(canScrub ? stopBubbling : {})}
+                    {...stopBubbling}
                   >
-                    {scrubber}
+                    {trimBar}
                   </div>
+                ) : (
+                  scrubber && (
+                    <div
+                      className={cn(
+                        "absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-3 pt-6 pb-1",
+                        canScrub && "pointer-events-auto",
+                        fullscreen.layer && "pb-[calc(var(--safe-bottom)+0.25rem)]",
+                      )}
+                      {...(canScrub ? stopBubbling : {})}
+                    >
+                      {scrubber}
+                    </div>
+                  )
                 )}
               </motion.div>
             ) : (
@@ -431,15 +457,24 @@ export function PlayerStage({
                   fullscreen.layer && "bottom-[calc(var(--safe-bottom)+0.75rem)]",
                 )}
               >
-                {scrubber}
-                <TransportBar
-                  transport={transportProps}
-                  speed={speed}
-                  onSpeedChange={onSpeedChange}
-                  fullscreen={fullscreen.active}
-                  onToggleFullscreen={fullscreen.toggle}
-                  readout={readout}
-                />
+                {/* The chrome's height springs when the trim bar swaps in. */}
+                <AutoHeight innerClassName="flex flex-col gap-1">
+                  {trimming ? (
+                    trimBar
+                  ) : (
+                    <>
+                      {scrubber}
+                      <TransportBar
+                        transport={transportProps}
+                        speed={speed}
+                        onSpeedChange={onSpeedChange}
+                        fullscreen={fullscreen.active}
+                        onToggleFullscreen={fullscreen.toggle}
+                        readout={readout}
+                      />
+                    </>
+                  )}
+                </AutoHeight>
               </motion.div>
             ))}
         </AnimatePresence>

@@ -54,6 +54,17 @@ export const riseVariants: Variants = {
   exit: { opacity: 0, y: 24, transition: springs.exit },
 };
 
+/**
+ * A side panel that grows out of the button that opened it: a few pixels in
+ * from the right, scaling up from the trigger (set `transformOrigin` to the
+ * button's point on the panel), and leaving the way it came, quicker.
+ */
+export const panelVariants: Variants = {
+  hidden: { opacity: 0, x: 24, scale: 0.98 },
+  visible: { opacity: 1, x: 0, scale: 1, transition: springs.standard },
+  exit: { opacity: 0, x: 24, scale: 0.98, transition: springs.exit },
+};
+
 /** Plain cross-fade for content swaps. */
 export const fadeVariants: Variants = {
   hidden: { opacity: 0 },

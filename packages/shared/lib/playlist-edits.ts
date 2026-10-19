@@ -146,6 +146,28 @@ export function noCopyClips(playlist: Playlist, readyMatchIds: ReadonlySet<strin
   return playlist.items.filter((i): i is PlaylistClipItem => isClipItem(i) && !readyMatchIds.has(i.matchId));
 }
 
+/**
+ * The display gap a block of rows lands in when the keyboard moves it one
+ * slot up (-1) or down (+1): before the row above the block, or after the
+ * row below it. Null when the block is already at that end, or when its
+ * rows are not shown. The block is the rows that travel together
+ * (dragBlockKeys), contiguous or not: the gap is counted from its first or
+ * last row.
+ */
+export function nudgeGap(order: readonly string[], blockKeys: readonly string[], direction: -1 | 1): number | null {
+  const block = new Set(blockKeys);
+  let first = -1;
+  let last = -1;
+  order.forEach((key, i) => {
+    if (!block.has(key)) return;
+    if (first === -1) first = i;
+    last = i;
+  });
+  if (first === -1) return null;
+  if (direction < 0) return first === 0 ? null : first - 1;
+  return last === order.length - 1 ? null : last + 2;
+}
+
 /** The games the playlist's clips come from, in order of first appearance. */
 export function playlistMatchIds(playlist: Playlist): string[] {
   const out: string[] = [];

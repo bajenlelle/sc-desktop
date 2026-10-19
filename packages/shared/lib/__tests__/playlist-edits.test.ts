@@ -6,6 +6,7 @@ import {
   insertCardAt,
   itemKey,
   noCopyClips,
+  nudgeGap,
   pinnedPair,
   playlistMatchIds,
   removeKeys,
@@ -111,5 +112,27 @@ describe("adding and removing", () => {
     const back = restoreRemoved(next, removed);
     expect(back.items.map(itemKey)).toEqual(playlist.items.map(itemKey));
     expect(back.items[1]).toMatchObject({ groupId: "g" });
+  });
+});
+
+describe("nudgeGap", () => {
+  const order = ["a", "b", "c", "d"];
+  it("moves a row one slot up or down", () => {
+    expect(nudgeGap(order, ["b"], -1)).toBe(0);
+    expect(nudgeGap(order, ["b"], 1)).toBe(3);
+  });
+  it("refuses at the ends", () => {
+    expect(nudgeGap(order, ["a"], -1)).toBeNull();
+    expect(nudgeGap(order, ["d"], 1)).toBeNull();
+  });
+  it("counts a block from its outer rows", () => {
+    expect(nudgeGap(order, ["b", "c"], -1)).toBe(0);
+    expect(nudgeGap(order, ["b", "c"], 1)).toBe(4);
+    expect(nudgeGap(order, ["a", "c"], 1)).toBe(4);
+    expect(nudgeGap(order, ["c", "d"], 1)).toBeNull();
+  });
+  it("answers null for rows that are not shown", () => {
+    expect(nudgeGap(order, ["zz"], 1)).toBeNull();
+    expect(nudgeGap([], ["a"], -1)).toBeNull();
   });
 });
