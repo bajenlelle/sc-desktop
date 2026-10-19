@@ -27,7 +27,6 @@
  */
 import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rename, rm, stat } from "node:fs/promises";
-import http from "node:http";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -50,21 +49,13 @@ import { parseEnvFile } from "./env-file.ts";
 import { Aborted, ConvertFailure, classifyFailure, throwIfAborted } from "./errors.ts";
 import { FunctionClient, FunctionError, StaleAttempt, type JobDoneBody } from "./function-client.ts";
 import { createLogger, redact, type Logger } from "./log.ts";
+import { AlivePinger, Progress, SIGTERM_EXIT, SIGTERM_REPORT_TIMEOUT_MS, env, installSignalHandlers, readPort, runMain, startHealthServer, startHeartbeat } from "./runtime.ts";
 import { syncSkipReason } from "./sync.ts";
 import { uploadCopy } from "./upload.ts";
 
-const ALIVE_INTERVAL_MS = 5 * 60 * 1000;
-const ALIVE_TIMEOUT_MS = 10_000;
-const DEFAULT_PORT = 8080;
-const SIGTERM_EXIT = 143;
-const SIGTERM_GRACE_MS = 5000;
-const SIGTERM_REPORT_TIMEOUT_MS = 4000;
 const COPY_TOLERANCE_S = 2;
-const EXIT_GRACE_MS = 1500;
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 const DEFAULT_ENV_FILE = join(REPO_ROOT, "apps/desktop/.env.staging");
-
-const env = (name: string): string | undefined => process.env[name]?.trim() || undefined;
 
 // ── configuration ─────────────────────────────────────────────────────────────
 
@@ -104,8 +95,6 @@ function readConfig(): Config {
       supabaseSource = "env-file";
     }
   }
-  const portRaw = env("PORT");
-  const port = portRaw ? Number(portRaw) : dryRunSource ? null : DEFAULT_PORT;
   return {
     videoId: env("VIDEO_ID") ?? (dryRunSource ? "dry-run" : ""),
     dryRunSource,
@@ -117,7 +106,7 @@ function readConfig(): Config {
     botPassword: env("BOT_PASSWORD") ?? null,
     aliveUrl: env("ALIVE_URL") ?? null,
     workDir: env("WORK_DIR") ?? null,
-    port: port && Number.isInteger(port) && port > 0 ? port : null,
+    port: readPort(dryRunSource !== null),
     supabaseSource,
   };
 }
@@ -129,84 +118,14 @@ function botCredentials(cfg: Config): BotCredentials | null {
 
 // ── job context ───────────────────────────────────────────────────────────────
 
-/** The job's single progress figure, with a log line whenever a phase starts or passes another tenth. */
-class Progress {
-  phase: ConvertPhase | "start" = "start";
-  value = 0;
-  detail: Record<string, unknown> = {};
-  private logged = { phase: "" as string, step: -1 };
-
-  constructor(private readonly log: Logger) {}
-
-  set(phase: ConvertPhase, fraction: number, detail: Record<string, unknown> = {}): void {
-    const f = Math.min(1, Math.max(0, Number.isFinite(fraction) ? fraction : 0));
-    this.phase = phase;
-    this.value = progressFraction(phase, f);
-    this.detail = detail;
-    const step = Math.floor(f * 10);
-    if (phase !== this.logged.phase || step !== this.logged.step) {
-      this.logged = { phase, step };
-      this.line();
-    }
-  }
-
-  line(extra: Record<string, unknown> = {}): void {
-    this.log({ phase: this.phase, pct: Math.round(this.value * 100), ...this.detail, ...extra });
-  }
-}
-
 interface JobContext {
   videoId: string;
   attempt: number;
   log: Logger;
   abort: AbortController;
   workDir: string;
-  progress: Progress;
-}
-
-/** Keeps the Worker's inactivity clock running while the job lasts, and tells it when the job has reported. */
-class AlivePinger {
-  private timer: NodeJS.Timeout | null = null;
-
-  constructor(
-    private readonly url: string,
-    private readonly attempt: number,
-    private readonly log: Logger,
-  ) {}
-
-  start(): void {
-    void this.ping();
-    this.timer = setInterval(() => void this.ping(), ALIVE_INTERVAL_MS);
-    this.timer.unref();
-  }
-
-  stop(): void {
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
-  }
-
-  async ping(final = false): Promise<void> {
-    try {
-      const u = new URL(this.url);
-      u.searchParams.set("attempt", String(this.attempt));
-      if (final) u.searchParams.set("final", "1");
-      const res = await fetch(u, { method: "POST", signal: AbortSignal.timeout(ALIVE_TIMEOUT_MS) });
-      if (!res.ok) this.log({ phase: "alive", status: res.status });
-    } catch (e) {
-      this.log({ phase: "alive", error: this.log.safe(e) });
-    }
-  }
-}
-
-function startHealthServer(port: number, snapshot: () => unknown, log: Logger): http.Server {
-  const server = http.createServer((_req, res) => {
-    res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify(snapshot()));
-  });
-  server.on("error", (e) => log({ phase: "health", error: log.safe(e) }));
-  server.listen(port, "0.0.0.0");
-  server.unref();
-  return server;
+  /** The job's single progress figure; the phases sit on fixed spans of it (progressFraction). */
+  progress: Progress<ConvertPhase>;
 }
 
 // ── steps ─────────────────────────────────────────────────────────────────────
@@ -379,17 +298,13 @@ async function runJob(cfg: Config, ctx: JobContext): Promise<number> {
 
   const alive = cfg.aliveUrl ? new AlivePinger(cfg.aliveUrl, take.attempt, ctx.log) : null;
   alive?.start();
-  // Progress and heartbeat together, on the wire's interval, whatever phase the job is in.
-  const heartbeat = setInterval(() => {
-    ctx.progress.line({ heartbeat: true });
-    client.progress(take.attempt, ctx.progress.value).catch((e: unknown) => {
-      if (e instanceof StaleAttempt) {
-        if (!ctx.abort.signal.aborted) ctx.abort.abort("stale_attempt");
-        return;
-      }
-      ctx.log({ phase: "progress", error: ctx.log.safe(e) });
-    });
-  }, GAME_VIDEO_PROGRESS_INTERVAL_SECONDS * 1000);
+  const heartbeat = startHeartbeat({
+    intervalMs: GAME_VIDEO_PROGRESS_INTERVAL_SECONDS * 1000,
+    progress: ctx.progress,
+    report: (value) => client.progress(take.attempt, value),
+    abort: ctx.abort,
+    log: ctx.log,
+  });
 
   let reported = false;
   let code = 1;
@@ -417,7 +332,7 @@ async function runJob(cfg: Config, ctx: JobContext): Promise<number> {
       code = sigterm ? SIGTERM_EXIT : 1;
     }
   } finally {
-    clearInterval(heartbeat);
+    heartbeat.stop();
     alive?.stop();
     // Tells the Worker the function has heard from this run, so its onStop safety net stays quiet.
     if (reported) await alive?.ping(true);
@@ -471,16 +386,9 @@ async function dryRun(cfg: Config, source: string, ctx: JobContext): Promise<num
 
 async function main(): Promise<number> {
   const cfg = readConfig();
-  const log = createLogger(cfg.videoId || "?", [cfg.workerSecret, cfg.anonKey, cfg.botPassword, cfg.aliveUrl]);
+  const log = createLogger({ program: "convert", id: cfg.videoId || "?", secrets: [cfg.workerSecret, cfg.anonKey, cfg.botPassword, cfg.aliveUrl] });
   const abort = new AbortController();
-  const onSignal = (signal: NodeJS.Signals) => {
-    if (abort.signal.aborted) return;
-    log({ phase: "signal", signal });
-    abort.abort("sigterm");
-    setTimeout(() => process.exit(SIGTERM_EXIT), SIGTERM_GRACE_MS).unref();
-  };
-  process.on("SIGTERM", onSignal);
-  process.on("SIGINT", onSignal);
+  installSignalHandlers(abort, log);
 
   const ctx: JobContext = {
     videoId: cfg.videoId,
@@ -488,7 +396,7 @@ async function main(): Promise<number> {
     log,
     abort,
     workDir: cfg.workDir ?? (await mkdtemp(join(tmpdir(), "game-video-"))),
-    progress: new Progress(log),
+    progress: new Progress<ConvertPhase>(log, progressFraction),
   };
   if (cfg.workDir) await mkdir(cfg.workDir, { recursive: true });
   const health = cfg.port ? startHealthServer(cfg.port, () => ({ videoId: ctx.videoId, attempt: ctx.attempt, phase: ctx.progress.phase, progress: ctx.progress.value }), log) : null;
@@ -500,15 +408,4 @@ async function main(): Promise<number> {
   }
 }
 
-main().then(
-  (code) => {
-    // Let stdout drain and the sockets close on their own; force the exit if something lingers.
-    process.exitCode = code;
-    setTimeout(() => process.exit(code), EXIT_GRACE_MS).unref();
-  },
-  (e) => {
-    console.error(`[convert] crashed: ${redact(e instanceof Error ? e.message : String(e), [])}`);
-    process.exitCode = 1;
-    setTimeout(() => process.exit(1), EXIT_GRACE_MS).unref();
-  },
-);
+runMain("convert", main, (message) => redact(message, []));

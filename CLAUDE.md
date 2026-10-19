@@ -101,6 +101,40 @@ playlists, and share them with teams; players watch on web/mobile.
   this machine), all with `SUPABASE_SERVICE_ROLE_KEY` in the environment.
   Deploy the function by name only. The browser upload needs the bucket's
   CORS rule (PUT from the app's origin, `ExposeHeaders: ETag`).
+- **Server-cut clips** (render jobs): a web playlist's clips are rows without
+  files until the owner calls `ship { playlistId }` on `game-video` (the web
+  does so when the playlist is shared, and again after clips are added or
+  trimmed, the rolls change, or the game's sync changes). Each run is a
+  `render_jobs` row (kind `ship` now, `export` later; migration
+  `20261020100000`) with the conversions' bookkeeping: attempt, heartbeat,
+  progress, `requeue`, `result = {shipped, failed, superseded, total,
+  failures}`; one live job per (playlist, kind, aspect), the owner reads their
+  own rows (RLS), only the function writes. The plan (window from
+  `lib/clip-ship-plan.ts`'s `computeVideoTime`/`clipBounds`, key from
+  `clipShipKey`, a copy usable when a ready `game_videos` row exists and the
+  owner owns the match or is admin/coach of its org) is previewed at `ship`,
+  recomputed at `render_take` and checked again at `render_done`, so a clip
+  changed meanwhile is `superseded` and cut again by the follow-up job. The
+  function asks the same Worker for `POST /render {jobId}`; the container runs
+  `src/render.ts` (an entrypoint override of the converter image), which cuts
+  each clip straight from the copy's presigned GET with the desktop's
+  `shipClipArgs` and PUTs it to a presigned URL of the PUBLIC media bucket
+  under the desktop's key, reporting through `render_take / render_progress /
+  render_done / render_failed` (`x-worker-secret`, fenced by attempt). Caps:
+  one running render per user and `MAX_ACTIVE_RENDERS` = 4 globally, beside
+  15 conversions (the Worker allows 20). The media bucket's credentials are
+  presign-upload's `R2_ENDPOINT / R2_BUCKET / R2_ACCESS_KEY_ID /
+  R2_SECRET_ACCESS_KEY / R2_PUBLIC_URL` (function secrets are project-wide, so
+  `game-video` reads the same names); without them `ship` and `render_take`
+  answer `renderer_unavailable`. An unreachable Worker never fails a `ship`:
+  the job waits (heartbeat NULL) for the ten-minute sweep, which also re-runs
+  quiet renders and fails a job nobody took within a day. `render_done` writes
+  `playlist_clips.r2_url` and calls `_notify_pending_shares_for_playlist`
+  (the owner-gated RPC's body, REVOKEd from clients); `sync_set` clears legacy
+  keys and re-ships stale clips of shared playlists (`_playlist_is_shared`).
+  Probes: `supabase/tests/render_jobs.sh`. Smoke: the browser smoke plus
+  `--ship` (the script plays the renderer) or `--ship --local-render` (the
+  real program here, needs `--local-convert --file <video of ≥ 17 s>`).
 - **Errors**: Sentry on all three apps (org `scoutable`, EU). DSNs are
   hardcoded (public); desktop/mobile dev builds are offline unless the DSN
   env var is set. Don't add error tracking dependencies to `packages/shared`.
@@ -135,8 +169,9 @@ playlists, and share them with teams; players watch on web/mobile.
   `npx wrangler deploy [--env staging]` in that directory. Run the program on
   this Mac against staging with
   `FFMPEG=apps/desktop/src-tauri/binaries/ffmpeg-aarch64-apple-darwin` through
-  the smoke script's `--local-convert`, or `DRY_RUN_SOURCE=<file>` for the
-  pipeline alone (see its README).
+  the smoke script's `--local-convert` (the converter) and `--ship
+  --local-render` (the renderer), or `DRY_RUN_SOURCE=<file>` (conversion) and
+  `DRY_RUN_PLAN=<json>` (clip cuts) for the pipelines alone (see its README).
 - Mobile dev: `npx expo start` in `apps/mobile` (dev client build required).
 
 ## CI / Releases

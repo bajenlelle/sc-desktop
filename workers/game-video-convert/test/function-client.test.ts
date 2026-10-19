@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { FunctionClient, FunctionError, StaleAttempt } from "../src/function-client.ts";
+import { FunctionClient, FunctionError, RenderClient, StaleAttempt } from "../src/function-client.ts";
 
 interface Seen {
   url: string;
@@ -64,4 +64,35 @@ test("failed() carries the error and the retry flag and honours per-call tries",
   await assert.rejects(client(fetch).failed(4, "sigterm", true, { tries: 1 }));
   assert.equal(seen.length, 1);
   assert.deepEqual(seen[0].body, { action: "job_failed", videoId: "vid", attempt: 4, error: "sigterm", retryable: true });
+});
+
+const render = (f: typeof fetch) => new RenderClient({ url: "https://ref.supabase.co/functions/v1", secret: "worker-secret", jobId: "job-1", fetch: f, retryDelayMs: 1 });
+
+test("the render client speaks render_* about a jobId, with the same header and endpoint", async () => {
+  const take = { jobId: "job-1", attempt: 1, kind: "ship", copies: {}, clips: [], publicBase: "https://media.example" };
+  const { fetch, seen } = fakeFetch([json(take)]);
+  const got = await render(fetch).take();
+  assert.deepEqual(got, take);
+  assert.equal(seen[0].url, "https://ref.supabase.co/functions/v1/game-video");
+  assert.equal(seen[0].headers["x-worker-secret"], "worker-secret");
+  assert.deepEqual(seen[0].body, { action: "render_take", jobId: "job-1" });
+});
+
+test("render_done carries the results and render_failed the flag; stale_attempt is StaleAttempt here too", async () => {
+  const results = [{ matchId: "m1", eventId: 7, key: "clips/m1/7_pre10.0_post3.0_s1.0.mp4", ok: true }];
+  const done = fakeFetch([json({ jobId: "job-1", status: "done", shipped: 1, failed: 0, superseded: 0 })]);
+  const got = await render(done.fetch).done(2, results);
+  assert.equal(got.shipped, 1);
+  assert.deepEqual(done.seen[0].body, { action: "render_done", jobId: "job-1", attempt: 2, results });
+
+  const failed = fakeFetch([json({ jobId: "job-1", status: "queued", attempt: 2 })]);
+  await render(failed.fetch).failed(2, "upload_failed", true);
+  assert.deepEqual(failed.seen[0].body, { action: "render_failed", jobId: "job-1", attempt: 2, error: "upload_failed", retryable: true });
+
+  const stale = fakeFetch([json({ error: "stale_attempt" }, 409)]);
+  await assert.rejects(render(stale.fetch).progress(1, 0.5), (e) => e instanceof StaleAttempt);
+
+  const busy = fakeFetch([json({ error: "job_busy" }, 409)]);
+  await assert.rejects(render(busy.fetch).take(), (e) => e instanceof FunctionError && e.token === "job_busy");
+  assert.equal(busy.seen.length, 1);
 });

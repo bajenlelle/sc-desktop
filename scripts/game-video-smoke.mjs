@@ -11,6 +11,9 @@
 //   node --env-file=apps/web/.env.staging scripts/game-video-smoke.mjs --browser --local-convert [--file game.mp4]
 //                                                                                           # the real converter program,
 //                                                                                           # run here with tsx
+//   node --env-file=apps/web/.env.staging scripts/game-video-smoke.mjs --browser --local-convert --file game.mp4 \
+//        --ship [--local-render]                                                            # + a web playlist's clips cut
+//                                                                                           # on the server (render jobs)
 //
 // The browser path uploads an ORIGINAL to a source key, completes into
 // `converting`, then either drives the job_* actions itself with the worker
@@ -20,21 +23,47 @@
 // for a real detection). With --file the real file is uploaded instead of
 // random bytes, and the converter encodes it.
 //
+// --ship goes on from the ready copy: three plays around the anchor, a club
+// with a second throwaway user, a playlist with three clips and a text card
+// shared to that user (pending, no file yet), `ship` → a queued render job
+// (no renderer is reached here: the job waits as it would for the sweep),
+// then the job is run either by this script playing the renderer (fake cuts
+// PUT to the presigned URLs) or by the real program,
+// workers/game-video-convert/src/render.ts, spawned here (--local-render;
+// needs a real copy, so --local-convert --file with a video of at least 17 s,
+// and FFMPEG). Then: every r2_url is the public base + clipShipKey, the
+// files GET as video/mp4 and probe at the window's length (--local-render),
+// the pending share is notified, `ship` again cuts nothing, a trim cuts one
+// clip anew, a sync change cuts all three again. The clip objects stay in the
+// media bucket under clips/smoke-<stamp>/ (the smoke can't delete there).
+//
 // Needs SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL), SUPABASE_ANON_KEY (or
 // NEXT_PUBLIC_SUPABASE_ANON_KEY) and SUPABASE_SERVICE_ROLE_KEY. Never prints
 // a key, a token or a signed URL.
 
 import { createClient } from "@supabase/supabase-js";
-import { randomBytes } from "node:crypto";
-import { spawn } from "node:child_process";
+import { randomBytes, randomUUID } from "node:crypto";
+import { execFile, spawn } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+// The key scheme every shipped clip is stored under (an import-free TypeScript file; Node strips the types).
+import { clipBounds, clipShipKey } from "../packages/shared/lib/clip-ship-plan.ts";
 
 const args = process.argv.slice(2);
 const BROWSER = args.includes("--browser");
 const LOCAL_CONVERT = args.includes("--local-convert");
+const SHIP = args.includes("--ship");
+const LOCAL_RENDER = args.includes("--local-render");
 const fileArg = args.indexOf("--file") >= 0 ? args[args.indexOf("--file") + 1] : null;
+if (SHIP && !BROWSER) {
+  console.error("--ship needs --browser (it goes on from the browser path's ready copy).");
+  process.exit(2);
+}
+if (LOCAL_RENDER && !(SHIP && LOCAL_CONVERT && fileArg)) {
+  console.error("--local-render needs --ship --local-convert --file <video of at least 17 s> (real clips are cut from the real copy).");
+  process.exit(2);
+}
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const ANON_KEY = process.env.SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
@@ -335,6 +364,8 @@ async function browserPath(user, userId) {
   expect(!r.ok && r.error === "wrong_status", `retry_convert on a ready row answered ${r.ok ? "ok" : r.error}`);
   log(`sync_set manual 341: the game follows${LOCAL_CONVERT ? "" : ", a confirmed hint is written"}; retry on a ready row is refused`);
 
+  if (SHIP) await shipPath(user, userId, videoId, wsecret);
+
   // A conversion that fails: one retryable attempt, then a final one, then the original is gone.
   const match2 = `${matchId}-b`;
   matchIds.push(match2);
@@ -405,6 +436,279 @@ async function runLocalConverter(videoId, wsecret) {
 }
 
 // ---------------------------------------------------------------------------
+// Shipping: a web playlist's clips cut on the server (--ship)
+// ---------------------------------------------------------------------------
+
+/**
+ * Where the smoke puts the tip-off in the copy, and the plays after it: with
+ * the default rolls (10 s before, 3 s after) the windows are [0,13], [2,15]
+ * and [4,17], inside any copy of 17 s or more.
+ */
+const SHIP_TIP = 10;
+const SHIP_PLAY_OFFSETS_S = [0, 2, 4];
+const SHIP_EVENT_IDS = [1001, 1002, 1003];
+const ROLLS = { pre: 10, post: 3 };
+/** The columns the web reads to follow a job (packages/shared/lib/render-jobs-db.ts). */
+const RENDER_JOB_SELECT = "id, kind, playlist_id, status, progress, requeue, result, error, attempt, created_at, finished_at";
+
+const shipCleanup = { playlistId: null, orgId: null, playerId: null };
+
+async function jobRow(jobId) {
+  const { data, error } = await admin.from("render_jobs").select(`${RENDER_JOB_SELECT}, heartbeat_at, user_id`).eq("id", jobId).maybeSingle();
+  expect(!error && data, `job read failed: ${error?.message ?? "no row"}`);
+  return data;
+}
+
+async function clipRows(playlistId) {
+  const { data, error } = await admin.from("playlist_clips").select("id, match_id, event_id, item_type, position, pre_roll_offset, post_roll_offset, r2_url").eq("playlist_id", playlistId).order("position");
+  expect(!error, `clips read failed: ${error?.message}`);
+  return data.filter((c) => c.item_type === "clip");
+}
+
+async function shareRow(playlistId, playerId) {
+  const { data, error } = await admin.from("playlist_user_shares").select("notified_at").eq("playlist_id", playlistId).eq("user_id", playerId).maybeSingle();
+  expect(!error && data, `share read failed: ${error?.message ?? "no row"}`);
+  return data;
+}
+
+/** The window and key the plan computes for play `i` at a tip-off of `tip` seconds, with the clip's offsets. */
+function expectedCut(i, tip, preOff = 0, postOff = 0) {
+  const t = tip + SHIP_PLAY_OFFSETS_S[i];
+  const { start, end } = clipBounds(t, ROLLS.pre, ROLLS.post, preOff, postOff);
+  return { key: clipShipKey(matchId, SHIP_EVENT_IDS[i], ROLLS.pre + preOff, ROLLS.post + postOff, start), seconds: end - start };
+}
+
+/** A key's public base ("https://media.example" from "https://media.example/clips/…"). */
+const baseOf = (r2Url, key) => (r2Url && r2Url.endsWith(`/${key}`) ? r2Url.slice(0, r2Url.length - key.length - 1) : null);
+
+/** A file's duration through ffmpeg (FFMPEG, or `ffmpeg` on PATH), which reads https URLs too. */
+async function probeDuration(source) {
+  const ffmpeg = process.env.FFMPEG?.trim() || "ffmpeg";
+  const stderr = await new Promise((resolve) => execFile(ffmpeg, ["-hide_banner", "-i", source], { maxBuffer: 8 * MIB }, (_e, _out, err) => resolve(String(err ?? ""))));
+  const d = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(stderr);
+  return d ? Number(d[1]) * 3600 + Number(d[2]) * 60 + Number(d[3]) : null;
+}
+
+/** Each shipped file is public, an MP4 of a real size, and as long as its window. */
+async function checkShippedFiles(clips, cuts) {
+  for (const [i, clip] of clips.entries()) {
+    const head = await fetch(clip.r2_url, { method: "HEAD" });
+    expect(head.ok, `HEAD of clip ${i} answered ${head.status}`);
+    expect((head.headers.get("content-type") ?? "").startsWith("video/mp4"), `clip ${i} is served as ${head.headers.get("content-type")}`);
+    expect(Number(head.headers.get("content-length")) >= 4096, `clip ${i} is ${head.headers.get("content-length")} bytes`);
+    const seconds = await probeDuration(clip.r2_url);
+    expect(seconds !== null && Math.abs(seconds - cuts[i].seconds) <= 1, `clip ${i} probes at ${seconds} s, expected ${cuts[i].seconds} s`);
+  }
+}
+
+/** Runs the renderer program on this machine against a queued job, the way the container would. */
+async function runLocalRenderer(jobId, wsecret) {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const script = path.resolve(here, "../workers/game-video-convert/src/render.ts");
+  const env = {
+    ...process.env,
+    RENDER_JOB_ID: jobId,
+    GAME_VIDEO_FN_URL: `${SUPABASE_URL}/functions/v1`,
+    WORKER_SECRET: wsecret,
+  };
+  delete env.PORT;
+  log(`local renderer: tsx ${path.relative(process.cwd(), script)} on job ${jobId.slice(0, 8)}… (FFMPEG=${process.env.FFMPEG ? "set" : "ffmpeg"})`);
+  const started = Date.now();
+  const code = await new Promise((resolve) => {
+    const child = spawn("npx", ["tsx", script], { env, stdio: ["ignore", "inherit", "inherit"] });
+    child.on("exit", (c) => resolve(c ?? 1));
+    child.on("error", () => resolve(1));
+  });
+  expect(code === 0, `the renderer exited with ${code}`);
+  log(`local renderer finished in ${((Date.now() - started) / 1000).toFixed(0)} s`);
+  await sleep(500);
+}
+
+/** The renderer's side of the protocol, played by this script: take, progress, fake cuts PUT to the signed URLs, done. Returns the public base. */
+async function renderAsWorker(jobId, wsecret, { cuts, videoId }) {
+  const w = (body) => call(admin, body, { "x-worker-secret": wsecret });
+
+  let r = await call(admin, { action: "render_take", jobId }, { "x-worker-secret": "wrong" });
+  expect(!r.ok && r.error === "bad_worker_secret", `render_take with a wrong secret answered ${r.ok ? "ok" : r.error}`);
+  r = await w({ action: "render_take", jobId });
+  expect(r.ok, `render_take failed: ${r.error} ${JSON.stringify(r.extra ?? {})}`);
+  const { attempt, kind, copies, clips, publicBase } = r.data;
+  expect(attempt === 1 && kind === "ship" && clips.length === cuts.length && typeof publicBase === "string" && /^https:\/\//.test(publicBase), `render_take answered ${JSON.stringify({ attempt, kind, clips: clips.length, publicBase: typeof publicBase })}`);
+  expect(copies[videoId]?.url, "render_take has no URL for the copy");
+  clips.forEach((c, i) => expect(c.key === cuts[i].key && c.videoId === videoId && c.putUrl && Math.abs(c.end - c.start - cuts[i].seconds) < 1e-6, `render_take clip ${i}: ${JSON.stringify({ key: c.key, start: c.start, end: c.end })}, expected ${cuts[i].key}`));
+  const head = await fetch(copies[videoId].url, { headers: { Range: "bytes=0-15" } });
+  expect(head.status === 206, `the copy's signed URL answered ${head.status}`);
+  log(`render_take: attempt 1, ${clips.length} clip${clips.length === 1 ? "" : "s"} planned with the expected keys, the copy's URL serves bytes`);
+
+  r = await w({ action: "render_take", jobId });
+  expect(!r.ok && r.error === "job_busy", `a second render_take answered ${r.ok ? "ok" : r.error}`);
+  r = await w({ action: "render_progress", jobId, attempt, progress: 0.5 });
+  expect(r.ok, `render_progress failed: ${r.error}`);
+  let cur = await jobRow(jobId);
+  expect(cur.status === "running" && Math.abs(Number(cur.progress) - 0.5) < 1e-6 && cur.attempt === 1 && cur.heartbeat_at, `job after progress: ${JSON.stringify(cur)}`);
+  r = await w({ action: "render_progress", jobId, attempt: attempt + 1, progress: 0.6 });
+  expect(!r.ok && r.error === "stale_attempt", `a stale attempt's progress answered ${r.ok ? "ok" : r.error}`);
+  log("render_progress: 50% on the job; a second take is busy; a stale attempt is refused");
+
+  // Stand-in cuts go to the presigned PUTs, with the content type that was signed; another type is refused.
+  const fakeClip = randomBytes(8192);
+  for (const c of clips) {
+    const res = await fetch(c.putUrl, { method: "PUT", body: fakeClip, headers: { "content-type": "video/mp4" } });
+    expect(res.ok, `PUT of a clip answered ${res.status}`);
+  }
+  const wrongType = await fetch(clips[0].putUrl, { method: "PUT", body: fakeClip, headers: { "content-type": "text/plain" } });
+  expect(wrongType.status === 403, `a PUT with another content type answered ${wrongType.status}`);
+  log("stand-in cuts PUT to the media bucket; a PUT with another content type is refused");
+
+  const results = clips.map((c) => ({ matchId: c.matchId, eventId: c.eventId, key: c.key, ok: true }));
+  r = await w({ action: "render_done", jobId, attempt, results });
+  expect(r.ok && r.data.status === "done" && r.data.shipped === clips.length && r.data.failed === 0 && r.data.superseded === 0, `render_done answered ${r.ok ? JSON.stringify(r.data) : r.error + " " + JSON.stringify(r.extra ?? {})}`);
+  r = await w({ action: "render_done", jobId, attempt, results });
+  expect(r.ok && r.data.status === "done", `a repeated render_done answered ${r.ok ? JSON.stringify(r.data) : r.error}`);
+  log(`render_done: done, ${clips.length} shipped; a repeat is harmless`);
+  return publicBase;
+}
+
+/** A queued job gets its renderer: the real program (--local-render) or this script. Returns the public base when known. */
+async function settleJob(jobId, wsecret, expectations) {
+  if (LOCAL_RENDER) {
+    await runLocalRenderer(jobId, wsecret);
+    return null;
+  }
+  return renderAsWorker(jobId, wsecret, expectations);
+}
+
+async function shipPath(user, userId, videoId, wsecret) {
+  const copy = await row(videoId);
+  const copySeconds = Number(copy.duration_seconds) || 0;
+  if (LOCAL_RENDER) expect(copySeconds >= 17, `--local-render needs a copy of at least 17 s (this one is ${copySeconds} s): use --file with a longer video`);
+
+  // The tip-off at SHIP_TIP seconds into the copy, so the plays' windows sit inside it.
+  let r = await call(user, { action: "sync_set", videoId, status: "manual", seconds: SHIP_TIP });
+  expect(r.ok && r.data.seconds === SHIP_TIP, `sync_set (${SHIP_TIP}) answered ${r.ok ? JSON.stringify(r.data) : r.error}`);
+
+  // Three plays after the anchor, with the columns listEventsForMatches reads.
+  const events = SHIP_EVENT_IDS.map((eventId, i) => ({
+    match_id: matchId,
+    event_id: eventId,
+    type: "2pt",
+    sub_type: "jumpshot",
+    period: 1,
+    game_clock_time: `09:${String(59 - SHIP_PLAY_OFFSETS_S[i]).padStart(2, "0")}`,
+    real_world_time: new Date(Date.parse(ANCHOR) + SHIP_PLAY_OFFSETS_S[i] * 1000).toISOString(),
+    is_successful: 1,
+    player: { playerId: `smoke-${i + 1}`, pno: i + 1, firstName: "Smoke", familyName: `Player ${i + 1}`, teamNumber: 1 },
+    event_team: { teamCode: "SMK", teamName: "Cloud smoke", teamNumber: 1 },
+    qualifiers: [],
+  }));
+  const evIns = await admin.from("play_by_play_events").insert(events);
+  expect(!evIns.error, `events insert failed: ${evIns.error?.message}`);
+  log(`sync_set manual ${SHIP_TIP}; three plays at +0, +2 and +4 s from the anchor`);
+
+  // A club with the owner as coach and a second throwaway user as player: a share needs both.
+  const org = await admin.from("organizations").insert({ name: `Cloud smoke club ${stamp}`, is_personal: false }).select("id").single();
+  expect(!org.error, `org insert failed: ${org.error?.message}`);
+  shipCleanup.orgId = org.data.id;
+  const playerEmail = `delivered+cloud-smoke-${stamp}-player@resend.dev`;
+  const playerPassword = randomBytes(18).toString("base64url");
+  const created = await admin.auth.admin.createUser({ email: playerEmail, password: playerPassword, email_confirm: true });
+  expect(!created.error, `createUser (player) failed: ${created.error?.message}`);
+  const playerId = created.data.user.id;
+  shipCleanup.playerId = playerId;
+  const mem = await admin.from("org_memberships").insert([
+    { user_id: userId, org_id: org.data.id, role: "coach" },
+    { user_id: playerId, org_id: org.data.id, role: "player" },
+  ]);
+  expect(!mem.error, `memberships insert failed: ${mem.error?.message}`);
+  const player = createClient(SUPABASE_URL, ANON_KEY, { auth: { persistSession: false } });
+  const playerSignIn = await player.auth.signInWithPassword({ email: playerEmail, password: playerPassword });
+  expect(!playerSignIn.error, `player sign in failed: ${playerSignIn.error?.message}`);
+
+  // The playlist, its clips and a text card, as the owner writes them from the web; then a share, pending.
+  const pl = await user.from("playlists").insert({ user_id: userId, name: "Cloud smoke playlist", org_id: org.data.id }).select("id").single();
+  expect(!pl.error, `playlist insert failed: ${pl.error?.message}`);
+  const playlistId = pl.data.id;
+  shipCleanup.playlistId = playlistId;
+  const items = await user.from("playlist_clips").insert([
+    ...SHIP_EVENT_IDS.map((eventId, i) => ({ playlist_id: playlistId, item_type: "clip", match_id: matchId, event_id: eventId, position: i, pre_roll_offset: 0, post_roll_offset: 0 })),
+    { playlist_id: playlistId, item_type: "text", item_id: randomUUID(), text_content: "Cloud smoke card", duration_seconds: 5, position: 3, match_id: null, event_id: null, pre_roll_offset: 0, post_roll_offset: 0 },
+  ]);
+  expect(!items.error, `clips insert failed: ${items.error?.message}`);
+  const share = await user.from("playlist_user_shares").insert({ playlist_id: playlistId, user_id: playerId, shared_by: userId });
+  expect(!share.error, `share insert failed: ${share.error?.message}`);
+  expect((await shareRow(playlistId, playerId)).notified_at === null, "the share should stay pending while the playlist has no file");
+  log("a club, a player, a playlist with 3 clips and a text card, shared to the player (pending: no file yet)");
+
+  // Who may ship.
+  r = await call(user, { action: "ship", playlistId: "not-a-uuid" });
+  expect(!r.ok && r.error === "invalid_request", `ship with a bad id answered ${r.ok ? "ok" : r.error}`);
+  r = await call(player, { action: "ship", playlistId });
+  expect(!r.ok && r.error === "not_owner", `ship by the player answered ${r.ok ? "ok" : r.error}`);
+  r = await call(user, { action: "ship", playlistId: randomUUID() });
+  expect(!r.ok && r.error === "not_owner", `ship on an unknown playlist answered ${r.ok ? "ok" : r.error}`);
+  log("ship: a bad id is invalid_request; a non-owner and an unknown playlist get not_owner");
+
+  // The owner ships: three clips to cut, one queued job that waits for a renderer.
+  r = await call(user, { action: "ship", playlistId });
+  expect(r.ok, `ship failed: ${r.error} ${JSON.stringify(r.extra ?? {})}`);
+  expect(r.data.total === 3 && r.data.status === "queued" && r.data.jobId && r.data.skipped.length === 0 && r.data.noCopy.length === 0 && r.data.requeued === false, `ship answered ${JSON.stringify(r.data)}`);
+  const jobId = r.data.jobId;
+  let job = await jobRow(jobId);
+  expect(job.status === "queued" && job.attempt === 0 && job.heartbeat_at === null && job.user_id === userId, `job after ship: ${JSON.stringify(job)}`);
+  const mine = await user.from("render_jobs").select(RENDER_JOB_SELECT).eq("playlist_id", playlistId).eq("kind", "ship").order("created_at", { ascending: false }).limit(1);
+  expect(!mine.error && mine.data?.length === 1 && mine.data[0].id === jobId, `the owner's poll: ${mine.error?.message ?? JSON.stringify(mine.data)}`);
+  const theirs = await player.from("render_jobs").select("id").eq("playlist_id", playlistId);
+  expect(!theirs.error && theirs.data?.length === 0, `the player's poll: ${theirs.error?.message ?? JSON.stringify(theirs.data)}`);
+  r = await call(user, { action: "ship", playlistId });
+  expect(r.ok && r.data.jobId === jobId && r.data.status === "queued" && r.data.requeued === false && r.data.total === 3, `a second ship did not coalesce: ${JSON.stringify(r.data)}`);
+  log(`ship: total 3, job ${jobId.slice(0, 8)}… queued and waiting (heartbeat NULL); the owner reads it, the player can't; a repeat coalesces`);
+
+  // The render.
+  const cuts = SHIP_EVENT_IDS.map((_, i) => expectedCut(i, SHIP_TIP));
+  const publicBase = await settleJob(jobId, wsecret, { cuts, videoId });
+  job = await jobRow(jobId);
+  expect(job.status === "done" && job.result?.shipped === 3 && job.result?.total === 3 && job.result?.failed === 0 && job.result?.superseded === 0 && job.finished_at && Number(job.progress) === 1, `job after the render: ${JSON.stringify(job)}`);
+  let clips = await clipRows(playlistId);
+  const base = publicBase ?? baseOf(clips[0].r2_url, cuts[0].key);
+  expect(base && /^https:\/\//.test(base), `clip 0 has no https r2_url ending in its key (${clips[0].r2_url ? "set" : "null"})`);
+  clips.forEach((c, i) => expect(c.r2_url === `${base}/${cuts[i].key}`, `clip ${i} r2_url is not publicBase + ${cuts[i].key}`));
+  if (LOCAL_RENDER) await checkShippedFiles(clips, cuts);
+  expect((await shareRow(playlistId, playerId)).notified_at, "the pending share was not notified once the files landed");
+  log(`render: done, 3 of 3 shipped, every r2_url is the public base + clipShipKey${LOCAL_RENDER ? ", every file GETs as video/mp4 and probes at 13 s" : ""}; the pending share is notified`);
+
+  // Nothing left to cut.
+  r = await call(user, { action: "ship", playlistId });
+  expect(r.ok && r.data.total === 0 && r.data.status === "done" && r.data.skipped.length === 3 && r.data.skipped.every((s) => s.reason === "up_to_date"), `ship with everything shipped answered ${r.ok ? JSON.stringify(r.data) : r.error}`);
+  log("ship again: total 0, three clips up to date");
+
+  // A trim on one clip: only that clip is cut again, under a new key; its old file is left behind.
+  const trimmed = clips[1];
+  const upd = await user.from("playlist_clips").update({ pre_roll_offset: -2 }).eq("id", trimmed.id);
+  expect(!upd.error, `trim update failed: ${upd.error?.message}`);
+  r = await call(user, { action: "ship", playlistId });
+  expect(r.ok && r.data.total === 1 && r.data.status === "queued" && r.data.jobId !== jobId, `ship after a trim answered ${r.ok ? JSON.stringify(r.data) : r.error}`);
+  const trimCuts = [expectedCut(1, SHIP_TIP, -2, 0)];
+  await settleJob(r.data.jobId, wsecret, { cuts: trimCuts, videoId });
+  clips = await clipRows(playlistId);
+  expect(clips[1].r2_url === `${base}/${trimCuts[0].key}`, `the trimmed clip's r2_url is not the new key ${trimCuts[0].key}`);
+  expect(clips[0].r2_url === `${base}/${cuts[0].key}` && clips[2].r2_url === `${base}/${cuts[2].key}`, "the other clips changed");
+  if (LOCAL_RENDER) await checkShippedFiles([clips[1]], trimCuts);
+  log(`a trim: ship → total 1, the clip's file replaced under its new key${LOCAL_RENDER ? ` (${trimCuts[0].seconds} s)` : ""}; the others untouched`);
+
+  // A sync change moves every play: the shared playlist's clips are cut again under keys with the new start.
+  r = await call(user, { action: "sync_set", videoId, status: "manual", seconds: SHIP_TIP + 1 });
+  expect(r.ok && r.data.seconds === SHIP_TIP + 1, `sync_set (${SHIP_TIP + 1}) answered ${r.ok ? JSON.stringify(r.data) : r.error}`);
+  const live = await admin.from("render_jobs").select(RENDER_JOB_SELECT).eq("playlist_id", playlistId).in("status", ["queued", "running"]).maybeSingle();
+  expect(!live.error && live.data?.status === "queued", `no queued job after the sync change: ${live.error?.message ?? JSON.stringify(live.data)}`);
+  const movedCuts = [expectedCut(0, SHIP_TIP + 1), expectedCut(1, SHIP_TIP + 1, -2, 0), expectedCut(2, SHIP_TIP + 1)];
+  await settleJob(live.data.id, wsecret, { cuts: movedCuts, videoId });
+  clips = await clipRows(playlistId);
+  clips.forEach((c, i) => expect(c.r2_url === `${base}/${movedCuts[i].key}`, `after the sync change clip ${i} r2_url is not ${movedCuts[i].key}`));
+  if (LOCAL_RENDER) await checkShippedFiles(clips, movedCuts);
+  log("a sync change: a job is queued for the shared playlist and all three clips are cut again with the new start in their keys");
+}
+
+// ---------------------------------------------------------------------------
 
 let userId = null;
 try {
@@ -467,6 +771,13 @@ try {
   }
 } finally {
   if (userId) {
+    // The ship path's playlist (its clips, share and jobs follow), club (memberships follow) and player.
+    if (shipCleanup.playlistId) await admin.from("playlists").delete().eq("id", shipCleanup.playlistId);
+    if (shipCleanup.orgId) await admin.from("organizations").delete().eq("id", shipCleanup.orgId);
+    if (shipCleanup.playerId) {
+      const dp = await admin.auth.admin.deleteUser(shipCleanup.playerId);
+      if (dp.error) console.error("cleanup: deleteUser (player) failed:", dp.error.message);
+    }
     for (const id of matchIds) await admin.from("matches").delete().eq("id", id);
     const d = await admin.auth.admin.deleteUser(userId);
     if (d.error) console.error("cleanup: deleteUser failed:", d.error.message);

@@ -1,8 +1,10 @@
 /**
- * The converter's side of the `job_*` actions on the `game-video` function
+ * The container's side of the `game-video` function's worker actions
  * (packages/shared/lib/game-video-wire.ts): one POST per call with the
  * worker secret in a header, `{ error }` tokens turned into typed errors.
- * Every write carries the attempt number; a 409 `stale_attempt` means
+ * Two programs speak through it: the converter (`job_*`, about a `videoId`)
+ * and the renderer (`render_*`, about a render job's `jobId`); both carry
+ * the attempt number on every write, and a 409 `stale_attempt` means
  * another attempt owns the row now and this run must stop. 5xx answers and
  * network failures are retried with a growing pause; 4xx answers are not.
  */
@@ -13,6 +15,10 @@ import type {
   GameVideoJobFailedResponse,
   GameVideoJobTakeResponse,
   GameVideoSignPartsResponse,
+  RenderClipResult,
+  RenderDoneResponse,
+  RenderFailedResponse,
+  RenderTakeResponse,
 } from "@scoutable/shared/lib/game-video-wire";
 
 export class FunctionError extends Error {
@@ -34,11 +40,11 @@ export class StaleAttempt extends FunctionError {
   }
 }
 
-export interface FunctionClientOptions {
+/** What both clients share: the endpoint, the secret, the retry policy. */
+export interface FunctionCallerOptions {
   /** GAME_VIDEO_FN_URL: `https://<ref>.supabase.co/functions/v1`. */
   url: string;
   secret: string;
-  videoId: string;
   fetch?: typeof fetch;
   /** Per request; the default allows for a slow CompleteMultipartUpload inside job_done. */
   timeoutMs?: number;
@@ -51,42 +57,32 @@ export interface CallOptions {
   timeoutMs?: number;
 }
 
-export type JobDoneBody = Omit<GameVideoJobDoneRequest, "action" | "videoId" | "attempt">;
+/** The field every call names its row by, and the prefix of its actions. */
+export type IdField = "videoId" | "jobId";
+export type ActionPrefix = "job" | "render";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_RETRY_DELAY_MS = 1000;
 
 const isRetryableStatus = (status: number) => status >= 500 || status === 429;
 
-export class FunctionClient {
+/**
+ * The POST loop both clients run: `{ action: "<prefix>_<name>", <idField>: id, …body }`
+ * with the secret header, retried on 5xx and network failures.
+ */
+export class FunctionCaller {
   private readonly endpoint: string;
 
-  constructor(private readonly o: FunctionClientOptions) {
+  constructor(
+    private readonly o: FunctionCallerOptions,
+    private readonly prefix: ActionPrefix,
+    private readonly idField: IdField,
+    private readonly id: string,
+  ) {
     this.endpoint = `${o.url.replace(/\/+$/, "")}/game-video`;
   }
 
-  take(): Promise<GameVideoJobTakeResponse> {
-    return this.call<GameVideoJobTakeResponse>({ action: "job_take" }, { tries: 3 });
-  }
-
-  async progress(attempt: number, progress: number): Promise<void> {
-    await this.call<unknown>({ action: "job_progress", attempt, progress }, { tries: 2 });
-  }
-
-  signParts(attempt: number, partNumbers: number[]): Promise<GameVideoSignPartsResponse> {
-    return this.call<GameVideoSignPartsResponse>({ action: "job_sign_parts", attempt, partNumbers }, { tries: 3 });
-  }
-
-  /** Idempotent on the function's side: a repeat finds the row ready and answers the same. */
-  done(attempt: number, body: JobDoneBody): Promise<GameVideoJobDoneResponse> {
-    return this.call<GameVideoJobDoneResponse>({ action: "job_done", attempt, ...body }, { tries: 5 });
-  }
-
-  failed(attempt: number, error: GameVideoConvertError | string, retryable: boolean, opts: CallOptions = {}): Promise<GameVideoJobFailedResponse> {
-    return this.call<GameVideoJobFailedResponse>({ action: "job_failed", attempt, error, retryable }, { tries: 3, ...opts });
-  }
-
-  private async call<T>(body: Record<string, unknown>, opts: CallOptions): Promise<T> {
+  protected async call<T>(name: string, body: Record<string, unknown>, opts: CallOptions): Promise<T> {
     const tries = Math.max(1, opts.tries ?? 1);
     const timeoutMs = opts.timeoutMs ?? this.o.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     const doFetch = this.o.fetch ?? fetch;
@@ -96,7 +92,7 @@ export class FunctionClient {
         const res = await doFetch(this.endpoint, {
           method: "POST",
           headers: { "content-type": "application/json", "x-worker-secret": this.o.secret },
-          body: JSON.stringify({ ...body, videoId: this.o.videoId }),
+          body: JSON.stringify({ action: `${this.prefix}_${name}`, ...body, [this.idField]: this.id }),
           signal: AbortSignal.timeout(timeoutMs),
         });
         const text = await res.text();
@@ -124,5 +120,73 @@ export class FunctionClient {
       if (n < tries) await new Promise((r) => setTimeout(r, (this.o.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS) * n));
     }
     throw last ?? new FunctionError("request_failed", 0);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The converter: job_* about a game_videos row
+// ---------------------------------------------------------------------------
+
+export interface FunctionClientOptions extends FunctionCallerOptions {
+  videoId: string;
+}
+
+export type JobDoneBody = Omit<GameVideoJobDoneRequest, "action" | "videoId" | "attempt">;
+
+export class FunctionClient extends FunctionCaller {
+  constructor(o: FunctionClientOptions) {
+    super(o, "job", "videoId", o.videoId);
+  }
+
+  take(): Promise<GameVideoJobTakeResponse> {
+    return this.call<GameVideoJobTakeResponse>("take", {}, { tries: 3 });
+  }
+
+  async progress(attempt: number, progress: number): Promise<void> {
+    await this.call<unknown>("progress", { attempt, progress }, { tries: 2 });
+  }
+
+  signParts(attempt: number, partNumbers: number[]): Promise<GameVideoSignPartsResponse> {
+    return this.call<GameVideoSignPartsResponse>("sign_parts", { attempt, partNumbers }, { tries: 3 });
+  }
+
+  /** Idempotent on the function's side: a repeat finds the row ready and answers the same. */
+  done(attempt: number, body: JobDoneBody): Promise<GameVideoJobDoneResponse> {
+    return this.call<GameVideoJobDoneResponse>("done", { attempt, ...body }, { tries: 5 });
+  }
+
+  failed(attempt: number, error: GameVideoConvertError | string, retryable: boolean, opts: CallOptions = {}): Promise<GameVideoJobFailedResponse> {
+    return this.call<GameVideoJobFailedResponse>("failed", { attempt, error, retryable }, { tries: 3, ...opts });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The renderer: render_* about a render_jobs row
+// ---------------------------------------------------------------------------
+
+export interface RenderClientOptions extends FunctionCallerOptions {
+  jobId: string;
+}
+
+export class RenderClient extends FunctionCaller {
+  constructor(o: RenderClientOptions) {
+    super(o, "render", "jobId", o.jobId);
+  }
+
+  take(): Promise<RenderTakeResponse> {
+    return this.call<RenderTakeResponse>("take", {}, { tries: 3 });
+  }
+
+  async progress(attempt: number, progress: number): Promise<void> {
+    await this.call<unknown>("progress", { attempt, progress }, { tries: 2 });
+  }
+
+  /** Idempotent on the function's side: a repeat finds the job done and answers its counts. */
+  done(attempt: number, results: RenderClipResult[]): Promise<RenderDoneResponse> {
+    return this.call<RenderDoneResponse>("done", { attempt, results }, { tries: 5 });
+  }
+
+  failed(attempt: number, error: string, retryable: boolean, opts: CallOptions = {}): Promise<RenderFailedResponse> {
+    return this.call<RenderFailedResponse>("failed", { attempt, error, retryable }, { tries: 3, ...opts });
   }
 }

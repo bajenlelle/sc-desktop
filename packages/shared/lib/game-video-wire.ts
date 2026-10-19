@@ -752,6 +752,8 @@ export const GAME_VIDEO_ERRORS = [
   "job_busy",
   /** Shipping needs the media bucket's credentials and the converter, and this project has neither configured. */
   "renderer_unavailable",
+  /** `ship` on a playlist with clips of the sample game, which streams from Scoutable already and is never shared. */
+  "demo_game",
 ] as const;
 
 export type GameVideoError = (typeof GAME_VIDEO_ERRORS)[number];

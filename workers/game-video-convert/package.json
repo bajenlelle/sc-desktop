@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.worker.json",
     "test": "node --import tsx --test test/*.test.ts",
     "convert": "tsx src/convert.ts",
+    "render": "tsx src/render.ts",
     "deploy": "wrangler deploy",
     "deploy:staging": "wrangler deploy --env staging"
   },

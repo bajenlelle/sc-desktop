@@ -24,6 +24,10 @@
 //     job_take, job_progress, job_sign_parts, job_done, job_failed
 //                    the converter's calls (x-worker-secret), each fenced by the
 //                    attempt number it was given in job_take
+//     ship           the owner asks for a playlist's clips to be cut from the
+//                    cloud copies into files in the PUBLIC media bucket (render.ts)
+//     render_take, render_progress, render_done, render_failed
+//                    the renderer's calls (x-worker-secret), fenced the same way
 //
 // Setup:
 //   npx supabase functions deploy game-video --project-ref <ref>
@@ -36,7 +40,10 @@
 //     GAME_VIDEO_CONVERT_URL=https://<worker>.workers.dev  GAME_VIDEO_CONVERT_SECRET=<the Worker's CONVERT_SECRET> \
 //     [R2_VIDEOS_PREFIX=<key prefix; defaults to the project ref>]
 //   Without GAME_VIDEO_CONVERT_URL browser uploads answer converter_unavailable;
-//   desktop copies keep working.
+//   desktop copies keep working. Shipped clips go to the PUBLIC media bucket
+//   through presign-upload's R2_ENDPOINT / R2_BUCKET / R2_ACCESS_KEY_ID /
+//   R2_SECRET_ACCESS_KEY / R2_PUBLIC_URL (function secrets are project-wide);
+//   without them `ship` and `render_take` answer renderer_unavailable.
 //   verify_jwt = false in supabase/config.toml: pg_cron's calls carry a secret
 //   header, not a JWT, so every user action checks the JWT itself
 //   (admin.auth.getUser), as genius does.
@@ -48,9 +55,7 @@
 // staging database re-seeded from prod can never delete prod's objects.
 
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
-import { AwsClient } from "npm:aws4fetch@1.0.20";
 import {
-  GAME_VIDEO_HEARTBEAT_STALE_SECONDS,
   GAME_VIDEO_MAX_ATTEMPTS,
   GAME_VIDEO_PART_SIZE,
   GAME_VIDEO_PART_URL_SECONDS,
@@ -67,8 +72,6 @@ import {
   parseListParts,
   partsComplete,
   planParts,
-  projectRefFromUrl,
-  s3ErrorCode,
   sourceExtension,
   type GameVideoAnchorKind,
   type GameVideoJobMatch,
@@ -77,104 +80,48 @@ import {
   type GameVideoSweepResponse,
   type GameVideoSyncOutcome,
 } from "../../../packages/shared/lib/game-video-wire.ts";
+import {
+  CONVERT_SECRET,
+  CONVERT_URL,
+  ForeignKeyError,
+  KEY_PREFIX,
+  MATCH_ID_RE,
+  PURGE_SECRET,
+  R2_ACCESS_KEY_ID,
+  R2_BUCKET,
+  R2_ENDPOINT,
+  R2_SECRET_ACCESS_KEY,
+  SERVICE_ROLE_KEY,
+  STALE_MS,
+  SUPABASE_URL,
+  SWEEP_BATCH,
+  UUID_RE,
+  WORKER_SECRET,
+  corsHeaders,
+  err,
+  guardKey,
+  objectUrl,
+  ok,
+  optInt,
+  optNumber,
+  optString,
+  presign,
+  rpcError,
+  s3,
+  safeEqual,
+  type Payload,
+} from "./common.ts";
+import { invalidateShippedClipsAfterSync, renderDone, renderFailed, renderProgress, renderTake, ship, sweepRenders } from "./render.ts";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const R2_ENDPOINT = (Deno.env.get("R2_VIDEOS_ENDPOINT") ?? "").replace(/\/$/, "");
-const R2_BUCKET = Deno.env.get("R2_VIDEOS_BUCKET") ?? "";
-const R2_ACCESS_KEY_ID = Deno.env.get("R2_VIDEOS_ACCESS_KEY_ID") ?? "";
-const R2_SECRET_ACCESS_KEY = Deno.env.get("R2_VIDEOS_SECRET_ACCESS_KEY") ?? "";
-const PURGE_SECRET = Deno.env.get("GAME_VIDEO_PURGE_SECRET") ?? "";
-const WORKER_SECRET = Deno.env.get("GAME_VIDEO_WORKER_SECRET") ?? "";
-const CONVERT_URL = (Deno.env.get("GAME_VIDEO_CONVERT_URL") ?? "").replace(/\/$/, "");
-const CONVERT_SECRET = Deno.env.get("GAME_VIDEO_CONVERT_SECRET") ?? "";
-const KEY_PREFIX = Deno.env.get("R2_VIDEOS_PREFIX") || projectRefFromUrl(SUPABASE_URL) || "";
-
-const MATCH_ID_RE = /^[A-Za-z0-9-]{1,64}$/;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PURGE_BATCH = 100;
-const SWEEP_BATCH = 20;
-/** Conversions running at once across every user; the Worker's max_instances (20) keeps headroom above it. */
+/** Conversions running at once across every user; the Worker's max_instances (20) keeps headroom above it, with render jobs (MAX_ACTIVE_RENDERS) beside them. */
 const MAX_ACTIVE_CONVERSIONS = 15;
-const STALE_MS = GAME_VIDEO_HEARTBEAT_STALE_SECONDS * 1000;
 const ANCHOR_KINDS: readonly GameVideoAnchorKind[] = ["tipoff", "first_basket", "match_start"];
 const SYNC_OUTCOMES: readonly GameVideoSyncOutcome[] = ["confirmed", "estimate", "not_found", "skipped"];
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "content-type, authorization, x-client-info, apikey, x-purge-secret, x-worker-secret",
-};
-
-function err(status: number, token: string, extra: Record<string, unknown> = {}): Response {
-  return new Response(JSON.stringify({ error: token, ...extra }), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
-
-function ok(body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status: 200,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
-
-/** Constant-time string equality for the shared secrets. */
-function safeEqual(a: string, b: string): boolean {
-  const ea = new TextEncoder().encode(a);
-  const eb = new TextEncoder().encode(b);
-  if (ea.length !== eb.length) return false;
-  let diff = 0;
-  for (let i = 0; i < ea.length; i++) diff |= ea[i] ^ eb[i];
-  return diff === 0;
-}
-
 // ---------------------------------------------------------------------------
-// R2 (S3 API)
+// R2 (S3 API): the PRIVATE bucket's multipart uploads and objects
 // ---------------------------------------------------------------------------
-
-const r2 = new AwsClient({
-  accessKeyId: R2_ACCESS_KEY_ID,
-  secretAccessKey: R2_SECRET_ACCESS_KEY,
-  service: "s3",
-  region: "auto",
-});
-
-function objectUrl(key: string, params: Record<string, string> = {}): URL {
-  const url = new URL(`${R2_ENDPOINT}/${R2_BUCKET}/${key}`);
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  return url;
-}
-
-class ForeignKeyError extends Error {}
-
-/** Every R2 call goes through this: a key outside this project's prefix is never touched. */
-function guardKey(key: string): string {
-  if (!isGameVideoKey(key, KEY_PREFIX)) throw new ForeignKeyError(key);
-  return key;
-}
-
-interface S3Result {
-  status: number;
-  text: string;
-  headers: Headers;
-  code: string | null;
-}
-
-async function s3(method: string, url: URL, init: { headers?: Record<string, string>; body?: string } = {}): Promise<S3Result> {
-  const res = await r2.fetch(url.toString(), { method, headers: init.headers, body: init.body });
-  const text = method === "HEAD" ? "" : await res.text();
-  // S3 can answer 200 with an <Error> body on a CompleteMultipartUpload that failed late.
-  const code = s3ErrorCode(text);
-  return { status: res.status, text, headers: res.headers, code: res.ok && !code ? null : code ?? `http_${res.status}` };
-}
-
-async function presign(method: "PUT" | "GET", url: URL, expiresSeconds: number): Promise<string> {
-  url.searchParams.set("X-Amz-Expires", String(expiresSeconds));
-  const signed = await r2.sign(new Request(url, { method }), { aws: { signQuery: true } });
-  return signed.url;
-}
 
 async function createMultipart(key: string, contentType: string): Promise<string> {
   const r = await s3("POST", objectUrl(key, { uploads: "" }), { headers: { "Content-Type": contentType } });
@@ -351,42 +298,8 @@ async function dropSource(admin: SupabaseClient, row: VideoRow): Promise<void> {
   await update(admin, row.id, { source_storage_key: null, source_upload_id: null });
 }
 
-function optNumber(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
-}
-
-function optInt(v: unknown): number | null {
-  return typeof v === "number" && Number.isInteger(v) && v > 0 ? v : null;
-}
-
-function optString(v: unknown, max = 200): string | null {
-  return typeof v === "string" && v.length > 0 && v.length <= max ? v : null;
-}
-
 function isProfixioMatch(match: { source_game_id: string | null; league_id: string | null } | null): boolean {
   return !!match && ((match.source_game_id ?? "").startsWith("profixio:") || (match.league_id ?? "").startsWith("profixio-"));
-}
-
-/** The error tokens the SQL helpers raise, mapped to responses. */
-function rpcError(message: string): Response {
-  const token = /(?:^|\s)(not_found|wrong_status|stale_attempt|sync_locked|invalid_request|no_anchor|invalid_outcome)(?:\s|$)/.exec(message)?.[1];
-  switch (token) {
-    case "not_found":
-      return err(404, "not_found");
-    case "wrong_status":
-      return err(409, "wrong_status");
-    case "stale_attempt":
-      return err(409, "stale_attempt");
-    case "sync_locked":
-      return err(409, "sync_locked");
-    case "invalid_request":
-    case "no_anchor":
-    case "invalid_outcome":
-      return err(400, "invalid_request");
-    default:
-      console.error("[game-video] rpc failed:", message);
-      return err(500, "lookup_failed");
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -448,15 +361,13 @@ async function startNextWaiting(admin: SupabaseClient, userId: string): Promise<
     .is("convert_heartbeat_at", null)
     .order("created_at", { ascending: true })
     .limit(1);
-  const next = (data ?? [])[0] as VideoRow | undefined;
+  const next = ((data ?? []) as unknown as VideoRow[])[0];
   if (next) await startConvert(admin, next);
 }
 
 // ---------------------------------------------------------------------------
 // Actions: the apps
 // ---------------------------------------------------------------------------
-
-type Payload = Record<string, unknown>;
 
 async function begin(admin: SupabaseClient, userId: string, p: Payload): Promise<Response> {
   const matchId = optString(p.matchId, 64);
@@ -505,7 +416,7 @@ async function begin(admin: SupabaseClient, userId: string, p: Payload): Promise
 
   const { data: rowsData, error: rowsError } = await admin.from("game_videos").select(ROW_SELECT).eq("match_id", matchId);
   if (rowsError) return err(500, "lookup_failed");
-  const rows = (rowsData ?? []) as VideoRow[];
+  const rows = (rowsData ?? []) as unknown as VideoRow[];
   const ready = rows.find((r) => r.status === "ready");
   if (ready && !replace) return err(409, "already_ready", { videoId: ready.id, status: "ready" });
   const converting = rows.filter((r) => r.status === "converting");
@@ -576,7 +487,7 @@ async function begin(admin: SupabaseClient, userId: string, p: Payload): Promise
     storage_key: copyKey,
     source_fingerprint: fingerprintKey,
   };
-  const row = browser
+  const row: Record<string, unknown> = browser
     ? {
         ...common,
         origin: "browser",
@@ -801,6 +712,18 @@ async function syncSet(admin: SupabaseClient, userId: string, p: Payload): Promi
   });
   if (error) return rpcError(error.message);
   const result = data as { sync_status?: string; seconds?: number } | null;
+
+  // The game's plays moved in the video: shipped clips of it follow, as after
+  // a desktop sync change. Best effort, like the desktop's: the sync is saved
+  // whatever happens here.
+  const row = await loadRow(admin, videoId).catch(() => null);
+  if (row) {
+    try {
+      await invalidateShippedClipsAfterSync(admin, row.match_id, userId);
+    } catch (e) {
+      console.error("[game-video] re-shipping after a sync change failed:", e instanceof Error ? e.message : String(e));
+    }
+  }
   return ok({ videoId, syncStatus: result?.sync_status ?? status, seconds: result?.seconds ?? seconds });
 }
 
@@ -858,7 +781,7 @@ async function sweep(admin: SupabaseClient): Promise<Response> {
     .or(`convert_heartbeat_at.is.null,convert_heartbeat_at.lt.${since}`)
     .order("created_at", { ascending: true })
     .limit(SWEEP_BATCH);
-  for (const row of (convData ?? []) as VideoRow[]) {
+  for (const row of (convData ?? []) as unknown as VideoRow[]) {
     result.examined++;
     const stale = !!row.convert_heartbeat_at;
     if (row.convert_attempts >= GAME_VIDEO_MAX_ATTEMPTS) {
@@ -886,7 +809,7 @@ async function sweep(admin: SupabaseClient): Promise<Response> {
     .not("source_storage_key", "is", null)
     .lt("updated_at", weekAgo)
     .limit(SWEEP_BATCH);
-  for (const row of (oldFailed ?? []) as VideoRow[]) {
+  for (const row of (oldFailed ?? []) as unknown as VideoRow[]) {
     result.examined++;
     await dropSource(admin, row);
     result.expired++;
@@ -900,7 +823,7 @@ async function sweep(admin: SupabaseClient): Promise<Response> {
     .eq("origin", "browser")
     .lt("created_at", weekAgo)
     .limit(SWEEP_BATCH);
-  for (const row of (oldUploads ?? []) as VideoRow[]) {
+  for (const row of (oldUploads ?? []) as unknown as VideoRow[]) {
     result.examined++;
     if (row.source_storage_key && row.source_upload_id) {
       guardKey(row.source_storage_key);
@@ -910,6 +833,9 @@ async function sweep(admin: SupabaseClient): Promise<Response> {
     await update(admin, row.id, { source_storage_key: null, source_upload_id: null });
     result.expired++;
   }
+
+  // Render jobs waiting for a renderer, or whose renderer went quiet.
+  await sweepRenders(admin, result);
 
   return ok(result);
 }
@@ -1135,7 +1061,7 @@ Deno.serve(async (req) => {
       if (secret === null || PURGE_SECRET.length === 0 || !safeEqual(secret, PURGE_SECRET)) return err(401, "bad_purge_secret");
       return await purge(admin);
     }
-    if (action === "sweep" || action.startsWith("job_")) {
+    if (action === "sweep" || action.startsWith("job_") || action.startsWith("render_")) {
       const secret = req.headers.get("x-worker-secret");
       if (secret === null || WORKER_SECRET.length === 0 || !safeEqual(secret, WORKER_SECRET)) return err(401, "bad_worker_secret");
       switch (action) {
@@ -1151,6 +1077,14 @@ Deno.serve(async (req) => {
           return await jobDone(admin, payload);
         case "job_failed":
           return await jobFailed(admin, payload);
+        case "render_take":
+          return await renderTake(admin, payload);
+        case "render_progress":
+          return await renderProgress(admin, payload);
+        case "render_done":
+          return await renderDone(admin, payload);
+        case "render_failed":
+          return await renderFailed(admin, payload);
         default:
           return err(400, "invalid_request");
       }
@@ -1178,12 +1112,14 @@ Deno.serve(async (req) => {
         return await retryConvert(admin, userId, payload);
       case "sync_set":
         return await syncSet(admin, userId, payload);
+      case "ship":
+        return await ship(admin, userId, payload);
       default:
         return err(400, "invalid_request");
     }
   } catch (e) {
     if (e instanceof ForeignKeyError) {
-      console.error("[game-video] refused a key outside this project's prefix:", e.message);
+      console.error("[game-video] refused a key outside this project's scheme:", e.message);
       return err(409, "foreign_object");
     }
     const message = e instanceof Error ? e.message : String(e);

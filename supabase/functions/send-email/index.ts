@@ -452,7 +452,7 @@ ${ctaButton(pricingUrl, "See plans")}`,
     case "game_video_ready": {
       const gameTitle = d("game_title", "Your game");
       const matchId = d("match_id");
-      const gameUrl = d("game_url", matchId ? `${appUrl}/games/${encodeURIComponent(matchId)}` : `${appUrl}/games`);
+      const gameUrl = d("game_url", matchId ? `${appUrl}/library/${encodeURIComponent(matchId)}` : `${appUrl}/library`);
       const syncStatus = d("sync_status", "skipped");
       const syncLine =
         syncStatus === "applied"

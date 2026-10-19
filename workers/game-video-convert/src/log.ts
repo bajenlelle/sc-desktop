@@ -1,16 +1,29 @@
 /**
- * One line per event, `[convert <videoId> a<attempt>] key=value …`, built so
- * that nothing which must not reach Workers Logs or a terminal can: URLs are
+ * One line per event, `[<program> <id> a<attempt>] key=value …` (the program
+ * is `convert` for a conversion, `render` for a render job), built so that
+ * nothing which must not reach Workers Logs or a terminal can: URLs are
  * replaced before printing and the values registered as secrets are blanked.
  */
 const MAX_MESSAGE = 300;
 const MIN_SECRET_LENGTH = 8;
+
+export type Program = "convert" | "render";
 
 export interface Logger {
   (fields: Record<string, unknown>): void;
   setAttempt(attempt: number): void;
   /** Error text safe for a public log: no URLs, no registered secrets, one bounded line. */
   safe(e: unknown): string;
+}
+
+export interface LoggerOptions {
+  /** Which program is speaking; the label's first word. Default `convert`. */
+  program?: Program;
+  /** The video id or the render job id the lines are about. */
+  id: string;
+  /** Values that must never appear in a line (secrets, signed URLs); short ones are ignored. */
+  secrets?: readonly (string | null | undefined)[];
+  write?: (line: string) => void;
 }
 
 export function formatFields(fields: Record<string, unknown>): string {
@@ -37,12 +50,14 @@ export function redact(text: string, secrets: readonly string[]): string {
     .slice(0, MAX_MESSAGE);
 }
 
-export function createLogger(videoId: string, secrets: readonly (string | null | undefined)[] = [], write: (line: string) => void = (line) => console.log(line)): Logger {
-  const known = secrets.filter((s): s is string => typeof s === "string" && s.length >= MIN_SECRET_LENGTH);
+export function createLogger(o: LoggerOptions): Logger {
+  const program = o.program ?? "convert";
+  const write = o.write ?? ((line: string) => console.log(line));
+  const known = (o.secrets ?? []).filter((s): s is string => typeof s === "string" && s.length >= MIN_SECRET_LENGTH);
   let attempt = 0;
   const safe = (e: unknown): string => redact(e instanceof Error ? e.message : String(e), known);
   const log = ((fields: Record<string, unknown>) => {
-    write(redact(`[convert ${videoId} a${attempt}] ${formatFields(fields)}`, known));
+    write(redact(`[${program} ${o.id} a${attempt}] ${formatFields(fields)}`, known));
   }) as Logger;
   log.setAttempt = (n: number) => {
     attempt = n;
