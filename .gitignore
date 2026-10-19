@@ -48,3 +48,8 @@ lerna-debug.log*
 # Operator credentials — never commit
 secrets/
 *.p8
+
+# The Supabase CLI's link (project ref, pooler URL, versions): per machine.
+# Committed, it linked every clone to the prod project, so a bare
+# `supabase db push` from any branch went to prod. Link yourself on purpose.
+supabase/.temp/
