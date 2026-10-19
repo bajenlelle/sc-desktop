@@ -8,6 +8,7 @@ import {
   applyClipFilters,
   hasActiveFilters,
   matchesClipFilters,
+  matchesLabelFilter,
   matchesShotType,
   matchesSingleType,
   matchesSituation,
@@ -96,5 +97,40 @@ describe("applyClipFilters", () => {
     expect(on.types.has("steal")).toBe(true);
     expect(toggleFilter(on, "types", "steal").types.size).toBe(0);
     expect(on.shotTypes.size).toBe(0);
+  });
+
+  it("toggles a label even when the filters were built without the group", () => {
+    const { labels: _l, ...noLabels } = EMPTY_CLIP_FILTERS;
+    expect(toggleFilter(noLabels, "labels", "pnr").labels?.has("pnr")).toBe(true);
+  });
+});
+
+describe("the label filter", () => {
+  const all = [made2, miss3, defReb, travel].map((event) => ({ event, key: `m:${event.eventId}` }));
+  const byKey = new Map<string, ReadonlySet<string>>([
+    ["m:1", new Set(["pnr", "transition"])],
+    ["m:2", new Set(["iso"])],
+    ["m:4", new Set()],
+  ]);
+  const labelsOf = (x: { key: string }) => byKey.get(x.key);
+
+  it("lets any chosen label through, and everything with none chosen", () => {
+    expect(matchesLabelFilter(new Set(["iso"]), new Set(["iso", "pnr"]))).toBe(true);
+    expect(matchesLabelFilter(new Set(["cut"]), new Set(["iso"]))).toBe(false);
+    expect(matchesLabelFilter(undefined, new Set(["iso"]))).toBe(false);
+    expect(matchesLabelFilter(undefined, undefined)).toBe(true);
+    expect(matchesLabelFilter(new Set(), new Set())).toBe(true);
+  });
+
+  it("is OR within the labels and AND with the other groups", () => {
+    const labels = { ...EMPTY_CLIP_FILTERS, labels: new Set(["pnr", "iso"]) };
+    expect(hasActiveFilters(labels)).toBe(true);
+    expect(applyClipFilters(all, labels, labelsOf).map((x) => x.event.eventId)).toEqual([1, 2]);
+    const madeTwos = { ...labels, types: new Set(["2pt-made"]) };
+    expect(applyClipFilters(all, madeTwos, labelsOf).map((x) => x.event.eventId)).toEqual([1]);
+  });
+
+  it("finds nothing by label when the labels aren't known", () => {
+    expect(applyClipFilters(all, { ...EMPTY_CLIP_FILTERS, labels: new Set(["pnr"]) })).toEqual([]);
   });
 });

@@ -123,6 +123,12 @@ export interface ClipFilters {
   teams: ReadonlySet<string>;
   /** Player names as playerName() writes them. */
   players: ReadonlySet<string>;
+  /**
+   * Label ids (labels-db.ts). A label belongs to a clip, not to its event,
+   * so applyClipFilters reads them through its `labelsOf`; the desktop's
+   * picker filters labels on its own and leaves this out.
+   */
+  labels?: ReadonlySet<string>;
 }
 
 export const EMPTY_CLIP_FILTERS: ClipFilters = {
@@ -131,10 +137,18 @@ export const EMPTY_CLIP_FILTERS: ClipFilters = {
   situations: new Set(),
   teams: new Set(),
   players: new Set(),
+  labels: new Set(),
 };
 
 export function hasActiveFilters(f: ClipFilters): boolean {
-  return f.types.size > 0 || f.shotTypes.size > 0 || f.situations.size > 0 || f.teams.size > 0 || f.players.size > 0;
+  return (
+    f.types.size > 0 ||
+    f.shotTypes.size > 0 ||
+    f.situations.size > 0 ||
+    f.teams.size > 0 ||
+    f.players.size > 0 ||
+    (f.labels?.size ?? 0) > 0
+  );
 }
 
 function anyOf(values: ReadonlySet<string>, test: (v: string) => boolean): boolean {
@@ -142,7 +156,7 @@ function anyOf(values: ReadonlySet<string>, test: (v: string) => boolean): boole
   return false;
 }
 
-/** Whether one event passes every chosen group (any value within a group). */
+/** Whether one event passes every chosen group (any value within a group). Labels are applyClipFilters'. */
 export function matchesClipFilters(e: PlayByPlayEvent, f: ClipFilters): boolean {
   if (f.types.size > 0 && !anyOf(f.types, (v) => matchesSingleType(e, v))) return false;
   if (f.shotTypes.size > 0 && !anyOf(f.shotTypes, (v) => matchesShotType(e, v))) return false;
@@ -152,10 +166,25 @@ export function matchesClipFilters(e: PlayByPlayEvent, f: ClipFilters): boolean 
   return true;
 }
 
-/** The entries whose event passes the filters, in their given order. */
-export function applyClipFilters<T extends { event: PlayByPlayEvent }>(entries: readonly T[], f: ClipFilters): T[] {
+/** Whether a clip's labels pass the label filter: any chosen label lets it through, and no filter lets everything through. */
+export function matchesLabelFilter(assigned: ReadonlySet<string> | undefined, wanted: ReadonlySet<string> | undefined): boolean {
+  if (!wanted || wanted.size === 0) return true;
+  if (!assigned || assigned.size === 0) return false;
+  return anyOf(wanted, (id) => assigned.has(id));
+}
+
+/**
+ * The entries whose event passes the filters, in their given order. A label
+ * filter reads each entry's labels through `labelsOf` (a clip nobody
+ * labelled, or no `labelsOf`, has none).
+ */
+export function applyClipFilters<T extends { event: PlayByPlayEvent }>(
+  entries: readonly T[],
+  f: ClipFilters,
+  labelsOf?: (entry: T) => ReadonlySet<string> | undefined,
+): T[] {
   if (!hasActiveFilters(f)) return [...entries];
-  return entries.filter((x) => matchesClipFilters(x.event, f));
+  return entries.filter((x) => matchesClipFilters(x.event, f) && matchesLabelFilter(labelsOf?.(x), f.labels));
 }
 
 /** The team names that appear in the events, in order of first appearance. */
@@ -187,7 +216,7 @@ export function playersOf(events: readonly PlayByPlayEvent[]): string[] {
 
 /** A copy of the filters with `value` toggled in `group`. */
 export function toggleFilter(f: ClipFilters, group: keyof ClipFilters, value: string): ClipFilters {
-  const next = new Set(f[group]);
+  const next = new Set(f[group] ?? []);
   if (next.has(value)) next.delete(value);
   else next.add(value);
   return { ...f, [group]: next };

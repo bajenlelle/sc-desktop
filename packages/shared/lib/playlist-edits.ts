@@ -6,8 +6,9 @@
  */
 import type { Playlist, PlaylistClipItem, PlaylistItem, PlaylistTextCard } from "../types/match";
 import { isClipItem } from "../types/match";
-import { normalizeGroups } from "./clip-groups";
-import { playlistRolls, type RollPair } from "./clip-timing";
+import { moveBlock, normalizeGroups } from "./clip-groups";
+import { playlistRolls, rebaseOffsets, type RollPair } from "./clip-timing";
+import type { StatsCardSpec } from "./stats-card";
 
 /** The key an item goes by in the editor: `<matchId>:<eventId>` for a clip, `text:<id>` for a card. */
 export function itemKey(item: PlaylistItem): string {
@@ -85,13 +86,162 @@ export function withCardDuration(playlist: Playlist, cardId: string, durationSec
   return mapItems(playlist, (item) => (!isClipItem(item) && item.id === cardId ? { ...item, durationSeconds: d } : item));
 }
 
-/** The card inserted before the item under `beforeKey`, or at the end when that item is gone or null. */
+/** The card under `cardId` drawn from a stats card spec, or (null) back to a plain text card. */
+export function withCardSpec(playlist: Playlist, cardId: string, card: StatsCardSpec | null): Playlist {
+  return mapItems(playlist, (item) => {
+    if (isClipItem(item) || item.id !== cardId) return item;
+    const next: PlaylistTextCard = { ...item };
+    if (card) next.card = card;
+    else delete next.card;
+    return next;
+  });
+}
+
+/**
+ * The card inserted before the item under `beforeKey`, or at the end when
+ * that item is gone or null. Never inside a group: a key in the middle of a
+ * group's run puts the card above the whole run, as the desktop does.
+ */
 export function insertCardAt(playlist: Playlist, card: PlaylistTextCard, beforeKey: string | null): Playlist {
   const items = [...playlist.items];
-  const at = beforeKey === null ? -1 : items.findIndex((i) => itemKey(i) === beforeKey);
-  if (at < 0) items.push(card);
-  else items.splice(at, 0, card);
+  let at = beforeKey === null ? -1 : items.findIndex((i) => itemKey(i) === beforeKey);
+  if (at < 0) {
+    items.push(card);
+  } else {
+    const gid = items[at].groupId;
+    if (gid) while (at > 0 && items[at - 1].groupId === gid) at--;
+    items.splice(at, 0, card);
+  }
   return { ...playlist, items };
+}
+
+// ---------------------------------------------------------------------------
+// Groups: items locked together so they move as one block
+// ---------------------------------------------------------------------------
+
+/**
+ * The picked items made one group. Groups are atomic, so a selection that
+ * touches a group takes that whole group along; the members are pulled
+ * together at the first member's place (the rest follow it in their order),
+ * and a group this leaves with one member dissolves (normalizeGroups).
+ * `members` are the grouped keys in their new order. Null when fewer than
+ * two items are picked, or when they already are exactly this one group.
+ */
+export function groupItems(
+  playlist: Playlist,
+  keys: ReadonlySet<string>,
+  groupId: string,
+): { playlist: Playlist; members: string[] } | null {
+  const order = playlist.items.map(itemKey);
+  if (order.filter((k) => keys.has(k)).length < 2) return null;
+  const absorbed = new Set<string>();
+  playlist.items.forEach((item, i) => {
+    if (item.groupId && keys.has(order[i])) absorbed.add(item.groupId);
+  });
+  const memberIndices: number[] = [];
+  playlist.items.forEach((item, i) => {
+    if (keys.has(order[i]) || (item.groupId !== undefined && absorbed.has(item.groupId))) memberIndices.push(i);
+  });
+  // Already one whole, contiguous group: nothing to do.
+  const only = playlist.items[memberIndices[0]].groupId;
+  const groupTotal = only ? playlist.items.filter((i) => i.groupId === only).length : 0;
+  const contiguous = memberIndices.every((idx, n) => idx === memberIndices[0] + n);
+  if (only && contiguous && groupTotal === memberIndices.length && memberIndices.every((i) => playlist.items[i].groupId === only)) {
+    return null;
+  }
+  const memberKeys = new Set(memberIndices.map((i) => order[i]));
+  // moveBlock to the first member's own gap keeps it in place and pulls the rest up behind it.
+  const moved = moveBlock(playlist.items, memberIndices, memberIndices[0]);
+  const items = normalizeGroups(moved.map((item) => (memberKeys.has(itemKey(item)) ? { ...item, groupId } : item)));
+  return { playlist: { ...playlist, items }, members: items.map(itemKey).filter((k) => memberKeys.has(k)) };
+}
+
+/** The group under `groupId` taken apart; its items stay where they are. `count` is how many it held. */
+export function ungroupItems(playlist: Playlist, groupId: string): { playlist: Playlist; count: number } {
+  let count = 0;
+  const items = playlist.items.map((item) => {
+    if (item.groupId !== groupId) return item;
+    count++;
+    const { groupId: _g, ...rest } = item;
+    return rest as PlaylistItem;
+  });
+  return { playlist: count > 0 ? { ...playlist, items } : playlist, count };
+}
+
+export type SelectionGroupAction = { kind: "group" } | { kind: "ungroup"; groupId: string; count: number } | null;
+
+/**
+ * What the selection bar offers for the picked items: Ungroup when they all
+ * sit in one group (a group is atomic, so a part of it stands for the
+ * whole), Group when two or more are picked, else nothing.
+ */
+export function selectionGroupAction(playlist: Playlist, keys: ReadonlySet<string>): SelectionGroupAction {
+  const picked = playlist.items.filter((item) => keys.has(itemKey(item)));
+  if (picked.length === 0) return null;
+  const gid = picked[0].groupId;
+  if (gid && picked.every((item) => item.groupId === gid)) {
+    return { kind: "ungroup", groupId: gid, count: playlist.items.filter((item) => item.groupId === gid).length };
+  }
+  return picked.length >= 2 ? { kind: "group" } : null;
+}
+
+/**
+ * `current` with the order and the groups of `previous` put back: what a
+ * failed reorder or (un)group write leaves on the server, kept with every
+ * other edit made since (a note, a trim). Items only `current` has (added
+ * meanwhile) keep their order after the rest; items it no longer has stay
+ * gone.
+ */
+export function restoreStructure(current: Playlist, previous: Playlist): Playlist {
+  const byKey = new Map(current.items.map((item) => [itemKey(item), item]));
+  const items: PlaylistItem[] = [];
+  for (const old of previous.items) {
+    const key = itemKey(old);
+    const now = byKey.get(key);
+    if (!now) continue;
+    byKey.delete(key);
+    if (now.groupId === old.groupId) {
+      items.push(now);
+    } else if (old.groupId) {
+      items.push({ ...now, groupId: old.groupId });
+    } else {
+      const { groupId: _g, ...rest } = now;
+      items.push(rest as PlaylistItem);
+    }
+  }
+  items.push(...byKey.values());
+  return { ...current, items: normalizeGroups(items) };
+}
+
+// ---------------------------------------------------------------------------
+// Copying clips to another playlist
+// ---------------------------------------------------------------------------
+
+/**
+ * The clips under `keys` as copies for `target`, in this playlist's order:
+ * cards stay behind, clips the target already has are left out, groups and
+ * uploaded files don't travel, notes and pans do, and each clip keeps its
+ * length (its offsets move onto the target's pair).
+ */
+export function clipsForCopy(source: Playlist, keys: ReadonlySet<string>, target: Playlist): PlaylistClipItem[] {
+  const present = new Set(target.items.filter(isClipItem).map(itemKey));
+  const from = playlistRolls(source);
+  const to = playlistRolls(target);
+  const out: PlaylistClipItem[] = [];
+  for (const item of source.items) {
+    if (!isClipItem(item)) continue;
+    const key = itemKey(item);
+    if (!keys.has(key) || present.has(key)) continue;
+    present.add(key);
+    const { groupId: _g, r2Url: _r, preRollOffset: _pre, postRollOffset: _post, ...rest } = item;
+    const o = rebaseOffsets(item, from, to);
+    out.push({
+      ...rest,
+      ...(o.preRollOffset !== 0 ? { preRollOffset: o.preRollOffset } : {}),
+      ...(o.postRollOffset !== 0 ? { postRollOffset: o.postRollOffset } : {}),
+    });
+  }
+  return out;
 }
 
 /** New clips appended, those already in the playlist left out. */
