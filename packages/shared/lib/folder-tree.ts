@@ -228,3 +228,167 @@ export function ancestorIds(folders: PlaylistFolder[], id: string): string[] {
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Browsing one folder at a time (the web's Playlists page). These follow the
+// tree as childFoldersByParent shows it, so what a page lists, the path it
+// shows and the moves it offers always agree, orphans included.
+// ---------------------------------------------------------------------------
+
+/** folderId -> the parent it is shown under (null = the top level), per childFoldersByParent. */
+export function shownParentMap(folders: PlaylistFolder[]): Map<string, string | null> {
+  const out = new Map<string, string | null>();
+  for (const [parent, children] of childFoldersByParent(folders)) {
+    for (const child of children) out.set(child.id, parent);
+  }
+  return out;
+}
+
+/**
+ * The folder a playlist is listed in: its own when that folder is in the
+ * set, else the top level (null). The same rule childFoldersByParent applies
+ * to an orphaned folder, so a playlist never disappears from view.
+ */
+export function placedFolderId(
+  knownFolderIds: ReadonlySet<string>,
+  folderId: string | null | undefined,
+): string | null {
+  return folderId != null && knownFolderIds.has(folderId) ? folderId : null;
+}
+
+/**
+ * The folders from the top level down to `id`, inclusive: the path a
+ * breadcrumb shows. [] when id is unknown.
+ */
+export function folderTrail(folders: PlaylistFolder[], id: string): PlaylistFolder[] {
+  const byId = new Map(folders.map((f) => [f.id, f]));
+  if (!byId.has(id)) return [];
+  const parentOf = shownParentMap(folders);
+  const out: PlaylistFolder[] = [];
+  const seen = new Set<string>();
+  let cur: string | null = id;
+  while (cur !== null && !seen.has(cur)) {
+    seen.add(cur);
+    const folder = byId.get(cur);
+    if (!folder) break;
+    out.unshift(folder);
+    cur = parentOf.get(cur) ?? null;
+  }
+  return out;
+}
+
+/**
+ * folderId -> the names from the top level down to it (folderTrail's
+ * names), for every folder in one walk of the tree: search text and
+ * "Season 25/26 / Scouting" descriptions without a walk per folder.
+ */
+export function folderPathNames(folders: PlaylistFolder[]): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  const walk = (nodes: FolderTreeNode[], prefix: string[]) => {
+    for (const node of nodes) {
+      const path = [...prefix, node.folder.name];
+      out.set(node.folder.id, path);
+      walk(node.children, path);
+    }
+  };
+  walk(buildFolderTree(folders), []);
+  return out;
+}
+
+/**
+ * folderId -> how many playlists sit in that folder or anywhere under it:
+ * the count beside a folder row. Agrees with subtreeStats' playlistCount;
+ * playlists whose folder is unknown count nowhere (they show at the top
+ * level). Cycle-safe.
+ */
+export function subtreePlaylistCounts(
+  folders: PlaylistFolder[],
+  playlists: ReadonlyArray<{ folderId?: string }>,
+): Map<string, number> {
+  const parentOf = new Map(folders.map((f) => [f.id, f.parentId]));
+  const counts = new Map<string, number>();
+  for (const p of playlists) {
+    const seen = new Set<string>();
+    let cur = p.folderId;
+    while (cur !== undefined && parentOf.has(cur) && !seen.has(cur)) {
+      seen.add(cur);
+      counts.set(cur, (counts.get(cur) ?? 0) + 1);
+      cur = parentOf.get(cur);
+    }
+  }
+  return counts;
+}
+
+/** What is being moved: a playlist (where it is now) or a folder (by id). */
+export type FolderMoveSubject =
+  | { kind: "playlist"; folderId?: string | null }
+  | { kind: "folder"; id: string };
+
+export interface FolderMoveTarget {
+  /** The destination; null = the top level. */
+  folderId: string | null;
+  /** The destination folder; absent for the top level. */
+  folder?: PlaylistFolder;
+  /** Indent: the top level is 0, the folders at the top level 1, and so on. */
+  depth: number;
+  /**
+   * Why it can't be picked, or false: where the subject already is
+   * ("current"), the folder being moved ("self"), or a folder inside it
+   * ("inside", which would make a cycle).
+   */
+  disabled: false | "current" | "self" | "inside";
+}
+
+/**
+ * Every place a playlist or folder could move to, for a Move to… picker:
+ * the top level, then the tree in sidebar order. The subject's current
+ * place is disabled; a folder can't go into itself or anything under it.
+ */
+export function folderMoveTargets(
+  folders: PlaylistFolder[],
+  subject: FolderMoveSubject,
+): FolderMoveTarget[] {
+  let current: string | null;
+  let inside: ReadonlySet<string> = new Set<string>();
+  if (subject.kind === "playlist") {
+    current = placedFolderId(new Set(folders.map((f) => f.id)), subject.folderId);
+  } else {
+    current = shownParentMap(folders).get(subject.id) ?? null;
+    inside = buildDescendantMap(folders).get(subject.id) ?? inside;
+  }
+  const out: FolderMoveTarget[] = [
+    { folderId: null, depth: 0, disabled: current === null ? "current" : false },
+  ];
+  for (const { folder, depth } of flattenFolderTree(folders)) {
+    const disabled =
+      subject.kind === "folder" && folder.id === subject.id
+        ? "self"
+        : inside.has(folder.id)
+          ? "inside"
+          : folder.id === current
+            ? "current"
+            : false;
+    out.push({ folderId: folder.id, folder, depth: depth + 1, disabled });
+  }
+  return out;
+}
+
+/**
+ * Which way a move between two folders goes, for a push-style transition:
+ * 1 deeper (into a folder under `from`), -1 back up (to a folder above it),
+ * 0 sideways or unrelated. null is the top level.
+ */
+export function folderNavDirection(
+  folders: PlaylistFolder[],
+  from: string | null,
+  to: string | null,
+): -1 | 0 | 1 {
+  if (from === to) return 0;
+  const toTrail = to === null ? [] : folderTrail(folders, to).map((f) => f.id);
+  const fromTrail = from === null ? [] : folderTrail(folders, from).map((f) => f.id);
+  if (from === null) return toTrail.length > 0 ? 1 : 0;
+  if (to === null) return fromTrail.length > 0 ? -1 : 0;
+  if (toTrail.includes(from)) return 1;
+  if (fromTrail.includes(to)) return -1;
+  return 0;
+}

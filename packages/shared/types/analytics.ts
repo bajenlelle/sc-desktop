@@ -61,6 +61,10 @@ export type AnalyticsEvent =
   | "stats_card_inserted" // entry (menu | row | suggestion), scope, source, columns; origin: "web" from the web (after the insert)
   | "stats_card_suggestion_dismissed"
   | "folder_created"
+  // Folders on the web's Playlists page (origin: "web"). via: drag | menu | undo
+  | "folder_moved" // via, to_top_level
+  | "folder_deleted" // subfolders (deleted with it), playlists (moved to the top level)
+  | "playlist_moved" // playlist_id, via, to_top_level
   | "label_created"
   | "label_applied"
   // Distribution & virality

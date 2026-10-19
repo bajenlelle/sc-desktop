@@ -8,8 +8,15 @@ import {
   collectSubtreeIds,
   compareFolders,
   flattenFolderTree,
+  folderMoveTargets,
+  folderNavDirection,
   folderPath,
+  folderPathNames,
+  folderTrail,
   isDescendantOf,
+  placedFolderId,
+  shownParentMap,
+  subtreePlaylistCounts,
   subtreeStats,
   wouldCreateCycle,
   wouldCreateCycleWith,
@@ -361,5 +368,227 @@ describe("wouldCreateCycleWith", () => {
     const map = buildDescendantMap(chain());
     expect(wouldCreateCycleWith(map, "root", "leaf")).toBe(true);
     expect(wouldCreateCycleWith(map, "leaf", "root")).toBe(false);
+  });
+});
+
+describe("shownParentMap", () => {
+  it("maps every folder to the parent it is listed under", () => {
+    const map = shownParentMap(chain());
+    expect(map.get("root")).toBeNull();
+    expect(map.get("mid")).toBe("root");
+    expect(map.get("leaf")).toBe("mid");
+  });
+
+  it("shows an orphan and both cycle members at the top level", () => {
+    const map = shownParentMap([...cycleFixture(), f("orphan", "ghost")]);
+    expect(map.get("orphan")).toBeNull();
+    expect(map.get("a")).toBeNull();
+    expect(map.get("b")).toBeNull();
+    expect(map.size).toBe(4);
+  });
+});
+
+describe("placedFolderId", () => {
+  const known = new Set(["a", "b"]);
+
+  it("keeps a known folder", () => {
+    expect(placedFolderId(known, "a")).toBe("a");
+  });
+
+  it("puts a playlist without a folder at the top level", () => {
+    expect(placedFolderId(known, undefined)).toBeNull();
+    expect(placedFolderId(known, null)).toBeNull();
+  });
+
+  it("puts a playlist whose folder is not in the set at the top level", () => {
+    expect(placedFolderId(known, "gone")).toBeNull();
+  });
+});
+
+describe("folderTrail", () => {
+  it("lists the folders from the top level down to the folder itself", () => {
+    expect(folderTrail(chain(), "leaf").map((x) => x.id)).toEqual(["root", "mid", "leaf"]);
+  });
+
+  it("is just the folder for one at the top level", () => {
+    expect(folderTrail(chain(), "root").map((x) => x.id)).toEqual(["root"]);
+  });
+
+  it("is empty for an unknown id", () => {
+    expect(folderTrail(chain(), "nope")).toEqual([]);
+  });
+
+  it("starts at an orphan, matching folderPath", () => {
+    const folders = [f("orphan", "ghost"), f("kid", "orphan")];
+    expect(folderTrail(folders, "kid").map((x) => x.name)).toEqual(folderPath(folders, "kid"));
+  });
+
+  it("agrees with folderPath on every folder of a normal tree", () => {
+    const folders = [f("r"), f("x", "r"), f("y", "x"), f("z", "y"), f("s", "r"), f("t")];
+    for (const folder of folders) {
+      expect(folderTrail(folders, folder.id).map((x) => x.name)).toEqual(folderPath(folders, folder.id));
+    }
+  });
+
+  it("follows the listing for a cycle member (shown at the top level)", () => {
+    expect(folderTrail(cycleFixture(), "a").map((x) => x.id)).toEqual(["a"]);
+  });
+});
+
+describe("subtreePlaylistCounts", () => {
+  const folders = [...chain(), f("other"), f("orphan", "ghost")];
+  const playlists = [
+    { folderId: "root" },
+    { folderId: "mid" },
+    { folderId: "leaf" },
+    { folderId: "leaf" },
+    { folderId: "other" },
+    { folderId: "orphan" },
+    { folderId: "gone" },
+    {},
+  ];
+
+  it("counts each folder's own playlists and everything under it", () => {
+    const counts = subtreePlaylistCounts(folders, playlists);
+    expect(counts.get("root")).toBe(4);
+    expect(counts.get("mid")).toBe(3);
+    expect(counts.get("leaf")).toBe(2);
+    expect(counts.get("other")).toBe(1);
+    expect(counts.get("orphan")).toBe(1);
+  });
+
+  it("counts playlists with an unknown folder nowhere", () => {
+    const counts = subtreePlaylistCounts(folders, playlists);
+    expect(counts.has("gone")).toBe(false);
+    expect(counts.has("ghost")).toBe(false);
+  });
+
+  it("leaves empty folders out of the map", () => {
+    expect(subtreePlaylistCounts(folders, []).size).toBe(0);
+  });
+
+  it("agrees with subtreeStats for every folder, cycles included", () => {
+    const shapes: PlaylistFolder[][] = [folders, [...cycleFixture(), f("kid", "a")]];
+    const all = [...playlists, { folderId: "a" }, { folderId: "b" }, { folderId: "kid" }];
+    for (const shape of shapes) {
+      const counts = subtreePlaylistCounts(shape, all);
+      for (const folder of shape) {
+        expect(counts.get(folder.id) ?? 0).toBe(subtreeStats(shape, all, folder.id).playlistCount);
+      }
+    }
+  });
+});
+
+describe("folderMoveTargets", () => {
+  // root > mid > leaf, plus a second top-level folder.
+  const folders = () => [...chain(), f("other")];
+  const summary = (targets: ReturnType<typeof folderMoveTargets>) =>
+    targets.map((t) => [t.folderId, t.depth, t.disabled]);
+
+  it("offers the top level first, then the tree in sidebar order with depths", () => {
+    const targets = folderMoveTargets(folders(), { kind: "playlist", folderId: "mid" });
+    expect(summary(targets)).toEqual([
+      [null, 0, false],
+      ["other", 1, false],
+      ["root", 1, false],
+      ["mid", 2, "current"],
+      ["leaf", 3, false],
+    ]);
+    expect(targets[0].folder).toBeUndefined();
+    expect(targets[1].folder?.id).toBe("other");
+  });
+
+  it("disables the top level for a playlist already there", () => {
+    const targets = folderMoveTargets(folders(), { kind: "playlist" });
+    expect(targets[0].disabled).toBe("current");
+    expect(targets.slice(1).every((t) => t.disabled === false)).toBe(true);
+  });
+
+  it("treats a playlist whose folder is unknown as being at the top level", () => {
+    expect(folderMoveTargets(folders(), { kind: "playlist", folderId: "gone" })[0].disabled).toBe("current");
+  });
+
+  it("never lets a folder move into itself or anything under it", () => {
+    const targets = folderMoveTargets(folders(), { kind: "folder", id: "root" });
+    expect(summary(targets)).toEqual([
+      [null, 0, "current"],
+      ["other", 1, false],
+      ["root", 1, "self"],
+      ["mid", 2, "inside"],
+      ["leaf", 3, "inside"],
+    ]);
+  });
+
+  it("disables a nested folder's own parent, and allows the top level", () => {
+    const targets = folderMoveTargets(folders(), { kind: "folder", id: "leaf" });
+    expect(summary(targets)).toEqual([
+      [null, 0, false],
+      ["other", 1, false],
+      ["root", 1, false],
+      ["mid", 2, "current"],
+      ["leaf", 3, "self"],
+    ]);
+  });
+
+  it("agrees with wouldCreateCycle on every folder pair", () => {
+    const shape = [f("r"), f("x", "r"), f("y", "x"), f("z", "y"), f("s", "r"), f("t")];
+    for (const moving of shape) {
+      for (const target of folderMoveTargets(shape, { kind: "folder", id: moving.id })) {
+        if (target.folderId === null) continue;
+        const cycle = wouldCreateCycle(shape, moving.id, target.folderId);
+        expect(target.disabled === "self" || target.disabled === "inside").toBe(cycle);
+      }
+    }
+  });
+
+  it("treats an orphan folder as being at the top level", () => {
+    const targets = folderMoveTargets([f("orphan", "ghost"), f("root")], { kind: "folder", id: "orphan" });
+    expect(targets[0].disabled).toBe("current");
+  });
+});
+
+describe("folderNavDirection", () => {
+  const folders = () => [...chain(), f("other")];
+
+  it("is 0 for the same place", () => {
+    expect(folderNavDirection(folders(), null, null)).toBe(0);
+    expect(folderNavDirection(folders(), "mid", "mid")).toBe(0);
+  });
+
+  it("is 1 going deeper, from the top level or from a folder", () => {
+    expect(folderNavDirection(folders(), null, "root")).toBe(1);
+    expect(folderNavDirection(folders(), null, "leaf")).toBe(1);
+    expect(folderNavDirection(folders(), "root", "leaf")).toBe(1);
+  });
+
+  it("is -1 going back up, to an ancestor or the top level", () => {
+    expect(folderNavDirection(folders(), "leaf", "root")).toBe(-1);
+    expect(folderNavDirection(folders(), "mid", null)).toBe(-1);
+  });
+
+  it("is 0 between unrelated folders and for unknown ids", () => {
+    expect(folderNavDirection(folders(), "leaf", "other")).toBe(0);
+    expect(folderNavDirection(folders(), null, "nope")).toBe(0);
+    expect(folderNavDirection(folders(), "nope", null)).toBe(0);
+  });
+});
+
+describe("folderPathNames", () => {
+  it("gives every folder its path from the top level, matching folderTrail", () => {
+    const shapes: PlaylistFolder[][] = [
+      [f("r"), f("x", "r"), f("y", "x"), f("z", "y"), f("s", "r"), f("t")],
+      [...cycleFixture(), f("kid", "a"), f("orphan", "ghost"), f("under", "orphan")],
+    ];
+    for (const shape of shapes) {
+      const paths = folderPathNames(shape);
+      expect(paths.size).toBe(shape.length);
+      for (const folder of shape) {
+        expect(paths.get(folder.id)).toEqual(folderTrail(shape, folder.id).map((x) => x.name));
+      }
+    }
+  });
+
+  it("is empty for no folders", () => {
+    expect(folderPathNames([]).size).toBe(0);
   });
 });
