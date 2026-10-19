@@ -1,18 +1,21 @@
 // Scoutable — cloud game videos Edge Function: what index.ts (uploads,
-// conversions) and render.ts (server-cut clips) share. Configuration from the
-// function's secrets, the response helpers, request-field validation, the
-// two R2 clients (the PRIVATE game-video bucket behind guardKey(), the PUBLIC
-// media bucket behind guardClipKey()) and the SQL error mapping.
+// conversions), render.ts (server-cut clips) and export.ts (exports) share.
+// Configuration from the function's secrets, the response helpers,
+// request-field validation, the two R2 clients (the PRIVATE game-video bucket
+// behind guardKey(), the PUBLIC media bucket behind guardMediaKey()) and the
+// SQL error mapping.
 //
 // The media bucket's credentials are the R2_* secrets presign-upload uses:
 // function secrets are project-wide, so this function sees the same names.
-// Without them `ship` and `render_take` answer renderer_unavailable and
-// everything else keeps working.
+// Without them `ship`, a share `export` and their `render_take` answer
+// renderer_unavailable and everything else keeps working.
 
 import { AwsClient } from "npm:aws4fetch@1.0.20";
 import {
   CLIP_SHIP_KEY_RE,
   GAME_VIDEO_HEARTBEAT_STALE_SECONDS,
+  HIGHLIGHT_KEY_RE,
+  isGameVideoExportKey,
   isGameVideoKey,
   projectRefFromUrl,
   s3ErrorCode,
@@ -37,6 +40,8 @@ const MEDIA_ACCESS_KEY_ID = Deno.env.get("R2_ACCESS_KEY_ID") ?? "";
 const MEDIA_SECRET_ACCESS_KEY = Deno.env.get("R2_SECRET_ACCESS_KEY") ?? "";
 /** The base shipped clips are served from; persisted verbatim into playlist_clips.r2_url. */
 export const MEDIA_PUBLIC_URL = (Deno.env.get("R2_PUBLIC_URL") ?? "").replace(/\/$/, "");
+/** The web app a highlight link opens in (`${APP_URL}/h/<shareId>`), as send-email reads it. */
+export const APP_URL = (Deno.env.get("APP_URL") ?? "https://app.scoutable.se").replace(/\/$/, "");
 
 export const MATCH_ID_RE = /^[A-Za-z0-9-]{1,64}$/;
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -128,12 +133,21 @@ export function objectUrl(key: string, params: Record<string, string> = {}): URL
   return url;
 }
 
-/** A key this function must never touch: another project's prefix, or a clip key outside the desktop's scheme. */
+/** A key this function must never touch: another project's prefix, or a media key outside the desktop's schemes. */
 export class ForeignKeyError extends Error {}
+
+/**
+ * A private-bucket key of this project: a game's copy or original, or a
+ * download export (`<prefix>/exports/<userId>/<jobId>.mp4`). The nightly
+ * purge deletes only these.
+ */
+export function isOwnPrivateKey(key: string): boolean {
+  return isGameVideoKey(key, KEY_PREFIX) || (key.startsWith(`${KEY_PREFIX}/exports/`) && isGameVideoExportKey(key));
+}
 
 /** Every private-bucket call goes through this: a key outside this project's prefix is never touched. */
 export function guardKey(key: string): string {
-  if (!isGameVideoKey(key, KEY_PREFIX)) throw new ForeignKeyError(key);
+  if (!isOwnPrivateKey(key)) throw new ForeignKeyError(key);
   return key;
 }
 
@@ -158,11 +172,33 @@ export async function presign(method: "PUT" | "GET", url: URL, expiresSeconds: n
   return signed.url;
 }
 
+/**
+ * A presigned PUT of one private-bucket object with its Content-Type signed
+ * in, so the URL can only write that type (a download export: video/mp4).
+ * `allHeaders`: see presignMediaPut.
+ */
+export async function presignPut(key: string, contentType: string, expiresSeconds: number): Promise<string> {
+  const url = objectUrl(guardKey(key));
+  url.searchParams.set("X-Amz-Expires", String(expiresSeconds));
+  const signed = await r2.sign(new Request(url, { method: "PUT", headers: { "Content-Type": contentType } }), {
+    aws: { signQuery: true, allHeaders: true },
+  });
+  return signed.url;
+}
+
+/** A private-bucket object's size, or null when it isn't there. */
+export async function headSize(key: string): Promise<number | null> {
+  const r = await s3("HEAD", objectUrl(guardKey(key)));
+  if (r.status !== 200) return null;
+  const n = Number(r.headers.get("content-length"));
+  return Number.isFinite(n) ? n : null;
+}
+
 // ---------------------------------------------------------------------------
 // R2 (S3 API): the PUBLIC media bucket, for shipped clips
 // ---------------------------------------------------------------------------
 
-/** True when the media bucket's secrets are all there; `ship` and `render_take` refuse otherwise. */
+/** True when the media bucket's secrets are all there; `ship`, a share `export` and their `render_take` refuse otherwise. */
 export function mediaConfigured(): boolean {
   return !!(MEDIA_ENDPOINT && MEDIA_BUCKET && MEDIA_ACCESS_KEY_ID && MEDIA_SECRET_ACCESS_KEY && MEDIA_PUBLIC_URL);
 }
@@ -174,23 +210,44 @@ const media = new AwsClient({
   region: "auto",
 });
 
-/** Every media-bucket key is a shipped clip's, in the desktop's scheme (presign-upload admits the same). */
-export function guardClipKey(key: string): string {
-  if (!CLIP_SHIP_KEY_RE.test(key)) throw new ForeignKeyError(key);
+/** The one content type a media key may be written with, by its extension (presign-upload's rule). */
+const MEDIA_CONTENT_TYPE: Record<string, string> = { mp4: "video/mp4", jpg: "image/jpeg" };
+
+/**
+ * Every media-bucket key is a shipped clip's or a highlight link's file, in
+ * the desktop's schemes (presign-upload admits the same): `clips/…` under
+ * clipShipKey, `highlights/<uid>/<shareId>.mp4|jpg`.
+ */
+export function guardMediaKey(key: string): string {
+  if (!CLIP_SHIP_KEY_RE.test(key) && !HIGHLIGHT_KEY_RE.test(key)) throw new ForeignKeyError(key);
   return key;
 }
 
+function mediaUrl(key: string): URL {
+  return new URL(`${MEDIA_ENDPOINT}/${MEDIA_BUCKET}/${guardMediaKey(key)}`);
+}
+
 /**
- * A presigned PUT for a clip key with the Content-Type signed in, so the URL
- * can only ever upload video/mp4. `allHeaders` is required: aws4fetch treats
- * content-type as unsignable by default and would silently drop it (see
- * presign-upload).
+ * A presigned PUT for a media key with the Content-Type signed in, so the
+ * URL can only ever upload the type its extension names (video/mp4 for a
+ * clip or a highlight, image/jpeg for a poster). `allHeaders` is required:
+ * aws4fetch treats content-type as unsignable by default and would silently
+ * drop it (see presign-upload).
  */
 export async function presignMediaPut(key: string, contentType: string, expiresSeconds: number): Promise<string> {
-  const url = new URL(`${MEDIA_ENDPOINT}/${MEDIA_BUCKET}/${guardClipKey(key)}`);
+  const url = mediaUrl(key);
+  if (MEDIA_CONTENT_TYPE[key.slice(key.lastIndexOf(".") + 1)] !== contentType) throw new ForeignKeyError(key);
   url.searchParams.set("X-Amz-Expires", String(expiresSeconds));
   const signed = await media.sign(new Request(url, { method: "PUT", headers: { "Content-Type": contentType } }), {
     aws: { signQuery: true, allHeaders: true },
   });
   return signed.url;
+}
+
+/** A media-bucket object's size through the S3 API (not the public URL, which a CDN may cache), or null when it isn't there. */
+export async function mediaHeadSize(key: string): Promise<number | null> {
+  const res = await media.fetch(mediaUrl(key).toString(), { method: "HEAD" });
+  if (res.status !== 200) return null;
+  const n = Number(res.headers.get("content-length"));
+  return Number.isFinite(n) ? n : null;
 }

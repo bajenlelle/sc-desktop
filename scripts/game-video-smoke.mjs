@@ -14,6 +14,8 @@
 //   node --env-file=apps/web/.env.staging scripts/game-video-smoke.mjs --browser --local-convert --file game.mp4 \
 //        --ship [--local-render]                                                            # + a web playlist's clips cut
 //                                                                                           # on the server (render jobs)
+//   … --ship --export [--local-render]                                                      # + the playlist exported on the
+//                                                                                           # server: a download and a share
 //
 // The browser path uploads an ORIGINAL to a source key, completes into
 // `converting`, then either drives the job_* actions itself with the worker
@@ -37,6 +39,22 @@
 // clip anew, a sync change cuts all three again. The clip objects stay in the
 // media bucket under clips/smoke-<stamp>/ (the smoke can't delete there).
 //
+// --export goes on from the shipped playlist: two more plays (one whose window
+// runs past the copy's end, one that starts after it) and a pan on the first
+// clip; who may export (a bad request, a non-owner, a free club and a free
+// personal space get refused; then the club goes Pro); a download (16:9,
+// wordmark off) and a share (9:16, with a content key), each run either by
+// this script playing the renderer (a small real MP4 and JPEG made with the
+// local ffmpeg, PUT to the presigned URLs) or by the real program
+// (--local-render: the render is probed, 1280x720 / 1080x1920, its length
+// ≈ the clips + the card, faststart). Then: export_link saves the download
+// (206 for a range, Content-Disposition attachment), the share is a valid
+// highlight link, the same share request reuses it, a fresh one is cancelled
+// while a renderer holds it (its calls get 409 cancelled), a queued selection
+// is cancelled before any renderer takes it, and deleting the download's row
+// queues its file, which the purge deletes. Needs FFMPEG (or ffmpeg on PATH).
+// The share's files stay in the media bucket under highlights/<uid>/.
+//
 // Needs SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL), SUPABASE_ANON_KEY (or
 // NEXT_PUBLIC_SUPABASE_ANON_KEY) and SUPABASE_SERVICE_ROLE_KEY. Never prints
 // a key, a token or a signed URL.
@@ -44,20 +62,29 @@
 import { createClient } from "@supabase/supabase-js";
 import { randomBytes, randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 // The key scheme every shipped clip is stored under (an import-free TypeScript file; Node strips the types).
 import { clipBounds, clipShipKey } from "../packages/shared/lib/clip-ship-plan.ts";
+// The export's names, keys and rate, and the pan rebasing a 9:16 clip gets (import-free too).
+import { exportFileName, exportFrameRate, gameVideoExportKey, HIGHLIGHT_KEY_RE } from "../packages/shared/lib/game-video-wire.ts";
+import { toSegmentKeyframes } from "../packages/shared/lib/crop-path.ts";
 
 const args = process.argv.slice(2);
 const BROWSER = args.includes("--browser");
 const LOCAL_CONVERT = args.includes("--local-convert");
 const SHIP = args.includes("--ship");
+const EXPORT = args.includes("--export");
 const LOCAL_RENDER = args.includes("--local-render");
 const fileArg = args.indexOf("--file") >= 0 ? args[args.indexOf("--file") + 1] : null;
 if (SHIP && !BROWSER) {
   console.error("--ship needs --browser (it goes on from the browser path's ready copy).");
+  process.exit(2);
+}
+if (EXPORT && !SHIP) {
+  console.error("--export needs --ship (it goes on from the shipped playlist).");
   process.exit(2);
 }
 if (LOCAL_RENDER && !(SHIP && LOCAL_CONVERT && fileArg)) {
@@ -364,7 +391,10 @@ async function browserPath(user, userId) {
   expect(!r.ok && r.error === "wrong_status", `retry_convert on a ready row answered ${r.ok ? "ok" : r.error}`);
   log(`sync_set manual 341: the game follows${LOCAL_CONVERT ? "" : ", a confirmed hint is written"}; retry on a ready row is refused`);
 
-  if (SHIP) await shipPath(user, userId, videoId, wsecret);
+  if (SHIP) {
+    const shipped = await shipPath(user, userId, videoId, wsecret);
+    if (EXPORT) await exportPath(user, userId, videoId, wsecret, shipped);
+  }
 
   // A conversion that fails: one retryable attempt, then a final one, then the original is gone.
   const match2 = `${matchId}-b`;
@@ -449,7 +479,7 @@ const SHIP_PLAY_OFFSETS_S = [0, 2, 4];
 const SHIP_EVENT_IDS = [1001, 1002, 1003];
 const ROLLS = { pre: 10, post: 3 };
 /** The columns the web reads to follow a job (packages/shared/lib/render-jobs-db.ts). */
-const RENDER_JOB_SELECT = "id, kind, playlist_id, status, progress, requeue, result, error, attempt, created_at, finished_at";
+const RENDER_JOB_SELECT = "id, kind, playlist_id, status, phase, request, progress, requeue, result, error, attempt, created_at, finished_at";
 
 const shipCleanup = { playlistId: null, orgId: null, playerId: null };
 
@@ -706,6 +736,346 @@ async function shipPath(user, userId, videoId, wsecret) {
   clips.forEach((c, i) => expect(c.r2_url === `${base}/${movedCuts[i].key}`, `after the sync change clip ${i} r2_url is not ${movedCuts[i].key}`));
   if (LOCAL_RENDER) await checkShippedFiles(clips, movedCuts);
   log("a sync change: a job is queued for the shared playlist and all three clips are cut again with the new start in their keys");
+  return { playlistId, orgId: org.data.id, player, tip: SHIP_TIP + 1, publicBase: base };
+}
+
+// ---------------------------------------------------------------------------
+// Exporting: one MP4 of the playlist, rendered on the server (--export)
+// ---------------------------------------------------------------------------
+
+/**
+ * The export's plays in playlist order (the card sits between 1003 and 1004):
+ * the ship path's three (1002 trimmed 2 s earlier), then one at +45 s whose
+ * window runs past a 52 s copy's end and one at +60 s that starts after it.
+ */
+const EXPORT_PLAYS = [
+  { eventId: 1001, offset: 0, preOff: 0 },
+  { eventId: 1002, offset: 2, preOff: -2 },
+  { eventId: 1003, offset: 4, preOff: 0 },
+  { eventId: 1004, offset: 45, preOff: 0 },
+  { eventId: 1005, offset: 60, preOff: 0 },
+];
+const CARD_TEXT = "Cloud smoke card";
+const CARD_SECONDS = 5;
+
+/** What the export of the whole playlist holds for a tip-off at `tip` in a copy of `copySeconds`: the plan's rules (lib/export-plan.ts). */
+function exportCuts(tip, copySeconds) {
+  const kept = [];
+  const dropped = [];
+  for (const p of EXPORT_PLAYS) {
+    const { start, end } = clipBounds(tip + p.offset, ROLLS.pre, ROLLS.post, p.preOff, 0);
+    if (start >= copySeconds - 0.25) dropped.push({ matchId, eventId: p.eventId, reason: "past_end" });
+    else kept.push({ eventId: p.eventId, start, end: Math.min(end, copySeconds) });
+  }
+  return { kept, dropped };
+}
+
+function runFfmpeg(argv) {
+  const ffmpeg = process.env.FFMPEG?.trim() || "ffmpeg";
+  return new Promise((resolve, reject) =>
+    execFile(ffmpeg, argv, { maxBuffer: 8 * MIB }, (e, _out, err) => (e ? reject(new Error(`ffmpeg: ${String(err).slice(-300)}`)) : resolve())),
+  );
+}
+
+/** A small real MP4 (2 s of test pattern and silence, faststart) and a JPEG, made with the local ffmpeg: what the played renderer uploads. */
+async function makeStandIns(dir) {
+  const mp4 = path.join(dir, "stand-in.mp4");
+  const jpg = path.join(dir, "stand-in.jpg");
+  await runFfmpeg(["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=duration=2:size=320x240:rate=25", "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100", "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart", mp4]);
+  await runFfmpeg(["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=320x240", "-frames:v", "1", jpg]);
+  return { mp4: readFileSync(mp4), jpg: readFileSync(jpg) };
+}
+
+/** A file's length and picture size through ffmpeg (a path or an https URL). */
+async function probeVideo(source) {
+  const ffmpeg = process.env.FFMPEG?.trim() || "ffmpeg";
+  const stderr = await new Promise((resolve) => execFile(ffmpeg, ["-hide_banner", "-i", source], { maxBuffer: 8 * MIB }, (_e, _out, err) => resolve(String(err ?? ""))));
+  const d = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(stderr);
+  const v = /Stream #[^\n]*Video:[^\n]*?\b(\d{2,5})x(\d{2,5})\b/.exec(stderr);
+  return {
+    seconds: d ? Number(d[1]) * 3600 + Number(d[2]) * 60 + Number(d[3]) : null,
+    width: v ? Number(v[1]) : null,
+    height: v ? Number(v[2]) : null,
+  };
+}
+
+/** True when an MP4's `moov` box comes before its `mdat` (faststart), reading the top-level boxes. */
+function moovFirst(bytes) {
+  let at = 0;
+  while (at + 8 <= bytes.length) {
+    let size = bytes.readUInt32BE(at);
+    const type = bytes.toString("latin1", at + 4, at + 8);
+    if (type === "moov") return true;
+    if (type === "mdat") return false;
+    if (size === 1) size = Number(bytes.readBigUInt64BE(at + 8));
+    if (size < 8) return false;
+    at += size;
+  }
+  return false;
+}
+
+/** The export plan render_take hands out, checked against what the rows say it must be. */
+function checkExportPlan(plan, { aspect, purpose, watermark, rate, cuts, panned, videoId }) {
+  expect(plan && plan.aspect === aspect && plan.purpose === purpose && plan.watermark === watermark && plan.rate === rate && plan.title === "Cloud smoke playlist", `export plan: ${JSON.stringify(plan && { aspect: plan.aspect, purpose: plan.purpose, watermark: plan.watermark, rate: plan.rate, title: plan.title })}`);
+  // The playlist's order: the three shipped plays, the card, the two late ones; dropped plays leave no segment.
+  const want = [];
+  for (const item of [1001, 1002, 1003, "card", 1004, 1005]) {
+    if (item === "card") {
+      want.push({ kind: "card", durationSeconds: CARD_SECONDS, text: CARD_TEXT, card: null });
+      continue;
+    }
+    const c = cuts.kept.find((k) => k.eventId === item);
+    if (c) want.push({ kind: "clip", matchId, eventId: c.eventId, videoId, start: c.start, end: c.end, keyframes: aspect === "9:16" ? toSegmentKeyframes(c.eventId === 1001 ? panned : undefined, c.start, c.end) : null });
+  }
+  const got = plan.segments.map((s) => (s.kind === "clip" ? { ...s, start: Number(s.start.toFixed(6)), end: Number(s.end.toFixed(6)) } : s));
+  const norm = want.map((s) => (s.kind === "clip" ? { ...s, start: Number(s.start.toFixed(6)), end: Number(s.end.toFixed(6)) } : s));
+  expect(JSON.stringify(got) === JSON.stringify(norm), `export segments: ${JSON.stringify(got)}\n  expected ${JSON.stringify(norm)}`);
+}
+
+/** The renderer's side of an export, played by this script: take, progress with phases, the stand-ins PUT, done. Returns the plan. */
+async function renderExportAsWorker(jobId, wsecret, expected, standIns) {
+  const w = (body) => call(admin, body, { "x-worker-secret": wsecret });
+  let r = await w({ action: "render_take", jobId });
+  expect(r.ok, `render_take (export) failed: ${r.error} ${JSON.stringify(r.extra ?? {})}`);
+  const { attempt, kind, copies, clips, export: plan } = r.data;
+  expect(attempt === 1 && kind === "export" && Array.isArray(clips) && clips.length === 0, `render_take (export) answered ${JSON.stringify({ attempt, kind, clips: clips?.length })}`);
+  checkExportPlan(plan, expected);
+  if (expected.purpose === "download") {
+    expect(plan.keys.video === gameVideoExportKey(expected.ref, expected.userId, jobId) && !plan.keys.poster && !plan.put.poster && plan.put.video, `download keys: ${JSON.stringify(plan.keys)}`);
+  } else {
+    const v = HIGHLIGHT_KEY_RE.exec(plan.keys.video);
+    expect(v && v[1] === expected.userId && v[3] === "mp4" && plan.keys.poster === plan.keys.video.replace(/\.mp4$/, ".jpg") && plan.put.video && plan.put.poster, `share keys: ${JSON.stringify(plan.keys)}`);
+  }
+  const head = await fetch(copies[expected.videoId]?.url ?? "", { headers: { Range: "bytes=0-15" } });
+  expect(head.status === 206, `the export's copy URL answered ${head.status}`);
+
+  r = await w({ action: "render_progress", jobId, attempt, progress: 0.3, phase: "clips" });
+  expect(r.ok, `render_progress (clips) failed: ${r.error}`);
+  let cur = await jobRow(jobId);
+  expect(cur.phase === "clips" && Math.abs(Number(cur.progress) - 0.3) < 1e-6, `job after progress: ${JSON.stringify({ phase: cur.phase, progress: cur.progress })}`);
+  r = await w({ action: "render_progress", jobId, attempt, progress: 0.9, phase: "stitch" });
+  expect(r.ok && (await jobRow(jobId)).phase === "stitch", `render_progress (stitch) failed: ${r.error}`);
+  r = await w({ action: "render_progress", jobId, attempt, progress: 0.95, phase: "cutting" });
+  expect(!r.ok && r.error === "invalid_request", `a phase the wire doesn't know answered ${r.ok ? "ok" : r.error}`);
+
+  const res = await fetch(plan.put.video, { method: "PUT", body: standIns.mp4, headers: { "content-type": "video/mp4" } });
+  expect(res.ok, `PUT of the export answered ${res.status}`);
+  const wrongType = await fetch(plan.put.video, { method: "PUT", body: standIns.mp4, headers: { "content-type": "text/html" } });
+  expect(wrongType.status === 403, `a PUT of the export with another content type answered ${wrongType.status}`);
+  if (plan.put.poster) {
+    const pres = await fetch(plan.put.poster, { method: "PUT", body: standIns.jpg, headers: { "content-type": "image/jpeg" } });
+    expect(pres.ok, `PUT of the poster answered ${pres.status}`);
+  }
+  r = await w({ action: "render_progress", jobId, attempt, progress: 0.99, phase: "upload" });
+  expect(r.ok, `render_progress (upload) failed: ${r.error}`);
+
+  const done = { action: "render_done", jobId, attempt, results: [], export: { sizeBytes: standIns.mp4.length, durationSeconds: 2, posterOk: !!plan.put.poster } };
+  r = await w(done);
+  expect(r.ok && r.data.status === "done", `render_done (export) answered ${r.ok ? JSON.stringify(r.data) : r.error + " " + JSON.stringify(r.extra ?? {})}`);
+  r = await w(done);
+  expect(r.ok && r.data.status === "done", `a repeated render_done (export) answered ${r.ok ? JSON.stringify(r.data) : r.error}`);
+  log(`render (played): take hands out the expected ${plan.segments.length} segments at ${plan.rate} fps with ${expected.purpose === "download" ? "a private PUT" : "a video and a poster PUT"}; phases clips → stitch → upload land on the job, an unknown one is refused; the PUT's content type is signed; done (and again)`);
+  return plan;
+}
+
+/** An export job gets its renderer: the real program (--local-render) or this script. Returns the plan when this script played it. */
+async function settleExport(jobId, wsecret, expected, standIns) {
+  if (LOCAL_RENDER) {
+    await runLocalRenderer(jobId, wsecret);
+    return null;
+  }
+  return renderExportAsWorker(jobId, wsecret, expected, standIns);
+}
+
+async function exportPath(user, userId, videoId, wsecret, { playlistId, orgId, player, tip, publicBase }) {
+  const copy = await row(videoId);
+  const copySeconds = Number(copy.duration_seconds);
+  const rate = exportFrameRate(copy.fps === null ? null : Number(copy.fps));
+  const ref = copy.storage_key.split("/")[0];
+  const cuts = exportCuts(tip, copySeconds);
+  const work = mkdtempSync(path.join(tmpdir(), "game-video-smoke-"));
+  try {
+    const standIns = LOCAL_RENDER ? null : await makeStandIns(work);
+
+    // Two more plays after the card, and a pan on the first clip (absolute video seconds, as the desktop stores it).
+    const more = EXPORT_PLAYS.slice(3).map((p, i) => ({
+      match_id: matchId,
+      event_id: p.eventId,
+      type: "2pt",
+      sub_type: "jumpshot",
+      period: 1,
+      game_clock_time: `09:${String(10 - i).padStart(2, "0")}`,
+      real_world_time: new Date(Date.parse(ANCHOR) + p.offset * 1000).toISOString(),
+      is_successful: 1,
+      player: { playerId: `smoke-${p.eventId}`, pno: 10 + i, firstName: "Smoke", familyName: `Late ${i + 1}`, teamNumber: 1 },
+      event_team: { teamCode: "SMK", teamName: "Cloud smoke", teamNumber: 1 },
+      qualifiers: [],
+    }));
+    const evIns = await admin.from("play_by_play_events").insert(more);
+    expect(!evIns.error, `late events insert failed: ${evIns.error?.message}`);
+    const items = await user.from("playlist_clips").insert(
+      EXPORT_PLAYS.slice(3).map((p, i) => ({ playlist_id: playlistId, item_type: "clip", match_id: matchId, event_id: p.eventId, position: 4 + i, pre_roll_offset: 0, post_roll_offset: 0 })),
+    );
+    expect(!items.error, `late clips insert failed: ${items.error?.message}`);
+    const first = clipBounds(tip, ROLLS.pre, ROLLS.post, 0, 0);
+    const pan = [{ t: first.start + 2, cx: 0.3 }, { t: first.end - 2, cx: 0.7 }];
+    const panned = await user.from("playlist_clips").update({ crop_keyframes: pan }).eq("playlist_id", playlistId).eq("event_id", 1001);
+    expect(!panned.error, `pan update failed: ${panned.error?.message}`);
+    const { data: cardRow } = await admin.from("playlist_clips").select("item_id").eq("playlist_id", playlistId).eq("item_type", "text").single();
+    log(`two more plays (+45 s, +60 s; the copy is ${copySeconds.toFixed(1)} s) and a pan on the first clip`);
+
+    // Who may export, and on which plan.
+    const ex = (client, body) => call(client, { action: "export", playlistId, ...body });
+    let r = await ex(user, { aspect: "4:3", purpose: "download" });
+    expect(!r.ok && r.error === "invalid_request", `export with a bad aspect answered ${r.ok ? "ok" : r.error}`);
+    r = await ex(user, { aspect: "16:9", purpose: "download", selection: [] });
+    expect(!r.ok && r.error === "invalid_request", `export with an empty selection answered ${r.ok ? "ok" : r.error}`);
+    r = await ex(player, { aspect: "16:9", purpose: "download" });
+    expect(!r.ok && r.error === "not_owner", `export by the player answered ${r.ok ? "ok" : r.error}`);
+    r = await call(user, { action: "export", playlistId: randomUUID(), aspect: "16:9", purpose: "download" });
+    expect(!r.ok && r.error === "not_owner", `export of an unknown playlist answered ${r.ok ? "ok" : r.error}`);
+    r = await ex(user, { aspect: "16:9", purpose: "download" });
+    expect(!r.ok && r.error === "upgrade_required", `export in a free club answered ${r.ok ? "ok" : r.error}`);
+    const personal = await user.rpc("ensure_personal_org");
+    expect(!personal.error && personal.data, `ensure_personal_org failed: ${personal.error?.message}`);
+    const own = await user.from("playlists").insert({ user_id: userId, name: "Cloud smoke personal", org_id: personal.data }).select("id").single();
+    expect(!own.error, `personal playlist insert failed: ${own.error?.message}`);
+    const ownClip = await user.from("playlist_clips").insert({ playlist_id: own.data.id, item_type: "clip", match_id: matchId, event_id: 1001, position: 0, pre_roll_offset: 0, post_roll_offset: 0 });
+    expect(!ownClip.error, `personal clip insert failed: ${ownClip.error?.message}`);
+    r = await call(user, { action: "export", playlistId: own.data.id, aspect: "9:16", purpose: "share" });
+    expect(!r.ok && r.error === "upgrade_required", `export in a free personal space answered ${r.ok ? "ok" : r.error}`);
+    await admin.from("playlists").delete().eq("id", own.data.id);
+    const pro = await admin.from("organizations").update({ plan_tier: "pro" }).eq("id", orgId);
+    expect(!pro.error, `plan update failed: ${pro.error?.message}`);
+    r = await ex(user, { aspect: "16:9", purpose: "download", selection: [`text:${cardRow.item_id}`] });
+    expect(!r.ok && r.error === "nothing_to_export", `export of a card alone answered ${r.ok ? "ok" : r.error}`);
+    log("export: a bad aspect or an empty selection is invalid_request; the player and an unknown playlist get not_owner; a free club and a free personal space get upgrade_required; the club goes Pro; a card alone is nothing_to_export");
+
+    // A download, 16:9, the wordmark left off (Pro may).
+    const keptClips = cuts.kept.length;
+    r = await ex(user, { aspect: "16:9", purpose: "download", watermark: false });
+    expect(r.ok, `export (download) failed: ${r.error} ${JSON.stringify(r.extra ?? {})}`);
+    expect(r.data.jobId && r.data.status === "queued" && r.data.reused === false && r.data.clips === keptClips && r.data.cards === 1 && r.data.noCopy.length === 0 && r.data.watermark === false, `export (download) answered ${JSON.stringify(r.data)}`);
+    expect(JSON.stringify(r.data.dropped) === JSON.stringify(cuts.dropped), `export (download) dropped ${JSON.stringify(r.data.dropped)}, expected ${JSON.stringify(cuts.dropped)}`);
+    const downloadId = r.data.jobId;
+    r = await ex(user, { aspect: "16:9", purpose: "download" });
+    expect(r.ok && r.data.jobId === downloadId && r.data.watermark === false, `a second download did not land on the live one: ${JSON.stringify(r.data ?? r.error)}`);
+    const mine = await user.from("render_jobs").select(RENDER_JOB_SELECT).eq("id", downloadId).single();
+    expect(!mine.error && mine.data.kind === "export" && mine.data.request?.purpose === "download" && mine.data.request?.watermark === false && typeof mine.data.request?.fingerprint === "string" && mine.data.phase === null, `the owner's read of the export: ${mine.error?.message ?? JSON.stringify(mine.data)}`);
+    log(`export (download, 16:9, no wordmark): job ${downloadId.slice(0, 8)}… queued with ${keptClips} clips and the card, ${cuts.dropped.length} dropped past the copy's end; a repeat lands on it; the owner reads it`);
+
+    await settleExport(downloadId, wsecret, { aspect: "16:9", purpose: "download", watermark: false, rate, cuts, panned: pan, videoId, ref, userId }, standIns);
+    let job = await jobRow(downloadId);
+    const filename = exportFileName("Cloud smoke playlist", "16:9");
+    expect(job.status === "done" && job.result?.purpose === "download" && job.result?.aspect === "16:9" && job.result?.watermark === false && job.result?.clips === keptClips && job.result?.cards === 1 && job.result?.filename === filename && job.result?.key === gameVideoExportKey(ref, userId, downloadId) && job.result?.sizeBytes >= 4096, `download job after the render: ${JSON.stringify(job)}`);
+
+    const link = await call(user, { action: "export_link", jobId: downloadId });
+    expect(link.ok && link.data.filename === filename && Date.parse(link.data.expiresAt) - Date.now() > 23 * 3600 * 1000, `export_link answered ${link.ok ? JSON.stringify({ filename: link.data.filename, expiresAt: link.data.expiresAt }) : link.error}`);
+    const part = await fetch(link.data.url, { headers: { Range: "bytes=0-15" } });
+    const disposition = part.headers.get("content-disposition") ?? "";
+    expect(part.status === 206 && (part.headers.get("content-type") ?? "").startsWith("video/mp4") && /^attachment/.test(disposition) && disposition.includes(filename), `the download link answered ${part.status} ${part.headers.get("content-type")} "${disposition}"`);
+    const firstBytes = Buffer.from(await part.arrayBuffer());
+    if (standIns) expect(Buffer.compare(firstBytes, standIns.mp4.subarray(0, 16)) === 0, "the download's first bytes are not the uploaded file's");
+    if (LOCAL_RENDER) {
+      const whole = Buffer.from(await (await fetch(link.data.url)).arrayBuffer());
+      const file = path.join(work, filename);
+      writeFileSync(file, whole);
+      const probed = await probeVideo(file);
+      const want = cuts.kept.reduce((n, c) => n + (c.end - c.start), 0) + CARD_SECONDS;
+      expect(probed.width === 1280 && probed.height === 720 && probed.seconds !== null && Math.abs(probed.seconds - want) <= 1 && moovFirst(whole), `the download probes ${JSON.stringify(probed)} (faststart ${moovFirst(whole)}), expected 1280x720 ≈ ${want.toFixed(1)} s`);
+      log(`the rendered download: 1280x720, ${probed.seconds.toFixed(1)} s (≈ the clips + the card), moov before mdat`);
+    }
+    r = await call(player, { action: "export_link", jobId: downloadId });
+    expect(!r.ok && r.error === "not_owner", `export_link by the player answered ${r.ok ? "ok" : r.error}`);
+    const shipJob = await admin.from("render_jobs").select("id").eq("playlist_id", playlistId).eq("kind", "ship").limit(1).single();
+    r = await call(user, { action: "export_link", jobId: shipJob.data.id });
+    expect(!r.ok && r.error === "invalid_request", `export_link for a ship job answered ${r.ok ? "ok" : r.error}`);
+    log(`export_link: a 24 h link that saves "${filename}" (206 for a range, Content-Disposition attachment); the player gets not_owner, a ship job invalid_request`);
+
+    // A share, 9:16, with a content key: a highlight link; the same request reuses it.
+    const contentKey = `smoke-${stamp}`;
+    r = await ex(user, { aspect: "9:16", purpose: "share", contentKey, watermark: false });
+    expect(r.ok && r.data.status === "queued" && r.data.reused === false && r.data.watermark === true && r.data.clips === keptClips, `export (share) answered ${r.ok ? JSON.stringify(r.data) : r.error + " " + JSON.stringify(r.extra ?? {})}`);
+    const shareJobId = r.data.jobId;
+    log(`export (share, 9:16): job ${shareJobId.slice(0, 8)}… queued, the wordmark forced on`);
+    await settleExport(shareJobId, wsecret, { aspect: "9:16", purpose: "share", watermark: true, rate, cuts, panned: pan, videoId, ref, userId }, standIns);
+    job = await jobRow(shareJobId);
+    expect(job.status === "done" && job.result?.purpose === "share" && job.result?.shareId && job.result?.url?.endsWith(`/h/${job.result.shareId}`) && job.result?.clips === keptClips, `share job after the render: ${JSON.stringify(job)}`);
+    const shareId = job.result.shareId;
+    const { data: shareRow, error: shareError } = await admin.from("highlight_shares").select("*").eq("id", shareId).single();
+    expect(!shareError && shareRow.user_id === userId && shareRow.playlist_id === playlistId && shareRow.aspect === "9:16" && shareRow.content_key === contentKey && shareRow.clip_count === keptClips && shareRow.title === "Cloud smoke playlist", `highlight_shares row: ${shareError?.message ?? JSON.stringify(shareRow)}`);
+    expect(shareRow.r2_key === `highlights/${userId}/${shareId}.mp4` && shareRow.r2_url === `${publicBase}/${shareRow.r2_key}` && shareRow.poster_key === `highlights/${userId}/${shareId}.jpg` && shareRow.poster_url === `${publicBase}/${shareRow.poster_key}`, `highlight_shares files: ${JSON.stringify({ r2_url: shareRow.r2_url, poster_url: shareRow.poster_url })}`);
+    const days = (Date.parse(shareRow.expires_at) - Date.now()) / 86400000;
+    expect(days > 29.9 && days <= 30, `the link expires in ${days.toFixed(2)} days`);
+    const anon = createClient(SUPABASE_URL, ANON_KEY, { auth: { persistSession: false } });
+    const pub = await anon.rpc("get_highlight_share", { p_id: shareId });
+    expect(!pub.error && pub.data?.valid === true && pub.data.url === shareRow.r2_url && pub.data.poster_url === shareRow.poster_url, `get_highlight_share: ${pub.error?.message ?? JSON.stringify(pub.data)}`);
+    const video = await fetch(shareRow.r2_url, { method: "HEAD" });
+    const poster = await fetch(shareRow.poster_url, { method: "HEAD" });
+    expect(video.ok && (video.headers.get("content-type") ?? "").startsWith("video/mp4") && poster.ok && (poster.headers.get("content-type") ?? "").startsWith("image/jpeg"), `the link's files answered ${video.status} ${video.headers.get("content-type")} / ${poster.status} ${poster.headers.get("content-type")}`);
+    if (LOCAL_RENDER) {
+      const probed = await probeVideo(shareRow.r2_url);
+      const want = cuts.kept.reduce((n, c) => n + (c.end - c.start), 0) + CARD_SECONDS;
+      expect(probed.width === 1080 && probed.height === 1920 && probed.seconds !== null && Math.abs(probed.seconds - want) <= 1, `the share probes ${JSON.stringify(probed)}, expected 1080x1920 ≈ ${want.toFixed(1)} s`);
+      log(`the rendered share: 1080x1920, ${probed.seconds.toFixed(1)} s, with a JPEG poster`);
+    }
+    log(`the share: highlight_shares ${shareId.slice(0, 8)}… (9:16, the content key kept, 30 days), get_highlight_share is valid for anyone, the video and the poster are public`);
+
+    r = await ex(user, { aspect: "9:16", purpose: "share", contentKey });
+    expect(r.ok && r.data.reused === true && r.data.jobId === null && r.data.status === "done" && r.data.share?.shareId === shareId && r.data.share.url.endsWith(`/h/${shareId}`) && r.data.share.expiresAt, `the same share again answered ${r.ok ? JSON.stringify(r.data) : r.error}`);
+    r = await ex(user, { aspect: "9:16", purpose: "share", contentKey: `${contentKey}-other` });
+    const otherKey = r.ok ? r.data.jobId : null;
+    expect(r.ok && r.data.reused === false && otherKey, `a share of other content answered ${r.ok ? JSON.stringify(r.data) : r.error}`);
+    log("the same share request reuses the link (no job); another content key renders anew");
+
+    // Cancelled while a renderer holds it: every later call of that renderer is answered cancelled.
+    const w = (body) => call(admin, body, { "x-worker-secret": wsecret });
+    r = await w({ action: "render_take", jobId: otherKey });
+    expect(r.ok && r.data.attempt === 1, `render_take (to cancel) failed: ${r.error}`);
+    r = await call(player, { action: "render_cancel", jobId: otherKey });
+    expect(!r.ok && r.error === "not_owner", `render_cancel by the player answered ${r.ok ? "ok" : r.error}`);
+    r = await call(user, { action: "render_cancel", jobId: otherKey });
+    expect(r.ok && r.data.status === "failed", `render_cancel answered ${r.ok ? JSON.stringify(r.data) : r.error}`);
+    r = await w({ action: "render_progress", jobId: otherKey, attempt: 1, progress: 0.5, phase: "clips" });
+    expect(!r.ok && r.error === "cancelled" && r.status === 409, `render_progress after the cancel answered ${r.ok ? "ok" : `${r.status} ${r.error}`}`);
+    r = await w({ action: "render_done", jobId: otherKey, attempt: 1, results: [], export: { sizeBytes: 9000, durationSeconds: 2, posterOk: false } });
+    expect(!r.ok && r.error === "cancelled", `render_done after the cancel answered ${r.ok ? "ok" : r.error}`);
+    r = await w({ action: "render_failed", jobId: otherKey, attempt: 1, error: "sigterm", retryable: true });
+    expect(!r.ok && r.error === "cancelled", `render_failed after the cancel answered ${r.ok ? "ok" : r.error}`);
+    job = await jobRow(otherKey);
+    expect(job.status === "failed" && job.error === "cancelled" && job.finished_at, `the cancelled job: ${JSON.stringify(job)}`);
+    r = await call(user, { action: "render_cancel", jobId: otherKey });
+    expect(r.ok && r.data.status === "failed", `a second render_cancel answered ${r.ok ? JSON.stringify(r.data) : r.error}`);
+    log("render_cancel while a renderer holds the job: failed cancelled; its progress, done and failed calls get 409 cancelled; the player can't cancel; a repeat is harmless");
+
+    // A queued download of a selection, cancelled before any renderer took it.
+    r = await ex(user, { aspect: "16:9", purpose: "download", selection: [`${matchId}:1001`, `text:${cardRow.item_id}`, "nope:1"] });
+    expect(r.ok && r.data.status === "queued" && r.data.clips === 1 && r.data.cards === 1 && r.data.watermark === true && r.data.jobId !== downloadId, `export of a selection answered ${r.ok ? JSON.stringify(r.data) : r.error}`);
+    const selectionId = r.data.jobId;
+    const asked = await jobRow(selectionId);
+    expect(JSON.stringify(asked.request?.selection) === JSON.stringify([`${matchId}:1001`, `text:${cardRow.item_id}`, "nope:1"]), `the selection job's request: ${JSON.stringify(asked.request)}`);
+    r = await call(user, { action: "render_cancel", jobId: selectionId });
+    expect(r.ok && r.data.status === "failed", `render_cancel (queued) answered ${r.ok ? JSON.stringify(r.data) : r.error}`);
+    r = await w({ action: "render_take", jobId: selectionId });
+    expect(!r.ok && r.error === "wrong_status", `render_take of a cancelled job answered ${r.ok ? "ok" : r.error}`);
+    log("a selection (1 clip, the card) exports with the wordmark on (Pro's default); cancelled while queued, no renderer can take it");
+
+    // The download's file follows its row: deleting the row queues the key, and the purge deletes the object.
+    const key = gameVideoExportKey(ref, userId, downloadId);
+    const del = await admin.from("render_jobs").delete().eq("id", downloadId);
+    expect(!del.error, `deleting the download's row failed: ${del.error?.message}`);
+    const queued = await admin.from("game_video_deletions").select("storage_key").eq("storage_key", key);
+    expect(!queued.error && queued.data?.length === 1, `the download's key was not queued: ${queued.error?.message ?? JSON.stringify(queued.data)}`);
+    const p = await purge();
+    expect(p.deleted >= 1 && p.refused === 0, `purge after the download's row went: ${JSON.stringify(p)}`);
+    const gone = await fetch(link.data.url, { headers: { Range: "bytes=0-15" } });
+    expect(gone.status === 404, `the deleted download still answers ${gone.status}`);
+    r = await call(user, { action: "export_link", jobId: downloadId });
+    expect(!r.ok && r.error === "export_expired", `export_link after the row went answered ${r.ok ? "ok" : r.error}`);
+    log(`the download's row deleted: its key queued, the purge deleted the file (${JSON.stringify(p)}), the old link 404s, export_link says export_expired`);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
 }
 
 // ---------------------------------------------------------------------------

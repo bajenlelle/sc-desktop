@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 #
 # Checks for render jobs (20261020100000): the server-cut clips of a web
-# playlist.
+# playlist, and the server export's jobs (20261021100000).
 #
 # The owner reads their own jobs and nobody writes one from a client; one live
-# job per (playlist, kind, aspect); the notification to pending shares runs
-# without an auth gate for the function only, while the desktop's RPC keeps
-# its owner check; `_playlist_is_shared` tells shared playlists apart; the
-# retention retires week-old finished jobs and never a live one; the sweep's
-# gate fires for a queued render job.
+# job per (playlist, kind, aspect, purpose); the notification to pending
+# shares runs without an auth gate for the function only, while the desktop's
+# RPC keeps its owner check; `_playlist_is_shared` tells shared playlists
+# apart; the retention retires week-old finished jobs (30-day-old share
+# exports) and never a live one; the sweep's gate fires for a queued render
+# job. Exports: the phase check, the plan an export is billed to, and a
+# download's file queued for the purge whenever its row goes, by retention or
+# cascade, never a key of another shape.
 #
 # Every statement runs inside BEGIN … ROLLBACK, so nothing is committed.
 #
-#   RLS_PREFLIGHT=supabase/migrations/20261020100000_render_jobs.sql supabase/tests/render_jobs.sh   # before db push
+#   RLS_PREFLIGHT=supabase/migrations/20261021100000_export_jobs.sql supabase/tests/render_jobs.sh   # before db push
 #   supabase/tests/render_jobs.sh                                                                  # after
 #
 # Runs against the linked project through the CLI, unless SUPABASE_DB_URL is
@@ -140,13 +143,13 @@ job() {  # $1=id $2=status [$3=extra columns] [$4=extra values]
 }
 BASE="$CLUB $PLAYLIST $MATCH $CLIP"
 insert_live() {  # a second live ship job for P, refused by the live index when one exists
-  echo "WITH x AS (INSERT INTO render_jobs (kind, playlist_id, user_id, status) VALUES ('ship', $(d $P), $(d $U), 'queued') ON CONFLICT (playlist_id, kind, (COALESCE(request->>'aspect', ''))) WHERE status IN ('queued', 'running') DO NOTHING RETURNING 1) SELECT count(*) AS n FROM x"
+  echo "WITH x AS (INSERT INTO render_jobs (kind, playlist_id, user_id, status) VALUES ('ship', $(d $P), $(d $U), 'queued') ON CONFLICT (playlist_id, kind, (COALESCE(request->>'aspect', '')), (COALESCE(request->>'purpose', ''))) WHERE status IN ('queued', 'running') DO NOTHING RETURNING 1) SELECT count(*) AS n FROM x"
 }
 
 echo "== reading (the owner, someone else)"
 run "the owner reads their job"                        "ALLOWED rows=1" "SELECT count(*) AS n FROM render_jobs WHERE id = $(d $J1)" "$BASE $(job $J1 queued)"
 ACTOR="$V" run "someone else reads nothing"              "ALLOWED rows=0" "SELECT count(*) AS n FROM render_jobs WHERE id = $(d $J1)" "$BASE $(job $J1 queued)"
-run "the web's poll: the latest job of the playlist"   "ALLOWED rows=1" "SELECT count(*) AS n FROM (SELECT id, kind, playlist_id, status, progress, requeue, result, error, attempt, created_at, finished_at FROM render_jobs WHERE playlist_id = $(d $P) AND kind = 'ship' ORDER BY created_at DESC LIMIT 1) x" "$BASE $(job $J1 done)"
+run "the web's poll: the latest job of the playlist"   "ALLOWED rows=1" "SELECT count(*) AS n FROM (SELECT id, kind, playlist_id, status, phase, request, progress, requeue, result, error, attempt, created_at, finished_at FROM render_jobs WHERE playlist_id = $(d $P) AND kind = 'ship' ORDER BY created_at DESC LIMIT 1) x" "$BASE $(job $J1 done)"
 
 echo "== writing from a client (never)"
 run "the owner can't insert a job"                     "DENIED"         "$(insert_live)" "$BASE"
@@ -159,7 +162,7 @@ ROLE=service_role run "a second live job for the playlist is refused"     "ALLOW
 ROLE=service_role run "…also while the first one runs"                    "ALLOWED rows=0" "$(insert_live)" "$BASE $(job $J1 running)"
 ROLE=service_role run "a finished job doesn't block a new one"            "ALLOWED rows=1" "$(insert_live)" "$BASE $(job $J1 done)"
 EXPORT_WIDE="INSERT INTO render_jobs (id, kind, playlist_id, user_id, status, request) VALUES ($(d $J2), 'export', $(d $P), $(d $U), 'queued', '{\"aspect\":\"16:9\"}');"
-export_tall() { echo "WITH x AS (INSERT INTO render_jobs (kind, playlist_id, user_id, status, request) VALUES ('export', $(d $P), $(d $U), 'queued', '{\"aspect\":\"$1\"}') ON CONFLICT (playlist_id, kind, (COALESCE(request->>'aspect', ''))) WHERE status IN ('queued', 'running') DO NOTHING RETURNING 1) SELECT count(*) AS n FROM x"; }
+export_tall() { echo "WITH x AS (INSERT INTO render_jobs (kind, playlist_id, user_id, status, request) VALUES ('export', $(d $P), $(d $U), 'queued', '{\"aspect\":\"$1\"}') ON CONFLICT (playlist_id, kind, (COALESCE(request->>'aspect', '')), (COALESCE(request->>'purpose', ''))) WHERE status IN ('queued', 'running') DO NOTHING RETURNING 1) SELECT count(*) AS n FROM x"; }
 ROLE=service_role run "an export of another aspect is its own live job"   "ALLOWED rows=1" "$(export_tall 9:16)" "$BASE $(job $J1 queued) $EXPORT_WIDE"
 ROLE=service_role run "the same aspect twice is not"                      "ALLOWED rows=0" "$(export_tall 16:9)" "$BASE $EXPORT_WIDE"
 ROLE=service_role run "updated_at follows a change"                       "ALLOWED rows=1" "UPDATE render_jobs SET status = 'running' WHERE id = $(d $J1); SELECT count(*) AS n FROM render_jobs WHERE id = $(d $J1) AND updated_at >= created_at AND updated_at > now() - interval '1 minute'" "$BASE $(job $J1 queued)"
@@ -200,6 +203,69 @@ ROLE=service_role run "a running one too"                                     "A
 ROLE=service_role run "with nothing live the sweep stays quiet"               "ALLOWED rows=0" "SELECT run_game_video_sweep(); RESET ROLE; $QUEUED_CALLS" "$QUIET $BASE $(job $J1 done)"
 ROLE=service_role run "the sweep retires old jobs on its way"                 "ALLOWED rows=0" "SELECT run_game_video_sweep(); SELECT count(*) AS n FROM render_jobs WHERE id = $(d $J1)" "$QUIET $BASE $OLD_DONE"
 run "the sweep is not the user's to run"                                      "DENIED"         "SELECT run_game_video_sweep()" ""
+
+echo "== exports (20261021100000)"
+J3=00000000-0000-4000-8000-00000000d0e3
+P2=00000000-0000-4000-8000-00000000d0a2
+REF=probe-ref   # any prefix: the trigger checks a key's shape, the function's purge its project's prefix
+dl_key() { echo "$REF/exports/$U/$1.mp4"; }   # $1=job id: its download's key, as the function mints it
+keys_of() { echo "{\"keys\":{\"video\":\"$1\"}}"; }   # the params render_take writes, as far as the trigger reads them
+# An export's request ($1=purpose $2=aspect). Built by printf: a comma between braces in a double-quoted
+# $(…) argument is brace-expanded by bash into two words.
+request_of() { printf '{"aspect":"%s","purpose":"%s"}' "$2" "$1"; }
+# An export job of P: $1=id $2=status $3=purpose $4=aspect [$5=params json] [$6=finished this many days ago]
+export_job() {
+  local cols="" vals="" req
+  req="$(request_of "$3" "$4")"
+  if [[ -n "${5:-}" ]]; then cols+=", params"; vals+=", $(d "$5")::jsonb"; fi
+  if [[ -n "${6:-}" ]]; then cols+=", finished_at"; vals+=", now() - interval '$6 days'"; fi
+  echo "INSERT INTO render_jobs (id, kind, playlist_id, user_id, org_id, status, request$cols) VALUES ($(d $1), 'export', $(d $P), $(d $U), $(d $K), $(d $2), $(d "$req")::jsonb$vals);"
+}
+live_export() {  # $1=purpose $2=aspect: another live export of P, refused by the live index when one of that purpose and aspect exists
+  local req; req="$(request_of "$1" "$2")"
+  echo "WITH x AS (INSERT INTO render_jobs (kind, playlist_id, user_id, status, request) VALUES ('export', $(d $P), $(d $U), 'queued', $(d "$req")::jsonb) ON CONFLICT (playlist_id, kind, (COALESCE(request->>'aspect', '')), (COALESCE(request->>'purpose', ''))) WHERE status IN ('queued', 'running') DO NOTHING RETURNING 1) SELECT count(*) AS n FROM x"
+}
+queued() { echo "SELECT count(*) AS n FROM game_video_deletions WHERE storage_key = $(d "$1")"; }
+tier_is() { echo "SELECT (_export_tier_for_playlist($(d $1)) = $(d $2))::int AS n"; }
+personal_tier() { echo "UPDATE organizations SET plan_tier = $(d $1) WHERE is_personal AND id IN (SELECT org_id FROM org_memberships WHERE user_id = $(d $U));"; }
+UNSCOPED="INSERT INTO playlists (id, user_id, name) VALUES ($(d $P2), $(d $U), $(d 'render probe, no club'));"
+
+ROLE=service_role run "a download and a share of one aspect run together"    "ALLOWED rows=1" "$(live_export share 16:9)"    "$BASE $(export_job $J1 queued download 16:9)"
+ROLE=service_role run "a second download of that aspect is refused"          "ALLOWED rows=0" "$(live_export download 16:9)" "$BASE $(export_job $J1 running download 16:9)"
+ROLE=service_role run "…and a second share of it"                            "ALLOWED rows=0" "$(live_export share 16:9)"    "$BASE $(export_job $J1 queued share 16:9)"
+ROLE=service_role run "a download of the other aspect is its own"            "ALLOWED rows=1" "$(live_export download 9:16)" "$BASE $(export_job $J1 queued download 16:9)"
+ROLE=service_role run "an export never blocks a ship"                        "ALLOWED rows=1" "$(insert_live)"               "$BASE $(export_job $J1 queued download 16:9)"
+ROLE=service_role run "an export reports its phase"                          "ALLOWED rows=1" "UPDATE render_jobs SET phase = 'stitch' WHERE id = $(d $J1); SELECT count(*) AS n FROM render_jobs WHERE id = $(d $J1) AND phase = 'stitch'" "$BASE $(export_job $J1 running download 16:9)"
+ROLE=service_role run "a phase it doesn't know is refused"                   "ERR:"           "UPDATE render_jobs SET phase = 'cutting' WHERE id = $(d $J1)" "$BASE $(export_job $J1 running download 16:9)"
+
+ROLE=service_role run "a club's playlist exports on the club's plan"         "ALLOWED rows=1" "$(tier_is $P franchise)" "$BASE UPDATE organizations SET plan_tier = 'franchise' WHERE id = $(d $K);"
+ROLE=service_role run "a free club's playlist is free"                       "ALLOWED rows=1" "$(tier_is $P free)"      "$BASE"
+ROLE=service_role run "outside a club, the owner's personal plan: free"      "ALLOWED rows=1" "$(tier_is $P2 free)"     "$BASE $UNSCOPED $(personal_tier free)"
+ROLE=service_role run "…or pro"                                              "ALLOWED rows=1" "$(tier_is $P2 pro)"      "$BASE $UNSCOPED $(personal_tier pro)"
+ROLE=service_role run "a playlist that doesn't exist is free"                "ALLOWED rows=1" "$(tier_is 00000000-0000-4000-8000-0000000000ff free)" ""
+run "the tier is not the user's to read"                                     "DENIED"         "SELECT _export_tier_for_playlist($(d $P))" "$BASE"
+ROLE=anon run "…nor anyone's signed out"                                     "DENIED"         "SELECT _export_tier_for_playlist($(d $P))" "$BASE"
+
+DL_OLD="$(export_job $J1 done download 16:9 "$(keys_of "$(dl_key $J1)")" 8)"
+DL_NEW="$(export_job $J2 done download 9:16 "$(keys_of "$(dl_key $J2)")" 6)"
+ROLE=service_role run "an 8-day-old download is retired, its file queued"    "ALLOWED rows=1" "SELECT _render_jobs_retention(); $(queued "$(dl_key $J1)")" "$BASE $DL_OLD $DL_NEW"
+ROLE=service_role run "…and its row gone"                                    "ALLOWED rows=0" "SELECT _render_jobs_retention(); SELECT count(*) AS n FROM render_jobs WHERE id = $(d $J1)" "$BASE $DL_OLD $DL_NEW"
+ROLE=service_role run "a 6-day-old download stays, and so does its file"     "ALLOWED rows=1" "SELECT _render_jobs_retention(); SELECT count(*) AS n FROM render_jobs WHERE id = $(d $J2) AND NOT EXISTS (SELECT 1 FROM game_video_deletions WHERE storage_key = $(d "$(dl_key $J2)"))" "$BASE $DL_OLD $DL_NEW"
+SH_OLD="$(export_job $J1 done share 9:16 "$(keys_of "highlights/$U/$J1.mp4")" 31)"
+SH_NEW="$(export_job $J2 done share 16:9 "$(keys_of "highlights/$U/$J2.mp4")" 20)"
+ROLE=service_role run "a share job is kept its link's 30 days"               "ALLOWED rows=1" "SELECT _render_jobs_retention(); SELECT count(*) AS n FROM render_jobs WHERE id = $(d $J2)" "$BASE $SH_OLD $SH_NEW"
+ROLE=service_role run "…then retired"                                        "ALLOWED rows=0" "SELECT _render_jobs_retention(); SELECT count(*) AS n FROM render_jobs WHERE id = $(d $J1)" "$BASE $SH_OLD $SH_NEW"
+ROLE=service_role run "…queueing nothing: its files are the media bucket's"  "ALLOWED rows=0" "SELECT _render_jobs_retention(); SELECT count(*) AS n FROM game_video_deletions WHERE storage_key IN ($(d "highlights/$U/$J1.mp4"), $(d "highlights/$U/$J2.mp4"))" "$BASE $SH_OLD $SH_NEW"
+
+run "deleting the playlist as its owner queues its download's file"          "ALLOWED rows=1" "DELETE FROM playlists WHERE id = $(d $P); RESET ROLE; $(queued "$(dl_key $J1)")" "$BASE $(export_job $J1 done download 16:9 "$(keys_of "$(dl_key $J1)")")"
+run "…a running download's too (its renderer may have written it)"          "ALLOWED rows=1" "DELETE FROM playlists WHERE id = $(d $P); RESET ROLE; $(queued "$(dl_key $J1)")" "$BASE $(export_job $J1 running download 16:9 "$(keys_of "$(dl_key $J1)")")"
+ROLE=service_role run "a finished download's result key counts as well"      "ALLOWED rows=1" "DELETE FROM render_jobs WHERE id = $(d $J1); $(queued "$(dl_key $J1)")" "$BASE $(export_job $J1 done download 16:9) UPDATE render_jobs SET result = jsonb_build_object('key', $(d "$(dl_key $J1)")) WHERE id = $(d $J1);"
+ROLE=service_role run "a download never taken has nothing to queue"          "ALLOWED rows=0" "DELETE FROM render_jobs WHERE id = $(d $J1); $(queued "$(dl_key $J1)")" "$BASE $(export_job $J1 failed download 16:9)"
+ROLE=service_role run "a share's file is never queued"                       "ALLOWED rows=0" "DELETE FROM render_jobs WHERE id = $(d $J1); $(queued "highlights/$U/$J3.mp4")" "$BASE $(export_job $J1 done share 16:9 "$(keys_of "highlights/$U/$J3.mp4")")"
+ROLE=service_role run "nor a game's copy named in a download's params"       "ALLOWED rows=0" "DELETE FROM render_jobs WHERE id = $(d $J1); $(queued "$REF/games/$M/$J3.mp4")" "$BASE $(export_job $J1 done download 16:9 "$(keys_of "$REF/games/$M/$J3.mp4")")"
+ROLE=service_role run "nor another job's download"                           "ALLOWED rows=0" "DELETE FROM render_jobs WHERE id = $(d $J1); $(queued "$(dl_key $J2)")" "$BASE $(export_job $J1 done download 16:9 "$(keys_of "$(dl_key $J2)")")"
+ROLE=service_role run "nor anything for a ship job"                          "ALLOWED rows=0" "DELETE FROM render_jobs WHERE id = $(d $J1); $(queued "$(dl_key $J1)")" "$BASE $(job $J1 done 'params' "$(d "$(keys_of "$(dl_key $J1)")")::jsonb")"
+ROLE=service_role run "the queueing trigger is no client's to call"          "ALLOWED rows=0" "SELECT (has_function_privilege('authenticated', 'queue_render_job_export_deletion()', 'EXECUTE') OR has_function_privilege('anon', 'queue_render_job_export_deletion()', 'EXECUTE'))::int AS n" ""
 
 echo
 if [[ $FAILED -eq 0 ]]; then echo "All probes passed."; else echo "Some probes FAILED."; exit 1; fi

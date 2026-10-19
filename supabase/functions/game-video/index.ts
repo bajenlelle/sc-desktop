@@ -26,6 +26,10 @@
 //                    attempt number it was given in job_take
 //     ship           the owner asks for a playlist's clips to be cut from the
 //                    cloud copies into files in the PUBLIC media bucket (render.ts)
+//     export         the owner asks for one MP4 of a playlist: a download in the
+//                    PRIVATE bucket or a highlight link (export.ts)
+//     export_link    a fresh link that saves a finished download (export.ts)
+//     render_cancel  the owner stops a queued or running render (export.ts)
 //     render_take, render_progress, render_done, render_failed
 //                    the renderer's calls (x-worker-secret), fenced the same way
 //
@@ -40,16 +44,19 @@
 //     GAME_VIDEO_CONVERT_URL=https://<worker>.workers.dev  GAME_VIDEO_CONVERT_SECRET=<the Worker's CONVERT_SECRET> \
 //     [R2_VIDEOS_PREFIX=<key prefix; defaults to the project ref>]
 //   Without GAME_VIDEO_CONVERT_URL browser uploads answer converter_unavailable;
-//   desktop copies keep working. Shipped clips go to the PUBLIC media bucket
-//   through presign-upload's R2_ENDPOINT / R2_BUCKET / R2_ACCESS_KEY_ID /
-//   R2_SECRET_ACCESS_KEY / R2_PUBLIC_URL (function secrets are project-wide);
-//   without them `ship` and `render_take` answer renderer_unavailable.
+//   desktop copies keep working. Shipped clips and a share export's files go to
+//   the PUBLIC media bucket through presign-upload's R2_ENDPOINT / R2_BUCKET /
+//   R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_PUBLIC_URL (function secrets
+//   are project-wide); without them `ship`, a share `export` and their
+//   `render_take` answer renderer_unavailable. A share's link is
+//   `${APP_URL}/h/<id>` (send-email's APP_URL; default https://app.scoutable.se).
 //   verify_jwt = false in supabase/config.toml: pg_cron's calls carry a secret
 //   header, not a JWT, so every user action checks the JWT itself
 //   (admin.auth.getUser), as genius does.
 //
-// Keys are `<prefix>/games/<matchId>/<videoId>.mp4` (copies) and
-// `<prefix>/sources/<matchId>/<videoId>.<ext>` (originals), the prefix being
+// Keys are `<prefix>/games/<matchId>/<videoId>.mp4` (copies),
+// `<prefix>/sources/<matchId>/<videoId>.<ext>` (originals) and
+// `<prefix>/exports/<userId>/<jobId>.mp4` (downloads), the prefix being
 // this project's ref. Staging and prod share one bucket and one token, so
 // guardKey() refuses to touch any key outside this project's prefix: a
 // staging database re-seeded from prod can never delete prod's objects.
@@ -67,7 +74,6 @@ import {
   completeMultipartXml,
   gameVideoKey,
   gameVideoSourceKey,
-  isGameVideoKey,
   isValidKeyPrefix,
   parseListParts,
   partsComplete,
@@ -100,6 +106,8 @@ import {
   corsHeaders,
   err,
   guardKey,
+  headSize,
+  isOwnPrivateKey,
   objectUrl,
   ok,
   optInt,
@@ -111,6 +119,7 @@ import {
   safeEqual,
   type Payload,
 } from "./common.ts";
+import { exportLink, exportPlaylist, renderCancel } from "./export.ts";
 import { invalidateShippedClipsAfterSync, renderDone, renderFailed, renderProgress, renderTake, ship, sweepRenders } from "./render.ts";
 
 const PURGE_BATCH = 100;
@@ -157,14 +166,6 @@ async function abortMultipart(key: string, uploadId: string): Promise<boolean> {
 async function deleteObject(key: string): Promise<boolean> {
   const r = await s3("DELETE", objectUrl(key));
   return !r.code || r.code === "NoSuchKey" || r.status === 404;
-}
-
-/** The stored object's size, or null when it isn't there. */
-async function headSize(key: string): Promise<number | null> {
-  const r = await s3("HEAD", objectUrl(key));
-  if (r.status !== 200) return null;
-  const n = Number(r.headers.get("content-length"));
-  return Number.isFinite(n) ? n : null;
 }
 
 /** Presigned PUT URLs for part numbers of a multipart upload. */
@@ -742,7 +743,8 @@ async function purge(admin: SupabaseClient): Promise<Response> {
 
   const result: GameVideoPurgeResponse = { deleted: 0, aborted: 0, refused: 0, remaining: 0 };
   for (const item of queue) {
-    if (!isGameVideoKey(item.storage_key, KEY_PREFIX)) {
+    // A copy, an original or a download export of this project (guardKey's rule).
+    if (!isOwnPrivateKey(item.storage_key)) {
       // Another project's object (a database copied from elsewhere): leave it, say so.
       console.error("[game-video] purge refused a key outside this project's prefix:", item.storage_key);
       result.refused++;
@@ -1061,7 +1063,8 @@ Deno.serve(async (req) => {
       if (secret === null || PURGE_SECRET.length === 0 || !safeEqual(secret, PURGE_SECRET)) return err(401, "bad_purge_secret");
       return await purge(admin);
     }
-    if (action === "sweep" || action.startsWith("job_") || action.startsWith("render_")) {
+    // render_cancel is the owner's (a session, below); every other render_* is the renderer's.
+    if (action === "sweep" || action.startsWith("job_") || (action.startsWith("render_") && action !== "render_cancel")) {
       const secret = req.headers.get("x-worker-secret");
       if (secret === null || WORKER_SECRET.length === 0 || !safeEqual(secret, WORKER_SECRET)) return err(401, "bad_worker_secret");
       switch (action) {
@@ -1114,6 +1117,12 @@ Deno.serve(async (req) => {
         return await syncSet(admin, userId, payload);
       case "ship":
         return await ship(admin, userId, payload);
+      case "export":
+        return await exportPlaylist(admin, userId, payload);
+      case "export_link":
+        return await exportLink(admin, userId, payload);
+      case "render_cancel":
+        return await renderCancel(admin, userId, payload);
       default:
         return err(400, "invalid_request");
     }

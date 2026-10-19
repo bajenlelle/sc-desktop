@@ -105,14 +105,15 @@ playlists, and share them with teams; players watch on web/mobile.
   files until the owner calls `ship { playlistId }` on `game-video` (the web
   does so when the playlist is shared, and again after clips are added or
   trimmed, the rolls change, or the game's sync changes). Each run is a
-  `render_jobs` row (kind `ship` now, `export` later; migration
-  `20261020100000`) with the conversions' bookkeeping: attempt, heartbeat,
-  progress, `requeue`, `result = {shipped, failed, superseded, total,
-  failures}`; one live job per (playlist, kind, aspect), the owner reads their
-  own rows (RLS), only the function writes. The plan (window from
-  `lib/clip-ship-plan.ts`'s `computeVideoTime`/`clipBounds`, key from
-  `clipShipKey`, a copy usable when a ready `game_videos` row exists and the
-  owner owns the match or is admin/coach of its org) is previewed at `ship`,
+  `render_jobs` row (kind `ship`; `export` below; migrations
+  `20261020100000`, `20261021100000`) with the conversions' bookkeeping:
+  attempt, heartbeat, progress, `requeue`, `result = {shipped, failed,
+  superseded, total, failures}`; one live job per (playlist, kind, aspect,
+  purpose), the owner reads their own rows (RLS), only the function writes.
+  The plan (window from `lib/clip-ship-plan.ts`'s
+  `computeVideoTime`/`clipBounds`, key from `clipShipKey`, a copy usable when
+  a ready `game_videos` row exists and the owner owns the match or is
+  admin/coach of its org) is previewed at `ship`,
   recomputed at `render_take` and checked again at `render_done`, so a clip
   changed meanwhile is `superseded` and cut again by the follow-up job. The
   function asks the same Worker for `POST /render {jobId}`; the container runs
@@ -135,6 +136,42 @@ playlists, and share them with teams; players watch on web/mobile.
   Probes: `supabase/tests/render_jobs.sh`. Smoke: the browser smoke plus
   `--ship` (the script plays the renderer) or `--ship --local-render` (the
   real program here, needs `--local-convert --file <video of ≥ 17 s>`).
+  The job plumbing both kinds share is `functions/game-video/jobs.ts`.
+- **Exports** (render jobs of kind `export`, `functions/game-video/export.ts`):
+  the owner's `export { playlistId, aspect: "16:9" | "9:16", purpose:
+  "download" | "share", watermark?, selection?, contentKey?, fresh? }` makes one
+  MP4 of the playlist (or of the selected item keys, in playlist order). The
+  plan is `lib/export-plan.ts` over the rows (windows as the ship plan's; a
+  game without a copy the owner may use → `noCopy`; a play without a time or
+  starting in its copy's last 0.25 s → `dropped`; a window past the copy's end
+  is cut there; 9:16 pans rebased as crop-path does; the rate from the first
+  clip's copy), previewed at `export` and recomputed at `render_take`; the
+  same Worker route and `src/render.ts` render it (`src/export.ts`). Gates:
+  `upgrade_required` on a free plan (`_export_tier_for_playlist`: the
+  playlist's club, else the owner's personal space), `demo_game`,
+  `nothing_to_export` (no clip left; cards alone don't export). The wordmark
+  is always on for shares and Rookie; Pro/Franchise downloads may send
+  `watermark: false`. A download goes to the PRIVATE bucket at
+  `<prefix>/exports/<userId>/<jobId>.mp4` (`params.keys.video`, then
+  `result.key`) and is saved through `export_link { jobId }` (a 24 h presigned
+  GET with `Content-Disposition: attachment; filename="<exportFileName>"`;
+  `export_expired` once gone); after 7 days the retention deletes the row and
+  a BEFORE DELETE trigger queues the key in `game_video_deletions` for the
+  purge, as it does when a playlist or account deletion cascades into it. A
+  share PUTs `highlights/<uid>/<shareId>.mp4|jpg` to the PUBLIC media bucket
+  (so, like `ship`, it needs the `R2_*` secrets, else `renderer_unavailable`),
+  and `render_done` inserts the `highlight_shares` row (30 days; the client's
+  `contentKey` kept only when the plan's fingerprint at `render_take` equals
+  the one at `export`); an unexpired link of the same playlist, aspect and
+  content key comes back as `reused` instead (never for a selection or
+  `fresh`); share rows go after 30 days. One live export per (playlist,
+  aspect, purpose); progress carries `phase` (`clips`, `stitch`, `upload`);
+  `render_cancel { jobId }` fails a live job of either kind `cancelled` and
+  the renderer's next call gets 409 `cancelled`; a missing or tiny file at
+  `render_done` fails the job `output_missing`. Smoke: `--ship --export` (the
+  script plays the renderer) or `--ship --export --local-render` (the real
+  program); a `--file` of 47–61 s exercises both the cut at a copy's end and
+  `past_end`.
 - **Errors**: Sentry on all three apps (org `scoutable`, EU). DSNs are
   hardcoded (public); desktop/mobile dev builds are offline unless the DSN
   env var is set. Don't add error tracking dependencies to `packages/shared`.

@@ -1,4 +1,5 @@
-// Scoutable — cloud game videos Edge Function: render jobs.
+// Scoutable — cloud game videos Edge Function: render jobs, and shipping a web
+// playlist's clips (kind ship; exports are export.ts's).
 // A playlist built on the web has clips without files. When it is shared, the
 // owner asks for its clips to be cut from their cloud copies into files in
 // the PUBLIC media bucket under the desktop's key scheme (clipShipKey), so
@@ -12,25 +13,28 @@
 //
 //   ship            (the owner) plan preview + a queued job, or the live one
 //   render_take     (the renderer, x-worker-secret) claim the job: presigned
-//                   copy GETs and media PUTs for the current plan
-//   render_progress fenced heartbeat + progress
+//                   copy GETs and media PUTs for the current plan (an export
+//                   job's half is export.ts's takeExport)
+//   render_progress fenced heartbeat + progress (+ an export's phase)
 //   render_done     fenced, idempotent: r2_url per clip whose key still
 //                   matches, notify pending shares, requeue, next waiting
+//                   (an export job's half is export.ts's doneExport)
 //   render_failed   fenced: queued again (the sweep retries) or failed
 //   sweep           waiting jobs get a renderer; quiet ones are re-run; a job
-//                   nobody took for a day fails renderer_unavailable
+//                   nobody took for a day fails renderer_unavailable (both kinds)
 //   sync_set        the uploader's shipped clips of the game follow the new
 //                   sync: legacy keys cleared, stale ones re-shipped when shared
+// Every renderer call after render_take is answered 409 cancelled once the
+// owner stopped the job (render_cancel, export.ts). The bookkeeping both
+// kinds share is jobs.ts.
 
 import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import {
-  MAX_ACTIVE_RENDERS,
   RENDER_MAX_ATTEMPTS,
   RENDER_URL_SECONDS,
   type GameVideoSweepResponse,
   type RenderClipResult,
-  type RenderJobKind,
-  type RenderJobStatus,
+  type RenderPhase,
   type RenderShipClip,
   type ShipNoCopy,
   type ShipResponse,
@@ -46,8 +50,6 @@ import {
   type SyncPointLike,
 } from "../../../packages/shared/lib/clip-ship-plan.ts";
 import {
-  CONVERT_SECRET,
-  CONVERT_URL,
   MEDIA_PUBLIC_URL,
   STALE_MS,
   SWEEP_BATCH,
@@ -57,41 +59,34 @@ import {
   mediaConfigured,
   objectUrl,
   ok,
-  optInt,
   optNumber,
   optString,
   presign,
   presignMediaPut,
   type Payload,
 } from "./common.ts";
+import { doneExport, exportNeedsMedia, takeExport } from "./export.ts";
+import {
+  JOB_SELECT,
+  claimJob,
+  cloudVideoEnabled,
+  fencedRender,
+  finishJob,
+  liveJob,
+  loadJob,
+  lostRace,
+  rows,
+  startNextWaitingRender,
+  startRender,
+  updateJob,
+  type RenderJobRow,
+} from "./jobs.ts";
 
 // ---------------------------------------------------------------------------
-// Rows
+// Results
 // ---------------------------------------------------------------------------
 
-interface RenderJobRow {
-  id: string;
-  kind: RenderJobKind;
-  playlist_id: string;
-  user_id: string;
-  org_id: string | null;
-  status: RenderJobStatus;
-  requeue: boolean;
-  attempt: number;
-  heartbeat_at: string | null;
-  progress: number | null;
-  request: Record<string, unknown> | null;
-  params: unknown;
-  result: unknown;
-  error: string | null;
-  created_at: string;
-  updated_at: string;
-  finished_at: string | null;
-}
-
-const JOB_SELECT = "id, kind, playlist_id, user_id, org_id, status, requeue, attempt, heartbeat_at, progress, request, params, result, error, created_at, updated_at, finished_at";
-
-/** What a done job records (render_jobs.result). */
+/** What a done ship job records (render_jobs.result). */
 interface RenderResult {
   shipped: number;
   failed: number;
@@ -101,50 +96,6 @@ interface RenderResult {
 }
 
 const EMPTY_RESULT: RenderResult = { shipped: 0, failed: 0, superseded: 0, total: 0, failures: [] };
-
-async function loadJob(admin: SupabaseClient, jobId: string): Promise<RenderJobRow | null> {
-  if (!UUID_RE.test(jobId)) return null;
-  const { data, error } = await admin.from("render_jobs").select(JOB_SELECT).eq("id", jobId).maybeSingle();
-  if (error) throw new Error(`lookup_failed ${error.message}`);
-  return (data as unknown as RenderJobRow | null) ?? null;
-}
-
-async function updateJob(admin: SupabaseClient, jobId: string, patch: Record<string, unknown>): Promise<void> {
-  const { error } = await admin.from("render_jobs").update(patch).eq("id", jobId);
-  if (error) throw new Error(`lookup_failed ${error.message}`);
-}
-
-async function finishJob(admin: SupabaseClient, jobId: string, status: "done" | "failed", error: string | null, result: RenderResult | null = null): Promise<void> {
-  await updateJob(admin, jobId, {
-    status,
-    error,
-    result,
-    progress: status === "done" ? 1 : null,
-    heartbeat_at: null,
-    requeue: false,
-    finished_at: new Date().toISOString(),
-  });
-}
-
-/** The playlist's live job of a kind (one at most, by the live index). */
-async function liveJob(admin: SupabaseClient, playlistId: string, kind: RenderJobKind): Promise<RenderJobRow | null> {
-  const { data, error } = await admin
-    .from("render_jobs")
-    .select(JOB_SELECT)
-    .eq("playlist_id", playlistId)
-    .eq("kind", kind)
-    .in("status", ["queued", "running"])
-    .order("created_at", { ascending: false })
-    .limit(1);
-  if (error) throw new Error(`lookup_failed ${error.message}`);
-  return ((data ?? []) as unknown as RenderJobRow[])[0] ?? null;
-}
-
-/** The kill switch every cloud-video action honours. */
-async function cloudVideoEnabled(admin: SupabaseClient): Promise<boolean> {
-  const { data } = await admin.from("app_config").select("value").eq("key", "cloud_video_enabled").maybeSingle();
-  return (data as { value?: string } | null)?.value !== "false";
-}
 
 // ---------------------------------------------------------------------------
 // The plan: which clips to cut, from the current rows
@@ -199,12 +150,6 @@ interface ShipPlan {
 }
 
 const clipRef = (matchId: string, eventId: number) => `${matchId}:${eventId}`;
-
-async function rows<T>(query: PromiseLike<{ data: unknown; error: { message: string } | null }>): Promise<T[]> {
-  const { data, error } = await query;
-  if (error) throw new Error(`lookup_failed ${error.message}`);
-  return (data ?? []) as T[];
-}
 
 /**
  * The playlist's clips as they stand: `t = computeVideoTime(event, sync)`
@@ -299,67 +244,6 @@ export async function buildShipPlan(admin: SupabaseClient, playlistId: string): 
 }
 
 // ---------------------------------------------------------------------------
-// Starting a renderer
-// ---------------------------------------------------------------------------
-
-/**
- * Asks the Worker to run a queued job, unless the owner already has a live
- * render or the fleet is busy; the job then waits (heartbeat NULL) for the
- * sweep. With no converter configured, or one that can't be reached, the job
- * waits the same way: the sweep retries, and a job nobody took for a day
- * fails renderer_unavailable. Bounded to ten seconds, never throws.
- */
-async function startRender(admin: SupabaseClient, job: RenderJobRow): Promise<"started" | "waiting" | "unavailable"> {
-  if (!CONVERT_URL || !CONVERT_SECRET) return "unavailable";
-  const since = new Date(Date.now() - STALE_MS).toISOString();
-  const { count: mine } = await admin
-    .from("render_jobs")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", job.user_id)
-    .eq("status", "running")
-    .neq("id", job.id)
-    .gt("heartbeat_at", since);
-  if ((mine ?? 0) > 0) return "waiting";
-  const { count: active } = await admin.from("render_jobs").select("id", { count: "exact", head: true }).eq("status", "running").gt("heartbeat_at", since);
-  if ((active ?? 0) >= MAX_ACTIVE_RENDERS) return "waiting";
-
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 10_000);
-  try {
-    const res = await fetch(`${CONVERT_URL}/render`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-convert-secret": CONVERT_SECRET },
-      body: JSON.stringify({ jobId: job.id }),
-      signal: ctrl.signal,
-    });
-    if (!res.ok) {
-      console.error("[game-video] the renderer refused to start:", res.status, (await res.text()).slice(0, 200));
-      return "waiting";
-    }
-    return "started";
-  } catch (e) {
-    console.error("[game-video] the renderer could not be reached:", e instanceof Error ? e.message : String(e));
-    return "waiting";
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/** After one of the owner's renders ends, their next waiting job may go. */
-async function startNextWaitingRender(admin: SupabaseClient, userId: string): Promise<void> {
-  const { data } = await admin
-    .from("render_jobs")
-    .select(JOB_SELECT)
-    .eq("user_id", userId)
-    .eq("status", "queued")
-    .is("heartbeat_at", null)
-    .order("created_at", { ascending: true })
-    .limit(1);
-  const next = ((data ?? []) as unknown as RenderJobRow[])[0];
-  if (next) await startRender(admin, next);
-}
-
-// ---------------------------------------------------------------------------
 // Queueing a ship
 // ---------------------------------------------------------------------------
 
@@ -438,41 +322,17 @@ export async function ship(admin: SupabaseClient, userId: string, p: Payload): P
 // Actions: the renderer (every write fenced by the attempt it was given)
 // ---------------------------------------------------------------------------
 
-/** The job for a renderer call, or the response that ends it: not found, or another attempt's. */
-async function fencedRender(admin: SupabaseClient, p: Payload): Promise<{ job: RenderJobRow; attempt: number } | Response> {
-  const jobId = optString(p.jobId, 36);
-  const attempt = optInt(p.attempt);
-  if (!jobId || !UUID_RE.test(jobId) || attempt === null) return err(400, "invalid_request");
-  const job = await loadJob(admin, jobId);
-  if (!job) return err(404, "not_found");
-  if (job.attempt !== attempt) return err(409, "stale_attempt");
-  return { job, attempt };
-}
-
 export async function renderTake(admin: SupabaseClient, p: Payload): Promise<Response> {
   const jobId = optString(p.jobId, 36);
   if (!jobId || !UUID_RE.test(jobId)) return err(400, "invalid_request");
-  if (!mediaConfigured()) return err(503, "renderer_unavailable");
   const job = await loadJob(admin, jobId);
   if (!job) return err(404, "not_found");
-  if (job.kind !== "ship" || (job.status !== "queued" && job.status !== "running")) return err(409, "wrong_status");
-  if (job.status === "running" && job.heartbeat_at && Date.parse(job.heartbeat_at) > Date.now() - STALE_MS) return err(409, "job_busy");
-  const attempt = job.attempt + 1;
-  if (attempt > RENDER_MAX_ATTEMPTS) {
-    await finishJob(admin, job.id, "failed", "gave_up");
-    return err(409, "wrong_status");
-  }
-
-  // The claim: whoever moves the attempt counter first holds the job.
-  const { data: claimed, error: claimError } = await admin
-    .from("render_jobs")
-    .update({ status: "running", attempt, heartbeat_at: new Date().toISOString(), progress: 0, error: null })
-    .eq("id", job.id)
-    .eq("attempt", job.attempt)
-    .in("status", ["queued", "running"])
-    .select("id");
-  if (claimError) return err(500, "lookup_failed");
-  if (!claimed || claimed.length === 0) return err(409, "job_busy");
+  // Clips and a share's files go to the media bucket; a download only to the private one.
+  if ((job.kind === "ship" || exportNeedsMedia(job)) && !mediaConfigured()) return err(503, "renderer_unavailable");
+  const claim = await claimJob(admin, job);
+  if (claim instanceof Response) return claim;
+  const { attempt } = claim;
+  if (job.kind === "export") return takeExport(admin, job, attempt);
 
   // The plan as the rows stand now: edits made while the job waited are in.
   const plan = await buildShipPlan(admin, job.playlist_id);
@@ -502,13 +362,27 @@ export async function renderTake(admin: SupabaseClient, p: Payload): Promise<Res
   return ok({ jobId: job.id, attempt, kind: job.kind, copies, clips, publicBase: MEDIA_PUBLIC_URL });
 }
 
+const RENDER_PHASES: readonly RenderPhase[] = ["clips", "stitch", "upload"];
+
 export async function renderProgress(admin: SupabaseClient, p: Payload): Promise<Response> {
   const f = await fencedRender(admin, p);
   if (f instanceof Response) return f;
   if (f.job.status !== "running") return err(409, "wrong_status");
   const progress = optNumber(p.progress);
   if (progress === null) return err(400, "invalid_request");
-  await updateJob(admin, f.job.id, { progress: Math.min(0.99, Math.max(0, progress)), heartbeat_at: new Date().toISOString() });
+  // An export says where it is; a ship job says nothing.
+  const phase = p.phase === undefined || p.phase === null ? null : RENDER_PHASES.includes(p.phase as RenderPhase) ? (p.phase as RenderPhase) : undefined;
+  if (phase === undefined) return err(400, "invalid_request");
+  // Fenced in the write too: a cancel or a new attempt landing since the read wins.
+  const { data, error } = await admin
+    .from("render_jobs")
+    .update({ progress: Math.min(0.99, Math.max(0, progress)), heartbeat_at: new Date().toISOString(), ...(phase ? { phase } : {}) })
+    .eq("id", f.job.id)
+    .eq("attempt", f.attempt)
+    .eq("status", "running")
+    .select("id");
+  if (error) throw new Error(`lookup_failed ${error.message}`);
+  if (!data || data.length === 0) return lostRace(admin, f.job.id, f.attempt);
   return ok({ jobId: f.job.id, attempt: f.attempt });
 }
 
@@ -532,6 +406,7 @@ export async function renderDone(admin: SupabaseClient, p: Payload): Promise<Res
   const f = await fencedRender(admin, p);
   if (f instanceof Response) return f;
   const { job } = f;
+  if (job.kind === "export") return doneExport(admin, job, f.attempt, p);
   if (job.status === "done") return ok({ jobId: job.id, status: "done", ...countsOf(job.result) }); // a retried done
   if (job.status !== "running") return err(409, "wrong_status");
   const results = resultsOf(p.results);
@@ -586,7 +461,7 @@ export async function renderFailed(admin: SupabaseClient, p: Payload): Promise<R
   const retryable = p.retryable !== false;
   if (retryable && attempt < RENDER_MAX_ATTEMPTS) {
     // Handed back for the sweep to run again.
-    await updateJob(admin, job.id, { status: "queued", heartbeat_at: null, progress: null, error });
+    await updateJob(admin, job.id, { status: "queued", heartbeat_at: null, progress: null, phase: null, error });
     return ok({ jobId: job.id, status: "queued", attempt });
   }
   await finishJob(admin, job.id, "failed", retryable ? "gave_up" : error);
@@ -627,7 +502,7 @@ export async function sweepRenders(admin: SupabaseClient, result: GameVideoSweep
       result.failed++;
       continue;
     }
-    if (stale) await updateJob(admin, job.id, { status: "queued", heartbeat_at: null, progress: null });
+    if (stale) await updateJob(admin, job.id, { status: "queued", heartbeat_at: null, progress: null, phase: null });
     if ((await startRender(admin, job)) === "started") result.started++;
   }
 }
