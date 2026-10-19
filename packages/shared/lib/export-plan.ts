@@ -73,7 +73,7 @@ export interface ExportPlanInput {
 
 export interface ExportPlanSegments {
   segments: RenderExportSegment[];
-  /** exportFrameRate of the first clip's copy: every segment and the final pass use it. */
+  /** exportFrameRate of the first clip's copy: every segment and the final pass use it; "" when its row has no frame rate (the renderer probes it). */
   rate: string;
   clips: number;
   cards: number;
@@ -147,7 +147,9 @@ export function buildExportPlanSegments(input: ExportPlanInput): ExportPlanSegme
   const clips = segments.filter((s) => s.kind === "clip").length;
   return {
     segments,
-    rate: exportFrameRate(firstFps ?? null),
+    // A copy the desktop uploaded has no frame rate on its row: "" lets the
+    // renderer take it from its probe of that copy instead of guessing 30.
+    rate: typeof firstFps === "number" && Number.isFinite(firstFps) && firstFps > 0 ? exportFrameRate(firstFps) : "",
     clips,
     cards: segments.length - clips,
     noCopy: [...noCopyByMatch.values()],

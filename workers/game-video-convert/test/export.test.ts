@@ -184,6 +184,13 @@ test("a download: each segment with the desktop's arguments in order, the concat
   assert.equal(w.files.size, 0, `left behind: ${[...w.files.keys()].join(", ")}`);
 });
 
+test("a plan without a rate takes it from the first clip's probed copy, as the desktop takes its first source's", async () => {
+  const w = world({ copy: () => ({ hasAudio: true, fps: 25, durationSeconds: 600, width: 1280, height: 720 }) });
+  await run(w, plan([clip("v1", 10, 14), card(3, "Second half")], { rate: "" }));
+  assert.deepEqual(w.runs[0].args, clipSegmentArgs({ input: URL_1, start: 10, end: 14, aspect: "16:9", rate: "25", keyframes: null, hasAudio: true, output: `${W}/seg_0.mp4` }));
+  assert.equal(argAfter(w.runs[w.runs.length - 1].args, "-r"), "25");
+});
+
 test("each copy is probed once, however many clips are cut from it", async () => {
   const w = world();
   await run(w, plan([clip("v1", 10, 14), clip("v1", 30, 33), clip("v1", 50, 55)]));

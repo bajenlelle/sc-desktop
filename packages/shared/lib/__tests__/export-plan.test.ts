@@ -124,10 +124,10 @@ describe("buildExportPlanSegments", () => {
   it("renders at the first clip's copy rate", () => {
     expect(plan().rate).toBe("30000/1001");
     expect(plan({ items: [clip("b", 2, 40, 53), clip("a", 1, 10, 23)] }).rate).toBe("25");
-    // A copy without a recorded rate (a desktop upload) renders at 30, as the desktop's unknown does.
-    expect(plan({ copies: new Map([["a", { ...copyA, fps: null }], ["b", copyB]]) }).rate).toBe("30");
-    // Cards alone: 30.
-    expect(plan({ items: [card("c1", "Only a card")] }).rate).toBe("30");
+    // A copy without a recorded rate (a desktop upload): "" — the renderer probes the copy.
+    expect(plan({ copies: new Map([["a", { ...copyA, fps: null }], ["b", copyB]]) }).rate).toBe("");
+    // Cards alone: no copy to take a rate from — the renderer's 30.
+    expect(plan({ items: [card("c1", "Only a card")] }).rate).toBe("");
   });
 
   it("takes the rate from the first clip that is kept, not one that was dropped", () => {

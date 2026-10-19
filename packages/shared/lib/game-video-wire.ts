@@ -734,7 +734,11 @@ export interface RenderExportPlan {
   aspect: ExportAspect;
   purpose: ExportPurpose;
   watermark: boolean;
-  /** exportFrameRate of the first clip's copy: every segment and the final pass use it. */
+  /**
+   * exportFrameRate of the first clip's copy: every segment and the final pass
+   * use it. "" when that copy's row has no frame rate (copies the desktop
+   * uploaded): the renderer then takes it from its own probe of the copy.
+   */
   rate: string;
   title: string;
   segments: RenderExportSegment[];
@@ -980,6 +984,8 @@ export const GAME_VIDEO_ERRORS = [
   "export_expired",
   /** A render the owner stopped (render_cancel); the renderer's later calls get it too. */
   "cancelled",
+  /** render_done of an export whose file is missing or under EXPORT_MIN_SEGMENT_BYTES. */
+  "output_missing",
 ] as const;
 
 export type GameVideoError = (typeof GAME_VIDEO_ERRORS)[number];

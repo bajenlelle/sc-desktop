@@ -40,7 +40,7 @@ import { WATERMARK_PNG } from "@scoutable/node-video/lib/assets";
 import { FFMPEG, ProbeFailure, probeStreams, type StreamProbe } from "@scoutable/node-video/lib/ffmpeg";
 import { POSTER_SEEKS, cardSegmentArgs, clipSegmentArgs, concatArgs, posterArgs, type ExportKeyframe } from "@scoutable/shared/lib/export-args";
 import { parseProgressUs } from "@scoutable/shared/lib/game-video-convert";
-import { EXPORT_MIN_SEGMENT_BYTES, type ExportAspect, type RenderExportPlan, type RenderExportSegment, type RenderPhase } from "@scoutable/shared/lib/game-video-wire";
+import { EXPORT_MIN_SEGMENT_BYTES, exportFrameRate, type ExportAspect, type RenderExportPlan, type RenderExportSegment, type RenderPhase } from "@scoutable/shared/lib/game-video-wire";
 import { Aborted, ConvertFailure, abortReason, throwIfAborted } from "./errors.ts";
 import type { Logger } from "./log.ts";
 import { ffmpegShipFailure, type FfmpegRun } from "./ship.ts";
@@ -236,7 +236,8 @@ export function checkExportPlan(plan: RenderExportPlan | undefined | null, uploa
   if (plan.aspect !== "16:9" && plan.aspect !== "9:16") throw bad(`aspect ${String(plan.aspect)}`);
   if (plan.purpose !== "download" && plan.purpose !== "share") throw bad(`purpose ${String(plan.purpose)}`);
   // The rate goes into a filter string: ffmpeg rate syntax only.
-  if (typeof plan.rate !== "string" || !/^\d{1,6}(?:\/\d{1,6})?$/.test(plan.rate)) throw bad(`rate ${String(plan.rate)}`);
+  // "" = the copy's row had no frame rate (desktop-made copies): the probe decides.
+  if (typeof plan.rate !== "string" || (plan.rate !== "" && !/^\d{1,6}(?:\/\d{1,6})?$/.test(plan.rate))) throw bad(`rate ${String(plan.rate)}`);
   if (!Array.isArray(plan.segments) || plan.segments.length === 0) throw bad("no segments");
   if (upload && (typeof plan.put?.video !== "string" || plan.put.video === "")) throw bad("no PUT URL for the video");
   const segments = plan.segments.map((raw, i): RenderExportSegment => {
@@ -319,7 +320,8 @@ export async function renderExport(o: ExportOptions): Promise<ExportOutcome> {
   const deps: ExportDeps = { ...defaultExportDeps(o.ffmpeg), ...o.deps };
   const upload = o.upload !== false;
   const plan = checkExportPlan(o.plan, upload);
-  const { aspect, rate } = plan;
+  const { aspect } = plan;
+  let rate = plan.rate;
   const total = plan.segments.length;
   const made = new Set<string>();
   const keep = new Set<string>();
@@ -383,6 +385,13 @@ export async function renderExport(o: ExportOptions): Promise<ExportOutcome> {
         if (e instanceof ProbeFailure && e.reason === "ffmpeg_unavailable") throw new ExportFailure("ffmpeg_unavailable", true, e.message);
         throw new ExportFailure("source_unreachable", true, `copy of video ${seg.videoId}: ${message(e)}`);
       }
+    }
+
+    // No rate in the plan: the first clip's copy sets it, as the desktop's
+    // export_frame_rate takes it from the first clip's source.
+    if (rate === "") {
+      const first = plan.segments.find((seg) => seg.kind === "clip");
+      rate = exportFrameRate(first && first.kind === "clip" ? (probes.get(first.videoId)?.fps ?? null) : null);
     }
 
     o.onProgress?.("clips", 0, { done: 0, total });
