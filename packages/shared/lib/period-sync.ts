@@ -345,6 +345,26 @@ export function shiftPeriod(sync: SyncPoint, events: PeriodEvent[], period: numb
   };
 }
 
+/** The first quarter after `after` without its own sync (where a quarter-by-quarter pass goes next), or null. */
+export function nextUnsetPeriod(sync: SyncPoint, events: PeriodEvent[], after: number): number | null {
+  return describePeriodSyncs(sync, events).find((r) => r.period > after && !r.set)?.period ?? null;
+}
+
+/**
+ * The quarters a "this quarter" move reaches (shiftPeriod): the play's own,
+ * and every later one that follows it until one with its own sync. Names,
+ * "Q3", "Q4".
+ */
+export function quartersMoved(sync: SyncPoint, events: PeriodEvent[], period: number): string[] {
+  const names = [periodLabel(period)];
+  for (const row of describePeriodSyncs(sync, events)) {
+    if (row.period <= period) continue;
+    if (row.set) break;
+    names.push(row.name);
+  }
+  return names;
+}
+
 /** Moves every period of the game by `deltaSeconds`. */
 export function shiftWholeGame(sync: SyncPoint, deltaSeconds: number): SyncPoint {
   const next: SyncPoint = { ...sync, syncVideoTime: sync.syncVideoTime + deltaSeconds };

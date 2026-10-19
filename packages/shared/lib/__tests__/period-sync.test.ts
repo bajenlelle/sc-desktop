@@ -4,9 +4,11 @@ import {
   clearAllPeriodSyncs,
   clearPeriodSync,
   describePeriodSyncs,
+  nextUnsetPeriod,
   normalizeSyncPoint,
   periodMarksFromEvents,
   predictPeriodAnchor,
+  quartersMoved,
   setPeriodSync,
   shiftPeriod,
   shiftWholeGame,
@@ -197,6 +199,24 @@ describe("period edits", () => {
 
   it("clearAllPeriodSyncs puts the game back on Q1 alone", () => {
     expect("periods" in clearAllPeriodSyncs(setPeriodSync(q1, 2, 1392, anchor2))).toBe(false);
+  });
+});
+
+describe("nextUnsetPeriod and quartersMoved", () => {
+  it("walks to the next quarter without its own sync", () => {
+    const s = setPeriodSync(q1, 2, 1392, marks["2"].anchor);
+    expect(nextUnsetPeriod(q1, events, 1)).toBe(2);
+    expect(nextUnsetPeriod(s, events, 1)).toBe(3);
+    expect(nextUnsetPeriod(s, events, 3)).toBe(4);
+    expect(nextUnsetPeriod(s, events, 4)).toBeNull();
+  });
+
+  it("names the quarters a move of one reaches: up to the next with its own sync", () => {
+    expect(quartersMoved(q1, events, 2)).toEqual(["Q2", "Q3", "Q4"]);
+    const q3Set = setPeriodSync(q1, 3, 2722, marks["3"].anchor);
+    expect(quartersMoved(q3Set, events, 2)).toEqual(["Q2"]);
+    expect(quartersMoved(q3Set, events, 1)).toEqual(["Q1", "Q2"]);
+    expect(quartersMoved(q3Set, events, 4)).toEqual(["Q4"]);
   });
 });
 

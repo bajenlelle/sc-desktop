@@ -40,7 +40,8 @@ export type AnalyticsEvent =
   | "tipoff_suggestion_dismissed" // source, kind, method, agreement (was tipoff_hint_rejected in 0.6.17, hints only)
   | "tipoff_suggestion_resolved" // path (lib/tipoff-analytics.ts), source, suggested_seconds, confirmed_seconds, delta_seconds, ms_since_link
   | "tipoff_hint_saved" // method
-  // Quarter-by-quarter sync, for a video that skips the breaks (desktop). surface: import | game_page | editor
+  // Quarter-by-quarter sync, for a video that skips the breaks (desktop; the web's game page and Fix sync
+  // sheet fire the same events with origin: "web"). surface: import | game_page | editor
   | "sync_cut_detected" // surface, overrun_s
   | "sync_cut_mode_toggled" // surface, on, detected
   | "period_sync_set" // surface, period, anchor_kind, predicted_delta_s
@@ -101,7 +102,7 @@ export type AnalyticsEvent =
   // Importing on the web and checking the server's tip-off
   | "import_entry_clicked" // placement: games_toolbar | games_empty | get_started | game_page | library_row | home_toolbar | add_clips
   | "tipoff_check_shown" // sync_status, confidence
-  | "tipoff_check_resolved" // action: looks_right | adjusted | set_manually, delta_s
+  | "tipoff_check_resolved" // action: looks_right | adjusted | set_manually, delta_s, mode: banner | setup | check | adjust (the game page's Adjust sync) | replaced (a sync from before the video)
   // The web playlist editor (the desktop's production events above are reused with origin: "web")
   | "playlist_renamed" // playlist_id
   | "playlist_deleted" // playlist_id, clips

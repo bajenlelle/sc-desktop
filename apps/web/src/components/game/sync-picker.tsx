@@ -22,7 +22,8 @@ export interface SeekRequest {
   confirm?: boolean;
 }
 
-interface AnchorCopy {
+/** The picker's words: its heading, the instruction, the set button and the confirmation ("Tip-off set at"). */
+export interface AnchorCopy {
   title: string;
   instruction: string;
   button: string;
@@ -90,6 +91,10 @@ export interface SyncPickerProps {
    * without one, its keys yield to any open dialog, its own included.
    */
   keyContainer?: React.RefObject<HTMLElement | null>;
+  /** Other words than the anchor's, for another moment (a quarter's start, a play to find). */
+  copy?: Partial<AnchorCopy>;
+  /** Under the instruction; null hides the first-basket note a quarter or a play doesn't need. */
+  note?: React.ReactNode | null;
 }
 
 /**
@@ -117,8 +122,10 @@ export function SyncPicker({
   confirmedSeconds,
   onUserAction,
   keyContainer,
+  copy: copyOverride,
+  note,
 }: SyncPickerProps) {
-  const copy = ANCHOR_COPY[anchorKind];
+  const copy = { ...ANCHOR_COPY[anchorKind], ...copyOverride };
   const { element: video, ref: videoRef, attach } = useMediaElement<HTMLVideoElement>();
   const duration = useMediaDuration(video);
   const paused = useMediaPaused(video);
@@ -327,12 +334,14 @@ export function SyncPicker({
           <span className="hidden pointer-fine:inline">a frame.</span>
           {anchorDetail && <> Look for {anchorDetail}.</>}
         </p>
-        {anchorKind === "first_basket" && (
-          <p className="mt-1 text-callout text-muted-foreground">
-            Profixio&apos;s table marks the start of play a few minutes before the jump ball, so the first basket is the reliable
-            reference.
-          </p>
-        )}
+        {note !== undefined
+          ? note && <p className="mt-1 text-callout text-muted-foreground">{note}</p>
+          : anchorKind === "first_basket" && (
+              <p className="mt-1 text-callout text-muted-foreground">
+                Profixio&apos;s table marks the start of play a few minutes before the jump ball, so the first basket is the reliable
+                reference.
+              </p>
+            )}
       </div>
 
       {suggestionSlot}

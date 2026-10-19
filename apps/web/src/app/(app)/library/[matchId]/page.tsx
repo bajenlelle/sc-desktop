@@ -5,15 +5,18 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { Clapperboard, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { setGameVideoSync } from "@scoutable/shared/lib/game-video-client";
-import type { GameVideoPlayResponse } from "@scoutable/shared/lib/game-video-wire";
+import { setGameVideoPeriods, setGameVideoSync } from "@scoutable/shared/lib/game-video-client";
+import { syncPeriodsPayloadOf, type GameVideoPlayResponse } from "@scoutable/shared/lib/game-video-wire";
 import { getMatch } from "@scoutable/shared/lib/matches-db";
-import type { StoredMatch } from "@scoutable/shared/types/match";
+import { nextUnsetPeriod, normalizeSyncPoint, videoLooksCut } from "@scoutable/shared/lib/period-sync";
+import type { StoredMatch, SyncPoint } from "@scoutable/shared/types/match";
 import { useAuth } from "@/components/auth-context";
 import { ConvertFailedCard } from "@/components/game/convert-failed-card";
 import { ConvertingCard } from "@/components/game/converting-card";
+import { GameSyncPanel, readSyncPoint, syncWriteError } from "@/components/game/game-sync-panel";
 import { GameSyncSetup } from "@/components/game/game-sync-setup";
 import { GameWatchView } from "@/components/game/game-watch-view";
+import { BreaksCutBanner, SyncBeforeVideoBanner } from "@/components/game/sync-banners";
 import { TipoffCheckBanner } from "@/components/game/tipoff-check-banner";
 import { UploadCard, UploadInterruptedCard } from "@/components/game/upload-card";
 import { ImportEntryLink } from "@/components/import/import-entry-link";
@@ -31,6 +34,9 @@ import { createClient } from "@/lib/supabase/client";
 
 type Loaded = { matchId: string; match: StoredMatch | null; owner: boolean };
 
+/** A row whose converter couldn't vouch for the game's sync: it was set before this video was uploaded. */
+const UNVOUCHED = new Set(["suggested", "not_found", "skipped"]);
+
 /**
  * A game's page: its cloud video in whatever state it is in. Uploading
  * (from this device, with progress; or interrupted, asking for the file
@@ -39,6 +45,12 @@ type Loaded = { matchId: string; match: StoredMatch | null; owner: boolean };
  * it does. Only the person who uploaded the video gets a URL for it;
  * everyone else sees the same "isn't available" whether the game exists
  * or not.
+ *
+ * Synced, the uploader adjusts the sync from here (the desktop game page's
+ * Sync section): the tip-off, also after the video was replaced, and each
+ * quarter's own start for a video that skips the breaks. A banner asks for
+ * the quarters when the play-by-play runs past the end of the video, and
+ * for a check when the sync predates the video.
  */
 export default function GamePage() {
   const { matchId } = useParams<{ matchId: string }>();
@@ -103,6 +115,36 @@ export default function GamePage() {
   const [checking, setChecking] = useState(false);
   const [resuming, setResuming] = useState(false);
   const checkContainer = useRef<HTMLDivElement | null>(null);
+  /** The sync dialog: which moment it opened on (1 = the tip-off), kept while it leaves; `open` is whether it is up. */
+  const [adjusting, setAdjusting] = useState<{ period: number; session: number; open: boolean } | null>(null);
+  const adjustContainer = useRef<HTMLDivElement | null>(null);
+  const openAdjust = useCallback((period: number) => setAdjusting((prev) => ({ period, session: (prev?.session ?? 0) + 1, open: true })), []);
+
+  /** A sync written from here: the page shows it at once, the row's status follows. */
+  const showSync = useCallback(
+    (next: SyncPoint) => {
+      setLoaded((prev) => (prev?.match && prev.matchId === matchId ? { ...prev, match: { ...prev.match, syncPoint: next } } : prev));
+      void reloadVideo();
+    },
+    [matchId, reloadVideo],
+  );
+
+  // A video that skips the breaks: the play-by-play runs past its end with the tip-off's sync alone.
+  const sync = match?.syncPoint ?? null;
+  const unvouched = video?.origin === "browser" && UNVOUCHED.has(video.syncStatus ?? "");
+  const copyReady = video?.status === "ready";
+  const copySeconds = video?.durationSeconds ?? null;
+  const cut = useMemo(
+    () => (match && sync && copyReady ? videoLooksCut({ durationSeconds: copySeconds, events: match.events, sync }) : null),
+    [match, sync, copyReady, copySeconds],
+  );
+  const cutBanner = !!cut?.cut && !!sync && !sync.periods && sync.breaksCut !== false && video?.syncStatus !== "applied" && !unvouched;
+  const cutReported = useRef<string | null>(null);
+  useEffect(() => {
+    if (!cutBanner || !cut || cutReported.current === matchId) return;
+    cutReported.current = matchId;
+    trackEvent("sync_cut_detected", { surface: "game_page", origin: "web", overrun_s: Math.round(cut.overrunSeconds) });
+  }, [cutBanner, cut, matchId]);
 
   const back = <BackButton href="/library" label="Library" />;
   const subtitle = (duration: number | null) => [formatGameDate(match?.date), formatGameLength(duration)].filter(Boolean).join(" · ");
@@ -245,10 +287,52 @@ export default function GamePage() {
     );
   }
 
+  const syncedMatch = match as StoredMatch & { syncPoint: SyncPoint };
+
+  /** The uploader keeps (or takes) a tip-off for this video as their own: the "set before this video" check is answered. */
+  const keepTipoff = async (at: number) => {
+    const result = await setGameVideoSync(createClient(), { videoId: video.id, status: "manual", seconds: at });
+    if (!result.ok) {
+      const copy = syncWriteError(result.error);
+      toast.error(copy.title, { description: copy.description });
+      return;
+    }
+    trackEvent("tipoff_check_resolved", {
+      action: Math.abs(at - syncSeconds) < 0.05 ? "looks_right" : "adjusted",
+      delta_s: Math.round((at - syncSeconds) * 10) / 10,
+      mode: "replaced",
+      origin: "web",
+    });
+    showSync((await readSyncPoint(match.id)) ?? { ...syncedMatch.syncPoint, syncVideoTime: at });
+  };
+
+  /** "Not cut": the coach's answer, kept on the game so the banner doesn't come back. */
+  const notCut = async () => {
+    trackEvent("sync_cut_mode_toggled", { surface: "game_page", origin: "web", on: false, detected: true });
+    const next: SyncPoint = { ...syncedMatch.syncPoint, breaksCut: false };
+    const result = await setGameVideoPeriods(createClient(), { videoId: video.id, syncPoint: syncPeriodsPayloadOf(next) });
+    if (!result.ok) {
+      const copy = syncWriteError(result.error);
+      toast.error(copy.title, { description: copy.description });
+      return;
+    }
+    showSync(normalizeSyncPoint(result.data.syncPoint as unknown as SyncPoint));
+  };
+
   return (
     <Page width="full">
-      <Toolbar inline title={match.title} subtitle={subtitle(current.durationSeconds)} leading={back} />
-      {video.syncStatus === "applied" && (
+      <Toolbar
+        inline
+        title={match.title}
+        subtitle={subtitle(current.durationSeconds)}
+        leading={back}
+        actions={
+          <Button variant="outline" size="sm" onClick={() => openAdjust(1)}>
+            Adjust sync
+          </Button>
+        }
+      />
+      {video.syncStatus === "applied" ? (
         <TipoffCheckBanner
           video={video}
           seconds={syncSeconds}
@@ -264,8 +348,42 @@ export default function GamePage() {
             afterSync();
           }}
         />
-      )}
+      ) : unvouched ? (
+        <SyncBeforeVideoBanner
+          seconds={syncSeconds}
+          suggestedSeconds={video.syncStatus === "suggested" ? video.suggestedTipoffSeconds : null}
+          onKeep={keepTipoff}
+          onCheck={() => openAdjust(1)}
+        />
+      ) : cutBanner && cut ? (
+        <BreaksCutBanner
+          overrunSeconds={cut.overrunSeconds}
+          onSetQuarters={() => openAdjust(nextUnsetPeriod(syncedMatch.syncPoint, match.events, 1) ?? 1)}
+          onNotCut={notCut}
+        />
+      ) : null}
       <GameWatchView key={match.id} match={match} src={current.url} startAt={startAt} onSourceStale={refreshUrl} />
+
+      <Dialog open={!!adjusting?.open} onOpenChange={(open) => !open && setAdjusting((prev) => (prev ? { ...prev, open: false } : prev))}>
+        <DialogContent className="sm:max-w-3xl" showCloseButton onExitComplete={() => setAdjusting((prev) => (prev?.open ? prev : null))}>
+          <div ref={adjustContainer} className="pt-2">
+            <DialogTitle className="sr-only">Adjust the sync</DialogTitle>
+            {adjusting && (
+              <GameSyncPanel
+                key={adjusting.session}
+                match={syncedMatch}
+                video={video}
+                src={current.url}
+                onSourceStale={refreshUrl}
+                durationSeconds={current.durationSeconds ?? video.durationSeconds}
+                initialPeriod={adjusting.period}
+                onChanged={showSync}
+                keyContainer={adjustContainer}
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={checking} onOpenChange={setChecking}>
         <DialogContent className="sm:max-w-3xl" showCloseButton>
