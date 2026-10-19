@@ -16,6 +16,7 @@ import type { PlayByPlayEvent } from "@scoutable/shared/types/match";
 import { PlayerStage, type PlayerStageHandle } from "@/components/player/player-stage";
 import { useMediaDuration, useMediaElement } from "@/components/player/use-media";
 import { useStageFullscreen } from "@/components/player/use-stage-fullscreen";
+import { CardImage } from "@/components/stats-card/card-image";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { useReducedMotionSafe } from "@/lib/motion";
@@ -317,7 +318,12 @@ export function WatchView({
                     className="absolute inset-0 z-10 flex items-center justify-center bg-black"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <p className="px-8 text-center text-2xl font-semibold text-white sm:text-4xl">{activeCard.text}</p>
+                    {/* A stats card is drawn as it exports; a text card (or a spec this build can't read) is its line. */}
+                    {activeCard.card ? (
+                      <CardImage source={activeCard} aspect="16:9" className="size-full" />
+                    ) : (
+                      <p className="px-8 text-center text-2xl font-semibold text-white sm:text-4xl">{activeCard.text}</p>
+                    )}
                   </div>
                 )}
                 {/* Narrow, the controls' own centre button plays instead. */}

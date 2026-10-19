@@ -58,7 +58,7 @@ export type AnalyticsEvent =
   | "clips_grouped"
   | "clips_ungrouped"
   | "text_card_inserted"
-  | "stats_card_inserted"
+  | "stats_card_inserted" // entry (menu | row | suggestion), scope, source, columns; origin: "web" from the web (after the insert)
   | "stats_card_suggestion_dismissed"
   | "folder_created"
   | "label_created"

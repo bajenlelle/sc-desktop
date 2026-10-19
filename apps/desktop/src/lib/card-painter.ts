@@ -4,8 +4,10 @@
  * the font is the bundled Roboto, so a card looks the same on every machine
  * and in every exported video.
  */
-// Twin: packages/node-video/assets/fonts/ holds the same files for the server
-// export's painter (node-video/lib/card-paint.ts); change both together.
+// Twins: packages/node-video/assets/fonts/ holds the same files for the server
+// export's painter (node-video/lib/card-paint.ts), and apps/web/public/fonts/
+// for the web's (apps/web/src/lib/card-painter.ts, a port of this file);
+// change all three together.
 import robotoRegularUrl from "@/assets/fonts/Roboto-Regular.ttf?url";
 import robotoBoldUrl from "@/assets/fonts/Roboto-Bold.ttf?url";
 import {
