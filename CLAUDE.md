@@ -10,8 +10,21 @@ playlists, and share them with teams; players watch on web/mobile.
   Native side in `src-tauri` (video streaming protocol, ffmpeg export
   sidecar, updater). Released via git tags (see Releases below).
 - `apps/web` — Next.js 16 App Router at app.scoutable.se, auto-deployed from
-  `main` by Vercel. Player-facing playlist viewing + org/billing/admin.
-  API routes use Stripe + the Supabase service role.
+  `main` by Vercel. Coaches get the desktop's workspace (Home, Playlists,
+  Shared playlists, Library; Club and Admin for staff; the order lives in
+  `packages/shared/lib/app-nav.ts`), players get My playlists and My
+  highlights. Routes: `/home`; `/playlists` (folders one at a time, the open
+  one in `?folder=` through the History API) and the editor `/playlists/[id]`
+  (`components/editor/**`: every write optimistic over
+  `packages/shared/lib/playlist-edits.ts` with a rollback toast; clips play
+  as windows of the owner's own cloud copies); `/library`, `/library/import`,
+  `/library/[matchId]` (a game, its video and its sync); `/my-playlists`
+  (`components/playlist/watch-view.tsx`, what players see); `/h/[shareId]`
+  (a highlight link); `/view`, `/join`, `/onboarding`, `/organization`,
+  `/profile`, `/admin`. `/games*` and `/get-started` redirect. API routes use
+  Stripe and the Supabase service role; `/api/hosted-stats` serves the stats
+  pages behind stats cards. `src/proxy.ts` refreshes the session and runs
+  the onboarding guard.
 - `apps/mobile` — Expo SDK 57, expo-router (`src/app`), NativeWind v4,
   expo-video. Built with EAS; OTA fixes via `npm run ota` (EAS Update,
   fingerprint runtime policy). After every OTA publish, verify the published
@@ -54,161 +67,78 @@ playlists, and share them with teams; players watch on web/mobile.
   (`not_owner`, `import_limit_reached`), and end with `GRANT EXECUTE ... TO
   authenticated`. Tables get RLS; client-written tables get explicit
   policies, server-written tables get none (service role bypasses).
+- **Security**: the repo is PUBLIC, so a commit or PR that describes a hole
+  discloses it: patch prod first. Postgres grants EXECUTE on every new
+  function to PUBLIC, so an internal SECURITY DEFINER helper (not meant for
+  clients, usually `_`-prefixed) ends with `REVOKE ALL ON FUNCTION … FROM
+  PUBLIC, anon, authenticated` (`20261018200000` closed thirteen that
+  didn't); client RPCs keep their `GRANT EXECUTE … TO authenticated`.
+  `profiles` has column-level UPDATE grants only
+  (`20260929120000_close_self_escalation.sql`): a new client-writable column
+  needs its own `GRANT UPDATE (column)`. Third-party keys (Genius, Profixio,
+  Anthropic, R2, Stripe, Resend) live in function secrets, never in a
+  `VITE_` or `NEXT_PUBLIC_` variable, which ships in the bundle. A script
+  that signs in signs out with scope `local` (`auth.signOut({ scope:
+  'local' })`, `auth.admin.signOut(jwt, 'local')`): the default is global and
+  signs the person out everywhere.
 - **Import quota**: `_import_allowance` (latest definition in
   `supabase/migrations/20261001130000_rookie_six_imports.sql`) is the
   single source of truth (free = 3 lifetime, rookie = 6/month, paid =
   unlimited). `packages/shared/lib/plan-tier.ts` mirrors it for display only
   — change both together.
+- **Playlists**: folders (`playlist_folders`, nested; deleting one deletes
+  its subfolders and moves their playlists to the top level;
+  `lib/folder-tree.ts`), groups (`playlist_clips.group_id`: items that move
+  as one block; `lib/clip-groups.ts`), labels (a vocabulary per user and
+  space in `labels`; assignments in `clip_label_assignments`, with
+  `playlist_id` NULL for the bank, which the add-clips browsers show and
+  filter by, or a playlist's id for labels that live in that playlist, which
+  the editors show; `lib/labels-db.ts`), and clip length: pre/post roll per
+  playlist (`playlists.pre_roll/post_roll`) and per-clip offsets
+  (`lib/clip-timing.ts`); the first offset saved on a playlist pins its
+  current pair.
 - **Playlist cards**: a text item (`playlist_clips.item_type 'text'`) may
   carry a stats card spec in `playlist_clips.card`
   (`packages/shared/lib/stats-card.ts`); `text_content` keeps a readable
   fallback line for builds and apps that don't draw specs. The numbers come
-  from Genius's public hosted statistics pages (`lib/hosted-stats.ts`,
-  server-rendered HTML read by the desktop through plugin-http), parsed by
-  header label; a layout change throws `hosted_layout_changed` (reported to
-  Sentry). The desktop draws text and stats cards with one painter
-  (`apps/desktop/src/lib/card-painter.ts` over `lib/card-layout.ts`) for the
-  stage and the export (`ExportSegment::Image`), so the preview is the export.
-- **Cloud game videos**: a game's 720p copy in the PRIVATE R2 bucket
-  (`R2_VIDEOS_*` secrets), rows in `game_videos` (written by the `game-video`
-  function only; the uploader reads their own), keys
-  `<project ref>/games/<matchId>/<videoId>.mp4` for copies and
-  `<project ref>/sources/<matchId>/<videoId>.<ext>` for browser-uploaded
-  originals, so staging and prod share the bucket and a project never touches
-  another's objects (`guardKey`). The desktop encodes (libx264 veryfast,
-  `src-tauri/src/game_video.rs`) and uploads 32 MiB parts to presigned URLs.
-  The web imports a game and uploads the ORIGINAL the same way (`origin:
-  "browser"`); `complete` then moves the row to `converting` and the function
-  starts the converter: a Cloudflare Worker + container in
-  `workers/game-video-convert` (EU-pinned, `standard-4`, deployed by
-  `convert-deploy.yml`) that runs `src/convert.ts` (download → probe →
-  fingerprint → hints → ffmpeg with the desktop's exact arguments, shared in
-  `packages/shared/lib/game-video-convert.ts` → upload → tip-off detection as
-  the bot) and reports through the `job_*` actions behind
-  `GAME_VIDEO_WORKER_SECRET`, every write fenced by the attempt number. A
-  confident tip-off is applied to an unsynced game (`_game_video_finish_convert`),
-  the web confirms or sets it through `sync_set` (`_game_video_set_sync`: a
-  `confirmed` never overrides a coach's own sync, `sync_locked`; a `manual` set
-  by the video's uploader always applies, so the tip-off can follow a replaced
-  video; a copy without an anchor of its own, the desktop's, keeps the game's
-  reference and moves only its video time; migration `20261022100000`) and
-  writes per-quarter syncs through `sync_periods_set { videoId, syncPoint }`
-  (`_game_video_set_periods`: `periods` "2"…"8" replaced whole, `marks` and
-  `breaksCut` when given, the tip-off with sync_set's manual rule when
-  `syncVideoTime` is given; shape checked by `parseSyncPeriodsPayload` and
-  again in SQL; `no_sync` for an unsynced game), a ten-minute pg_cron sweep re-runs dead
-  conversions, and `game_video_ready` mails the uploader. The web plays the
-  copy through a 12 h presigned GET (`/library/<matchId>`), where the uploader
-  also adjusts the sync (Adjust sync: the tip-off and each quarter's own,
-  `components/game/game-sync-panel.tsx`; banners when the play-by-play runs
-  past the video's end or the sync predates the video); the editor's Fix sync
-  is `components/sync/fix-sync-sheet.tsx`. Caps per tier in
-  `app_config.game_video_limits` (enforced by the insert trigger; conversions
-  in flight count), kill switch `app_config.cloud_video_enabled`, deletions
-  queued in `game_video_deletions` and purged nightly by pg_cron through the
-  function's `purge` action (`GAME_VIDEO_PURGE_SECRET` =
-  `app_config.game_video_purge_secret`; `GAME_VIDEO_WORKER_SECRET` =
-  `app_config.game_video_worker_secret`; `GAME_VIDEO_CONVERT_URL/SECRET` point
-  at the Worker). Wire contract and pure helpers in
-  `packages/shared/lib/game-video-wire.ts`; end-to-end checks
-  `node --env-file=apps/web/.env.staging scripts/game-video-smoke.mjs`
-  (desktop path), `--browser` (the script plays the converter) and
-  `--browser --local-convert [--file game.mp4]` (the real converter program on
-  this machine), all with `SUPABASE_SERVICE_ROLE_KEY` in the environment.
-  Deploy the function by name only. The browser upload needs the bucket's
-  CORS rule (PUT from the app's origin, `ExposeHeaders: ETag`).
-- **Server-cut clips** (render jobs): a web playlist's clips are rows without
-  files until the owner calls `ship { playlistId }` on `game-video` (the web
-  does so when the playlist is shared, and again after clips are added or
-  trimmed, the rolls change, or the game's sync changes). Each run is a
-  `render_jobs` row (kind `ship`; `export` below; migrations
-  `20261020100000`, `20261021100000`) with the conversions' bookkeeping:
-  attempt, heartbeat, progress, `requeue`, `result = {shipped, failed,
-  superseded, total, failures}`; one live job per (playlist, kind, aspect,
-  purpose), the owner reads their own rows (RLS), only the function writes.
-  The plan (window from `lib/clip-ship-plan.ts`'s
-  `computeVideoTime`/`clipBounds`, key from `clipShipKey`, a copy usable when
-  a ready `game_videos` row exists and the owner owns the match or is
-  admin/coach of its org) is previewed at `ship`,
-  recomputed at `render_take` and checked again at `render_done`, so a clip
-  changed meanwhile is `superseded` and cut again by the follow-up job. The
-  function asks the same Worker for `POST /render {jobId}`; the container runs
-  `src/render.ts` (an entrypoint override of the converter image), which cuts
-  each clip straight from the copy's presigned GET with the desktop's
-  `shipClipArgs` and PUTs it to a presigned URL of the PUBLIC media bucket
-  under the desktop's key, reporting through `render_take / render_progress /
-  render_done / render_failed` (`x-worker-secret`, fenced by attempt). Caps:
-  one running render per user and `MAX_ACTIVE_RENDERS` = 4 globally, beside
-  15 conversions (the Worker allows 20). The media bucket's credentials are
-  presign-upload's `R2_ENDPOINT / R2_BUCKET / R2_ACCESS_KEY_ID /
-  R2_SECRET_ACCESS_KEY / R2_PUBLIC_URL` (function secrets are project-wide, so
-  `game-video` reads the same names); without them `ship` and `render_take`
-  answer `renderer_unavailable`. An unreachable Worker never fails a `ship`:
-  the job waits (heartbeat NULL) for the ten-minute sweep, which also re-runs
-  quiet renders and fails a job nobody took within a day. `render_done` writes
-  `playlist_clips.r2_url` and calls `_notify_pending_shares_for_playlist`
-  (the owner-gated RPC's body, REVOKEd from clients); `sync_set` and
-  `sync_periods_set` move the uploader's pans with their plays, clear legacy
-  keys and re-ship stale clips of shared playlists (`_playlist_is_shared`).
-  Superseded clip files: whenever a playlist clip's `r2_url` changes or is
-  cleared (render_done, a trim, a sync change, the desktop), a trigger queues
-  the old key in `media_deletions`; the nightly `media_purge` (purge secret,
-  `run_game_video_purge`) deletes a key only when no `playlist_clips.r2_url`
-  and no live ship job references it (two playlists can share a file), else
-  drops it from the queue. Staging shares the media bucket and holds copies of
-  prod's rows, so the function deletes only in `MEDIA_PURGE_SCOPE` (`all` on
-  prod at rollout; unset = the smoke's `clips/smoke-` games only). Probes:
-  `supabase/tests/sync_media.sh`.
-  Probes: `supabase/tests/render_jobs.sh`. Smoke: the browser smoke plus
-  `--ship` (the script plays the renderer) or `--ship --local-render` (the
-  real program here, needs `--local-convert --file <video of ≥ 17 s>`).
-  The job plumbing both kinds share is `functions/game-video/jobs.ts`.
-- **Exports** (render jobs of kind `export`, `functions/game-video/export.ts`):
-  the owner's `export { playlistId, aspect: "16:9" | "9:16", purpose:
-  "download" | "share", watermark?, selection?, contentKey?, fresh? }` makes one
-  MP4 of the playlist (or of the selected item keys, in playlist order). The
-  plan is `lib/export-plan.ts` over the rows (windows as the ship plan's; a
-  game without a copy the owner may use → `noCopy`; a play without a time or
-  starting in its copy's last 0.25 s → `dropped`; a window past the copy's end
-  is cut there; 9:16 pans rebased as crop-path does; the rate from the first
-  clip's copy), previewed at `export` and recomputed at `render_take`; the
-  same Worker route and `src/render.ts` render it (`src/export.ts`). Gates:
-  `upgrade_required` on a free plan (`_export_tier_for_playlist`: the
-  playlist's club, else the owner's personal space), `demo_game`,
-  `nothing_to_export` (no clip left; cards alone don't export). The wordmark
-  is always on for shares and Rookie; Pro/Franchise downloads may send
-  `watermark: false`. A download goes to the PRIVATE bucket at
-  `<prefix>/exports/<userId>/<jobId>.mp4` (`params.keys.video`, then
-  `result.key`) and is saved through `export_link { jobId }` (a 24 h presigned
-  GET with `Content-Disposition: attachment; filename="<exportFileName>"`;
-  `export_expired` once gone); after 7 days the retention deletes the row and
-  a BEFORE DELETE trigger queues the key in `game_video_deletions` for the
-  purge, as it does when a playlist or account deletion cascades into it. A
-  share PUTs `highlights/<uid>/<shareId>.mp4|jpg` to the PUBLIC media bucket
-  (so, like `ship`, it needs the `R2_*` secrets, else `renderer_unavailable`),
-  and `render_done` inserts the `highlight_shares` row (30 days; the client's
-  `contentKey` kept only when the plan's fingerprint at `render_take` equals
-  the one at `export`); an unexpired link of the same playlist, aspect and
-  content key comes back as `reused` instead (never for a selection or
-  `fresh`); share rows go after 30 days. One live export per (playlist,
-  aspect, purpose); progress carries `phase` (`clips`, `stitch`, `upload`);
-  `render_cancel { jobId }` fails a live job of either kind `cancelled` and
-  the renderer's next call gets 409 `cancelled`; a missing or tiny file at
-  `render_done` fails the job `output_missing`. Smoke: `--ship --export` (the
-  script plays the renderer) or `--ship --export --local-render` (the real
-  program); a `--file` of 47–61 s exercises both the cut at a copy's end and
-  `past_end`. `--browser --cloud --file <video> --ship --export` runs the
-  whole chain on the DEPLOYED Worker (conversion, cuts, per-quarter re-cuts and
-  the media purge, exports, cancel) and only waits and checks the files; the
-  cleanup clears its clips so the media purge removes their files; a job stuck queued means the function
-  can't reach the Worker or the secrets don't pair up (`GAME_VIDEO_CONVERT_SECRET`
-  = the Worker's `CONVERT_SECRET`, the Worker's `WORKER_SECRET` =
-  `app_config.game_video_worker_secret`).
+  from Genius's public hosted statistics pages (`lib/hosted-stats.ts`, parsed
+  by header label; a layout change throws `hosted_layout_changed`, reported
+  to Sentry) through one loader, `lib/stats-card-data.ts`, which each app
+  hands its fetcher: the desktop's plugin-http, the web's `/api/hosted-stats`
+  (signed-in users only, the URL built from numeric ids, a 10-minute cache).
+  Three painters draw the same pixels over `lib/card-layout.ts` with the same
+  Roboto files: the desktop's (`apps/desktop/src/lib/card-painter.ts`, its
+  stage and its export), the web's (`apps/web/src/lib/card-painter.ts`, the
+  editor and the players' watch view) and the server export's
+  (`packages/node-video/lib/card-paint.ts`). Change all three together.
+- **Cloud game videos** (`docs/cloud-game-videos.md`: how it fits together,
+  where the code lives, how to check it, the prod rollout): a game's 720p
+  copy in the PRIVATE R2 bucket that only its uploader plays; the
+  `game-video` function brokers uploads, playback, sync, `ship` (the server
+  cuts a shared playlist's clip files into the PUBLIC media bucket) and
+  `export` (16:9 or 9:16, a download or a highlight link); a Cloudflare
+  Worker + container (`workers/game-video-convert`) converts originals,
+  detects the tip-off as the bot user, cuts clips and renders exports, each
+  run a job fenced by its attempt (`game_videos`, `render_jobs`). The wire
+  contract is `packages/shared/lib/game-video-wire.ts`. Staging and prod
+  share both buckets: private keys start with the project ref, and the media
+  purge deletes only within `MEDIA_PURGE_SCOPE`.
 - **Errors**: Sentry on all three apps (org `scoutable`, EU). DSNs are
   hardcoded (public); desktop/mobile dev builds are offline unless the DSN
   env var is set. Don't add error tracking dependencies to `packages/shared`.
-- **UI copy** is English, sentence case, remaining-oriented for quotas
-  ("2 of 3 imports left").
+- **Analytics**: PostHog. Event names are the union in
+  `packages/shared/types/analytics.ts` (a new event goes there with a comment
+  naming its props); the web reuses a desktop event with `origin: "web"`.
+  Staging and prod share one PostHog project: the desktop registers
+  `environment` from `VITE_ENV`; leave the PostHog keys out of a local env to
+  keep test clicks out.
+- **Design**: UI and motion follow `.claude/skills/apple-design` (feedback on
+  press, 1:1 drags with the grab offset kept, interruptible springs from
+  `lib/motion.ts`, identical in web and desktop, velocity hand-off and
+  momentum on release, panels that leave the way they came, reduced-motion
+  fades); `docs/desktop-design-audit.md` and `docs/web-design-audit.md`
+  record the redesign. UI copy follows `.claude/skills/copywriting`: English,
+  sentence case, remaining-oriented for quotas ("2 of 3 imports left").
 - Never commit `.env*` files or secrets; DSNs are the only allowed
   hardcoded identifier.
 
@@ -217,13 +147,18 @@ playlists, and share them with teams; players watch on web/mobile.
 - Typecheck: `npx tsc --noEmit` in `apps/desktop` / `apps/web`;
   `npm run typecheck` in `apps/mobile` / `packages/shared`.
 - Tests: `npm test` in `packages/shared` (vitest; pure logic extracted from
-  the apps lives and is tested here — extend these when touching it) and
-  `cargo test` in `apps/desktop/src-tauri`.
+  the apps lives and is tested here — extend these when touching it),
+  `cargo test` in `apps/desktop/src-tauri`, and `npm test` in
+  `workers/game-video-convert` and `packages/node-video`.
 - Lint (web only): `npm run lint` in `apps/web`.
 - Rust: `cargo clippy --no-deps -- -D warnings` in `apps/desktop/src-tauri`.
-- Desktop dev: `npm run tauri dev` in `apps/desktop`.
-- Staging (sc-staging, `edalihizooqdxeekaklf`): the CLI stays linked to
-  prod. Migrations: `npx supabase db push --db-url <session pooler URL>`
+- Desktop dev: `npm run tauri dev` in `apps/desktop`. The ffmpeg sidecar is
+  gitignored: put an ffmpeg at `src-tauri/binaries/ffmpeg-<target triple>`
+  first (`ffmpeg-aarch64-apple-darwin` on Apple silicon; `brew install
+  ffmpeg` and copy it, or take the Intel build from the `ffmpeg-binaries`
+  release).
+- Staging (sc-staging, `edalihizooqdxeekaklf`): staging commands never use the
+  CLI's link, which points at prod. Migrations: `npx supabase db push --db-url <session pooler URL>`
   (the URL is `apps/desktop/.env.staging`'s connection string on the
   `aws-1-eu-west-1.pooler.supabase.com:5432` host; never print it).
   Functions: `npx supabase functions deploy <name> --project-ref edalihizooqdxeekaklf`.
@@ -231,7 +166,18 @@ playlists, and share them with teams; players watch on web/mobile.
   (runs through psql; `db query --db-url` can't hold a transaction).
   Desktop against staging: `cp .env.staging .env && npm run tauri dev`
   (restore with `npm run use:prod`); web: use `apps/web/.env.staging` as
-  `.env.local` for the session.
+  `.env.local` for the session. A new machine needs `apps/web/.env.local`
+  with the staging `NEXT_PUBLIC_SUPABASE_URL` and
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY` (the server-only keys matter only for
+  delete-account and the billing portal), the web on port 3000 (staging's
+  auth redirects go to `http://localhost:3000`), and `apps/desktop/.env` with
+  `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` and `VITE_ENV=staging` (the
+  full `.env.staging` also holds release-signing keys and the database
+  password, none of which a dev run needs). Staging has only test accounts:
+  ask a maintainer for an invite into a Franchise test club (exports, 120
+  cloud games) or sign up (a Free space: 2 cloud games, no exports). Staging
+  shares the R2 buckets, Resend and the Genius quota (20k calls a month)
+  with prod.
 - Converter (`workers/game-video-convert`): typecheck `npx tsc --noEmit` there;
   deploy from GitHub Actions (`convert-deploy.yml`, dispatch with the
   environment) or locally with Docker running:
@@ -246,10 +192,15 @@ playlists, and share them with teams; players watch on web/mobile.
 ## CI / Releases
 
 - `check.yml` runs the five checks above on PRs into main/staging/develop.
-- Desktop release: `npm version <bump> --workspace apps/desktop` (syncs
-  tauri.conf.json + Cargo.toml/lock), commit "X.Y.Z", annotated tag
-  `vX.Y.Z`, `git push --follow-tags` → release.yml builds, notarizes, and
-  publishes to `bajenlelle/scoutable-releases`; desktop apps self-update.
+- Desktop release (the `/release` command walks it): `npm version <bump>
+  --workspace apps/desktop` (syncs tauri.conf.json + Cargo.toml/lock), commit
+  "X.Y.Z", annotated tag `vX.Y.Z`, push the branch and the tag → release.yml
+  builds, notarizes, and publishes to `bajenlelle/scoutable-releases`;
+  desktop apps self-update.
+- `convert-deploy.yml` deploys the game-video Worker when dispatched with an
+  environment, and on its own deploys the PROD Worker whenever a push to
+  `main` touches `workers/game-video-convert/**`, `packages/shared/**` or
+  `packages/node-video/**`.
 - Windows code signing (Azure Artifact Signing) turns on in release.yml and
   build.yml once the secrets `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`,
   `AZURE_CLIENT_SECRET` and the variables `WINDOWS_SIGN_ENDPOINT`,
@@ -261,6 +212,27 @@ playlists, and share them with teams; players watch on web/mobile.
   `ffmpeg-binaries` release (evermeet.cx's download API is gone); the update
   steps are in the comment above it in release.yml.
 - Web ships on merge to `main`. Mobile JS fixes ship with `npm run ota`.
+
+## Docs
+
+- `docs/cloud-game-videos.md`: cloud game videos end to end, with the prod
+  rollout.
+- `docs/maintenance.md`: the bug pipeline, and every secret: where it lives
+  and what reads it.
+- `docs/desktop-design-audit.md`, `docs/web-design-audit.md`: the redesign
+  of each app against Apple's interface principles.
+- `docs/stripe-b2c-tier-integration.md`: the B2C tiers in Stripe.
+- `docs/invite-flow.md`: the invite and role design.
+- `docs/leagues.md`, `docs/play-by-play-data-inventory.md`: superseded by the
+  Genius API import; kept for history.
+
+## Claude Code
+
+`.claude/` holds this repo's skills (`apple-design` and `copywriting`: load
+them before UI or copy work), the `test-writer` agent (pins current
+behaviour in vitest or cargo tests and never changes production code) and
+the `/release` command. Personal memory doesn't travel with a clone: put
+what the next person needs here or in `docs/`.
 
 ## Maintenance pipeline
 
