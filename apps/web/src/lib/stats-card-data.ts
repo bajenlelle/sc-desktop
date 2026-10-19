@@ -39,8 +39,8 @@ const fetchThroughRoute: HostedPageFetcher = async (url, fresh) => {
     method: "GET",
     credentials: "same-origin",
     cache: "no-store",
-    // The route waits up to 10 s on the federation; this covers the hop as well.
-    signal: AbortSignal.timeout(15_000),
+    // The route waits up to 25 s on the federation; this covers the session check and the hop as well.
+    signal: AbortSignal.timeout(40_000),
   });
   if (!res.ok) throw new Error(`The stats page answered ${res.status}`);
   return res.text();

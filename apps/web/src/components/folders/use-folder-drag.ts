@@ -91,6 +91,8 @@ const LIFT_SCALE = 1.02;
 const LANDED_SCALE = 0.55;
 /** How long the target stays lit after the card has gone in. */
 const LANDED_GLOW_MS = 240;
+/** Over a target the card thins, so the lit target shows through it (a path step sits right under the pointer). */
+const OVER_TARGET_OPACITY = 0.6;
 const INTERACTIVE = "button, input, textarea, select, a, [data-no-drag], [role=menu], [role=dialog]";
 
 interface Pending {
@@ -214,6 +216,7 @@ export function useFolderDrag(options: FolderDragOptions): FolderDrag {
       s.target?.el.removeAttribute(DROP_ACTIVE_ATTR);
       next?.el.setAttribute(DROP_ACTIVE_ATTR, "");
       s.target = next;
+      if (!s.finished) void run(s, s.card.opacity, next ? OVER_TARGET_OPACITY : 1, { duration: 0.12, ease: "easeOut" });
     }
 
     function hitTest(s: Session) {

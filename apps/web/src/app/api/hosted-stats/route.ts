@@ -16,11 +16,14 @@ import { createClient } from "@/lib/supabase/server";
  * on as they are: the shared parsers in the browser stay the only parser.
  *
  * 400 for anything but the two pages by number, 401 signed out, 502 when the
- * federation doesn't answer in 10 s, answers an error, or sends more than 3 MB
- * (a season page is ~0.5–0.7 MB).
+ * federation doesn't send the whole page within 25 s, answers an error, or
+ * sends more than 3 MB (a season page is ~0.5–0.7 MB and can take 10 s or more
+ * to arrive when the federation's server is busy).
  */
 
-const TIMEOUT_MS = 10_000;
+const TIMEOUT_MS = 25_000;
+// Room for the federation's slowest page on any plan (the platform default can be shorter than TIMEOUT_MS).
+export const maxDuration = 60;
 const MAX_BYTES = 3 * 1024 * 1024;
 const REVALIDATE_SECONDS = 600;
 
