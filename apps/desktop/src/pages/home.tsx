@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
-import { ListVideo, Plus, Share2, UserPlus } from "lucide-react";
+import { ChevronRight, Film, ListVideo, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { GroupedList, GroupHeader } from "@/components/ui/group";
+import { Page, PageContent } from "@/components/shell/page";
+import { Toolbar } from "@/components/shell/toolbar";
 import { MatchRow } from "@/components/match-row";
 import { EmptyState } from "@/components/empty-state";
 import { GettingStarted } from "@/components/getting-started";
@@ -25,38 +28,48 @@ import {
 import { isClipItem } from "@/types/match";
 import type { StoredMatch, Playlist, PlaylistFolder } from "@/types/match";
 
-/** Owner-side playlist tile. Counts clip items (text cards excluded) — the
+/** Owner-side playlist row. Counts clip items (text cards excluded) — the
  * shipped-only playableClips() denominator belongs to recipient surfaces. */
-function PlaylistCard({ playlist, folderLabel }: { playlist: Playlist; folderLabel?: string }) {
+function PlaylistRow({ playlist, folderLabel }: { playlist: Playlist; folderLabel?: string }) {
   const clipCount = playlist.items.filter(isClipItem).length;
   const isShared = (playlist.teamIds?.length ?? 0) > 0 || (playlist.userIds?.length ?? 0) > 0;
   return (
     <Link
       to="/playlists"
       state={{ restore: { playlistId: playlist.id } }}
-      className="group block rounded-xl border border-border bg-card p-4 transition-shadow hover:shadow-md hover:border-border/80"
+      className="group flex min-h-11 items-center gap-3 px-4 py-2 outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection"
     >
-      <div className="flex items-start justify-between gap-2">
-        <p className="truncate font-display text-sm font-bold tracking-wide text-foreground">
-          {playlist.name}
-        </p>
-        {isShared && (
-          <span
-            title="Shared with your team"
-            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary"
-          >
-            <Share2 className="h-2.5 w-2.5" />
-            Shared
-          </span>
-        )}
-      </div>
-      <p className="mt-1 text-xs text-muted-foreground">
-        {clipCount} clip{clipCount !== 1 ? "s" : ""}
-      </p>
-      {folderLabel && (
-        <p className="mt-1 truncate text-xs text-muted-foreground/60">{folderLabel}</p>
+      <ListVideo className="size-4 shrink-0 text-primary" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium text-foreground">{playlist.name}</span>
+        <span className="block truncate text-subheadline nums text-muted-foreground">
+          {clipCount} clip{clipCount !== 1 ? "s" : ""}
+          {folderLabel ? ` · ${folderLabel}` : ""}
+        </span>
+      </span>
+      {isShared && (
+        <span title="Shared with your team" className="shrink-0 rounded-full bg-fill-2 px-2 py-px text-caption text-muted-foreground">
+          Shared
+        </span>
       )}
+      <ChevronRight className="size-4 shrink-0 text-muted-foreground/50 transition-colors group-hover:text-muted-foreground" />
     </Link>
+  );
+}
+
+function SkeletonRows({ count }: { count: number }) {
+  return (
+    <GroupedList>
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className="flex min-h-11 items-center gap-3 px-4 py-2">
+          <div className="size-4 animate-pulse rounded bg-fill-3" />
+          <div className="flex-1 space-y-1.5">
+            <div className="h-3 w-1/3 animate-pulse rounded bg-fill-3" />
+            <div className="h-2.5 w-1/5 animate-pulse rounded bg-fill-2" />
+          </div>
+        </div>
+      ))}
+    </GroupedList>
   );
 }
 
@@ -216,153 +229,137 @@ function CoachHomePage() {
     ? (myOrgs.find((o) => !o.isPersonal && o.role === "player") ?? null)
     : null;
 
+  // Squads change every season, so inviting shouldn't require finding org
+  // settings — this opens the invite modal there.
+  const invite = activeOrgCanManage
+    ? () => navigate("/organization", { state: { invite: true, inviteRole: "player" } })
+    : undefined;
+
   return (
-    <div className="p-6">
-      <div className="space-y-8">
-        {/* Header + always-available quick actions — the veteran's CTA. */}
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">Home</h1>
-            {playerClub && (
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Playlists your coach shares live in the {playerClub.orgName} space.{" "}
-                <button
-                  type="button"
-                  onClick={() => setActiveOrg(playerClub.orgId)}
-                  className="font-medium text-primary underline-offset-2 hover:underline"
-                >
-                  Open {playerClub.orgName}
-                </button>
-              </p>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {/* Squads change every season, so inviting shouldn't require
-                finding org settings — this opens the invite modal there. */}
-            {activeOrgCanManage && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => navigate("/organization", { state: { invite: true, inviteRole: "player" } })}
-              >
-                <UserPlus className="h-4 w-4" />
-                Invite players
-              </Button>
-            )}
-            <Button variant="outline" size="sm" className="gap-2" onClick={goNewPlaylist}>
-              <ListVideo className="h-4 w-4" />
+    <Page>
+      <Toolbar
+        title="Home"
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={goNewPlaylist}>
+              <ListVideo />
               New playlist
             </Button>
-            <Link to="/upload">
-              <Button size="sm" className="gap-2">
-                <Plus className="h-4 w-4" />
+            <Button size="sm" asChild>
+              <Link to="/upload">
+                <Plus />
                 Import game
-              </Button>
-            </Link>
-          </div>
-        </div>
-
-        {!loading && <GettingStarted matches={matches} playlists={playlists} />}
-
-        {/* One next action at every lifecycle stage — suppressed while the
-            checklist is up (they'd say the same thing twice). */}
-        {!loading && !showChecklist && (
-          <NextActionHero
-            hero={hero}
-            playerVoice={playerVoice}
-            onRemind={handleRemindLatest}
-            reminding={remindingAll}
-          />
-        )}
-
-        {isClubSpace && <TeamEngagement summary={summary} />}
-
-        {/* Playlists */}
-        <div>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-foreground">
-              Playlists
-              {!loading && (
-                <span className="ml-2 text-sm font-normal text-muted-foreground">
-                  · {playlists.length}
-                </span>
-              )}
-            </h2>
-            <Link to="/playlists">
-              <Button variant="ghost" size="sm" className="text-primary">
-                View all
-              </Button>
-            </Link>
-          </div>
-
-          {loading ? (
-            <div className="grid gap-4 sm:grid-cols-3">
-              {[0, 1, 2].map((i) => (
-                <div key={i} className="h-24 animate-pulse rounded-xl bg-muted" />
-              ))}
-            </div>
-          ) : noPlaylists ? (
-            <EmptyState
-              title="No playlists yet"
-              body="Create a playlist to start organizing clips for scouting or analysis."
-              action={<Button onClick={goNewPlaylist}>New playlist</Button>}
-            />
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-3">
-              {recentPlaylists.map((playlist) => {
-                const label = playlist.folderId
-                  ? folderPath(folders, playlist.folderId).join(" / ")
-                  : undefined;
-                return (
-                  <PlaylistCard
-                    key={playlist.id}
-                    playlist={playlist}
-                    folderLabel={label || undefined}
-                  />
-                );
-              })}
-            </div>
+              </Link>
+            </Button>
+          </>
+        }
+      />
+      <PageContent width="wide">
+        <div className="space-y-8">
+          {playerClub && (
+            <p className="text-sm text-muted-foreground">
+              Playlists your coach shares live in the {playerClub.orgName} space.{" "}
+              <button
+                type="button"
+                onClick={() => setActiveOrg(playerClub.orgId)}
+                className="font-medium text-primary underline-offset-2 hover:underline"
+              >
+                Open {playerClub.orgName}
+              </button>
+            </p>
           )}
-        </div>
 
-        {/* Recent imports */}
-        <div>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-foreground">Recent imports</h2>
-            <Link to="/matches">
-              <Button variant="ghost" size="sm" className="text-primary">
-                View all
-              </Button>
-            </Link>
-          </div>
+          {!loading && <GettingStarted matches={matches} playlists={playlists} />}
 
-          {loading ? (
-            <div className="space-y-1">
-              {[0, 1, 2].map((i) => (
-                <div key={i} className="h-12 animate-pulse rounded-lg bg-muted" />
-              ))}
-            </div>
-          ) : noGames ? (
-            <EmptyState
-              title="No games yet"
-              body="Import a game to start building playlists."
+          {/* One next action at every lifecycle stage — suppressed while the
+              checklist is up (they'd say the same thing twice). */}
+          {!loading && !showChecklist && (
+            <NextActionHero
+              hero={hero}
+              playerVoice={playerVoice}
+              onRemind={handleRemindLatest}
+              reminding={remindingAll}
+            />
+          )}
+
+          {isClubSpace && <TeamEngagement summary={summary} onInvite={invite} />}
+
+          <section>
+            <GroupHeader
+              title={
+                <>
+                  Playlists
+                  {!loading && (
+                    <span className="ml-1.5 font-normal text-muted-foreground nums">{playlists.length}</span>
+                  )}
+                </>
+              }
               action={
-                <Link to="/upload">
-                  <Button>Import game</Button>
+                <Link to="/playlists" className="text-sm text-primary hover:underline">
+                  View all
                 </Link>
               }
             />
-          ) : (
-            <div className="overflow-hidden rounded-lg border border-border divide-y divide-border">
-              {recentMatches.map((match) => (
-                <MatchRow key={match.id} match={match} />
-              ))}
-            </div>
-          )}
+            {loading ? (
+              <SkeletonRows count={3} />
+            ) : noPlaylists ? (
+              <GroupedList>
+                <EmptyState
+                  icon={<ListVideo />}
+                  title="No playlists yet"
+                  body="Create a playlist to start organizing clips for scouting or analysis."
+                  action={<Button onClick={goNewPlaylist}>New playlist</Button>}
+                />
+              </GroupedList>
+            ) : (
+              <GroupedList>
+                {recentPlaylists.map((playlist) => {
+                  const label = playlist.folderId
+                    ? folderPath(folders, playlist.folderId).join(" / ")
+                    : undefined;
+                  return (
+                    <PlaylistRow key={playlist.id} playlist={playlist} folderLabel={label || undefined} />
+                  );
+                })}
+              </GroupedList>
+            )}
+          </section>
+
+          <section>
+            <GroupHeader
+              title="Recent imports"
+              action={
+                <Link to="/matches" className="text-sm text-primary hover:underline">
+                  View all
+                </Link>
+              }
+            />
+            {loading ? (
+              <SkeletonRows count={3} />
+            ) : noGames ? (
+              <GroupedList>
+                <EmptyState
+                  icon={<Film />}
+                  title="No games yet"
+                  body="Import a game to start building playlists."
+                  action={
+                    <Button asChild>
+                      <Link to="/upload">Import game</Link>
+                    </Button>
+                  }
+                />
+              </GroupedList>
+            ) : (
+              <GroupedList>
+                {recentMatches.map((match) => (
+                  <MatchRow key={match.id} match={match} />
+                ))}
+              </GroupedList>
+            )}
+          </section>
         </div>
-      </div>
-    </div>
+      </PageContent>
+    </Page>
   );
 }
 

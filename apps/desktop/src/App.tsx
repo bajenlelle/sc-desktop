@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
-import { BrowserRouter, Routes, Route, Outlet, useNavigate, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useNavigate, useLocation, useOutlet } from "react-router-dom";
 import { getVersion } from "@tauri-apps/api/app";
+import { AnimatePresence, MotionConfig, motion } from "framer-motion";
+import { RotateCw, TriangleAlert } from "lucide-react";
 import { Sentry } from "@/lib/sentry";
 import { initAnalytics, trackEvent } from "@/lib/analytics";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -30,6 +32,14 @@ import { UpgradeCelebration } from "@/components/upgrade-celebration";
 import { Toaster } from "sonner";
 import { ColorThemeProvider } from "@/components/color-theme-provider";
 import { ThemeSync } from "@/components/theme-sync";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { WindowChromeEffects } from "@/lib/window-chrome";
+import { WindowDragStrip } from "@/components/shell/window-drag-strip";
+import { fadeVariants, springs } from "@/lib/motion";
+import { AuthShell } from "@/components/auth/auth-frame";
+import { StatusScreen } from "@/components/status-screen";
+import { AutoHeight } from "@/components/ui/auto-height";
+import { Button } from "@/components/ui/button";
 
 function ThemedToaster() {
   // Token-driven unconditionally so toasts follow every color theme —
@@ -40,8 +50,10 @@ function ThemedToaster() {
       duration={4000}
       toastOptions={{
         style: {
-          background: "var(--card)",
-          border: "1px solid var(--border)",
+          background: "var(--popover)",
+          border: "none",
+          boxShadow: "var(--shadow-menu)",
+          borderRadius: "10px",
           color: "var(--foreground)",
         },
       }}
@@ -121,29 +133,46 @@ function DeepLinkHandler() {
   return null;
 }
 
+/**
+ * Signed-out screens. The app's mark stays put; moving between Sign in,
+ * Create account and the password pages cross-fades the content below it
+ * while the column springs to the new height. useOutlet keeps the leaving
+ * page's own element during its fade.
+ */
 function AuthLayout() {
+  const location = useLocation();
+  const outlet = useOutlet();
   return (
-    <div className="min-h-screen bg-background font-sans antialiased">
-      <Outlet />
-    </div>
+    <>
+      <WindowDragStrip />
+      <AuthShell>
+        <AutoHeight>
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.div key={location.pathname} variants={fadeVariants} initial="hidden" animate="visible" exit="exit">
+              {outlet}
+            </motion.div>
+          </AnimatePresence>
+        </AutoHeight>
+      </AuthShell>
+    </>
   );
 }
 
 function CrashFallback() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-6">
-      <div className="max-w-md space-y-4 rounded-lg border bg-card p-6 text-center shadow-sm">
-        <h1 className="text-lg font-semibold text-foreground">Something went wrong</h1>
-        <p className="text-sm text-muted-foreground">
-          The error has been reported automatically. Reloading usually gets you back on track.
-        </p>
-        <button
-          onClick={() => window.location.reload()}
-          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-        >
-          Reload Scoutable
-        </button>
-      </div>
+    <div className="h-screen">
+      <WindowDragStrip />
+      <StatusScreen
+        icon={<TriangleAlert />}
+        title="Something went wrong"
+        body="The error has been reported. Reloading usually gets you back to where you were."
+        actions={
+          <Button onClick={() => window.location.reload()}>
+            <RotateCw />
+            Reload Scoutable
+          </Button>
+        }
+      />
     </div>
   );
 }
@@ -158,6 +187,12 @@ export default function App() {
       <MyTeamProvider>
       <ThemeProvider>
         <ColorThemeProvider>
+        {/* reducedMotion="user": transform and layout animations switch off
+            under the OS setting while fades stay; springs are the default
+            transition for everything that moves. */}
+        <MotionConfig reducedMotion="user" transition={springs.standard}>
+        <TooltipProvider>
+        <WindowChromeEffects />
         <ThemeSync />
         <UpdateChecker />
         <UpgradeCelebration />
@@ -174,7 +209,15 @@ export default function App() {
               <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
             </Route>
-            <Route path="/onboarding" element={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} />
+            <Route
+              path="/onboarding"
+              element={
+                <ProtectedRoute>
+                  <WindowDragStrip />
+                  <OnboardingPage />
+                </ProtectedRoute>
+              }
+            />
             <Route element={<RootLayout />}>
               <Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
               <Route
@@ -231,6 +274,8 @@ export default function App() {
           </Routes>
         </BrowserRouter>
         </Sentry.ErrorBoundary>
+        </TooltipProvider>
+        </MotionConfig>
         </ColorThemeProvider>
       </ThemeProvider>
       </MyTeamProvider>

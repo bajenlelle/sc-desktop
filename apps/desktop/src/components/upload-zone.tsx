@@ -1,12 +1,16 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { trackEvent } from "@/lib/analytics";
-import { Film, X, Loader2, Search, ChevronRight } from "lucide-react";
-import { GeneratingSession } from "@/components/generating-session";
+import { AnimatePresence, motion } from "framer-motion";
+import { Check, ChevronRight, Film, Loader2, X } from "lucide-react";
+import { GeneratingSession, type SavePhase } from "@/components/generating-session";
 import { SyncPointPicker } from "@/components/sync-point-picker";
-import { TipoffSuggestionStrip } from "@/components/tipoff-suggestion-strip";
+import { isSuggestionPending, TipoffSuggestionStrip } from "@/components/tipoff-suggestion-strip";
+import { AutoHeight } from "@/components/ui/auto-height";
+import { SearchField } from "@/components/ui/search-field";
+import { probeVideoDuration } from "@/lib/video-probe";
+import { fadeVariants, springs } from "@/lib/motion";
 import { useTipoffSuggestion } from "@/lib/use-tipoff-suggestion";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { saveMatch, findMatchBySourceGame, findImportedSourceGames } from "@/lib/matches-db";
@@ -32,6 +36,7 @@ import { choiceFor, spacesSharingAnswer, teamRoleIn, teamSpaces } from "@scoutab
 import { getTeamSources } from "@scoutable/shared/lib/league-teams-db";
 import { fromTeamSide, stageForMatchType, teamGames, teamSeasons, type TeamGame, type TeamSeason } from "@scoutable/shared/lib/team-games";
 import { sortOrgsClubFirst } from "@scoutable/shared/lib/orgs";
+import { formatDate } from "@/lib/format-date";
 
 // The import view a space last chose, on this computer. Only "all" is stored:
 // a space with a team opens on its own games unless the user switched away.
@@ -65,24 +70,58 @@ function StepLabel({
   step,
   title,
   subtitle,
+  done = false,
 }: {
   step: number;
   title: string;
   subtitle?: string;
+  /** The step is complete: its number becomes a check. */
+  done?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-3 px-1">
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
-        {step}
+    <div className="flex items-center gap-2.5 px-1">
+      <span className="relative flex size-6 shrink-0 items-center justify-center">
+        <AnimatePresence initial={false} mode="popLayout">
+          {done ? (
+            <motion.span
+              key="done"
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0, opacity: 0 }}
+              transition={springs.settle}
+              className="flex size-6 items-center justify-center rounded-full bg-emerald-500 text-white"
+            >
+              <Check className="size-3.5" strokeWidth={3} />
+            </motion.span>
+          ) : (
+            <motion.span
+              key="todo"
+              variants={fadeVariants}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+              className="flex size-6 items-center justify-center rounded-full bg-fill-2 text-xs font-semibold text-muted-foreground nums"
+            >
+              {step}
+            </motion.span>
+          )}
+        </AnimatePresence>
       </span>
-      <div>
-        <span className="text-base font-semibold text-foreground">{title}</span>
-        {subtitle && (
-          <span className="ml-2 text-xs text-muted-foreground">{subtitle}</span>
-        )}
+      <div className="flex min-w-0 items-baseline gap-2">
+        <span className="text-title-3 text-foreground">{title}</span>
+        {subtitle && <span className="truncate text-callout text-muted-foreground">{subtitle}</span>}
       </div>
     </div>
   );
+}
+
+/** h:mm:ss for a recording's length. */
+function formatDuration(totalSeconds: number): string {
+  const s = Math.round(totalSeconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}` : `${m}:${String(sec).padStart(2, "0")}`;
 }
 
 
@@ -104,11 +143,7 @@ function GameRow({
   imported?: boolean;
   onClick: () => void;
 }) {
-  const date = new Date(game.rawStartDateTime).toLocaleDateString("sv-SE", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  const date = formatDate(game.rawStartDateTime);
 
   return (
     <button
@@ -116,13 +151,11 @@ function GameRow({
       onClick={onClick}
       disabled={loading}
       className={cn(
-        "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors",
-        selected
-          ? "bg-primary/10 ring-1 ring-primary/50"
-          : "hover:bg-muted"
+        "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left outline-none transition-[background-color,transform] duration-100 active:scale-[0.995] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection",
+        selected ? "bg-selection/15" : "hover:bg-fill-1 active:bg-fill-2"
       )}
     >
-      <div className="min-w-[80px] text-xs text-muted-foreground shrink-0">{date}</div>
+      <div className="min-w-[84px] shrink-0 text-callout text-muted-foreground nums">{date}</div>
       <div className="flex flex-1 items-center gap-2 min-w-0">
         {game.homeTeamInfo.icon && (
           <img src={game.homeTeamInfo.icon} alt="" className="h-5 w-5 shrink-0 object-contain" />
@@ -130,7 +163,7 @@ function GameRow({
         <span className="truncate text-sm font-medium text-foreground">
           {game.homeTeamInfo.names.short}
         </span>
-        <span className="shrink-0 text-xs font-bold text-foreground/80">
+        <span className="shrink-0 text-xs font-semibold text-foreground/80 nums">
           {game.homeTeamInfo.score}–{game.awayTeamInfo.score}
         </span>
         <span className="truncate text-sm font-medium text-foreground">
@@ -147,7 +180,7 @@ function GameRow({
       {loading && selected ? (
         <Loader2 className="h-4 w-4 animate-spin shrink-0 text-primary" />
       ) : (
-        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40" />
+        <ChevronRight className="size-4 shrink-0 text-muted-foreground/50" />
       )}
     </button>
   );
@@ -320,6 +353,19 @@ export function UploadZone({
 
   // Video state
   const [videoPath, setVideoPath] = useState<string | null>(null);
+  // The picked file's length, for its card ("1:45:10"); null while unknown.
+  const [videoDuration, setVideoDuration] = useState<number | null>(null);
+  useEffect(() => {
+    setVideoDuration(null);
+    if (!videoPath) return;
+    let cancelled = false;
+    void probeVideoDuration(videoPath).then((d) => {
+      if (!cancelled) setVideoDuration(d);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [videoPath]);
   const [syncSeconds, setSyncSeconds] = useState<number | null>(null);
   // Shared hint lookup, then automatic detection, for the linked recording.
   const tipoffSuggestion = useTipoffSuggestion(videoPath, selectedGame?.uuid, { surface: "import" });
@@ -327,20 +373,14 @@ export function UploadZone({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [importLimitDialogOpen, setImportLimitDialogOpen] = useState(false);
   const [importLimitInfo, setImportLimitInfo] = useState<{ count: number; limit: number } | null>(null);
-  const [generatingVisible, setGeneratingVisible] = useState(false);
-  const [animationDone, setAnimationDone] = useState(false);
+  // The save, as it really happens: "saving" while saveMatch runs, "done"
+  // for a beat once it has, then the confirmation dialog takes over.
+  const [savePhase, setSavePhase] = useState<SavePhase | null>(null);
+  const saveStartedRef = useRef(0);
+  const handoverTimers = useRef<number[]>([]);
+  useEffect(() => () => handoverTimers.current.forEach((t) => window.clearTimeout(t)), []);
   const [importedSummary, setImportedSummary] = useState<ImportSummary | null>(null);
   const [successOpen, setSuccessOpen] = useState(false);
-  // Hand over to the success dialog once both the animation and the save are
-  // done — it owns navigation from here (previously this redirected straight
-  // to /playlists with no confirmation).
-  useEffect(() => {
-    if (animationDone && importedSummary) {
-      setGeneratingVisible(false);
-      setSuccessOpen(true);
-    }
-  }, [animationDone, importedSummary]);
-
 
   useEffect(() => {
     if (!selectedLeague || !selectedSeason || !selectedStage) return;
@@ -557,8 +597,8 @@ export function UploadZone({
 
     setSubmitError(null);
     setSubmitStatus("saving");
-    setGeneratingVisible(true);
-    setAnimationDone(false);
+    setSavePhase("saving");
+    saveStartedRef.current = performance.now();
     setImportedSummary(null);
 
     let syncPoint: SyncPoint | undefined;
@@ -618,7 +658,7 @@ export function UploadZone({
       }
     } catch (err) {
       setSubmitStatus("error");
-      setGeneratingVisible(false);
+      setSavePhase(null);
       // Server-side quota gate (the precheck can race a concurrent import).
       if (err instanceof Error && err.message.includes("import_limit_reached")) {
         setImportLimitInfo(null);
@@ -640,6 +680,20 @@ export function UploadZone({
       hasSyncPoint: !!syncPoint,
       isUpdate: !!existingMatch,
     });
+    // Long enough to read (a fast save would only flash), then a beat on
+    // "Ready" before the confirmation takes the overlay's place.
+    const shown = performance.now() - saveStartedRef.current;
+    handoverTimers.current.push(
+      window.setTimeout(() => {
+        setSavePhase("done");
+        handoverTimers.current.push(
+          window.setTimeout(() => {
+            setSavePhase(null);
+            setSuccessOpen(true);
+          }, 450),
+        );
+      }, Math.max(0, 600 - shown)),
+    );
   }
 
   const tipoffLocalHint = tipoffRealWorldTime
@@ -680,20 +734,13 @@ export function UploadZone({
         ? `You've used all ${importLimitInfo?.limit ?? 6} Rookie imports for this month — they reset on the 1st. Upgrade to Pro and never count imports again.`
         : `That was the last of your ${importLimitInfo?.limit ?? 3} free games. Keep importing with Rookie — 6 games every month plus MP4 export. Cancel anytime.`}
     />
-    <div className="mx-auto max-w-2xl space-y-8">
-      {/* Page header */}
-      <div>
-        <h2 className="text-2xl font-bold text-foreground">Import Game</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Pick a game. Link a video. Start clipping.
-        </p>
-      </div>
-
-      {/* Step 1 — Pick a Game */}
+    <div className="mx-auto max-w-2xl space-y-8 pt-2">
+      {/* Step 1 — Pick a game */}
       <div className="space-y-3">
-        <StepLabel step={1} title="Pick a Game" />
-        <Card>
-          <CardContent className="p-4 space-y-3">
+        <StepLabel step={1} title="Pick a game" done={!!selectedGame && playByPlayEvents.length > 0} />
+        <Card className="py-4">
+          <CardContent className="px-4">
+          <AutoHeight innerClassName="space-y-3">
             {!selectedGame && team && (
               <ImportViewToggle team={team} view={view} onChange={changeView} />
             )}
@@ -756,65 +803,84 @@ export function UploadZone({
             </div>
             )}
 
+            <AnimatePresence mode="popLayout" initial={false}>
             {selectedGame ? (
-              <div className="flex items-center justify-between gap-3 rounded-lg bg-primary/10 px-3 py-2.5">
-                <div className="flex flex-1 items-center gap-2 min-w-0">
-                  {selectedGame.homeTeamInfo.icon && (
-                    <img src={selectedGame.homeTeamInfo.icon} alt="" className="h-5 w-5 shrink-0 object-contain" />
-                  )}
-                  <span className="truncate text-sm font-semibold text-foreground">
-                    {selectedGame.homeTeamInfo.names.short}
-                  </span>
-                  <span className="shrink-0 text-xs font-bold text-foreground/80">
-                    {selectedGame.homeTeamInfo.score}–{selectedGame.awayTeamInfo.score}
-                  </span>
-                  <span className="truncate text-sm font-semibold text-foreground">
-                    {selectedGame.awayTeamInfo.names.short}
-                  </span>
-                  {selectedGame.awayTeamInfo.icon && (
-                    <img src={selectedGame.awayTeamInfo.icon} alt="" className="h-5 w-5 shrink-0 object-contain" />
-                  )}
-                  <span className="text-xs text-muted-foreground shrink-0 ml-1">
-                    {new Date(selectedGame.rawStartDateTime).toLocaleDateString("sv-SE")}
-                  </span>
+              <motion.div
+                key="picked"
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                transition={springs.standard}
+                className="flex items-center justify-between gap-3 rounded-lg bg-primary/8 px-3 py-2.5 ring-1 ring-primary/20"
+              >
+                <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                  <motion.span
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ ...springs.settle, delay: 0.05 }}
+                    className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"
+                  >
+                    <Check className="size-3" strokeWidth={3} />
+                  </motion.span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      {selectedGame.homeTeamInfo.icon && (
+                        <img src={selectedGame.homeTeamInfo.icon} alt="" className="size-5 shrink-0 object-contain" />
+                      )}
+                      <span className="truncate text-sm font-semibold text-foreground">
+                        {selectedGame.homeTeamInfo.names.short}
+                      </span>
+                      <span className="shrink-0 text-xs font-semibold text-foreground/80 nums">
+                        {selectedGame.homeTeamInfo.score}–{selectedGame.awayTeamInfo.score}
+                      </span>
+                      <span className="truncate text-sm font-semibold text-foreground">
+                        {selectedGame.awayTeamInfo.names.short}
+                      </span>
+                      {selectedGame.awayTeamInfo.icon && (
+                        <img src={selectedGame.awayTeamInfo.icon} alt="" className="size-5 shrink-0 object-contain" />
+                      )}
+                    </div>
+                    <p className="truncate text-subheadline text-muted-foreground nums">
+                      {formatDate(selectedGame.rawStartDateTime)}
+                      {selectedGame.venueInfo?.name ? ` · ${selectedGame.venueInfo.name}` : ""}
+                    </p>
+                  </div>
                 </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="shrink-0 h-7 text-xs text-muted-foreground hover:text-foreground"
-                  onClick={clearSelectedGame}
-                >
+                <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={clearSelectedGame}>
                   Change
                 </Button>
-              </div>
+              </motion.div>
             ) : (
-              <>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search by team or date…"
-                    className="pl-9"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                </div>
+              <motion.div
+                key="list"
+                variants={fadeVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                className="space-y-3"
+              >
+                <SearchField
+                  placeholder="Search by team or date"
+                  aria-label="Search games"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
 
                 {scheduleStatus === "loading" && (
-                  <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                  <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" />
                     <span className="text-sm">Loading schedule…</span>
                   </div>
                 )}
 
                 {scheduleStatus === "error" && (
-                  <p className="py-4 text-center text-sm text-red-500">
+                  <p className="py-4 text-center text-sm text-destructive">
                     Failed to load schedule. Check your connection.
                   </p>
                 )}
 
                 {scheduleStatus === "idle" && (
-                  <div className="max-h-72 overflow-y-auto rounded-md divide-y divide-border">
+                  <div className="-mx-1 max-h-72 overflow-y-auto">
                     {filteredGames.length === 0 ? (
                       // An empty schedule (early in a season, before any game
                       // is COMPLETE) reads differently from a search miss.
@@ -837,108 +903,111 @@ export function UploadZone({
                     )}
                   </div>
                 )}
-              </>
+              </motion.div>
             )}
+            </AnimatePresence>
             </>
             )}
 
             {fetchStatus === "error" && fetchError && (
-              <p className="text-xs text-red-500 dark:text-red-400">{fetchError}</p>
+              <p className="text-callout text-destructive">{fetchError}</p>
             )}
             {fetchStatus === "loading" && selectedGame && (
-              <p className="text-xs text-muted-foreground">Fetching game data…</p>
-            )}
-            {playByPlayEvents.length > 0 && (
-              <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                Game imported — {playByPlayEvents.length} clips ready.
+              <p className="flex items-center gap-2 text-callout text-muted-foreground">
+                <Loader2 className="size-3.5 animate-spin" />
+                Fetching the play-by-play…
               </p>
             )}
+            {playByPlayEvents.length > 0 && (
+              <p className="text-callout text-emerald-700 dark:text-emerald-400">
+                {playByPlayEvents.length} plays ready to clip.
+              </p>
+            )}
+          </AutoHeight>
           </CardContent>
         </Card>
       </div>
 
-      {/* Step 2 — Video & Sync */}
+      {/* Step 2 — Video and tip-off */}
       <div className="space-y-3">
         <StepLabel
           step={2}
-          title="Video & Sync"
-          subtitle="Link a video for local playback and event seeking"
+          title="Video and tip-off"
+          subtitle="Plays from your computer"
+          done={!!videoPath && syncSeconds !== null}
         />
-        <Card>
-          <CardContent className="space-y-5 p-6">
-            {/* Video file picker */}
-            <div className="space-y-2">
-              {/* Click-to-pick only: OS file drops are disabled app-wide
-                  (dragDropEnabled: false — native drop would break the HTML5
-                  drag that playlist reorder uses), so no drop affordance. */}
-              <div
-                onClick={videoPath ? undefined : handlePickVideo}
-                className={cn(
-                  "flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 transition-colors",
-                  videoPath
-                    ? "border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950"
-                    : "cursor-pointer border-border bg-muted/30 hover:border-primary/50 hover:bg-primary/5"
-                )}
-              >
-                {videoPath ? (
-                  <>
-                    <Film className="mb-3 h-8 w-8 text-emerald-500" />
-                    <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400 text-center break-all">
+        <Card className="py-4">
+          <CardContent className="px-4">
+          <AutoHeight innerClassName="space-y-4">
+            {/* Click-to-pick only: OS file drops are disabled app-wide
+                (dragDropEnabled: false), so the target is a button, not a
+                drop zone. Once picked it becomes the file's card. */}
+            <AnimatePresence mode="popLayout" initial={false}>
+              {videoPath ? (
+                <motion.div
+                  key="file"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  transition={springs.standard}
+                  className="flex items-center gap-3 rounded-lg bg-fill-1 px-3 py-2.5"
+                >
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/12 text-primary">
+                    <Film className="size-[18px]" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground" title={videoPath}>
                       {basename(videoPath)}
                     </p>
-                    <p className="mt-1 text-xs text-muted-foreground truncate max-w-full">{videoPath}</p>
-                    <button
-                      type="button"
-                      className="mt-2 text-xs text-muted-foreground hover:text-red-500 dark:hover:text-red-400 transition-colors"
-                      onClick={() => setVideoPath(null)}
-                    >
-                      <X className="mr-1 inline h-3 w-3" />
-                      Remove
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <Film className="mb-3 h-8 w-8 text-muted-foreground" />
-                    <p className="text-sm font-semibold text-foreground/80">
-                      Choose a video file
+                    <p className="truncate text-subheadline text-muted-foreground nums" title={videoPath}>
+                      {videoDuration !== null ? `${formatDuration(videoDuration)} · ` : ""}
+                      {videoPath.replace(/[\\/][^\\/]*$/, "")}
                     </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      MP4, MOV, AVI, MKV — plays locally; a few stills from the first minutes go to Scoutable to find the tip-off
-                    </p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="mt-4"
-                      onClick={(e) => { e.stopPropagation(); handlePickVideo(); }}
-                    >
-                      Choose video file…
-                    </Button>
-                  </>
-                )}
-              </div>
-              {videoPath && (
-                <Button
+                  </div>
+                  <Button type="button" variant="ghost" size="sm" onClick={handlePickVideo}>
+                    Change…
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Remove video"
+                    title="Remove video"
+                    onClick={() => setVideoPath(null)}
+                  >
+                    <X />
+                  </Button>
+                </motion.div>
+              ) : (
+                <motion.button
+                  key="pick"
                   type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="text-xs text-muted-foreground hover:text-foreground"
+                  variants={fadeVariants}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
                   onClick={handlePickVideo}
+                  className="flex w-full flex-col items-center justify-center gap-1 rounded-lg bg-fill-1 px-6 py-8 text-center outline-none transition-[background-color,transform] duration-150 hover:bg-fill-2 active:scale-[0.99] active:bg-fill-3 focus-visible:ring-2 focus-visible:ring-selection"
                 >
-                  Change file…
-                </Button>
+                  <Film className="mb-1 size-7 text-muted-foreground" />
+                  <span className="text-headline text-foreground">Choose the game's video…</span>
+                  <span className="max-w-md text-callout text-muted-foreground">
+                    MP4, MOV, AVI or MKV. It plays from your computer; a few stills from the first minutes go to Scoutable to find the tip-off.
+                  </span>
+                </motion.button>
               )}
-            </div>
+            </AnimatePresence>
 
             {/* Sync point */}
             {videoPath && (
-              <div className="border-t border-border pt-4 space-y-3">
+              <div className="border-t border-separator pt-4">
                 <SyncPointPicker
                   videoPath={videoPath}
                   tipoffHint={tipoffLocalHint ?? undefined}
                   onConfirm={(secs) => setSyncSeconds(secs)}
                   seekRequest={tipoffSuggestion.seekRequest}
                   onUserAction={tipoffSuggestion.noteUserAction}
+                  hasPendingSuggestion={isSuggestionPending(tipoffSuggestion.state)}
                   suggestionSlot={
                     <TipoffSuggestionStrip
                       state={tipoffSuggestion.state}
@@ -950,62 +1019,73 @@ export function UploadZone({
                 />
               </div>
             )}
+          </AutoHeight>
           </CardContent>
         </Card>
       </div>
 
-      {/* Submit error */}
-      {submitStatus === "error" && submitError && (
-        <p className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-600 dark:bg-red-950 dark:text-red-400">
-          {submitError}
-        </p>
-      )}
-
-      {/* Video required notice */}
-      {selectedGame && !videoPath && (
-        <p className="flex items-center gap-2 rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-400">
-          <span>⚠</span>
-          Attach a video file above to enable import.
-        </p>
-      )}
-
-      {/* Tip-off required notice */}
-      {videoPath && syncSeconds === null && (
-        <p className="flex items-center gap-2 rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-400">
-          <span>⚠</span>
-          Set the tip-off point above to enable import.
-        </p>
-      )}
-
       {existingMatch && (
-        <p className="rounded-md bg-primary/5 border border-primary/20 px-4 py-3 text-sm text-foreground">
+        <p className="rounded-lg bg-fill-1 px-4 py-3 text-sm text-foreground">
           Already in your library as{" "}
           <span className="font-semibold">{existingMatch.title}</span>. Importing again
           updates that game — events and rosters refresh, and your playlists keep working.
         </p>
       )}
 
-      {/* Submit */}
-      <Button
-        className="w-full py-6 text-base font-semibold"
-        onClick={handleSubmit}
-        disabled={isSubmitting || !selectedGame || !videoPath || syncSeconds === null}
-      >
-        {submitStatus === "saving" ? (
-          <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            {existingMatch ? "Updating…" : "Importing…"}
-          </>
-        ) : existingMatch ? (
-          "Update Existing Game"
-        ) : (
-          "Import Game"
-        )}
-      </Button>
+      {/* What the button is waiting for, in one line that changes in place. */}
+      <div className="flex items-center gap-4">
+        <div className="relative min-h-5 min-w-0 flex-1">
+          <AnimatePresence mode="popLayout" initial={false}>
+            {(() => {
+              const status: { key: string; text: string; tone: "muted" | "error" } =
+                submitStatus === "error" && submitError
+                  ? { key: "error", text: submitError, tone: "error" }
+                  : !selectedGame
+                    ? { key: "game", text: "Pick a game to continue.", tone: "muted" }
+                    : !videoPath
+                      ? { key: "video", text: "Choose the game's video to continue.", tone: "muted" }
+                      : syncSeconds === null
+                        ? { key: "sync", text: "Set the tip-off to continue.", tone: "muted" }
+                        : { key: "ready", text: existingMatch ? "Ready to update." : "Ready to import.", tone: "muted" };
+              return (
+                <motion.p
+                  key={status.key}
+                  variants={fadeVariants}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                  role={status.tone === "error" ? "alert" : "status"}
+                  className={cn("text-sm", status.tone === "error" ? "text-destructive" : "text-muted-foreground")}
+                >
+                  {status.text}
+                </motion.p>
+              );
+            })()}
+          </AnimatePresence>
+        </div>
+        <Button
+          size="lg"
+          className="shrink-0"
+          onClick={handleSubmit}
+          disabled={isSubmitting || !selectedGame || !videoPath || syncSeconds === null}
+        >
+          {submitStatus === "saving" ? (
+            <>
+              <Loader2 className="animate-spin" />
+              {existingMatch ? "Updating…" : "Importing…"}
+            </>
+          ) : existingMatch ? (
+            "Update game"
+          ) : (
+            "Import game"
+          )}
+        </Button>
+      </div>
 
       <GeneratingSession
-        isVisible={generatingVisible}
-        onComplete={() => setAnimationDone(true)}
+        phase={savePhase}
+        eventCount={playByPlayEvents.length}
+        isUpdate={!!existingMatch}
       />
 
       <ImportSuccessDialog open={successOpen} summary={importedSummary} />

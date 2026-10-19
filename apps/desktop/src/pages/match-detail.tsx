@@ -1,29 +1,31 @@
-import { useEffect, useState, useCallback } from "react";
-import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
-import { ArrowLeft, CalendarIcon, Film, FolderOpen, Loader2, VideoOff } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
+import { CalendarIcon, Check, ChevronLeft, ChevronsUpDown, Film, Loader2, MinusCircle, Plus, VideoOff } from "lucide-react";
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 import { DeleteMatchDialog } from "@/components/delete-match-dialog";
-import { SyncPointPicker } from "@/components/sync-point-picker";
-import { TipoffSuggestionStrip } from "@/components/tipoff-suggestion-strip";
-import { useTipoffSuggestion } from "@/lib/use-tipoff-suggestion";
+import { EmptyState } from "@/components/empty-state";
+import { formatMSSd, SyncPointPicker } from "@/components/sync-point-picker";
+import { isSuggestionPending, TipoffSuggestionStrip } from "@/components/tipoff-suggestion-strip";
+import { Page, PageContent } from "@/components/shell/page";
+import { Toolbar } from "@/components/shell/toolbar";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Calendar } from "@/components/ui/calendar";
+import { Callout, FormRow, GroupFooter, GroupHeader, GroupedList } from "@/components/ui/group";
+import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { getMatch, updateMatchMeta, updateVideoUrl, updateSyncPoint } from "@/lib/matches-db";
-import { listPlaylists } from "@/lib/playlists-db";
 import { useAuth } from "@/lib/auth-context";
-import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { isLocalPath, streamFileSrc } from "@/lib/stream";
-import { probeVideoPath, videoBasename, type VideoFileStatus } from "@/lib/video-probe";
+import { formatDate } from "@/lib/format-date";
+import { getMatch, updateMatchMeta, updateSyncPoint, updateVideoUrl } from "@/lib/matches-db";
+import { springs } from "@/lib/motion";
+import { listPlaylists } from "@/lib/playlists-db";
+import { isLocalPath } from "@/lib/stream";
+import { useTipoffSuggestion } from "@/lib/use-tipoff-suggestion";
 import { cn } from "@/lib/utils";
+import { probeVideoPath, videoBasename, type VideoFileStatus } from "@/lib/video-probe";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import type { StoredMatch, SyncPoint } from "@/types/match";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 interface RosterEntry {
   jerseyNumber: string;
@@ -31,65 +33,75 @@ interface RosterEntry {
 }
 
 /**
- * A sync change re-cuts every clip of this game, so already-shipped uploads
- * were invalidated (their r2_url cleared) — recipients can't see those clips
- * again until the coach re-uploads them with the new sync.
+ * A sync change re-cuts every clip of this game, so shipped uploads were
+ * invalidated (their r2_url cleared): recipients can't see those clips again
+ * until the coach re-uploads them with the new sync.
  */
 function notifyClearedShippedClips(count: number) {
   if (count === 0) return;
-  toast.info(
-    `${count} shared clip${count === 1 ? "" : "s"} from this game will re-render with the new sync point`,
-    {
-      description:
-        "They're hidden from recipients until re-uploaded — open the playlist's Shared by me and use Upload missing clips.",
-      duration: 10000,
-    },
-  );
+  toast.info(`${count} shared clip${count === 1 ? "" : "s"} from this game will re-render with the new tip-off`, {
+    description: "They're hidden from recipients until re-uploaded: in Shared playlists, use Upload missing clips.",
+    duration: 10000,
+  });
 }
 
-// ---------------------------------------------------------------------------
-// Colour palette (copied from edit-match-dialog)
-// ---------------------------------------------------------------------------
-
 const TEAM_COLORS = [
-  { label: "Black",  hex: "#111111" },
-  { label: "White",  hex: "#ffffff" },
-  { label: "Gray",   hex: "#6b7280" },
-  { label: "Red",    hex: "#dc2626" },
+  { label: "Black", hex: "#111111" },
+  { label: "White", hex: "#ffffff" },
+  { label: "Grey", hex: "#6b7280" },
+  { label: "Red", hex: "#dc2626" },
   { label: "Orange", hex: "#ea580c" },
-  { label: "Gold",   hex: "#ca8a04" },
-  { label: "Green",  hex: "#16a34a" },
-  { label: "Blue",   hex: "#2563eb" },
-  { label: "Navy",   hex: "#1e3a8a" },
+  { label: "Gold", hex: "#ca8a04" },
+  { label: "Green", hex: "#16a34a" },
+  { label: "Blue", hex: "#2563eb" },
+  { label: "Navy", hex: "#1e3a8a" },
   { label: "Purple", hex: "#7c3aed" },
 ];
 
-function ColorPicker({ value, onChange }: { value: string; onChange: (hex: string) => void }) {
+/** A colour well that opens the palette: the swatch is the value, the menu the choices. */
+function ColorWell({ value, onChange, label }: { value: string; onChange: (hex: string) => void; label: string }) {
+  const [open, setOpen] = useState(false);
+  const current = TEAM_COLORS.find((c) => c.hex === value);
   return (
-    <div className="flex flex-wrap gap-2">
-      {TEAM_COLORS.map((c) => (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
         <button
-          key={c.hex}
           type="button"
-          title={c.label}
-          onClick={() => onChange(c.hex)}
-          className={cn(
-            "h-7 w-7 rounded-full border-2 transition-transform hover:scale-110",
-            value === c.hex
-              ? "border-primary ring-2 ring-primary/70 ring-offset-1"
-              : "border-border",
-            c.hex === "#ffffff" && "border-border"
-          )}
-          style={{ backgroundColor: c.hex }}
-        />
-      ))}
-    </div>
+          aria-label={`${label}: ${current?.label ?? (value ? "custom" : "no colour")}`}
+          className="flex h-7 items-center gap-2 rounded-md bg-card pr-1.5 pl-1 shadow-xs ring-1 ring-separator outline-none transition-[background-color,transform] duration-100 hover:bg-fill-1 active:scale-[0.98] data-[state=open]:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection"
+        >
+          <span className="size-5 rounded-[4px] ring-1 ring-inset ring-black/15" style={{ backgroundColor: value || "transparent" }} />
+          <span className="text-sm">{current?.label ?? (value ? "Custom" : "None")}</span>
+          <ChevronsUpDown className="size-3.5 text-muted-foreground" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-auto p-2">
+        <div className="grid grid-cols-5 gap-1.5">
+          {TEAM_COLORS.map((c) => (
+            <button
+              key={c.hex}
+              type="button"
+              aria-label={c.label}
+              aria-pressed={value === c.hex}
+              onClick={() => {
+                onChange(c.hex);
+                setOpen(false);
+              }}
+              className="flex size-8 items-center justify-center rounded-md outline-none transition-transform duration-100 active:scale-95 focus-visible:ring-2 focus-visible:ring-selection"
+            >
+              <span
+                className="flex size-6 items-center justify-center rounded-full ring-1 ring-inset ring-black/15"
+                style={{ backgroundColor: c.hex }}
+              >
+                {value === c.hex && <Check className={cn("size-3.5 stroke-[3]", c.hex === "#ffffff" ? "text-black" : "text-white")} />}
+              </span>
+            </button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Sync-point helpers
-// ---------------------------------------------------------------------------
 
 function parseMMSS(value: string): number | null {
   const parts = value.trim().split(":");
@@ -102,29 +114,93 @@ function parseMMSS(value: string): number | null {
 
 function formatMMSS(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
-  const s = totalSeconds % 60;
+  const s = Math.round(totalSeconds % 60);
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-// ---------------------------------------------------------------------------
-// MatchDetailPage
-// ---------------------------------------------------------------------------
+/** Fields that sit inside a grouped row: no field chrome until focused. */
+const inlineField =
+  "h-8 border-0 bg-transparent px-1.5 shadow-none ring-0 focus-visible:bg-card focus-visible:ring-2 focus-visible:ring-selection";
+
+function RosterGroup({
+  title,
+  roster,
+  onChange,
+  onCommit,
+}: {
+  title: string;
+  roster: RosterEntry[];
+  onChange: (next: RosterEntry[]) => void;
+  /** Saves the given roster (blur, add, remove). */
+  onCommit: (next: RosterEntry[]) => void;
+}) {
+  const update = (i: number, field: keyof RosterEntry, value: string) => {
+    const next = [...roster];
+    next[i] = { ...next[i], [field]: value };
+    onChange(next);
+  };
+  return (
+    <section>
+      <GroupHeader title={title} />
+      <GroupedList>
+        {roster.map((entry, i) => (
+          <div key={i} className="flex min-h-11 items-center gap-1 px-2.5 py-1 focus-within:bg-fill-1/60">
+            <Input
+              aria-label="Number"
+              placeholder="#"
+              className={cn(inlineField, "w-12 text-right nums")}
+              value={entry.jerseyNumber}
+              onChange={(e) => update(i, "jerseyNumber", e.target.value)}
+              onBlur={() => onCommit(roster)}
+            />
+            <Input
+              aria-label="Player name"
+              placeholder="Player name"
+              className={cn(inlineField, "flex-1")}
+              value={entry.playerName}
+              onChange={(e) => update(i, "playerName", e.target.value)}
+              onBlur={() => onCommit(roster)}
+            />
+            {roster.length > 1 && (
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label={`Remove ${entry.playerName || "player"}`}
+                className="text-muted-foreground hover:text-destructive"
+                onClick={() => {
+                  const next = roster.filter((_, idx) => idx !== i);
+                  onChange(next);
+                  onCommit(next);
+                }}
+              >
+                <MinusCircle />
+              </Button>
+            )}
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() => onChange([...roster, { jerseyNumber: "", playerName: "" }])}
+          className="flex min-h-10 w-full items-center gap-2 px-4 text-left text-sm text-primary outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection"
+        >
+          <Plus className="size-4" />
+          Add player
+        </button>
+      </GroupedList>
+    </section>
+  );
+}
 
 export function MatchDetailPage() {
   const { id } = useParams<{ id: string }>();
   const matchId = id!;
   const navigate = useNavigate();
-  const location = useLocation();
   const { activeOrgId, activeOrgIsPersonal } = useAuth();
-  const locationState = location.state as { from?: string; matchId?: string; playlistId?: string } | null;
-  const fromPlaylists = locationState?.from === "/playlists";
 
-  // --- loaded data ---
   const [storedMatch, setStoredMatch] = useState<StoredMatch | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [clipCount, setClipCount] = useState(0);
 
-  // --- editable field state ---
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
   const [homeColor, setHomeColor] = useState("");
@@ -132,12 +208,10 @@ export function MatchDetailPage() {
   const [syncInput, setSyncInput] = useState("");
   const [homeRoster, setHomeRoster] = useState<RosterEntry[]>([]);
   const [awayRoster, setAwayRoster] = useState<RosterEntry[]>([]);
-  const [saveIndicator, setSaveIndicator] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<"saved" | "error" | null>(null);
+  /** Adjusting a tip-off that is already set reveals the picker. */
+  const [adjustingTipoff, setAdjustingTipoff] = useState(false);
 
-  // --- video ---
-  const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
-
-  // --- load match ---
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -147,56 +221,37 @@ export function MatchDetailPage() {
           listPlaylists(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }),
         ]);
         if (cancelled) return;
-        if (dbMatch) {
-          setStoredMatch(dbMatch);
-          setTitle(dbMatch.title);
-          setDate(dbMatch.date);
-          setHomeColor(dbMatch.homeTeam.color);
-          setAwayColor(dbMatch.awayTeam.color);
-          setSyncInput(dbMatch.syncPoint ? formatMMSS(dbMatch.syncPoint.syncVideoTime) : "");
-          setHomeRoster(
-            dbMatch.homeRoster.length ? dbMatch.homeRoster : [{ jerseyNumber: "", playerName: "" }]
-          );
-          setAwayRoster(
-            dbMatch.awayRoster.length ? dbMatch.awayRoster : [{ jerseyNumber: "", playerName: "" }]
-          );
-          const count = loadedPlaylists
-            .flatMap((p) => p.items.filter((i) => i.type === 'clip'))
-            .filter((c) => (c as { matchId: string }).matchId === matchId).length;
-          setClipCount(count);
-        } else {
+        if (!dbMatch) {
           setNotFound(true);
+          return;
         }
+        setStoredMatch(dbMatch);
+        setTitle(dbMatch.title);
+        setDate(dbMatch.date);
+        setHomeColor(dbMatch.homeTeam.color);
+        setAwayColor(dbMatch.awayTeam.color);
+        setSyncInput(dbMatch.syncPoint ? formatMMSS(dbMatch.syncPoint.syncVideoTime) : "");
+        setHomeRoster(dbMatch.homeRoster.length ? dbMatch.homeRoster : [{ jerseyNumber: "", playerName: "" }]);
+        setAwayRoster(dbMatch.awayRoster.length ? dbMatch.awayRoster : [{ jerseyNumber: "", playerName: "" }]);
+        setClipCount(
+          loadedPlaylists
+            .flatMap((p) => p.items.filter((i) => i.type === "clip"))
+            .filter((c) => (c as { matchId: string }).matchId === matchId).length,
+        );
       } catch {
         setNotFound(true);
       }
     }
-    load();
-    return () => { cancelled = true; };
+    void load();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchId, activeOrgId]);
 
-  // --- derive localVideoUrl from storedMatch ---
-  useEffect(() => {
-    if (!storedMatch?.videoUrl || localVideoUrl) return;
-    const url = storedMatch.videoUrl;
-    setLocalVideoUrl(isLocalPath(url) ? streamFileSrc(url) : url);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storedMatch]);
-
-  // --- cleanup blob URLs ---
-  useEffect(() => {
-    return () => {
-      setLocalVideoUrl((prev) => {
-        if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
-        return null;
-      });
-    };
-  }, []);
-
-  // Machine-switch detection: is the referenced local file actually here?
+  // Is the referenced local file actually on this machine?
   const [videoStatus, setVideoStatus] = useState<VideoFileStatus | null>(null);
-  // Shared hint lookup for the linked recording; the detector only runs while the game has no sync point.
+  // Shared hints for the linked recording; the detector only runs while the game has no tip-off.
   const tipoffSuggestion = useTipoffSuggestion(
     storedMatch?.videoUrl && isLocalPath(storedMatch.videoUrl) && videoStatus === "ok" ? storedMatch.videoUrl : null,
     storedMatch?.sourceGameId,
@@ -209,543 +264,362 @@ export function MatchDetailPage() {
       return;
     }
     let cancelled = false;
-    probeVideoPath(url).then(({ status }) => {
+    void probeVideoPath(url).then(({ status }) => {
       if (!cancelled) setVideoStatus(status);
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [storedMatch?.videoUrl]);
 
-  // --- file picker (attach or relink) ---
   const handlePickVideoFile = useCallback(async () => {
     const result = await openFileDialog({
       multiple: false,
       filters: [{ name: "Video", extensions: ["mp4", "mov", "avi", "mkv", "webm", "m4v"] }],
     });
     if (typeof result !== "string") return;
-    setLocalVideoUrl((prev) => {
-      if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
-      return streamFileSrc(result);
-    });
     try {
       await updateVideoUrl(matchId, result);
-      setStoredMatch((m) => m ? { ...m, videoUrl: result } : m);
+      setStoredMatch((m) => (m ? { ...m, videoUrl: result } : m));
       setVideoStatus("ok");
     } catch (e) {
-      // The optimistic player src would lie across reloads — say so.
-      toast.error("Couldn't save the video link", {
-        description: e instanceof Error ? e.message : String(e),
-      });
+      toast.error("Couldn't save the video link", { description: e instanceof Error ? e.message : String(e) });
     }
   }, [matchId]);
 
-  // --- auto-save helper ---
+  const flashSaved = (state: "saved" | "error") => {
+    setSaveState(state);
+    window.setTimeout(() => setSaveState((s) => (s === state ? null : s)), state === "saved" ? 1500 : 2500);
+  };
+
   async function saveField(updates: Parameters<typeof updateMatchMeta>[1]) {
-    if (!matchId) return;
     try {
       await updateMatchMeta(matchId, updates);
-      setSaveIndicator("Saved");
-      setTimeout(() => setSaveIndicator(null), 1500);
+      flashSaved("saved");
     } catch {
-      setSaveIndicator("Error saving");
-      setTimeout(() => setSaveIndicator(null), 2000);
+      flashSaved("error");
     }
   }
 
-  // --- roster helpers ---
-  function updateRosterRow(
-    roster: RosterEntry[],
-    setter: (r: RosterEntry[]) => void,
-    index: number,
-    field: keyof RosterEntry,
-    value: string
-  ) {
-    const updated = [...roster];
-    updated[index] = { ...updated[index], [field]: value };
-    setter(updated);
+  async function saveSyncPoint(secs: number) {
+    if (!storedMatch) return false;
+    const sp: SyncPoint = { syncVideoTime: secs, syncRealWorldTime: storedMatch.syncPoint?.syncRealWorldTime ?? "" };
+    try {
+      const { clearedShippedClips } = await updateSyncPoint(matchId, sp);
+      setStoredMatch((m) => (m ? { ...m, syncPoint: sp } : m));
+      flashSaved("saved");
+      notifyClearedShippedClips(clearedShippedClips);
+      return true;
+    } catch {
+      flashSaved("error");
+      return false;
+    }
   }
 
-  function addRosterRow(roster: RosterEntry[], setter: (r: RosterEntry[]) => void) {
-    setter([...roster, { jerseyNumber: "", playerName: "" }]);
-  }
-
-  function removeRosterRow(roster: RosterEntry[], setter: (r: RosterEntry[]) => void, index: number) {
-    setter(roster.filter((_, i) => i !== index));
-  }
-
-  // ---------------------------------------------------------------------------
-  // Loading / not-found states
-  // ---------------------------------------------------------------------------
-
-  if (notFound) {
+  if (notFound || !storedMatch) {
     return (
-      <div className="p-6">
-        <div className="py-24 text-center">
-          <p className="text-muted-foreground">Game not found.</p>
-          <Link to="/matches">
-            <Button variant="ghost" size="sm" className="mt-4">
-              Back to Library
+      <Page>
+        <Toolbar
+          title="Game"
+          leading={
+            <Button variant="ghost" size="sm" className="-ml-1 text-muted-foreground" onClick={() => navigate("/matches")}>
+              <ChevronLeft />
+              Library
             </Button>
-          </Link>
-        </div>
-      </div>
+          }
+        />
+        <PageContent width="narrow">
+          {notFound ? (
+            <EmptyState
+              icon={<Film />}
+              title="Game not found"
+              body="It may have been deleted, or it belongs to another space."
+              action={
+                <Button variant="outline" size="sm" onClick={() => navigate("/matches")}>
+                  Back to Library
+                </Button>
+              }
+            />
+          ) : (
+            <div className="flex items-center justify-center gap-2 py-24 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              Loading…
+            </div>
+          )}
+        </PageContent>
+      </Page>
     );
   }
 
-  if (!storedMatch) {
-    return (
-      <div className="p-6">
-        <div className="py-24 text-center flex flex-col items-center gap-2 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin" />
-          <p className="text-sm">Loading…</p>
-        </div>
-      </div>
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
-
-  // videoBasename splits on both separators — a Windows path shows its file
-  // name here, not the whole C:\… string.
   const videoFileName = storedMatch.videoUrl ? videoBasename(storedMatch.videoUrl) : null;
-
+  const videoMissing = !!videoFileName && videoStatus !== null && videoStatus !== "ok";
+  const canPick = !!storedMatch.videoUrl && (!isLocalPath(storedMatch.videoUrl) || videoStatus === "ok");
   const syncHint = storedMatch.syncPoint?.syncRealWorldTime
     ? (() => {
         const d = new Date(storedMatch.syncPoint.syncRealWorldTime);
-        return isNaN(d.getTime())
-          ? null
-          : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        return isNaN(d.getTime()) ? null : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       })()
     : null;
+  const tipoffSet = !!storedMatch.syncPoint;
+  const showPicker = canPick && (!tipoffSet || adjustingTipoff);
+  const manualSecs = parseMMSS(syncInput);
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto">
-      {/* ── Header bar ─────────────────────────────────────────────────── */}
-      <div className="shrink-0 px-6 pt-6 pb-2">
-      <div className="mx-auto max-w-4xl flex items-center justify-between">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="gap-1.5 text-muted-foreground"
-          onClick={() => {
-            if (fromPlaylists) {
-              navigate("/playlists", {
-                state: { restore: { matchId: locationState!.matchId, playlistId: locationState!.playlistId } },
-              });
-            } else {
-              navigate("/matches");
-            }
-          }}
-        >
-          <ArrowLeft className="h-4 w-4" />
-          {fromPlaylists ? "Back to Playlists" : "Back to Library"}
-        </Button>
-
-        {saveIndicator && (
-          <span className="text-xs text-emerald-600 dark:text-emerald-400 transition-opacity">
-            {saveIndicator}
-          </span>
-        )}
-      </div>
-      </div>
-
-      <div className="flex-1 px-6 pb-10">
-      <div className="mx-auto max-w-4xl space-y-8">
-        {/* ── Game identity header ──────────────────────────────────────── */}
-        <section className="space-y-3 pt-2">
-          {/* Matchup identity row */}
-          <div className="flex items-center gap-3 text-sm font-medium text-muted-foreground">
-            {homeColor && (
-              <span className="h-3.5 w-3.5 rounded-full shrink-0" style={{ backgroundColor: homeColor }} />
+    <Page>
+      <Toolbar
+        title={title || storedMatch.title}
+        subtitle={[`${storedMatch.homeTeam.name} – ${storedMatch.awayTeam.name}`, date ? formatDate(parseISO(date)) : null]
+          .filter(Boolean)
+          .join(" · ")}
+        leading={
+          <Button variant="ghost" size="sm" className="-ml-1 shrink-0 text-muted-foreground" onClick={() => navigate("/matches")}>
+            <ChevronLeft />
+            Library
+          </Button>
+        }
+        actions={
+          <AnimatePresence>
+            {saveState && (
+              <motion.span
+                key={saveState}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className={cn("text-callout", saveState === "saved" ? "text-muted-foreground" : "text-destructive")}
+              >
+                {saveState === "saved" ? "Saved" : "Couldn't save"}
+              </motion.span>
             )}
-            <span>{storedMatch.homeTeam.name}</span>
-            <span className="text-border">vs</span>
-            <span>{storedMatch.awayTeam.name}</span>
-            {awayColor && (
-              <span className="h-3.5 w-3.5 rounded-full shrink-0" style={{ backgroundColor: awayColor }} />
-            )}
-            <span className="text-border">·</span>
-            {storedMatch.events.length > 0 && (
-              <span className="flex items-center gap-1.5 text-xs">
-                <Film className="h-3.5 w-3.5" />
-                {storedMatch.events.length} clips
-              </span>
-            )}
-            {clipCount > 0 && (
-              <>
-                <span className="text-border">·</span>
-                <span className="text-xs">{clipCount} clips in playlists</span>
-              </>
-            )}
-          </div>
-
-          {/* Editable title */}
-          <div className="space-y-1">
-            <Label htmlFor="game-title" className="text-xs text-muted-foreground">Title</Label>
-            <input
-              id="game-title"
-              className="w-full bg-transparent text-2xl font-bold tracking-tight text-foreground border-b border-transparent hover:border-border focus:border-primary focus:outline-none transition-colors pb-0.5"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              onBlur={() => saveField({ title })}
-            />
-          </div>
-
-          {/* Date picker */}
-          <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Date</Label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="w-44 justify-start gap-2 font-normal"
-                >
-                  <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-                  {date
-                    ? format(parseISO(date), "d MMM yyyy")
-                    : <span className="text-muted-foreground">Pick a date</span>
-                  }
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  mode="single"
-                  selected={date ? parseISO(date) : undefined}
-                  onSelect={(day) => {
-                    if (!day) return;
-                    const iso = format(day, "yyyy-MM-dd");
-                    setDate(iso);
-                    saveField({ date: iso });
-                  }}
-                  autoFocus
-                />
-              </PopoverContent>
-            </Popover>
-          </div>
+          </AnimatePresence>
+        }
+      />
+      <PageContent width="narrow" className="space-y-7">
+        <section>
+          <GroupHeader title="Game" />
+          <GroupedList>
+            <FormRow label="Title" htmlFor="game-title">
+              <Input
+                id="game-title"
+                className={cn(inlineField, "text-right")}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                onBlur={() => title.trim() && title !== storedMatch.title && void saveField({ title })}
+              />
+            </FormRow>
+            <FormRow label="Date">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex h-7 items-center gap-2 rounded-md bg-card px-2.5 text-sm shadow-xs ring-1 ring-separator outline-none transition-[background-color,transform] duration-100 hover:bg-fill-1 active:scale-[0.98] data-[state=open]:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection"
+                  >
+                    <CalendarIcon className="size-4 text-muted-foreground" />
+                    <span className="nums">{date ? formatDate(parseISO(date)) : "Pick a date"}</span>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="end">
+                  <Calendar
+                    mode="single"
+                    selected={date ? parseISO(date) : undefined}
+                    onSelect={(day) => {
+                      if (!day) return;
+                      const iso = format(day, "yyyy-MM-dd");
+                      setDate(iso);
+                      void saveField({ date: iso });
+                    }}
+                    autoFocus
+                  />
+                </PopoverContent>
+              </Popover>
+            </FormRow>
+            <FormRow label="Home" description={storedMatch.homeTeam.name}>
+              <ColorWell
+                label="Home colour"
+                value={homeColor}
+                onChange={(hex) => {
+                  setHomeColor(hex);
+                  void saveField({ homeTeam: { name: storedMatch.homeTeam.name, color: hex } });
+                }}
+              />
+            </FormRow>
+            <FormRow label="Away" description={storedMatch.awayTeam.name}>
+              <ColorWell
+                label="Away colour"
+                value={awayColor}
+                onChange={(hex) => {
+                  setAwayColor(hex);
+                  void saveField({ awayTeam: { name: storedMatch.awayTeam.name, color: hex } });
+                }}
+              />
+            </FormRow>
+          </GroupedList>
+          <GroupFooter className="nums">
+            {storedMatch.events.length} plays from the official record
+            {clipCount > 0 && `, ${clipCount} of them in playlists`}.
+          </GroupFooter>
         </section>
 
-        {/* ── Teams ────────────────────────────────────────────────────── */}
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold text-foreground/70">Teams</h2>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {/* Home */}
-            <div className="rounded-lg border border-border p-4 space-y-3">
-              <div className="space-y-0.5">
-                <p className="text-xs text-muted-foreground">Home</p>
-                <p className="font-semibold text-foreground">{storedMatch.homeTeam.name}</p>
-              </div>
-              <div className="space-y-1.5">
-                <p className="text-xs text-muted-foreground">Team colour</p>
-                <ColorPicker
-                  value={homeColor}
-                  onChange={(hex) => {
-                    setHomeColor(hex);
-                    saveField({ homeTeam: { name: storedMatch.homeTeam.name, color: hex } });
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* Away */}
-            <div className="rounded-lg border border-border p-4 space-y-3">
-              <div className="space-y-0.5">
-                <p className="text-xs text-muted-foreground">Away</p>
-                <p className="font-semibold text-foreground">{storedMatch.awayTeam.name}</p>
-              </div>
-              <div className="space-y-1.5">
-                <p className="text-xs text-muted-foreground">Team colour</p>
-                <ColorPicker
-                  value={awayColor}
-                  onChange={(hex) => {
-                    setAwayColor(hex);
-                    saveField({ awayTeam: { name: storedMatch.awayTeam.name, color: hex } });
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ── Video & Sync ──────────────────────────────────────────────── */}
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold text-foreground/70">Video &amp; Sync</h2>
-
-          {/* Video file. The sample game streams from the cloud — swapping
-              in a local file would break it, so no Change button there. */}
+        <section>
+          <GroupHeader title="Video" />
           {storedMatch.isDemo ? (
-            <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3">
-              <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0" />
-              <span className="flex-1 truncate text-sm text-foreground/80">
-                Sample game — video streams from Scoutable
-              </span>
-            </div>
-          ) : videoFileName && videoStatus !== null && videoStatus !== "ok" ? (
-            <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/5 px-4 py-3">
-              <div className="flex items-center gap-2">
-                <VideoOff className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                <span className="text-sm font-medium text-foreground">
-                  This game's video file can't be found
-                </span>
+            <GroupedList>
+              <div className="flex min-h-11 items-center gap-3 px-4 py-2 text-sm text-muted-foreground">
+                <Film className="size-4 shrink-0" />
+                The sample game's video streams from Scoutable.
               </div>
-              <p className="text-xs text-muted-foreground">
-                {videoStatus === "unreadable"
-                  ? "Scoutable doesn't have permission to read the file — pick it again to grant access."
-                  : "It may have been moved or renamed, or it's on another computer — games reference the file in place, nothing is uploaded. Point Scoutable at the file to keep working."}
-              </p>
-              <div className="flex items-center gap-3">
-                <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
-                  {videoFileName}
-                </span>
-                <Button size="sm" className="h-7 shrink-0 text-xs" onClick={handlePickVideoFile}>
-                  Locate file…
+            </GroupedList>
+          ) : videoMissing ? (
+            <Callout
+              tone="warning"
+              icon={<VideoOff />}
+              action={
+                <Button size="sm" onClick={handlePickVideoFile}>
+                  Locate…
                 </Button>
-              </div>
-            </div>
-          ) : videoFileName ? (
-            <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3">
-              <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0" />
-              <span className="flex-1 truncate text-sm text-foreground/80 font-mono">{videoFileName}</span>
-              <button
-                type="button"
-                className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline shrink-0"
-                onClick={handlePickVideoFile}
-              >
-                Change
-              </button>
-            </div>
-          ) : (
-            // Click-to-pick only: OS file drops are disabled app-wide
-            // (dragDropEnabled: false), so no drop affordance.
-            <div
-              onClick={handlePickVideoFile}
-              className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed py-10 transition-colors border-border bg-muted hover:border-primary/50 hover:bg-primary/5"
-            >
-              <FolderOpen className="h-8 w-8 text-muted-foreground" />
-              <div className="text-center">
-                <p className="text-sm font-semibold text-foreground/80">
-                  Choose a video file
-                </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Your video stays on your machine — only a few stills go to Scoutable to find the tip-off
-                </p>
-              </div>
-              <button
-                type="button"
-                className="inline-flex h-8 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                onClick={(e) => { e.stopPropagation(); handlePickVideoFile(); }}
-              >
-                Choose video file…
-              </button>
-            </div>
-          )}
-
-          {/* Sync point. The scrub picker only mounts on a video that's
-              actually readable here — on a dead path its confirm would
-              silently overwrite a correct sync point with 0:00. */}
-          {storedMatch.videoUrl && (!isLocalPath(storedMatch.videoUrl) || videoStatus === "ok") ? (
-            <SyncPointPicker
-              videoPath={storedMatch.videoUrl}
-              tipoffHint={syncHint ?? undefined}
-              initialSeconds={storedMatch.syncPoint?.syncVideoTime}
-              seekRequest={tipoffSuggestion.seekRequest}
-              onUserAction={tipoffSuggestion.noteUserAction}
-              suggestionSlot={
-                <TipoffSuggestionStrip
-                  state={tipoffSuggestion.state}
-                  onAccept={tipoffSuggestion.accept}
-                  onReject={tipoffSuggestion.reject}
-                  onCancel={tipoffSuggestion.cancel}
-                />
               }
-              onConfirm={async (secs) => {
-                const sp: SyncPoint = {
-                  syncVideoTime: secs,
-                  syncRealWorldTime: storedMatch.syncPoint?.syncRealWorldTime ?? "",
-                };
-                try {
-                  const { clearedShippedClips } = await updateSyncPoint(matchId, sp);
-                  setStoredMatch((m) => m ? { ...m, syncPoint: sp } : m);
-                  setSaveIndicator("Saved");
-                  setTimeout(() => setSaveIndicator(null), 1500);
-                  notifyClearedShippedClips(clearedShippedClips);
-                  tipoffSuggestion.recordResolved(secs);
-                  void tipoffSuggestion.saveConfirmed(secs);
-                } catch {
-                  setSaveIndicator("Error saving");
-                  setTimeout(() => setSaveIndicator(null), 2000);
-                }
-              }}
-            />
+            >
+              <p className="font-medium">Can't find {videoFileName}</p>
+              <p className="mt-0.5 text-muted-foreground">
+                {videoStatus === "unreadable"
+                  ? "Scoutable isn't allowed to read the file. Choose it again to grant access."
+                  : "It may have been moved or renamed, or it's on another computer. Games use the file where it is; nothing is uploaded."}
+              </p>
+            </Callout>
           ) : (
-            <div className="space-y-1.5">
-              <Label htmlFor="sync-point" className="text-xs text-muted-foreground">
-                Video time at tip-off (MM:SS)
-              </Label>
-              {syncHint && (
-                <p className="text-xs text-primary">
-                  Tip-off real-world time was <strong>{syncHint}</strong> — enter the video timestamp for that moment.
-                </p>
-              )}
-              <div className="flex items-center gap-3">
-                <Input
-                  id="sync-point"
-                  placeholder="0:35"
-                  className="w-28 font-mono"
-                  value={syncInput}
-                  onChange={(e) => setSyncInput(e.target.value)}
-                  onBlur={() => {
-                    if (!syncInput) return;
-                    const secs = parseMMSS(syncInput);
-                    if (secs === null) return;
-                    const sp: SyncPoint | null = storedMatch.syncPoint
-                      ? { syncVideoTime: secs, syncRealWorldTime: storedMatch.syncPoint.syncRealWorldTime }
-                      : null;
-                    if (sp) {
-                      updateSyncPoint(matchId, sp)
-                        .then(({ clearedShippedClips }) => {
-                          setSaveIndicator("Saved");
-                          setTimeout(() => setSaveIndicator(null), 1500);
-                          notifyClearedShippedClips(clearedShippedClips);
-                        })
-                        .catch(() => {});
-                    }
-                  }}
-                />
-                {syncInput && parseMMSS(syncInput) === null && (
-                  <p className="text-xs text-red-500">Use MM:SS format (e.g. 0:35)</p>
-                )}
-                {syncInput && parseMMSS(syncInput) !== null && (
-                  <p className="text-xs text-emerald-600 dark:text-emerald-400">Sync set at {syncInput}</p>
-                )}
+            <GroupedList>
+              <div className="flex min-h-11 items-center gap-3 px-4 py-2">
+                <Film className="size-4 shrink-0 text-muted-foreground" />
+                <span className={cn("min-w-0 flex-1 truncate text-sm", !videoFileName && "text-muted-foreground")}>
+                  {videoFileName ?? "No video yet"}
+                </span>
+                <Button size="xs" variant={videoFileName ? "outline" : "default"} onClick={handlePickVideoFile}>
+                  {videoFileName ? "Change…" : "Choose video…"}
+                </Button>
               </div>
-            </div>
+            </GroupedList>
+          )}
+          {!videoFileName && !storedMatch.isDemo && (
+            <GroupFooter>Your video stays on this computer; only a few stills go to Scoutable to find the tip-off.</GroupFooter>
           )}
         </section>
 
-        {/* ── Rosters ───────────────────────────────────────────────────── */}
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold text-foreground/70">Rosters</h2>
-          <div className="grid gap-6 sm:grid-cols-2">
-            {/* Home roster */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-foreground/80 font-medium">{storedMatch.homeTeam.name || "Home"}</span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1 text-xs text-primary hover:text-primary/80"
-                  onClick={() => addRosterRow(homeRoster, setHomeRoster)}
-                >
-                  + Add player
-                </Button>
-              </div>
-              <div className="space-y-2">
-                {homeRoster.map((entry, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <Input
-                      placeholder="#"
-                      className="w-16 text-center"
-                      value={entry.jerseyNumber}
-                      onChange={(e) => updateRosterRow(homeRoster, setHomeRoster, i, "jerseyNumber", e.target.value)}
-                      onBlur={() => saveField({ homeRoster })}
-                    />
-                    <Input
-                      placeholder="Player name"
-                      className="flex-1"
-                      value={entry.playerName}
-                      onChange={(e) => updateRosterRow(homeRoster, setHomeRoster, i, "playerName", e.target.value)}
-                      onBlur={() => saveField({ homeRoster })}
-                    />
-                    {homeRoster.length > 1 && (
-                      <button
-                        type="button"
-                        className="h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground/60 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
-                        onClick={() => {
-                          removeRosterRow(homeRoster, setHomeRoster, i);
-                          // save after state settles
-                          setTimeout(() => saveField({ homeRoster: homeRoster.filter((_, idx) => idx !== i) }), 0);
-                        }}
-                      >
-                        ×
-                      </button>
-                    )}
+        <section>
+          <GroupHeader title="Tip-off" />
+          {canPick ? (
+            <>
+              {tipoffSet && (
+                <GroupedList>
+                  <div className="flex min-h-11 items-center gap-3 px-4 py-2">
+                    <span className="flex-1 text-sm">
+                      Tip-off at <span className="font-medium nums">{formatMSSd(storedMatch.syncPoint!.syncVideoTime)}</span>
+                    </span>
+                    <Button size="xs" variant="outline" onClick={() => setAdjustingTipoff((v) => !v)}>
+                      {adjustingTipoff ? "Done" : "Adjust…"}
+                    </Button>
                   </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Away roster */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-foreground/80 font-medium">{storedMatch.awayTeam.name || "Away"}</span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1 text-xs text-primary hover:text-primary/80"
-                  onClick={() => addRosterRow(awayRoster, setAwayRoster)}
-                >
-                  + Add player
-                </Button>
-              </div>
-              <div className="space-y-2">
-                {awayRoster.map((entry, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <Input
-                      placeholder="#"
-                      className="w-16 text-center"
-                      value={entry.jerseyNumber}
-                      onChange={(e) => updateRosterRow(awayRoster, setAwayRoster, i, "jerseyNumber", e.target.value)}
-                      onBlur={() => saveField({ awayRoster })}
-                    />
-                    <Input
-                      placeholder="Player name"
-                      className="flex-1"
-                      value={entry.playerName}
-                      onChange={(e) => updateRosterRow(awayRoster, setAwayRoster, i, "playerName", e.target.value)}
-                      onBlur={() => saveField({ awayRoster })}
-                    />
-                    {awayRoster.length > 1 && (
-                      <button
-                        type="button"
-                        className="h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground/60 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
-                        onClick={() => {
-                          removeRosterRow(awayRoster, setAwayRoster, i);
-                          setTimeout(() => saveField({ awayRoster: awayRoster.filter((_, idx) => idx !== i) }), 0);
+                </GroupedList>
+              )}
+              <AnimatePresence initial={false}>
+                {showPicker && (
+                  <motion.div
+                    key="picker"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={springs.standard}
+                    className="overflow-hidden"
+                  >
+                    <div className={cn(tipoffSet && "pt-4")}>
+                      <SyncPointPicker
+                        videoPath={storedMatch.videoUrl!}
+                        tipoffHint={syncHint ?? undefined}
+                        initialSeconds={storedMatch.syncPoint?.syncVideoTime}
+                        seekRequest={tipoffSuggestion.seekRequest}
+                        onUserAction={tipoffSuggestion.noteUserAction}
+                        hasPendingSuggestion={isSuggestionPending(tipoffSuggestion.state)}
+                        suggestionSlot={
+                          <TipoffSuggestionStrip
+                            state={tipoffSuggestion.state}
+                            onAccept={tipoffSuggestion.accept}
+                            onReject={tipoffSuggestion.reject}
+                            onCancel={tipoffSuggestion.cancel}
+                          />
+                        }
+                        onConfirm={async (secs) => {
+                          if (await saveSyncPoint(secs)) {
+                            tipoffSuggestion.recordResolved(secs);
+                            void tipoffSuggestion.saveConfirmed(secs);
+                            setAdjustingTipoff(false);
+                          }
                         }}
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+                      />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </>
+          ) : (
+            <>
+              <GroupedList>
+                <FormRow label="Video time" htmlFor="sync-point" description="m:ss at tip-off">
+                  <Input
+                    id="sync-point"
+                    placeholder="0:35"
+                    aria-invalid={syncInput !== "" && manualSecs === null}
+                    className={cn(inlineField, "w-24 text-right nums")}
+                    value={syncInput}
+                    onChange={(e) => setSyncInput(e.target.value)}
+                    onBlur={() => {
+                      // Saves whenever the time is valid, including the first time.
+                      if (manualSecs !== null && manualSecs !== storedMatch.syncPoint?.syncVideoTime) void saveSyncPoint(manualSecs);
+                    }}
+                  />
+                </FormRow>
+              </GroupedList>
+              <GroupFooter className={cn(syncInput !== "" && manualSecs === null && "text-destructive")}>
+                {syncInput !== "" && manualSecs === null
+                  ? "Use minutes and seconds, like 0:35."
+                  : syncHint
+                    ? `The tip-off happened at ${syncHint}. Enter the video time for that moment.`
+                    : "Link the video to set the tip-off by watching it instead."}
+              </GroupFooter>
+            </>
+          )}
         </section>
 
-        {/* ── Danger zone ───────────────────────────────────────────────── */}
-        <section className="border-t border-border pt-6 space-y-2">
-          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Danger zone</p>
-          <div className="flex items-center gap-4">
+        <RosterGroup
+          title={`${storedMatch.homeTeam.name || "Home"} roster`}
+          roster={homeRoster}
+          onChange={setHomeRoster}
+          onCommit={(r) => void saveField({ homeRoster: r })}
+        />
+        <RosterGroup
+          title={`${storedMatch.awayTeam.name || "Away"} roster`}
+          roster={awayRoster}
+          onChange={setAwayRoster}
+          onCommit={(r) => void saveField({ awayRoster: r })}
+        />
+
+        <section>
+          <GroupedList>
             <DeleteMatchDialog
               matchId={matchId}
               matchTitle={title}
               isDemo={storedMatch.isDemo}
               trigger={
-                <Button variant="destructive" size="sm">
-                  Delete game
-                </Button>
+                <button
+                  type="button"
+                  className="flex min-h-11 w-full items-center px-4 text-left text-sm text-destructive outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection"
+                >
+                  Delete game…
+                </button>
               }
               onDeleted={() => navigate("/matches")}
             />
-            <p className="text-xs text-muted-foreground">This will permanently remove the game and all its clips.</p>
-          </div>
+          </GroupedList>
+          <GroupFooter>Permanently removes the game and all its clips. It can't be undone.</GroupFooter>
         </section>
-      </div>
-      </div>
-    </div>
+      </PageContent>
+    </Page>
   );
 }

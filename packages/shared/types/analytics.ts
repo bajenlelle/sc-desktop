@@ -43,6 +43,7 @@ export type AnalyticsEvent =
   // Playlist production (desktop)
   | "playlist_created"
   | "clip_added_to_playlist"
+  | "clip_trimmed" // desktop trim handles (props: playlist_id, in_changed, out_changed, length_seconds)
   | "playlist_filtered"
   | "clips_grouped"
   | "clips_ungrouped"

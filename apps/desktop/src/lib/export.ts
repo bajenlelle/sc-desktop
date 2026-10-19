@@ -7,7 +7,7 @@ import { isLocalPath } from "@/lib/stream";
 import { probeVideoDuration, probeVideoPath, videoBasename } from "@/lib/video-probe";
 import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { toSegmentKeyframes, type CropKeyframe } from "@scoutable/shared/lib/crop-path";
-import type { ExportProgress } from "@scoutable/shared/lib/export-progress";
+import { isExportCancelled, type ExportProgress } from "@scoutable/shared/lib/export-progress";
 import type { PlayByPlayEvent, SyncPoint } from "@/types/match";
 
 export type { ExportProgress };
@@ -15,36 +15,52 @@ export type { ExportProgress };
 export interface ExportOptions {
   /** Per-segment render progress, then one "stitching" notification for the final concat pass. */
   onProgress?: (progress: ExportProgress) => void;
+  /**
+   * Aborting stops the render where it is: the Rust side kills ffmpeg and
+   * deletes what it made, and the call rejects with an AbortError.
+   */
+  signal?: AbortSignal;
+  /** Save to computer: the save panel returned a path and rendering starts. */
+  onPathChosen?: () => void;
+}
+
+/** What an export that was stopped rejects with; see isExportCancelled. */
+function exportStopped(): DOMException {
+  return new DOMException("Export stopped", "AbortError");
 }
 
 /**
- * The one door to the Rust export command. With a progress callback, a nonce
- * keys this invocation's "export-progress" events so a listener never
- * consumes another export's stream (a save-export and a send-to-phone render
- * can overlap).
+ * The one door to the Rust export command. A nonce keys this invocation: its
+ * "export-progress" events (a save-export and a send-to-phone render can
+ * overlap, so a listener never consumes another export's stream), and the
+ * job `cancel_export` stops.
  */
 async function invokeExportPlaylist(
   rustSegments: RustSegment[],
   outputPath: string,
   watermark: boolean,
   vertical: boolean,
-  onProgress?: (progress: ExportProgress) => void,
+  opts?: ExportOptions,
 ): Promise<void> {
-  const args = { segments: rustSegments, outputPath, watermark, vertical };
-  if (!onProgress) {
-    await invoke<void>("export_playlist", args);
-    return;
-  }
+  const { onProgress, signal } = opts ?? {};
+  if (signal?.aborted) throw exportStopped();
   const progressId = crypto.randomUUID();
-  const unlisten = await listen<ExportProgress & { id: string }>("export-progress", (event) => {
-    if (event.payload.id !== progressId) return;
-    const { phase, done, total } = event.payload;
-    onProgress({ phase, done, total });
-  });
+  const unlisten = onProgress
+    ? await listen<ExportProgress & { id: string }>("export-progress", (event) => {
+        if (event.payload.id !== progressId) return;
+        const { phase, done, total } = event.payload;
+        onProgress({ phase, done, total });
+      })
+    : null;
+  const stop = () => void invoke<boolean>("cancel_export", { id: progressId }).catch(() => {});
+  signal?.addEventListener("abort", stop, { once: true });
   try {
-    await invoke<void>("export_playlist", { ...args, progressId });
+    await invoke<void>("export_playlist", { segments: rustSegments, outputPath, watermark, vertical, progressId });
+  } catch (e) {
+    throw isExportCancelled(e) ? exportStopped() : e;
   } finally {
-    unlisten();
+    signal?.removeEventListener("abort", stop);
+    unlisten?.();
   }
 }
 
@@ -242,7 +258,7 @@ export async function exportPlaylistToPath(
   await assertVideosPresent(segments);
   const rustSegments = buildRustSegments(segments, preRoll, postRoll, vertical);
   await assertClipsWithinVideos(rustSegments);
-  await invokeExportPlaylist(rustSegments, outputPath, watermark, vertical, opts?.onProgress);
+  await invokeExportPlaylist(rustSegments, outputPath, watermark, vertical, opts);
 }
 
 /**
@@ -278,7 +294,8 @@ export async function exportPlaylist(
   });
   if (!outputPath) return null; // user cancelled
 
-  await invokeExportPlaylist(rustSegments, outputPath, watermark, vertical, opts?.onProgress);
+  opts?.onPathChosen?.();
+  await invokeExportPlaylist(rustSegments, outputPath, watermark, vertical, opts);
   return outputPath;
 }
 

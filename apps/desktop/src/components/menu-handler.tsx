@@ -21,6 +21,8 @@ import { isBrowserShortcut, menuIdForChord } from "@scoutable/shared/lib/menu-sh
 import { useAuth } from "@/lib/auth-context";
 import { createClient } from "@/lib/supabase/client";
 import { interactiveUpdateCheck } from "@/lib/updates";
+import { IS_MACOS } from "@/lib/platform";
+import { menuAppearanceFor } from "@scoutable/shared/lib/appearance";
 
 const ZOOM_KEY = "scoutable_zoom";
 const ZOOM_MIN = 0.5;
@@ -29,12 +31,11 @@ const ZOOM_STEP = 0.1;
 
 /**
  * macOS owns the accelerators through the native menu; a keydown listener
- * there would run every action twice. The UA is the one platform signal the
- * webview has without a round-trip, and WKWebView always carries "Macintosh".
+ * there would run every action twice.
  */
-const HAS_NATIVE_MENU = navigator.userAgent.includes("Macintosh");
+const HAS_NATIVE_MENU = IS_MACOS;
 
-/** Items only coaches/admins can use (mirrors app-sidebar gating). */
+/** Items only coaches/admins can use (mirrors the sidebar's gating). */
 const COACH_ADMIN_IDS = ["new-playlist", "add-game", "go-home", "go-playlists", "go-library"];
 
 /** Mirror of each item's native enablement, consulted by the keyboard fallback. */
@@ -196,7 +197,8 @@ export function MenuHandler() {
 
   useEffect(() => {
     setEnabled("toggle-playlist-browser", pathname === "/playlists");
-    setEnabled("fullscreen-player", pathname === "/playlists");
+    // Both players: the editor and the watch view of a shared playlist.
+    setEnabled("fullscreen-player", pathname === "/playlists" || pathname === "/my-playlists");
     // Export is enabled by pages/playlists.tsx while a playlist is open;
     // everywhere else it must be off. On the page itself the mirror must not
     // keep a stale "off" — the page decides, through its own listener.
@@ -205,7 +207,7 @@ export function MenuHandler() {
   }, [pathname]);
 
   useEffect(() => {
-    invoke("menu_sync_theme", { theme: theme ?? "dark" }).catch(() => {});
+    invoke("menu_sync_theme", { theme: menuAppearanceFor(theme) }).catch(() => {});
   }, [theme]);
 
   return null;

@@ -1,39 +1,25 @@
 import { Outlet, useLocation } from "react-router-dom";
-import { motion } from "framer-motion";
-import { AppSidebar } from "@/components/app-sidebar";
+import { Sidebar } from "@/components/shell/sidebar";
 import { LicenseBanner } from "@/components/license-banner";
-import { SpaceHeader } from "@/components/space-header";
 import { TeamStep } from "@/components/team-step";
-import { useAuth } from "@/lib/auth-context";
-import { useImportQuota } from "@/lib/use-import-quota";
 
+/**
+ * The window: a source-list sidebar beside the content column. Pages built
+ * on `Page`/`Toolbar`/`PageContent` own their scrolling; older pages still
+ * scroll in the column itself. No page transition: a source-list app swaps
+ * content in place, and the sidebar selection plus the toolbar title say
+ * where you are. The key resets scroll position between pages.
+ */
 export function RootLayout() {
   const { pathname } = useLocation();
-  const { activeOrg, myOrgs, setActiveOrg } = useAuth();
-  const importQuota = useImportQuota();
-
   return (
-    <div className="flex h-screen overflow-hidden bg-background font-sans antialiased">
-      <AppSidebar />
-      <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        {activeOrg && (
-          <SpaceHeader
-            org={activeOrg}
-            myOrgs={myOrgs}
-            setActiveOrg={setActiveOrg}
-            importQuota={importQuota}
-          />
-        )}
+    <div className="flex h-screen overflow-hidden font-sans antialiased">
+      <Sidebar />
+      <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
         <LicenseBanner />
-        <motion.div
-          key={pathname}
-          className="flex-1 min-h-0 overflow-y-auto"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.12 }}
-        >
+        <div key={pathname} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           <Outlet />
-        </motion.div>
+        </div>
       </main>
       <TeamStep />
     </div>

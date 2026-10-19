@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   addClips,
+  clearShippedClip,
   createPlaylist,
   getMySharedPlaylists,
   getMyTeamPlaylists,
@@ -486,5 +487,55 @@ describe("addClips", () => {
     await expect(
       addClips(client, "pl1", [{ type: "clip", matchId: "m1", eventId: 7 }], 0),
     ).rejects.toThrow("Failed to add clips: permission denied");
+  });
+});
+
+describe("clearShippedClip", () => {
+  function mockUpdateClient(error: { message: string } | null = null) {
+    const calls: { table?: string; patch?: unknown; filters: Array<[string, unknown]> } = { filters: [] };
+    const builder = {
+      eq(col: string, value: unknown) {
+        calls.filters.push([col, value]);
+        return builder;
+      },
+      then(resolve: (v: { error: unknown }) => unknown) {
+        return Promise.resolve({ error }).then(resolve);
+      },
+    };
+    const client = {
+      from(table: string) {
+        calls.table = table;
+        return {
+          update(patch: unknown) {
+            calls.patch = patch;
+            return builder;
+          },
+        };
+      },
+    } as unknown as SupabaseClient;
+    return { client, calls };
+  }
+
+  it("nulls the one clip's URL", async () => {
+    const { client, calls } = mockUpdateClient();
+    await clearShippedClip(client, "pl1", "m1", 7);
+    expect(calls.table).toBe("playlist_clips");
+    expect(calls.patch).toEqual({ r2_url: null });
+    expect(calls.filters).toEqual([
+      ["playlist_id", "pl1"],
+      ["match_id", "m1"],
+      ["event_id", 7],
+    ]);
+  });
+
+  it("only clears the URL it was given, so a newer upload survives", async () => {
+    const { client, calls } = mockUpdateClient();
+    await clearShippedClip(client, "pl1", "m1", 7, "https://cdn/clips/m1/7_old.mp4");
+    expect(calls.filters).toContainEqual(["r2_url", "https://cdn/clips/m1/7_old.mp4"]);
+  });
+
+  it("throws on a database error", async () => {
+    const { client } = mockUpdateClient({ message: "boom" });
+    await expect(clearShippedClip(client, "pl1", "m1", 7)).rejects.toThrow(/boom/);
   });
 });

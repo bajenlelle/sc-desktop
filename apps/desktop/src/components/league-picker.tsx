@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Search } from "lucide-react";
+import { Check, ChevronsUpDown } from "lucide-react";
+import { SearchField } from "@/components/ui/search-field";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   COUNTRY_NAMES,
@@ -73,13 +74,13 @@ export function LeaguePicker({ leagues, value, onChange, className }: LeaguePick
         <button
           type="button"
           className={cn(
-            "flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary",
+            "flex h-7 items-center gap-1.5 rounded-md bg-card pr-1.5 pl-2.5 text-sm shadow-xs ring-1 ring-separator outline-none transition-[background-color,transform] duration-100 hover:bg-fill-1 active:scale-[0.98] data-[state=open]:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection",
             className,
           )}
         >
           {value && <span aria-hidden>{countryFlag(value.country)}</span>}
-          <span className="truncate">{value?.name ?? "Select league"}</span>
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <span className="truncate">{value?.name ?? "Choose a league"}</span>
+          <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -90,27 +91,23 @@ export function LeaguePicker({ leagues, value, onChange, className }: LeaguePick
           inputRef.current?.focus();
         }}
       >
-        <div className="flex items-center gap-2 border-b px-3 py-2">
-          <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <input
+        <div className="border-b border-separator p-2">
+          <SearchField
             ref={inputRef}
-            type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search leagues…"
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            placeholder="Search leagues"
+            aria-label="Search leagues"
           />
         </div>
 
         <div className="max-h-72 overflow-y-auto py-1">
           {groups.length === 0 && (
-            <p className="px-3 py-4 text-center text-sm text-muted-foreground">
-              No leagues found.
-            </p>
+            <p className="px-3 py-4 text-center text-callout text-muted-foreground">No leagues match.</p>
           )}
           {groups.map(([groupName, groupLeagues]) => (
             <div key={groupName}>
-              <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <div className="px-3 py-1.5 text-subheadline font-medium text-muted-foreground">
                 {groupName}
               </div>
               {groupLeagues.map((league) => (
@@ -121,13 +118,11 @@ export function LeaguePicker({ leagues, value, onChange, className }: LeaguePick
                     onChange(league);
                     setOpen(false);
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent/40"
+                  className="mx-1 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-[5px] px-2 py-1 text-left text-sm outline-none hover:bg-selection hover:text-selection-foreground focus-visible:bg-selection focus-visible:text-selection-foreground"
                 >
                   <span aria-hidden>{countryFlag(league.country)}</span>
                   <span className="flex-1 truncate">{league.name}</span>
-                  {league.id === value?.id && (
-                    <Check className="h-3.5 w-3.5 shrink-0 text-primary" />
-                  )}
+                  {league.id === value?.id && <Check className="size-3.5 shrink-0" />}
                 </button>
               ))}
             </div>

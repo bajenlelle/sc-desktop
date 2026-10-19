@@ -10,12 +10,12 @@ import {
   type TeamSeason,
 } from "@scoutable/shared/lib/team-games";
 import type { LeagueTeam } from "@scoutable/shared/types/league-team";
+import { formatDate } from "@/lib/format-date";
 
 export type PickedFrom = "latest_card" | "team_list";
 
-const longDate = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-const shortDate = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+const longDate = (iso: string) => formatDate(iso, "weekday");
+const shortDate = (iso: string) => formatDate(iso, "short");
 
 function OpponentCrest({ icon, size }: { icon: string; size: number }) {
   const style = { width: size, height: size };
@@ -49,7 +49,7 @@ function Result({ result, ours, theirs, large }: { result: GameResult; ours: num
 
 function PlayoffChip() {
   return (
-    <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+    <span className="shrink-0 rounded-full bg-fill-2 px-1.5 py-px text-caption text-muted-foreground">
       Playoffs
     </span>
   );
@@ -155,7 +155,7 @@ export function TeamGamesPanel({
         <>
           {latest && (
             <div className="space-y-1.5">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Latest game</p>
+              <p className="text-subheadline font-medium text-muted-foreground">Latest game</p>
               <div className="rounded-lg border border-primary/30 bg-primary/5 p-4">
                 <div className="flex items-center gap-3">
                   <OpponentCrest icon={latest.opponent.icon} size={40} />
@@ -182,7 +182,7 @@ export function TeamGamesPanel({
 
           {rest.length > 0 && (
             <div className="space-y-1.5">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <p className="text-subheadline font-medium text-muted-foreground">
                 {latest ? "Other games" : "Your games"}
               </p>
               <div className="max-h-72 divide-y divide-border overflow-y-auto rounded-md border border-border">

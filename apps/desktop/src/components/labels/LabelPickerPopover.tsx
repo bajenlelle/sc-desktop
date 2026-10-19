@@ -11,6 +11,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { LABEL_COLORS, labelDotClasses, labelSwatchClasses } from "@/lib/label-colors";
 import type { Label, LabelColor } from "@scoutable/shared/types/labels";
 import { cn } from "@/lib/utils";
@@ -164,6 +166,8 @@ export function LabelPickerPopover({
     setCreateColor(LABEL_COLORS[(idx + 1) % LABEL_COLORS.length]);
   }
 
+  const [deleteTarget, setDeleteTarget] = useState<Label | null>(null);
+
   async function handleRenameSubmit() {
     if (!renameId) return;
     const next = renameValue.trim();
@@ -179,6 +183,7 @@ export function LabelPickerPopover({
   }
 
   return (
+    <>
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent
@@ -259,7 +264,7 @@ export function LabelPickerPopover({
             return (
               <div
                 key={label.id}
-                className="group flex items-center gap-2 px-2 py-1.5 hover:bg-accent/40"
+                className="group flex items-center gap-2 px-2 py-1.5 hover:bg-fill-1"
               >
                 <button
                   type="button"
@@ -298,7 +303,7 @@ export function LabelPickerPopover({
                     <PopoverTrigger asChild>
                       <button
                         type="button"
-                        className="h-6 w-6 rounded p-0 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-accent hover:text-foreground flex items-center justify-center"
+                        className="h-6 w-6 rounded p-0 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-fill-2 hover:text-foreground flex items-center justify-center"
                         aria-label="Change color"
                       >
                         <span className={cn("h-3 w-3 rounded-full", labelSwatchClasses[label.color])} />
@@ -318,7 +323,7 @@ export function LabelPickerPopover({
                     <DropdownMenuTrigger asChild>
                       <button
                         type="button"
-                        className="h-6 w-6 rounded text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-accent hover:text-foreground flex items-center justify-center"
+                        className="h-6 w-6 rounded text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-fill-2 hover:text-foreground flex items-center justify-center"
                         aria-label="Label actions"
                       >
                         <MoreHorizontal className="h-3.5 w-3.5" />
@@ -335,19 +340,10 @@ export function LabelPickerPopover({
                         Rename
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        onSelect={(e) => {
-                          e.preventDefault();
-                          if (
-                            window.confirm(
-                              `Delete "${label.name}"? This removes it from every clip you've tagged.`,
-                            )
-                          ) {
-                            void onDelete(label.id);
-                          }
-                        }}
-                        className="text-red-500 focus:text-red-500"
+                        onSelect={() => setDeleteTarget(label)}
+                        className="text-destructive focus:bg-destructive focus:text-white"
                       >
-                        Delete
+                        Delete…
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -359,7 +355,7 @@ export function LabelPickerPopover({
 
         {/* Create row */}
         {showCreateRow && (
-          <div className="border-t flex items-center gap-2 px-2 py-1.5 hover:bg-accent/40">
+          <div className="border-t flex items-center gap-2 px-2 py-1.5 hover:bg-fill-1">
             <button
               type="button"
               onClick={() => void handleCreate()}
@@ -377,7 +373,7 @@ export function LabelPickerPopover({
               <PopoverTrigger asChild>
                 <button
                   type="button"
-                  className="h-6 w-6 rounded text-muted-foreground hover:bg-accent hover:text-foreground flex items-center justify-center"
+                  className="h-6 w-6 rounded text-muted-foreground hover:bg-fill-2 hover:text-foreground flex items-center justify-center"
                   aria-label="Pick color"
                 >
                   <span className={cn("h-3 w-3 rounded-full", labelSwatchClasses[createColor])} />
@@ -394,5 +390,31 @@ export function LabelPickerPopover({
         )}
       </PopoverContent>
     </Popover>
+
+    {/* Deleting a label takes it off every clip, so it asks first. */}
+    <Dialog open={deleteTarget !== null} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Delete “{deleteTarget?.name}”?</DialogTitle>
+          <DialogDescription>It comes off every clip you've tagged with it.</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => {
+              const target = deleteTarget;
+              setDeleteTarget(null);
+              if (target) void onDelete(target.id);
+            }}
+          >
+            Delete label
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

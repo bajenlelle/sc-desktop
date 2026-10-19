@@ -22,7 +22,12 @@ export async function sendHighlightToPhone(
   onStage?: (stage: SendToPhoneStage) => void,
   vertical = false,
   onExportProgress?: (progress: ExportProgress) => void,
+  /** Aborting stops the render (ffmpeg is killed) or the upload, whichever is running. */
+  signal?: AbortSignal,
 ): Promise<string> {
+  const stopIfCancelled = () => {
+    if (signal?.aborted) throw new DOMException("Send to phone cancelled", "AbortError");
+  };
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
@@ -34,18 +39,21 @@ export async function sendHighlightToPhone(
   const tempPath = `${tempDir}/sc_highlight_${stamp}.mp4`;
   const posterTempPath = `${tempDir}/sc_highlight_${stamp}.jpg`;
 
-  onStage?.("rendering");
-  // Watermark always on: send-to-phone clips land on Instagram/TikTok —
-  // this surface is public distribution regardless of the sender's plan.
-  await exportPlaylistToPath(segments, preRoll, postRoll, tempPath, true, vertical, {
-    onProgress: onExportProgress,
-  });
-
   try {
+    onStage?.("rendering");
+    // Watermark always on: send-to-phone clips land on Instagram/TikTok;
+    // this surface is public distribution regardless of the sender's plan.
+    // The signal stops the render itself, not only what comes after it.
+    await exportPlaylistToPath(segments, preRoll, postRoll, tempPath, true, vertical, {
+      onProgress: onExportProgress,
+      signal,
+    });
+    stopIfCancelled();
     onStage?.("uploading");
     // Per-user, uuid-keyed — unlike Clip & Ship's guessable clip keys.
     const keys = highlightShareKeys(user.id, shareId);
-    const r2Url = await uploadToR2(tempPath, keys.video);
+    const r2Url = await uploadToR2(tempPath, keys.video, "video/mp4", signal);
+    stopIfCancelled();
 
     // Poster frame for the /h page's OG image and <video poster>.
     // Strictly best-effort: a rendered MP4 must never be lost to a
@@ -53,11 +61,12 @@ export async function sendHighlightToPhone(
     let posterUrl: string | undefined;
     try {
       await invoke("extract_poster_frame", { videoPath: tempPath, outputPath: posterTempPath });
-      posterUrl = await uploadToR2(posterTempPath, keys.poster, "image/jpeg");
+      posterUrl = await uploadToR2(posterTempPath, keys.poster, "image/jpeg", signal);
     } catch {
       posterUrl = undefined;
     }
 
+    stopIfCancelled();
     onStage?.("saving");
     await createHighlightShare({
       id: shareId,

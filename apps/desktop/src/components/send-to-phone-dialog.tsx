@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import QRCode from "react-qr-code";
 import { Check, Copy, Loader2, RefreshCw, Smartphone } from "lucide-react";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { AutoHeight } from "@/components/ui/auto-height";
 import { ProgressBar } from "@/components/ui/progress-bar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { sendHighlightToPhone, type SendToPhoneStage } from "@/lib/highlight-share";
 import { getMyShareForPlaylist } from "@/lib/highlight-shares-db";
 import { highlightContentKey } from "@scoutable/shared/lib/highlight-shares-db";
@@ -20,6 +24,7 @@ import {
 } from "@scoutable/shared/lib/export-progress";
 import { trackEvent } from "@/lib/analytics";
 import { dropClipsOutsideVideos, type ExportSegment } from "@/lib/export";
+import { fadeVariants, springs } from "@/lib/motion";
 
 const APP_URL = "https://app.scoutable.se";
 
@@ -36,6 +41,10 @@ function relativeDays(iso: string): string {
   return `${days} days ago`;
 }
 
+function isAbort(e: unknown): boolean {
+  return e instanceof DOMException && e.name === "AbortError";
+}
+
 /**
  * Renders the playlist, uploads it, and shows a QR code the user scans with
  * their phone. Reuses the playlist's existing non-expired link when there is
@@ -43,6 +52,9 @@ function relativeDays(iso: string): string {
  * link" forces a fresh render when the playlist has changed. Selection
  * exports always render fresh: a subset must not impersonate the full
  * playlist's link.
+ *
+ * Every way out cancels: closing stops the render (ffmpeg is killed) or the
+ * upload, and nothing is linked.
  */
 export function SendToPhoneDialog({
   open,
@@ -74,6 +86,9 @@ export function SendToPhoneDialog({
   // tells the sender what the rendered video won't contain.
   const [rangeNote, setRangeNote] = useState<string | null>(null);
   const runningRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+  /** Bumped by every run and every close: a run that was left behind never touches the state again. */
+  const runIdRef = useRef(0);
   // What actually renders: segments minus out-of-range clips. Everything
   // downstream (render, analytics, the reuse fingerprint) must read this,
   // never the raw prop, or the cached link stops matching its content.
@@ -82,13 +97,18 @@ export function SendToPhoneDialog({
   function runPipeline(pl: { id: string; name: string }) {
     if (runningRef.current) return;
     runningRef.current = true;
+    const run = ++runIdRef.current;
+    const current = () => run === runIdRef.current;
+    const controller = new AbortController();
+    abortRef.current = controller;
     setError(null);
     setShareUrl(null);
     setReusedFrom(null);
     setRenderProgress(null);
     const kept = keptRef.current;
-    sendHighlightToPhone(pl, kept, preRoll, postRoll, setStage, vertical, setRenderProgress)
+    sendHighlightToPhone(pl, kept, preRoll, postRoll, setStage, vertical, setRenderProgress, controller.signal)
       .then((url) => {
+        if (controller.signal.aborted || !current()) return;
         setShareUrl(url);
         trackEvent("highlight_sent_to_phone", {
           playlist_id: pl.id,
@@ -98,8 +118,13 @@ export function SendToPhoneDialog({
           ...(vertical ? { aspect: "9:16" } : {}),
         });
       })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .catch((e) => {
+        if (isAbort(e) || controller.signal.aborted || !current()) return;
+        setError(e instanceof Error ? e.message : String(e));
+      })
       .finally(() => {
+        if (abortRef.current === controller) abortRef.current = null;
+        if (!current()) return;
         setStage(null);
         setRenderProgress(null);
         runningRef.current = false;
@@ -137,6 +162,7 @@ export function SendToPhoneDialog({
       const aspect = vertical ? ("9:16" as const) : ("16:9" as const);
       getMyShareForPlaylist(playlist.id, aspect, highlightContentKey(kept, preRoll, postRoll, aspect))
         .then((existing) => {
+          if (cancelled) return;
           if (existing) {
             setShareUrl(`${APP_URL}/h/${existing.id}`);
             setReusedFrom(existing.createdAt);
@@ -149,7 +175,9 @@ export function SendToPhoneDialog({
             runPipeline(playlist);
           }
         })
-        .catch(() => runPipeline(playlist));
+        .catch(() => {
+          if (!cancelled) runPipeline(playlist);
+        });
     })();
     return () => {
       cancelled = true;
@@ -158,7 +186,13 @@ export function SendToPhoneDialog({
   }, [open]);
 
   function handleClose() {
-    // A render/upload in flight can't be cancelled — just don't reopen state.
+    abortRef.current?.abort();
+    abortRef.current = null;
+    // Leave the stopped run behind, so reopening starts a fresh one at once.
+    runIdRef.current++;
+    runningRef.current = false;
+    setStage(null);
+    setRenderProgress(null);
     setShareUrl(null);
     setReusedFrom(null);
     setError(null);
@@ -175,79 +209,109 @@ export function SendToPhoneDialog({
     });
   }
 
+  const phase = error ? "error" : shareUrl ? "done" : "working";
+
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Smartphone className="h-4 w-4 text-primary" />
+            <Smartphone className="size-4 text-primary" />
             Send to your phone
           </DialogTitle>
           <DialogDescription>
-            {shareUrl
+            {phase === "done"
               ? "Scan with your phone's camera, then save or share straight from there."
               : "We'll render your highlight and give you a QR code to scan."}
           </DialogDescription>
         </DialogHeader>
 
-        {!error && rangeNote && (
-          <p className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-500">
-            {rangeNote}
-          </p>
-        )}
-
-        {error ? (
-          <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/50 dark:text-red-400">
-            {error}
-          </p>
-        ) : shareUrl ? (
-          <div className="flex flex-col items-center gap-4 py-2">
-            <div className="rounded-lg bg-white p-3">
-              <QRCode value={shareUrl} size={176} />
-            </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={handleCopy}>
-                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                {copied ? "Copied" : "Copy link"}
-              </Button>
-              {reusedFrom && playlist && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="gap-1.5 text-muted-foreground"
-                  onClick={() => runPipeline(playlist)}
-                  title="Re-render if the playlist has changed since this link was made"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  Create new link
-                </Button>
-              )}
-            </div>
-            <p className="text-center text-xs text-muted-foreground">
-              {reusedFrom
-                ? `Link created ${relativeDays(reusedFrom)} — playlist changed since? Create a new link.`
-                : "The link works for 30 days — save the video to your phone right away."}
+        <AutoHeight>
+          {!error && rangeNote && (
+            <p className="mb-3 rounded-window bg-warning/12 px-3 py-2 text-callout text-foreground">
+              {rangeNote}
             </p>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center gap-3 py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">
-              {stage ? STAGE_LABEL[stage] : "Starting…"}
-            </p>
-            {stage === "rendering" && renderProgress && (
-              <div className="flex w-56 flex-col items-center gap-1.5">
-                <ProgressBar percent={exportProgressPercent(renderProgress)} className="w-full" />
-                <p className="text-xs tabular-nums text-muted-foreground">
-                  {exportProgressLabel(renderProgress)}
+          )}
+          <AnimatePresence mode="popLayout" initial={false}>
+            {phase === "error" ? (
+              <motion.p
+                key="error"
+                variants={fadeVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                role="alert"
+                className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              >
+                {error}
+              </motion.p>
+            ) : phase === "done" ? (
+              <motion.div
+                key="done"
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                transition={springs.gentle}
+                className="flex flex-col items-center gap-4 py-2"
+              >
+                <div className="rounded-lg bg-white p-3 shadow-menu">
+                  <QRCode value={shareUrl!} size={176} />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={handleCopy}>
+                    {copied ? <Check /> : <Copy />}
+                    {copied ? "Copied" : "Copy link"}
+                  </Button>
+                  {reusedFrom && playlist && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => runPipeline(playlist)}>
+                          <RefreshCw />
+                          Create new link
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Renders again, for when the playlist changed after this link was made</TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+                <p className="text-center text-callout text-muted-foreground">
+                  {reusedFrom
+                    ? `Link created ${relativeDays(reusedFrom)} — playlist changed since? Create a new link.`
+                    : "The link works for 30 days — save the video to your phone right away."}
                 </p>
-              </div>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="working"
+                variants={fadeVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                className="flex flex-col items-center gap-3 py-6"
+              >
+                <Loader2 className="size-6 animate-spin text-muted-foreground" />
+                <p className="text-sm text-foreground">{stage ? STAGE_LABEL[stage] : "Starting…"}</p>
+                <div className="flex h-9 w-56 flex-col items-center gap-1.5">
+                  {stage === "rendering" && renderProgress && (
+                    <>
+                      <ProgressBar percent={exportProgressPercent(renderProgress)} className="w-full" />
+                      <p className="text-callout text-muted-foreground nums">{exportProgressLabel(renderProgress)}</p>
+                    </>
+                  )}
+                  {stage !== "rendering" && (
+                    <p className="text-callout text-muted-foreground">Long playlists can take a few minutes.</p>
+                  )}
+                </div>
+              </motion.div>
             )}
-            <p className="text-xs text-muted-foreground/70">
-              Long playlists can take a few minutes.
-            </p>
-          </div>
-        )}
+          </AnimatePresence>
+        </AutoHeight>
+
+        <DialogFooter>
+          <Button variant={phase === "working" ? "outline" : "default"} onClick={handleClose}>
+            {phase === "working" ? "Cancel" : "Done"}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

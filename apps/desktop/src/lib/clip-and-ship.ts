@@ -5,6 +5,7 @@ import { uploadToR2 } from "@/lib/r2-upload";
 import { updateClipR2Url } from "@/lib/playlists-db";
 import { clipBounds, clipShipKey, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import type { ClipShipFailure, ClipShipResult } from "@scoutable/shared/lib/ship-result";
+import { isExportCancelled } from "@scoutable/shared/lib/export-progress";
 import type { ExportSegment } from "@/lib/export";
 import type { Playlist } from "@/types/match";
 
@@ -27,9 +28,11 @@ type ClipSegment = Extract<ExportSegment, { kind: "clip" }>;
  * Idempotent: clips that already have r2Url on their PlaylistClipItem are
  * skipped — safe because anything that invalidates an upload's CONTENT clears
  * the r2Url first (a sync-point save nulls it for the whole match via
- * clearShippedClipsForMatch). Aborting via opts.signal stops between clips (an in-flight ffmpeg
- * export can't be cancelled; the R2 upload can) and reports aborted — never
- * a failure.
+ * clearShippedClipsForMatch; a trim nulls it for the clip via
+ * clearShippedClip). Each upload reports the offsets it was cut at, so a
+ * caller can tell a clip that was trimmed while it uploaded. Aborting via opts.signal stops the clip being
+ * cut (cancel_export kills its ffmpeg) or uploaded, and reports aborted:
+ * never a failure.
  */
 export async function clipAndShip(
   playlist: Playlist,
@@ -90,12 +93,17 @@ export async function clipAndShip(
     }
 
     const tempPath = `${tempDir}/sc_ship_${Date.now()}.mp4`;
+    // The cut runs as a job abort can stop where it is.
+    const jobId = crypto.randomUUID();
+    const stopCut = () => void invoke<boolean>("cancel_export", { id: jobId }).catch(() => {});
+    opts?.signal?.addEventListener("abort", stopCut, { once: true });
     try {
       await invoke<void>("export_clip_for_ship", {
         videoPath: seg.videoPath,
         start,
         end,
         outputPath: tempPath,
+        jobId,
       });
 
       // Effective totals (base roll + per-clip offset) plus the computed
@@ -116,16 +124,23 @@ export async function clipAndShip(
       await updateClipR2Url(playlist.id, seg.matchId, event.eventId, r2Url);
       uploadedKeys.add(itemKey);
       result.shipped++;
-      result.uploaded.push({ matchId: seg.matchId, eventId: event.eventId, r2Url });
+      result.uploaded.push({
+        matchId: seg.matchId,
+        eventId: event.eventId,
+        r2Url,
+        preRollOffset: seg.preRollOffset ?? 0,
+        postRollOffset: seg.postRollOffset ?? 0,
+      });
       return null;
     } catch (e) {
-      if (opts?.signal?.aborted) return null; // aborted mid-upload, not a failure
+      if (opts?.signal?.aborted || isExportCancelled(e)) return null; // stopped, not a failure
       return {
         matchId: seg.matchId,
         eventId: event.eventId,
         message: e instanceof Error ? e.message : String(e),
       };
     } finally {
+      opts?.signal?.removeEventListener("abort", stopCut);
       await invoke<void>("delete_file", { path: tempPath }).catch(() => {});
     }
   }

@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { PauseCircle } from "lucide-react";
 import { UploadZone } from "@/components/upload-zone";
 import { EmptyState } from "@/components/empty-state";
+import { Page, PageContent } from "@/components/shell/page";
+import { Toolbar } from "@/components/shell/toolbar";
 import { useAuth } from "@/lib/auth-context";
 import { getLicenseState } from "@scoutable/shared/lib/license-state";
 import type { OrgMembership } from "@/types/org";
@@ -33,15 +36,19 @@ export function UploadPage() {
   if (!profileLoading && !canAccess) return null;
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      {licenseLocked ? (
-        <EmptyState
-          title="Importing is paused"
-          body={`${activeOrg?.orgName ?? "This organization"}'s license has expired. Existing games and playlists stay available — importing resumes once the license is renewed.`}
-        />
-      ) : (
-        <UploadZone ntMemberships={ntOrgs} hasClubAccess={hasClubAccess} />
-      )}
-    </div>
+    <Page>
+      <Toolbar title="Import game" subtitle="Pick a game, link its video, set the tip-off" />
+      <PageContent width="narrow">
+        {licenseLocked ? (
+          <EmptyState
+            icon={<PauseCircle />}
+            title="Importing is paused"
+            body={`${activeOrg?.orgName ?? "This organization"}'s license has expired. Existing games and playlists stay available — importing resumes once the license is renewed.`}
+          />
+        ) : (
+          <UploadZone ntMemberships={ntOrgs} hasClubAccess={hasClubAccess} />
+        )}
+      </PageContent>
+    </Page>
   );
 }

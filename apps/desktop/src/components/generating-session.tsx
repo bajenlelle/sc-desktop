@@ -1,101 +1,95 @@
-import { useEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
+import { Check, Loader2 } from "lucide-react";
+import { dialogVariants, scrimVariants, springs } from "@/lib/motion";
+import { cn } from "@/lib/utils";
 
-const STEPS = [
-  "Game data loaded",
-  "Building event timeline…",
-  "Syncing video",
-  "Ready to scout",
-];
+/** Where the save is: running, or finished and about to hand over to the result. */
+export type SavePhase = "saving" | "done";
 
-interface GeneratingSessionProps {
-  isVisible: boolean;
-  onComplete: () => void;
+type StepState = "done" | "active" | "pending";
+
+function StepIcon({ state }: { state: StepState }) {
+  if (state === "done") {
+    return (
+      <motion.span
+        initial={{ scale: 0 }}
+        animate={{ scale: 1 }}
+        transition={springs.settle}
+        className="flex size-5 items-center justify-center rounded-full bg-emerald-500 text-white"
+      >
+        <Check className="size-3" strokeWidth={3} />
+      </motion.span>
+    );
+  }
+  if (state === "active") return <Loader2 className="size-4 animate-spin text-primary" />;
+  return <span className="size-1.5 rounded-full bg-fill-4" />;
 }
 
-export function GeneratingSession({ isVisible, onComplete }: GeneratingSessionProps) {
-  const [currentStep, setCurrentStep] = useState(-1);
-  const [done, setDone] = useState(false);
-  const onCompleteRef = useRef(onComplete);
-  useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
-
-  useEffect(() => {
-    if (!isVisible) {
-      setCurrentStep(-1);
-      setDone(false);
-      return;
-    }
-
-    setCurrentStep(0);
-
-    const interval = setInterval(() => {
-      setCurrentStep((prev) => {
-        const next = prev + 1;
-        if (next >= STEPS.length - 1) {
-          clearInterval(interval);
-          setTimeout(() => {
-            setDone(true);
-            onCompleteRef.current();
-          }, 500);
-          return next;
-        }
-        return next;
-      });
-    }, 700);
-
-    return () => clearInterval(interval);
-  }, [isVisible]);
-
-  if (!isVisible) return null;
+/**
+ * The import's progress while the game is saved: each step reflects real
+ * work (the play-by-play is already in hand, the save is the one wait),
+ * never a timer. It sits where the confirmation dialog will appear and
+ * hands over to it.
+ */
+export function GeneratingSession({
+  phase,
+  eventCount,
+  isUpdate,
+}: {
+  phase: SavePhase | null;
+  eventCount: number;
+  isUpdate: boolean;
+}) {
+  const steps: { label: string; state: StepState }[] = [
+    { label: `Game data: ${eventCount} event${eventCount === 1 ? "" : "s"}`, state: "done" },
+    { label: isUpdate ? "Updating your library" : "Saving to your library", state: phase === "saving" ? "active" : "done" },
+    { label: "Ready to scout", state: phase === "done" ? "done" : "pending" },
+  ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-      <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-8 shadow-2xl">
-        <p className="mb-1 text-center text-xs font-semibold uppercase tracking-widest text-primary">
-          Scoutable
-        </p>
-        <h2 className="mb-6 text-center text-xl font-bold text-foreground">
-          {done ? "Game ready" : "Importing game…"}
-        </h2>
-        <div className="space-y-3">
-          {STEPS.map((step, i) => {
-            const isCompleted = i < currentStep || (i === STEPS.length - 1 && done);
-            const isActive = i === currentStep && !done;
-            return (
-              <motion.div
-                key={step}
-                initial={{ opacity: 0, x: -8 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.08, duration: 0.2 }}
-                className="flex items-center gap-3"
-              >
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-                  {isCompleted ? (
-                    <svg className="h-4 w-4 text-emerald-400" viewBox="0 0 16 16" fill="none">
-                      <path d="M3 8l3.5 3.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  ) : isActive ? (
-                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                  ) : (
-                    <span className="h-2 w-2 rounded-full bg-muted" />
-                  )}
-                </span>
-                <span
-                  className={
-                    isCompleted
-                      ? "text-sm text-emerald-400"
-                      : isActive
-                      ? "text-sm font-medium text-foreground"
-                      : "text-sm text-muted-foreground"
-                  }
-                >
-                  {step}
-                </span>
-              </motion.div>
-            );
-          })}
+    <AnimatePresence>
+      {phase && (
+        <div key="generating" className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <motion.div
+            variants={scrimVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            className="absolute inset-0 bg-black/40"
+          />
+          <motion.div
+            variants={dialogVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            role="status"
+            aria-live="polite"
+            className="relative w-full max-w-xs rounded-window bg-material-sheet p-6 shadow-dialog"
+          >
+            <p className="text-title-3 text-foreground">
+              {phase === "done" ? (isUpdate ? "Game updated" : "Game imported") : isUpdate ? "Updating game…" : "Importing game…"}
+            </p>
+            <ul className="mt-4 space-y-3">
+              {steps.map((step) => (
+                <li key={step.label} className="flex items-center gap-3">
+                  <span className="flex size-5 shrink-0 items-center justify-center">
+                    <StepIcon state={step.state} />
+                  </span>
+                  <span
+                    className={cn(
+                      "text-sm",
+                      step.state === "pending" ? "text-muted-foreground" : "text-foreground",
+                      step.state === "active" && "font-medium",
+                    )}
+                  >
+                    {step.label}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </motion.div>
         </div>
-      </div>
-    </div>
+      )}
+    </AnimatePresence>
   );
 }

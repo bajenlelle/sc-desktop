@@ -44,7 +44,7 @@ export function PlanBadge({ tier, size = "md", href, quota, onUpgrade, showArrow
   const warn = showQuota && !atCap && quota.used / quota.limit! >= (lifetime ? 0.65 : 0.8);
 
   const base = size === "xs"
-    ? "inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[10px] font-medium leading-tight"
+    ? "inline-flex items-center gap-1 rounded-full px-1.5 py-px text-caption leading-tight"
     : "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium";
   const dotSize = size === "xs" ? "h-1.5 w-1.5" : "h-2 w-2";
   const arrowSize = size === "xs" ? "h-2.5 w-2.5" : "h-3 w-3";
@@ -52,9 +52,9 @@ export function PlanBadge({ tier, size = "md", href, quota, onUpgrade, showArrow
   // Approaching or at the cap the whole chip goes amber — the tier colour
   // stops being the useful signal once imports are the constraint.
   const chipColors = atCap || warn
-    ? "bg-amber-500/15 text-amber-600 dark:text-amber-500"
+    ? "bg-warning/15 text-warning"
     : colors.badge;
-  const dotColor = atCap || warn ? "bg-amber-500" : colors.dot;
+  const dotColor = atCap || warn ? "bg-warning" : colors.dot;
 
   const quotaText = !showQuota
     ? null

@@ -45,31 +45,31 @@ export function LeadersPopover({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="flex h-9 items-center gap-1.5 rounded-md border border-input bg-transparent px-3 text-sm hover:bg-accent hover:text-accent-foreground"
+          className="flex h-9 items-center gap-1.5 rounded-md bg-card px-3 text-sm text-foreground shadow-xs ring-1 ring-separator outline-none transition-[background-color,transform] duration-150 hover:bg-fill-1 active:scale-[0.98] active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection data-[state=open]:bg-fill-2"
         >
-          <Trophy className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+          <Trophy className="size-3.5 text-muted-foreground" aria-hidden />
           Leaders
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 p-0">
-        <div className="border-b border-border px-3 py-2">
-          <p className="text-sm font-medium text-foreground">Game leaders</p>
-          <p className="text-xs text-muted-foreground">
+        <div className="border-b border-separator px-3 py-2">
+          <p className="text-headline text-foreground">Game leaders</p>
+          <p className="text-callout text-muted-foreground">
             Pick this game&apos;s top performers to filter by.
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-1 border-b border-border px-3 py-2">
+        <div className="flex flex-wrap gap-1 border-b border-separator px-3 py-2">
           {LEADER_METRICS.map((m) => (
             <button
               key={m.id}
               type="button"
               onClick={() => setMetric(m.id)}
               className={cn(
-                "rounded-full px-2.5 py-1 text-xs transition-colors",
+                "rounded-full px-2.5 py-1 text-xs font-medium transition-[background-color,color,transform] duration-100 active:scale-95",
                 m.id === metric
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                  ? "bg-selection text-selection-foreground"
+                  : "bg-fill-1 text-muted-foreground hover:bg-fill-2 hover:text-foreground",
               )}
             >
               {m.label}
@@ -90,14 +90,14 @@ export function LeadersPopover({
                   key={row.name}
                   type="button"
                   onClick={() => handleRowClick(row.name)}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-accent/40"
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2"
                 >
                   {picked ? (
                     <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm bg-primary text-primary-foreground">
                       <Check className="h-3 w-3" />
                     </span>
                   ) : (
-                    <span className="h-4 w-4 shrink-0 rounded-sm border border-border" />
+                    <span className="h-4 w-4 shrink-0 rounded-sm ring-1 ring-separator-strong" />
                   )}
                   <span className="w-5 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
                     {i + 1}.

@@ -1,10 +1,14 @@
 import { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Plus, Search } from "lucide-react";
+import { Film, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { SearchField } from "@/components/ui/search-field";
+import { GroupedList } from "@/components/ui/group";
+import { EmptyState } from "@/components/empty-state";
 import { MatchRow } from "@/components/match-row";
 import { RelinkVideosDialog } from "@/components/relink-videos-dialog";
+import { Page, PageContent } from "@/components/shell/page";
+import { Toolbar } from "@/components/shell/toolbar";
 import { listMatches } from "@/lib/matches-db";
 import { probeMatches, type VideoFileStatus } from "@/lib/video-probe";
 import { useAuth } from "@/lib/auth-context";
@@ -73,85 +77,75 @@ export function MatchesPage() {
 
   if (!profileLoading && !canAccess) return null;
 
+  const importButton = (
+    <Button size="sm" asChild>
+      <Link to="/upload">
+        <Plus />
+        Import game
+      </Link>
+    </Button>
+  );
+
   return (
-    <div className="p-6">
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Library
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Browse imported games and their clips
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {missingMatches.length > 0 && (
-            <RelinkVideosDialog
-              missing={missingMatches}
-              onRelinked={() => {
-                // Re-load + re-probe: updateVideoUrl dispatched matches-changed,
-                // but this page's loader only listens for demo-seeded.
-                listMatches(activeOrgId ?? undefined, { ownOnly: true })
-                  .then(setMatches)
-                  .catch(() => {});
-              }}
+    <Page>
+      <Toolbar
+        title="Library"
+        subtitle={!loading && matches.length > 0 ? `${matches.length} games` : undefined}
+        search={
+          !loading && matches.length > 0 ? (
+            <SearchField
+              placeholder="Search games"
+              aria-label="Search games"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
             />
-          )}
-          <Link to="/upload">
-            <Button className="gap-2">
-              <Plus className="h-4 w-4" />
-              Import game
-            </Button>
-          </Link>
-        </div>
-      </div>
-
-      {!loading && matches.length > 0 && (
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-          <Input
-            placeholder="Search games…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="h-9 w-full pl-8"
-          />
-        </div>
-      )}
-
-      {loading ? (
-        <div className="overflow-hidden rounded-xl border border-border bg-card">
-          <div className="divide-y divide-border">
+          ) : undefined
+        }
+        actions={
+          <>
+            {missingMatches.length > 0 && (
+              <RelinkVideosDialog
+                missing={missingMatches}
+                onRelinked={() => {
+                  // Re-load + re-probe: updateVideoUrl dispatched matches-changed,
+                  // but this page's loader only listens for demo-seeded.
+                  listMatches(activeOrgId ?? undefined, { ownOnly: true })
+                    .then(setMatches)
+                    .catch(() => {});
+                }}
+              />
+            )}
+            {importButton}
+          </>
+        }
+      />
+      <PageContent width="wide">
+        {loading ? (
+          <GroupedList>
             {[0, 1, 2, 3, 4].map((i) => (
-              <div key={i} className="flex items-center gap-4 px-4 py-3">
-                <div className="h-8 w-1 animate-pulse rounded-full bg-muted" />
-                <div className="h-4 w-1/4 animate-pulse rounded bg-muted" />
-                <div className="flex-1" />
-                <div className="hidden h-3 w-24 animate-pulse rounded bg-muted/70 sm:block" />
-                <div className="hidden h-3 w-20 animate-pulse rounded bg-muted/70 md:block" />
-                <div className="h-3 w-12 animate-pulse rounded bg-muted/70" />
+              <div key={i} className="flex min-h-11 items-center gap-3 px-4 py-2">
+                <div className="h-7 w-[3px] animate-pulse rounded-full bg-fill-3" />
+                <div className="flex-1 space-y-1.5">
+                  <div className="h-3 w-1/3 animate-pulse rounded bg-fill-3" />
+                  <div className="h-2.5 w-1/2 animate-pulse rounded bg-fill-2" />
+                </div>
               </div>
             ))}
-          </div>
-        </div>
-      ) : matches.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-16 text-center">
-          <p className="text-sm font-medium text-foreground">No games yet</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Import a game to get started.
-          </p>
-          <Link to="/upload" className="mt-4">
-            <Button>Import game</Button>
-          </Link>
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-16 text-center">
-          <p className="text-sm font-medium text-foreground">No games match your search</p>
-          <p className="mt-1 text-sm text-muted-foreground">Try a different title or team name.</p>
-        </div>
-      ) : (
-        <div className="overflow-hidden rounded-xl border border-border bg-card">
-          <div className="divide-y divide-border">
+          </GroupedList>
+        ) : matches.length === 0 ? (
+          <EmptyState
+            icon={<Film />}
+            title="No games yet"
+            body="Import a game and every play becomes a clip, synced to the official play-by-play."
+            action={importButton}
+          />
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            title="No games match your search"
+            body="Try a different title or team name."
+          />
+        ) : (
+          <GroupedList>
             {filtered.map((match) => (
               <MatchRow
                 key={match.id}
@@ -160,10 +154,9 @@ export function MatchesPage() {
                 onDelete={() => setMatches((ms) => ms.filter((m) => m.id !== match.id))}
               />
             ))}
-          </div>
-        </div>
-      )}
-    </div>
-    </div>
+          </GroupedList>
+        )}
+      </PageContent>
+    </Page>
   );
 }

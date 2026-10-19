@@ -1,13 +1,20 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { Play, Pause, Check } from "lucide-react";
-import { VideoPlayer } from "@/components/video-player";
-import { Button } from "@/components/ui/button";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Check, Pause, Play, StepBack, StepForward } from "lucide-react";
 import { mediaFailureMessage, type MediaFailure } from "@scoutable/shared/lib/media-failure";
+import { clamp } from "@scoutable/shared/lib/motion-math";
+import { VideoPlayer } from "@/components/video-player";
+import { ClipScrubber } from "@/components/editor/clip-scrubber";
+import { ControlButton } from "@/components/editor/transport-bar";
+import { Button } from "@/components/ui/button";
+import { Kbd } from "@/components/ui/kbd";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
+import { probeVideo } from "@/lib/video-frames";
+import { useHotkeys, useKeyScope } from "@/lib/key-scope";
+import { fadeVariants, springs } from "@/lib/motion";
 import { trackEvent } from "@/lib/analytics";
-import { cn } from "@/lib/utils";
 
 /** An external request to move the playhead (and optionally confirm); a new nonce re-applies the same second. */
 export interface SeekRequest {
@@ -27,6 +34,8 @@ export interface SyncPointPickerProps {
   suggestionSlot?: React.ReactNode;
   /** The user moved the playhead or set the tip-off themselves (not through `seekRequest`). */
   onUserAction?: (kind: "seek" | "confirm") => void;
+  /** A suggestion is on offer above: its "Use" is the primary action, so this one steps back. */
+  hasPendingSuggestion?: boolean;
 }
 
 /** m:ss.d; negative values (a recording that starts after the tip-off) keep their sign. */
@@ -39,25 +48,46 @@ export function formatMSSd(secs: number): string {
   return `${sign}${m}:${String(s).padStart(2, "0")}.${d}`;
 }
 
+/** A recording's whole length: h:mm:ss past the hour, m:ss under it. */
+function formatLength(secs: number): string {
+  const t = Math.floor(secs);
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = t % 60;
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/** Used until the file's own rate is known (and for remote footage, which isn't probed). */
+const FALLBACK_FRAME = 1 / 25;
+
+/**
+ * Finding the tip-off is precise work, so the footage and its controls are
+ * one object and the controls never hide: a scrubber over the whole
+ * recording, steps of ten seconds, a second and a single frame, and a large
+ * readout. The keys belong to this picker while it is on screen (Space,
+ * ←/→ a second, Shift ten, `,`/`.` a frame, J/K/L). The confirmed tip-off
+ * stays visible after the playhead moves on, so what will be saved is never
+ * a guess.
+ */
 export function SyncPointPicker({
   videoPath,
-  tipoffHint,
   initialSeconds,
   onConfirm,
   onSkip,
   seekRequest,
   suggestionSlot,
   onUserAction,
+  hasPendingSuggestion = false,
 }: SyncPointPickerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const isDraggingRef = useRef(false);
-  const wasPlayingRef = useRef(false);
+  const readoutRef = useRef<HTMLSpanElement>(null);
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
 
   const [currentTime, setCurrentTime] = useState(initialSeconds ?? 0);
   const [duration, setDuration] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [confirmedTime, setConfirmedTime] = useState<number | null>(initialSeconds ?? null);
+  const [frameSeconds, setFrameSeconds] = useState(FALLBACK_FRAME);
   // Reported by VideoPlayer, which also shows the user why. Confirming on a
   // dead element would silently persist 0:00 over a possibly-correct sync
   // point — block it.
@@ -68,13 +98,33 @@ export function SyncPointPicker({
   // The sample game's video is a remote R2 URL, not a local file.
   const src = isLocalPath(videoPath) ? streamFileSrc(videoPath) : videoPath;
 
-  // Read from stable callbacks (seekBy, togglePlay, the window key handler).
+  // Read from stable callbacks (seekBy, togglePlay, the key handler).
   const onUserActionRef = useRef(onUserAction);
   useEffect(() => {
     onUserActionRef.current = onUserAction;
   }, [onUserAction]);
 
-  // Wire up video events
+  useEffect(() => {
+    setVideoEl(videoRef.current);
+  }, []);
+
+  // A frame step is one frame of this file, not a guess.
+  useEffect(() => {
+    if (!isLocalPath(videoPath)) return;
+    let cancelled = false;
+    probeVideo(videoPath)
+      .then((p) => {
+        if (!cancelled && p.fps > 1 && p.fps < 241) setFrameSeconds(1 / p.fps);
+      })
+      .catch(() => {
+        /* the fallback stands */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [videoPath]);
+
+  // Media events
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -87,29 +137,17 @@ export function SyncPointPicker({
         setCurrentTime(initialSeconds);
       }
     }
-
     function onTimeUpdate() {
-      if (!video || isDraggingRef.current) return;
-      setCurrentTime(video.currentTime);
+      if (video && !video.seeking) setCurrentTime(video.currentTime);
     }
-
-    function onPlay() { setPlaying(true); }
-    function onPause() { setPlaying(false); }
+    const onPlay = () => setPlaying(true);
+    const onPause = () => setPlaying(false);
 
     video.addEventListener("loadedmetadata", onLoadedMetadata);
     video.addEventListener("timeupdate", onTimeUpdate);
     video.addEventListener("play", onPlay);
     video.addEventListener("pause", onPause);
-
-    // Already loaded
-    if (video.readyState >= 1) {
-      setDuration(video.duration);
-      if (initialSeconds != null && initialSeconds > 0) {
-        video.currentTime = initialSeconds;
-        setCurrentTime(initialSeconds);
-      }
-    }
-
+    if (video.readyState >= 1) onLoadedMetadata();
     return () => {
       video.removeEventListener("loadedmetadata", onLoadedMetadata);
       video.removeEventListener("timeupdate", onTimeUpdate);
@@ -117,6 +155,26 @@ export function SyncPointPicker({
       video.removeEventListener("pause", onPause);
     };
   }, [initialSeconds]);
+
+  // The readout follows playback at the display rate; at rest it shows the
+  // state's time, which can be negative (a recording that starts after the
+  // tip-off) while the element itself sits at 0.
+  useEffect(() => {
+    const el = readoutRef.current;
+    const video = videoRef.current;
+    if (!el) return;
+    if (!playing || !video) {
+      el.textContent = formatMSSd(currentTime);
+      return;
+    }
+    let raf = 0;
+    const tick = () => {
+      el.textContent = formatMSSd(video.currentTime);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [playing, currentTime]);
 
   // External seeks (a shared hint or the detector's suggestion). The element
   // can't go below 0, but a negative confirmed time is a valid sync point for
@@ -133,8 +191,6 @@ export function SyncPointPicker({
       if (seekRequest.confirm) {
         setConfirmedTime(seekRequest.seconds);
         onConfirm(seekRequest.seconds);
-      } else {
-        setConfirmedTime(null);
       }
     };
     if (!video || video.readyState >= 1) {
@@ -145,203 +201,197 @@ export function SyncPointPicker({
     return () => video.removeEventListener("loadedmetadata", apply);
   }, [seekRequest, onConfirm]);
 
-  // play() rejects when the element has no playable source. The `error`
-  // event above already carries that signal; the rejection is a stackless
-  // duplicate, so it's swallowed here and in handleScrubberRelease.
+  // play() rejects when the element has no playable source. VideoPlayer's
+  // error listener already carries that signal; the rejection is a
+  // stackless duplicate, so it's swallowed.
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
     onUserActionRef.current?.("seek");
-    if (video.paused) { video.play().catch(() => {}); } else { video.pause(); }
+    if (video.paused) video.play().catch(() => {});
+    else video.pause();
   }, []);
 
-  const seekBy = useCallback((delta: number) => {
+  const seekTo = useCallback((t: number) => {
     const video = videoRef.current;
     if (!video) return;
-    const next = Math.max(0, Math.min(video.duration || 0, video.currentTime + delta));
+    const next = clamp(t, 0, video.duration || 0);
     video.currentTime = next;
     setCurrentTime(next);
-    setConfirmedTime(null);
     onUserActionRef.current?.("seek");
   }, []);
 
-  // Keyboard shortcuts (window-level so they work without focus tricks)
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      // Don't steal keys from other inputs
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      switch (e.key) {
-        case " ":
-          e.preventDefault();
-          togglePlay();
-          break;
-        case "ArrowLeft":
-          e.preventDefault();
-          seekBy(e.shiftKey ? -10 : -1);
-          break;
-        case "ArrowRight":
-          e.preventDefault();
-          seekBy(e.shiftKey ? 10 : 1);
-          break;
-        case "j":
-          seekBy(-1);
-          break;
-        case "k":
-          videoRef.current?.pause();
-          break;
-        case "l":
-          seekBy(1);
-          break;
-      }
+  const seekBy = useCallback(
+    (delta: number) => {
+      const video = videoRef.current;
+      if (!video) return;
+      if (!video.paused && Math.abs(delta) < 1) video.pause(); // frame steps imply a still picture
+      seekTo(video.currentTime + delta);
+    },
+    [seekTo],
+  );
+
+  function confirmHere() {
+    const t = currentTime;
+    setConfirmedTime(t);
+    onConfirm(t);
+    onUserActionRef.current?.("confirm");
+  }
+
+  useKeyScope("tipoff", true);
+  useHotkeys("tipoff", (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    switch (e.key) {
+      case " ":
+        e.preventDefault();
+        togglePlay();
+        return;
+      case "ArrowLeft":
+        e.preventDefault();
+        seekBy(e.shiftKey ? -10 : -1);
+        return;
+      case "ArrowRight":
+        e.preventDefault();
+        seekBy(e.shiftKey ? 10 : 1);
+        return;
+      case ",":
+        e.preventDefault();
+        seekBy(-frameSeconds);
+        return;
+      case ".":
+        e.preventDefault();
+        seekBy(frameSeconds);
+        return;
+      case "j":
+        seekBy(-1);
+        return;
+      case "k":
+        videoRef.current?.pause();
+        return;
+      case "l":
+        seekBy(1);
+        return;
     }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [togglePlay, seekBy]);
+  });
 
-  function handleScrubberChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const value = parseFloat(e.target.value);
-    const video = videoRef.current;
-    if (video) video.currentTime = value;
-    setCurrentTime(value);
-    onUserActionRef.current?.("seek");
-  }
-
-  function handleScrubberMouseDown() {
-    const video = videoRef.current;
-    if (!video) return;
-    wasPlayingRef.current = !video.paused;
-    isDraggingRef.current = true;
-    video.pause();
-    setConfirmedTime(null);
-  }
-
-  function handleScrubberRelease() {
-    isDraggingRef.current = false;
-    if (wasPlayingRef.current) {
-      videoRef.current?.play().catch(() => {});
-    }
-  }
+  const atConfirmed = confirmedTime !== null && Math.abs(currentTime - confirmedTime) < 0.05;
+  const stepClass = "h-8 w-auto px-2 text-xs font-medium nums";
 
   return (
-    <div ref={containerRef} className="space-y-3 outline-none" tabIndex={-1}>
-      {/* Prompt */}
-      <div className="space-y-0.5">
-        <p className="text-sm font-medium text-foreground">Set the tip-off point</p>
-        <p className="text-xs text-muted-foreground">
-          Scrub to the exact frame when the ball is tipped, then click{" "}
-          <span className="text-foreground font-medium">Set tip-off here</span>.
+    <div>
+      <div className="mb-3">
+        <p className="text-headline text-foreground">Set the tip-off</p>
+        <p className="mt-0.5 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-callout text-muted-foreground">
+          Find the frame where the ball goes up, then set it.
+          <span className="inline-flex items-center gap-0.5">
+            <Kbd>←</Kbd>
+            <Kbd>→</Kbd>
+          </span>
+          a second,
+          <span className="inline-flex items-center gap-0.5">
+            <Kbd>,</Kbd>
+            <Kbd>.</Kbd>
+          </span>
+          a frame.
         </p>
       </div>
 
       {suggestionSlot}
 
-      {/* Video */}
-      <VideoPlayer src={src} videoRef={videoRef} onLoadFailure={setLoadFailure} />
-
-      {/* Scrubber */}
-      <div className="flex items-center gap-2">
-        <span className="w-16 shrink-0 font-mono text-xs text-muted-foreground">
-          {formatMSSd(currentTime)}
-        </span>
-        <input
-          type="range"
-          min={0}
-          max={duration || 100}
-          step={0.1}
-          value={currentTime}
-          onChange={handleScrubberChange}
-          onMouseDown={handleScrubberMouseDown}
-          onMouseUp={handleScrubberRelease}
-          onTouchEnd={handleScrubberRelease}
-          className="scrubber h-1 flex-1 cursor-pointer"
-        />
-        <span className="w-16 shrink-0 text-right font-mono text-xs text-muted-foreground">
-          {formatMSSd(duration)}
-        </span>
-      </div>
-
-      {/* Transport controls */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 px-2 font-mono text-xs text-muted-foreground"
-            onClick={() => seekBy(-10)}
-            title="Back 10s (Shift+←)"
-          >
-            ← 10s
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 px-2 font-mono text-xs text-muted-foreground"
-            onClick={() => seekBy(-1)}
-            title="Back 1s (←)"
-          >
-            ← 1s
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9"
-            onClick={togglePlay}
-            title="Play / Pause (Space)"
-          >
-            {playing ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 px-2 font-mono text-xs text-muted-foreground"
-            onClick={() => seekBy(1)}
-            title="Forward 1s (→)"
-          >
-            1s →
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 px-2 font-mono text-xs text-muted-foreground"
-            onClick={() => seekBy(10)}
-            title="Forward 10s (Shift+→)"
-          >
-            10s →
-          </Button>
+      <div className="dark overflow-hidden rounded-lg bg-black text-white ring-1 ring-separator">
+        {/* A click on the footage plays and pauses, like any player. */}
+        <div onClick={togglePlay} className="[&>div]:rounded-none">
+          <VideoPlayer src={src} videoRef={videoRef} onLoadFailure={setLoadFailure} />
         </div>
-        <span className="text-2xl font-mono tabular-nums text-foreground">
-          {formatMSSd(currentTime)}
-        </span>
+        <div className="flex flex-col gap-1 px-3 pt-1.5 pb-2">
+          {videoEl && duration > 0 ? (
+            <ClipScrubber
+              video={videoEl}
+              start={0}
+              end={duration}
+              onSeek={seekTo}
+              frameSeconds={frameSeconds}
+              showTimes={false}
+              ariaLabel="Recording position"
+            />
+          ) : (
+            <div className="h-6" />
+          )}
+          <div className="flex items-center gap-0.5">
+            <ControlButton label="Back 10 seconds" shortcut="⇧←" onClick={() => seekBy(-10)} className={stepClass}>
+              −10s
+            </ControlButton>
+            <ControlButton label="Back 1 second" shortcut="←" onClick={() => seekBy(-1)} className={stepClass}>
+              −1s
+            </ControlButton>
+            <ControlButton label="Previous frame" shortcut="," onClick={() => seekBy(-frameSeconds)}>
+              <StepBack />
+            </ControlButton>
+            <ControlButton label={playing ? "Pause" : "Play"} shortcut="Space" onClick={togglePlay} size="lg">
+              {playing ? <Pause className="fill-current" /> : <Play className="translate-x-px fill-current" />}
+            </ControlButton>
+            <ControlButton label="Next frame" shortcut="." onClick={() => seekBy(frameSeconds)}>
+              <StepForward />
+            </ControlButton>
+            <ControlButton label="Forward 1 second" shortcut="→" onClick={() => seekBy(1)} className={stepClass}>
+              +1s
+            </ControlButton>
+            <ControlButton label="Forward 10 seconds" shortcut="⇧→" onClick={() => seekBy(10)} className={stepClass}>
+              +10s
+            </ControlButton>
+            <span className="ml-auto flex items-baseline gap-1.5 pl-3">
+              <span ref={readoutRef} className="text-xl font-medium tracking-tight text-white nums" />
+              {duration > 0 && <span className="text-xs text-white/50 nums">of {formatLength(duration)}</span>}
+            </span>
+          </div>
+        </div>
       </div>
 
-      {/* Actions */}
-      <div className="flex gap-2 pt-1">
-        <Button
-          className={cn(
-            "flex-1",
-            confirmedTime !== null && "border-emerald-600 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
-          )}
-          variant={confirmedTime !== null ? "outline" : "default"}
-          disabled={videoFailed}
-          title={failureMessage}
-          onClick={() => {
-            setConfirmedTime(currentTime);
-            onConfirm(currentTime);
-            onUserActionRef.current?.("confirm");
-          }}
-        >
-          {confirmedTime !== null ? (
-            <>
-              <Check className="mr-1.5 h-4 w-4" />
-              Tip-off set — {formatMSSd(confirmedTime)}
-            </>
+      {/* One row, one height: the states swap in place. */}
+      <div className="mt-3 flex h-9 items-center gap-3">
+        <AnimatePresence mode="popLayout" initial={false}>
+          {atConfirmed ? (
+            <motion.span
+              key="set"
+              variants={fadeVariants}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+              role="status"
+              className="flex h-9 items-center gap-2 rounded-md bg-emerald-500/12 px-3 text-sm font-medium text-emerald-700 dark:text-emerald-300"
+            >
+              <motion.span
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={springs.settle}
+                className="flex size-4 items-center justify-center rounded-full bg-emerald-500 text-white"
+              >
+                <Check className="size-3" strokeWidth={3} />
+              </motion.span>
+              Tip-off set at <span className="nums">{formatMSSd(confirmedTime!)}</span>
+            </motion.span>
           ) : (
-            "Set tip-off here"
+            <motion.span key="unset" variants={fadeVariants} initial="hidden" animate="visible" exit="exit" className="flex items-center gap-3">
+              <Button
+                variant={hasPendingSuggestion ? "outline" : "default"}
+                disabled={videoFailed}
+                title={failureMessage}
+                onClick={confirmHere}
+              >
+                Set tip-off here
+              </Button>
+              {confirmedTime !== null && (
+                <span className="text-callout text-muted-foreground">
+                  Set at <span className="nums">{formatMSSd(confirmedTime)}</span>
+                </span>
+              )}
+            </motion.span>
           )}
-        </Button>
+        </AnimatePresence>
         {onSkip && (
           <Button
-            variant="outline"
+            variant="ghost"
+            className="ml-auto"
             onClick={() => {
               trackEvent("sync_point_skipped");
               onSkip();

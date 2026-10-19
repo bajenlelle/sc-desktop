@@ -2,19 +2,16 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/svg+xml" href="/logo-mark.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SuperCoachAI</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono:wght@100..900&display=swap" rel="stylesheet" />
+    <title>Scoutable</title>
     <script>
       // Anti-flash: apply the stored mode + color theme before first paint.
-      // Mirrors next-themes (localStorage "theme", app default "dark") and
-      // the theme slots in lib/prefs.ts — keep keys in sync with both.
+      // Mirrors next-themes (localStorage "theme", app default "system")
+      // and the theme slots in lib/prefs.ts — keep keys in sync with both.
       (function () {
         try {
-          var mode = localStorage.getItem("theme") || "dark";
+          var mode = localStorage.getItem("theme") || "system";
           if (mode === "system") {
             mode = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
           }

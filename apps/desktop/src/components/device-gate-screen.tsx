@@ -6,7 +6,10 @@
  * row is removable; freeing one slot and retrying unblocks in place.
  */
 import { useCallback, useEffect, useState } from "react";
-import { Globe, Laptop, Loader2, Lock, Smartphone } from "lucide-react";
+import { Globe, Loader2, Lock } from "lucide-react";
+import { StatusScreen } from "@/components/status-screen";
+import { GroupedList } from "@/components/ui/group";
+import { APP_ICON, lastActive } from "@/lib/devices-ui";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,15 +26,7 @@ import { trackEvent } from "@/lib/analytics";
 import { listMyDevices, removeDevice, type UserDevice } from "@scoutable/shared/lib/devices-db";
 import { appKindLabel, partitionDevicesByActivity } from "@scoutable/shared/lib/device-boot";
 
-const APP_ICON = { web: Globe, desktop: Laptop, mobile: Smartphone } as const;
 
-function lastActive(iso: string): string {
-  const d = new Date(iso);
-  const days = Math.floor((Date.now() - d.getTime()) / 86_400_000);
-  if (days <= 0) return "today";
-  if (days === 1) return "yesterday";
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
 
 export function DeviceGateScreen() {
   const { retryDeviceGate } = useAuth();
@@ -81,55 +76,55 @@ export function DeviceGateScreen() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-6 px-6 py-12">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-        <Lock className="h-5 w-5 text-muted-foreground" />
-      </div>
-      <div className="max-w-md space-y-2 text-center">
-        <h1 className="text-lg font-semibold text-foreground">Device limit reached</h1>
-        <p className="text-sm text-muted-foreground">
-          {active.length > 0
-            ? `Your account is using ${active.length} devices. Remove one you no longer use to continue on this device.`
-            : "Your account has reached its device limit. Remove a device you no longer use to continue on this one."}
-        </p>
-      </div>
-
-      {devices === null ? (
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-      ) : (
-        active.length > 0 && (
-          <ul className="w-full max-w-md space-y-3 rounded-xl border border-border bg-card p-4">
-            {active.map((d) => {
-              const Icon = APP_ICON[d.app] ?? Globe;
-              return (
-                <li key={d.deviceId} className="flex items-center gap-3">
-                  <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm text-foreground">
-                      {d.deviceName ?? d.platform ?? "Unknown device"}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {appKindLabel(d.app)} · Last active {lastActive(d.lastSeen)}
-                    </p>
+    <>
+      <StatusScreen
+        icon={<Lock />}
+        title="Device limit reached"
+        body={
+          active.length > 0
+            ? `Your account is signed in on ${active.length} devices. Remove one you no longer use to continue on this one.`
+            : "Your account has reached its device limit. Remove a device you no longer use to continue on this one."
+        }
+        actions={
+          <>
+            <Button variant="outline" onClick={handleRetry} disabled={retrying}>
+              {retrying && <Loader2 className="animate-spin" />}
+              Try again
+            </Button>
+            <Button variant="ghost" onClick={handleSignOut}>
+              Sign out
+            </Button>
+          </>
+        }
+      >
+        {devices === null ? (
+          <div className="flex justify-center py-4">
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          active.length > 0 && (
+            <GroupedList>
+              {active.map((d) => {
+                const Icon = APP_ICON[d.app] ?? Globe;
+                return (
+                  <div key={d.deviceId} className="flex min-h-12 items-center gap-3 px-4 py-2">
+                    <Icon className="size-4 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm">{d.deviceName ?? d.platform ?? "Unknown device"}</p>
+                      <p className="text-callout text-muted-foreground">
+                        {appKindLabel(d.app)} · Last active {lastActive(d.lastSeen)}
+                      </p>
+                    </div>
+                    <Button variant="outline" size="xs" onClick={() => setConfirming(d)}>
+                      Remove…
+                    </Button>
                   </div>
-                  <Button variant="outline" size="sm" onClick={() => setConfirming(d)}>
-                    Remove
-                  </Button>
-                </li>
-              );
-            })}
-          </ul>
-        )
-      )}
-
-      <div className="flex items-center gap-2">
-        <Button variant="outline" size="sm" onClick={handleRetry} disabled={retrying}>
-          {retrying ? "Checking…" : "Try again"}
-        </Button>
-        <Button variant="ghost" size="sm" onClick={handleSignOut}>
-          Sign out
-        </Button>
-      </div>
+                );
+              })}
+            </GroupedList>
+          )
+        )}
+      </StatusScreen>
 
       <Dialog open={confirming !== null} onOpenChange={(open) => !open && setConfirming(null)}>
         <DialogContent>
@@ -149,11 +144,12 @@ export function DeviceGateScreen() {
               onClick={() => confirming && handleRemove(confirming)}
               disabled={removing}
             >
-              {removing ? "Removing…" : "Remove device"}
+              {removing && <Loader2 className="animate-spin" />}
+              Remove device
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }

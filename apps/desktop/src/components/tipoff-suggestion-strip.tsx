@@ -1,10 +1,15 @@
 import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AutoHeight } from "@/components/ui/auto-height";
+import { ProgressBar } from "@/components/ui/progress-bar";
 import { formatMSSd } from "@/components/sync-point-picker";
+import { fadeVariants } from "@/lib/motion";
+import { cn } from "@/lib/utils";
 import type { TipoffSuggestionState } from "@/lib/use-tipoff-suggestion";
 
-const STAGE_LABEL: Record<string, string> = { locate: "step 1 of 3", coarse: "step 2 of 3", narrow: "step 2 of 3", fine: "step 3 of 3" };
+const STAGE_STEP: Record<string, number> = { locate: 1, coarse: 2, narrow: 2, fine: 3 };
 const SLOW_AFTER_MS = 45_000;
 
 interface Props {
@@ -14,7 +19,16 @@ interface Props {
   onCancel: () => void;
 }
 
-/** One line under the sync prompt: what the app found out about this recording's tip-off, and what to do with it. */
+/** True while the strip offers a tip-off the user can take in one press. */
+export function isSuggestionPending(state: TipoffSuggestionState): boolean {
+  return state.kind === "hint_found" || state.kind === "suggested" || state.kind === "starts_after_tipoff";
+}
+
+/**
+ * What the app found out about this recording's tip-off, in one strip above
+ * the picker. It grows in and out with a spring and its states cross-fade in
+ * place, so the footage below moves smoothly instead of jumping.
+ */
 export function TipoffSuggestionStrip({ state, onAccept, onReject, onCancel }: Props) {
   const [slow, setSlow] = useState(false);
   useEffect(() => {
@@ -27,112 +41,150 @@ export function TipoffSuggestionStrip({ state, onAccept, onReject, onCancel }: P
     return () => window.clearTimeout(id);
   }, [state]);
 
-  if (state.kind === "unavailable") {
-    return import.meta.env.DEV ? <p className="text-xs text-muted-foreground">Tip-off suggestion unavailable: {state.reason}</p> : null;
+  const content = render();
+
+  return (
+    <AutoHeight>
+      <AnimatePresence mode="popLayout" initial={false}>
+        {content && (
+          <motion.div key={content.key} variants={fadeVariants} initial="hidden" animate="visible" exit="exit" className="pb-3">
+            {content.node}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </AutoHeight>
+  );
+
+  function shell(children: React.ReactNode, tone: "quiet" | "offer" = "quiet") {
+    return (
+      <div
+        className={cn(
+          "flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg px-3 py-2.5 text-sm",
+          tone === "offer" ? "bg-primary/8 ring-1 ring-primary/25" : "bg-fill-1",
+        )}
+      >
+        {children}
+      </div>
+    );
   }
-  // Nothing to say once the user has decided: the picker shows the confirmed time after an accept.
-  if (state.kind === "idle" || state.kind === "rejected" || state.kind === "accepted" || state.kind === "cancelled" || state.kind === "manual") return null;
 
-  // While the app is still working, the picker below is already usable.
-  const meanwhile = (
-    <p className="text-xs text-muted-foreground">
-      You don't have to wait: scrub to the tip-off below and click{" "}
-      <span className="font-medium text-foreground">Set tip-off here</span>.
-    </p>
-  );
-
-  const shell = (children: React.ReactNode) => (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
-      {children}
-    </div>
-  );
-
-  switch (state.kind) {
-    case "fingerprinting":
-    case "looking_up":
-      return shell(
-        <>
-          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
-          <div className="min-w-0 flex-1 space-y-0.5">
-            <p className="text-muted-foreground">Checking whether this recording has been imported before…</p>
-            {meanwhile}
-          </div>
-        </>,
-      );
-    case "detecting":
-      return shell(
-        <>
-          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
-          <div className="min-w-0 flex-1 space-y-0.5">
-            <p className="text-muted-foreground">
-              Looking for the tip-off… ({STAGE_LABEL[state.stage] ?? state.stage}){slow ? " This can take a minute for large files." : ""}
-            </p>
-            {meanwhile}
-          </div>
-          <Button type="button" variant="ghost" size="sm" className="ml-auto h-7" onClick={onCancel}>
-            Cancel
+  function offer(text: string, seconds: number | null) {
+    return shell(
+      <>
+        <Sparkles className="size-4 shrink-0 text-primary" />
+        <span className="min-w-0 flex-1">{text}</span>
+        <span className="flex shrink-0 gap-2">
+          {seconds !== null && (
+            <Button type="button" size="sm" onClick={onAccept}>
+              Use <span className="nums">{formatMSSd(seconds)}</span>
+            </Button>
+          )}
+          <Button type="button" variant="ghost" size="sm" onClick={onReject}>
+            Set manually
           </Button>
-        </>,
-      );
-    case "hint_found":
-      return shell(
-        <>
-          <Sparkles className="h-4 w-4 shrink-0 text-primary" />
-          <span>
-            Tip-off found from an earlier import of this recording{state.agreement > 1 ? ` (${state.agreement} users agree)` : ""}.
-          </span>
-          <span className="ml-auto flex gap-2">
-            <Button type="button" size="sm" className="h-7" onClick={onAccept}>
-              Use {formatMSSd(state.seconds)}
-            </Button>
-            <Button type="button" variant="ghost" size="sm" className="h-7" onClick={onReject}>
-              Set manually
-            </Button>
-          </span>
-        </>,
-      );
-    case "suggested":
-      return shell(
-        <>
-          <Sparkles className="h-4 w-4 shrink-0 text-primary" />
-          <span>
-            {state.previewed
-              ? `Is this the tip-off? The game clock starts at ${formatMSSd(state.seconds)}.`
-              : `Tip-off found: the game clock starts at ${formatMSSd(state.seconds)}.`}
-          </span>
-          <span className="ml-auto flex gap-2">
-            <Button type="button" size="sm" className="h-7" onClick={onAccept}>
-              Use {formatMSSd(state.seconds)}
-            </Button>
-            <Button type="button" variant="ghost" size="sm" className="h-7" onClick={onReject}>
-              Set manually
-            </Button>
-          </span>
-        </>,
-      );
-    case "starts_after_tipoff":
-      return shell(
-        <>
-          <Sparkles className="h-4 w-4 shrink-0 text-primary" />
-          <span>
-            The recording starts after the tip-off{state.firstClock ? `: the game clock already reads ${state.firstClock} in the first frame` : ""}.
-          </span>
-          <span className="ml-auto flex gap-2">
-            {state.estimateS != null && (
-              <Button type="button" size="sm" className="h-7" onClick={onAccept}>
-                Use {formatMSSd(state.estimateS)}
+        </span>
+      </>,
+      "offer",
+    );
+  }
+
+  function render(): { key: string; node: React.ReactNode } | null {
+    // While the app is still working, the picker below is already usable.
+    const meanwhile = (
+      <p className="text-callout text-muted-foreground">
+        You don&apos;t have to wait: scrub to the tip-off below and set it yourself.
+      </p>
+    );
+
+    switch (state.kind) {
+      case "unavailable":
+        return import.meta.env.DEV
+          ? { key: "unavailable", node: <p className="text-xs text-muted-foreground">Tip-off suggestion unavailable: {state.reason}</p> }
+          : null;
+      case "fingerprinting":
+      case "looking_up":
+        return {
+          key: "checking",
+          node: shell(
+            <>
+              <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <p>Checking whether this recording has been imported before…</p>
+                {meanwhile}
+              </div>
+            </>,
+          ),
+        };
+      case "detecting": {
+        const step = STAGE_STEP[state.stage] ?? 1;
+        return {
+          key: "detecting",
+          node: shell(
+            <>
+              <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex items-center gap-2">
+                  <p>Looking for the tip-off</p>
+                  <ProgressBar percent={(step / 3) * 100 - 10} className="w-16" />
+                  <span className="text-callout text-muted-foreground nums">step {step} of 3</span>
+                </div>
+                {meanwhile}
+                <AnimatePresence initial={false}>
+                  {slow && (
+                    <motion.p
+                      variants={fadeVariants}
+                      initial="hidden"
+                      animate="visible"
+                      exit="exit"
+                      className="text-callout text-muted-foreground"
+                    >
+                      This can take a minute for large files.
+                    </motion.p>
+                  )}
+                </AnimatePresence>
+              </div>
+              <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={onCancel}>
+                Cancel
               </Button>
-            )}
-            <Button type="button" variant="ghost" size="sm" className="h-7" onClick={onReject}>
-              Set manually
-            </Button>
-          </span>
-        </>,
-      );
-    case "not_found":
-    case "failed":
-      return shell(<span className="text-muted-foreground">No tip-off found automatically. Scrub to it below.</span>);
-    default:
-      return null;
+            </>,
+          ),
+        };
+      }
+      case "hint_found":
+        return {
+          key: "hint_found",
+          node: offer(
+            `Tip-off found from an earlier import of this recording${state.agreement > 1 ? ` (${state.agreement} users agree)` : ""}.`,
+            state.seconds,
+          ),
+        };
+      case "suggested":
+        return {
+          key: "suggested",
+          node: offer(
+            state.previewed
+              ? `Is this the tip-off? The game clock starts at ${formatMSSd(state.seconds)}.`
+              : `Tip-off found: the game clock starts at ${formatMSSd(state.seconds)}.`,
+            state.seconds,
+          ),
+        };
+      case "starts_after_tipoff":
+        return {
+          key: "starts_after_tipoff",
+          node: offer(
+            `The recording starts after the tip-off${state.firstClock ? `: the game clock already reads ${state.firstClock} in the first frame` : ""}.`,
+            state.estimateS,
+          ),
+        };
+      case "not_found":
+      case "failed":
+        return {
+          key: "none",
+          node: shell(<span className="text-muted-foreground">No tip-off found automatically. Scrub to it below.</span>),
+        };
+      // Nothing to say once the user has decided: the picker shows the confirmed time.
+      default:
+        return null;
+    }
   }
 }

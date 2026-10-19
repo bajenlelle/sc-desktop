@@ -8,6 +8,7 @@
 import { useState } from "react";
 import { Loader2, RefreshCw, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { StatusScreen } from "@/components/status-screen";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 
@@ -25,40 +26,21 @@ export function WorkspaceUnavailableScreen() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm space-y-6 text-center">
-        <div className="flex justify-center">
-          <div className="rounded-full bg-muted p-3">
-            <WifiOff className="h-6 w-6 text-muted-foreground" />
-          </div>
-        </div>
-
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-foreground">
-            Unable to load your workspace
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Your session is still valid and this is usually temporary. Try again,
-            or sign out and back in.
-          </p>
-        </div>
-
-        <Button className="w-full gap-2" onClick={() => void handleRetry()} disabled={retrying}>
-          {retrying ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4" />
-          )}
-          Try again
-        </Button>
-
-        <button
-          onClick={() => createClient().auth.signOut()}
-          className="text-xs text-muted-foreground underline-offset-4 hover:underline"
-        >
-          Sign out
-        </button>
-      </div>
-    </div>
+    <StatusScreen
+      icon={<WifiOff />}
+      title="Couldn't load your workspace"
+      body="You're still signed in, and this is usually temporary. Try again, or sign out and back in."
+      actions={
+        <>
+          <Button onClick={() => void handleRetry()} disabled={retrying}>
+            {retrying ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+            Try again
+          </Button>
+          <Button variant="ghost" onClick={() => void createClient().auth.signOut()}>
+            Sign out
+          </Button>
+        </>
+      }
+    />
   );
 }

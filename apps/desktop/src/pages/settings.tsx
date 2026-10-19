@@ -1,18 +1,31 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { getVersion } from "@tauri-apps/api/app";
+import { useTheme } from "next-themes";
 import { interactiveUpdateCheck } from "@/lib/updates";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { SegmentedControl } from "@/components/ui/segmented-control";
+import { GroupedList, GroupHeader, GroupRow } from "@/components/ui/group";
+import { Page, PageContent } from "@/components/shell/page";
+import { Toolbar } from "@/components/shell/toolbar";
 import { ReportProblemDialog } from "@/components/report-problem-dialog";
 import { ThemePicker } from "@/components/theme-picker";
 import { useAuth } from "@/lib/auth-context";
 import { getExportWatermarkDisabled, setExportWatermarkDisabled } from "@/lib/prefs";
 import { trackEvent } from "@/lib/analytics";
 
+type Appearance = "system" | "light" | "dark";
+
+const APPEARANCE_OPTIONS: { value: Appearance; label: string }[] = [
+  { value: "system", label: "System" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+];
+
 export function SettingsPage() {
   const { activeOrg, activeOrgCanManage, activeOrgPlan } = useAuth();
+  const { theme, setTheme } = useTheme();
   const [version, setVersion] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -38,102 +51,105 @@ export function SettingsPage() {
     }
   }
 
+  const appearance: Appearance =
+    theme === "light" || theme === "dark" || theme === "system" ? theme : "system";
+
   return (
-    <div className="p-6 max-w-2xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Settings</h1>
-      </div>
+    <Page>
+      <Toolbar title="Settings" />
+      <PageContent width="narrow">
+        <div className="space-y-7">
+          {/* Space-level settings first; the groups below are app chrome. */}
+          {activeOrgCanManage && activeOrg && (
+            <section>
+              <GroupHeader title="Organization" />
+              <GroupedList>
+                <GroupRow
+                  label={activeOrg.orgName}
+                  description="Teams, members, invites and license"
+                  trailing={
+                    <Button variant="outline" size="sm" asChild>
+                      <Link to="/organization">Manage…</Link>
+                    </Button>
+                  }
+                />
+              </GroupedList>
+            </section>
+          )}
 
-      {/* Space-level settings first; the cards below are app chrome. */}
-      {activeOrgCanManage && activeOrg && (
-        <Card>
-          <CardContent className="space-y-4 p-6">
-            <h2 className="text-base font-semibold text-foreground">Organization</h2>
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-sm text-muted-foreground">
-                Teams, members, invites and license for {activeOrg.orgName}.
-              </p>
-              <Link to="/organization">
-                <Button variant="outline">Manage</Button>
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardContent className="space-y-4 p-6">
-          <h2 className="text-base font-semibold text-foreground">About</h2>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-foreground">Scoutable {version && `v${version}`}</p>
-              <p className="text-sm text-muted-foreground">
-                Updates install automatically from the banner when available.
-              </p>
-            </div>
-            <Button variant="outline" onClick={checkForUpdates} disabled={checking}>
-              {checking ? "Checking…" : "Check for Updates"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="space-y-4 p-6">
-          <div>
-            <h2 className="text-base font-semibold text-foreground">Appearance</h2>
-            <p className="text-sm text-muted-foreground">
-              Choose how Scoutable looks. Picking a theme applies it right away, switching
-              between dark and light if needed. Your latest pick in each group is remembered.
-            </p>
-          </div>
-          <ThemePicker />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="space-y-4 p-6">
-          <h2 className="text-base font-semibold text-foreground">Feedback</h2>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-foreground">Found a bug or got an idea?</p>
-              <p className="text-sm text-muted-foreground">
-                Send us a description and an optional screenshot — version info is attached
-                automatically.
-              </p>
-            </div>
-            <Button onClick={() => setReportOpen(true)}>Send Feedback</Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {canToggleWatermark && (
-        <Card>
-          <CardContent className="space-y-4 p-6">
-            <h2 className="text-base font-semibold text-foreground">Exports</h2>
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <Label htmlFor="export-watermark" className="text-sm text-foreground">
-                  Include the Scoutable watermark on exported videos
-                </Label>
-                <p className="text-sm text-muted-foreground">
-                  A small mark in the corner of videos saved to your computer.
-                  Clips sent to phones always include it.
-                </p>
-              </div>
-              <input
-                id="export-watermark"
-                type="checkbox"
-                checked={watermarkOn}
-                onChange={(e) => toggleWatermark(e.target.checked)}
-                className="h-4 w-4 shrink-0 accent-primary"
+          <section>
+            <GroupHeader title="About" />
+            <GroupedList>
+              <GroupRow
+                label={`Scoutable ${version && `${version}`}`}
+                description="Updates install from the sidebar when one is available."
+                trailing={
+                  <Button variant="outline" size="sm" onClick={checkForUpdates} disabled={checking}>
+                    {checking ? "Checking…" : "Check for Updates…"}
+                  </Button>
+                }
               />
-            </div>
-          </CardContent>
-        </Card>
-      )}
+            </GroupedList>
+          </section>
 
-      <ReportProblemDialog open={reportOpen} onOpenChange={setReportOpen} />
-    </div>
+          <section>
+            <GroupHeader title="Appearance" />
+            <GroupedList>
+              <GroupRow
+                label="Appearance"
+                description="Light, dark, or follow the system"
+                trailing={
+                  <SegmentedControl
+                    aria-label="Appearance"
+                    value={appearance}
+                    onValueChange={(v) => setTheme(v)}
+                    options={APPEARANCE_OPTIONS}
+                  />
+                }
+              />
+              <div className="px-4 py-3">
+                <p className="mb-3 text-sm text-foreground">Theme</p>
+                <ThemePicker />
+              </div>
+            </GroupedList>
+          </section>
+
+          <section>
+            <GroupHeader title="Feedback" />
+            <GroupedList>
+              <GroupRow
+                label="Found a bug or got an idea?"
+                description="Send a description and an optional screenshot. Version info is attached automatically."
+                trailing={
+                  <Button variant="outline" size="sm" onClick={() => setReportOpen(true)}>
+                    Send Feedback…
+                  </Button>
+                }
+              />
+            </GroupedList>
+          </section>
+
+          {canToggleWatermark && (
+            <section>
+              <GroupHeader title="Exports" />
+              <GroupedList>
+                <GroupRow
+                  label="Watermark on exported videos"
+                  description="A small mark in the corner of videos saved to your computer. Clips sent to phones always include it."
+                  trailing={
+                    <Switch
+                      aria-label="Include the Scoutable watermark on exported videos"
+                      checked={watermarkOn}
+                      onCheckedChange={toggleWatermark}
+                    />
+                  }
+                />
+              </GroupedList>
+            </section>
+          )}
+        </div>
+        <ReportProblemDialog open={reportOpen} onOpenChange={setReportOpen} />
+      </PageContent>
+    </Page>
   );
 }
