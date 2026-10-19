@@ -22,8 +22,9 @@
 //   render_failed   fenced: queued again (the sweep retries) or failed
 //   sweep           waiting jobs get a renderer; quiet ones are re-run; a job
 //                   nobody took for a day fails renderer_unavailable (both kinds)
-//   sync_set        the uploader's shipped clips of the game follow the new
-//                   sync: legacy keys cleared, stale ones re-shipped when shared
+//   sync_set, sync_periods_set
+//                   the uploader's clips of the game follow the new sync: pans
+//                   moved, legacy keys cleared, stale ones re-shipped when shared
 // Every renderer call after render_take is answered 409 cancelled once the
 // owner stopped the job (render_cancel, export.ts). The bookkeeping both
 // kinds share is jobs.ts.
@@ -49,6 +50,7 @@ import {
   shippedStart,
   type SyncPointLike,
 } from "../../../packages/shared/lib/clip-ship-plan.ts";
+import { shiftKeyframes, type CropKeyframe } from "../../../packages/shared/lib/crop-path.ts";
 import {
   MEDIA_PUBLIC_URL,
   STALE_MS,
@@ -511,35 +513,55 @@ export async function sweepRenders(admin: SupabaseClient, result: GameVideoSweep
 // After a sync change on the web
 // ---------------------------------------------------------------------------
 
+/** A clip's stored pan (playlist_clips.crop_keyframes), or null when it has none worth moving. */
+function keyframesOf(v: unknown): CropKeyframe[] | null {
+  if (!Array.isArray(v) || v.length === 0) return null;
+  const out: CropKeyframe[] = [];
+  for (const k of v as unknown[]) {
+    const kf = k as { t?: unknown; cx?: unknown };
+    if (typeof kf?.t !== "number" || typeof kf?.cx !== "number" || !Number.isFinite(kf.t) || !Number.isFinite(kf.cx)) return null;
+    out.push({ t: kf.t, cx: kf.cx });
+  }
+  return out;
+}
+
 /**
- * The uploader's own playlists' shipped clips of the game follow its new
- * sync, as the desktop's afterSyncChange does: files from before keys carried
- * a start can't be compared and stop being served; files whose window moved
- * are cut again for the playlists anyone else watches (the owner plays
- * windows). Players keep the old cut until the new file lands.
+ * The uploader's own playlist clips of the game follow its new sync, as the
+ * desktop's afterSyncChange does: each pan (absolute video seconds) moves with
+ * its clip's play when `before` (the sync the clips were made with) is known;
+ * files from before keys carried a start can't be compared and stop being
+ * served; files whose window moved are cut again for the playlists anyone
+ * else watches (the owner plays windows). Players keep the old cut until the
+ * new file lands, and the old file is queued for the media purge (the
+ * migration's trigger on playlist_clips).
  */
-export async function invalidateShippedClipsAfterSync(admin: SupabaseClient, matchId: string, userId: string): Promise<void> {
+export async function invalidateShippedClipsAfterSync(
+  admin: SupabaseClient,
+  matchId: string,
+  userId: string,
+  before: SyncPointLike | null = null,
+): Promise<void> {
   interface OwnClipRow {
     id: number;
     playlist_id: string;
     event_id: number;
     pre_roll_offset: number | string | null;
     post_roll_offset: number | string | null;
-    r2_url: string;
+    r2_url: string | null;
+    crop_keyframes: unknown;
     playlists: { id: string; user_id: string; pre_roll: number | null; post_roll: number | null } | null;
   }
   const clips = await rows<OwnClipRow>(
     admin
       .from("playlist_clips")
-      .select("id, playlist_id, event_id, pre_roll_offset, post_roll_offset, r2_url, playlists!inner(id, user_id, pre_roll, post_roll)")
+      .select("id, playlist_id, event_id, pre_roll_offset, post_roll_offset, r2_url, crop_keyframes, playlists!inner(id, user_id, pre_roll, post_roll)")
       .eq("match_id", matchId)
       .eq("item_type", "clip")
-      .not("r2_url", "is", null)
       .eq("playlists.user_id", userId),
   );
   if (clips.length === 0) return;
 
-  const legacy = clips.filter((c) => shippedStart(c.r2_url) === null).map((c) => c.id);
+  const legacy = clips.filter((c) => c.r2_url && shippedStart(c.r2_url) === null).map((c) => c.id);
   if (legacy.length > 0) {
     const { error } = await admin.from("playlist_clips").update({ r2_url: null }).in("id", legacy);
     if (error) throw new Error(`lookup_failed ${error.message}`);
@@ -548,12 +570,31 @@ export async function invalidateShippedClipsAfterSync(admin: SupabaseClient, mat
   const { data: matchData } = await admin.from("matches").select("sync_point").eq("id", matchId).maybeSingle();
   const sync = (matchData as { sync_point?: SyncPointLike | null } | null)?.sync_point ?? null;
   if (!sync || typeof sync.syncVideoTime !== "number") return;
-  const comparable = clips.filter((c) => shippedStart(c.r2_url) !== null);
-  if (comparable.length === 0) return;
+  const was = before && typeof before.syncVideoTime === "number" ? before : null;
+  const panned = was ? clips.filter((c) => keyframesOf(c.crop_keyframes) !== null) : [];
+  const comparable = clips.filter((c): c is OwnClipRow & { r2_url: string } => !!c.r2_url && shippedStart(c.r2_url) !== null);
+  if (comparable.length === 0 && panned.length === 0) return;
   const events = await rows<{ event_id: number; period: number | null; real_world_time: string | null }>(
-    admin.from("play_by_play_events").select("event_id, period, real_world_time").eq("match_id", matchId).in("event_id", [...new Set(comparable.map((c) => c.event_id))]),
+    admin
+      .from("play_by_play_events")
+      .select("event_id, period, real_world_time")
+      .eq("match_id", matchId)
+      .in("event_id", [...new Set([...comparable, ...panned].map((c) => c.event_id))]),
   );
   const eventById = new Map(events.map((e) => [e.event_id, e]));
+
+  // Pans: a keyframe is an absolute video second, so it moves as far as its play did.
+  for (const clip of panned) {
+    const event = eventById.get(clip.event_id);
+    const kfs = keyframesOf(clip.crop_keyframes);
+    if (!event || !kfs || !was) continue;
+    const at = { realWorldTime: event.real_world_time, period: event.period };
+    const then = computeVideoTime(at, was);
+    const now = computeVideoTime(at, sync);
+    if (then === null || now === null || Math.abs(now - then) < 0.001) continue;
+    const { error } = await admin.from("playlist_clips").update({ crop_keyframes: shiftKeyframes(kfs, now - then) }).eq("id", clip.id);
+    if (error) throw new Error(`lookup_failed ${error.message}`);
+  }
 
   const stalePlaylists = new Set<string>();
   for (const clip of comparable) {

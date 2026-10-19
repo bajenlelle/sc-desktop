@@ -40,8 +40,17 @@
 // and FFMPEG). Then: every r2_url is the public base + clipShipKey, the
 // files GET as video/mp4 and probe at the window's length (--local-render),
 // the pending share is notified, `ship` again cuts nothing, a trim cuts one
-// clip anew, a sync change cuts all three again. The clip objects stay in the
-// media bucket under clips/smoke-<stamp>/ (the smoke can't delete there).
+// clip anew, a sync change cuts all three again.
+//
+// --ship then goes on with the quarters (sync_periods_set): two plays, one in
+// Q1 and one in Q2, a Q2 sync of their own (the video skipped the break), a
+// second shared playlist of the two cut, a third playlist of the owner's
+// sharing the Q2 clip's file, then Q2 moved two seconds: only the Q2 clip is
+// cut again, its pan moves with it, and its old file is queued in
+// media_deletions. `media_purge` keeps that file while the third playlist
+// still points at it and deletes it once nothing does (staging deletes only
+// smoke games' files: MEDIA_PURGE_SCOPE). The cleanup clears every clip of
+// the smoke's games and purges, so its files leave the media bucket too.
 //
 // --export goes on from the shipped playlist: two more plays (one whose window
 // runs past the copy's end, one that starts after it) and a pan on the first
@@ -240,6 +249,14 @@ async function purge() {
   return r.data;
 }
 
+/** The nightly purge of superseded clip files (media_deletions), called the same way. */
+async function mediaPurge() {
+  if (purgeSecret === null) purgeSecret = await configSecret("game_video_purge_secret");
+  const r = await call(admin, { action: "media_purge" }, { "x-purge-secret": purgeSecret });
+  if (!r.ok) fail(`media_purge failed: ${r.error}`);
+  return r.data;
+}
+
 /** A row as the function sees it. */
 async function row(videoId) {
   const { data, error } = await admin
@@ -410,6 +427,7 @@ async function browserPath(user, userId) {
 
   if (SHIP) {
     const shipped = await shipPath(user, userId, videoId, wsecret);
+    await quarterPath(user, userId, videoId, wsecret, shipped);
     if (EXPORT) await exportPath(user, userId, videoId, wsecret, shipped);
   }
 
@@ -547,7 +565,7 @@ const ROLLS = { pre: 10, post: 3 };
 /** The columns the web reads to follow a job (packages/shared/lib/render-jobs-db.ts). */
 const RENDER_JOB_SELECT = "id, kind, playlist_id, status, phase, request, progress, requeue, result, error, attempt, created_at, finished_at";
 
-const shipCleanup = { playlistId: null, orgId: null, playerId: null };
+const shipCleanup = { playlistId: null, orgId: null, playerId: null, more: [] };
 
 async function jobRow(jobId) {
   const { data, error } = await admin.from("render_jobs").select(`${RENDER_JOB_SELECT}, heartbeat_at, user_id`).eq("id", jobId).maybeSingle();
@@ -754,14 +772,20 @@ async function shipPath(user, userId, videoId, wsecret) {
   expect(r.data.total === 3 && r.data.status === "queued" && r.data.jobId && r.data.skipped.length === 0 && r.data.noCopy.length === 0 && r.data.requeued === false, `ship answered ${JSON.stringify(r.data)}`);
   const jobId = r.data.jobId;
   let job = await jobRow(jobId);
-  expect(job.status === "queued" && job.attempt === 0 && job.heartbeat_at === null && job.user_id === userId, `job after ship: ${JSON.stringify(job)}`);
+  // With --cloud the deployed renderer may have taken the job already.
+  const waiting = job.status === "queued" && job.attempt === 0 && job.heartbeat_at === null;
+  const taken = CLOUD && job.status === "running" && job.attempt === 1;
+  expect((waiting || taken) && job.user_id === userId, `job after ship: ${JSON.stringify(job)}`);
   const mine = await user.from("render_jobs").select(RENDER_JOB_SELECT).eq("playlist_id", playlistId).eq("kind", "ship").order("created_at", { ascending: false }).limit(1);
   expect(!mine.error && mine.data?.length === 1 && mine.data[0].id === jobId, `the owner's poll: ${mine.error?.message ?? JSON.stringify(mine.data)}`);
   const theirs = await player.from("render_jobs").select("id").eq("playlist_id", playlistId);
   expect(!theirs.error && theirs.data?.length === 0, `the player's poll: ${theirs.error?.message ?? JSON.stringify(theirs.data)}`);
   r = await call(user, { action: "ship", playlistId });
-  expect(r.ok && r.data.jobId === jobId && r.data.status === "queued" && r.data.requeued === false && r.data.total === 3, `a second ship did not coalesce: ${JSON.stringify(r.data)}`);
-  log(`ship: total 3, job ${jobId.slice(0, 8)}… queued and waiting (heartbeat NULL); the owner reads it, the player can't; a repeat coalesces`);
+  // A repeat lands on the live job: as it is while it waits, marked to run again once a renderer holds it (--cloud).
+  const coalesced =
+    r.ok && r.data.jobId === jobId && r.data.total === 3 && (r.data.status === "queued" ? r.data.requeued === false : CLOUD && r.data.status === "running" && r.data.requeued === true);
+  expect(coalesced, `a second ship did not coalesce: ${JSON.stringify(r.data)}`);
+  log(`ship: total 3, job ${jobId.slice(0, 8)}… ${r.data.status === "queued" ? "queued and waiting (heartbeat NULL)" : "already taken by the renderer"}; the owner reads it, the player can't; a repeat coalesces${r.data.requeued ? " (requeued)" : ""}`);
 
   // The render.
   const cuts = SHIP_EVENT_IDS.map((_, i) => expectedCut(i, SHIP_TIP));
@@ -806,7 +830,162 @@ async function shipPath(user, userId, videoId, wsecret) {
   clips.forEach((c, i) => expect(c.r2_url === `${base}/${movedCuts[i].key}`, `after the sync change clip ${i} r2_url is not ${movedCuts[i].key}`));
   if (REAL_RENDER) await checkShippedFiles(clips, movedCuts);
   log("a sync change: a job is queued for the shared playlist and all three clips are cut again with the new start in their keys");
-  return { playlistId, orgId: org.data.id, player, tip: SHIP_TIP + 1, publicBase: base };
+  return { playlistId, orgId: org.data.id, player, playerId, tip: SHIP_TIP + 1, publicBase: base };
+}
+
+// ---------------------------------------------------------------------------
+// Quarters: per-quarter syncs from the web (sync_periods_set), and the clip
+// files they supersede purged once nothing uses them (media_purge)
+// ---------------------------------------------------------------------------
+
+/** Q2's reference on the wall clock: half an hour after the tip-off, a break the video skipped. */
+const Q2_TIME = new Date(Date.parse(ANCHOR) + 30 * 60 * 1000).toISOString();
+/** A play 6 s into Q1 and one 3 s into Q2. */
+const QUARTER_PLAYS = [
+  { eventId: 2001, period: 1, at: ANCHOR, offset: 6 },
+  { eventId: 2002, period: 2, at: Q2_TIME, offset: 3 },
+];
+
+/** The window and key of a play at video time `t`, with the default rolls. */
+function cutFor(eventId, t, preOff = 0, postOff = 0) {
+  const { start, end } = clipBounds(t, ROLLS.pre, ROLLS.post, preOff, postOff);
+  return { key: clipShipKey(matchId, eventId, ROLLS.pre + preOff, ROLLS.post + postOff, start), seconds: end - start, start, end };
+}
+
+/** The newest ship job of a playlist created at or after `since` (a sync change queues it on its own). */
+async function newestShipJob(playlistId, since) {
+  const { data, error } = await admin
+    .from("render_jobs")
+    .select(RENDER_JOB_SELECT)
+    .eq("playlist_id", playlistId)
+    .eq("kind", "ship")
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  expect(!error, `job read failed: ${error?.message}`);
+  return data?.[0] ?? null;
+}
+
+async function quarterPath(user, userId, videoId, wsecret, { orgId, playlistId: mainPlaylistId, player, playerId, tip, publicBase }) {
+  const plays = QUARTER_PLAYS.map((p) => ({
+    match_id: matchId,
+    event_id: p.eventId,
+    type: "2pt",
+    sub_type: "jumpshot",
+    period: p.period,
+    game_clock_time: `09:${String(60 - p.offset).padStart(2, "0")}`,
+    real_world_time: new Date(Date.parse(p.at) + p.offset * 1000).toISOString(),
+    is_successful: 1,
+    player: { playerId: `smoke-${p.eventId}`, pno: p.period, firstName: "Smoke", familyName: `Quarter ${p.period}`, teamNumber: 1 },
+    event_team: { teamCode: "SMK", teamName: "Cloud smoke", teamNumber: 1 },
+    qualifiers: [],
+  }));
+  const evIns = await admin.from("play_by_play_events").insert(plays);
+  expect(!evIns.error, `quarter plays insert failed: ${evIns.error?.message}`);
+
+  // Who may write the quarters, and what the function refuses.
+  const q2At = (seconds) => ({ "2": { syncVideoTime: seconds, syncRealWorldTime: Q2_TIME, anchor: { kind: "period_start", label: "Start of Q2" } } });
+  const setPeriods = (client, syncPoint, id = videoId) => call(client, { action: "sync_periods_set", videoId: id, syncPoint });
+  let r = await setPeriods(user, { periods: { "1": { syncVideoTime: 5, syncRealWorldTime: ANCHOR } } });
+  expect(!r.ok && r.error === "invalid_request", `a Q1 "quarter" answered ${r.ok ? "ok" : r.error}`);
+  r = await setPeriods(user, { periods: { "2": { syncVideoTime: -1, syncRealWorldTime: Q2_TIME } } });
+  expect(!r.ok && r.error === "invalid_request", `a quarter before the video answered ${r.ok ? "ok" : r.error}`);
+  r = await setPeriods(user, { breaksCut: true });
+  expect(!r.ok && r.error === "invalid_request", `a payload without periods answered ${r.ok ? "ok" : r.error}`);
+  r = await setPeriods(user, { periods: q2At(25) }, "not-a-uuid");
+  expect(!r.ok && r.error === "invalid_request", `a bad video id answered ${r.ok ? "ok" : r.error}`);
+  r = await setPeriods(player, { periods: q2At(25) });
+  expect(!r.ok && r.error === "not_found", `sync_periods_set by the player answered ${r.ok ? "ok" : r.error}`);
+  log("sync_periods_set: a Q1 entry, a negative time, no periods and a bad id are invalid_request; the player gets not_found");
+
+  // Q2 starts 25 s into the copy: the video skipped the break.
+  r = await setPeriods(user, { periods: q2At(25), breaksCut: true });
+  expect(r.ok, `sync_periods_set failed: ${r.error}`);
+  const written = r.data.syncPoint;
+  expect(written?.periods?.["2"]?.syncVideoTime === 25 && written.breaksCut === true && written.syncVideoTime === tip && r.data.syncStatus === "manual", `sync_periods_set answered ${JSON.stringify(r.data)}`);
+  const stored = await admin.from("matches").select("sync_point").eq("id", matchId).single();
+  expect(JSON.stringify(stored.data?.sync_point?.periods) === JSON.stringify(written.periods) && stored.data?.sync_point?.syncVideoTime === tip, `the game's sync point: ${JSON.stringify(stored.data?.sync_point)}`);
+  const mainLive = await admin.from("render_jobs").select("id").eq("playlist_id", mainPlaylistId).in("status", ["queued", "running"]);
+  expect(!mainLive.error && mainLive.data.length === 0, `the Q1 playlist was queued again: ${JSON.stringify(mainLive.data)}`);
+  log(`sync_periods_set: Q2's own sync at 25 s with breaksCut, the tip-off (${tip} s) kept; the Q1 playlist isn't cut again`);
+
+  // A shared playlist of the two plays: Q1's placed by the tip-off, Q2's by its own sync.
+  const pl = await user.from("playlists").insert({ user_id: userId, name: "Cloud smoke quarters", org_id: orgId }).select("id").single();
+  expect(!pl.error, `quarter playlist insert failed: ${pl.error?.message}`);
+  const quarters = pl.data.id;
+  shipCleanup.more.push(quarters);
+  const items = await user.from("playlist_clips").insert(
+    QUARTER_PLAYS.map((p, i) => ({ playlist_id: quarters, item_type: "clip", match_id: matchId, event_id: p.eventId, position: i, pre_roll_offset: 0, post_roll_offset: 0 })),
+  );
+  expect(!items.error, `quarter clips insert failed: ${items.error?.message}`);
+  const share = await user.from("playlist_user_shares").insert({ playlist_id: quarters, user_id: playerId, shared_by: userId });
+  expect(!share.error, `quarter share insert failed: ${share.error?.message}`);
+  const first = [cutFor(2001, tip + 6), cutFor(2002, 25 + 3)];
+  r = await call(user, { action: "ship", playlistId: quarters });
+  expect(r.ok && r.data.total === 2 && r.data.status === "queued", `ship (quarters) answered ${r.ok ? JSON.stringify(r.data) : r.error}`);
+  await settleJob(r.data.jobId, wsecret, { cuts: first, videoId });
+  let clips = await clipRows(quarters);
+  clips.forEach((c, i) => expect(c.r2_url === `${publicBase}/${first[i].key}`, `quarter clip ${i} r2_url is not ${first[i].key}`));
+  if (REAL_RENDER) await checkShippedFiles(clips, first);
+  log(`the quarters playlist ships: Q1's play cut from ${first[0].start} s, Q2's from ${first[1].start} s (by its own sync)`);
+
+  // A third playlist of the owner's points at the Q2 clip's file (the same clip and clip length share one file), and a pan on the Q2 clip.
+  const oldKey = first[1].key;
+  const oldUrl = `${publicBase}/${oldKey}`;
+  const copyPl = await user.from("playlists").insert({ user_id: userId, name: "Cloud smoke quarters (copy)", org_id: orgId }).select("id").single();
+  expect(!copyPl.error, `copy playlist insert failed: ${copyPl.error?.message}`);
+  shipCleanup.more.push(copyPl.data.id);
+  const copyClip = await user.from("playlist_clips").insert({ playlist_id: copyPl.data.id, item_type: "clip", match_id: matchId, event_id: 2002, position: 0, pre_roll_offset: 0, post_roll_offset: 0, r2_url: oldUrl });
+  expect(!copyClip.error, `copy clip insert failed: ${copyClip.error?.message}`);
+  const pan = [{ t: first[1].start + 1, cx: 0.4 }, { t: first[1].end - 1, cx: 0.6 }];
+  const panned = await user.from("playlist_clips").update({ crop_keyframes: pan }).eq("playlist_id", quarters).eq("event_id", 2002);
+  expect(!panned.error, `pan update failed: ${panned.error?.message}`);
+
+  // Q2 two seconds later: only the Q2 clip is cut again, its pan follows, its old file is queued.
+  const since = new Date(Date.now() - 5000).toISOString();
+  r = await setPeriods(user, { periods: q2At(27), breaksCut: true });
+  expect(r.ok && r.data.syncPoint?.periods?.["2"]?.syncVideoTime === 27, `sync_periods_set (27) answered ${r.ok ? JSON.stringify(r.data) : r.error}`);
+  const moved = [cutFor(2002, 27 + 3)];
+  const job = await newestShipJob(quarters, since);
+  expect(job, "no ship job was queued for the quarters playlist after Q2 moved");
+  await settleJob(job.id, wsecret, { cuts: moved, videoId });
+  clips = await clipRows(quarters);
+  expect(clips[0].r2_url === `${publicBase}/${first[0].key}`, "the Q1 clip was cut again");
+  expect(clips[1].r2_url === `${publicBase}/${moved[0].key}`, `the Q2 clip's r2_url is not ${moved[0].key}`);
+  if (REAL_RENDER) await checkShippedFiles([clips[1]], moved);
+  const { data: kf } = await admin.from("playlist_clips").select("crop_keyframes").eq("playlist_id", quarters).eq("event_id", 2002).single();
+  expect(JSON.stringify(kf?.crop_keyframes) === JSON.stringify(pan.map((k) => ({ ...k, t: k.t + 2 }))), `the Q2 clip's pan: ${JSON.stringify(kf?.crop_keyframes)}`);
+  const queuedOld = await admin.from("media_deletions").select("storage_key, reason").eq("storage_key", oldKey);
+  expect(!queuedOld.error && queuedOld.data?.length === 1 && queuedOld.data[0].reason === "replaced", `the old Q2 file in media_deletions: ${queuedOld.error?.message ?? JSON.stringify(queuedOld.data)}`);
+  log(`Q2 moved 2 s: a job cut only the Q2 clip again (from ${moved[0].start} s), its pan moved 2 s with it, the old file is queued (replaced)`);
+
+  // The purge keeps a file another playlist still uses …
+  r = await call(admin, { action: "media_purge" }, { "x-purge-secret": "wrong" });
+  expect(!r.ok && r.error === "bad_purge_secret", `media_purge with a wrong secret answered ${r.ok ? "ok" : r.error}`);
+  r = await call(user, { action: "media_purge" });
+  expect(!r.ok && r.error === "bad_purge_secret", `media_purge as a user answered ${r.ok ? "ok" : r.error}`);
+  let p = await mediaPurge();
+  expect(p.kept >= 1 && p.refused === 0, `media_purge with the file still in use: ${JSON.stringify(p)}`);
+  let left = await admin.from("media_deletions").select("storage_key").eq("storage_key", oldKey);
+  expect(!left.error && left.data?.length === 0, "the file in use is still queued");
+  let head = await fetch(oldUrl, { method: "HEAD" });
+  expect(head.status === 200, `the file in use answers ${head.status}`);
+  log(`media_purge (scope ${p.scope}): the old Q2 file is kept while the copy playlist uses it, and leaves the queue (${JSON.stringify(p)})`);
+
+  // … and deletes it once nothing does.
+  const cleared = await user.from("playlist_clips").update({ r2_url: null }).eq("playlist_id", copyPl.data.id).eq("event_id", 2002);
+  expect(!cleared.error, `clearing the copy's clip failed: ${cleared.error?.message}`);
+  const requeued = await admin.from("media_deletions").select("reason").eq("storage_key", oldKey);
+  expect(!requeued.error && requeued.data?.[0]?.reason === "cleared", `the cleared file in media_deletions: ${requeued.error?.message ?? JSON.stringify(requeued.data)}`);
+  p = await mediaPurge();
+  expect(p.deleted >= 1 && p.refused === 0, `media_purge with nothing using the file: ${JSON.stringify(p)}`);
+  left = await admin.from("media_deletions").select("storage_key").eq("storage_key", oldKey);
+  expect(!left.error && left.data?.length === 0, "the deleted file is still queued");
+  head = await fetch(oldUrl, { method: "HEAD" });
+  expect(head.status === 404, `the deleted file still answers ${head.status}`);
+  head = await fetch(`${publicBase}/${moved[0].key}`, { method: "HEAD" });
+  expect(head.status === 200, `the Q2 clip's current file answers ${head.status}`);
+  log(`the owner clears the copy's clip: queued (cleared), media_purge deletes the old file (${JSON.stringify(p)}); it 404s, the current one plays`);
 }
 
 // ---------------------------------------------------------------------------
@@ -1228,7 +1407,11 @@ try {
   }
 } finally {
   if (userId) {
-    // The ship path's playlist (its clips, share and jobs follow), club (memberships follow) and player.
+    // Every clip of the smoke's games lets go of its file first: the trigger queues
+    // the keys, and the media purge below deletes them (nothing references them now).
+    for (const id of matchIds) await admin.from("playlist_clips").update({ r2_url: null }).eq("match_id", id).not("r2_url", "is", null);
+    // The ship path's playlists (their clips, shares and jobs follow), club (memberships follow) and player.
+    for (const id of shipCleanup.more) await admin.from("playlists").delete().eq("id", id);
     if (shipCleanup.playlistId) await admin.from("playlists").delete().eq("id", shipCleanup.playlistId);
     if (shipCleanup.orgId) await admin.from("organizations").delete().eq("id", shipCleanup.orgId);
     if (shipCleanup.playerId) {
@@ -1243,6 +1426,14 @@ try {
       console.log(`cleanup: user and games deleted; purge → ${JSON.stringify(p)}`);
     } catch (e) {
       console.error("cleanup: purge failed:", e instanceof Error ? e.message : String(e));
+    }
+    if (SHIP) {
+      try {
+        const mp = await mediaPurge();
+        console.log(`cleanup: the smoke's clip files → media_purge ${JSON.stringify(mp)}`);
+      } catch (e) {
+        console.error("cleanup: media_purge failed:", e instanceof Error ? e.message : String(e));
+      }
     }
   }
 }

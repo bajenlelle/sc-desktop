@@ -17,6 +17,7 @@ import {
   HIGHLIGHT_KEY_RE,
   isGameVideoExportKey,
   isGameVideoKey,
+  mediaPurgeScopeOf,
   projectRefFromUrl,
   s3ErrorCode,
 } from "../../../packages/shared/lib/game-video-wire.ts";
@@ -96,7 +97,7 @@ export function optString(v: unknown, max = 200): string | null {
 
 /** The error tokens the SQL helpers raise, mapped to responses. */
 export function rpcError(message: string): Response {
-  const token = /(?:^|\s)(not_found|wrong_status|stale_attempt|sync_locked|invalid_request|no_anchor|invalid_outcome)(?:\s|$)/.exec(message)?.[1];
+  const token = /(?:^|\s)(not_found|wrong_status|stale_attempt|sync_locked|no_sync|invalid_request|no_anchor|invalid_outcome)(?:\s|$)/.exec(message)?.[1];
   switch (token) {
     case "not_found":
       return err(404, "not_found");
@@ -106,6 +107,8 @@ export function rpcError(message: string): Response {
       return err(409, "stale_attempt");
     case "sync_locked":
       return err(409, "sync_locked");
+    case "no_sync":
+      return err(409, "no_sync");
     case "invalid_request":
     case "no_anchor":
     case "invalid_outcome":
@@ -251,3 +254,23 @@ export async function mediaHeadSize(key: string): Promise<number | null> {
   const n = Number(res.headers.get("content-length"));
   return Number.isFinite(n) ? n : null;
 }
+
+/**
+ * Deletes a shipped clip's file from the media bucket (a `clips/…` key only:
+ * the media purge never deletes a highlight's files, which the bucket's
+ * lifecycle rule owns). A missing object counts as deleted.
+ */
+export async function mediaDeleteClip(key: string): Promise<boolean> {
+  if (!CLIP_SHIP_KEY_RE.test(key)) throw new ForeignKeyError(key);
+  const res = await media.fetch(mediaUrl(key).toString(), { method: "DELETE" });
+  await res.body?.cancel();
+  return res.ok || res.status === 404;
+}
+
+/**
+ * Which superseded clip files this project's media purge may delete
+ * (MEDIA_PURGE_SCOPE): `all` only on the project that owns the media bucket
+ * (prod). Staging shares the bucket and holds copies of prod's rows, so
+ * anything else, unset included, deletes only the smoke's throwaway games'.
+ */
+export const MEDIA_PURGE_SCOPE = mediaPurgeScopeOf(Deno.env.get("MEDIA_PURGE_SCOPE"));

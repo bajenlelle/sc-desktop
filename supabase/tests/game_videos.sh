@@ -8,8 +8,9 @@
 # against it, _game_video_mark_ready swaps the game's older copy out, and a
 # match deleted by its owner queues the copy's key for the purge. A conversion
 # in flight counts toward the cap, finishing one applies a confident tip-off
-# to an unsynced game only, the web's sync_set never touches a coach's own
-# sync, and the sweep is the function's alone.
+# to an unsynced game only, the web's sync_set confirm never touches a coach's
+# own sync while the uploader's manual set always applies (20261022100000),
+# and the sweep is the function's alone.
 #
 # Every statement runs inside BEGIN … ROLLBACK, so nothing is committed.
 #
@@ -198,8 +199,9 @@ ROLE=service_role run "and a confirmed hint for the recording"         "ALLOWED 
 ROLE=service_role run "and the row's status"                           "ALLOWED rows=1" "SELECT count(*) AS n FROM game_videos WHERE id = $(d $C) AND sync_status = 'manual'" "$MAKE_MATCH $READY_C $(set_sync manual 341)"
 ROLE=service_role run "confirmed takes the suggested time by default"  "ALLOWED rows=1" "SELECT count(*) AS n FROM matches WHERE id = $(d $M) AND (sync_point->>'syncVideoTime')::float = 336.5" "$MAKE_MATCH $READY_C UPDATE game_videos SET sync_status = 'suggested', suggested_tipoff_seconds = 336.5 WHERE id = $(d $C); $(set_sync confirmed NULL)"
 ROLE=service_role run "quarter marks survive the merge"                "ALLOWED rows=1" "SELECT count(*) AS n FROM matches WHERE id = $(d $M) AND sync_point->'marks'->'2' IS NOT NULL AND (sync_point->>'syncVideoTime')::float = 341" "$MAKE_MATCH UPDATE matches SET sync_point = '{\"marks\": {\"2\": {\"anchor\": {\"realWorldTime\": \"2026-10-04T13:30:00Z\", \"kind\": \"period_start\", \"label\": \"Q2\"}}}}' WHERE id = $(d $M); $READY_C $(set_sync manual 341)"
-ROLE=service_role run "a coach's own sync is locked"                   "RAISES:sync_locked" "$(sed 's/;$//' <<<"$(set_sync manual 341)")" "$MAKE_MATCH $COACH_SYNC $READY_C"
-ROLE=service_role run "but an applied one can be adjusted"             "ALLOWED rows=1" "SELECT count(*) AS n FROM matches WHERE id = $(d $M) AND (sync_point->>'syncVideoTime')::float = 341" "$MAKE_MATCH $COACH_SYNC $(sed "s/'not_found'/'applied'/" <<<"$READY_C") $(set_sync manual 341)"
+ROLE=service_role run "a confirm never overrides a coach's own sync"   "RAISES:sync_locked" "$(sed 's/;$//' <<<"$(set_sync confirmed 341)")" "$MAKE_MATCH $COACH_SYNC $READY_C"
+ROLE=service_role run "the uploader's own manual set always applies"   "ALLOWED rows=1" "SELECT count(*) AS n FROM matches WHERE id = $(d $M) AND (sync_point->>'syncVideoTime')::float = 341" "$MAKE_MATCH $COACH_SYNC $READY_C $(set_sync manual 341)"
+ROLE=service_role run "and an applied one can be confirmed"            "ALLOWED rows=1" "SELECT count(*) AS n FROM matches WHERE id = $(d $M) AND (sync_point->>'syncVideoTime')::float = 341" "$MAKE_MATCH $COACH_SYNC $(sed "s/'not_found'/'applied'/" <<<"$READY_C") $(set_sync confirmed 341)"
 ROLE=service_role run "someone else's row is not found"                "RAISES:not_found" "SELECT _game_video_set_sync($(d $C), $(d $V), 'manual', 341)" "$MAKE_MATCH $READY_C"
 
 echo

@@ -83,10 +83,22 @@ playlists, and share them with teams; players watch on web/mobile.
   the bot) and reports through the `job_*` actions behind
   `GAME_VIDEO_WORKER_SECRET`, every write fenced by the attempt number. A
   confident tip-off is applied to an unsynced game (`_game_video_finish_convert`),
-  the web confirms or sets it through `sync_set` (`_game_video_set_sync`, a
-  coach's own sync stays locked), a ten-minute pg_cron sweep re-runs dead
+  the web confirms or sets it through `sync_set` (`_game_video_set_sync`: a
+  `confirmed` never overrides a coach's own sync, `sync_locked`; a `manual` set
+  by the video's uploader always applies, so the tip-off can follow a replaced
+  video; a copy without an anchor of its own, the desktop's, keeps the game's
+  reference and moves only its video time; migration `20261022100000`) and
+  writes per-quarter syncs through `sync_periods_set { videoId, syncPoint }`
+  (`_game_video_set_periods`: `periods` "2"…"8" replaced whole, `marks` and
+  `breaksCut` when given, the tip-off with sync_set's manual rule when
+  `syncVideoTime` is given; shape checked by `parseSyncPeriodsPayload` and
+  again in SQL; `no_sync` for an unsynced game), a ten-minute pg_cron sweep re-runs dead
   conversions, and `game_video_ready` mails the uploader. The web plays the
-  copy through a 12 h presigned GET (`/games`). Caps per tier in
+  copy through a 12 h presigned GET (`/library/<matchId>`), where the uploader
+  also adjusts the sync (Adjust sync: the tip-off and each quarter's own,
+  `components/game/game-sync-panel.tsx`; banners when the play-by-play runs
+  past the video's end or the sync predates the video); the editor's Fix sync
+  is `components/sync/fix-sync-sheet.tsx`. Caps per tier in
   `app_config.game_video_limits` (enforced by the insert trigger; conversions
   in flight count), kill switch `app_config.cloud_video_enabled`, deletions
   queued in `game_video_deletions` and purged nightly by pg_cron through the
@@ -131,8 +143,18 @@ playlists, and share them with teams; players watch on web/mobile.
   the job waits (heartbeat NULL) for the ten-minute sweep, which also re-runs
   quiet renders and fails a job nobody took within a day. `render_done` writes
   `playlist_clips.r2_url` and calls `_notify_pending_shares_for_playlist`
-  (the owner-gated RPC's body, REVOKEd from clients); `sync_set` clears legacy
-  keys and re-ships stale clips of shared playlists (`_playlist_is_shared`).
+  (the owner-gated RPC's body, REVOKEd from clients); `sync_set` and
+  `sync_periods_set` move the uploader's pans with their plays, clear legacy
+  keys and re-ship stale clips of shared playlists (`_playlist_is_shared`).
+  Superseded clip files: whenever a playlist clip's `r2_url` changes or is
+  cleared (render_done, a trim, a sync change, the desktop), a trigger queues
+  the old key in `media_deletions`; the nightly `media_purge` (purge secret,
+  `run_game_video_purge`) deletes a key only when no `playlist_clips.r2_url`
+  and no live ship job references it (two playlists can share a file), else
+  drops it from the queue. Staging shares the media bucket and holds copies of
+  prod's rows, so the function deletes only in `MEDIA_PURGE_SCOPE` (`all` on
+  prod at rollout; unset = the smoke's `clips/smoke-` games only). Probes:
+  `supabase/tests/sync_media.sh`.
   Probes: `supabase/tests/render_jobs.sh`. Smoke: the browser smoke plus
   `--ship` (the script plays the renderer) or `--ship --local-render` (the
   real program here, needs `--local-convert --file <video of ≥ 17 s>`).
@@ -172,8 +194,9 @@ playlists, and share them with teams; players watch on web/mobile.
   script plays the renderer) or `--ship --export --local-render` (the real
   program); a `--file` of 47–61 s exercises both the cut at a copy's end and
   `past_end`. `--browser --cloud --file <video> --ship --export` runs the
-  whole chain on the DEPLOYED Worker (conversion, cuts, exports, cancel) and
-  only waits and checks the files; a job stuck queued means the function
+  whole chain on the DEPLOYED Worker (conversion, cuts, per-quarter re-cuts and
+  the media purge, exports, cancel) and only waits and checks the files; the
+  cleanup clears its clips so the media purge removes their files; a job stuck queued means the function
   can't reach the Worker or the secrets don't pair up (`GAME_VIDEO_CONVERT_SECRET`
   = the Worker's `CONVERT_SECRET`, the Worker's `WORKER_SECRET` =
   `app_config.game_video_worker_secret`).

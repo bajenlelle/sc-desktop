@@ -413,7 +413,9 @@ export type GameVideoAction =
   | "render_take"
   | "render_progress"
   | "render_done"
-  | "render_failed";
+  | "render_failed"
+  | "sync_periods_set"
+  | "media_purge";
 
 export interface GameVideoBeginRequest {
   action: "begin";
@@ -512,7 +514,11 @@ export interface GameVideoRetryConvertResponse {
  * The uploader confirms the sync the converter applied or suggested
  * ("confirmed"; `seconds` defaults to that value) or sets it themselves
  * ("manual"; `seconds` required). Writes the game's sync point, a confirmed
- * hint for this recording and the row's sync status in one go.
+ * hint for this recording and the row's sync status in one go. A manual set
+ * always applies, also over a sync made before this video (a replaced copy):
+ * it is the uploader's own; confirmed never overrides a coach's own sync
+ * (`sync_locked`). A copy without an anchor of its own (the desktop's) keeps
+ * the game's reference event and moves only its video time.
  */
 export interface GameVideoSyncSetRequest {
   action: "sync_set";
@@ -914,6 +920,261 @@ export interface ExportJobResult {
   filename?: string;
 }
 
+// ---------------------------------------------------------------------------
+// The game's sync on the web: per-quarter syncs (sync_periods_set)
+// ---------------------------------------------------------------------------
+
+/** The highest global period a quarter's own sync or a mark may name: four quarters and four overtimes ("5" = OT1). */
+export const SYNC_PERIOD_MAX = 8;
+/** A sync's video time stays under ten hours; a quarter's own is never before the video starts. */
+export const SYNC_VIDEO_SECONDS_MAX = 36_000;
+/** The tip-off may be up to an hour before the recording starts (a stream that began late), as sync_set takes it. */
+export const SYNC_TIPOFF_SECONDS_MIN = -3_600;
+/** The longest anchor label kept ("Lidingö's first basket of Q2 (20–15)"). */
+export const SYNC_LABEL_MAX = 200;
+/** What a sync's reference event is: types/match.ts SyncAnchorKind, restated because this file has no imports. */
+export const SYNC_ANCHOR_KINDS = ["first_basket", "match_start", "period_start", "play"] as const;
+export type SyncAnchorKindWire = (typeof SYNC_ANCHOR_KINDS)[number];
+
+/** One quarter's own sync (types/match.ts PeriodSync). */
+export interface SyncPeriodWire {
+  syncVideoTime: number;
+  syncRealWorldTime: string;
+  anchor?: { kind: SyncAnchorKindWire; label: string };
+}
+
+/** One period's league mark (types/match.ts PeriodMark). */
+export interface SyncMarkWire {
+  startRealWorldTime?: string;
+  endRealWorldTime?: string;
+  anchor: { realWorldTime: string; kind: SyncAnchorKindWire; label: string };
+}
+
+/**
+ * What sync_periods_set writes into the game's sync point (types/match.ts
+ * SyncPoint, the per-quarter part). `periods` is the whole set after the
+ * change, keyed by global period "2" … "8" ({} = none: every quarter follows
+ * Q1 again); every other field is left as stored when omitted.
+ */
+export interface SyncPeriodsPayload {
+  periods: Record<string, SyncPeriodWire>;
+  /** The tip-off's video time (Q1), set as the uploader's own sync (sync_set's `manual`) in the same write. */
+  syncVideoTime?: number;
+  /** The league's marks per period ("1" … "8"). */
+  marks?: Record<string, SyncMarkWire>;
+  /** The coach's answer to "does the video skip the breaks?". */
+  breaksCut?: boolean;
+}
+
+/**
+ * The uploader writes the game's per-quarter syncs (a video that skips the
+ * breaks syncs each quarter on its own), and the tip-off with them when
+ * `syncPoint.syncVideoTime` is given. Shipped clips of the game follow as
+ * after sync_set: legacy keys cleared, stale cuts of shared playlists cut
+ * again, pans moved with their clips. `no_sync` when the game has no sync to
+ * refine; `not_found` for anyone but the uploader.
+ */
+export interface GameVideoSyncPeriodsSetRequest {
+  action: "sync_periods_set";
+  videoId: string;
+  syncPoint: SyncPeriodsPayload;
+}
+
+export interface GameVideoSyncPeriodsSetResponse {
+  videoId: string;
+  /** The game's sync point as written (matches.sync_point). */
+  syncPoint: Record<string, unknown>;
+  /** The row's sync status after the write ("manual" when the tip-off was set too). */
+  syncStatus: GameVideoSyncStatus | null;
+}
+
+const SYNC_TIME_RE = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d{1,6})?)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
+
+/**
+ * An ISO 8601 time with a zone ("2026-09-20T17:30:00Z", PostgREST's
+ * "…T17:30:00+00:00") on a day the calendar has. The migration's
+ * `_sync_time_ok` makes the same check.
+ */
+export function isSyncTime(v: unknown): v is string {
+  if (typeof v !== "string") return false;
+  const m = SYNC_TIME_RE.exec(v);
+  if (!m) return false;
+  const day = Number(m[3]);
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, day)).getUTCDate() === day && Number.isFinite(Date.parse(v));
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
+
+function syncAnchorOf(v: unknown, timed: boolean): { kind: SyncAnchorKindWire; label: string; realWorldTime?: string } | null {
+  if (!isRecord(v)) return null;
+  if (typeof v.kind !== "string" || !(SYNC_ANCHOR_KINDS as readonly string[]).includes(v.kind)) return null;
+  if (typeof v.label !== "string" || v.label.length > SYNC_LABEL_MAX) return null;
+  if (timed && !isSyncTime(v.realWorldTime)) return null;
+  return { kind: v.kind as SyncAnchorKindWire, label: v.label, ...(timed ? { realWorldTime: v.realWorldTime as string } : {}) };
+}
+
+function syncPeriodOf(v: unknown): SyncPeriodWire | null {
+  if (!isRecord(v)) return null;
+  const t = v.syncVideoTime;
+  if (typeof t !== "number" || !Number.isFinite(t) || t < 0 || t >= SYNC_VIDEO_SECONDS_MAX) return null;
+  if (!isSyncTime(v.syncRealWorldTime)) return null;
+  const out: SyncPeriodWire = { syncVideoTime: t, syncRealWorldTime: v.syncRealWorldTime };
+  if (v.anchor !== undefined && v.anchor !== null) {
+    const a = syncAnchorOf(v.anchor, false);
+    if (!a) return null;
+    out.anchor = { kind: a.kind, label: a.label };
+  }
+  return out;
+}
+
+function syncMarkOf(v: unknown): SyncMarkWire | null {
+  if (!isRecord(v)) return null;
+  const a = syncAnchorOf(v.anchor, true);
+  if (!a) return null;
+  const out: SyncMarkWire = { anchor: { realWorldTime: a.realWorldTime as string, kind: a.kind, label: a.label } };
+  for (const field of ["startRealWorldTime", "endRealWorldTime"] as const) {
+    const x = v[field];
+    if (x === undefined || x === null) continue;
+    if (!isSyncTime(x)) return null;
+    out[field] = x;
+  }
+  return out;
+}
+
+/**
+ * A sync_periods_set payload as the function accepts it, with only the
+ * fields it checked; null when anything is off (a period outside "2" … "8",
+ * a quarter's video time below 0 or from ten hours, a time that isn't ISO
+ * 8601 with a zone, an anchor of an unknown kind or with a label over 200
+ * characters, a tip-off outside sync_set's range). Strict on purpose: what
+ * normalizeSyncPoint keeps and the period-sync edits produce passes, and a
+ * client never gets a quarter silently dropped.
+ */
+export function parseSyncPeriodsPayload(raw: unknown): SyncPeriodsPayload | null {
+  if (!isRecord(raw) || !isRecord(raw.periods)) return null;
+  const periods: Record<string, SyncPeriodWire> = {};
+  for (const [key, value] of Object.entries(raw.periods)) {
+    if (!/^[2-8]$/.test(key)) return null;
+    const p = syncPeriodOf(value);
+    if (!p) return null;
+    periods[key] = p;
+  }
+  const out: SyncPeriodsPayload = { periods };
+  if (raw.syncVideoTime !== undefined) {
+    const t = raw.syncVideoTime;
+    if (typeof t !== "number" || !Number.isFinite(t) || t <= SYNC_TIPOFF_SECONDS_MIN || t >= SYNC_VIDEO_SECONDS_MAX) return null;
+    out.syncVideoTime = t;
+  }
+  if (raw.marks !== undefined) {
+    if (!isRecord(raw.marks)) return null;
+    const marks: Record<string, SyncMarkWire> = {};
+    for (const [key, value] of Object.entries(raw.marks)) {
+      if (!/^[1-8]$/.test(key)) return null;
+      const m = syncMarkOf(value);
+      if (!m) return null;
+      marks[key] = m;
+    }
+    out.marks = marks;
+  }
+  if (raw.breaksCut !== undefined) {
+    if (typeof raw.breaksCut !== "boolean") return null;
+    out.breaksCut = raw.breaksCut;
+  }
+  return out;
+}
+
+/**
+ * The sync_periods_set payload for a sync point the app holds (after
+ * normalizeSyncPoint and the period-sync edits): its quarters and its
+ * breaksCut, its tip-off with `withTipoff`, its marks with `withMarks`. An
+ * anchor the function wouldn't keep (an unknown kind, a long label) is left
+ * off: it only names the moment. Anything else is passed on as it is, for
+ * parseSyncPeriodsPayload to refuse.
+ */
+export function syncPeriodsPayloadOf(
+  sync: {
+    syncVideoTime?: number;
+    periods?: Record<string, { syncVideoTime: number; syncRealWorldTime: string; anchor?: { kind: string; label: string } }> | null;
+    marks?: Record<string, unknown> | null;
+    breaksCut?: boolean;
+  },
+  opts: { withTipoff?: boolean; withMarks?: boolean } = {},
+): SyncPeriodsPayload {
+  const periods: Record<string, SyncPeriodWire> = {};
+  for (const [key, ps] of Object.entries(sync.periods ?? {})) {
+    const anchor = ps.anchor ? syncAnchorOf(ps.anchor, false) : null;
+    periods[key] = {
+      syncVideoTime: ps.syncVideoTime,
+      syncRealWorldTime: ps.syncRealWorldTime,
+      ...(anchor ? { anchor: { kind: anchor.kind, label: anchor.label } } : {}),
+    };
+  }
+  const out: SyncPeriodsPayload = { periods };
+  if (opts.withTipoff && typeof sync.syncVideoTime === "number") out.syncVideoTime = sync.syncVideoTime;
+  if (opts.withMarks && sync.marks) out.marks = sync.marks as Record<string, SyncMarkWire>;
+  if (typeof sync.breaksCut === "boolean") out.breaksCut = sync.breaksCut;
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Superseded clip files: the media purge (media_purge)
+// ---------------------------------------------------------------------------
+
+/**
+ * Which queued clip keys a project's media purge may delete (the function's
+ * MEDIA_PURGE_SCOPE): `all` for the project that owns the PUBLIC media
+ * bucket (prod), `smoke` (the default) for every other: staging shares the
+ * bucket and holds copies of prod's rows, so it only ever deletes the files
+ * of the smoke's throwaway games (`smoke-<stamp>`).
+ */
+export type MediaPurgeScope = "all" | "smoke";
+
+/** The key prefix a scope covers. */
+export function mediaPurgePrefix(scope: MediaPurgeScope): string {
+  return scope === "all" ? "clips/" : "clips/smoke-";
+}
+
+/** A function secret's value as a scope: anything but "all" is the safe default. */
+export function mediaPurgeScopeOf(value: string | null | undefined): MediaPurgeScope {
+  return value?.trim().toLowerCase() === "all" ? "all" : "smoke";
+}
+
+const MEDIA_CLIP_URL_RE = /^https?:\/\/[^/?#]+(?:\/[^?#]*)?\/(clips\/[A-Za-z0-9-]{1,64}\/\d{1,12}_pre-?\d{1,4}\.\d_post-?\d{1,4}\.\d(?:_s\d{1,6}\.\d)?\.mp4)$/;
+
+/**
+ * The clip key a shipped clip's public URL serves (the end of its path), or
+ * null for anything else: the migration's `_media_clip_key`, which queues
+ * the key a clip stops pointing at.
+ */
+export function mediaClipKeyFromUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const m = MEDIA_CLIP_URL_RE.exec(url);
+  return m && CLIP_SHIP_KEY_RE.test(m[1]) ? m[1] : null;
+}
+
+/** The nightly purge of superseded clip files (x-purge-secret; pg_cron through run_game_video_purge). */
+export interface GameVideoMediaPurgeRequest {
+  action: "media_purge";
+}
+
+export interface GameVideoMediaPurgeResponse {
+  scope: MediaPurgeScope;
+  /** Files deleted: nothing referenced them any more. */
+  deleted: number;
+  /** Keys a playlist clip (or a live ship job) still uses: dropped from the queue, the file kept. */
+  kept: number;
+  /** Keys outside the clip scheme: left queued and reported (never touched). */
+  refused: number;
+  /** Deletes R2 refused: left queued for the next run. */
+  failed: number;
+  /** Queued keys in the scope still waiting (a run handles a batch). */
+  remaining: number;
+  /** Queued keys outside the scope, left for the project that owns the bucket. */
+  outOfScope: number;
+}
+
 export type GameVideoRequest =
   | GameVideoBeginRequest
   | GameVideoSignPartsRequest
@@ -937,7 +1198,9 @@ export type GameVideoRequest =
   | RenderTakeRequest
   | RenderProgressRequest
   | RenderDoneRequest
-  | RenderFailedRequest;
+  | RenderFailedRequest
+  | GameVideoSyncPeriodsSetRequest
+  | GameVideoMediaPurgeRequest;
 
 /** Every `{ error }` token the function answers with. */
 export const GAME_VIDEO_ERRORS = [
@@ -965,7 +1228,7 @@ export const GAME_VIDEO_ERRORS = [
   "converter_unavailable",
   /** A retry after the original was deleted (GAME_VIDEO_SOURCE_KEEP_DAYS). */
   "source_expired",
-  /** The game's sync is the coach's own: the web can't change it here. */
+  /** sync_set "confirmed" on a game whose sync is the coach's own (a "manual" set by the uploader always applies). */
   "sync_locked",
   "bad_worker_secret",
   /** A converter call carrying an attempt number that is no longer the row's. */
@@ -986,6 +1249,8 @@ export const GAME_VIDEO_ERRORS = [
   "cancelled",
   /** render_done of an export whose file is missing or under EXPORT_MIN_SEGMENT_BYTES. */
   "output_missing",
+  /** sync_periods_set on a game without a sync: a quarter's own sync refines the tip-off, so that comes first. */
+  "no_sync",
 ] as const;
 
 export type GameVideoError = (typeof GAME_VIDEO_ERRORS)[number];

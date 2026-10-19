@@ -17,9 +17,16 @@
 //     remove         drop a ready, converting or failed copy (and its original)
 //     play           presigned GET for the uploader (12 h)
 //     retry_convert  run a failed conversion again while the original is kept
-//     sync_set       the uploader confirms or sets the sync the converter found
+//     sync_set       the uploader confirms or sets the tip-off (a manual set is
+//                    theirs and always applies; a confirm never overrides a
+//                    coach's own sync)
+//     sync_periods_set
+//                    the uploader writes the game's per-quarter syncs (a video
+//                    that skips the breaks), and the tip-off with them when given
 //     purge          drain the deletion queue (x-purge-secret: pg_cron nightly,
 //                    the web's delete-account route, the smoke script)
+//     media_purge    delete superseded clip files nothing references any more
+//                    (x-purge-secret: pg_cron nightly; media.ts)
 //     sweep          conversions housekeeping (x-worker-secret: pg_cron every 10 min)
 //     job_take, job_progress, job_sign_parts, job_done, job_failed
 //                    the converter's calls (x-worker-secret), each fenced by the
@@ -50,6 +57,9 @@
 //   are project-wide); without them `ship`, a share `export` and their
 //   `render_take` answer renderer_unavailable. A share's link is
 //   `${APP_URL}/h/<id>` (send-email's APP_URL; default https://app.scoutable.se).
+//   MEDIA_PURGE_SCOPE=all on the project that owns the media bucket (prod)
+//   lets media_purge delete every superseded clip file; unset, it deletes only
+//   the smoke's (staging shares the bucket and holds copies of prod's rows).
 //   verify_jwt = false in supabase/config.toml: pg_cron's calls carry a secret
 //   header, not a JWT, so every user action checks the JWT itself
 //   (admin.auth.getUser), as genius does.
@@ -76,6 +86,7 @@ import {
   gameVideoSourceKey,
   isValidKeyPrefix,
   parseListParts,
+  parseSyncPeriodsPayload,
   partsComplete,
   planParts,
   sourceExtension,
@@ -85,7 +96,10 @@ import {
   type GameVideoPurgeResponse,
   type GameVideoSweepResponse,
   type GameVideoSyncOutcome,
+  type GameVideoSyncPeriodsSetResponse,
+  type GameVideoSyncStatus,
 } from "../../../packages/shared/lib/game-video-wire.ts";
+import type { SyncPointLike } from "../../../packages/shared/lib/clip-ship-plan.ts";
 import {
   CONVERT_SECRET,
   CONVERT_URL,
@@ -120,6 +134,7 @@ import {
   type Payload,
 } from "./common.ts";
 import { exportLink, exportPlaylist, renderCancel } from "./export.ts";
+import { purgeMedia } from "./media.ts";
 import { invalidateShippedClipsAfterSync, renderDone, renderFailed, renderProgress, renderTake, ship, sweepRenders } from "./render.ts";
 
 const PURGE_BATCH = 100;
@@ -697,6 +712,26 @@ async function retryConvert(admin: SupabaseClient, userId: string, p: Payload): 
   return ok({ videoId, status: "converting" });
 }
 
+/** The game's sync point as stored, for the clips to follow from (null when the row or the sync isn't there). */
+async function storedSync(admin: SupabaseClient, matchId: string): Promise<SyncPointLike | null> {
+  const { data } = await admin.from("matches").select("sync_point").eq("id", matchId).maybeSingle();
+  const sync = (data as { sync_point?: SyncPointLike | null } | null)?.sync_point ?? null;
+  return sync && typeof sync.syncVideoTime === "number" ? sync : null;
+}
+
+/**
+ * The game's plays moved in the video: the uploader's clips of it follow, as
+ * after a desktop sync change (pans moved, stale shared cuts cut again).
+ * Best effort, like the desktop's: the sync is saved whatever happens here.
+ */
+async function clipsFollowSync(admin: SupabaseClient, matchId: string, userId: string, before: SyncPointLike | null): Promise<void> {
+  try {
+    await invalidateShippedClipsAfterSync(admin, matchId, userId, before);
+  } catch (e) {
+    console.error("[game-video] re-shipping after a sync change failed:", e instanceof Error ? e.message : String(e));
+  }
+}
+
 async function syncSet(admin: SupabaseClient, userId: string, p: Payload): Promise<Response> {
   const videoId = optString(p.videoId, 36);
   if (!videoId || !UUID_RE.test(videoId)) return err(400, "invalid_request");
@@ -705,6 +740,8 @@ async function syncSet(admin: SupabaseClient, userId: string, p: Payload): Promi
   const seconds = p.seconds === undefined || p.seconds === null ? null : optNumber(p.seconds);
   if (p.seconds !== undefined && p.seconds !== null && seconds === null) return err(400, "invalid_request");
   if (status === "manual" && seconds === null) return err(400, "invalid_request");
+  const row = await ownRow(admin, userId, videoId);
+  const before = row ? await storedSync(admin, row.match_id) : null;
   const { data, error } = await admin.rpc("_game_video_set_sync", {
     p_video_id: videoId,
     p_user: userId,
@@ -713,19 +750,31 @@ async function syncSet(admin: SupabaseClient, userId: string, p: Payload): Promi
   });
   if (error) return rpcError(error.message);
   const result = data as { sync_status?: string; seconds?: number } | null;
-
-  // The game's plays moved in the video: shipped clips of it follow, as after
-  // a desktop sync change. Best effort, like the desktop's: the sync is saved
-  // whatever happens here.
-  const row = await loadRow(admin, videoId).catch(() => null);
-  if (row) {
-    try {
-      await invalidateShippedClipsAfterSync(admin, row.match_id, userId);
-    } catch (e) {
-      console.error("[game-video] re-shipping after a sync change failed:", e instanceof Error ? e.message : String(e));
-    }
-  }
+  if (row) await clipsFollowSync(admin, row.match_id, userId, before);
   return ok({ videoId, syncStatus: result?.sync_status ?? status, seconds: result?.seconds ?? seconds });
+}
+
+/**
+ * `sync_periods_set`: the uploader's per-quarter syncs for a video that skips
+ * the breaks (and the tip-off with them when given), checked here and again
+ * by `_game_video_set_periods`; then the clips follow as after sync_set.
+ */
+async function syncPeriodsSet(admin: SupabaseClient, userId: string, p: Payload): Promise<Response> {
+  const videoId = optString(p.videoId, 36);
+  if (!videoId || !UUID_RE.test(videoId)) return err(400, "invalid_request");
+  const syncPoint = parseSyncPeriodsPayload(p.syncPoint);
+  if (!syncPoint) return err(400, "invalid_request");
+  const row = await ownRow(admin, userId, videoId);
+  const before = row ? await storedSync(admin, row.match_id) : null;
+  const { data, error } = await admin.rpc("_game_video_set_periods", {
+    p_video_id: videoId,
+    p_user: userId,
+    p_sync: syncPoint,
+  });
+  if (error) return rpcError(error.message);
+  const result = data as { sync_point?: Record<string, unknown>; sync_status?: GameVideoSyncStatus | null } | null;
+  if (row) await clipsFollowSync(admin, row.match_id, userId, before);
+  return ok({ videoId, syncPoint: result?.sync_point ?? {}, syncStatus: result?.sync_status ?? null } satisfies GameVideoSyncPeriodsSetResponse);
 }
 
 // ---------------------------------------------------------------------------
@@ -1058,10 +1107,10 @@ Deno.serve(async (req) => {
     // to offer. (Comparing a bearer with SUPABASE_SERVICE_ROLE_KEY was tried
     // and doesn't hold: the value the runtime injects isn't the key the CLI
     // lists for new projects.)
-    if (action === "purge") {
+    if (action === "purge" || action === "media_purge") {
       const secret = req.headers.get("x-purge-secret");
       if (secret === null || PURGE_SECRET.length === 0 || !safeEqual(secret, PURGE_SECRET)) return err(401, "bad_purge_secret");
-      return await purge(admin);
+      return action === "purge" ? await purge(admin) : await purgeMedia(admin);
     }
     // render_cancel is the owner's (a session, below); every other render_* is the renderer's.
     if (action === "sweep" || action.startsWith("job_") || (action.startsWith("render_") && action !== "render_cancel")) {
@@ -1115,6 +1164,8 @@ Deno.serve(async (req) => {
         return await retryConvert(admin, userId, payload);
       case "sync_set":
         return await syncSet(admin, userId, payload);
+      case "sync_periods_set":
+        return await syncPeriodsSet(admin, userId, payload);
       case "ship":
         return await ship(admin, userId, payload);
       case "export":

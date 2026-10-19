@@ -24,12 +24,15 @@ import type {
   GameVideoSignPartsResponse,
   GameVideoSyncSetRequest,
   GameVideoSyncSetResponse,
+  GameVideoSyncPeriodsSetRequest,
+  GameVideoSyncPeriodsSetResponse,
   ShipResponse,
   ExportRequest,
   ExportResponse,
   ExportLinkResponse,
   RenderCancelResponse,
 } from "./game-video-wire";
+import { parseSyncPeriodsPayload } from "./game-video-wire";
 
 export const GAME_VIDEO_FUNCTION = "game-video";
 
@@ -115,10 +118,30 @@ export function cancelRender(supabase: SupabaseClient, jobId: string): Promise<F
   return invokeEdgeFunction<RenderCancelResponse>(supabase, GAME_VIDEO_FUNCTION, { action: "render_cancel", jobId });
 }
 
-/** Confirm the sync the converter found, or set it by hand; `sync_locked` when the coach's own sync is in place. */
+/**
+ * Confirm the sync the converter found, or set it by hand. A manual set
+ * always applies (it is the uploader's own); `sync_locked` answers a confirm
+ * when the coach's own sync is in place.
+ */
 export function setGameVideoSync(
   supabase: SupabaseClient,
   body: Body<GameVideoSyncSetRequest>,
 ): Promise<FunctionResult<GameVideoSyncSetResponse>> {
   return invokeEdgeFunction<GameVideoSyncSetResponse>(supabase, GAME_VIDEO_FUNCTION, { action: "sync_set", ...body });
+}
+
+/**
+ * Write the game's per-quarter syncs (and the tip-off with them when
+ * `syncPoint.syncVideoTime` is given); build the payload with
+ * syncPeriodsPayloadOf. A payload the function would refuse is answered
+ * `invalid_request` here without a request; `no_sync` when the game has no
+ * sync yet, `not_found` unless the caller uploaded the video.
+ */
+export async function setGameVideoPeriods(
+  supabase: SupabaseClient,
+  body: Body<GameVideoSyncPeriodsSetRequest>,
+): Promise<FunctionResult<GameVideoSyncPeriodsSetResponse>> {
+  const syncPoint = parseSyncPeriodsPayload(body.syncPoint);
+  if (!syncPoint) return { ok: false, error: "invalid_request" };
+  return invokeEdgeFunction<GameVideoSyncPeriodsSetResponse>(supabase, GAME_VIDEO_FUNCTION, { action: "sync_periods_set", videoId: body.videoId, syncPoint });
 }
