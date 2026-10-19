@@ -2,12 +2,14 @@
 
 import { Play } from "lucide-react";
 import { PlayerStage } from "@/components/player/player-stage";
+import { CardImage } from "@/components/stats-card/card-image";
 import { ClipTrimmer } from "./clip-trimmer";
 import type { EditorPlayback } from "./use-editor-playback";
 
 /**
  * The editor's stage: the owner's cloud copies played as windows through
- * the watch queue, a text card over black footage while it shows, Play when
+ * the watch queue, a card over black footage while it shows (a stats card
+ * painted as it exports), Play when
  * nothing is up, and the trim bar in the chrome while a clip's ends are on
  * handles. The playlist's keys arrive through the stage's handle.
  */
@@ -57,7 +59,12 @@ export function EditorPlayer({ playback, title, playableCount, onPlayAll, classN
     >
       {activeCard && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-black" onClick={(e) => e.stopPropagation()}>
-          <p className="px-8 text-center text-2xl font-semibold text-white sm:text-4xl">{activeCard.text}</p>
+          {/* A stats card is drawn as it exports (the players' watch view draws it the same); a text card is its line. */}
+          {activeCard.card ? (
+            <CardImage source={activeCard} aspect="16:9" className="size-full" />
+          ) : (
+            <p className="px-8 text-center text-2xl font-semibold text-white sm:text-4xl">{activeCard.text}</p>
+          )}
         </div>
       )}
       {/* Narrow, the controls' own centre button plays instead. */}

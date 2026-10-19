@@ -9,8 +9,10 @@ import { clamp } from "@scoutable/shared/lib/motion-math";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
 import { MAX_POST_ROLL_SECONDS, MAX_PRE_ROLL_SECONDS } from "@scoutable/shared/lib/playlist-edits";
 import type { WatchItem } from "@scoutable/shared/lib/watch-queue";
+import type { Label } from "@scoutable/shared/types/labels";
 import type { Playlist, PlaylistClipItem, StoredMatch } from "@scoutable/shared/types/match";
 import { ImportEntryLink } from "@/components/import/import-entry-link";
+import { labelDotClasses } from "@/components/labels/label-colors";
 import { PlayerStage, type PlayerStageHandle } from "@/components/player/player-stage";
 import { useMediaDuration, useMediaElement } from "@/components/player/use-media";
 import { useStageFullscreen } from "@/components/player/use-stage-fullscreen";
@@ -33,6 +35,7 @@ import { useAddClips } from "./use-add-clips";
 import type { EditorCloud } from "./use-playlist-editor";
 
 const noop = () => {};
+const EMPTY_SET: ReadonlySet<string> = new Set();
 
 export interface AddClipsSource {
   playlist: Playlist;
@@ -43,14 +46,17 @@ export interface AddClipsSource {
   /** The game to open on (`?add=<matchId>`). */
   initialMatchId: string | null;
   onAdd: (clips: PlaylistClipItem[]) => void | Promise<void>;
+  /** The space's labels: the Labels filter reads the bank's (`playlist_id IS NULL`), as the desktop's clip browser does. */
+  labels?: readonly Label[];
+  labelOrgId?: string | null;
 }
 
 /**
  * Adding clips to the playlist: one of the owner's games with a cloud
- * copy, its play-by-play filtered down (the desktop picker's filters and
- * Leaders), each play previewed as a window of the copy on a small stage,
- * ticked, and added with the preview's clip length kept as offsets on the
- * playlist's pair. Owns the keys while it is open (scope "add-clips"):
+ * copy, its play-by-play filtered down (the desktop picker's filters,
+ * Leaders and the bank's labels), each play previewed as a window of the
+ * copy on a small stage, ticked, and added with the preview's clip length
+ * kept as offsets on the playlist's pair. Owns the keys while it is open (scope "add-clips"):
  * the player's map, Return ticks the playing clip, ⌘A ticks every shown
  * clip, ⌘↩ adds, Esc closes.
  */
@@ -329,6 +335,23 @@ export function AddClipsContent({
             disabled={noGame}
           />
           <LeadersPopover events={picker.leaderEvents} selectedPlayers={picker.filters.players} onTogglePlayer={picker.togglePlayer} disabled={noGame} />
+          {picker.labels.length > 0 && (
+            <MultiSelectMenu
+              label="Labels"
+              options={picker.labels.map((l) => ({
+                value: l.id,
+                label: (
+                  <span className="inline-flex min-w-0 items-center gap-1.5">
+                    <span aria-hidden className={cn("size-2 shrink-0 rounded-full", labelDotClasses[l.color])} />
+                    <span className="truncate">{l.name}</span>
+                  </span>
+                ),
+              }))}
+              selected={picker.filters.labels ?? EMPTY_SET}
+              onChange={(s) => picker.setFilter("labels", s)}
+              disabled={noGame}
+            />
+          )}
           <div className="ml-auto">
             <Popover>
               <Tooltip>
@@ -475,6 +498,7 @@ export function AddClipsContent({
               isSelected={picker.selected.has(entry.key)}
               alreadyIn={picker.existing.has(entry.key)}
               isActive={q.activeKey === entry.key}
+              labels={picker.labels.length > 0 ? picker.labelsOf(entry.key) : undefined}
               onToggle={(e) => picker.applyClick(entry.key, e.shiftKey, !e.shiftKey)}
               onClick={(e) => {
                 if (e.shiftKey || e.metaKey || e.ctrlKey) {

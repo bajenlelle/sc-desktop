@@ -65,7 +65,7 @@ export function useEditorPlayback({
   cloud: EditorCloud;
   rolls: RollPair;
   /** A trim or a Reset: the clip's new offsets (use-playlist-editor's commitClipOffsets). */
-  onCommitOffsets: (key: string, pre: number, post: number) => void | Promise<void>;
+  onCommitOffsets: (key: string, pre: number, post: number) => unknown;
 }) {
   const { element: video, ref: videoRef, attach: attachVideo } = useMediaElement<HTMLVideoElement>();
   const [stage, setStage] = useState<HTMLDivElement | null>(null);

@@ -8,7 +8,8 @@
  * T trims the playing clip, R replays, M mutes, F is full screen, ⌘A selects
  * every row, Delete removes the selection (or the row the ring is on), Esc
  * leaves full screen or lets go of the selection. ⌥↑/⌥↓ move the focused
- * row (with its selection or group) one slot, and N starts a new playlist.
+ * row (with its selection or group) one slot, and N starts a new playlist
+ * (in this playlist's folder). Return on a stats card opens it for editing.
  * Fields keep their keys; the trim bar and the add-clips panel register
  * their own scopes on top while they are open.
  */
@@ -33,6 +34,7 @@ export function useEditorKeys({
   removeKeys,
   onNewPlaylist,
   onTrimRefused,
+  onEditRow,
 }: {
   enabled: boolean;
   /** The rows' keys in display order. */
@@ -48,6 +50,8 @@ export function useEditorKeys({
   onNewPlaylist: () => void;
   /** T on a clip that can't be trimmed here (its game has no cloud copy). */
   onTrimRefused: () => void;
+  /** Return on a row that opens for editing rather than playing (a stats card); true when it did. */
+  onEditRow?: (key: string) => boolean;
 }) {
   useKeyScope("editor", enabled);
   useHotkeys(
@@ -183,7 +187,7 @@ export function useEditorKeys({
           if (!fromList || selection.focus === null) return;
           e.preventDefault();
           if (action === "row-menu") openRowMenu(selection.focus);
-          else playback.playRow(selection.focus, { holdCard: true });
+          else if (!onEditRow?.(selection.focus)) playback.playRow(selection.focus, { holdCard: true });
           return;
         }
       }

@@ -2,9 +2,10 @@
 
 import * as React from "react";
 import { motion } from "framer-motion";
-import { GripVertical, MoreHorizontal } from "lucide-react";
+import { GripVertical, Link2, MoreHorizontal, X } from "lucide-react";
 import type { GroupRunInfo } from "@scoutable/shared/lib/clip-groups";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Popover, PopoverAnchor } from "@/components/ui/popover";
 import { springs } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
@@ -67,6 +68,43 @@ function GroupRail({ pos }: { pos: GroupRunInfo["pos"] }) {
   );
 }
 
+/**
+ * On a group's first row: how many items move together, and the way to
+ * take the group apart (the desktop's GroupPill).
+ */
+export function GroupPill({ size, isSelected, onUngroup }: { size?: number; isSelected: boolean; onUngroup?: () => void }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-0.5 rounded-full py-0.5 pl-1.5 text-caption nums",
+        onUngroup ? "pr-0.5" : "pr-1.5",
+        isSelected ? "bg-white/20 text-selection-foreground" : "bg-primary/15 text-primary",
+      )}
+      title={`${size} items move together`}
+    >
+      <Link2 className="size-2.5" aria-hidden />
+      {size}
+      {onUngroup && (
+        <button
+          type="button"
+          aria-label="Ungroup"
+          title="Ungroup"
+          className={cn(
+            "ml-0.5 flex size-4 items-center justify-center rounded-full outline-none transition-[background-color,transform] duration-100 active:scale-90 focus-visible:ring-2 focus-visible:ring-selection pointer-coarse:size-6",
+            isSelected ? "hover:bg-white/25" : "hover:bg-primary/20",
+          )}
+          onClick={(e) => {
+            e.stopPropagation();
+            onUngroup();
+          }}
+        >
+          <X className="size-2.5" />
+        </button>
+      )}
+    </span>
+  );
+}
+
 /** The row's leading column: the group rail and the selection checkbox (shown on hover, or while anything is selected). */
 export function RowLead({
   groupPos,
@@ -113,41 +151,98 @@ export function rowClasses({ isSelected, dimmed = false }: { isSelected: boolean
   );
 }
 
+/** A popover one of the menu's items opens in its place (Labels…, Add to playlist…), anchored to the same button. */
+export interface RowPopover {
+  open: boolean;
+  /**
+   * Picked from the menu and waiting for it to go: the menu, still on its
+   * way out under the pointer, would take the focus back and so dismiss a
+   * popover that opened at once. RowMenu opens it (onOpenChange(true)) the
+   * moment the menu has closed.
+   */
+  pending?: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Its panel: a PopoverContent. */
+  content: React.ReactNode;
+}
+
+const noop = () => {};
+
 /**
  * The row's ⋯ menu. Controlled, so a right-click on the row and Shift+F10
- * open the same menu, anchored to this button either way.
+ * open the same menu, anchored to this button either way. An item may open
+ * a popover from the same button: the menu goes, and as it finishes going
+ * the popover grows out of where it was, taking the focus the menu would
+ * have handed back.
  */
 export function RowMenu({
   open,
   onOpenChange,
   isSelected,
   children,
+  popover,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   isSelected: boolean;
   children: React.ReactNode;
+  popover?: RowPopover;
 }) {
+  const popoverOpen = popover?.open ?? false;
+  const pending = popover?.pending ?? false;
+  const onPopoverOpenChange = React.useRef(popover?.onOpenChange);
+  React.useLayoutEffect(() => {
+    onPopoverOpenChange.current = popover?.onOpenChange;
+  });
+  // A popover picked from the menu opens on the first frame the menu is gone
+  // from the page: before that, the closing menu takes the focus back.
+  const menuRef = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    if (!pending || open) return;
+    let frame = 0;
+    const wait = () => {
+      if (menuRef.current?.isConnected) frame = requestAnimationFrame(wait);
+      else onPopoverOpenChange.current?.(true);
+    };
+    frame = requestAnimationFrame(wait);
+    return () => cancelAnimationFrame(frame);
+  }, [pending, open]);
   return (
-    <DropdownMenu open={open} onOpenChange={onOpenChange}>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label="More"
-          className={cn(
-            "flex size-6 items-center justify-center rounded-md outline-none transition-[opacity,background-color,transform] duration-100 active:scale-95 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-selection pointer-coarse:size-8",
-            isSelected ? "hover:bg-white/15" : "hover:bg-fill-2",
-            REVEAL,
-          )}
+    <Popover open={popoverOpen} onOpenChange={popover?.onOpenChange ?? noop}>
+      <DropdownMenu open={open} onOpenChange={onOpenChange}>
+        <PopoverAnchor asChild>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label="More"
+              className={cn(
+                "flex size-6 items-center justify-center rounded-md outline-none transition-[opacity,background-color,transform] duration-100 active:scale-95 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-selection pointer-coarse:size-8",
+                isSelected ? "hover:bg-white/15" : "hover:bg-fill-2",
+                REVEAL,
+                popoverOpen && "opacity-100",
+              )}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <MoreHorizontal className="size-3.5 pointer-coarse:size-4" />
+            </button>
+          </DropdownMenuTrigger>
+        </PopoverAnchor>
+        <DropdownMenuContent
+          ref={menuRef}
+          align="end"
+          className="w-56"
           onClick={(e) => e.stopPropagation()}
+          onCloseAutoFocus={(e) => {
+            // The popover takes the focus, not this button.
+            if (popoverOpen || pending) e.preventDefault();
+          }}
         >
-          <MoreHorizontal className="size-3.5 pointer-coarse:size-4" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56" onClick={(e) => e.stopPropagation()}>
-        {children}
-      </DropdownMenuContent>
-    </DropdownMenu>
+          {children}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {/* Mounted while open and on its way out (PopoverContent's own presence). */}
+      {popover?.content}
+    </Popover>
   );
 }
 

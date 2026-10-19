@@ -63,16 +63,18 @@ export function ExportMenuItems({ exporter, onExport }: { exporter: UseExport; o
 /**
  * The editor's toolbar actions, the desktop's in the web's bar: where the
  * server is with the shared clips and with an export, the playlist's clip
- * length, Add clips with the cards behind its chevron, Share (filled once
- * anyone receives it; hidden in a personal space, which has nobody to share
- * with), and the rest behind ⋯, the two exports among them. The stats card
- * waits for M3c.
+ * length, Add clips with the cards behind its chevron (a stats card once a
+ * clip's game has the league's stats, else the reason it can't yet), Share
+ * (filled once anyone receives it; hidden in a personal space, which has
+ * nobody to share with), and the rest behind ⋯, the two exports among them.
  */
 export function EditorActions({
   rolls,
   onRolls,
   onAddClips,
   onAddTextCard,
+  onAddStatsCard,
+  statsCardDisabledReason = null,
   canShare,
   sharedTeams,
   sharedPeople,
@@ -89,6 +91,10 @@ export function EditorActions({
   /** Opens the add-clips panel; the button's box is where it grows out of. */
   onAddClips: (from: DOMRect) => void;
   onAddTextCard: () => void;
+  /** Opens the stats card inspector for a new card. */
+  onAddStatsCard?: () => void;
+  /** Why a stats card can't be added yet (no clip from a game with stats). */
+  statsCardDisabledReason?: string | null;
   canShare: boolean;
   sharedTeams: number;
   sharedPeople: number;
@@ -102,6 +108,7 @@ export function EditorActions({
   onDelete: () => void;
 }) {
   const shared = sharedTeams + sharedPeople > 0;
+  const statsReason = !onAddStatsCard ? "Coming soon" : statsCardDisabledReason;
   return (
     <>
       <ShipPill ship={ship} />
@@ -153,12 +160,16 @@ export function EditorActions({
               <Type />
               Add text card
             </DropdownMenuItem>
-            <DropdownMenuItem disabled>
+            <DropdownMenuItem disabled={statsReason !== null} onSelect={onAddStatsCard}>
               <BarChart3 />
-              <span className="flex flex-col">
-                <span>Add stats card</span>
-                <span className="text-callout opacity-70">Coming soon</span>
-              </span>
+              {statsReason ? (
+                <span className="flex flex-col">
+                  <span>Add stats card</span>
+                  <span className="text-callout opacity-70">{statsReason}</span>
+                </span>
+              ) : (
+                "Add stats card"
+              )}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

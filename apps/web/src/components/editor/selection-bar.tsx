@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { FileDown, Trash2, X } from "lucide-react";
+import { FileDown, Link2, Trash2, Unlink2, X } from "lucide-react";
 import type { ExportPurpose } from "@scoutable/shared/lib/game-video-wire";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { fadeVariants, riseVariants, useReducedMotionSafe } from "@/lib/motion";
@@ -10,11 +10,11 @@ import { cn } from "@/lib/utils";
 import { ExportMenuItems } from "./editor-actions";
 import type { UseExport } from "./use-export";
 
-/** Labels show when the list column is wide enough (a container query on the list); icons carry the meaning below that. */
-const PILL_LABEL = "hidden @min-[24rem]:inline";
+/** Labels show when the list column is wide enough for all of them (a container query on the list); icons carry the meaning below that. */
+export const PILL_LABEL = "hidden @min-[34rem]:inline";
 
 /** A compact action in the selection pill. */
-function PillButton({
+export function PillButton({
   className,
   tone = "default",
   icon = false,
@@ -28,7 +28,7 @@ function PillButton({
         icon && "w-7 justify-center px-0 pointer-coarse:w-9",
         tone === "destructive"
           ? "text-destructive hover:bg-destructive/10 active:bg-destructive/20"
-          : "text-foreground hover:bg-fill-2 active:bg-fill-4",
+          : "text-foreground hover:bg-fill-2 active:bg-fill-4 data-[state=open]:bg-fill-3",
         className,
       )}
       {...props}
@@ -36,29 +36,46 @@ function PillButton({
   );
 }
 
+/** The selection bar's Group or Ungroup. */
+export interface SelectionGroupButton {
+  kind: "group" | "ungroup";
+  onClick: () => void;
+}
+
 /**
  * What you can do with the rows you picked, floating over the bottom of the
  * list the moment something is selected and leaving the same way. It never
  * pushes the rows around. The parent must be a `@container` and positioned.
  * Under reduced motion it cross-fades; the material goes solid under
- * reduced transparency (globals.css). Export offers the toolbar's two
- * verbs for just the rows picked.
+ * reduced transparency (globals.css). Group locks the picked rows together
+ * (Ungroup when they already are one group), Label and Add to open their
+ * popovers above the bar, Export offers the toolbar's two verbs for just the
+ * rows picked.
  */
 export function SelectionBar({
   count,
   onRemove,
   onClear,
+  group,
+  labelPicker,
+  addTo,
   exporter,
   onExport,
 }: {
   count: number;
   onRemove: () => void;
   onClear: () => void;
+  group?: SelectionGroupButton | null;
+  /** The labels picker, on its own Label button (only when clips are picked). */
+  labelPicker?: React.ReactNode;
+  /** "Add to", on its own button (only when clips are picked). */
+  addTo?: React.ReactNode;
   /** With both, an Export menu: a download or a link of the selection. */
   exporter?: UseExport;
   onExport?: (purpose: ExportPurpose) => void;
 }) {
   const reduced = useReducedMotionSafe();
+  const groupLabel = group?.kind === "ungroup" ? "Ungroup" : "Group";
   return (
     <AnimatePresence>
       {count > 0 && (
@@ -79,6 +96,18 @@ export function SelectionBar({
               {count}
               <span className={cn(PILL_LABEL, "ml-1")}>selected</span>
             </span>
+            {group && (
+              <PillButton
+                onClick={group.onClick}
+                aria-label={groupLabel}
+                title={group.kind === "ungroup" ? "Let these items move on their own again" : "Keep these items together when reordering"}
+              >
+                {group.kind === "ungroup" ? <Unlink2 /> : <Link2 />}
+                <span className={PILL_LABEL}>{groupLabel}</span>
+              </PillButton>
+            )}
+            {labelPicker}
+            {addTo}
             {exporter && onExport && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -92,7 +121,7 @@ export function SelectionBar({
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-            <PillButton tone="destructive" onClick={onRemove} title="Remove from playlist">
+            <PillButton tone="destructive" onClick={onRemove} aria-label="Remove from playlist" title="Remove from playlist">
               <Trash2 />
               <span className={PILL_LABEL}>Remove</span>
             </PillButton>

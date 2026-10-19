@@ -3,14 +3,16 @@
 import * as React from "react";
 import { Check, Play } from "lucide-react";
 import { eventColors, eventLabel, formatGameClock, periodLabel, playerName } from "@scoutable/shared/lib/events";
+import type { Label } from "@scoutable/shared/types/labels";
 import type { PlayByPlayEvent } from "@scoutable/shared/types/match";
+import { LabelChips } from "@/components/labels/label-chip";
 import { cn } from "@/lib/utils";
 
 /**
- * One play in the add-clips picker: a tick box, the event badge and player,
- * then period, clock and team. A plain click plays it on the preview; ⌘ and
- * Shift tick it. A play already in the playlist shows a check and can't be
- * ticked again.
+ * One play in the add-clips picker: a tick box, the event badge and player
+ * with the play's bank labels, then period, clock and team. A plain click
+ * plays it on the preview; ⌘ and Shift tick it. A play already in the
+ * playlist shows a check and can't be ticked again.
  */
 export function AddClipsRow({
   rowKey,
@@ -18,6 +20,7 @@ export function AddClipsRow({
   isSelected,
   alreadyIn,
   isActive,
+  labels,
   onToggle,
   onClick,
 }: {
@@ -26,6 +29,8 @@ export function AddClipsRow({
   isSelected: boolean;
   alreadyIn: boolean;
   isActive: boolean;
+  /** The play's labels in the bank. */
+  labels?: readonly Label[];
   /** The checkbox: a tick, or with Shift the range from the anchor. */
   onToggle: (e: React.MouseEvent) => void;
   /** The row: plain plays it, ⌘ ticks it, Shift ticks the range. */
@@ -73,7 +78,8 @@ export function AddClipsRow({
           <span className={cn("inline-flex shrink-0 items-center rounded-full px-2 py-px text-[11px] font-medium pointer-coarse:text-xs", colors.badge)}>
             {eventLabel(event)}
           </span>
-          <span className="truncate text-sm font-medium">{playerName(event)}</span>
+          <span className={cn("truncate text-sm font-medium", labels && labels.length > 0 && "min-w-16")}>{playerName(event)}</span>
+          {labels && <LabelChips labels={labels} />}
         </div>
         <div className="flex min-w-0 items-center gap-1 text-subheadline text-muted-foreground nums">
           <span className="shrink-0">{periodLabel(event.period)}</span>

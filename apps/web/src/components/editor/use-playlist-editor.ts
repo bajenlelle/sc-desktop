@@ -14,19 +14,24 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { moveBlock, snapGapToGroupBoundary } from "@scoutable/shared/lib/clip-groups";
 import { playlistRolls, type RollPair } from "@scoutable/shared/lib/clip-timing";
+import { placedFolderId } from "@scoutable/shared/lib/folder-tree";
 import type { ExportPurpose } from "@scoutable/shared/lib/game-video-wire";
 import { pickGameVideoRow, type GameVideo } from "@scoutable/shared/lib/game-videos-db";
 import { itemsIndexForGap } from "@scoutable/shared/lib/list-reorder";
-import { getMatch, listEventsForMatches, listMatchesLight } from "@scoutable/shared/lib/matches-db";
+import { getMatch, listEventsForMatches, listFolders, listMatchesLight } from "@scoutable/shared/lib/matches-db";
 import {
   appendClips,
   clampRolls,
+  groupItems,
   insertCardAt,
   itemKey,
   pinnedPair,
   removeKeys,
   restoreRemoved,
+  restoreStructure,
+  ungroupItems,
   withCardDuration,
+  withCardSpec,
   withCardText,
   withClipOffsets,
   withNote,
@@ -45,17 +50,20 @@ import {
   updatePlaylist,
   updateTextCard,
 } from "@scoutable/shared/lib/playlists-db";
+import type { StatsCardSpec } from "@scoutable/shared/lib/stats-card";
 import {
   isClipItem,
   type PlayByPlayEvent,
   type Playlist,
   type PlaylistClipItem,
+  type PlaylistFolder,
   type PlaylistItem,
   type PlaylistTextCard,
   type StoredMatch,
   type SyncPoint,
 } from "@scoutable/shared/types/match";
 import { useAuth } from "@/components/auth-context";
+import { playlistsHref } from "@/components/folders/folder-nav";
 import { trackEvent } from "@/lib/analytics";
 import { useMyGameVideos } from "@/lib/game-videos";
 import { createClient } from "@/lib/supabase/client";
@@ -119,6 +127,8 @@ export function usePlaylistEditor(playlistId: string) {
   );
 
   const [matches, setMatches] = useState<Map<string, StoredMatch>>(() => new Map());
+  /** The space's folders: where Back goes, where N makes the next playlist, the paths Add to shows. */
+  const [folders, setFolders] = useState<PlaylistFolder[]>([]);
   const [eventsLoaded, setEventsLoaded] = useState<Set<string>>(() => new Set());
   const eventsLoadedRef = useRef<Set<string>>(new Set());
   const inflightRef = useRef<Map<string, Promise<void>>>(new Map());
@@ -173,11 +183,12 @@ export function usePlaylistEditor(playlistId: string) {
       }
       // The playlist's own space decides which games the picker offers; a
       // playlist from before spaces, or one in the personal space, also
-      // admits legacy games without one.
-      const own = await listMatchesLight(supabase, pl.orgId, {
-        ownOnly: true,
-        includeUnscoped: !pl.orgId || activeOrgIsPersonal,
-      }).catch(() => [] as StoredMatch[]);
+      // admits legacy games without one. Its folders come along.
+      const scope = { includeUnscoped: !pl.orgId || activeOrgIsPersonal };
+      const [own, folderRows] = await Promise.all([
+        listMatchesLight(supabase, pl.orgId, { ownOnly: true, ...scope }).catch(() => [] as StoredMatch[]),
+        listFolders(supabase, pl.orgId, scope).catch(() => [] as PlaylistFolder[]),
+      ]);
       if (cancelled) return;
       const map = new Map(own.map((m) => [m.id, m]));
       const referenced = collectClipMatchIds([pl]);
@@ -198,6 +209,7 @@ export function usePlaylistEditor(playlistId: string) {
       eventsLoadedRef.current = new Set([...known, ...extra.filter((m): m is StoredMatch => !!m).map((m) => m.id)]);
       setEventsLoaded(new Set(eventsLoadedRef.current));
       setMatches(map);
+      setFolders(folderRows);
       setPlaylist(pl);
       setLoaded({ id: playlistId, status: "ready" });
     })();
@@ -303,6 +315,10 @@ export function usePlaylistEditor(playlistId: string) {
 
   const rolls = useMemo<RollPair>(() => playlistRolls(playlist), [playlist]);
 
+  /** The folder the playlist is listed in on the Playlists page; null at the top level (or when its folder is gone). */
+  const folderId = useMemo(() => placedFolderId(new Set(folders.map((f) => f.id)), playlist?.folderId), [folders, playlist?.folderId]);
+  const folder = useMemo(() => (folderId ? (folders.find((f) => f.id === folderId) ?? null) : null), [folders, folderId]);
+
   // ---------------------------------------------------------------------------
   // Shipping
   // ---------------------------------------------------------------------------
@@ -399,32 +415,43 @@ export function usePlaylistEditor(playlistId: string) {
     [patch, setPlaylist, requestShip],
   );
 
-  /** A text card before the item under `beforeKey` (or at the end); answers the new card's id for the row to focus. */
+  /**
+   * A card before the item under `beforeKey` (or at the end; never inside a
+   * group), a plain text card or, with `stats`, a stats card (5 s, its line
+   * as the text). Answers the new card's id for the row to focus. The stats
+   * card's analytics are the caller's (trackStatsCardInserted).
+   */
   const insertCard = useCallback(
-    async (beforeKey: string | null, entry: "menu" | "row"): Promise<string | null> => {
+    async (beforeKey: string | null, entry: "menu" | "row" | "suggestion", stats?: { spec: StatsCardSpec; text: string }): Promise<string | null> => {
       const before = playlistRef.current;
       if (!before) return null;
-      const card: PlaylistTextCard = { type: "text", id: crypto.randomUUID(), text: "", durationSeconds: 5 };
+      const card: PlaylistTextCard = {
+        type: "text",
+        id: crypto.randomUUID(),
+        text: stats?.text ?? "",
+        durationSeconds: 5,
+        ...(stats ? { card: stats.spec } : {}),
+      };
       const next = insertCardAt(before, card, beforeKey);
       const position = next.items.findIndex((i) => i === card);
       setPlaylist(next);
       try {
         const supabase = createClient();
-        await insertTextCard(supabase, before.id, card.id, card.text, card.durationSeconds, position);
+        await insertTextCard(supabase, before.id, card.id, card.text, card.durationSeconds, position, stats?.spec);
         await reorderItems(supabase, before.id, next.items);
       } catch {
         patch((p) => ({ ...p, items: p.items.filter((i) => isClipItem(i) || i.id !== card.id) }));
-        toast.error("Couldn't add the card", { description: "Check your connection and try again." });
+        toast.error(stats ? "Couldn't add the stats card" : "Couldn't add the card", { description: "Check your connection and try again." });
         return null;
       }
-      trackEvent("text_card_inserted", { entry, origin: "web" });
+      if (!stats) trackEvent("text_card_inserted", { entry, origin: "web" });
       return card.id;
     },
     [patch, setPlaylist],
   );
 
   const updateCard = useCallback(
-    async (cardId: string, change: { text?: string; durationSeconds?: number }) => {
+    async (cardId: string, change: { text?: string; durationSeconds?: number; card?: StatsCardSpec }) => {
       const before = playlistRef.current;
       if (!before) return;
       const was = before.items.find((i): i is PlaylistTextCard => !isClipItem(i) && i.id === cardId);
@@ -433,13 +460,14 @@ export function usePlaylistEditor(playlistId: string) {
         let next = p;
         if (change.text !== undefined) next = withCardText(next, cardId, change.text);
         if (change.durationSeconds !== undefined) next = withCardDuration(next, cardId, change.durationSeconds);
+        if (change.card !== undefined) next = withCardSpec(next, cardId, change.card);
         return next;
       });
       try {
         await updateTextCard(createClient(), before.id, cardId, change);
       } catch {
         patch((p) => ({ ...p, items: p.items.map((i) => (!isClipItem(i) && i.id === cardId ? was : i)) }));
-        toast.error("Couldn't save the card");
+        toast.error(change.card ? "Couldn't save the stats card" : "Couldn't save the card");
       }
     },
     [patch],
@@ -548,18 +576,71 @@ export function usePlaylistEditor(playlistId: string) {
   );
 
   /**
-   * The one way a clip's own length changes (a trim, Reset): applied at
-   * once, saved, and put back with a toast if the save fails. The first
-   * offset on a playlist without a saved pair pins the pair first, so a
-   * later default can't move the clip. A file recipients already have was
-   * cut at the old length: it is cleared and, in a shared playlist, cut again.
+   * The picked items locked together as one group, the desktop's Group:
+   * groups the selection touches come along whole, and the members are
+   * pulled together at the first one's place. Written as one reorder (the
+   * RPC records membership); if the write fails, the order and groups go
+   * back as they were, over anything else changed since. False when there
+   * was nothing to group.
+   */
+  const group = useCallback(
+    function group(keys: ReadonlySet<string>): boolean {
+      const before = playlistRef.current;
+      if (!before) return false;
+      const res = groupItems(before, keys, crypto.randomUUID());
+      if (!res) return false;
+      setPlaylist(res.playlist);
+      reorderItems(createClient(), before.id, res.playlist.items)
+        .then(() => trackEvent("clips_grouped", { playlist_id: before.id, clip_count: res.members.length, origin: "web" }))
+        .catch(() => {
+          patch((p) => restoreStructure(p, before));
+          toast.error("Couldn't group the items", {
+            description: "They're back as they were.",
+            action: { label: "Try again", onClick: () => void group(keys) },
+          });
+        });
+      return true;
+    },
+    [patch, setPlaylist],
+  );
+
+  /** The group taken apart, its items left where they are; put back if the write fails. */
+  const ungroup = useCallback(
+    function ungroup(groupId: string): boolean {
+      const before = playlistRef.current;
+      if (!before) return false;
+      const { playlist: next, count } = ungroupItems(before, groupId);
+      if (count === 0) return false;
+      setPlaylist(next);
+      reorderItems(createClient(), before.id, next.items)
+        .then(() => trackEvent("clips_ungrouped", { clip_count: count, origin: "web" }))
+        .catch(() => {
+          patch((p) => restoreStructure(p, before));
+          toast.error("Couldn't ungroup the items", {
+            description: "They're back as they were.",
+            action: { label: "Try again", onClick: () => void ungroup(groupId) },
+          });
+        });
+      return true;
+    },
+    [patch, setPlaylist],
+  );
+
+  /**
+   * The one way a clip's own length changes (a trim, Reset, Fix sync's "Just
+   * this clip"): applied at once, saved, and put back with a toast if the
+   * save fails (`quiet`: no toast, the caller says so). The first offset on
+   * a playlist without a saved pair pins the pair first, so a later default
+   * can't move the clip. A file recipients already have was cut at the old
+   * length: it is cleared and, in a shared playlist, cut again. True once the
+   * new length is saved.
    */
   const commitClipOffsets = useCallback(
-    async (key: string, pre: number, post: number) => {
+    async (key: string, pre: number, post: number, opts: { quiet?: boolean } = {}): Promise<boolean> => {
       const before = playlistRef.current;
-      if (!before) return;
+      if (!before) return false;
       const clip = before.items.find((i): i is PlaylistClipItem => isClipItem(i) && itemKey(i) === key);
-      if (!clip) return;
+      if (!clip) return false;
       const supabase = createClient();
       const pin = pinnedPair(before);
       if (pin) {
@@ -580,12 +661,12 @@ export function usePlaylistEditor(playlistId: string) {
             isClipItem(i) && itemKey(i) === key && (i.preRollOffset ?? 0) === pre && (i.postRollOffset ?? 0) === post ? clip : i,
           ),
         }));
-        toast.error("Couldn't save the clip's length");
-        return;
+        if (!opts.quiet) toast.error("Couldn't save the clip's length");
+        return false;
       }
       if (!shippedUrl) {
         requestShip("trim");
-        return;
+        return true;
       }
       const clearUpload = async () => {
         try {
@@ -609,9 +690,24 @@ export function usePlaylistEditor(playlistId: string) {
         }
       };
       await clearUpload();
+      return true;
     },
     [patch, requestShip],
   );
+
+  /**
+   * A game's sync after Fix sync moved it (the sheet wrote it): the clips'
+   * windows follow at once. The server re-cuts the shared clips it reached.
+   */
+  const applySync = useCallback((matchId: string, syncPoint: SyncPoint) => {
+    setMatches((prev) => {
+      const m = prev.get(matchId);
+      if (!m) return prev;
+      const next = new Map(prev);
+      next.set(matchId, { ...m, syncPoint });
+      return next;
+    });
+  }, []);
 
   const noteTimersRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
@@ -655,12 +751,13 @@ export function usePlaylistEditor(playlistId: string) {
     try {
       await dbDeletePlaylist(createClient(), before.id);
       trackEvent("playlist_deleted", { playlist_id: before.id, clips: before.items.filter(isClipItem).length });
-      router.push("/playlists");
+      // Back to the folder it was in.
+      router.push(playlistsHref(folderId));
     } catch {
       setDeleting(false);
       toast.error("Couldn't delete the playlist", { description: "Check your connection and try again." });
     }
-  }, [router]);
+  }, [router, folderId]);
 
   return {
     status,
@@ -674,6 +771,9 @@ export function usePlaylistEditor(playlistId: string) {
     intents,
     consumeIntents,
     ensureEventsFor,
+    folders,
+    folderId,
+    folder,
     ship,
     onShared,
     rename,
@@ -683,7 +783,10 @@ export function usePlaylistEditor(playlistId: string) {
     updateCard,
     removeItems,
     reorder,
+    group,
+    ungroup,
     commitClipOffsets,
+    applySync,
     setNote,
     deletePlaylist,
     deleting,

@@ -5,19 +5,38 @@ import Link from "next/link";
 import { MessageSquare, Play, Trash2 } from "lucide-react";
 import type { GroupRunInfo } from "@scoutable/shared/lib/clip-groups";
 import { eventColors, eventLabel, formatGameClock, periodLabel, playerName } from "@scoutable/shared/lib/events";
+import type { Label } from "@scoutable/shared/types/labels";
 import type { PlaylistClipItem } from "@scoutable/shared/types/match";
+import { LabelChips } from "@/components/labels/label-chip";
 import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { availabilityNotice, type EditorRow } from "./editor-rows";
-import { ActiveRowPill, DragGrip, FocusRing, REVEAL, RowLead, RowMenu, rowClasses, type RowDragProps } from "./row-parts";
+import { ActiveRowPill, DragGrip, FocusRing, GroupPill, REVEAL, RowLead, RowMenu, rowClasses, type RowDragProps, type RowPopover } from "./row-parts";
+
+/** The menu's sections, each a list of items or nothing, with a line between the ones that have any. */
+export function MenuSections({ sections }: { sections: React.ReactNode[][] }) {
+  const shown = sections.map((items) => items.filter(Boolean)).filter((items) => items.length > 0);
+  return (
+    <>
+      {shown.map((items, i) => (
+        <React.Fragment key={i}>
+          {i > 0 && <DropdownMenuSeparator />}
+          {items}
+        </React.Fragment>
+      ))}
+    </>
+  );
+}
 
 /**
- * One clip in the editor's list: the event and player, then period, clock,
- * team and (in multi-game playlists) the game; a ± mark when its ends were
- * trimmed, a glyph when it carries a note; Remove on hover and a ⋯ menu that
- * a right-click opens too. A clip that can't play (its game has no cloud
- * copy yet) sits greyed with the reason and the way to fix it.
+ * One clip in the editor's list: the event and player with the clip's
+ * labels beside them, then period, clock, team and (in multi-game
+ * playlists) the game; a ± mark when its ends were trimmed, a glyph when it
+ * carries a note; Remove on hover and a ⋯ menu that a right-click opens too.
+ * A group's first row carries the group's pill. A clip that can't play (its
+ * game has no cloud copy yet) sits greyed with the reason and the way to fix
+ * it.
  */
 export function EditorClipRow({
   domId,
@@ -30,12 +49,21 @@ export function EditorClipRow({
   anySelected,
   menuOpen,
   onMenuOpenChange,
+  menuPopover,
   onSelect,
   onClick,
   drag,
   onTrim,
+  onFixSync,
   onInsertTextCardAbove,
+  onInsertStatsCardAbove,
+  onLabels,
+  onAddTo,
+  onGroupSelection,
+  selectionCount = 0,
+  onUngroup,
   onRemove,
+  labels,
   groupPos,
   groupSize,
 }: {
@@ -51,6 +79,8 @@ export function EditorClipRow({
   anySelected: boolean;
   menuOpen: boolean;
   onMenuOpenChange: (open: boolean) => void;
+  /** The labels picker or Add to, opened from the menu, anchored to its button. */
+  menuPopover?: RowPopover;
   /** The checkbox: a tick, or with Shift the range from the anchor. */
   onSelect: (e: React.MouseEvent) => void;
   /** The row: plain plays it, ⌘ ticks it, Shift ticks the range. */
@@ -58,8 +88,23 @@ export function EditorClipRow({
   drag: RowDragProps;
   /** Opens the clip for trimming; absent when it can't play. */
   onTrim?: () => void;
+  /** Finds where the play really is and moves the game's sync to it; absent without a ready copy. */
+  onFixSync?: () => void;
   onInsertTextCardAbove: () => void;
+  /** Absent when the clip's game has no stats or its play no player. */
+  onInsertStatsCardAbove?: () => void;
+  /** Opens the labels picker on this clip. */
+  onLabels?: () => void;
+  /** Opens "Add to playlist" for this clip. */
+  onAddTo?: () => void;
+  /** Present while this row is in a selection that can be grouped. */
+  onGroupSelection?: () => void;
+  selectionCount?: number;
+  /** Present on a grouped row. */
+  onUngroup?: () => void;
   onRemove: () => void;
+  /** The clip's labels in this playlist. */
+  labels?: readonly Label[];
   groupPos?: GroupRunInfo["pos"];
   groupSize?: number;
 }) {
@@ -97,20 +142,22 @@ export function EditorClipRow({
 
       <div role="gridcell" className={cn("relative z-10 flex min-w-0 flex-1 flex-col justify-center py-1.5", dimmed && "opacity-70")}>
         <div className="flex min-w-0 items-center gap-1.5">
-          {(groupPos === "first" || groupPos === "only") && groupSize && (
-            <span className="inline-flex shrink-0 items-center rounded-full bg-primary/15 px-1.5 py-0.5 text-caption text-primary" title={`${groupSize} items move together`}>
-              {groupSize}
-            </span>
-          )}
+          {(groupPos === "first" || groupPos === "only") && groupSize && <GroupPill size={groupSize} isSelected={isSelected} onUngroup={onUngroup} />}
           {event ? (
             <>
               <span className={cn("inline-flex shrink-0 items-center rounded-full px-2 py-px text-[11px] font-medium pointer-coarse:text-xs", colors?.badge)}>
                 {eventLabel(event)}
               </span>
-              <span className="truncate text-sm font-medium">{playerName(event)}</span>
+              <span className={cn("truncate text-sm font-medium", labels && labels.length > 0 && "@min-[26rem]:min-w-16")}>{playerName(event)}</span>
             </>
           ) : (
             <span className={cn("truncate text-sm", secondary)}>Play #{item.eventId}</span>
+          )}
+          {/* Beside the name when the list is wide (the desktop's place); on the line below in a narrow one. */}
+          {labels && labels.length > 0 && (
+            <span className="hidden min-w-0 items-center gap-1.5 @min-[26rem]:flex">
+              <LabelChips labels={labels} overflowClassName={secondary} />
+            </span>
           )}
         </div>
         <div className={cn("flex min-w-0 items-center gap-1 text-subheadline nums", secondary)}>
@@ -132,6 +179,11 @@ export function EditorClipRow({
               {event && <span aria-hidden>·</span>}
               <span className="truncate">{row.matchTitle}</span>
             </>
+          )}
+          {labels && labels.length > 0 && (
+            <span className="ml-1 flex min-w-0 items-center gap-1 @min-[26rem]:hidden">
+              <LabelChips labels={labels} max={1} overflowClassName={secondary} />
+            </span>
           )}
         </div>
         {notice && (
@@ -191,14 +243,63 @@ export function EditorClipRow({
         >
           <Trash2 className="size-3.5" />
         </button>
-        <RowMenu open={menuOpen} onOpenChange={onMenuOpenChange} isSelected={isSelected}>
-          {onTrim && <DropdownMenuItem onSelect={onTrim}>Trim clip…</DropdownMenuItem>}
-          <DropdownMenuItem onSelect={onInsertTextCardAbove}>Insert text card above</DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={onRemove} className="text-destructive focus:bg-destructive focus:text-white">
-            <Trash2 />
-            Remove from playlist
-          </DropdownMenuItem>
+        <RowMenu open={menuOpen} onOpenChange={onMenuOpenChange} isSelected={isSelected} popover={menuPopover}>
+          <MenuSections
+            sections={[
+              [
+                onTrim && (
+                  <DropdownMenuItem key="trim" onSelect={onTrim}>
+                    Trim clip…
+                  </DropdownMenuItem>
+                ),
+                onFixSync && (
+                  <DropdownMenuItem key="sync" onSelect={onFixSync}>
+                    Fix sync…
+                  </DropdownMenuItem>
+                ),
+              ],
+              [
+                onLabels && (
+                  <DropdownMenuItem key="labels" onSelect={onLabels}>
+                    Labels…
+                  </DropdownMenuItem>
+                ),
+                onAddTo && (
+                  <DropdownMenuItem key="add-to" onSelect={onAddTo}>
+                    Add to playlist…
+                  </DropdownMenuItem>
+                ),
+              ],
+              [
+                <DropdownMenuItem key="text" onSelect={onInsertTextCardAbove}>
+                  Insert text card above
+                </DropdownMenuItem>,
+                onInsertStatsCardAbove && (
+                  <DropdownMenuItem key="stats" onSelect={onInsertStatsCardAbove}>
+                    Insert stats card above
+                  </DropdownMenuItem>
+                ),
+              ],
+              [
+                onGroupSelection && (
+                  <DropdownMenuItem key="group" onSelect={onGroupSelection}>
+                    Group {selectionCount} selected items
+                  </DropdownMenuItem>
+                ),
+                onUngroup && groupSize && (
+                  <DropdownMenuItem key="ungroup" onSelect={onUngroup}>
+                    Ungroup ({groupSize} items)
+                  </DropdownMenuItem>
+                ),
+              ],
+              [
+                <DropdownMenuItem key="remove" onSelect={onRemove} className="text-destructive focus:bg-destructive focus:text-white">
+                  <Trash2 />
+                  Remove from playlist
+                </DropdownMenuItem>,
+              ],
+            ]}
+          />
         </RowMenu>
         <DragGrip isSelected={isSelected} />
       </div>

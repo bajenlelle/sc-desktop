@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { RotateCcw, Scissors, Type } from "lucide-react";
+import { BarChart3, Pencil, RotateCcw, Scissors, Type } from "lucide-react";
 import { eventColors, eventLabel, formatGameClock, periodLabel, playerName } from "@scoutable/shared/lib/events";
 import { describeTrim, formatSeconds } from "@scoutable/shared/lib/trim-math";
 import type { WatchItem } from "@scoutable/shared/lib/watch-queue";
@@ -10,6 +10,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { statsSummary } from "./editor-card-row";
 
 /** The note is saved this long after the last keystroke (and on blur). */
 const SAVE_MS = 600;
@@ -80,10 +81,10 @@ function NoteField({ value, onSave, readOnly }: { value: string; onSave: (note: 
 /**
  * What's playing, under the player: the play's badge and player, where it
  * sits in the game, how long the clip is and how it lies around the play
- * ("12 s · 10 s before, 2 s after"), Trim and Reset, and the note players
- * read under it. A text card shows its text and length; nothing playing
- * shows how to start. The block keeps one height so the list below never
- * jumps as clips change.
+ * ("12 s · 10 s before, 2 s after"), Trim, Reset and Fix sync, and the note
+ * players read under it. A text card shows its text and length, a stats card its
+ * line and Edit; nothing playing shows how to start. The block keeps one
+ * height so the list below never jumps as clips change.
  */
 export function NowPlaying({
   item,
@@ -96,6 +97,8 @@ export function NowPlaying({
   onTrim,
   onReset,
   onNote,
+  onEditCard,
+  onFixSync,
 }: {
   item: WatchItem | null;
   /** The game's title, for multi-game playlists. */
@@ -109,6 +112,10 @@ export function NowPlaying({
   onTrim: () => void;
   onReset: () => void;
   onNote: (key: string, note: string, opts?: { flush?: boolean }) => void;
+  /** A stats card's inspector. */
+  onEditCard?: (cardId: string) => void;
+  /** Fix sync for the playing clip's game; absent without the viewer's ready copy of it. */
+  onFixSync?: () => void;
 }) {
   const kbd = "h-4 min-w-4 px-0.5 text-footnote";
   if (!item) {
@@ -122,16 +129,36 @@ export function NowPlaying({
   }
 
   if (item.kind === "text") {
+    const stats = item.card.card ? statsSummary(item.card.card) : null;
+    const cardId = item.card.id;
     return (
       <div className="flex min-h-[7.5rem] flex-col gap-1.5 px-4 py-3 @min-[860px]/editor:px-1 @min-[860px]/editor:py-0">
         <div className="flex min-w-0 items-center gap-2">
           <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-fill-2">
-            <Type className="size-3.5 text-muted-foreground" />
+            {stats ? <BarChart3 className="size-3.5 text-muted-foreground" /> : <Type className="size-3.5 text-muted-foreground" />}
           </span>
-          <span className="truncate text-headline">Text card</span>
+          <span className="truncate text-headline">{stats ? "Stats card" : "Text card"}</span>
           <span className="shrink-0 text-callout text-muted-foreground nums">{item.card.durationSeconds} s</span>
+          {stats && onEditCard && !readOnly && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button size="xs" variant="outline" className="ml-auto" onClick={() => onEditCard(cardId)}>
+                  <Pencil />
+                  Edit
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">The player, the game or season, and which numbers show</TooltipContent>
+            </Tooltip>
+          )}
         </div>
-        <p className="line-clamp-2 whitespace-pre-wrap text-callout text-muted-foreground">{item.card.text || "Type the card's text in its row."}</p>
+        {stats ? (
+          <div className="min-w-0">
+            <p className="truncate text-callout text-foreground nums">{stats.title}</p>
+            <p className="truncate text-callout text-muted-foreground">{stats.detail}</p>
+          </div>
+        ) : (
+          <p className="line-clamp-2 whitespace-pre-wrap text-callout text-muted-foreground">{item.card.text || "Type the card's text in its row."}</p>
+        )}
       </div>
     );
   }
@@ -145,7 +172,7 @@ export function NowPlaying({
       <div className="flex min-w-0 items-center gap-2">
         <span className={cn("inline-flex shrink-0 items-center rounded-full px-2 py-px text-callout font-medium", colors.badge)}>{eventLabel(item.event)}</span>
         <span className="min-w-0 flex-1 truncate text-headline @min-[860px]/editor:text-title-3">{playerName(item.event)}</span>
-        {!readOnly && (
+        {!readOnly && (canTrim || hasOffsets || onFixSync) && (
           <div className="flex shrink-0 items-center gap-1">
             {canTrim && (
               <Tooltip>
@@ -170,6 +197,16 @@ export function NowPlaying({
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">Back to the playlist&apos;s clip length</TooltipContent>
+              </Tooltip>
+            )}
+            {onFixSync && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button size="xs" variant="ghost" onClick={onFixSync} disabled={trimming} className="text-muted-foreground">
+                    Fix sync…
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Clips of this game off? Move its sync, or one quarter</TooltipContent>
               </Tooltip>
             )}
           </div>

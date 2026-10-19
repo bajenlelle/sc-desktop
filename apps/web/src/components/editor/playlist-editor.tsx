@@ -6,22 +6,28 @@ import { ListVideo, LockKeyhole } from "lucide-react";
 import { toast } from "sonner";
 import type { ExportAspect, ExportPurpose } from "@scoutable/shared/lib/game-video-wire";
 import { itemKey, playlistMatchIds } from "@scoutable/shared/lib/playlist-edits";
+import type { ClipKey } from "@scoutable/shared/types/labels";
 import { isClipItem } from "@scoutable/shared/types/match";
 import { useAuth } from "@/components/auth-context";
+import { playlistsHref, TOP_LEVEL_NAME } from "@/components/folders/folder-nav";
+import { LabelDeleteDialog } from "@/components/labels/label-delete-dialog";
+import { clipKeyOf, useLabelAssignments, useLabels } from "@/components/labels/use-labels";
 import { ShareDialog } from "@/components/playlist/share-dialog";
 import { shareReadiness } from "@/components/playlist/share-readiness";
 import { useNewPlaylist } from "@/components/playlist/use-new-playlist";
 import { BackButton } from "@/components/shell/back-button";
 import { Page } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
+import { StatsCardInspector } from "@/components/stats-card/stats-card-inspector";
 import { StatusScreen } from "@/components/status-screen";
+import { FixSyncSheet } from "@/components/sync/fix-sync-sheet";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { COMPACT_QUERY, useMediaQuery } from "@/components/ui/use-media-query";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
 import { AddClipsPanel } from "./add-clips-panel";
-import { ClipList } from "./clip-list";
+import { ClipList, type EditorLabels, type EditorStatsEntries } from "./clip-list";
 import { EditorActions } from "./editor-actions";
 import { EditorLayout, EditorLayoutSwitch } from "./editor-layout";
 import { EditorPlayer } from "./editor-player";
@@ -31,14 +37,17 @@ import { EditorTitle } from "./editor-title";
 import { ExportDialog, type ExportDialogCounts, type ExportDialogRequest } from "./export-dialog";
 import { NowPlaying } from "./now-playing";
 import { SendToPhoneSheet } from "./send-to-phone-sheet";
+import { StatsCardSuggestion } from "./stats-card-suggestion";
+import { useAddTo } from "./use-add-to";
 import { useClipSelection } from "./use-clip-selection";
 import { useEditorKeys } from "./use-editor-keys";
 import { useEditorLayout } from "./use-editor-layout";
 import { useEditorPlayback } from "./use-editor-playback";
 import { exportContentFor, useExport } from "./use-export";
 import { itemKeysOf, usePlaylistEditor } from "./use-playlist-editor";
+import { useStatsCards } from "./use-stats-cards";
 
-const BACK = <BackButton href="/playlists" label="Playlists" />;
+const hundredths = (n: number) => Math.round(n * 100) / 100;
 
 /** "4 clips · 2 games" */
 function subtitleFor(clips: number, games: number): string {
@@ -49,11 +58,13 @@ function subtitleFor(clips: number, games: number): string {
 
 /**
  * One of the user's playlists, open for editing: its clips played as
- * windows of their cloud copies, reordered, trimmed, noted, removed with
- * Undo, with text cards between them; plays added from a game's
- * play-by-play; the whole shared with teams and members, whose copies the
- * server cuts. Every edit lands at once and is put back with a toast if its
- * write fails (use-playlist-editor.ts). The keys are the desktop's.
+ * windows of their cloud copies, reordered (groups move whole), trimmed,
+ * noted, labelled, removed with Undo, copied to another playlist, with text
+ * and stats cards between them; plays added from a game's play-by-play; the
+ * whole shared with teams and members, whose copies the server cuts. Every
+ * edit lands at once and is put back with a toast if its write fails
+ * (use-playlist-editor.ts). The keys are the desktop's. Back leads to the
+ * folder the playlist is in.
  */
 export function PlaylistEditor({ playlistId }: { playlistId: string }) {
   const editor = usePlaylistEditor(playlistId);
@@ -80,9 +91,10 @@ export function PlaylistEditor({ playlistId }: { playlistId: string }) {
   const [sharing, setSharing] = React.useState(false);
   const [confirmingDelete, setConfirmingDelete] = React.useState(false);
   const [autoFocusCardId, setAutoFocusCardId] = React.useState<string | null>(null);
+  const ready = status === "ready" && isOwner;
 
   // Exports: the format dialog, then the server's render, followed by the pill.
-  const exporter = useExport({ playlist, eventByKey, cloud, enabled: status === "ready" && isOwner });
+  const exporter = useExport({ playlist, eventByKey, cloud, enabled: ready });
   const [exportRequest, setExportRequest] = React.useState<ExportDialogRequest | null>(null);
   /**
    * The dialog for a download or a link, of the ticked rows when there are
@@ -148,11 +160,146 @@ export function PlaylistEditor({ playlistId }: { playlistId: string }) {
   }, [activeKey, focusOn]);
 
   // ---------------------------------------------------------------------------
+  // Labels: the space's vocabulary, the clips' labels in this playlist
+  // ---------------------------------------------------------------------------
+
+  const labelOrgId = playlist?.orgId ?? activeOrgId;
+  const clipKeys = React.useMemo<ClipKey[]>(
+    () => (playlist ? playlist.items.filter(isClipItem).map((c) => ({ matchId: c.matchId, eventId: c.eventId })) : []),
+    [playlist],
+  );
+  const {
+    byClip: labelsByClip,
+    toggle: toggleLabel,
+    forget: forgetLabel,
+  } = useLabelAssignments({ orgId: labelOrgId, scope: playlist?.id ?? null, clips: clipKeys, enabled: ready && !!playlist });
+  const vocab = useLabels(ready ? labelOrgId : null, { onDeleted: forgetLabel });
+  const playlistName = playlist?.name ?? "";
+  const labelCtl = React.useMemo<EditorLabels | undefined>(
+    () =>
+      ready && labelOrgId
+        ? {
+            labels: vocab.labels,
+            byClip: labelsByClip,
+            toggle: (keys, labelId, state, bulk) =>
+              toggleLabel(
+                keys.map(clipKeyOf).filter((k): k is ClipKey => k !== null),
+                labelId,
+                state,
+                bulk,
+              ),
+            actions: vocab.actions,
+            scopeTitle: `Labels in ${playlistName}`,
+            scopeHint: "Visible only in this playlist",
+          }
+        : undefined,
+    [ready, labelOrgId, vocab.labels, vocab.actions, labelsByClip, toggleLabel, playlistName],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Add to another playlist; stats cards
+  // ---------------------------------------------------------------------------
+
+  const addTo = useAddTo({ playlist, folders: editor.folders });
+
+  const { insertCard: editorInsertCard, updateCard: editorUpdateCard } = editor;
+  const statsCards = useStatsCards({
+    playlist,
+    matches,
+    eventByKey,
+    eventsLoaded,
+    activeKey,
+    personal: activeOrgIsPersonal,
+    enabled: ready,
+    insertCard: editorInsertCard,
+    updateCard: editorUpdateCard,
+    onInserted: (cardId) => {
+      // The new card, held on the stage, as the desktop shows it.
+      const key = `text:${cardId}`;
+      focusOn(key);
+      playback.playRow(key, { holdCard: true });
+    },
+  });
+  const { openNew: openNewStatsCard, openEdit: openEditStatsCard } = statsCards;
+  const statsEntries = React.useMemo<EditorStatsEntries>(
+    () => ({
+      canStartFrom: statsCards.canStartFrom,
+      available: statsCards.disabledReason === null,
+      onInsertAbove: (key, fromClip) => openNewStatsCard({ beforeKey: key, entry: "row", anchorKey: fromClip ? key : null }),
+      onEdit: (cardId) => void openEditStatsCard(cardId),
+    }),
+    [statsCards.canStartFrom, statsCards.disabledReason, openNewStatsCard, openEditStatsCard],
+  );
+  /** The toolbar's Add stats card: above the first ticked row, else at the end, as the text card goes. */
+  const addStatsCard = React.useCallback(() => {
+    openNewStatsCard({ beforeKey: order.find((k) => selection.selected.has(k)) ?? null, entry: "menu" });
+  }, [openNewStatsCard, order, selection.selected]);
+  /** Return on a focused stats card opens it rather than playing it. */
+  const editRow = React.useCallback(
+    (key: string) => {
+      const card = playlist?.items.find((i) => !isClipItem(i) && itemKey(i) === key);
+      if (!card || isClipItem(card) || !card.card) return false;
+      void openEditStatsCard(card.id);
+      return true;
+    },
+    [playlist, openEditStatsCard],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Fix sync: from a clip's menu or the playing clip, for a game the viewer
+  // has a ready cloud copy of (only its uploader may move its sync). The
+  // sheet writes the sync itself; the windows follow it here at once.
+  // ---------------------------------------------------------------------------
+
+  const [syncFix, setSyncFix] = React.useState<{ open: boolean; key: string; matchId: string; eventId: number; entry: "clip_menu" | "this_clip" } | null>(null);
+  const clipOf = React.useCallback(
+    (key: string) => {
+      const item = playlist?.items.find((i) => isClipItem(i) && itemKey(i) === key);
+      return item && isClipItem(item) ? item : null;
+    },
+    [playlist],
+  );
+  const canFixSync = React.useCallback(
+    (matchId: string) => cloud.videoByMatch.get(matchId)?.status === "ready" && cloud.syncByMatch.has(matchId) && eventsLoaded.has(matchId),
+    [cloud, eventsLoaded],
+  );
+  const { trim: activeTrim, endTrim, videoRef: stageVideoRef } = playback;
+  const openSyncFix = React.useCallback(
+    (key: string, entry: "clip_menu" | "this_clip") => {
+      const clip = clipOf(key);
+      if (!clip) return;
+      if (activeTrim) endTrim(null);
+      stageVideoRef.current?.pause();
+      setSyncFix({ open: true, key, matchId: clip.matchId, eventId: clip.eventId, entry });
+    },
+    [clipOf, activeTrim, endTrim, stageVideoRef, setSyncFix],
+  );
+  const fixSyncFor = React.useCallback(
+    (key: string) => {
+      const clip = clipOf(key);
+      return clip && canFixSync(clip.matchId) ? () => openSyncFix(key, "clip_menu") : undefined;
+    },
+    [clipOf, canFixSync, openSyncFix],
+  );
+  const { commitClipOffsets, applySync } = editor;
+  /** "Just this clip": its window moves by Δ (offsets pre − Δ, post + Δ); a failed save keeps the sheet open. */
+  const nudgeSyncFixClip = React.useCallback(
+    async (delta: number) => {
+      const key = syncFix?.key;
+      const clip = key ? clipOf(key) : null;
+      if (!key || !clip) throw new Error("The clip is gone");
+      const saved = await commitClipOffsets(key, hundredths((clip.preRollOffset ?? 0) - delta), hundredths((clip.postRollOffset ?? 0) + delta), { quiet: true });
+      if (!saved) throw new Error("The clip's length wasn't saved");
+    },
+    [syncFix?.key, clipOf, commitClipOffsets],
+  );
+
+  // ---------------------------------------------------------------------------
   // Actions over the list
   // ---------------------------------------------------------------------------
 
   const { afterRemoval } = selection;
-  const { removeItems, insertCard: editorInsertCard } = editor;
+  const { removeItems } = editor;
   const removeKeys = React.useCallback(
     (keys: ReadonlySet<string>) => {
       if (keys.size === 0) return;
@@ -203,7 +350,7 @@ export function PlaylistEditor({ playlistId }: { playlistId: string }) {
   const closePanel = React.useCallback(() => setPanel((p) => ({ ...p, open: false })), []);
 
   useEditorKeys({
-    enabled: status === "ready" && isOwner,
+    enabled: ready,
     order,
     groupIdOf,
     selection,
@@ -212,9 +359,14 @@ export function PlaylistEditor({ playlistId }: { playlistId: string }) {
     gridRef,
     openRowMenu: setMenuKey,
     removeKeys,
-    onNewPlaylist: () => void createNew(),
+    // A new playlist goes in this one's folder.
+    onNewPlaylist: () => void createNew(editor.folderId),
     onTrimRefused,
+    onEditRow: editRow,
   });
+
+  // Back to where the playlist is listed: its folder, or the top level.
+  const back = <BackButton href={playlistsHref(editor.folderId)} label={editor.folder?.name ?? TOP_LEVEL_NAME} />;
 
   // ---------------------------------------------------------------------------
   // States
@@ -224,7 +376,7 @@ export function PlaylistEditor({ playlistId }: { playlistId: string }) {
     if (status === "missing") {
       return (
         <Page width="full">
-          <Toolbar inline leading={BACK} title="Playlist" />
+          <Toolbar inline leading={back} title="Playlist" />
           <StatusScreen
             icon={<ListVideo />}
             title="This playlist isn't available"
@@ -240,7 +392,7 @@ export function PlaylistEditor({ playlistId }: { playlistId: string }) {
     }
     return (
       <Page width="full">
-        <Toolbar inline leading={BACK} title={<Skeleton className="h-4 w-32" />} />
+        <Toolbar inline leading={back} title={<Skeleton className="h-4 w-32" />} />
         <EditorSkeleton />
       </Page>
     );
@@ -249,7 +401,7 @@ export function PlaylistEditor({ playlistId }: { playlistId: string }) {
   if (!isOwner) {
     return (
       <Page width="full">
-        <Toolbar inline leading={BACK} title={playlist.name} />
+        <Toolbar inline leading={back} title={playlist.name} />
         <StatusScreen
           icon={<LockKeyhole />}
           title="This playlist isn't yours to edit"
@@ -268,6 +420,7 @@ export function PlaylistEditor({ playlistId }: { playlistId: string }) {
   const hasOffsets = !!activeClip && isClipItem(activeClip) && ((activeClip.preRollOffset ?? 0) !== 0 || (activeClip.postRollOffset ?? 0) !== 0);
   const sharedTeams = playlist.teamIds?.length ?? (playlist.teamId ? 1 : 0);
   const sharedPeople = playlist.userIds?.length ?? 0;
+  const inspector = statsCards.inspector;
 
   // One title, mounted where it fits: in the bar, or on a phone, whose bar the
   // actions fill, as a line of its own that scrolls away above the player.
@@ -279,7 +432,7 @@ export function PlaylistEditor({ playlistId }: { playlistId: string }) {
     <Page width="full">
       <Toolbar
         inline
-        leading={BACK}
+        leading={back}
         title={compact ? null : title}
         subtitle={subtitleFor(clipCount, playlistMatchIds(playlist).length)}
         actions={
@@ -288,6 +441,8 @@ export function PlaylistEditor({ playlistId }: { playlistId: string }) {
             onRolls={editor.setRolls}
             onAddClips={openPanel}
             onAddTextCard={addTextCard}
+            onAddStatsCard={addStatsCard}
+            statsCardDisabledReason={statsCards.disabledReason}
             canShare={!activeOrgIsPersonal}
             sharedTeams={sharedTeams}
             sharedPeople={sharedPeople}
@@ -325,15 +480,22 @@ export function PlaylistEditor({ playlistId }: { playlistId: string }) {
             onTrim={() => trimRow(playback.activeKey ?? "")}
             onReset={() => playback.activeKey && playback.resetTrim(playback.activeKey)}
             onNote={editor.setNote}
+            onEditCard={(cardId) => void openEditStatsCard(cardId)}
+            onFixSync={
+              playback.activeWindow && canFixSync(playback.activeWindow.matchId) ? () => openSyncFix(playback.activeWindow!.key, "this_clip") : undefined
+            }
           />
         }
         listHeader={
-          <div className="flex items-center gap-3 px-4 pt-4 pb-2 sm:px-6 @min-[860px]/editor:px-3 @min-[860px]/editor:pt-0">
-            <span className="text-headline">Clips</span>
-            {/* The bar carries the count beside the sidebar; here it is for the phone's bar, which doesn't. */}
-            <span className="text-subheadline text-muted-foreground nums lg:hidden">{subtitleFor(clipCount, playlistMatchIds(playlist).length)}</span>
-            {wide && <EditorLayoutSwitch layout={layout} onChange={setLayout} className="ml-auto" />}
-          </div>
+          <>
+            <div className="flex items-center gap-3 px-4 pt-4 pb-2 sm:px-6 @min-[860px]/editor:px-3 @min-[860px]/editor:pt-0">
+              <span className="text-headline">Clips</span>
+              {/* The bar carries the count beside the sidebar; here it is for the phone's bar, which doesn't. */}
+              <span className="text-subheadline text-muted-foreground nums lg:hidden">{subtitleFor(clipCount, playlistMatchIds(playlist).length)}</span>
+              {wide && <EditorLayoutSwitch layout={layout} onChange={setLayout} className="ml-auto" />}
+            </div>
+            <StatsCardSuggestion suggestion={statsCards.suggestion} className="px-4 pb-2 sm:px-6 @min-[860px]/editor:px-0" />
+          </>
         }
         list={
           <div className="sm:px-2 @min-[860px]/editor:px-0">
@@ -348,9 +510,12 @@ export function PlaylistEditor({ playlistId }: { playlistId: string }) {
               onMenuKeyChange={setMenuKey}
               onPlayRow={(key) => playback.playRow(key, { holdCard: true })}
               onTrim={trimRow}
+              onFixSync={fixSyncFor}
               onInsertCardAbove={(key) => void insertCard(key, "row")}
               onRemove={removeKeys}
               onReorder={editor.reorder}
+              onGroup={editor.group}
+              onUngroup={editor.ungroup}
               onCardText={(id, text) => void editor.updateCard(id, { text })}
               onCardDuration={(id, durationSeconds) => void editor.updateCard(id, { durationSeconds })}
               autoFocusCardId={autoFocusCardId}
@@ -358,6 +523,9 @@ export function PlaylistEditor({ playlistId }: { playlistId: string }) {
               onAddClips={() => openPanel()}
               exporter={exporter}
               onExport={openExport}
+              labels={labelCtl}
+              addTo={addTo}
+              stats={statsEntries}
             />
           </div>
         }
@@ -375,6 +543,8 @@ export function PlaylistEditor({ playlistId }: { playlistId: string }) {
           ensureEventsFor: editor.ensureEventsFor,
           initialMatchId: panel.matchId,
           onAdd: editor.addClips,
+          labels: vocab.labels,
+          labelOrgId,
         }}
       />
 
@@ -398,6 +568,42 @@ export function PlaylistEditor({ playlistId }: { playlistId: string }) {
         busy={editor.deleting}
         onConfirm={editor.deletePlaylist}
       />
+
+      <LabelDeleteDialog labels={vocab} />
+
+      {syncFix && matches.get(syncFix.matchId) && cloud.videoByMatch.get(syncFix.matchId) && (
+        <FixSyncSheet
+          open={syncFix.open}
+          onClose={() => setSyncFix((f) => (f ? { ...f, open: false } : f))}
+          match={matches.get(syncFix.matchId)!}
+          events={matches.get(syncFix.matchId)!.events}
+          clip={{ matchId: syncFix.matchId, eventId: syncFix.eventId }}
+          videoId={cloud.videoByMatch.get(syncFix.matchId)!.id}
+          // The clip again from its new place, once its window has followed the fix.
+          play={() => {
+            const key = syncFix.key;
+            requestAnimationFrame(() => playback.playRow(key));
+          }}
+          onApplied={(next) => applySync(syncFix.matchId, next)}
+          onClipNudge={nudgeSyncFixClip}
+          entry={syncFix.entry}
+        />
+      )}
+
+      {inspector && (
+        <StatsCardInspector
+          key={inspector.id}
+          open={inspector.open}
+          onClose={statsCards.closeInspector}
+          match={inspector.match}
+          events={inspector.events}
+          leagues={statsCards.leagues}
+          initial={inspector.target.kind === "edit" ? inspector.target.spec : undefined}
+          onSave={(spec, text) => void statsCards.saveInspector(spec, text)}
+          games={inspector.games}
+          defaultScope={inspector.defaultScope}
+        />
+      )}
 
       <ExportDialog request={dialogRequest} plan={exporter.plan} counts={exportCounts} onClose={closeExport} onPick={pickExport} />
 

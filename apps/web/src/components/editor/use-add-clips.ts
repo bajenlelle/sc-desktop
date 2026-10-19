@@ -3,10 +3,11 @@
 /**
  * The add-clips picker's state: which game is shown (only games with a
  * ready, synced cloud copy can be picked from; the others say why not),
- * the filters over its play-by-play (shared vocabulary in clip-filters.ts),
- * the ticks (a macOS table's: ⌘ toggles, Shift ranges from the anchor,
- * clips already in the playlist are never ticked), and the preview's clip
- * length, which starts at the playlist's own.
+ * the filters over its play-by-play (shared vocabulary in clip-filters.ts,
+ * the bank's labels among them, as the desktop's clip browser filters), the
+ * ticks (a macOS table's: ⌘ toggles, Shift ranges from the anchor, clips
+ * already in the playlist are never ticked), and the preview's clip length,
+ * which starts at the playlist's own.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
@@ -21,7 +22,9 @@ import { playlistRolls, rebaseOffsets, type RollPair } from "@scoutable/shared/l
 import { isBookkeepingEvent } from "@scoutable/shared/lib/events";
 import { clickSelection, extendSelection, moveFocus, type FocusMove } from "@scoutable/shared/lib/list-selection";
 import { clampRolls, itemKey } from "@scoutable/shared/lib/playlist-edits";
+import type { Label } from "@scoutable/shared/types/labels";
 import { isClipItem, type PlayByPlayEvent, type Playlist, type PlaylistClipItem, type StoredMatch } from "@scoutable/shared/types/match";
+import { useLabelAssignments } from "@/components/labels/use-labels";
 import { trackEvent } from "@/lib/analytics";
 import { formatGameDate } from "@/lib/format-game";
 import type { EditorCloud } from "./use-playlist-editor";
@@ -60,6 +63,8 @@ function gameReason(matchId: string, cloud: EditorCloud): string | null {
   }
 }
 
+const NO_LABELS: readonly Label[] = [];
+
 export function useAddClips({
   playlist,
   matches,
@@ -67,6 +72,8 @@ export function useAddClips({
   eventsLoaded,
   ensureEventsFor,
   initialMatchId,
+  labels = NO_LABELS,
+  labelOrgId = null,
 }: {
   playlist: Playlist;
   matches: ReadonlyMap<string, StoredMatch>;
@@ -75,6 +82,10 @@ export function useAddClips({
   ensureEventsFor: (matchIds: readonly string[]) => Promise<void>;
   /** The game to open on (`?add=<matchId>`), when it can be picked from. */
   initialMatchId: string | null;
+  /** The space's labels, for the Labels filter. */
+  labels?: readonly Label[];
+  /** The space the labels belong to; without one there is no label filter. */
+  labelOrgId?: string | null;
 }) {
   // ---------------------------------------------------------------------------
   // The game
@@ -154,8 +165,27 @@ export function useAddClips({
     () => (filters.teams.size > 0 ? allEvents.filter((e) => filters.teams.has(e.eventTeam?.teamName ?? "")) : allEvents),
     [allEvents, filters.teams],
   );
-  const filtered = useMemo(() => applyClipFilters(allEntries, filters), [allEntries, filters]);
-  const filtersActive = hasActiveFilters(filters);
+
+  // The bank's labels on the shown game's plays (`playlist_id IS NULL`, the
+  // desktop's clip browser), read as each game is shown.
+  const clipKeys = useMemo(() => allEntries.map((e) => ({ matchId: e.matchId, eventId: e.event.eventId })), [allEntries]);
+  const bank = useLabelAssignments({ orgId: labelOrgId, scope: null, clips: clipKeys, enabled: !!labelOrgId && labels.length > 0 });
+  const labelById = useMemo(() => new Map(labels.map((l) => [l.id, l])), [labels]);
+  /** A play's bank labels, in the vocabulary's order. */
+  const labelsOf = useCallback(
+    (key: string): Label[] => {
+      const ids = bank.byClip.get(key);
+      return ids ? labels.filter((l) => ids.has(l.id)) : [];
+    },
+    [bank.byClip, labels],
+  );
+  // A label deleted meanwhile filters nothing (its menu entry is gone too).
+  const effectiveFilters = useMemo<ClipFilters>(
+    () => (filters.labels && filters.labels.size > 0 ? { ...filters, labels: new Set([...filters.labels].filter((id) => labelById.has(id))) } : filters),
+    [filters, labelById],
+  );
+  const filtered = useMemo(() => applyClipFilters(allEntries, effectiveFilters, (e) => bank.byClip.get(e.key)), [allEntries, effectiveFilters, bank.byClip]);
+  const filtersActive = hasActiveFilters(effectiveFilters);
 
   // ---------------------------------------------------------------------------
   // Ticks
@@ -304,6 +334,8 @@ export function useAddClips({
     teams,
     players,
     leaderEvents,
+    labels,
+    labelsOf,
     allCount: allEntries.length,
     filtered,
     existing,

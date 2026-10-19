@@ -1,17 +1,29 @@
 "use client";
 
 import * as React from "react";
-import { Play, Trash2, Type } from "lucide-react";
+import { BarChart3, Pencil, Play, Trash2, Type } from "lucide-react";
 import type { GroupRunInfo } from "@scoutable/shared/lib/clip-groups";
+import { cardContent, opponentLabel, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
 import type { PlaylistTextCard } from "@scoutable/shared/types/match";
-import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Stepper } from "@/components/ui/stepper";
 import { cn } from "@/lib/utils";
-import { ActiveRowPill, DragGrip, FocusRing, REVEAL, RowLead, RowMenu, rowClasses, type RowDragProps } from "./row-parts";
+import { MenuSections } from "./editor-clip-row";
+import { ActiveRowPill, DragGrip, FocusRing, GroupPill, REVEAL, RowLead, RowMenu, rowClasses, type RowDragProps } from "./row-parts";
 
 /** The card's text is saved this long after the last keystroke (and on blur). */
 const SAVE_MS = 600;
+
+/** "Alva Berg · 24 PTS · 10 REB" over "vs AIK · Game stats", as the desktop's card rows read. */
+export function statsSummary(card: StatsCardSpec): { title: string; detail: string } {
+  const content = cardContent(card);
+  const numbers = content.cells.map((c) => `${c.value} ${c.label}`).join(" · ");
+  return {
+    title: numbers ? `${content.heading} · ${numbers}` : content.heading,
+    detail: card.scope === "game" ? `${opponentLabel(card.game)} · Game stats` : `${card.season.label} · Season averages`,
+  };
+}
 
 /**
  * A text field that grows with its lines and saves itself: what is typed
@@ -101,9 +113,11 @@ function CardTextField({
 }
 
 /**
- * A text card in the list: edited right in its row, with how long it shows
- * one press away. Cards share a neutral look with an icon (colour is kept
- * for plays).
+ * A text or stats card in the list. Cards share a neutral look with an icon
+ * (colour is kept for plays). A text card is edited right in its row; a
+ * stats card shows its line and opens the inspector to change it (Edit, its
+ * menu, a double-click, or Return on the focused row). How long a card
+ * shows is one press away either way.
  */
 export function EditorCardRow({
   domId,
@@ -121,6 +135,9 @@ export function EditorCardRow({
   onTextSave,
   onDurationChange,
   onInsertTextCardAbove,
+  onInsertStatsCardAbove,
+  onEditStats,
+  onUngroup,
   onRemove,
   autoFocusText,
   groupPos,
@@ -141,6 +158,12 @@ export function EditorCardRow({
   onTextSave: (text: string) => void;
   onDurationChange: (seconds: number) => void;
   onInsertTextCardAbove: () => void;
+  /** Absent when no game in the playlist has stats. */
+  onInsertStatsCardAbove?: () => void;
+  /** A stats card's inspector. */
+  onEditStats?: () => void;
+  /** Present on a grouped row. */
+  onUngroup?: () => void;
   onRemove: () => void;
   /** A card just added: its text field takes focus. */
   autoFocusText?: boolean;
@@ -148,6 +171,9 @@ export function EditorCardRow({
   groupSize?: number;
 }) {
   const secondary = isSelected ? "text-selection-foreground/80" : "text-muted-foreground";
+  const stats = card.card ? statsSummary(card.card) : null;
+  const Icon = stats ? BarChart3 : Type;
+  const edit = stats ? onEditStats : undefined;
 
   return (
     <div
@@ -159,6 +185,13 @@ export function EditorCardRow({
       aria-selected={isSelected}
       className={rowClasses({ isSelected })}
       onClick={onClick}
+      onDoubleClick={
+        edit &&
+        ((e) => {
+          if (e.shiftKey || e.metaKey || e.ctrlKey) return;
+          edit();
+        })
+      }
       onMouseDown={(e) => {
         if (e.shiftKey) e.preventDefault();
       }}
@@ -174,13 +207,18 @@ export function EditorCardRow({
       <RowLead groupPos={groupPos} isSelected={isSelected} showCheckbox={anySelected} onSelect={onSelect} />
 
       <div role="gridcell" className="relative z-10 flex min-w-0 flex-1 items-center gap-2 py-1.5">
-        {(groupPos === "first" || groupPos === "only") && groupSize && (
-          <span className="inline-flex shrink-0 items-center rounded-full bg-primary/15 px-1.5 py-0.5 text-caption text-primary">{groupSize}</span>
-        )}
+        {(groupPos === "first" || groupPos === "only") && groupSize && <GroupPill size={groupSize} isSelected={isSelected} onUngroup={onUngroup} />}
         <span aria-hidden className={cn("flex size-6 shrink-0 items-center justify-center rounded-md", isSelected ? "bg-white/20" : "bg-fill-2")}>
-          <Type className={cn("size-3.5", secondary)} />
+          <Icon className={cn("size-3.5", secondary)} />
         </span>
-        <CardTextField value={card.text} onSave={onTextSave} autoFocus={autoFocusText} isSelected={isSelected} />
+        {stats ? (
+          <div className="flex min-w-0 flex-1 flex-col justify-center">
+            <span className="truncate text-sm font-medium nums">{stats.title}</span>
+            <span className={cn("truncate text-subheadline", secondary)}>{stats.detail}</span>
+          </div>
+        ) : (
+          <CardTextField value={card.text} onSave={onTextSave} autoFocus={autoFocusText} isSelected={isSelected} />
+        )}
         <Popover>
           <PopoverTrigger asChild>
             <button
@@ -192,6 +230,7 @@ export function EditorCardRow({
               )}
               title="How long the card shows"
               onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
             >
               {card.durationSeconds} s
             </button>
@@ -206,8 +245,23 @@ export function EditorCardRow({
         </Popover>
       </div>
 
-      <div className="relative z-10 flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+      <div className="relative z-10 flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
         {isActive && <Play className={cn("mr-1 size-3.5 fill-current", isSelected ? "text-selection-foreground" : "text-primary")} />}
+        {edit && (
+          <button
+            type="button"
+            className={cn(
+              "flex size-6 items-center justify-center rounded-md outline-none transition-[opacity,background-color,transform] duration-100 active:scale-95 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-selection pointer-coarse:size-8",
+              isSelected ? "hover:bg-white/15" : "hover:bg-fill-2",
+              REVEAL,
+            )}
+            onClick={edit}
+            aria-label="Edit stats card"
+            title="Edit stats card"
+          >
+            <Pencil className="size-3.5" />
+          </button>
+        )}
         <button
           type="button"
           className={cn(
@@ -222,12 +276,40 @@ export function EditorCardRow({
           <Trash2 className="size-3.5" />
         </button>
         <RowMenu open={menuOpen} onOpenChange={onMenuOpenChange} isSelected={isSelected}>
-          <DropdownMenuItem onSelect={onInsertTextCardAbove}>Insert text card above</DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={onRemove} className="text-destructive focus:bg-destructive focus:text-white">
-            <Trash2 />
-            Remove from playlist
-          </DropdownMenuItem>
+          <MenuSections
+            sections={[
+              [
+                edit && (
+                  <DropdownMenuItem key="edit" onSelect={edit}>
+                    Edit stats card…
+                  </DropdownMenuItem>
+                ),
+              ],
+              [
+                <DropdownMenuItem key="text" onSelect={onInsertTextCardAbove}>
+                  Insert text card above
+                </DropdownMenuItem>,
+                onInsertStatsCardAbove && (
+                  <DropdownMenuItem key="stats" onSelect={onInsertStatsCardAbove}>
+                    Insert stats card above
+                  </DropdownMenuItem>
+                ),
+              ],
+              [
+                onUngroup && groupSize && (
+                  <DropdownMenuItem key="ungroup" onSelect={onUngroup}>
+                    Ungroup ({groupSize} items)
+                  </DropdownMenuItem>
+                ),
+              ],
+              [
+                <DropdownMenuItem key="remove" onSelect={onRemove} className="text-destructive focus:bg-destructive focus:text-white">
+                  <Trash2 />
+                  Remove from playlist
+                </DropdownMenuItem>,
+              ],
+            ]}
+          />
         </RowMenu>
         <DragGrip isSelected={isSelected} />
       </div>
