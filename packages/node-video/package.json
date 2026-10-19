@@ -12,6 +12,7 @@
     "./lib/*": "./lib/*.ts"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^0.1.100",
     "@scoutable/shared": "*",
     "@supabase/supabase-js": "^2.112.4"
   },
