@@ -20,6 +20,7 @@
 //                                                    platform-admin only
 
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import { correctKnownFeedErrors } from "./feed-corrections.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -559,7 +560,7 @@ Deno.serve(async (req) => {
       if (cached) {
         return ok({
           fixture: trimFixture(fixtureRaw),
-          actions: cached.actions,
+          actions: correctKnownFeedErrors(matchId, cached.actions as Json[]),
           players: cached.players,
           pbpStatus: cached.pbp_status,
         });
@@ -592,7 +593,7 @@ Deno.serve(async (req) => {
 
       return ok({
         fixture: trimFixture(fixtureRaw),
-        actions: trimmedActions,
+        actions: correctKnownFeedErrors(matchId, trimmedActions),
         players: trimmedPlayers,
         pbpStatus,
       });
