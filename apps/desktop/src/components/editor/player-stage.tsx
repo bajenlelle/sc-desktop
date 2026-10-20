@@ -102,8 +102,13 @@ export function PlayerStage({
   const [paused, setPaused] = React.useState(video.paused);
   const [buffering, setBuffering] = React.useState(false);
   const [failure, setFailure] = React.useState<MediaFailure | null>(null);
-  const fileMissingRef = React.useRef(false);
-  fileMissingRef.current = !!fileMissing;
+  // A failure of the video underneath says nothing about what is on screen
+  // when the file is gone (the caller's panel covers that) or a card is up
+  // (`playback` is the card's own clock; the element keeps whatever the
+  // previous clip left it with).
+  const hideFailure = !!fileMissing || !!playback;
+  const hideFailureRef = React.useRef(false);
+  hideFailureRef.current = hideFailure;
   const [flash, setFlash] = React.useState<{ id: number; kind: "play" | "pause" | "sound" } | null>(null);
   const sound = usePlayerSound();
   const [active, setActive] = React.useState(true);
@@ -161,7 +166,7 @@ export function PlayerStage({
     };
     function report(kind: MediaFailure | null) {
       setFailure(kind);
-      if (!kind || fileMissingRef.current) return;
+      if (!kind || hideFailureRef.current) return;
       Sentry.captureMessage("video failed to load", {
         level: "warning",
         tags: {
@@ -305,7 +310,7 @@ export function PlayerStage({
 
       {children}
 
-      {failure && !fileMissing && (
+      {failure && !hideFailure && (
         <div
           role="alert"
           className="absolute inset-0 z-[13] flex items-center justify-center bg-black/80 p-6 text-center text-sm text-white"
