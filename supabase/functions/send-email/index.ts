@@ -22,7 +22,8 @@ type TemplateId =
   | "removed_from_org"
   | "promoted_to_admin"
   | "org_invite"
-  | "free_refill";
+  | "free_refill"
+  | "service_notice";
 
 // Marketing templates (an offer, not a service notice) never go to anyone
 // who unsubscribed (email_preferences, 20261001110000; the SQL caller checks).
@@ -441,6 +442,36 @@ ${ctaButton(inviteUrl, "Accept Invitation")}`,
 ${ctaButton(pricingUrl, "See plans")}`,
           "You received this because you have a Scoutable account.",
           d("unsubscribe_url"),
+        ),
+      };
+    }
+
+    // A one-off message to a user about their own account or data (an issue
+    // we found, an apology). Written per send, so every field arrives in
+    // `data`; body paragraphs are separated by a blank line. A service
+    // notice, not marketing: no unsubscribe link.
+    case "service_notice": {
+      const heading = d("heading", "A note from Scoutable");
+      const paragraphs = d("body")
+        .split(/\n{2,}/)
+        .map((p) => p.trim())
+        .filter(Boolean);
+      const ctaUrl = d("cta_url");
+      const ctaLabel = d("cta_label", "Open Scoutable");
+      const bodyHtml = paragraphs
+        .map((p, i) => {
+          const last = i === paragraphs.length - 1;
+          const margin = last && !ctaUrl ? "0" : last ? "0 0 32px 0" : "0 0 16px 0";
+          return `<p style="margin:${margin};font-size:14px;line-height:1.65;color:#6b7280;">${esc(p).replace(/\n/g, "<br>")}</p>`;
+        })
+        .join("\n");
+      return {
+        subject: d("subject", heading),
+        html: wrapEmail(
+          heading,
+          `<h1 style="margin:0 0 12px 0;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">${esc(heading)}</h1>
+${bodyHtml}${ctaUrl ? `\n${ctaButton(ctaUrl, ctaLabel)}` : ""}`,
+          d("footer", "You received this because you have a Scoutable account."),
         ),
       };
     }
