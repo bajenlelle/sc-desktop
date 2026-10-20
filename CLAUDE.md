@@ -72,7 +72,11 @@ playlists, and share them with teams; players watch on web/mobile.
   function to PUBLIC, so an internal SECURITY DEFINER helper (not meant for
   clients, usually `_`-prefixed) ends with `REVOKE ALL ON FUNCTION … FROM
   PUBLIC, anon, authenticated` (`20261018200000` closed thirteen that
-  didn't); client RPCs keep their `GRANT EXECUTE … TO authenticated`.
+  didn't); client RPCs keep their `GRANT EXECUTE … TO authenticated`. From
+  2026-10-30 Supabase no longer grants API access to new `public` tables, so a
+  migration that creates one also grants it: `SELECT` (or what RLS allows) to
+  `authenticated`, everything to `service_role`, nothing to `anon`
+  (`20261023100000_table_grants.sql`, checked by `supabase/tests/table_grants.sh`).
   `profiles` has column-level UPDATE grants only
   (`20260929120000_close_self_escalation.sql`): a new client-writable column
   needs its own `GRANT UPDATE (column)`. Third-party keys (Genius, Profixio,

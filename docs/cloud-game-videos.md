@@ -215,7 +215,7 @@ can't reach the Worker or the secrets don't pair up (`GAME_VIDEO_CONVERT_SECRET`
   `workers/game-video-convert` and `packages/node-video`; `npx tsc --noEmit`
   in `apps/web` and `apps/desktop`; `npm run lint` in `apps/web`.
 - **SQL probes**: `supabase/tests/game_videos.sh`, `render_jobs.sh`,
-  `sync_media.sh`. They run against the CLI's linked project unless
+  `sync_media.sh`, `table_grants.sh` (the four tables' Data API grants). They run against the CLI's linked project unless
   `SUPABASE_DB_URL` is set, so point them at staging explicitly:
   `SUPABASE_DB_URL=<staging session pooler URL> PSQL_BIN=$(which psql)
   supabase/tests/sync_media.sh`. `RLS_PREFLIGHT=<migration file>` runs them
