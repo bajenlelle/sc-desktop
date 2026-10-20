@@ -34,6 +34,12 @@ export interface PlayerStageProps {
   video: HTMLVideoElement;
   /** Null until something has been chosen to play (the stage waits, black). */
   src: string | null;
+  /**
+   * The game's file is known to be gone (the caller shows its own panel for
+   * that). The webview reports a missing file as "format not supported", so
+   * without this the stage would cover that panel with the wrong advice.
+   */
+  fileMissing?: boolean;
   fullscreen?: boolean;
   onToggleFullscreen?: () => void;
   onExitFullscreen?: () => void;
@@ -72,6 +78,7 @@ export interface PlayerStageProps {
 export function PlayerStage({
   video,
   src,
+  fileMissing,
   fullscreen = false,
   onToggleFullscreen,
   onExitFullscreen,
@@ -95,6 +102,8 @@ export function PlayerStage({
   const [paused, setPaused] = React.useState(video.paused);
   const [buffering, setBuffering] = React.useState(false);
   const [failure, setFailure] = React.useState<MediaFailure | null>(null);
+  const fileMissingRef = React.useRef(false);
+  fileMissingRef.current = !!fileMissing;
   const [flash, setFlash] = React.useState<{ id: number; kind: "play" | "pause" | "sound" } | null>(null);
   const sound = usePlayerSound();
   const [active, setActive] = React.useState(true);
@@ -152,7 +161,7 @@ export function PlayerStage({
     };
     function report(kind: MediaFailure | null) {
       setFailure(kind);
-      if (!kind) return;
+      if (!kind || fileMissingRef.current) return;
       Sentry.captureMessage("video failed to load", {
         level: "warning",
         tags: {
@@ -296,7 +305,7 @@ export function PlayerStage({
 
       {children}
 
-      {failure && (
+      {failure && !fileMissing && (
         <div
           role="alert"
           className="absolute inset-0 z-[13] flex items-center justify-center bg-black/80 p-6 text-center text-sm text-white"

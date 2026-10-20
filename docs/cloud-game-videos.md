@@ -279,6 +279,13 @@ In this order, each with a dry run or a check first. Secret names are in
 ## Known limits and follow-ups
 
 - An export's audio is the copy's audio.
+- The desktop plays a game only from a file on the computer it runs on. A game
+  imported on another computer (its stored path doesn't exist here) or in the
+  web app (no path at all) shows "video file can't be found" even when its
+  cloud copy is ready. Follow-up: with no local file and a ready copy, play
+  the clip's window from a presigned GET of the copy, as the web editor does
+  (`usePlayUrls`, `buildWatchItems` with `preferWindows`); needs a desktop
+  release.
 - Link reuse for Send to my phone keys on what the client can see; copies
   uploaded by someone else aren't part of that key.
 - Deleting a playlist clip doesn't queue its file for the media purge.

@@ -4542,6 +4542,12 @@ export function PlaylistsPage() {
           <PlayerStage
             video={persistentVideo}
             src={localVideoUrl}
+            fileMissing={
+              !!activeMatchId &&
+              videoStatusByMatch.get(activeMatchId) !== undefined &&
+              videoStatusByMatch.get(activeMatchId) !== "ok" &&
+              !activeTextCard
+            }
             fullscreen={playerFs.active}
             onToggleFullscreen={toggleFullscreen}
             onExitFullscreen={() => void playerFs.exit()}
@@ -4602,9 +4608,8 @@ export function PlaylistsPage() {
                   This game's video file can't be found
                 </p>
                 <p className="max-w-sm text-xs text-white/70">
-                  It may have been moved or renamed, or it's on another computer —
-                  games reference the file in place, nothing is uploaded. Point
-                  Scoutable at the file to keep working.
+                  It may have been moved or renamed, or it's on another computer.
+                  Point Scoutable at the file to keep working.
                 </p>
                 <Button size="sm" onClick={handleLocateActiveVideo}>
                   Locate file…
