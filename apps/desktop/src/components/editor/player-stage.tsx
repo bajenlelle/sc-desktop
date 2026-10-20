@@ -356,9 +356,11 @@ export function PlayerStage({
         </div>
       )}
 
-      {/* Floating chrome, or the trim bar in its place */}
+      {/* Floating chrome, or the trim bar in its place. With the file gone
+          there is nothing to control, and on a small stage the chrome would
+          sit over the caller's "Locate file" button. */}
       <AnimatePresence>
-        {trimBar ? (
+        {fileMissing ? null : trimBar ? (
           <motion.div
             key="trim"
             initial={{ opacity: 0, y: 8 }}
