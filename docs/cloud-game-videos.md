@@ -111,8 +111,9 @@ quiet renders and fails a job nobody took within a day. `render_done` writes
 `sync_periods_set` move the uploader's pans with their plays, clear legacy
 keys and re-ship stale clips of shared playlists (`_playlist_is_shared`).
 Superseded clip files: whenever a playlist clip's `r2_url` changes or is
-cleared (render_done, a trim, a sync change, the desktop), a trigger queues
-the old key in `media_deletions`; the nightly `media_purge` (purge secret,
+cleared (render_done, a trim, a sync change, the desktop), or its row is
+deleted (a clip taken out, a playlist or an account deleted; migration
+`20261025100000`), a trigger queues the old key in `media_deletions`; the nightly `media_purge` (purge secret,
 `run_game_video_purge`) deletes a key only when no `playlist_clips.r2_url`
 and no live ship job references it (two playlists can share a file), else
 drops it from the queue. Staging shares the media bucket and holds copies of

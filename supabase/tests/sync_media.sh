@@ -9,7 +9,9 @@
 # quarters (with breaksCut, the marks and the tip-off when given), the shape is
 # checked entry by entry, a game without a sync is refused. Superseded clip
 # files: whatever makes a playlist clip stop pointing at a file queues that
-# file's key (the owner's clear, the function's re-cut), the queue takes clip
+# file's key (the owner's clear, the function's re-cut, and since
+# 20261025100000 the row's removal: a clip taken out, a playlist deleted),
+# the queue takes clip
 # keys only and no client reads or writes it, the purge sees a key as in use
 # while any playlist clip or live ship job still points at it, and the nightly
 # purge calls the function for each queue that holds anything.
@@ -17,6 +19,7 @@
 # Every statement runs inside BEGIN … ROLLBACK, so nothing is committed.
 #
 #   RLS_PREFLIGHT=supabase/migrations/20261022100000_sync_and_media_cleanup.sql supabase/tests/sync_media.sh   # before db push
+#   RLS_PREFLIGHT=supabase/migrations/20261025100000_queue_removed_clip_files.sql supabase/tests/sync_media.sh  # the removal rule, before its push
 #   supabase/tests/sync_media.sh                                                                             # after
 #
 # Runs against the linked project through the CLI, unless SUPABASE_DB_URL is
@@ -240,7 +243,12 @@ ROLE=service_role run "the same URL again queues nothing"                      "
 ROLE=service_role run "the same key from another base queues nothing"          "ALLOWED rows=0" "$(set_url $PL "https://media.example/$KEY"); $(queued "$KEY")" "$BASE $SHIPPED"
 ROLE=service_role run "a first cut queues nothing"                             "ALLOWED rows=0" "$(set_url $PL "$BASE_URL/$KEY"); SELECT count(*) AS n FROM media_deletions WHERE storage_key LIKE 'clips/$M/%'" "$BASE $PLAYLISTS $(clip_in $PL NULL)"
 ROLE=service_role run "a URL that isn't a clip's queues nothing"               "ALLOWED rows=0" "$(set_url $PL NULL); SELECT count(*) AS n FROM media_deletions WHERE storage_key LIKE '%probe%'" "$BASE $PLAYLISTS $(clip_in $PL "$BASE_URL/highlights/$U/$PL.mp4")"
-ROLE=service_role run "deleting a clip's row queues nothing"                   "ALLOWED rows=0" "DELETE FROM playlist_clips WHERE playlist_id = $(d $PL); $(queued "$KEY")" "$BASE $SHIPPED"
+run "the owner taking a shipped clip out queues its file"                      "ALLOWED rows=1" "DELETE FROM playlist_clips WHERE playlist_id = $(d $PL); RESET ROLE; $(queued "$KEY" removed)" "$BASE $SHIPPED"
+run "…and deleting the playlist does too"                                      "ALLOWED rows=1" "DELETE FROM playlists WHERE id = $(d $PL); RESET ROLE; $(queued "$KEY" removed)" "$BASE $SHIPPED"
+ROLE=service_role run "a removed row without a file queues nothing"            "ALLOWED rows=0" "DELETE FROM playlist_clips WHERE playlist_id = $(d $PL); SELECT count(*) AS n FROM media_deletions WHERE storage_key LIKE 'clips/$M/%'" "$BASE $PLAYLISTS $(clip_in $PL NULL)"
+ROLE=service_role run "…nor one whose URL isn't a clip's"                      "ALLOWED rows=0" "DELETE FROM playlist_clips WHERE playlist_id = $(d $PL); SELECT count(*) AS n FROM media_deletions WHERE storage_key LIKE '%probe%'" "$BASE $PLAYLISTS $(clip_in $PL "$BASE_URL/highlights/$U/$PL.mp4")"
+ROLE=service_role run "a removed file another playlist has is queued, in use"  "ALLOWED rows=2" "DELETE FROM playlists WHERE id = $(d $PL); SELECT ($(queued "$KEY" removed)) + _media_key_referenced($(d "$KEY"))::int AS n" "$BASE $SHIPPED $(clip_in $PL2 "$BASE_URL/$KEY")"
+ROLE=service_role run "the removal trigger is no client's to call"             "ALLOWED rows=0" "SELECT (has_function_privilege('authenticated', 'queue_removed_clip_file()', 'EXECUTE') OR has_function_privilege('anon', 'queue_removed_clip_file()', 'EXECUTE'))::int AS n" ""
 ROLE=service_role run "the key is read off the end of the URL's path"          "ALLOWED rows=1" "SELECT (_media_clip_key($(d "https://pub-x.r2.dev/a/b/clips/$M/42_pre-2.0_post3.0.mp4")) = $(d "clips/$M/42_pre-2.0_post3.0.mp4"))::int AS n" ""
 ROLE=service_role run "…and nothing off a URL with a query string"             "ALLOWED rows=1" "SELECT (_media_clip_key($(d "$BASE_URL/$KEY?v=2")) IS NULL)::int AS n" ""
 ROLE=service_role run "a key queued twice is one entry"                        "ALLOWED rows=1" "SELECT _queue_media_deletion($(d "$KEY"), 'replaced'); $(queued "$KEY" cleared)" "$BASE $QUEUE_KEY"

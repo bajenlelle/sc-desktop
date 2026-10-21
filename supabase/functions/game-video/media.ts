@@ -3,7 +3,9 @@
 // scheme (clipShipKey). When the file a playlist clip points at changes (a
 // re-cut by render_done, a trim or a sync change clearing it, the desktop
 // re-shipping it), a trigger on playlist_clips queues the old key in
-// `media_deletions` (migration 20261022100000). This drains the queue:
+// `media_deletions` (migration 20261022100000); so does deleting the row (a
+// clip taken out, a playlist or an account deleted; 20261025100000). This
+// drains the queue:
 //
 //   media_purge   (x-purge-secret: pg_cron nightly through run_game_video_purge,
 //                 the smoke script) deletes a queued key only when no playlist
