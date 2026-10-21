@@ -173,6 +173,33 @@ export function gameVideoIsSettling(video: GameVideo | null): boolean {
   return video.status === "ready" && video.syncStatus === "pending";
 }
 
+/** How often a list re-reads while a row in it is settling, and the slower pace once that has gone on for a while. */
+export const GAME_VIDEO_LIST_POLL_MS = 10_000;
+export const GAME_VIDEO_LIST_SLOW_POLL_MS = 60_000;
+/** A conversion this old (from the upload's start) is waiting on the converter's queue or sweep, not finishing. */
+const CONVERTING_FRESH_MS = 30 * 60_000;
+/** A tip-off detection this old (from ready) is late; the row still settles, just not every ten seconds. */
+const SYNC_PENDING_FRESH_MS = 10 * 60_000;
+
+/**
+ * How often a list of these rows should read itself again: null when none
+ * is settling, every ten seconds while one is likely to finish soon, once a
+ * minute when every settling row has been at it for a while (a converter
+ * backlog, a detection that never reports), so a forgotten tab doesn't poll
+ * at full pace for the sweep's whole day.
+ */
+export function gameVideoListPollMs(rows: readonly GameVideo[], nowMs: number): number | null {
+  let delay: number | null = null;
+  for (const row of rows) {
+    if (!gameVideoIsSettling(row)) continue;
+    const since = Date.parse(row.status === "converting" ? row.createdAt : (row.readyAt ?? row.createdAt));
+    const fresh = row.status === "converting" ? CONVERTING_FRESH_MS : SYNC_PENDING_FRESH_MS;
+    if (!Number.isFinite(since) || nowMs - since < fresh) return GAME_VIDEO_LIST_POLL_MS;
+    delay = GAME_VIDEO_LIST_SLOW_POLL_MS;
+  }
+  return delay;
+}
+
 export interface GameVideoQuota {
   /** The kill switch, app_config.cloud_video_enabled. */
   enabled: boolean;

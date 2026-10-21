@@ -21,7 +21,7 @@ import { ToolbarSearch, focusToolbarSearch } from "@/components/shell/toolbar-se
 import { Button } from "@/components/ui/button";
 import { GroupFooter, GroupedList } from "@/components/ui/group";
 import { SkeletonRows } from "@/components/ui/skeleton";
-import { useMyGameVideos } from "@/lib/game-videos";
+import { GAME_VIDEO_CHANGED, useMyGameVideos } from "@/lib/game-videos";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { createClient } from "@/lib/supabase/client";
 
@@ -47,6 +47,16 @@ export default function LibraryPage() {
   const [query, setQuery] = useState("");
   const canImport = navUser?.canImport ?? false;
 
+  // A game's video changing here (an import finished, a removal) re-reads
+  // the games too. Not keyed on the games list itself: it arrives after the
+  // first read and would make every visit read everything twice.
+  const [reloadTick, setReloadTick] = useState(0);
+  useEffect(() => {
+    const onChange = () => setReloadTick((t) => t + 1);
+    window.addEventListener(GAME_VIDEO_CHANGED, onChange);
+    return () => window.removeEventListener(GAME_VIDEO_CHANGED, onChange);
+  }, []);
+
   useEffect(() => {
     if (profileLoading) return;
     const supabase = createClient();
@@ -60,8 +70,7 @@ export default function LibraryPage() {
     return () => {
       cancelled = true;
     };
-    // `games` changing (an import, a removal) re-reads the games too.
-  }, [profileLoading, orgId, activeOrgId, activeOrgIsPersonal, games?.length]);
+  }, [profileLoading, orgId, activeOrgId, activeOrgIsPersonal, reloadTick]);
 
   useKeyScope(KEY_SCOPE);
   useHotkeys(KEY_SCOPE, (e) => {

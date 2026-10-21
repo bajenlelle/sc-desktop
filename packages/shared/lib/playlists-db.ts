@@ -273,18 +273,9 @@ export async function listPlaylists(
   orgId?: string,
   opts?: OrgScopeOpts,
 ): Promise<Playlist[]> {
-  const uid = await currentUserId(supabase);
-  if (!uid) return [];
-  const query = supabase
-    .from("playlists")
-    .select(PLAYLIST_SELECT)
-    .eq("user_id", uid);
-  const { data, error } = await applyOrgScope(query, orgId, opts)
-    .order("created_at", { ascending: false });
-  if (error) { reportDbError("listPlaylists", error); return []; }
-  if (!data) return [];
-  // Own playlists only (user_id = uid above): the player cards are theirs.
-  return (data as PlaylistRow[]).map((r) => rowToPlaylist(r, { includePlayerCards: true }));
+  const rows = await ownPlaylistRows(supabase, orgId, opts, "listPlaylists");
+  // Own playlists only (user_id = uid in the read): the player cards are theirs.
+  return rows.map((r) => rowToPlaylist(r, { includePlayerCards: true }));
 }
 
 /**
@@ -948,6 +939,52 @@ export async function getMySharedPlaylists(
   orgId?: string,
   opts?: OrgScopeOpts,
 ): Promise<SharedPlaylist[]> {
+  const rows = await ownPlaylistRows(supabase, orgId, opts, "getMySharedPlaylists");
+  return sharedFromRows(rows);
+}
+
+/**
+ * listPlaylists and getMySharedPlaylists from ONE read: the same rows feed
+ * both, so a page that needs the list and the shared-by-me dashboard (Home)
+ * reads the playlists once instead of twice.
+ */
+export async function listOwnPlaylistsAndShared(
+  supabase: SupabaseClient,
+  orgId?: string,
+  opts?: OrgScopeOpts,
+): Promise<{ playlists: Playlist[]; shared: SharedPlaylist[] }> {
+  const rows = await ownPlaylistRows(supabase, orgId, opts, "listOwnPlaylistsAndShared");
+  return {
+    // Own playlists only: the player cards are theirs.
+    playlists: rows.map((r) => rowToPlaylist(r, { includePlayerCards: true })),
+    shared: sharedFromRows(rows),
+  };
+}
+
+/**
+ * Whether the caller owns a playlist shared with a team or a person, in any
+ * space: the getting-started checklist's last step. Two head-only counts
+ * instead of every playlist with every clip.
+ */
+export async function hasSharedAnyPlaylist(supabase: SupabaseClient): Promise<boolean> {
+  const uid = await currentUserId(supabase);
+  if (!uid) return false;
+  const [teams, people] = await Promise.all([
+    supabase.from("playlists").select("id, playlist_shares!inner(team_id)", { count: "exact", head: true }).eq("user_id", uid),
+    supabase.from("playlists").select("id, playlist_user_shares!inner(user_id)", { count: "exact", head: true }).eq("user_id", uid),
+  ]);
+  if (teams.error) reportDbError("hasSharedAnyPlaylist", teams.error);
+  if (people.error) reportDbError("hasSharedAnyPlaylist", people.error);
+  return (teams.count ?? 0) > 0 || (people.count ?? 0) > 0;
+}
+
+/** The caller's own playlists in a space, newest first; [] when signed out or on a failed read (reported). */
+async function ownPlaylistRows(
+  supabase: SupabaseClient,
+  orgId: string | undefined,
+  opts: OrgScopeOpts | undefined,
+  label: string,
+): Promise<PlaylistRow[]> {
   const uid = await currentUserId(supabase);
   if (!uid) return [];
   const query = supabase
@@ -956,10 +993,12 @@ export async function getMySharedPlaylists(
     .eq("user_id", uid);
   const { data, error } = await applyOrgScope(query, orgId, opts)
     .order("created_at", { ascending: false });
-  if (error) { reportDbError("getMySharedPlaylists", error); return []; }
-  if (!data) return [];
+  if (error) { reportDbError(label, error); return []; }
+  return (data ?? []) as PlaylistRow[];
+}
 
-  return (data as PlaylistRow[])
+function sharedFromRows(rows: PlaylistRow[]): SharedPlaylist[] {
+  return rows
     .filter((row) => (row.playlist_shares ?? []).length > 0 || (row.playlist_user_shares ?? []).length > 0)
     .map((row) => ({
       ...rowToPlaylist(row),

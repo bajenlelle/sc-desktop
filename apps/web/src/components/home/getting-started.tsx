@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, ChevronRight, Loader2, Lock, X } from "lucide-react";
 import { toast } from "sonner";
-import { getMySharedPlaylists } from "@scoutable/shared/lib/playlists-db";
+import { hasSharedAnyPlaylist } from "@scoutable/shared/lib/playlists-db";
 import type { Playlist, StoredMatch } from "@scoutable/shared/types/match";
 import { useAuth } from "@/components/auth-context";
 import { importHref } from "@/components/import/import-entry-link";
@@ -71,9 +71,9 @@ export function GettingStarted({
   useEffect(() => {
     if (!show || activeOrgIsPersonal) return;
     let cancelled = false;
-    getMySharedPlaylists(createClient())
-      .then((ps) => {
-        if (!cancelled) setHasSharedOut(ps.length > 0);
+    hasSharedAnyPlaylist(createClient())
+      .then((shared) => {
+        if (!cancelled) setHasSharedOut(shared);
       })
       .catch(() => {});
     return () => {

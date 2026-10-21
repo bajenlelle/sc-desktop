@@ -8,7 +8,7 @@ import { isEditorUser } from "@scoutable/shared/lib/app-nav";
 import { folderPath } from "@scoutable/shared/lib/folder-tree";
 import { computeHomeHero } from "@scoutable/shared/lib/home-hero";
 import { listFolders, listMatchesLight } from "@scoutable/shared/lib/matches-db";
-import { getMySharedPlaylists, listPlaylists } from "@scoutable/shared/lib/playlists-db";
+import { listOwnPlaylistsAndShared, type SharedPlaylist } from "@scoutable/shared/lib/playlists-db";
 import { buildDashboardRows, latestBehindPlaylist, summarizeDashboard, type DashboardRow } from "@scoutable/shared/lib/shared-by-me";
 import { getTeamMembers } from "@scoutable/shared/lib/teams-db";
 import type { Playlist, PlaylistFolder, StoredMatch } from "@scoutable/shared/types/match";
@@ -32,7 +32,7 @@ import { Button } from "@/components/ui/button";
 import { GroupHeader, GroupRow, GroupedList } from "@/components/ui/group";
 import { SkeletonRows } from "@/components/ui/skeleton";
 import { listPlaylistClipViews } from "@/lib/clip-views-db";
-import { useMyGameVideos } from "@/lib/game-videos";
+import { GAME_VIDEO_CHANGED, useMyGameVideos } from "@/lib/game-videos";
 import { bulkSendReminders } from "@/lib/reminders-bulk";
 import { createClient } from "@/lib/supabase/client";
 
@@ -43,6 +43,8 @@ interface HomeData {
   orgId: string | null;
   matches: StoredMatch[];
   playlists: Playlist[];
+  /** The shared subset of `playlists`, with share timestamps: the engagement dashboard's base. */
+  shared: SharedPlaylist[];
   folders: PlaylistFolder[];
 }
 
@@ -62,7 +64,7 @@ export default function HomePage() {
   const canImport = navUser?.canImport ?? false;
   const { createNew, creating } = useNewPlaylist();
   // Every state, so the recent imports read like the Library's rows.
-  const { games, byMatch } = useMyGameVideos({ orgId: activeOrgId, enabled: !profileLoading });
+  const { byMatch } = useMyGameVideos({ orgId: activeOrgId, enabled: !profileLoading });
   const isClubSpace = !activeOrgIsPersonal;
 
   useEffect(() => {
@@ -77,6 +79,16 @@ export default function HomePage() {
   const [reminding, setReminding] = useState(false);
   const [sharing, setSharing] = useState<Playlist | null>(null);
 
+  // A game's video changing here (an import finished, a removal) re-reads
+  // the games too. Not keyed on the games list itself: it arrives after the
+  // first read and would make every visit read everything twice.
+  const [reloadTick, setReloadTick] = useState(0);
+  useEffect(() => {
+    const onChange = () => setReloadTick((t) => t + 1);
+    window.addEventListener(GAME_VIDEO_CHANGED, onChange);
+    return () => window.removeEventListener(GAME_VIDEO_CHANGED, onChange);
+  }, []);
+
   useEffect(() => {
     if (profileLoading || !editor) return;
     const supabase = createClient();
@@ -85,16 +97,16 @@ export default function HomePage() {
     let cancelled = false;
     void Promise.all([
       listMatchesLight(supabase, orgId, { ownOnly: true, ...scope }).catch(() => [] as StoredMatch[]),
-      listPlaylists(supabase, orgId, scope).catch(() => [] as Playlist[]),
+      // One read for the list and the engagement dashboard's shared subset.
+      listOwnPlaylistsAndShared(supabase, orgId, scope).catch(() => ({ playlists: [] as Playlist[], shared: [] as SharedPlaylist[] })),
       listFolders(supabase, orgId, scope).catch(() => [] as PlaylistFolder[]),
-    ]).then(([matches, playlists, folders]) => {
-      if (!cancelled) setData({ orgId: activeOrgId, matches, playlists, folders });
+    ]).then(([matches, own, folders]) => {
+      if (!cancelled) setData({ orgId: activeOrgId, matches, playlists: own.playlists, shared: own.shared, folders });
     });
     return () => {
       cancelled = true;
     };
-    // `games` changing (an import, a removal) re-reads the games too.
-  }, [profileLoading, editor, activeOrgId, activeOrgIsPersonal, games?.length]);
+  }, [profileLoading, editor, activeOrgId, activeOrgIsPersonal, reloadTick]);
 
   const userId = user?.id ?? null;
   useEffect(() => {
@@ -117,20 +129,19 @@ export default function HomePage() {
 
   // Shared-by-me engagement (club spaces only). Name maps are left out on
   // purpose: the strip and the hero need counts and remind targets only.
+  // The shared playlists come with the page's own read (listOwnPlaylistsAndShared).
+  const sharedForDashboard = data && data.orgId === activeOrgId ? data.shared : null;
   useEffect(() => {
-    if (profileLoading || !editor || !isClubSpace || !activeOrgId) return;
+    if (profileLoading || !editor || !isClubSpace || !activeOrgId || !sharedForDashboard) return;
     const supabase = createClient();
     const orgId = activeOrgId;
+    const shared = sharedForDashboard;
+    // Nothing shared: no rows (derived below), nothing to read.
+    if (shared.length === 0) return;
     let cancelled = false;
-    getMySharedPlaylists(supabase, orgId)
-      .then(async (shared) => {
-        if (cancelled) return;
-        if (shared.length === 0) {
-          setDashboard({ orgId, rows: [] });
-          return;
-        }
-        const teamIds = [...new Set(shared.flatMap((p) => p.teamShares.map((t) => t.teamId)))];
-        const [teamMembers, views] = await Promise.all([getTeamMembers(supabase, teamIds), listPlaylistClipViews(shared.map((p) => p.id))]);
+    const teamIds = [...new Set(shared.flatMap((p) => p.teamShares.map((t) => t.teamId)))];
+    Promise.all([getTeamMembers(supabase, teamIds), listPlaylistClipViews(shared.map((p) => p.id))])
+      .then(([teamMembers, views]) => {
         if (cancelled) return;
         setDashboard({
           orgId,
@@ -141,13 +152,16 @@ export default function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [profileLoading, editor, isClubSpace, activeOrgId, user?.id, dashboardTick]);
+  }, [profileLoading, editor, isClubSpace, activeOrgId, user?.id, dashboardTick, sharedForDashboard]);
 
   const loading = navUser === null || data === null || data.orgId !== activeOrgId;
   const matches = useMemo(() => (loading ? [] : data!.matches), [loading, data]);
   const playlists = useMemo(() => (loading ? [] : data!.playlists), [loading, data]);
   const folders = data?.folders ?? [];
-  const rows = useMemo(() => (isClubSpace && dashboard?.orgId === activeOrgId ? dashboard.rows : []), [isClubSpace, dashboard, activeOrgId]);
+  const rows = useMemo(
+    () => (isClubSpace && sharedForDashboard?.length !== 0 && dashboard?.orgId === activeOrgId ? dashboard.rows : []),
+    [isClubSpace, sharedForDashboard, dashboard, activeOrgId],
+  );
   const summary = useMemo(() => summarizeDashboard(rows), [rows]);
   // The hero's remind scope: the newest shared playlist with stragglers.
   const latestBehind = useMemo(() => latestBehindPlaylist(rows), [rows]);

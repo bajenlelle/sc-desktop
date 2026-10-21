@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { playGameVideo } from "@scoutable/shared/lib/game-video-client";
 import { isSignedUrlFresh, type GameVideoPlayResponse, type GameVideoStatus } from "@scoutable/shared/lib/game-video-wire";
-import { gameVideoIsSettling, getGameVideoForMatch, listMyGameVideos, type GameVideo } from "@scoutable/shared/lib/game-videos-db";
+import { gameVideoIsSettling, gameVideoListPollMs, getGameVideoForMatch, listMyGameVideos, type GameVideo } from "@scoutable/shared/lib/game-videos-db";
 import { trackEvent } from "@/lib/analytics";
 import { createClient } from "@/lib/supabase/client";
 
@@ -112,9 +112,25 @@ export function announceGameVideoChange(matchId: string, expect?: GameVideoExpec
 /** A short-lived memo of "my rows, every state", shared by the sidebar, the tab bar and the pages. */
 let rowsCache: { at: number; promise: Promise<GameVideo[]> } | null = null;
 const ROWS_TTL_MS = 60_000;
-/** How often a list re-reads itself while one of its rows is being converted. */
-const LIST_POLL_MS = 10_000;
 const listeners = new Set<() => void>();
+
+/** Each mounted list with a settling row asks for a pace; one timer re-reads at the fastest one asked. */
+const pollClaims = new Map<symbol, number>();
+let pollTimer: number | null = null;
+let pollEvery = 0;
+
+function schedulePoll() {
+  const next = pollClaims.size > 0 ? Math.min(...pollClaims.values()) : 0;
+  if (next === pollEvery && (pollTimer !== null) === next > 0) return;
+  if (pollTimer !== null) window.clearInterval(pollTimer);
+  pollTimer = null;
+  pollEvery = next;
+  if (next > 0) {
+    pollTimer = window.setInterval(() => {
+      if (!document.hidden) invalidateGameVideos();
+    }, next);
+  }
+}
 
 function loadRows(): Promise<GameVideo[]> {
   if (rowsCache && Date.now() - rowsCache.at < ROWS_TTL_MS) return rowsCache.promise;
@@ -167,24 +183,33 @@ export function useMyGameVideos(opts: { orgId?: string | null; enabled?: boolean
       if (alive.current) setAll(rows);
     });
   }, [enabled, tick]);
-  // A list with a row our converter is working on reads itself again every
-  // ten seconds (when the tab is visible), so "Converting" turns into the
-  // finished row without a navigation.
-  const settling = !!all?.some((g) => gameVideoIsSettling(g));
-  useEffect(() => {
-    if (!enabled || !settling) return;
-    const timer = window.setInterval(() => {
-      if (!document.hidden) invalidateGameVideos();
-    }, LIST_POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [enabled, settling]);
-  const games = useMemo(() => {
+  const inSpace = useMemo(() => {
     if (!all) return null;
-    let rows = all;
-    if (opts.status) rows = rows.filter((g) => g.status === opts.status);
-    if (opts.orgId !== undefined && opts.orgId !== null) rows = rows.filter((g) => g.orgId === opts.orgId);
-    return rows;
-  }, [all, opts.orgId, opts.status]);
+    return opts.orgId !== undefined && opts.orgId !== null ? all.filter((g) => g.orgId === opts.orgId) : all;
+  }, [all, opts.orgId]);
+  // A list with a row our converter is working on in its space (whatever
+  // state it shows) reads itself again while the tab is visible, so
+  // "Converting" turns into the finished row without a navigation. One
+  // module poller serves every mounted list (the sidebar, the tab bar and
+  // the page each hold one).
+  const claim = useRef<symbol>(Symbol("game-video-poll"));
+  useEffect(() => {
+    // Re-judged on every read (each brings new rows), so the pace slows once
+    // the settling rows have been at it a while.
+    const pollMs = enabled && inSpace ? gameVideoListPollMs(inSpace, Date.now()) : null;
+    if (pollMs === null) return;
+    const key = claim.current;
+    pollClaims.set(key, pollMs);
+    schedulePoll();
+    return () => {
+      pollClaims.delete(key);
+      schedulePoll();
+    };
+  }, [enabled, inSpace]);
+  const games = useMemo(() => {
+    if (!inSpace) return null;
+    return opts.status ? inSpace.filter((g) => g.status === opts.status) : inSpace;
+  }, [inSpace, opts.status]);
   const byMatch = useMemo(() => new Map((games ?? []).map((g) => [g.matchId, g])), [games]);
   const reload = useCallback(() => {
     invalidateGameVideos();
