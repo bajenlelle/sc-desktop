@@ -367,7 +367,7 @@ async fn run_ffmpeg(app: &tauri::AppHandle, args: &[String], job: Option<&JobHan
     let (mut rx, child) = app
         .shell()
         .sidecar("ffmpeg")
-        .map_err(|e| e.to_string())?
+        .map_err(sidecar_error)?
         .args(args)
         .spawn()
         .map_err(sidecar_error)?;

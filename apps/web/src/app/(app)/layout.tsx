@@ -12,13 +12,15 @@ import type { UserProfile } from "@scoutable/shared/types/org";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Claims, not getUser(): the proxy has just verified the session, and this
+  // only needs the id and email, so skip another round trip to Supabase Auth.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const claims = claimsData?.claims;
 
-  if (!user) {
+  if (!claims?.sub) {
     redirect("/login");
   }
+  const user = { id: claims.sub, email: claims.email ?? null };
 
   // This server-side row feeds ONLY the shell. Do NOT seed AuthProvider with
   // it: ThemeSync's protocol requires profile to arrive asynchronously after
