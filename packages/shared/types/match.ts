@@ -282,6 +282,12 @@ export interface StoredMatch {
   videoUrl?: string;
   syncPoint?: SyncPoint;
   events: PlayByPlayEvent[];
+  /**
+   * How many plays the game has, when it was listed with
+   * listMatchesLight's withEventCount (lists show the count without loading
+   * the plays themselves, whose `events` stay empty).
+   */
+  eventCount?: number;
   leagueId?: string;
   /** Season the game was imported from, e.g. "2025-26". */
   seasonId?: string;
