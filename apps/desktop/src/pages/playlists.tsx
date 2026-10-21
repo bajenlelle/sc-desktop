@@ -36,8 +36,8 @@ import { generateScoutingReport, type GenerateOutcome } from "@/lib/scouting-rep
 import { getMyScoutingReport, type MyScoutingReport } from "@/lib/scouting-reports-db";
 import { isPlayerCard, newPlayerCard, playerCardLabel, playerCardsOf, type PlayerCardItem, type PlayerCardSpec } from "@scoutable/shared/lib/player-card";
 import { buildScoutingReport, defaultOpponent, playerSectionInfo, reportOutline, sectionBlockKeys, sectionEnd, snapGapToSectionBoundary } from "@scoutable/shared/lib/scouting-report";
-import { cardContent, fallbackText, formatCardDate, opponentLabel, pickDefaultPlayer, type StatsCardPlayer, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
-import { loadGameStats, loadSeasonPlayer, makeGameCard, makeSeasonCard, seasonOf, statsKindOf, type GameStats } from "@/lib/stats-card-data";
+import { fallbackText, formatCardDate, pickDefaultPlayer, type StatsCardPlayer, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
+import { leagueSeasonsOf, loadGameStats, loadSeasonPlayer, makeGameCard, makeSeasonCard, seasonOf, statsKindOf, type GameStats } from "@/lib/stats-card-data";
 import { useLeagues } from "@/lib/use-leagues";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
@@ -479,6 +479,8 @@ export function PlaylistsPage() {
   // read, the share dialog, and the playlist's live report.
   const [playerCardId, setPlayerCardId] = useState<string | null>(null);
   const [playerStatsLoading, setPlayerStatsLoading] = useState<string | null>(null);
+  // Cards whose last read failed (the network), as opposed to a player the league has no numbers for.
+  const [playerStatsFailed, setPlayerStatsFailed] = useState<ReadonlySet<string>>(() => new Set());
   const [reportOpen, setReportOpen] = useState(false);
   const [myReport, setMyReport] = useState<MyScoutingReport | null>(null);
   const [upsellReport, setUpsellReport] = useState(false);
@@ -4233,29 +4235,9 @@ export function PlaylistsPage() {
     if (selected.items.some((i) => !isClipItem(i) && (i as PlaylistTextCard).card)) return null;
     const top = pickDefaultPlayer(statsClips.map((c) => c.event));
     if (!top || top.clips < 3) return null;
-    const theirGames = new Set(statsClips.filter((c) => String(c.event.player?.playerId) === top.playerId).map((c) => c.matchId));
-    const severalGames = new Set(statsClips.map((c) => c.matchId)).size > 1;
-    return { playerId: top.playerId, matchId: !severalGames && theirGames.size === 1 ? [...theirGames][0] : null, severalGames };
+    return { severalGames: new Set(statsClips.map((c) => c.matchId)).size > 1 };
   }, [activeOrgIsPersonal, selected, filtersActive, statsHintDismissed, statsClips]);
-  const [statsHintLine, setStatsHintLine] = useState<string | null>(null);
-  useEffect(() => {
-    setStatsHintLine(null);
-    const match = statsHint?.matchId ? matchLookup.get(statsHint.matchId) : undefined;
-    if (!statsHint || !match) return;
-    let cancelled = false;
-    loadGameStats(match, leagues)
-      .then((stats) => {
-        const option = stats?.players.find((p) => p.player.id === statsHint.playerId);
-        if (cancelled || !stats || !option) return;
-        const card = makeGameCard(match, stats, option, null);
-        const numbers = cardContent(card).cells.map((c) => `${c.value} ${c.label}`).join(" · ");
-        setStatsHintLine(`${numbers} ${opponentLabel(card.game)}`);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [statsHint?.playerId, statsHint?.matchId, leagues]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The suggestion is only the question: the numbers are read when "Add stats card" is clicked, not when the playlist opens.
 
   function dismissStatsHint() {
     if (!selected) return;
@@ -4429,27 +4411,22 @@ export function PlaylistsPage() {
   // Player cards (the scouting report's entries)
   // ---------------------------------------------------------------------------
 
-  // The playlist's games' box scores, read in the background: they add the players who played
-  // without a recorded action to the roster, and warm the cache a card's numbers come from.
+  // Box scores a card has already read (readPlayerStats keeps them): their players join the roster,
+  // among the ones the stored plays name. Nothing is fetched to fill the roster.
   const [boxScores, setBoxScores] = useState<ReadonlyMap<string, GameStats>>(() => new Map());
-  const boxGameIds = useMemo(() => statsGames.slice(0, 8).map((m) => m.id).join(","), [statsGames]);
-  useEffect(() => {
-    if (!boxGameIds) return;
-    let cancelled = false;
-    for (const id of boxGameIds.split(",")) {
-      const match = matchLookup.get(id);
-      if (!match) continue;
-      loadGameStats(match, leagues)
-        .then((s) => {
-          if (cancelled || !s) return;
-          setBoxScores((prev) => (prev.has(id) ? prev : new Map(prev).set(id, s)));
-        })
-        .catch(() => {});
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [boxGameIds, matchLookup, leagues]);
+
+  // Every game the playlist's clips come from, once each, in playlist order. A player card's season
+  // choices need only a game's league, not its box score, so this includes games with no Genius game id.
+  const clipGames = useMemo(() => {
+    const seen = new Set<string>();
+    return (selected?.items ?? []).flatMap((i) => {
+      if (!isClipItem(i) || seen.has(i.matchId)) return [];
+      const m = matchLookup.get(i.matchId);
+      if (!m) return [];
+      seen.add(m.id);
+      return [m];
+    });
+  }, [selected?.items, matchLookup]);
 
   /**
    * Everyone a card can be about: the players with clips in the playlist first, then the rest of
@@ -4492,29 +4469,53 @@ export function PlaylistsPage() {
     return { under, counts, teamLabel: sawCard && beforeFirst };
   }, [queueItems]);
 
-  /** The player as the card keeps them, and their numbers: season averages where the league has them, else a game line, else none. */
+  /**
+   * The game a player's numbers are read from: where most of their clips from games with stats
+   * are; a player with none (a card for anyone in the game) uses the game they played in.
+   */
+  function statsMatchIdOf(person: { playerId: string; matchId?: string }, preferMatchId?: string): string | undefined {
+    const counts = new Map<string, number>();
+    for (const c of statsClips) {
+      if (String(c.event.player?.playerId) === person.playerId) counts.set(c.matchId, (counts.get(c.matchId) ?? 0) + 1);
+    }
+    const withClips = preferMatchId && counts.has(preferMatchId) ? preferMatchId : [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
+    return withClips ?? person.matchId;
+  }
+
+  /**
+   * The player as the card keeps them, and their numbers: season averages where the league has
+   * them, else a game line, else none. `competitionId` is a season the coach picked (any season of
+   * the game's league): exactly that season's line, or none, never a fall back to the game.
+   */
   async function readPlayerStats(
     person: { playerId: string; name: string; number: string | null; teamName: string; matchId?: string },
     preferMatchId?: string,
-  ): Promise<{ player: StatsCardPlayer; stats: StatsCardSpec | null }> {
+    competitionId?: number,
+  ): Promise<{ player: StatsCardPlayer; stats: StatsCardSpec | null; failed: boolean }> {
     const base: StatsCardPlayer = { id: person.playerId, name: person.name, number: person.number, teamId: null, teamName: person.teamName };
-    const theirs = statsClips.filter((c) => String(c.event.player?.playerId) === person.playerId);
-    const counts = new Map<string, number>();
-    for (const c of theirs) counts.set(c.matchId, (counts.get(c.matchId) ?? 0) + 1);
-    // The game their clips are mostly in; a player with none (a card for anyone in the game) uses the game they played in.
-    const withClips = preferMatchId && counts.has(preferMatchId) ? preferMatchId : [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
-    const matchId = withClips ?? person.matchId;
+    const matchId = statsMatchIdOf(person, preferMatchId);
     const match = matchId ? matchLookup.get(matchId) : undefined;
-    if (!match) return { player: base, stats: null };
+    if (!match) return { player: base, stats: null, failed: false };
     const stats = await loadGameStats(match, leagues);
+    // Its players join the roster from now on (the official box score names players the plays don't).
+    if (stats?.source === "genius_hosted") setBoxScores((prev) => (prev.has(match.id) ? prev : new Map(prev).set(match.id, stats)));
     const option = stats?.players.find((o) => o.player.id === person.playerId);
-    if (!stats || !option) return { player: base, stats: null };
-    const season = seasonOf(match, leagues);
+    const who = option?.player ?? base;
+    // The season line needs only the game's league, not the game's box score: a player who barely
+    // played, or a game with no Genius game id, still has one.
+    const season =
+      competitionId !== undefined ? (leagueSeasonsOf(match, leagues).find((s) => s.competitionId === competitionId) ?? null) : seasonOf(match, leagues);
+    // A season page that couldn't be read is not a season the player isn't in: say so apart.
+    let failed = false;
     if (season) {
-      const line = await loadSeasonPlayer(season.competitionId, person.playerId).catch(() => null);
-      if (line) return { player: option.player, stats: makeSeasonCard(season, option.player, line) };
+      const line = await loadSeasonPlayer(season.competitionId, person.playerId).catch(() => {
+        failed = true;
+        return null;
+      });
+      if (line) return { player: who, stats: makeSeasonCard(season, who, line), failed: false };
     }
-    return { player: option.player, stats: makeGameCard(match, stats, option, season?.competitionId ?? null) };
+    if (competitionId !== undefined || !stats || !option) return { player: who, stats: null, failed };
+    return { player: who, stats: makeGameCard(match, stats, option, seasonOf(match, leagues)?.competitionId ?? null), failed: false };
   }
 
   // Player card edits show at once and save after a pause in the typing.
@@ -4552,19 +4553,31 @@ export function PlaylistsPage() {
     person: { playerId: string; name: string; number: string | null; teamName: string; matchId?: string },
     preferMatchId?: string,
     rowReady?: Promise<unknown>,
+    competitionId?: number,
   ): Promise<StatsCardSpec | null> {
     setPlayerStatsLoading(cardId);
+    const setFailed = (failed: boolean) =>
+      setPlayerStatsFailed((prev) => {
+        if (prev.has(cardId) === failed) return prev;
+        const next = new Set(prev);
+        if (failed) next.add(cardId);
+        else next.delete(cardId);
+        return next;
+      });
+    setFailed(false);
     try {
-      const reading = readPlayerStats(person, preferMatchId);
+      const reading = readPlayerStats(person, preferMatchId, competitionId);
       reading.catch(() => {}); // surfaced below; this keeps an early failure from going unhandled while the insert finishes
       await rowReady;
-      const { player, stats } = await reading;
+      const { player, stats, failed } = await reading;
       const card = selectedRef.current?.items.find((i): i is PlayerCardItem => isPlayerCard(i) && i.id === cardId);
       // The card changed player while the numbers were read: they aren't its numbers.
       if (!card || card.player.player.id !== person.playerId) return null;
       handlePlayerCardChange(cardId, { ...card.player, player, stats });
+      setFailed(!stats && failed);
       return stats;
     } catch {
+      setFailed(true);
       return null;
     } finally {
       setPlayerStatsLoading((cur) => (cur === cardId ? null : cur));
@@ -4927,6 +4940,14 @@ export function PlaylistsPage() {
   const cardOnStage = !!stageCard || !!playerCardItem;
   const playerCardAt = playerCardItem && selected ? selected.items.indexOf(playerCardItem) : -1;
   const playerSection = playerCardItem && selected ? playerSectionInfo(selected.items, playerCardAt, eventByKey) : null;
+  // The game the open card's numbers come from, and that game's league seasons (the season it can show).
+  const cardPlayerId = playerCardItem?.player.player.id;
+  const cardMatchId = cardPlayerId
+    ? statsMatchIdOf({ playerId: cardPlayerId, matchId: playerChoices.find((c) => c.playerId === cardPlayerId)?.matchId })
+    : undefined;
+  const cardMatch = cardMatchId ? matchLookup.get(cardMatchId) : undefined;
+  const cardSeasons = cardMatch ? leagueSeasonsOf(cardMatch, leagues) : [];
+  const cardGameSeasonId = cardMatch ? (seasonOf(cardMatch, leagues)?.competitionId ?? null) : null;
   const playerPreviewClips: PreviewClip[] =
     playerCardItem && selected
       ? selected.items
@@ -5046,22 +5067,27 @@ export function PlaylistsPage() {
                 cardId={playerCardItem.id}
                 spec={playerCardItem.player}
                 players={playerChoices}
-                games={statsGames}
+                games={clipGames}
                 leagues={leagues}
                 clipCount={playerSection.clips}
                 elsewhere={playerSection.elsewhere.length}
                 statsLoading={playerStatsLoading === playerCardItem.id}
-                canReadStats={
-                  statsClips.some((c) => String(c.event.player?.playerId) === playerCardItem.player.player.id) ||
-                  statsKindOf(matchLookup.get(playerChoices.find((c) => c.playerId === playerCardItem.player.player.id)?.matchId ?? "")) !== null
-                }
+                statsFailed={playerStatsFailed.has(playerCardItem.id)}
+                canReadStats={cardSeasons.length > 0 || statsKindOf(cardMatch) !== null}
+                seasons={cardSeasons}
+                gameSeasonId={cardGameSeasonId}
                 autoFocusNote={newlyInsertedCardId === playerCardItem.id}
                 onChange={(spec) => handlePlayerCardChange(playerCardItem.id, spec)}
                 onPlayerChange={(id) => handlePlayerCardPlayerChange(playerCardItem.id, id)}
-                onRetryStats={() => {
+                onRetryStats={(competitionId) => {
                   const p = playerCardItem.player.player;
-                  const matchId = playerChoices.find((c) => c.playerId === p.id)?.matchId;
-                  void loadPlayerCardStats(playerCardItem.id, { playerId: p.id, name: p.name, number: p.number, teamName: p.teamName, matchId }, matchId);
+                  void loadPlayerCardStats(
+                    playerCardItem.id,
+                    { playerId: p.id, name: p.name, number: p.number, teamName: p.teamName, matchId: cardMatchId },
+                    cardMatchId,
+                    undefined,
+                    competitionId,
+                  );
                 }}
                 onMoveClips={() => handleMovePlayerClips(playerCardItem.id)}
               />
@@ -5236,7 +5262,6 @@ export function PlaylistsPage() {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <span className="min-w-0 flex-1">
               {statsHint.severalGames ? "Show your season averages in the video" : "Show your stats in the video"}
-              {statsHintLine && <span className="text-muted-foreground nums">{` · ${statsHintLine}`}</span>}
             </span>
             <span className="flex shrink-0 gap-1.5">
               <Button size="xs" variant="ghost" onClick={dismissStatsHint}>

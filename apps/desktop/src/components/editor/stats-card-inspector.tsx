@@ -10,6 +10,7 @@ import {
   normalizeColumns,
   statLabel,
   type StatKey,
+  type StatsCardSeason,
   type StatsCardSpec,
 } from "@scoutable/shared/lib/stats-card";
 import type { League } from "@scoutable/shared/types/league";
@@ -17,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { PopUpButton } from "@/components/ui/pop-up-button";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Stepper } from "@/components/ui/stepper";
-import { loadGameStats, loadSeasonPlayer, makeGameCard, makeSeasonCard, seasonOf, type GameStats } from "@/lib/stats-card-data";
+import { leagueSeasonsOf, loadGameStats, loadSeasonPlayer, makeGameCard, makeSeasonCard, seasonOf, type GameStats } from "@/lib/stats-card-data";
 import { cn } from "@/lib/utils";
 import type { StoredMatch } from "@/types/match";
 
@@ -96,7 +97,9 @@ export function StatsCardInspector({
   useEffect(() => {
     let cancelled = false;
     setStats(null);
-    if (contextMatch) {
+    // The game's players fill the stats card's own player menu. A player card has none, and reads the
+    // game only when its Show control is switched to the game (chooseScope), so selecting one fetches nothing.
+    if (contextMatch && !embedded) {
       loadGameStats(contextMatch, leagues)
         .then((s) => !cancelled && setStats(s))
         .catch(() => {});
@@ -104,7 +107,7 @@ export function StatsCardInspector({
     return () => {
       cancelled = true;
     };
-  }, [contextMatch, leagues]);
+  }, [contextMatch, leagues, embedded]);
 
   const season = contextMatch ? seasonOf(contextMatch, leagues) : null;
   const canSeason = !!season && spec.source !== "profixio";
@@ -178,7 +181,7 @@ export function StatsCardInspector({
 
   function chooseSeason(competitionId: string) {
     if (spec.scope !== "season" || Number(competitionId) === spec.season.competitionId) return;
-    const pick = theirGames.map((m) => seasonOf(m, leagues)).find((s) => s?.competitionId === Number(competitionId));
+    const pick = seasons.find((s) => s.competitionId === Number(competitionId));
     if (!pick) return;
     void run(() => seasonCard(spec.player, { heading: spec.heading, details: spec.details, columns: keepColumns }, pick));
   }
@@ -211,13 +214,14 @@ export function StatsCardInspector({
     return [...list].sort((a, b) => (a.side === b.side ? b.line.pts - a.line.pts : a.side === mySide ? -1 : 1));
   }, [stats, personId]);
 
+  // Every season of the leagues their games are in, not only the games' own: a clip from last
+  // season, a player who is still playing this one.
   const seasons = useMemo(() => {
-    const seen = new Map<number, string>();
+    const seen = new Map<number, StatsCardSeason>();
     for (const m of theirGames) {
-      const s = seasonOf(m, leagues);
-      if (s) seen.set(s.competitionId, s.label);
+      for (const s of leagueSeasonsOf(m, leagues)) if (!seen.has(s.competitionId)) seen.set(s.competitionId, s);
     }
-    return [...seen];
+    return [...seen.values()];
   }, [theirGames, leagues]);
 
   const playerOptions =
@@ -284,9 +288,9 @@ export function StatsCardInspector({
             value={String(spec.season.competitionId)}
             onValueChange={chooseSeason}
             disabled={busy || seasons.length < 2}
-            options={(seasons.length > 0 ? seasons : [[spec.season.competitionId, spec.season.label] as const]).map(([id, label]) => ({
-              value: String(id),
-              label,
+            options={(seasons.some((s) => s.competitionId === spec.season.competitionId) ? seasons : [spec.season, ...seasons]).map((s) => ({
+              value: String(s.competitionId),
+              label: s.label,
             }))}
           />
         )}

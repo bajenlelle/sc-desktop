@@ -68,6 +68,23 @@ export function seasonOf(match: StoredMatch, leagues: League[]): StatsCardSeason
 }
 
 /**
+ * Every season of the game's league that has hosted stats, newest first (the
+ * catalogue's order): what a card can show a player's season averages for,
+ * not only the seasons of the games in a playlist (a clip from last season,
+ * a player still playing this one). Empty for a game with no league, or one
+ * whose league has no Genius seasons.
+ */
+export function leagueSeasonsOf(match: StoredMatch, leagues: League[]): StatsCardSeason[] {
+  const league = leagues.find((l) => l.id === match.leagueId);
+  if (!league || league.provider === "profixio") return [];
+  return league.seasons.flatMap((s) =>
+    s.competitionId && s.provider !== "profixio"
+      ? [{ competitionId: s.competitionId, leagueId: league.id, seasonId: s.id, label: `${league.name} ${s.label}` }]
+      : [],
+  );
+}
+
+/**
  * A page whose tables or headers changed (hosted-stats.ts throws it). Checked
  * by class, and by its error code for an instance from another copy of the module.
  */

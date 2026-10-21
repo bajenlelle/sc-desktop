@@ -7,6 +7,7 @@ import {
   hostedPageSearchParams,
   hostedPageUrl,
   isHostedLayoutError,
+  leagueSeasonsOf,
   makeGameCard,
   makeSeasonCard,
   parseHostedPageSearchParams,
@@ -119,6 +120,37 @@ describe("statsKindOf", () => {
     expect(statsKindOf(game({ sourceGameId: "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed" }))).toBeNull();
     expect(statsKindOf(game({ sourceGameId: undefined }))).toBeNull();
     expect(statsKindOf(undefined)).toBeNull();
+  });
+});
+
+describe("leagueSeasonsOf", () => {
+  const withTwo: League[] = [
+    {
+      id: "superettan-herr",
+      name: "Superettan Herr",
+      country: "SE",
+      seasons: [
+        { id: "2026-27", label: "2026/27", competitionId: 48974, stages: [] },
+        { id: "2025-26", label: "2025/26", competitionId: 41539, stages: [] },
+        { id: "2024-25", label: "2024/25", stages: [] },
+      ],
+    },
+    ...leagues.slice(1),
+  ];
+
+  it("lists every season of the game's league that has hosted stats, newest first", () => {
+    // A clip from 2025/26: this season is there to pick too.
+    expect(leagueSeasonsOf(game(), withTwo)).toEqual([
+      { competitionId: 48974, leagueId: "superettan-herr", seasonId: "2026-27", label: "Superettan Herr 2026/27" },
+      { competitionId: 41539, leagueId: "superettan-herr", seasonId: "2025-26", label: "Superettan Herr 2025/26" },
+    ]);
+  });
+
+  it("is empty for a game with no league, an unknown league, and a Profixio league", () => {
+    expect(leagueSeasonsOf(game({ leagueId: undefined }), withTwo)).toEqual([]);
+    expect(leagueSeasonsOf(game({ leagueId: "nope" }), withTwo)).toEqual([]);
+    expect(leagueSeasonsOf(game({ leagueId: "profixio-stockholm-div1" }), withTwo)).toEqual([]);
+    expect(leagueSeasonsOf(game(), [])).toEqual([]);
   });
 });
 
