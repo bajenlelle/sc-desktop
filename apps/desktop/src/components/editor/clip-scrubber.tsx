@@ -51,31 +51,66 @@ export function ClipScrubber({
   const scrubRef = useRef<{ grabOffset: number; wasPlaying: boolean } | null>(null);
   const frameSeek = useFrameSeek(video, onSeek);
 
-  const fractionToX = useCallback((frac: number) => {
-    const width = trackRef.current?.clientWidth ?? 0;
-    return frac * width;
-  }, []);
+  // The track's width, measured when it changes: reading clientWidth in the
+  // frame loop below forced a layout after every frame's writes.
+  const widthRef = useRef(0);
+  const fracRef = useRef(0);
+  const fractionToX = useCallback((frac: number) => frac * widthRef.current, []);
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    widthRef.current = track.clientWidth;
+    const observer = new ResizeObserver(() => {
+      widthRef.current = track.clientWidth;
+      if (!scrubRef.current) thumbX.set(fractionToX(fracRef.current));
+    });
+    observer.observe(track);
+    return () => observer.disconnect();
+  }, [fractionToX, thumbX]);
 
   const paint = useCallback(
     (time: number) => {
       const frac = clamp((time - start) / duration, 0, 1);
-      if (fillRef.current) fillRef.current.style.transform = `scaleX(${frac})`;
-      if (elapsedRef.current) elapsedRef.current.textContent = formatClipTime(time - start);
+      // Only what changed: the text moves once a second, the fill not at all while paused.
+      if (fillRef.current && frac !== fracRef.current) fillRef.current.style.transform = `scaleX(${frac})`;
+      fracRef.current = frac;
+      const text = formatClipTime(time - start);
+      if (elapsedRef.current && elapsedRef.current.textContent !== text) elapsedRef.current.textContent = text;
       return frac;
     },
     [start, duration],
   );
 
-  // Follow playback at the display rate (timeupdate is ~4 Hz in WKWebView);
-  // while scrubbing the pointer drives the thumb instead.
+  // Follow playback at the display rate (timeupdate is ~4 Hz in WKWebView),
+  // only while it plays: paused (the controls show the whole time then),
+  // one paint per change of position (a seek, a frame step, a new source).
+  // While scrubbing the pointer drives the thumb instead.
   useEffect(() => {
     let raf = 0;
-    const tick = () => {
+    const frame = () => {
       if (!scrubRef.current) thumbX.set(fractionToX(paint(video.currentTime)));
+    };
+    const tick = () => {
+      frame();
       raf = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    const sync = () => {
+      if (!video.paused && !video.ended) {
+        if (!raf) raf = requestAnimationFrame(tick);
+        return;
+      }
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      frame();
+    };
+    fracRef.current = -1; // the fill is painted fresh for this clip
+    sync();
+    const events = ["play", "playing", "pause", "ended", "seeked", "timeupdate", "loadedmetadata", "emptied"] as const;
+    for (const ev of events) video.addEventListener(ev, sync);
+    return () => {
+      for (const ev of events) video.removeEventListener(ev, sync);
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, [video, paint, fractionToX, thumbX]);
 
   function timeAtPointer(clientX: number, grabOffset = 0) {
