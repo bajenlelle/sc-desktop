@@ -17,6 +17,7 @@ import type { OrgMembership } from "../types/org";
 import { clipBounds, computeVideoTime, playlistRolls } from "./clip-timing";
 import { clipViewKey } from "./clip-views-db";
 import { isStaffRole } from "./orgs";
+import { isPlayerCard } from "./player-card";
 import { playableClips } from "./playlist-feed";
 
 /** One item a recipient can watch: a clip's own uploaded file, a window of the game's cloud copy, or a timed text card. */
@@ -55,6 +56,8 @@ export function buildWatchItems(
   const items: WatchItem[] = [];
   const rolls = playlistRolls(playlist);
   for (const item of playlist.items) {
+    // A scouting-report entry, not footage: the owner's own playlist can carry one.
+    if (isPlayerCard(item)) continue;
     if (isClipItem(item)) {
       const key = clipKey(item.matchId, item.eventId);
       const event = eventByKey.get(key);

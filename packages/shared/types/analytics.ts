@@ -61,6 +61,16 @@ export type AnalyticsEvent =
   | "text_card_inserted"
   | "stats_card_inserted" // entry (menu | row | suggestion), scope, source, columns; origin: "web" from the web (after the insert)
   | "stats_card_suggestion_dismissed"
+  // Scouting report (lib/scouting-report.ts). origin: "web" from the web.
+  | "player_card_inserted" // entry (menu | row), has_stats, scope, source
+  | "scouting_report_previewed" // players, clips
+  | "scouting_report_generated" // players, clips, shipped (clips cut for it), posters, regenerated, seconds
+  | "scouting_report_failed" // stage (ship | posters | publish), error
+  | "scouting_report_cancelled" // stage
+  | "scouting_report_link_copied" // method (button | qr)
+  | "scouting_report_revoked"
+  | "scouting_report_page_viewed" // valid, reason (not_found | expired | revoked) — fired by the public page
+  | "scouting_report_pdf_saved" // fired by the public page's Save as PDF
   | "folder_created"
   // Folders on the web's Playlists page (origin: "web"). via: drag | menu | undo
   | "folder_moved" // via, to_top_level

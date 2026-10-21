@@ -103,6 +103,21 @@ const DESKTOP_SEGMENTS: HighlightContentSegment[] = [
 ];
 
 describe("exportContentKey", () => {
+  it("ignores player cards: the scouting report's entries are never in the video", () => {
+    const player: PlaylistItem = {
+      type: "text",
+      id: "pc1",
+      text: "#7 Alva Berg",
+      durationSeconds: 0,
+      player: { type: "player", v: 1, player: { id: "42", name: "Alva Berg", number: "7", teamId: null, teamName: "" }, note: "Drives left.", stats: null },
+    };
+    const withPlayer = [ITEMS[0], player, ...ITEMS.slice(1)];
+    const plain = exportContentKey(input());
+    const carded = exportContentKey(input({ playlist: playlist(withPlayer) }));
+    expect(carded.key).toBe(plain.key);
+    expect(carded.cards).toBe(plain.cards);
+  });
+
   it("is the desktop's key for the same rows, in both aspects", () => {
     expect(exportContentKey(input()).key).toBe(highlightContentKey(DESKTOP_SEGMENTS, 8, 2, "16:9"));
     expect(exportContentKey(input({ aspect: "9:16" })).key).toBe(highlightContentKey(DESKTOP_SEGMENTS, 8, 2, "9:16"));

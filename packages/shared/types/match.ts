@@ -5,6 +5,7 @@
 
 import type { CropKeyframe } from '../lib/crop-path';
 import type { StatsCardSpec } from '../lib/stats-card';
+import type { PlayerCardSpec } from '../lib/player-card';
 export type { CropKeyframe };
 
 export type MatchStatus = "pending" | "processing" | "completed" | "failed";
@@ -221,6 +222,12 @@ export interface PlaylistTextCard {
   groupId?: string;    // ordering-lock group (editor-only); members stay contiguous
   /** A stats card's spec (lib/stats-card.ts); absent on a plain text card. */
   card?: StatsCardSpec;
+  /**
+   * Set on a player card (lib/player-card.ts): a scouting-report entry, not a
+   * text card. Never played, exported or shown to a recipient; `text` is its
+   * label and `durationSeconds` is 0.
+   */
+  player?: PlayerCardSpec;
 }
 
 export type PlaylistItem = PlaylistClipItem | PlaylistTextCard;

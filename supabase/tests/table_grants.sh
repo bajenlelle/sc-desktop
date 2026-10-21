@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Checks the Data API grants of the cloud game video tables (20261023100000):
+# Checks the Data API grants of the cloud game video tables (20261023100000) and
+# scouting_reports (20261024100000):
 # signed-in users read game_videos and render_jobs and can't write them, the
 # service role works all four, the queues are closed to clients, anon sees
 # none. Read-only: it only asks has_table_privilege.
@@ -33,7 +34,10 @@ done
 for t in game_video_deletions media_deletions; do
   for p in SELECT INSERT UPDATE DELETE; do check authenticated $t $p f; done
 done
-for t in game_videos render_jobs game_video_deletions media_deletions; do
+# scouting_reports (20261024100000): the owner reads through RLS, nothing writes from a client.
+check authenticated scouting_reports SELECT t
+for p in INSERT UPDATE DELETE; do check authenticated scouting_reports $p f; done
+for t in game_videos render_jobs game_video_deletions media_deletions scouting_reports; do
   for p in SELECT INSERT UPDATE DELETE; do check service_role $t $p t; done
   check anon $t SELECT f
 done

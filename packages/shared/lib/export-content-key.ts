@@ -19,6 +19,7 @@
 import { clipBounds, computeVideoTime, playlistRolls } from "./clip-timing";
 import type { ExportDropped } from "./game-video-wire";
 import { highlightContentKey, type HighlightAspect, type HighlightContentSegment } from "./highlight-shares-db";
+import { isPlayerCard } from "./player-card";
 import { itemKey } from "./playlist-edits";
 import { isClipItem, type PlayByPlayEvent, type Playlist, type SyncPoint } from "../types/match";
 
@@ -67,6 +68,8 @@ export function exportContentKey({
   let pannedClips = 0;
 
   for (const item of playlist.items) {
+    // Player cards are the scouting report's, never in the video: they must not move its key.
+    if (isPlayerCard(item)) continue;
     const key = itemKey(item);
     if (chosen && !chosen.has(key)) continue;
     if (!isClipItem(item)) {

@@ -20,9 +20,10 @@ playlists, and share them with teams; players watch on web/mobile.
   as windows of the owner's own cloud copies); `/library`, `/library/import`,
   `/library/[matchId]` (a game, its video and its sync); `/my-playlists`
   (`components/playlist/watch-view.tsx`, what players see); `/h/[shareId]`
-  (a highlight link); `/view`, `/join`, `/onboarding`, `/organization`,
-  `/profile`, `/admin`. `/games*` and `/get-started` redirect. API routes use
-  Stripe and the Supabase service role; `/api/hosted-stats` serves the stats
+  (a highlight link); `/r/[token]` (a scouting report: public, unlisted);
+  `/view`, `/join`, `/onboarding`, `/organization`, `/profile`, `/admin`.
+  `/games*` and `/get-started` redirect. API routes use Stripe and the
+  Supabase service role; `/api/hosted-stats` serves the stats
   pages behind stats cards. `src/proxy.ts` refreshes the session and runs
   the onboarding guard.
 - `apps/mobile` — Expo SDK 57, expo-router (`src/app`), NativeWind v4,
@@ -110,6 +111,9 @@ playlists, and share them with teams; players watch on web/mobile.
   to Sentry) through one loader, `lib/stats-card-data.ts`, which each app
   hands its fetcher: the desktop's plugin-http, the web's `/api/hosted-stats`
   (signed-in users only, the URL built from numeric ids, a 10-minute cache).
+  A **player card** (`item_type 'player'`, `lib/player-card.ts`) is the scouting
+  report's entry (`docs/scouting-reports.md`): never drawn, played, exported or
+  shown to a recipient, so the three-painter rule below doesn't cover it.
   Three painters draw the same pixels over `lib/card-layout.ts` with the same
   Roboto files: the desktop's (`apps/desktop/src/lib/card-painter.ts`, its
   stage and its export), the web's (`apps/web/src/lib/card-painter.ts`, the
@@ -221,6 +225,7 @@ playlists, and share them with teams; players watch on web/mobile.
 
 - `docs/cloud-game-videos.md`: cloud game videos end to end, with the prod
   rollout.
+- `docs/scouting-reports.md`: player cards and the public scouting report page.
 - `docs/maintenance.md`: the bug pipeline, and every secret: where it lives
   and what reads it.
 - `docs/desktop-design-audit.md`, `docs/web-design-audit.md`: the redesign
