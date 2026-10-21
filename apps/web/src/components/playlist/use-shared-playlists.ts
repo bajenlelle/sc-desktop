@@ -116,6 +116,10 @@ export function useSharedPlaylists() {
     if (profileLoading) return;
     const supabase = createClient();
     const aggregated = isPlayerOnly;
+    // Neither depends on the playlists: both start now and are awaited where
+    // they're used, instead of adding two steps to the end of the load.
+    const cloudGames = fetchMyCloudGames().catch(() => []);
+    const clipViews = listMyClipViews().catch(() => []);
     Promise.all([
       sessionUserId(supabase),
       // Light shells only — events arrive below, scoped to the matches the
@@ -162,7 +166,7 @@ export function useSharedPlaylists() {
       // viewer has in the cloud plays its file-less clips as windows, so its
       // events load too even when none of its clips is uploaded.
       const loaded = [...pls, ...directPls, ...sharedOutPls];
-      const cloudIds = new Set((await fetchMyCloudGames().catch(() => [])).map((g) => g.matchId));
+      const cloudIds = new Set((await cloudGames).map((g) => g.matchId));
       const referencedIds = [
         ...new Set([...collectReferencedMatchIds(loaded), ...collectClipMatchIds(loaded).filter((id) => cloudIds.has(id))]),
       ];
@@ -174,7 +178,7 @@ export function useSharedPlaylists() {
       setDirectPlaylists(directPls);
       setSharedOutPlaylists(sharedOutPls);
       // Watch history drives the feed's NEW badges and progress bars.
-      const views = await listMyClipViews().catch(() => []);
+      const views = await clipViews;
       const viewKeys = views.map((v) => clipViewKey(v.playlistId, v.matchId, v.eventId));
       for (const key of viewKeys) recordedRef.current.add(key);
       setClipViews(new Set(viewKeys));

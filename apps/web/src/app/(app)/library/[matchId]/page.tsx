@@ -65,20 +65,22 @@ export default function GamePage() {
   // Keyed by game, so a navigation to another game reads as loading at once.
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [matchVersion, setMatchVersion] = useState(0);
+  // Keyed on the user id, not the user object: auth events hand out new objects.
+  const userId = user?.id ?? null;
   useEffect(() => {
-    if (profileLoading || !user) return;
+    if (profileLoading || !userId) return;
     let cancelled = false;
     const supabase = createClient();
     void Promise.all([getMatch(supabase, matchId), supabase.from("matches").select("user_id").eq("id", matchId).maybeSingle()]).then(
       ([match, ownerRow]) => {
         if (cancelled) return;
-        setLoaded({ matchId, match, owner: (ownerRow.data as { user_id?: string } | null)?.user_id === user.id });
+        setLoaded({ matchId, match, owner: (ownerRow.data as { user_id?: string } | null)?.user_id === userId });
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [matchId, matchVersion, profileLoading, user]);
+  }, [matchId, matchVersion, profileLoading, userId]);
   const reloadMatch = useCallback(() => setMatchVersion((v) => v + 1), []);
   const state = loaded?.matchId === matchId ? loaded : null;
   const match = state?.match ?? null;
