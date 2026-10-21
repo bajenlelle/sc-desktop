@@ -50,9 +50,11 @@ function RowState({ state, match, canUpload }: { state: LibraryRowState; match: 
       if (!canUpload || match.isDemo) return <span className="text-callout text-muted-foreground">{state.label}</span>;
       return (
         // The button's own navigation, not the row's: the click stops here.
+        // No prefetch: one per row (every game without a video) all render
+        // the same import page on the server.
         <span onClick={(e) => e.stopPropagation()}>
           <Button asChild size="xs" variant="outline">
-            <ImportEntryLink placement="library_row" matchId={match.id}>
+            <ImportEntryLink placement="library_row" matchId={match.id} prefetch={false}>
               Upload the video
             </ImportEntryLink>
           </Button>
