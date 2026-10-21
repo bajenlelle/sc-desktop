@@ -8,6 +8,7 @@ import { touchThisDevice } from "@/lib/device-registry";
 import { isLeaving } from "@/lib/sign-out";
 import type { UserProfile, OrgMembership, OrgPlanTier } from "@scoutable/shared/types/org";
 import { sortOrgsClubFirst, isPlayerOnly as derivePlayerOnly } from "@scoutable/shared/lib/orgs";
+import { keepIfSame } from "@scoutable/shared/lib/keep-if-same";
 import {
   aliasUser,
   enablePersistentTracking,
@@ -106,6 +107,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // stale closures.
   const userRef = useRef<User | null>(null);
   const lastLoadedAtRef = useRef(0);
+  /** User whose profile boot already succeeded: dedupes the SIGNED_IN supabase-js re-emits on every tab refocus. */
+  const bootedUserIdRef = useRef<string | null>(null);
   const planPollRef = useRef<number | null>(null);
   const activeOrgSnapshotRef = useRef<{ orgId: string; planTier: OrgPlanTier } | null>(null);
 
@@ -134,9 +137,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Without a stored choice resolveActiveOrg falls back to orgs[0] — a
       // club space is always the more useful default than the personal one.
       const orgs = sortOrgsClubFirst(rawOrgs);
-      setProfile(p);
-      setMyOrgs(orgs);
+      // Unchanged rows keep their identity, so a background refresh that
+      // found nothing new re-renders nothing.
+      setProfile((prev) => keepIfSame(prev, p));
+      setMyOrgs((prev) => keepIfSame(prev, orgs));
       setActiveOrgIdState(resolveActiveOrg(orgs));
+      if (!opts?.silent) bootedUserIdRef.current = userId;
       // Merge profile-level traits once loaded (role isn't known at SIGNED_IN
       // time) — mirrors the desktop app's two-stage identify.
       if (!opts?.silent) {
@@ -219,10 +225,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         userRef.current = null;
         return;
       }
-      setUser(session?.user ?? null);
-      userRef.current = session?.user ?? null;
+      // A token refresh or refocus hands out a new user object with the same
+      // contents; keeping the old one spares every consumer a re-render.
+      const nextUser = keepIfSame(userRef.current, session?.user ?? null);
+      setUser(nextUser);
+      userRef.current = nextUser;
 
       if (session?.user && (event === "INITIAL_SESSION" || event === "SIGNED_IN")) {
+        // supabase-js re-emits SIGNED_IN whenever the tab becomes visible
+        // again. Booting there flipped profileLoading, and every page keyed on
+        // it read everything again (the editor dropped what it held). Boot
+        // once per user, as the desktop does; the throttled focus listener
+        // above keeps the profile fresh after that.
+        if (bootedUserIdRef.current === session.user.id) {
+          setLoading(false);
+          return;
+        }
         if (event === "SIGNED_IN") {
           enablePersistentTracking();
           identifyUser(session.user.id, { email: session.user.email });
@@ -242,6 +260,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
         loadProfile(session.user.id);
       } else if (event === "SIGNED_OUT" || (!session?.user && event === "INITIAL_SESSION")) {
+        bootedUserIdRef.current = null;
         if (event === "SIGNED_OUT") {
           trackEvent("signed_out");
           resetUser();

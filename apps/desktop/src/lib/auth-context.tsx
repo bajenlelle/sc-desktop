@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { identifyUser, resetUser, trackEvent } from "@/lib/analytics";
 import { getMyProfile, getMyOrgs, ensurePersonalOrg } from "@/lib/profile-db";
 import { sortOrgsClubFirst } from "@scoutable/shared/lib/orgs";
+import { keepIfSame } from "@scoutable/shared/lib/keep-if-same";
 import { touchThisDevice } from "@/lib/device-registry";
 import { Sentry } from "@/lib/sentry";
 import { seedDemoMatch } from "@/lib/matches-db";
@@ -158,8 +159,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await ensurePersonalOrg();
         orgs = sortOrgsClubFirst(await getMyOrgs());
       }
-      setProfile(p);
-      setMyOrgs(orgs);
+      // Unchanged rows keep their identity, so a background refresh that
+      // found nothing new re-renders nothing.
+      setProfile((prev) => keepIfSame(prev, p));
+      setMyOrgs((prev) => keepIfSame(prev, orgs));
       setOrgsLoaded(true);
       orgsLoadedRef.current = true;
       setActiveOrgIdState(resolveActiveOrg(orgs));
@@ -274,8 +277,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const supabase = createClient();
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
-      setUser(session?.user ?? null);
-      userRef.current = session?.user ?? null;
+      // Every refocus re-emits SIGNED_IN with a new user object holding the
+      // same contents; keeping the old one spares every consumer a re-render.
+      const nextUser = keepIfSame(userRef.current, session?.user ?? null);
+      setUser(nextUser);
+      userRef.current = nextUser;
 
       if (session?.user && (event === "INITIAL_SESSION" || event === "SIGNED_IN")) {
         // supabase-js re-emits SIGNED_IN whenever it revalidates the session
