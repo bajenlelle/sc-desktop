@@ -371,11 +371,13 @@ export async function listMatches(
  *
  * Keyed by user as well as game: RLS shows a playlist recipient only the
  * plays behind its clips, so one account's full list must never serve
- * another signed in on the same device. A reload empties it, so a
- * server-side correction arrives with the next app start. The arrays are
- * shared between callers: read them, never mutate them.
+ * another signed in on the same device. An entry lasts an hour (the desktop
+ * stays open for days: a correction on the server, or a re-import from
+ * another device, arrives within the hour) and a reload empties it all. The
+ * arrays are shared between callers: read them, never mutate them.
  */
-const eventsCache = new Map<string, PlayByPlayEvent[]>();
+const EVENTS_CACHE_MS = 60 * 60_000;
+const eventsCache = new Map<string, { at: number; events: PlayByPlayEvent[] }>();
 const eventsInflight = new Map<string, Promise<PlayByPlayEvent[] | undefined>>();
 
 /** Forgets the cached play-by-play of these games (all games without ids), for every user. */
@@ -402,8 +404,8 @@ export async function listEventsForMatches(
   for (const id of new Set(matchIds)) {
     const key = `${uid}:${id}`;
     const hit = uid ? eventsCache.get(key) : undefined;
-    if (hit) {
-      byMatch[id] = hit;
+    if (hit && Date.now() - hit.at < EVENTS_CACHE_MS) {
+      byMatch[id] = hit.events;
       continue;
     }
     const pending = uid ? eventsInflight.get(key) : undefined;
@@ -439,7 +441,7 @@ export async function listEventsForMatches(
         for (const [id, events] of Object.entries(fetched)) {
           byMatch[id] = events;
           // A game RLS didn't return isn't cached: the next call asks again.
-          if (uid) eventsCache.set(`${uid}:${id}`, events);
+          if (uid) eventsCache.set(`${uid}:${id}`, { at: Date.now(), events });
         }
       }),
     );

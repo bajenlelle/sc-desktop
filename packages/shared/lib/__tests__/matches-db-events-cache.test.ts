@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { deleteMatch, invalidateMatchEvents, listEventsForMatches } from "../matches-db";
 
@@ -45,6 +45,19 @@ function mockClient(opts: { uid?: string | null; visible?: Record<string, number
 
 describe("listEventsForMatches cache", () => {
   beforeEach(() => invalidateMatchEvents());
+  afterEach(() => vi.useRealTimers());
+
+  it("reads a game again once its entry is an hour old", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-21T12:00:00Z"));
+    const { client, reads } = mockClient();
+    await listEventsForMatches(client, ["m1"]);
+    vi.setSystemTime(new Date("2026-10-21T12:59:00Z"));
+    await listEventsForMatches(client, ["m1"]);
+    vi.setSystemTime(new Date("2026-10-21T13:01:00Z"));
+    await listEventsForMatches(client, ["m1"]);
+    expect(reads).toEqual([["m1"], ["m1"]]);
+  });
 
   it("reads a game once per session and hands back the same arrays", async () => {
     const { client, reads } = mockClient();
