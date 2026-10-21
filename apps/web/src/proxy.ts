@@ -111,7 +111,16 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Static files skip the session work, the card painter's fonts (/fonts/*.ttf) included.
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ttf|otf|woff|woff2)$).*)",
+    {
+      // Static files skip the session work, the card painter's fonts (/fonts/*.ttf) included.
+      source: "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ttf|otf|woff|woff2)$).*)",
+      // So do link prefetches (every sidebar link, on every page): the (app)
+      // layout still checks the session, and the navigation itself comes
+      // through here for the redirects.
+      missing: [
+        { type: "header", key: "next-router-prefetch" },
+        { type: "header", key: "purpose", value: "prefetch" },
+      ],
+    },
   ],
 };
