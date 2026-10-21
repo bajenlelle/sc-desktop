@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { ListVideo, LockKeyhole } from "lucide-react";
 import { toast } from "sonner";
@@ -18,9 +19,7 @@ import { useNewPlaylist } from "@/components/playlist/use-new-playlist";
 import { BackButton } from "@/components/shell/back-button";
 import { Page } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
-import { StatsCardInspector } from "@/components/stats-card/stats-card-inspector";
 import { StatusScreen } from "@/components/status-screen";
-import { FixSyncSheet } from "@/components/sync/fix-sync-sheet";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -34,9 +33,8 @@ import { EditorPlayer } from "./editor-player";
 import { buildEditorRows } from "./editor-rows";
 import { EditorSkeleton } from "./editor-skeleton";
 import { EditorTitle } from "./editor-title";
-import { ExportDialog, type ExportDialogCounts, type ExportDialogRequest } from "./export-dialog";
+import type { ExportDialogCounts, ExportDialogRequest } from "./export-dialog";
 import { NowPlaying } from "./now-playing";
-import { SendToPhoneSheet } from "./send-to-phone-sheet";
 import { StatsCardSuggestion } from "./stats-card-suggestion";
 import { useAddTo } from "./use-add-to";
 import { useClipSelection } from "./use-clip-selection";
@@ -46,6 +44,14 @@ import { useEditorPlayback } from "./use-editor-playback";
 import { exportContentFor, useExport } from "./use-export";
 import { itemKeysOf, usePlaylistEditor } from "./use-playlist-editor";
 import { useStatsCards } from "./use-stats-cards";
+
+// Loaded when first needed, off the editor's first render: the inspector and
+// the sync sheet open on demand; the export dialog and the phone sheet carry
+// the card painter and the QR code.
+const StatsCardInspector = dynamic(() => import("@/components/stats-card/stats-card-inspector").then((m) => m.StatsCardInspector));
+const FixSyncSheet = dynamic(() => import("@/components/sync/fix-sync-sheet").then((m) => m.FixSyncSheet));
+const ExportDialog = dynamic(() => import("./export-dialog").then((m) => m.ExportDialog));
+const SendToPhoneSheet = dynamic(() => import("./send-to-phone-sheet").then((m) => m.SendToPhoneSheet));
 
 const hundredths = (n: number) => Math.round(n * 100) / 100;
 

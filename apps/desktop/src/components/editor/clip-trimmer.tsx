@@ -160,13 +160,17 @@ export function ClipTrimmer({
     return () => controls.forEach((c) => c.stop());
   }, [win.start, win.end, xOf, width, dragging, inX, outX, reduced]);
 
-  // The playhead follows the footage at the display rate; a Space play
-  // stops at the out point.
+  // The playhead follows the footage at the display rate while it plays (one
+  // placement per change of position while paused); a Space play stops at
+  // the out point.
   React.useEffect(() => {
     let raf = 0;
-    const tick = () => {
+    const place = () => {
       const { xOf: x, width: w } = geometry.current;
       playheadX.set(clamp(x(video.currentTime), 0, w));
+    };
+    const tick = () => {
+      place();
       const until = playUntilRef.current;
       if (until !== null && !video.paused && video.currentTime >= until - 0.02) {
         video.pause();
@@ -174,9 +178,28 @@ export function ClipTrimmer({
       }
       raf = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    const sync = () => {
+      if (!video.paused && !video.ended) {
+        if (!raf) raf = requestAnimationFrame(tick);
+        return;
+      }
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      place();
+    };
+    sync();
+    const events = ["play", "playing", "pause", "ended", "seeked", "timeupdate", "loadedmetadata", "emptied"] as const;
+    for (const ev of events) video.addEventListener(ev, sync);
+    return () => {
+      for (const ev of events) video.removeEventListener(ev, sync);
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, [video, playheadX]);
+
+  // A new scale (a resize, another window) moves the playhead even while paused.
+  React.useEffect(() => {
+    playheadX.set(clamp(xOf(video.currentTime), 0, width));
+  }, [xOf, width, video, playheadX]);
 
   function stopPlayback() {
     playUntilRef.current = null;

@@ -27,6 +27,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { VideoPlaceholder } from "@/components/video-placeholder";
 import { CardImage } from "@/components/editor/card-image";
+import { ClipNoteField } from "@/components/editor/clip-note-field";
 import { StatsCardInspector } from "@/components/editor/stats-card-inspector";
 import { PlayerCardInspector } from "@/components/editor/player-card-inspector";
 import { pickPlayerCardSpot, playerRoster, type PlayerChoice } from "@scoutable/shared/lib/player-roster";
@@ -508,7 +509,6 @@ export function PlaylistsPage() {
   }, [showClipBrowser]);
   const queueRef = useRef<PlaybackItem[]>([]);
   const queueIdxRef = useRef<number>(0);
-  const [clipNote, setClipNote] = useState("");
   const [theaterMode, setTheaterMode] = useState(
     () => sessionStorage.getItem("playlists-theater-mode") === "true"
   );
@@ -706,16 +706,6 @@ export function PlaylistsPage() {
     : activeEventId !== null && activeMatchId !== null
       ? `${activeMatchId}:${activeEventId}`
       : null;
-
-  // Sync note textarea when active clip changes
-  useEffect(() => {
-    if (activeEventId === null || !selected) { setClipNote(""); return; }
-    const clip = selected.items.filter(isClipItem).find(
-      (c) => c.matchId === activeMatchId && c.eventId === activeEventId
-    );
-    setClipNote(clip?.note ?? "");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeKey, selected?.id]);
 
   // Load playlists + matches on mount; restore selection if returning from match detail
   useEffect(() => {
@@ -1194,6 +1184,20 @@ export function PlaylistsPage() {
    * whose play-by-play runs past it with no quarter syncs: the video
    * probably skips the breaks between quarters. One hint at a time.
    */
+  // Whether a game's video seems to skip the breaks depends on the game and
+  // its video only: worked out per game when either changes, not on every
+  // edit to the playlist (it walks all of the game's plays).
+  const looksCutByMatch = useMemo(() => {
+    const out = new Map<string, boolean>();
+    for (const m of matches) {
+      if (!m.syncPoint || !m.videoUrl || m.syncPoint.periods || m.events.length === 0) continue;
+      const duration = videoDurations[m.videoUrl];
+      if (!duration) continue;
+      out.set(m.id, videoLooksCut({ durationSeconds: duration, events: m.events, sync: m.syncPoint }).cut);
+    }
+    return out;
+  }, [matches, videoDurations]);
+
   const syncHint = useMemo(() => {
     if (!selected) return null;
     const pair = playlistRolls(selected);
@@ -1210,16 +1214,13 @@ export function PlaylistsPage() {
         const t = event ? computeVideoTime(event, m.syncPoint) : null;
         if (t !== null && clipBounds(t, pair.pre, pair.post, c.preRollOffset, c.postRollOffset).start >= duration - 0.25) pastEnd++;
       }
-      const looksCut =
-        !m.syncPoint.periods &&
-        m.events.length > 0 &&
-        videoLooksCut({ durationSeconds: duration, events: m.events, sync: m.syncPoint }).cut;
+      const looksCut = looksCutByMatch.get(matchId) ?? false;
       if (pastEnd > 0 || looksCut) {
         return { matchId, title: m.title, pastEnd, reason: pastEnd > 0 ? "past_end" : "looks_cut" };
       }
     }
     return null;
-  }, [selected, matchLookup, eventByKey, videoDurations, hintDismissed]);
+  }, [selected, matchLookup, eventByKey, videoDurations, hintDismissed, looksCutByMatch]);
   useEffect(() => {
     if (!syncHint || hintShownRef.current.has(syncHint.matchId)) return;
     hintShownRef.current.add(syncHint.matchId);
@@ -1637,8 +1638,8 @@ export function PlaylistsPage() {
     updateClip(selected.id, matchId, activeEventId, { note: note.trim() || null }).catch(() => {});
   }
 
+  // The draft itself lives in ClipNoteField; this only schedules the save.
   function handleNoteChange(value: string) {
-    setClipNote(value);
     if (clipNoteSaveTimerRef.current) clearTimeout(clipNoteSaveTimerRef.current);
     clipNoteSaveTimerRef.current = setTimeout(() => {
       clipNoteSaveTimerRef.current = null;
@@ -4746,23 +4747,31 @@ export function PlaylistsPage() {
     return out;
   }, [clipAssignments, labels]);
 
-  /** The report as the playlist builds it now: the share sheet's preview, and what its "up to date" compares. */
-  const reportPreview = useMemo(
-    () =>
-      selected
-        ? buildScoutingReport({
-            playlist: selected,
-            eventByKey,
-            matchLabel: (id) => matchLookup.get(id)?.title ?? "",
-            title: selected.name,
-            opponent: defaultOpponent(selected.items),
-            labelsByKey: labelNamesByClip,
-          })
-        : null,
-    [selected, eventByKey, matchLookup, labelNamesByClip],
-  );
-
-  const reportOutlineRows = useMemo(() => (selected ? reportOutline(selected.items, eventByKey) : []), [selected, eventByKey]);
+  /**
+   * The report as the playlist builds it now: the share sheet's preview, and
+   * what its "up to date" compares. Built (and hashed) only while the sheet is
+   * open: it was rebuilt on every edit, note saves and trims included. The
+   * last one stays for the sheet's closing animation.
+   */
+  const lastReportRef = useRef<{ preview: ReturnType<typeof buildScoutingReport>; outline: ReturnType<typeof reportOutline> } | null>(null);
+  const reportBuilt = useMemo(() => {
+    if (!reportOpen || !selected) return null;
+    return {
+      preview: buildScoutingReport({
+        playlist: selected,
+        eventByKey,
+        matchLabel: (id) => matchLookup.get(id)?.title ?? "",
+        title: selected.name,
+        opponent: defaultOpponent(selected.items),
+        labelsByKey: labelNamesByClip,
+      }),
+      outline: reportOutline(selected.items, eventByKey),
+    };
+  }, [reportOpen, selected, eventByKey, matchLookup, labelNamesByClip]);
+  if (reportBuilt) lastReportRef.current = reportBuilt;
+  const reportShown = reportBuilt ?? lastReportRef.current;
+  const reportPreview = reportShown?.preview ?? null;
+  const reportOutlineRows = reportShown?.outline ?? [];
 
   /** Each playlist's report as last read this session: going back to a playlist doesn't read it again (opening the dialog and its changes still do). */
   const reportByPlaylistRef = useRef(new Map<string, MyScoutingReport | null>());
@@ -5265,12 +5274,10 @@ export function PlaylistsPage() {
               );
             })()}
             {activeEventId !== null && (
-              <textarea
-                className="w-full resize-none rounded-md bg-card px-3 py-2 text-sm text-foreground ring-1 ring-separator outline-none transition-[box-shadow] duration-150 placeholder:text-muted-foreground/60 focus:ring-2 focus:ring-selection"
-                rows={2}
-                placeholder="Add a note for this clip…"
-                value={clipNote}
-                onChange={(e) => handleNoteChange(e.target.value)}
+              <ClipNoteField
+                key={`${selected?.id}:${activeKey}`}
+                initial={activeMatchId !== null ? (clipByKey.get(`${activeMatchId}:${activeEventId}`)?.note ?? "") : ""}
+                onChange={handleNoteChange}
               />
             )}
           </div>
