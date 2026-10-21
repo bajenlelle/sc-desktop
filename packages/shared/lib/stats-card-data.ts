@@ -101,7 +101,7 @@ function printedToName(printed: string): string {
 }
 
 /** Names and shirt numbers by personId, from the game's stored events. */
-function eventPeople(match: StoredMatch): Map<string, { name: string; number: string | null; side: "home" | "away"; teamName: string }> {
+export function eventPeople(match: StoredMatch): Map<string, { name: string; number: string | null; side: "home" | "away"; teamName: string }> {
   const people = new Map<string, { name: string; number: string | null; side: "home" | "away"; teamName: string }>();
   for (const e of match.events ?? []) {
     if (!e.player) continue;

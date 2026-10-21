@@ -7,18 +7,8 @@ import { Button } from "@/components/ui/button";
 import { PopUpButton } from "@/components/ui/pop-up-button";
 import { Textarea } from "@/components/ui/textarea";
 import { StatsCardInspector } from "@/components/editor/stats-card-inspector";
+import type { PlayerChoice } from "@scoutable/shared/lib/player-roster";
 import type { StoredMatch } from "@/types/match";
-
-/** A player the card can be about: someone with clips in the playlist. */
-export interface PlayerChoice {
-  playerId: string;
-  name: string;
-  number: string | null;
-  teamName: string;
-  clips: number;
-  /** Another player card already has them. */
-  taken: boolean;
-}
 
 const firstName = (name: string) => name.trim().split(/\s+/)[0] || name;
 
@@ -92,7 +82,7 @@ export function PlayerCardInspector({
   const left = PLAYER_NOTE_LIMIT - note.length;
   const options = players.some((p) => p.playerId === player.id)
     ? players
-    : [{ playerId: player.id, name: player.name, number: player.number, teamName: player.teamName, clips: 0, taken: false }, ...players];
+    : [{ playerId: player.id, name: player.name, number: player.number, teamName: player.teamName, clips: 0, matchId: "", taken: false }, ...players];
 
   return (
     <div className="flex flex-col gap-2.5 px-1">

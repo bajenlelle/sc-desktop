@@ -113,7 +113,9 @@ playlists, and share them with teams; players watch on web/mobile.
   (signed-in users only, the URL built from numeric ids, a 10-minute cache).
   A **player card** (`item_type 'player'`, `lib/player-card.ts`) is the scouting
   report's entry (`docs/scouting-reports.md`): never drawn, played, exported or
-  shown to a recipient, so the three-painter rule below doesn't cover it.
+  shown to a recipient, so the three-painter rule below doesn't cover it. It
+  can be about anyone in the playlist's games, not only players with clips
+  (`lib/player-roster.ts`).
   Three painters draw the same pixels over `lib/card-layout.ts` with the same
   Roboto files: the desktop's (`apps/desktop/src/lib/card-painter.ts`, its
   stage and its export), the web's (`apps/web/src/lib/card-painter.ts`, the
