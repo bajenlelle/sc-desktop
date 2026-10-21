@@ -49,27 +49,34 @@ function sourceLine(spec: StatsCardSpec): string {
 export function StatsCardInspector({
   cardId,
   spec,
-  durationSeconds,
+  durationSeconds = 5,
   games,
   leagues,
-  aspect,
+  aspect = "16:9",
   onAspectChange,
   onChange,
   onDurationChange,
   onHold,
+  embedded = false,
 }: {
   cardId: string;
   spec: StatsCardSpec;
-  durationSeconds: number;
+  durationSeconds?: number;
   /** The playlist's games that have stats. */
   games: StoredMatch[];
   leagues: League[];
-  aspect: CardAspect;
-  onAspectChange: (aspect: CardAspect) => void;
+  aspect?: CardAspect;
+  onAspectChange?: (aspect: CardAspect) => void;
   onChange: (spec: StatsCardSpec) => void;
-  onDurationChange: (seconds: number) => void;
+  onDurationChange?: (seconds: number) => void;
   /** Editing holds the card on the stage. */
-  onHold: () => void;
+  onHold?: () => void;
+  /**
+   * Inside a player card (the scouting report's entry): the card picks the
+   * player itself, and there is no heading, details, duration or video
+   * preview, only whose numbers show (game or season) and which of them.
+   */
+  embedded?: boolean;
 }) {
   const personId = spec.player.id;
   const theirGames = useMemo(() => games.filter((m) => sideIn(m, personId) !== null), [games, personId]);
@@ -234,18 +241,20 @@ export function StatsCardInspector({
     "h-7 min-w-0 flex-1 rounded-md bg-card px-2 text-sm text-foreground ring-1 ring-separator outline-none placeholder:text-muted-foreground/70 focus:ring-2 focus:ring-selection";
 
   return (
-    <div className="flex flex-col gap-2 px-1" onPointerDownCapture={onHold} onFocusCapture={onHold}>
+    <div className={cn("flex flex-col gap-2", !embedded && "px-1")} onPointerDownCapture={onHold} onFocusCapture={onHold}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
-        <span className="text-callout text-muted-foreground">Stats card</span>
-        <PopUpButton
-          size="sm"
-          aria-label="Player"
-          value={personId}
-          onValueChange={choosePlayer}
-          placeholder={spec.player.name}
-          disabled={busy || players.length === 0}
-          options={playerOptions}
-        />
+        <span className="text-callout text-muted-foreground">{embedded ? "Show" : "Stats card"}</span>
+        {!embedded && (
+          <PopUpButton
+            size="sm"
+            aria-label="Player"
+            value={personId}
+            onValueChange={choosePlayer}
+            placeholder={spec.player.name}
+            disabled={busy || players.length === 0}
+            options={playerOptions}
+          />
+        )}
         {canSeason ? (
           <SegmentedControl
             aria-label="Show"
@@ -316,6 +325,7 @@ export function StatsCardInspector({
         </span>
       </div>
 
+      {!embedded && (
       <div className="flex flex-wrap items-center gap-2">
         <input
           aria-label="Heading"
@@ -332,20 +342,25 @@ export function StatsCardInspector({
           onChange={(e) => onChange({ ...spec, details: e.target.value || null })}
         />
       </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <div className="flex items-center gap-1.5">
-          <Stepper label="Seconds on screen" value={durationSeconds} min={1} max={120} onChange={onDurationChange} format={(v) => `${v} s`} />
-        </div>
-        <SegmentedControl
-          aria-label="Preview the card as"
-          value={aspect}
-          onValueChange={onAspectChange}
-          options={[
-            { value: "16:9", label: "Widescreen", title: "As the 16:9 export" },
-            { value: "9:16", label: "Vertical", title: "As the 9:16 export" },
-          ]}
-        />
+        {!embedded && onDurationChange && (
+          <div className="flex items-center gap-1.5">
+            <Stepper label="Seconds on screen" value={durationSeconds} min={1} max={120} onChange={onDurationChange} format={(v) => `${v} s`} />
+          </div>
+        )}
+        {!embedded && onAspectChange && (
+          <SegmentedControl
+            aria-label="Preview the card as"
+            value={aspect}
+            onValueChange={onAspectChange}
+            options={[
+              { value: "16:9", label: "Widescreen", title: "As the 16:9 export" },
+              { value: "9:16", label: "Vertical", title: "As the 9:16 export" },
+            ]}
+          />
+        )}
         <span className="text-caption text-muted-foreground">{sourceLine(spec)}</span>
         {spec.scope === "season" && spec.source === "genius_hosted" && (
           <Button variant="ghost" size="xs" disabled={busy} onClick={updateSeason}>

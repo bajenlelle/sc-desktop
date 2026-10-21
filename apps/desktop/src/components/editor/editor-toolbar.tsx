@@ -6,6 +6,7 @@ import {
   CircleX,
   Columns2,
   FileDown,
+  FileText,
   Filter,
   Loader2,
   Lock,
@@ -19,6 +20,7 @@ import {
   Timer,
   Trash2,
   Type,
+  UserRound,
 } from "lucide-react";
 import { exportProgressLabel, exportProgressPercent, type ExportProgress } from "@scoutable/shared/lib/export-progress";
 import type { ExportAction } from "@/components/export-format-dialog";
@@ -102,6 +104,16 @@ export interface EditorToolbarProps {
   highlightExport: boolean;
   onExport: (action: ExportAction) => void;
   onExportMenuOpen: () => void;
+
+  /** Adds a player card (the scouting report's entry); the reason is why it can't be added now. */
+  onAddPlayerCard: () => void;
+  addPlayerCardDisabledReason: string | null;
+  /** Opens the scouting report dialog (Export menu). Free plans can open it; Generate is gated. */
+  onShareReport: () => void;
+  shareReportDisabledReason: string | null;
+  /** "Shared · expires 19 Nov 2026" while the playlist has a live report. */
+  reportStatus: string | null;
+  reportLocked: boolean;
 
   shareVisible: boolean;
   isShipping: boolean;
@@ -259,7 +271,7 @@ export function EditorToolbar(p: EditorToolbarProps) {
                   size="sm"
                   className="rounded-l-none border-l border-primary-foreground/25 px-1.5"
                   aria-label="Add a card"
-                  title="Add a text or stats card"
+                  title="Add a text, stats or player card"
                 >
                   <ChevronDown className="size-3.5" />
                 </Button>
@@ -267,6 +279,7 @@ export function EditorToolbar(p: EditorToolbarProps) {
               <DropdownMenuContent align="end" className="w-64">
                 <CardMenuItem icon={<Type />} label="Add text card" reason={p.addTextCardDisabledReason} onSelect={p.onAddTextCard} />
                 <CardMenuItem icon={<BarChart3 />} label="Add stats card" reason={p.addStatsCardDisabledReason} onSelect={p.onAddStatsCard} />
+                <CardMenuItem icon={<UserRound />} label="Add player" reason={p.addPlayerCardDisabledReason} onSelect={p.onAddPlayerCard} />
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -309,7 +322,7 @@ export function EditorToolbar(p: EditorToolbarProps) {
                     <ChevronDown className="size-3 text-muted-foreground" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuContent align="end" className="w-64">
                   <DropdownMenuItem onSelect={() => p.onExport("save")}>
                     <FileDown className="text-muted-foreground" />
                     Save to computer…
@@ -317,6 +330,16 @@ export function EditorToolbar(p: EditorToolbarProps) {
                   <DropdownMenuItem onSelect={() => p.onExport("send")}>
                     <Smartphone className="text-muted-foreground" />
                     Send to my phone…
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={p.onShareReport} disabled={!!p.shareReportDisabledReason} className="items-start">
+                    <span className="mt-0.5 text-muted-foreground [&_svg]:size-4">{p.reportLocked ? <Lock /> : <FileText />}</span>
+                    <span className="flex flex-col">
+                      Share scouting report…
+                      {(p.shareReportDisabledReason ?? p.reportStatus) && (
+                        <span className="text-caption text-muted-foreground">{p.shareReportDisabledReason ?? p.reportStatus}</span>
+                      )}
+                    </span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

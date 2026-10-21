@@ -55,6 +55,8 @@ export interface PlayerStageProps {
   onSpeedChange: (speed: number) => void;
   /** False while another layer (the crop window) owns the pointer. */
   interactive?: boolean;
+  /** Nothing to play on the stage (a player card's report section is shown): no controls over it. */
+  hideChrome?: boolean;
   /** Overlays stacked on the footage (crop window, missing file, text card). */
   children?: React.ReactNode;
   className?: string;
@@ -91,6 +93,7 @@ export function PlayerStage({
   speed,
   onSpeedChange,
   interactive = true,
+  hideChrome = false,
   children,
   className,
   handleRef,
@@ -365,7 +368,7 @@ export function PlayerStage({
           there is nothing to control, and on a small stage the chrome would
           sit over the caller's "Locate file" button. */}
       <AnimatePresence>
-        {fileMissing ? null : trimBar ? (
+        {fileMissing || hideChrome ? null : trimBar ? (
           <motion.div
             key="trim"
             initial={{ opacity: 0, y: 8 }}

@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import * as db from "@scoutable/shared/lib/playlists-db";
 import type { PlaylistClipItem, PlaylistItem } from "@/types/match";
 import type { StatsCardSpec } from "@scoutable/shared/lib/stats-card";
+import type { PlayerCardSpec } from "@scoutable/shared/lib/player-card";
 
 const c = () => createClient();
 
@@ -17,6 +18,8 @@ export const deletePlaylist = (id: string) => db.deletePlaylist(c(), id);
 export const addClips = (playlistId: string, clips: PlaylistClipItem[], startPosition: number) => db.addClips(c(), playlistId, clips, startPosition);
 export const insertTextCard = (playlistId: string, itemId: string, text: string, durationSeconds: number, position: number, card?: StatsCardSpec) => db.insertTextCard(c(), playlistId, itemId, text, durationSeconds, position, card);
 export const updateTextCard = (playlistId: string, itemId: string, patch: { text?: string; durationSeconds?: number; card?: StatsCardSpec | null }) => db.updateTextCard(c(), playlistId, itemId, patch);
+export const insertPlayerCard = (playlistId: string, itemId: string, spec: PlayerCardSpec, position: number) => db.insertPlayerCard(c(), playlistId, itemId, spec, position);
+export const updatePlayerCard = (playlistId: string, itemId: string, spec: PlayerCardSpec) => db.updatePlayerCard(c(), playlistId, itemId, spec);
 export const removeClips = (playlistId: string, clipKeys: Array<{ matchId: string; eventId: number }>, textCardIds?: string[]) => db.removeClips(c(), playlistId, clipKeys, textCardIds);
 export const reorderItems = (playlistId: string, items: PlaylistItem[]) => db.reorderItems(c(), playlistId, items);
 export const updateClip = (playlistId: string, matchId: string, eventId: number, patch: { preRollOffset?: number; postRollOffset?: number; note?: string | null; cropKeyframes?: import("@scoutable/shared/lib/crop-path").CropKeyframe[] | null }) => db.updateClip(c(), playlistId, matchId, eventId, patch);
