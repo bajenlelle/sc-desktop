@@ -1,0 +1,92 @@
+/*
+ * The scouting report page. The report is a document a coach hands out, read
+ * on a phone first, so its type uses the touch scale on every device (the
+ * app's 13px mouse scale is too small for a public page). The wrapper
+ * re-declares the scale; the app's utilities (text-title-2, text-body, ...)
+ * read these variables.
+ *
+ * Print: A4 with margins that fit Letter, one player per page, clips as poster
+ * frames, light colours whatever the viewer's theme.
+ */
+.report {
+  --type-large-title-size: 2.125rem; --type-large-title-leading: 2.5625rem;
+  --type-title-1-size: 1.75rem;      --type-title-1-leading: 2.125rem;
+  --type-title-2-size: 1.375rem;     --type-title-2-leading: 1.75rem;
+  --type-title-3-size: 1.25rem;      --type-title-3-leading: 1.5625rem;
+  --type-headline-size: 1.0625rem;   --type-headline-leading: 1.375rem;
+  --type-body-size: 1.0625rem;       --type-body-leading: 1.5rem;
+  --type-callout-size: 1rem;         --type-callout-leading: 1.3125rem;
+  --type-subheadline-size: 0.9375rem; --type-subheadline-leading: 1.25rem;
+  --type-footnote-size: 0.8125rem;   --type-footnote-leading: 1.125rem;
+  --type-xs-size: 0.8125rem;         --type-xs-leading: 1.125rem;
+}
+
+/* Notes are what a coach wrote to be read: never muted, a readable measure. */
+.report-note {
+  max-width: 65ch;
+  white-space: pre-wrap;
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+
+/* A stat: the value over its label, figures aligned. */
+.report-stat dd { font-variant-numeric: tabular-nums; }
+
+/* Anchors land below the sticky jump bar. */
+.report-section { scroll-margin-top: 4.5rem; }
+
+@media (prefers-contrast: more) {
+  .report { --muted-foreground: var(--foreground); }
+}
+
+/* On screen the print-only parts are out of the way. */
+.report-print-only { display: none; }
+
+@media print {
+  @page { size: A4; margin: 16mm 15mm 18mm; }
+
+  .report {
+    color-scheme: light;
+    --background: #fff;
+    --foreground: #111;
+    --muted-foreground: #555;
+    --separator: #d4d4d4;
+    --separator-strong: #bdbdbd;
+    --fill-1: #f5f5f5;
+    --fill-2: #eee;
+    --type-large-title-size: 24pt; --type-large-title-leading: 28pt;
+    --type-title-2-size: 18pt;     --type-title-2-leading: 22pt;
+    --type-title-3-size: 14pt;     --type-title-3-leading: 16pt;
+    --type-body-size: 10.5pt;      --type-body-leading: 15pt;
+    --type-callout-size: 9.5pt;    --type-callout-leading: 13pt;
+    --type-subheadline-size: 9.5pt; --type-subheadline-leading: 13pt;
+    --type-footnote-size: 8pt;     --type-footnote-leading: 10pt;
+    background: #fff;
+    color: #111;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  body { background: #fff; }
+
+  .report-screen-only { display: none !important; }
+  .report-print-only { display: block; }
+
+  /* Each player on a page of their own, except the first, which follows the header. */
+  .report-section { break-before: page; scroll-margin-top: 0; }
+  .report-header + .report-section,
+  .report-header ~ .report-section:first-of-type { break-before: auto; }
+  /* Page 1 already names the report in its header. */
+  .report-header ~ .report-section:first-of-type > .report-print-only { display: none; }
+  .report-section h2 { break-after: avoid; }
+  .report-intro { break-inside: avoid; break-after: avoid; }
+  .report-clip { break-inside: avoid; }
+  .report-clip-first { break-before: avoid; }
+  .report-note p, .report-note { orphans: 3; widows: 3; }
+
+  /* A badge tinted for a dark theme would print as a dark block: plain outline. */
+  .report-badge {
+    background: transparent !important;
+    color: #111 !important;
+    box-shadow: inset 0 0 0 1px #999;
+  }
+}

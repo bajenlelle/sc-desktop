@@ -10,6 +10,21 @@ const nextConfig: NextConfig = {
   // (milestone 3 of the cloud game videos): Games became the Library and
   // Get started folded into Home. Temporary, so a client keeps asking: the
   // query string (`?match=`, the ready email's `?t=`) carries over on its own.
+  // The scouting report page (/r/<id>) is an unlisted link to staff and players:
+  // never indexed or archived, never sent on as a referrer (the id is the
+  // capability), never cached by a shared cache.
+  async headers() {
+    return [
+      {
+        source: "/r/:path*",
+        headers: [
+          { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "Cache-Control", value: "private, no-store" },
+        ],
+      },
+    ];
+  },
   async redirects() {
     return [
       { source: "/games", destination: "/library", permanent: false },

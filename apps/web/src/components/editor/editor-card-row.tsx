@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { BarChart3, Pencil, Play, Trash2, Type } from "lucide-react";
+import { BarChart3, Pencil, Play, Trash2, Type, UserRound } from "lucide-react";
 import type { GroupRunInfo } from "@scoutable/shared/lib/clip-groups";
+import { playerCardLabel } from "@scoutable/shared/lib/player-card";
 import { cardContent, opponentLabel, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
 import type { PlaylistTextCard } from "@scoutable/shared/types/match";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -171,9 +172,12 @@ export function EditorCardRow({
   groupSize?: number;
 }) {
   const secondary = isSelected ? "text-selection-foreground/80" : "text-muted-foreground";
+  // A player card (the scouting report's entry) is made and edited on the desktop;
+  // here it holds its place in the list, so a reorder keeps the report's sections together.
+  const player = card.player ?? null;
   const stats = card.card ? statsSummary(card.card) : null;
-  const Icon = stats ? BarChart3 : Type;
-  const edit = stats ? onEditStats : undefined;
+  const Icon = player ? UserRound : stats ? BarChart3 : Type;
+  const edit = stats && !player ? onEditStats : undefined;
 
   return (
     <div
@@ -211,7 +215,12 @@ export function EditorCardRow({
         <span aria-hidden className={cn("flex size-6 shrink-0 items-center justify-center rounded-md", isSelected ? "bg-white/20" : "bg-fill-2")}>
           <Icon className={cn("size-3.5", secondary)} />
         </span>
-        {stats ? (
+        {player ? (
+          <div className="flex min-w-0 flex-1 flex-col justify-center">
+            <span className="truncate text-sm font-medium">{playerCardLabel(player)}</span>
+            <span className={cn("truncate text-subheadline", secondary)}>Player card · edit on the desktop app</span>
+          </div>
+        ) : stats ? (
           <div className="flex min-w-0 flex-1 flex-col justify-center">
             <span className="truncate text-sm font-medium nums">{stats.title}</span>
             <span className={cn("truncate text-subheadline", secondary)}>{stats.detail}</span>
@@ -219,6 +228,17 @@ export function EditorCardRow({
         ) : (
           <CardTextField value={card.text} onSave={onTextSave} autoFocus={autoFocusText} isSelected={isSelected} />
         )}
+        {player ? (
+          <span
+            className={cn(
+              "inline-flex shrink-0 items-center rounded-full px-2 py-px text-[11px] font-medium",
+              isSelected ? "bg-white/20 text-selection-foreground" : "bg-fill-2 text-muted-foreground",
+            )}
+            title="Not in the video. Shows in the shared report."
+          >
+            Report only
+          </span>
+        ) : (
         <Popover>
           <PopoverTrigger asChild>
             <button
@@ -243,6 +263,7 @@ export function EditorCardRow({
             </div>
           </PopoverContent>
         </Popover>
+        )}
       </div>
 
       <div className="relative z-10 flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
