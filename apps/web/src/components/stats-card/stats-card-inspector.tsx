@@ -3,7 +3,6 @@
 import * as React from "react";
 import { AlertTriangle, Info, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import type { CardAspect } from "@scoutable/shared/lib/card-layout";
 import {
   MAX_STAT_COLUMNS,
   autoDetails,
@@ -192,7 +191,6 @@ function InspectorBody({ onClose, match, events, leagues, initial, onSave, games
   const [busy, setBusy] = React.useState(false);
   const [pendingScope, setPendingScope] = React.useState<"game" | "season" | null>(null);
   const [note, setNote] = React.useState<Note | null>(null);
-  const [aspect, setAspect] = React.useState<CardAspect>("16:9");
   // Hand-picked columns survive a change of player or game; defaults don't.
   const [columnsTouched, setColumnsTouched] = React.useState(false);
 
@@ -434,7 +432,7 @@ function InspectorBody({ onClose, match, events, leagues, initial, onSave, games
           aria-busy={loading || busy}
           className="relative aspect-video w-full overflow-hidden rounded-lg bg-black ring-1 ring-separator"
         >
-          {spec && <CardImage source={{ text: fallbackText(spec), card: spec }} aspect={aspect} className="absolute inset-0 size-full" />}
+          {spec && <CardImage source={{ text: fallbackText(spec), card: spec }} aspect="16:9" className="absolute inset-0 size-full" />}
           {loading && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-callout text-white/70">
               <Loader2 className="size-5 animate-spin" aria-hidden />
@@ -447,18 +445,7 @@ function InspectorBody({ onClose, match, events, leagues, initial, onSave, games
             </span>
           )}
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
-          <SegmentedControl
-            aria-label="Preview the card as"
-            value={aspect}
-            onValueChange={setAspect}
-            options={[
-              { value: "16:9", label: "Widescreen", title: "As the 16:9 export" },
-              { value: "9:16", label: "Vertical", title: "As the 9:16 export" },
-            ]}
-          />
-          {spec && <span className="text-caption text-muted-foreground">{sourceLine(spec)}</span>}
-        </div>
+        {spec && <span className="text-caption text-muted-foreground">{sourceLine(spec)}</span>}
       </div>
 
       {failure && (
