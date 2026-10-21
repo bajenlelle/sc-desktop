@@ -21,7 +21,6 @@ import {
 import { listFolders, listMatchesLight } from "@scoutable/shared/lib/matches-db";
 import { listPlaylists } from "@scoutable/shared/lib/playlists-db";
 import type { Playlist, PlaylistFolder, StoredMatch } from "@scoutable/shared/types/match";
-import type { OrgTeam } from "@scoutable/shared/types/org";
 import { useAuth } from "@/components/auth-context";
 import { EmptyState } from "@/components/empty-state";
 import { BrowserItem } from "@/components/folders/browser-item";
@@ -62,7 +61,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useMyCloudGames } from "@/lib/game-videos";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { springs, useReducedMotionSafe } from "@/lib/motion";
-import { getOrgContextForOrg } from "@/lib/profile-db";
+import { listOrgTeamNames } from "@scoutable/shared/lib/teams-db";
 import { createClient } from "@/lib/supabase/client";
 
 const KEY_SCOPE = "playlists";
@@ -101,7 +100,7 @@ export default function PlaylistsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const folderParam = searchParams.get(FOLDER_PARAM);
-  const { activeOrgId, activeOrgIsPersonal, myOrgs, profileLoading } = useAuth();
+  const { activeOrgId, activeOrgIsPersonal, profileLoading } = useAuth();
   const navUser = useNavUser();
   const editor = navUser ? isEditorUser(navUser) : null;
   const { createNew, creating } = useNewPlaylist();
@@ -113,7 +112,8 @@ export default function PlaylistsPage() {
   /** The space the lists were read for; another space shows skeletons until its own arrive. */
   const [loadedFor, setLoadedFor] = useState<string | null | undefined>(undefined);
   const [matches, setMatches] = useState<Map<string, StoredMatch>>(new Map());
-  const [teams, setTeams] = useState<Map<string, OrgTeam>>(new Map());
+  /** Team names by id, for the share labels. */
+  const [teams, setTeams] = useState<Map<string, string>>(new Map());
   const [query, setQuery] = useState("");
   const [menu, setMenu] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<Playlist | null>(null);
@@ -136,24 +136,31 @@ export default function PlaylistsPage() {
     const orgId = activeOrgId ?? undefined;
     const scope = { includeUnscoped: activeOrgIsPersonal };
     let cancelled = false;
+    // The list shows once the playlists and folders are in. The team names
+    // (share labels) and the games (the share dialog's readiness) follow on
+    // their own; neither holds the list up.
     void Promise.all([
       listPlaylists(supabase, orgId, scope),
       listFolders(supabase, orgId, scope).catch(() => [] as PlaylistFolder[]),
-      listMatchesLight(supabase, orgId, { ownOnly: true, ...scope }).catch(() => [] as StoredMatch[]),
-      !activeOrgIsPersonal && activeOrgId ? getOrgContextForOrg(activeOrgId, { myOrgs }).catch(() => null) : Promise.resolve(null),
-    ]).then(([pls, fs, ms, ctx]) => {
+    ]).then(([pls, fs]) => {
       if (cancelled) return;
       setPlaylists(pls);
       setFolders(fs);
-      setMatches(new Map(ms.map((m) => [m.id, m])));
-      setTeams(new Map((ctx?.allOrgTeams ?? []).map((t) => [t.id, t])));
       setLoadedFor(activeOrgId);
     });
+    void listMatchesLight(supabase, orgId, { ownOnly: true, ...scope })
+      .catch(() => [] as StoredMatch[])
+      .then((ms) => {
+        if (!cancelled) setMatches(new Map(ms.map((m) => [m.id, m])));
+      });
+    void (!activeOrgIsPersonal && activeOrgId ? listOrgTeamNames(supabase, activeOrgId) : Promise.resolve(new Map<string, string>())).then(
+      (names) => {
+        if (!cancelled) setTeams(names);
+      },
+    );
     return () => {
       cancelled = true;
     };
-    // myOrgs is identical for every space; the space decides.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileLoading, editor, activeOrgId, activeOrgIsPersonal]);
 
   const loading = playlists === null || navUser === null || loadedFor !== activeOrgId;
@@ -325,7 +332,7 @@ export default function PlaylistsPage() {
 
   const teamNamesFor = useCallback(
     (playlist: Playlist) =>
-      (playlist.teamIds ?? (playlist.teamId ? [playlist.teamId] : [])).map((id) => teams.get(id)?.name).filter((n): n is string => !!n),
+      (playlist.teamIds ?? (playlist.teamId ? [playlist.teamId] : [])).map((id) => teams.get(id)).filter((n): n is string => !!n),
     [teams],
   );
 

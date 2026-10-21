@@ -64,7 +64,11 @@ export function writeLeagueCache(storage: StorageLike | null | undefined, key: s
  * function that predates the catalogue, which is exactly why callers keep
  * the bundled copy).
  */
-export async function refreshGeniusCatalog(supabase: SupabaseClient, storage: StorageLike | null | undefined): Promise<League[]> {
+export function refreshGeniusCatalog(supabase: SupabaseClient, storage: StorageLike | null | undefined): Promise<League[]> {
+  return revalidateOnce(GENIUS_CACHE_KEY, () => fetchGeniusCatalog(supabase, storage));
+}
+
+async function fetchGeniusCatalog(supabase: SupabaseClient, storage: StorageLike | null | undefined): Promise<League[]> {
   const res = await getGeniusLeagues(supabase);
   if (!res.ok) throw new Error(`leagues fetch failed: ${res.error}`);
   const catalog = parseLeagueCatalog(res.data.leagues);
@@ -78,7 +82,11 @@ export async function refreshGeniusCatalog(supabase: SupabaseClient, storage: St
  * legitimate "nothing granted yet", unlike the Genius list where empty is
  * never a real answer.
  */
-export async function refreshProfixioCatalog(supabase: SupabaseClient, storage: StorageLike | null | undefined): Promise<League[]> {
+export function refreshProfixioCatalog(supabase: SupabaseClient, storage: StorageLike | null | undefined): Promise<League[]> {
+  return revalidateOnce(PROFIXIO_CACHE_KEY, () => fetchProfixioCatalog(supabase, storage));
+}
+
+async function fetchProfixioCatalog(supabase: SupabaseClient, storage: StorageLike | null | undefined): Promise<League[]> {
   const res = await getProfixioLeagues(supabase);
   if (!res.ok) throw new Error(`profixio leagues fetch failed: ${res.error}`);
   const raw = res.data.leagues;
@@ -87,4 +95,42 @@ export async function refreshProfixioCatalog(supabase: SupabaseClient, storage: 
   if (!catalog) throw new Error("profixio leagues payload failed validation");
   writeLeagueCache(storage, PROFIXIO_CACHE_KEY, raw);
   return catalogToLeagues(catalog);
+}
+
+/**
+ * A catalogue changes a few times a season, but every page that shows a
+ * league picker or a stats card (the editors, the importers) mounts the
+ * hook and revalidated both catalogues against their edge functions on
+ * every visit. One revalidation per catalogue per ten minutes now serves
+ * every caller in that window, concurrent ones included; a failure is
+ * forgotten at once, so the next caller tries again.
+ */
+const REVALIDATE_EVERY_MS = 10 * 60_000;
+const revalidations = new Map<string, { at: number; promise: Promise<League[]> }>();
+const latest = new Map<string, League[]>();
+
+/**
+ * The last catalogue revalidated in this session, if any. A hook that starts
+ * from it gets the same array back from refresh*Catalog in the window, so
+ * React skips the re-render.
+ */
+export function latestCatalog(key: string): League[] | null {
+  return latest.get(key) ?? null;
+}
+
+function revalidateOnce(key: string, run: () => Promise<League[]>, now: number = Date.now()): Promise<League[]> {
+  const recent = revalidations.get(key);
+  if (recent && now - recent.at < REVALIDATE_EVERY_MS) return recent.promise;
+  const promise = run();
+  revalidations.set(key, { at: now, promise });
+  promise.then((leagues) => latest.set(key, leagues)).catch(() => {
+    if (revalidations.get(key)?.promise === promise) revalidations.delete(key);
+  });
+  return promise;
+}
+
+/** Tests only: forget the session's revalidations. */
+export function resetLeagueCatalogRevalidations(): void {
+  revalidations.clear();
+  latest.clear();
 }

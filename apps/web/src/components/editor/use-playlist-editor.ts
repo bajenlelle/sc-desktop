@@ -18,7 +18,7 @@ import { placedFolderId } from "@scoutable/shared/lib/folder-tree";
 import type { ExportPurpose } from "@scoutable/shared/lib/game-video-wire";
 import { pickGameVideoRow, type GameVideo } from "@scoutable/shared/lib/game-videos-db";
 import { itemsIndexForGap } from "@scoutable/shared/lib/list-reorder";
-import { getMatch, listEventsForMatches, listFolders, listMatchesLight } from "@scoutable/shared/lib/matches-db";
+import { listEventsForMatches, listFolders, listMatchesByIds, listMatchesLight } from "@scoutable/shared/lib/matches-db";
 import {
   appendClips,
   clampRolls,
@@ -101,7 +101,7 @@ const ROLL_SAVE_MS = 600;
 const NOTE_SAVE_MS = 600;
 
 export function usePlaylistEditor(playlistId: string) {
-  const { user, profileLoading, activeOrgIsPersonal } = useAuth();
+  const { user, profileLoading, activeOrgId, activeOrgIsPersonal } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -150,7 +150,9 @@ export function usePlaylistEditor(playlistId: string) {
     exportPurpose: exportIntent(searchParams.get("export")),
   }));
   useEffect(() => {
-    if (searchParams.has("rename") || searchParams.has("add") || searchParams.has("export")) router.replace(pathname, { scroll: false });
+    // The History API, which the router follows, not router.replace: that
+    // asks the server for the page again just to drop a query string.
+    if (searchParams.has("rename") || searchParams.has("add") || searchParams.has("export")) window.history.replaceState(null, "", pathname);
     // Once, on arrival.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -169,10 +171,27 @@ export function usePlaylistEditor(playlistId: string) {
   // refresh, the tab coming back) hands out a new object, and a reload here
   // would drop the plays the add-clips panel had loaded.
   const userId = user?.id ?? null;
+  // Only a guess at the playlist's space (below): switching spaces doesn't reload the editor.
+  const activeOrgRef = useRef(activeOrgId);
+  useEffect(() => {
+    activeOrgRef.current = activeOrgId;
+  }, [activeOrgId]);
   useEffect(() => {
     if (profileLoading || !userId) return;
     let cancelled = false;
     const supabase = createClient();
+    // The playlist's own space decides which games the picker offers; a
+    // playlist from before spaces, or one in the personal space, also
+    // admits legacy games without one. Its folders come along. It almost
+    // always lives in the active space, so that space's games and folders
+    // are read alongside it, and read again only when it lives elsewhere.
+    const readSpace = (orgId: string | undefined, includeUnscoped: boolean) =>
+      Promise.all([
+        listMatchesLight(supabase, orgId, { ownOnly: true, includeUnscoped }).catch(() => [] as StoredMatch[]),
+        listFolders(supabase, orgId, { includeUnscoped }).catch(() => [] as PlaylistFolder[]),
+      ]);
+    const guessOrg = activeOrgRef.current ?? undefined;
+    const guess = readSpace(guessOrg, activeOrgIsPersonal);
     (async () => {
       const pl = await getPlaylist(supabase, playlistId);
       if (cancelled) return;
@@ -181,32 +200,29 @@ export function usePlaylistEditor(playlistId: string) {
         setLoaded({ id: playlistId, status: "missing" });
         return;
       }
-      // The playlist's own space decides which games the picker offers; a
-      // playlist from before spaces, or one in the personal space, also
-      // admits legacy games without one. Its folders come along.
-      const scope = { includeUnscoped: !pl.orgId || activeOrgIsPersonal };
-      const [own, folderRows] = await Promise.all([
-        listMatchesLight(supabase, pl.orgId, { ownOnly: true, ...scope }).catch(() => [] as StoredMatch[]),
-        listFolders(supabase, pl.orgId, scope).catch(() => [] as PlaylistFolder[]),
-      ]);
+      const includeUnscoped = !pl.orgId || activeOrgIsPersonal;
+      const referenced = collectClipMatchIds([pl]);
+      // The plays don't depend on whose games they are: read them now, with the games.
+      const events = listEventsForMatches(supabase, referenced).catch(() => ({}) as Record<string, PlayByPlayEvent[]>);
+      const sameSpace = (pl.orgId ?? undefined) === guessOrg && includeUnscoped === activeOrgIsPersonal;
+      const [own, folderRows] = await (sameSpace ? guess : readSpace(pl.orgId, includeUnscoped));
       if (cancelled) return;
       const map = new Map(own.map((m) => [m.id, m]));
-      const referenced = collectClipMatchIds([pl]);
-      const known = referenced.filter((id) => map.has(id));
       // A clip of a game someone else imported (a club game a colleague
-      // added): its row and plays come separately.
+      // added): its rows come in one read.
       const unknown = referenced.filter((id) => !map.has(id));
       const [eventsByMatch, extra] = await Promise.all([
-        listEventsForMatches(supabase, known).catch(() => ({}) as Record<string, PlayByPlayEvent[]>),
-        Promise.all(unknown.map((id) => getMatch(supabase, id).catch(() => null))),
+        events,
+        listMatchesByIds(supabase, unknown).catch(() => [] as StoredMatch[]),
       ]);
       if (cancelled) return;
-      for (const id of known) {
-        const m = map.get(id);
-        if (m) map.set(id, { ...m, events: eventsByMatch[id] ?? [] });
+      for (const m of extra) map.set(m.id, m);
+      const loadedIds = referenced.filter((id) => map.has(id));
+      for (const id of loadedIds) {
+        const m = map.get(id)!;
+        map.set(id, { ...m, events: eventsByMatch[id] ?? [] });
       }
-      for (const m of extra) if (m) map.set(m.id, m);
-      eventsLoadedRef.current = new Set([...known, ...extra.filter((m): m is StoredMatch => !!m).map((m) => m.id)]);
+      eventsLoadedRef.current = new Set(loadedIds);
       setEventsLoaded(new Set(eventsLoadedRef.current));
       setMatches(map);
       setFolders(folderRows);
@@ -290,7 +306,8 @@ export function usePlaylistEditor(playlistId: string) {
     return map;
   }, [matches]);
 
-  const cloudRows = useMyGameVideos({ enabled: status === "ready" });
+  // From the start, with the playlist: the rows usually come from the shared memo.
+  const cloudRows = useMyGameVideos({ enabled: !profileLoading });
   const cloud = useMemo<EditorCloud>(() => {
     const byMatchRows = new Map<string, GameVideo[]>();
     for (const g of cloudRows.games ?? []) {

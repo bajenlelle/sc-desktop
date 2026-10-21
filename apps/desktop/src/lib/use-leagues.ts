@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   GENIUS_CACHE_KEY,
   PROFIXIO_CACHE_KEY,
+  latestCatalog,
   readLeagueCache,
   refreshGeniusCatalog,
   refreshProfixioCatalog,
@@ -20,8 +21,8 @@ import { createClient } from "@/lib/supabase/client";
 import { Sentry } from "@/lib/sentry";
 
 export function useLeagues(): League[] {
-  const [genius, setGenius] = useState<League[]>(() => readLeagueCache(localStorage, GENIUS_CACHE_KEY) ?? BUNDLED_LEAGUES);
-  const [profixio, setProfixio] = useState<League[]>(() => readLeagueCache(localStorage, PROFIXIO_CACHE_KEY) ?? []);
+  const [genius, setGenius] = useState<League[]>(() => latestCatalog(GENIUS_CACHE_KEY) ?? readLeagueCache(localStorage, GENIUS_CACHE_KEY) ?? BUNDLED_LEAGUES);
+  const [profixio, setProfixio] = useState<League[]>(() => latestCatalog(PROFIXIO_CACHE_KEY) ?? readLeagueCache(localStorage, PROFIXIO_CACHE_KEY) ?? []);
 
   useEffect(() => {
     let cancelled = false;

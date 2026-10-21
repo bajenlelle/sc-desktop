@@ -13,6 +13,7 @@ import * as Sentry from "@sentry/nextjs";
 import {
   GENIUS_CACHE_KEY,
   PROFIXIO_CACHE_KEY,
+  latestCatalog,
   readLeagueCache,
   refreshGeniusCatalog,
   refreshProfixioCatalog,
@@ -24,8 +25,8 @@ import { createClient } from "@/lib/supabase/client";
 const storage = () => (typeof window === "undefined" ? null : window.localStorage);
 
 export function useLeagues(): League[] {
-  const [genius, setGenius] = useState<League[]>(() => readLeagueCache(storage(), GENIUS_CACHE_KEY) ?? BUNDLED_LEAGUES);
-  const [profixio, setProfixio] = useState<League[]>(() => readLeagueCache(storage(), PROFIXIO_CACHE_KEY) ?? []);
+  const [genius, setGenius] = useState<League[]>(() => latestCatalog(GENIUS_CACHE_KEY) ?? readLeagueCache(storage(), GENIUS_CACHE_KEY) ?? BUNDLED_LEAGUES);
+  const [profixio, setProfixio] = useState<League[]>(() => latestCatalog(PROFIXIO_CACHE_KEY) ?? readLeagueCache(storage(), PROFIXIO_CACHE_KEY) ?? []);
 
   useEffect(() => {
     let cancelled = false;

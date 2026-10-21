@@ -1,8 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   GENIUS_CACHE_KEY,
   PROFIXIO_CACHE_KEY,
+  latestCatalog,
   readLeagueCache,
+  refreshGeniusCatalog,
+  refreshProfixioCatalog,
+  resetLeagueCatalogRevalidations,
   writeLeagueCache,
   type StorageLike,
 } from "../league-catalog-cache";
@@ -73,5 +78,60 @@ describe("writeLeagueCache", () => {
     };
     expect(() => writeLeagueCache(full, GENIUS_CACHE_KEY, served)).not.toThrow();
     expect(() => writeLeagueCache(null, GENIUS_CACHE_KEY, served)).not.toThrow();
+  });
+});
+
+describe("refresh*Catalog revalidation window", () => {
+  function client(leagues: unknown = served) {
+    const calls: string[] = [];
+    const state = { fail: false };
+    const c = {
+      functions: {
+        invoke: async (name: string) => {
+          calls.push(name);
+          return state.fail ? { data: null, error: new Error("down") } : { data: { leagues }, error: null };
+        },
+      },
+    } as unknown as SupabaseClient;
+    return { c, calls, state };
+  }
+
+  beforeEach(() => resetLeagueCatalogRevalidations());
+  afterEach(() => vi.useRealTimers());
+
+  it("asks the function once per window, and every caller gets the same list", async () => {
+    const { c, calls } = client();
+    const [a, b] = await Promise.all([refreshGeniusCatalog(c, null), refreshGeniusCatalog(c, null)]);
+    const later = await refreshGeniusCatalog(c, null);
+    expect(calls).toEqual(["genius"]);
+    expect(b).toBe(a);
+    expect(later).toBe(a);
+    expect(latestCatalog(GENIUS_CACHE_KEY)).toBe(a);
+  });
+
+  it("keeps the two catalogues apart", async () => {
+    const { c, calls } = client();
+    await refreshGeniusCatalog(c, null);
+    await refreshProfixioCatalog(c, null);
+    expect(calls).toEqual(["genius", "profixio"]);
+  });
+
+  it("forgets a failure, so the next caller asks again", async () => {
+    const { c, calls, state } = client();
+    state.fail = true;
+    await expect(refreshGeniusCatalog(c, null)).rejects.toThrow();
+    state.fail = false;
+    await expect(refreshGeniusCatalog(c, null)).resolves.toHaveLength(1);
+    expect(calls).toEqual(["genius", "genius"]);
+  });
+
+  it("asks again once the window has passed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-21T12:00:00Z"));
+    const { c, calls } = client();
+    await refreshGeniusCatalog(c, null);
+    vi.setSystemTime(new Date("2026-10-21T12:11:00Z"));
+    await refreshGeniusCatalog(c, null);
+    expect(calls).toEqual(["genius", "genius"]);
   });
 });

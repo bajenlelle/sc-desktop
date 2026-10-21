@@ -71,3 +71,16 @@ export async function getTeamMembers(
     role: (r.role === "coach" ? "coach" : "player"),
   }));
 }
+
+/**
+ * A space's team names by id: what a list needs to label shares, in one
+ * read (the full org context is five).
+ */
+export async function listOrgTeamNames(supabase: SupabaseClient, orgId: string): Promise<Map<string, string>> {
+  const { data, error } = await supabase.from("teams").select("id, name").eq("org_id", orgId);
+  if (error) {
+    reportDbError("listOrgTeamNames", error);
+    return new Map();
+  }
+  return new Map(((data ?? []) as { id: string; name: string }[]).map((t) => [t.id, t.name]));
+}
