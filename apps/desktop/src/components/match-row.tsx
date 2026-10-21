@@ -42,7 +42,7 @@ export function MatchRow({
           )}
         </div>
         <div className="truncate text-subheadline nums text-muted-foreground">
-          {match.homeTeam.name} – {match.awayTeam.name} · {date} · {match.events.length} clips
+          {match.homeTeam.name} – {match.awayTeam.name} · {date} · {match.eventCount ?? match.events.length} clips
         </div>
       </div>
 

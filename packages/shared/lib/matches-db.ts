@@ -168,6 +168,15 @@ export async function saveMatch(
     throw new Error(`Failed to save match: ${matchError.message}`);
   }
 
+  try {
+    await saveEvents(supabase, match, opts?.refreshEvents ?? false);
+  } finally {
+    // A re-import may have rewritten the plays: the next read takes them fresh.
+    invalidateMatchEvents([match.id]);
+  }
+}
+
+async function saveEvents(supabase: SupabaseClient, match: StoredMatch, refreshEvents: boolean): Promise<void> {
   if (match.events.length > 0) {
     const eventRows = match.events
       .filter((e) => e.eventId != null)
@@ -199,7 +208,7 @@ export async function saveMatch(
         .from("play_by_play_events")
         .upsert(eventRows, {
           onConflict: "match_id,event_id",
-          ignoreDuplicates: !opts?.refreshEvents,
+          ignoreDuplicates: !refreshEvents,
         });
       if (eventsError) throw new Error(`Failed to save events: ${eventsError.message}`);
     }
@@ -331,20 +340,91 @@ export async function listMatches(
 // Fetch events for a specific set of match IDs in a single query
 // ---------------------------------------------------------------------------
 
+/**
+ * A game's play-by-play is written once, at import (saveMatch), and only
+ * replaced by a re-import or removed with the game (deleteMatch), so it is
+ * read once per session: every page after the first, and every page open
+ * after that, takes it from here. That read is the biggest one the apps
+ * make (~225 KB of JSON per game).
+ *
+ * Keyed by user as well as game: RLS shows a playlist recipient only the
+ * plays behind its clips, so one account's full list must never serve
+ * another signed in on the same device. An entry lasts an hour (the desktop
+ * stays open for days: a correction on the server, or a re-import from
+ * another device, arrives within the hour) and a reload empties it all. The
+ * arrays are shared between callers: read them, never mutate them.
+ */
+const EVENTS_CACHE_MS = 60 * 60_000;
+const eventsCache = new Map<string, { at: number; events: PlayByPlayEvent[] }>();
+const eventsInflight = new Map<string, Promise<PlayByPlayEvent[] | undefined>>();
+
+/** Forgets the cached play-by-play of these games (all games without ids), for every user. */
+export function invalidateMatchEvents(matchIds?: readonly string[]): void {
+  if (!matchIds) {
+    eventsCache.clear();
+    return;
+  }
+  const ids = new Set(matchIds);
+  for (const key of [...eventsCache.keys()]) {
+    if (ids.has(key.slice(key.indexOf(":") + 1))) eventsCache.delete(key);
+  }
+}
+
 export async function listEventsForMatches(
   supabase: SupabaseClient,
   matchIds: string[]
 ): Promise<Record<string, PlayByPlayEvent[]>> {
   if (matchIds.length === 0) return {};
-  const { data, error } = await supabase
-    .from("matches")
-    .select("id, play_by_play_events(*)")
-    .in("id", matchIds);
-  if (error || !data) return {};
+  const uid = await currentUserId(supabase);
   const byMatch: Record<string, PlayByPlayEvent[]> = {};
-  for (const row of data as { id: string; play_by_play_events: EventRow[] }[]) {
-    byMatch[row.id] = (row.play_by_play_events ?? []).map(rowToEvent);
+  const waits: Promise<unknown>[] = [];
+  const need: string[] = [];
+  for (const id of new Set(matchIds)) {
+    const key = `${uid}:${id}`;
+    const hit = uid ? eventsCache.get(key) : undefined;
+    if (hit && Date.now() - hit.at < EVENTS_CACHE_MS) {
+      byMatch[id] = hit.events;
+      continue;
+    }
+    const pending = uid ? eventsInflight.get(key) : undefined;
+    if (pending) waits.push(pending.then((events) => { if (events) byMatch[id] = events; }));
+    else need.push(id);
   }
+  if (need.length > 0) {
+    const read = (async () => {
+      const { data, error } = await supabase
+        .from("matches")
+        .select("id, play_by_play_events(*)")
+        .in("id", need);
+      if (error || !data) return null;
+      const fetched: Record<string, PlayByPlayEvent[]> = {};
+      for (const row of data as { id: string; play_by_play_events: EventRow[] }[]) {
+        fetched[row.id] = (row.play_by_play_events ?? []).map(rowToEvent);
+      }
+      return fetched;
+    })();
+    for (const id of need) {
+      const key = `${uid}:${id}`;
+      const one = read.then((fetched) => fetched?.[id]);
+      if (uid) {
+        eventsInflight.set(key, one);
+        void one.finally(() => {
+          if (eventsInflight.get(key) === one) eventsInflight.delete(key);
+        });
+      }
+    }
+    waits.push(
+      read.then((fetched) => {
+        if (!fetched) return;
+        for (const [id, events] of Object.entries(fetched)) {
+          byMatch[id] = events;
+          // A game RLS didn't return isn't cached: the next call asks again.
+          if (uid) eventsCache.set(`${uid}:${id}`, { at: Date.now(), events });
+        }
+      }),
+    );
+  }
+  await Promise.all(waits);
   return byMatch;
 }
 
@@ -446,6 +526,7 @@ export async function updateMatchMeta(
 // ---------------------------------------------------------------------------
 
 export async function deleteMatch(supabase: SupabaseClient, matchId: string): Promise<void> {
+  invalidateMatchEvents([matchId]);
   await supabase.from("play_by_play_events").delete().eq("match_id", matchId);
   const { error } = await supabase.from("matches").delete().eq("id", matchId);
   if (error) throw new Error(`Failed to delete match: ${error.message}`);
@@ -532,11 +613,12 @@ export async function deleteFolder(supabase: SupabaseClient, id: string): Promis
 export async function listMatchesLight(
   supabase: SupabaseClient,
   orgId?: string,
-  opts?: { ownOnly?: boolean; includeUnscoped?: boolean }
+  /** withEventCount fills eventCount (a count per game, not the plays). */
+  opts?: { ownOnly?: boolean; includeUnscoped?: boolean; withEventCount?: boolean }
 ): Promise<StoredMatch[]> {
   let query = supabase
     .from("matches")
-    .select("*")
+    .select(opts?.withEventCount ? "*, play_by_play_events(count)" : "*")
     .order("created_at", { ascending: false });
   // Same scoping contract as listPlaylists/listFolders (applyOrgScope):
   // includeUnscoped admits legacy org_id-NULL rows. Callers that pass it for
@@ -558,7 +640,11 @@ export async function listMatchesLight(
   // stale match state, gates flip to wrong reasons), so make it visible.
   if (error) reportDbError("listMatchesLight", error);
   if (error || !data) return [];
-  return (data as MatchRow[]).map((row) => rowToStoredMatch(row, []));
+  return (data as unknown as (MatchRow & { play_by_play_events?: { count: number }[] })[]).map((row) => {
+    const match = rowToStoredMatch(row, []);
+    if (opts?.withEventCount) match.eventCount = row.play_by_play_events?.[0]?.count ?? 0;
+    return match;
+  });
 }
 
 export async function countMatchesThisMonth(supabase: SupabaseClient): Promise<number> {

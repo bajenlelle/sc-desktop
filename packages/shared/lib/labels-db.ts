@@ -168,30 +168,24 @@ export async function listAssignmentsForClips(
   scope: LabelScope,
 ): Promise<ClipLabelAssignment[]> {
   if (clips.length === 0) return [];
-  const byMatch = new Map<string, number[]>();
-  for (const { matchId, eventId } of clips) {
-    const list = byMatch.get(matchId) ?? [];
-    list.push(eventId);
-    byMatch.set(matchId, list);
+  // One read for every game, not one per game (a playlist with clips from
+  // eight games made eight). The two IN lists cross, so a play id asked for
+  // in one game can match a row of another: the exact pairs are kept below.
+  const wanted = new Set(clips.map(({ matchId, eventId }) => `${matchId}:${eventId}`));
+  const q = supabase
+    .from("clip_label_assignments")
+    .select("user_id, org_id, match_id, event_id, label_id, playlist_id, assigned_at")
+    .eq("org_id", orgId)
+    .in("match_id", [...new Set(clips.map((c) => c.matchId))])
+    .in("event_id", [...new Set(clips.map((c) => c.eventId))]);
+  const { data, error } = await applyScope(q, scope);
+  if (error) {
+    reportDbError("listAssignmentsForClips", error);
+    return [];
   }
-  const results = await Promise.all(
-    Array.from(byMatch.entries()).map(([matchId, eventIds]) => {
-      let q = supabase
-        .from("clip_label_assignments")
-        .select("user_id, org_id, match_id, event_id, label_id, playlist_id, assigned_at")
-        .eq("org_id", orgId)
-        .eq("match_id", matchId)
-        .in("event_id", eventIds);
-      q = applyScope(q, scope);
-      return q;
-    }),
-  );
-  const rows: ClipLabelAssignmentRow[] = [];
-  for (const { data, error } of results) {
-    if (error) { reportDbError("listAssignmentsForClips", error); continue; }
-    if (data) rows.push(...(data as ClipLabelAssignmentRow[]));
-  }
-  return rows.map(rowToAssignment);
+  return ((data ?? []) as ClipLabelAssignmentRow[])
+    .filter((r) => wanted.has(`${r.match_id}:${r.event_id}`))
+    .map(rowToAssignment);
 }
 
 /**

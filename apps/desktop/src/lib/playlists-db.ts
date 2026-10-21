@@ -27,5 +27,7 @@ export const setPlaylistUsers = (playlistId: string, userIds: string[]) => db.se
 export const getMyDirectPlaylists = (teamIds?: string[]) => db.getMyDirectPlaylists(c(), teamIds);
 export const getMySharedOutPlaylists = (teamIds?: string[]) => db.getMySharedOutPlaylists(c(), teamIds);
 export const getMySharedPlaylists = (orgId?: string, opts?: db.OrgScopeOpts) => db.getMySharedPlaylists(c(), orgId, opts);
+export const listOwnPlaylistsAndShared = (orgId?: string, opts?: db.OrgScopeOpts) => db.listOwnPlaylistsAndShared(c(), orgId, opts);
+export const hasSharedAnyPlaylist = () => db.hasSharedAnyPlaylist(c());
 export type { SharedPlaylist } from "@scoutable/shared/lib/playlists-db";
 export const notifyPendingPlaylistShares = (playlistId: string) => db.notifyPendingPlaylistShares(c(), playlistId);

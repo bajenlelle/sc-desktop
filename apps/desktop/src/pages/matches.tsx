@@ -9,7 +9,7 @@ import { MatchRow } from "@/components/match-row";
 import { RelinkVideosDialog } from "@/components/relink-videos-dialog";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
-import { listMatches } from "@/lib/matches-db";
+import { listMatchesLight } from "@/lib/matches-db";
 import { probeMatches, type VideoFileStatus } from "@/lib/video-probe";
 import { useAuth } from "@/lib/auth-context";
 import type { StoredMatch } from "@/types/match";
@@ -64,7 +64,7 @@ export function MatchesPage() {
     if (!canAccess) return;
     setLoading(true);
     const load = () =>
-      listMatches(activeOrgId ?? undefined, { ownOnly: true })
+      listMatchesLight(activeOrgId ?? undefined, { ownOnly: true, withEventCount: true })
         .then(setMatches)
         .catch(() => setMatches([]))
         .finally(() => setLoading(false));
@@ -109,7 +109,7 @@ export function MatchesPage() {
                 onRelinked={() => {
                   // Re-load + re-probe: updateVideoUrl dispatched matches-changed,
                   // but this page's loader only listens for demo-seeded.
-                  listMatches(activeOrgId ?? undefined, { ownOnly: true })
+                  listMatchesLight(activeOrgId ?? undefined, { ownOnly: true, withEventCount: true })
                     .then(setMatches)
                     .catch(() => {});
                 }}
