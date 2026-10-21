@@ -62,8 +62,31 @@ export async function probeMatches(
  * the sidecar build, and the webview already reads these files over stream://.
  * Resolves null when the duration can't be determined (unsupported container,
  * timeout); callers must treat null as "unknown", never as an error.
+ *
+ * Remembered per path for the session, and a probe already running is
+ * shared: the Playlists page asks again on every visit and every time its
+ * games update, and each probe is a hidden <video> loading next to the
+ * player. An unknown (null) isn't remembered, so a file that turns up later
+ * (a drive plugged in) is probed again.
  */
+const durations = new Map<string, number>();
+const probing = new Map<string, Promise<number | null>>();
+
 export function probeVideoDuration(path: string, timeoutMs = 8000): Promise<number | null> {
+  const known = durations.get(path);
+  if (known !== undefined) return Promise.resolve(known);
+  const running = probing.get(path);
+  if (running) return running;
+  const probe = loadDuration(path, timeoutMs).then((d) => {
+    probing.delete(path);
+    if (d !== null) durations.set(path, d);
+    return d;
+  });
+  probing.set(path, probe);
+  return probe;
+}
+
+function loadDuration(path: string, timeoutMs: number): Promise<number | null> {
   return new Promise((resolve) => {
     const video = document.createElement("video");
     video.preload = "metadata";

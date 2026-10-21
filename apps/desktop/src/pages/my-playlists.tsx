@@ -156,6 +156,9 @@ export function MyPlaylistsPage() {
   useEffect(() => {
     setLoading(true);
     setWatching(null);
+    // Watch history depends on nothing below: it starts now instead of
+    // adding a fourth step to the end of the load.
+    const viewsRead = listMyClipViews().catch(() => []);
     Promise.all([
       listMatchesLight(activeOrgId ?? undefined).catch(() => [] as StoredMatch[]),
       (activeOrgId ? getOrgContextForOrg(activeOrgId, { myOrgs }) : getOrgContext()).catch(() => null),
@@ -185,7 +188,7 @@ export function MyPlaylistsPage() {
         setPlaylists(pls);
         setDirectPlaylists(directPls);
         setSharedOutPlaylists(sharedOutPls);
-        const views = await listMyClipViews().catch(() => []);
+        const views = await viewsRead;
         setClipViews(new Set(views.map((v) => clipViewKey(v.playlistId, v.matchId, v.eventId))));
         const last = new Map<string, string>();
         for (const v of views) {

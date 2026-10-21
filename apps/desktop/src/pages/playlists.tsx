@@ -75,10 +75,7 @@ import {
   subtreeStats,
   ancestorIds,
 } from "@scoutable/shared/lib/folder-tree";
-import {
-  collectClipMatchIds,
-  mergeEventsIntoMatches,
-} from "@scoutable/shared/lib/playlist-matches";
+import { collectClipMatchIds } from "@scoutable/shared/lib/playlist-matches";
 import { getOrgContext, getOrgContextForOrg, getOrgMembers, getTeamMemberIds } from "@/lib/profile-db";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
 import { SendToPhoneDialog } from "@/components/send-to-phone-dialog";
@@ -627,7 +624,14 @@ export function PlaylistsPage() {
     // A share or ship in progress owns the uploads; this runs again after it.
     if (isShippingRef.current || refreshRef.current) return;
     if (!announce && refreshFailedRef.current.has(pl.id)) return;
-    const pair = playlistRolls(pl);
+    // The same pair the editor shows (its unsaved default follows the games'
+    // provider): a different fallback here would find every clip stale and
+    // re-cut them on each open.
+    const games = pl.items
+      .filter(isClipItem)
+      .map((c) => matchLookup.get(c.matchId))
+      .filter((m): m is StoredMatch => !!m);
+    const pair = playlistRolls(pl, { pre: defaultPreRollForMatches(games), post: defaultPostRollForMatches(games) });
     // Where the game's sync now puts each clip: a re-sync made elsewhere (or
     // in an older app) leaves shared clips cut at the old spot.
     const cutStart = (c: PlaylistClipItem): number | null => {
@@ -751,32 +755,16 @@ export function PlaylistsPage() {
     // Matches take the same includeUnscoped treatment as playlists/folders:
     // a legacy unscoped playlist otherwise references matches this page
     // can't see, so its clips silently vanish from every list.
-    Promise.all([listPlaylists(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }), listMatchesLight(activeOrgId ?? undefined, { ownOnly: true, includeUnscoped: activeOrgIsPersonal }), listFolders(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }), (activeOrgId ? getOrgContextForOrg(activeOrgId, { myOrgs }) : getOrgContext()).catch(() => null)])
-      .then(async ([loadedPlaylists, matchShells, loadedFolders, orgCtx]) => {
-        // Events only for matches a playlist actually references. Passing
-        // every match id pulled the complete play-by-play of every game the
-        // coach had ever imported (~500 events each) on every mount. The clip
-        // browser fetches whichever game it displays via ensureEventsFor.
-        //
-        // collectClipMatchIds, not collectReferencedMatchIds: the editor must
-        // resolve UNSHIPPED clips too, or their rows vanish (see displayItems).
-        const referencedIds = collectClipMatchIds(loadedPlaylists);
-        // Mark ids loaded ONLY on success — marking them after a failed
-        // fetch disabled ensureEventsFor's retry for the whole session, so
-        // every referenced playlist rendered empty until app restart.
-        let eventsByMatch: Record<string, PlayByPlayEvent[]> = {};
-        try {
-          eventsByMatch = await listEventsForMatches(referencedIds);
-          loadedEventMatchIdsRef.current = new Set(referencedIds);
-        } catch {
-          // ensureEventsFor refetches per-game as the clip browser opens.
-        }
-        const loadedMatches = mergeEventsIntoMatches(matchShells, eventsByMatch);
-
-        setPlaylists(loadedPlaylists);
-        setMatches(loadedMatches);
-        const sorted = [...loadedFolders].sort((a, b) => a.sortOrder - b.sortOrder);
-        setFolders(sorted);
+    // A new space's games arrive as shells: whatever plays were loaded
+    // belonged to the last one's rows.
+    loadedEventMatchIdsRef.current = new Set();
+    let stale = false;
+    // Org context feeds sharing only (the teams and people to share with):
+    // it follows the list instead of holding it up.
+    (activeOrgId ? getOrgContextForOrg(activeOrgId, { myOrgs }) : getOrgContext())
+      .catch(() => null)
+      .then((orgCtx) => {
+        if (stale || !orgCtx) return;
         if (orgCtx) {
           setUserTeams(orgCtx.myTeams);
           // Load members of coach's teams for individual sharing (includes secondary org members)
@@ -798,8 +786,30 @@ export function PlaylistsPage() {
             });
           }
         }
+      });
+    Promise.all([listPlaylists(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }), listMatchesLight(activeOrgId ?? undefined, { ownOnly: true, includeUnscoped: activeOrgIsPersonal }), listFolders(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal })])
+      .then(([loadedPlaylists, matchShells, loadedFolders]) => {
+        if (stale) return;
+        setPlaylists(loadedPlaylists);
+        setMatches(matchShells);
+        const sorted = [...loadedFolders].sort((a, b) => a.sortOrder - b.sortOrder);
+        setFolders(sorted);
+        const restored = restore ? loadedPlaylists.find((p) => p.id === restore.playlistId) : undefined;
+        // The plays follow the list instead of holding it up. Only games a
+        // playlist references: passing every match id pulled the complete
+        // play-by-play of every game the coach had ever imported. The clip
+        // browser fetches whichever game it displays via ensureEventsFor.
+        // collectClipMatchIds, not collectReferencedMatchIds: the editor must
+        // resolve UNSHIPPED clips too, or their rows vanish (see displayItems).
+        // The restored playlist's games come first (its rows wait on them),
+        // then the rest (Add to, sharing and the quiet re-cut read them);
+        // ensureEventsFor skips what a selection meanwhile already asked for.
+        const referencedIds = collectClipMatchIds(loadedPlaylists);
+        void ensureEventsFor(restored ? collectClipMatchIds([restored]) : []).then(() => {
+          if (!stale) void ensureEventsFor(referencedIds);
+        });
         if (restore) {
-          const pl = loadedPlaylists.find((p) => p.id === restore.playlistId);
+          const pl = restored;
           if (pl) {
             setSelected(pl);
             if (pl.folderId) {
@@ -820,8 +830,11 @@ export function PlaylistsPage() {
         }
       })
       .catch(() => {})
-      .finally(() => setLoading(false));
-    return () => { if (highlightTimer !== undefined) window.clearTimeout(highlightTimer); };
+      .finally(() => { if (!stale) setLoading(false); });
+    return () => {
+      stale = true;
+      if (highlightTimer !== undefined) window.clearTimeout(highlightTimer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeOrgId]);
 
@@ -880,7 +893,9 @@ export function PlaylistsPage() {
     for (const id of wanted) eventFetchInFlightRef.current.add(id);
     try {
       const eventsByMatch = await listEventsForMatches(wanted);
-      for (const id of wanted) loadedEventMatchIdsRef.current.add(id);
+      // Only the games that came back: a failed read returns {} rather than
+      // throwing, and marking those loaded would stop every later retry.
+      for (const id of wanted) if (eventsByMatch[id]) loadedEventMatchIdsRef.current.add(id);
       setMatches((prev) =>
         prev.map((m) => (eventsByMatch[m.id] ? { ...m, events: eventsByMatch[m.id] } : m)),
       );
@@ -1425,6 +1440,16 @@ export function PlaylistsPage() {
 
   /** What the queue, playback, selection and export actually operate on. */
   const queueItems = filtersActive ? filteredEvents : sortedEvents;
+  /**
+   * The open playlist has clips whose game's plays haven't arrived yet (they
+   * load after the list): its rows are on their way, so the queue shows
+   * loading rows, not "No clips yet". A clip always names a play, so a known
+   * game with none loaded is still loading.
+   */
+  const queuePlaysLoading = useMemo(
+    () => !!selected && selected.items.some((it) => isClipItem(it) && matchLookup.get(it.matchId)?.events.length === 0),
+    [selected, matchLookup],
+  );
   /** The rows on screen, in order: what focus moves over and ranges span. */
   const visibleKeys = useMemo(() => queueItems.map(itemKey), [queueItems]);
   /** What can play: the list without the player cards, which are the report's. */
@@ -4739,16 +4764,25 @@ export function PlaylistsPage() {
 
   const reportOutlineRows = useMemo(() => (selected ? reportOutline(selected.items, eventByKey) : []), [selected, eventByKey]);
 
-  const refreshMyReport = useCallback(() => {
+  /** Each playlist's report as last read this session: going back to a playlist doesn't read it again (opening the dialog and its changes still do). */
+  const reportByPlaylistRef = useRef(new Map<string, MyScoutingReport | null>());
+  const refreshMyReport = useCallback((opts?: { cached?: boolean }) => {
     const id = selected?.id;
     if (!id) {
       setMyReport(null);
       return;
     }
-    void getMyScoutingReport(id).then((r) => setMyReport((cur) => (selectedRef.current?.id === id ? r : cur)));
+    if (opts?.cached && reportByPlaylistRef.current.has(id)) {
+      setMyReport(reportByPlaylistRef.current.get(id) ?? null);
+      return;
+    }
+    void getMyScoutingReport(id).then((r) => {
+      reportByPlaylistRef.current.set(id, r);
+      setMyReport((cur) => (selectedRef.current?.id === id ? r : cur));
+    });
   }, [selected?.id]);
   useEffect(() => {
-    refreshMyReport();
+    refreshMyReport({ cached: true });
   }, [refreshMyReport]);
   const liveReport = myReport && new Date(myReport.expiresAt).getTime() > Date.now() ? myReport : null;
 
@@ -5338,7 +5372,13 @@ export function PlaylistsPage() {
         ref={playlistScrollRef}
         className={cn("min-h-0 flex-1 overflow-y-auto", selectedClipIds.size > 0 && "pb-16")}
       >
-      {queueItems.length === 0 ? (
+      {queueItems.length === 0 && queuePlaysLoading ? (
+        <div className="flex flex-col gap-1 px-2 py-2" aria-busy="true" aria-label="Loading clips">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-11 animate-pulse rounded-md bg-fill-1" />
+          ))}
+        </div>
+      ) : queueItems.length === 0 ? (
         <div
           className={cn(
             "flex min-h-full flex-col items-center justify-center rounded-window ring-2 ring-inset transition-[box-shadow,background-color] duration-150",
@@ -5990,7 +6030,7 @@ export function PlaylistsPage() {
               outline={reportOutlineRows}
               contentKey={reportPreview.contentKey}
               existing={myReport}
-              onExistingChange={refreshMyReport}
+              onExistingChange={() => refreshMyReport()}
               initialTitle={selected.name}
               initialOpponent={defaultOpponent(selected.items)}
               blockedByPlan={activeOrgPlan === 'free'}

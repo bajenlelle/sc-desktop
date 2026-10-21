@@ -18,6 +18,7 @@ import {
   refreshGeniusCatalog,
   refreshProfixioCatalog,
 } from "@scoutable/shared/lib/league-catalog-cache";
+import { keepIfSame } from "@scoutable/shared/lib/keep-if-same";
 import { BUNDLED_LEAGUES } from "@scoutable/shared/lib/league-schedule";
 import type { League } from "@scoutable/shared/types/league";
 import { createClient } from "@/lib/supabase/client";
@@ -36,7 +37,7 @@ export function useLeagues(): League[] {
     // catalogue that never refreshes looks like nothing at all.
     refreshGeniusCatalog(supabase, storage())
       .then((leagues) => {
-        if (!cancelled) setGenius(leagues);
+        if (!cancelled) setGenius((prev) => keepIfSame(prev, leagues));
       })
       .catch((err) => {
         console.error("[leagues:genius]", err);
@@ -45,7 +46,7 @@ export function useLeagues(): League[] {
 
     refreshProfixioCatalog(supabase, storage())
       .then((leagues) => {
-        if (!cancelled) setProfixio(leagues);
+        if (!cancelled) setProfixio((prev) => keepIfSame(prev, leagues));
       })
       .catch((err) => {
         console.error("[leagues:profixio]", err);
@@ -57,6 +58,7 @@ export function useLeagues(): League[] {
     };
   }, []);
 
-  // Stable identity matters: the picker's selection effect keys on this list.
+  // Stable identity matters: the picker's selection effect keys on this list
+  // (a revalidation that brought the same catalogue keeps the old arrays).
   return useMemo(() => [...genius, ...profixio], [genius, profixio]);
 }

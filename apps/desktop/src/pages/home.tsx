@@ -11,7 +11,8 @@ import { GettingStarted } from "@/components/getting-started";
 import { NextActionHero } from "@/components/home/next-action-hero";
 import { TeamEngagement } from "@/components/home/team-engagement";
 import { listMatchesLight, listEventsForMatches, listFolders } from "@/lib/matches-db";
-import { listPlaylists, getMySharedPlaylists } from "@/lib/playlists-db";
+import { listOwnPlaylistsAndShared } from "@/lib/playlists-db";
+import type { SharedPlaylist } from "@scoutable/shared/lib/playlists-db";
 import { getTeamMembers } from "@/lib/teams-db";
 import { listPlaylistClipViews } from "@/lib/clip-views-db";
 import { bulkSendReminders } from "@/lib/reminders-bulk";
@@ -82,6 +83,8 @@ function CoachHomePage() {
     useAuth();
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  /** The shared subset of `playlists`, with share timestamps: the engagement dashboard's base. Null until read. */
+  const [shared, setShared] = useState<SharedPlaylist[] | null>(null);
   const [folders, setFolders] = useState<PlaylistFolder[]>([]);
   const [dashboardRows, setDashboardRows] = useState<DashboardRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,11 +104,14 @@ function CoachHomePage() {
     const load = async () => {
       // Light shells + events for only the rows we show — listMatches would
       // join every event of every game just to render three counts.
-      const [ms, ps, fs] = await Promise.all([
+      const [ms, own, fs] = await Promise.all([
         listMatchesLight(activeOrgId ?? undefined, { ownOnly: true }).catch(
           () => [] as StoredMatch[]
         ),
-        listPlaylists(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }).catch(() => [] as Playlist[]),
+        // One read for the tiles and the engagement dashboard's shared subset.
+        listOwnPlaylistsAndShared(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }).catch(
+          () => ({ playlists: [] as Playlist[], shared: [] as SharedPlaylist[] })
+        ),
         listFolders(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }).catch(() => [] as PlaylistFolder[]),
       ]);
       if (cancelled) return;
@@ -117,7 +123,8 @@ function CoachHomePage() {
       setMatches(
         ms.map((m, i) => (i < RECENT_MATCH_COUNT ? { ...m, events: events[m.id] ?? [] } : m))
       );
-      setPlaylists(ps);
+      setPlaylists(own.playlists);
+      setShared(own.shared);
       setFolders(fs);
       setLoading(false);
     };
@@ -135,24 +142,16 @@ function CoachHomePage() {
 
   // Shared-by-me engagement (club coaches only). Name maps are omitted on
   // purpose — the strip and hero only need counts and remind targets.
+  // The shared playlists come with the page's own read above.
   useEffect(() => {
-    if (!isClubSpace) {
+    if (!isClubSpace || !shared || shared.length === 0) {
       setDashboardRows([]);
       return;
     }
     let cancelled = false;
-    getMySharedPlaylists(activeOrgId ?? undefined)
-      .then(async (shared) => {
-        if (cancelled) return;
-        if (shared.length === 0) {
-          setDashboardRows([]);
-          return;
-        }
-        const teamIds = [...new Set(shared.flatMap((p) => p.teamShares.map((t) => t.teamId)))];
-        const [teamMembers, views] = await Promise.all([
-          getTeamMembers(teamIds),
-          listPlaylistClipViews(shared.map((p) => p.id)),
-        ]);
+    const teamIds = [...new Set(shared.flatMap((p) => p.teamShares.map((t) => t.teamId)))];
+    Promise.all([getTeamMembers(teamIds), listPlaylistClipViews(shared.map((p) => p.id))])
+      .then(([teamMembers, views]) => {
         if (cancelled) return;
         setDashboardRows(
           buildDashboardRows({
@@ -169,7 +168,7 @@ function CoachHomePage() {
     return () => {
       cancelled = true;
     };
-  }, [isClubSpace, activeOrgId, user?.id]);
+  }, [isClubSpace, shared, user?.id]);
 
   useEffect(() => {
     const onExported = () => setExportTick((t) => t + 1);

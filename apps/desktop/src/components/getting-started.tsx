@@ -4,7 +4,7 @@ import { Check, ChevronRight, Lock, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import { dismissOnboardingChecklist, getOrgContextForOrg, listOrgSetupInvites, setDeclaredRole } from "@/lib/profile-db";
-import { getMySharedOutPlaylists } from "@/lib/playlists-db";
+import { hasSharedAnyPlaylist } from "@/lib/playlists-db";
 import { deriveOrgSetupProgress, type OrgSetupProgress } from "@scoutable/shared/lib/org-setup";
 import { getHasExported } from "@/lib/prefs";
 import { trackEvent } from "@/lib/analytics";
@@ -60,8 +60,8 @@ export function GettingStarted({
   // this coach ever shared anything", a one-time checklist boolean.
   useEffect(() => {
     if (!show || activeOrgIsPersonal) return;
-    getMySharedOutPlaylists()
-      .then((ps) => setHasSharedOut(ps.length > 0))
+    hasSharedAnyPlaylist()
+      .then(setHasSharedOut)
       .catch(() => {});
   }, [show, activeOrgIsPersonal]);
 

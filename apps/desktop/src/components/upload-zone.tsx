@@ -44,6 +44,7 @@ import { choiceFor, spacesSharingAnswer, teamRoleIn, teamSpaces } from "@scoutab
 import { getTeamSources } from "@scoutable/shared/lib/league-teams-db";
 import { fromTeamSide, stageForMatchType, teamGames, teamSeasons, type TeamGame, type TeamSeason } from "@scoutable/shared/lib/team-games";
 import { sortOrgsClubFirst } from "@scoutable/shared/lib/orgs";
+import { keepIfSame } from "@scoutable/shared/lib/keep-if-same";
 import { formatDate } from "@/lib/format-date";
 
 // The import view a space last chose, on this computer. Only "all" is stored:
@@ -240,8 +241,11 @@ export function UploadZone({
     const season =
       (selectedSeason && league.seasons.find((s) => s.id === selectedSeason.id)) ??
       league.seasons[0];
-    setSelectedLeague(league);
-    setSelectedSeason(season ?? null);
+    // Same contents keep the same objects: the stage and schedule loads key
+    // on them, and a catalogue revalidation that changed nothing must not
+    // blank and refetch the list.
+    setSelectedLeague((prev) => keepIfSame(prev, league));
+    setSelectedSeason((prev) => keepIfSame(prev, season ?? null));
   }, [leagueList]);
 
   // Resolve the stages whenever the league/season changes, keeping the chosen
