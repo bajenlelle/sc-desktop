@@ -4,6 +4,7 @@
  */
 
 import { createClient } from "@/lib/supabase/client";
+import { uploadAvatar as uploadAvatarFile } from "@scoutable/shared/lib/avatar";
 import { currentUserId } from "@scoutable/shared/lib/current-user";
 import { type TeamDeleteImpact } from "@scoutable/shared/lib/team-delete";
 import type { OrgSetupInvite } from "@scoutable/shared/lib/org-setup";
@@ -316,18 +317,14 @@ export async function updateMyProfile(patch: { fullName?: string; avatarUrl?: st
   if (error) throw new Error(`Failed to update profile: ${error.message}`);
 }
 
+/** Uploads the signed-in user's profile picture; returns the URL to save on the profile. */
 export async function uploadAvatar(file: File): Promise<string> {
   const supabase = createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
-  const ext = file.name.split(".").pop() ?? "jpg";
-  const path = `${user.id}/avatar.${ext}`;
-  const { error } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
-  if (error) throw new Error(`Failed to upload avatar: ${error.message}`);
-  const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
-  return urlData.publicUrl.split("?")[0];
+  return uploadAvatarFile(supabase, user.id, file);
 }
 
 /**

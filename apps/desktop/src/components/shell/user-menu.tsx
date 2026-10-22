@@ -11,25 +11,37 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { initials } from "@scoutable/shared/lib/playlist-feed";
+import { useAuth } from "@/lib/auth-context";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
-function getInitials(user: User): string {
-  const email = user.email ?? "";
-  const name = user.user_metadata?.full_name as string | undefined;
-  if (name) {
-    const parts = name.trim().split(/\s+/);
-    return parts.length >= 2
-      ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-      : parts[0].slice(0, 2).toUpperCase();
-  }
-  return email.slice(0, 2).toUpperCase();
+/** The profile picture when there is one and it loads, else the initials. */
+function UserAvatar({ name, url }: { name: string; url: string | null }) {
+  const [failed, setFailed] = useState<string | null>(null);
+  const showImage = !!url && failed !== url;
+  return (
+    <span className="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/15 text-[11px] font-semibold text-primary">
+      {showImage ? (
+        <img
+          src={url}
+          alt=""
+          referrerPolicy="no-referrer"
+          className="size-full object-cover"
+          onError={() => setFailed(url)}
+        />
+      ) : (
+        initials(name)
+      )}
+    </span>
+  );
 }
 
 /** The sidebar's footer: who is signed in, and the account-level actions. */
 export function UserMenu({ user }: { user: User }) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const { profile } = useAuth();
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   // Help › Send Feedback… in the native menu opens the same dialog; the
@@ -46,7 +58,9 @@ export function UserMenu({ user }: { user: User }) {
     navigate("/auth/login");
   }
 
-  const name = (user.user_metadata?.full_name as string | undefined) ?? user.email ?? "Account";
+  // The profile is what Profile edits; the auth metadata only holds the name from sign-up.
+  const name =
+    profile?.fullName?.trim() || (user.user_metadata?.full_name as string | undefined) || user.email || "Account";
   const onProfile = pathname === "/profile";
 
   return (
@@ -60,9 +74,7 @@ export function UserMenu({ user }: { user: User }) {
               onProfile && "bg-fill-1",
             )}
           >
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[11px] font-semibold text-primary">
-              {getInitials(user)}
-            </span>
+            <UserAvatar name={name} url={profile?.avatarUrl ?? null} />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-medium text-foreground">{name}</span>
               {user.email && name !== user.email && (

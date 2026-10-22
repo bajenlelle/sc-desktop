@@ -49,7 +49,7 @@ function roleBadgeVariant(role: string | null, isPlatformAdmin: boolean): "defau
 }
 
 export function ProfilePage() {
-  const { user, activeOrgId, activeOrgPlan, activeOrgRole, activeOrgIsPersonal, expectPlanChange, setActiveOrg } = useAuth();
+  const { user, activeOrgId, activeOrgPlan, activeOrgRole, activeOrgIsPersonal, expectPlanChange, setActiveOrg, reloadProfile } = useAuth();
   const navigate = useNavigate();
 
   const [ctx, setCtx] = useState<OrgContext | null>(null);
@@ -121,6 +121,8 @@ export function ProfilePage() {
       toast.success("Profile saved");
       setAvatarFile(null);
       await load();
+      // The sidebar's name and picture come from the shared profile.
+      void reloadProfile();
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
