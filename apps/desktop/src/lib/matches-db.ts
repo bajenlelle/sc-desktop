@@ -59,6 +59,7 @@ export const updateFolder = (id: string, patch: { name?: string; sortOrder?: num
 export const deleteFolder = (id: string) => db.deleteFolder(c(), id);
 export const listMatchesLight = (orgId?: string, opts?: { ownOnly?: boolean; includeUnscoped?: boolean; withEventCount?: boolean }) =>
   db.listMatchesLight(c(), orgId, opts);
+export const listMatchesByIds = (ids: readonly string[]) => db.listMatchesByIds(c(), ids);
 export const countMatchesThisMonth = () => db.countMatchesThisMonth(c());
 export const countClubMatchesThisMonth = (ntLeagueIds: string[], orgId?: string) => db.countClubMatchesThisMonth(c(), ntLeagueIds, orgId);
 export const seedDemoMatch = (orgId: string) => db.seedDemoMatch(c(), orgId);

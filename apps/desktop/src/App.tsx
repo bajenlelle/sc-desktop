@@ -17,6 +17,7 @@ import { UploadPage } from "@/pages/upload";
 import { PlaylistsPage } from "@/pages/playlists";
 import { MyPlaylistsPage } from "@/pages/my-playlists";
 import { SettingsPage } from "@/pages/settings";
+import { MoveToClubPage } from "@/pages/move-to-club";
 import { ProfilePage } from "@/pages/profile";
 import { OrganizationPage } from "@/pages/organization";
 import { LoginPage } from "@/pages/auth/login";
@@ -268,6 +269,7 @@ export default function App() {
                   </ProtectedRoute>
                 }
               />
+              <Route path="/settings/move-to-club" element={<ProtectedRoute><MoveToClubPage /></ProtectedRoute>} />
               <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
               <Route path="/organization" element={<ProtectedRoute><OrganizationPage /></ProtectedRoute>} />
             </Route>

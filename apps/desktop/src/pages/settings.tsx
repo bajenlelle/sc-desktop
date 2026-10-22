@@ -14,6 +14,7 @@ import { ThemePicker } from "@/components/theme-picker";
 import { useAuth } from "@/lib/auth-context";
 import { getExportWatermarkDisabled, setExportWatermarkDisabled } from "@/lib/prefs";
 import { trackEvent } from "@/lib/analytics";
+import { isStaffRole } from "@scoutable/shared/lib/orgs";
 
 type Appearance = "system" | "light" | "dark";
 
@@ -24,7 +25,9 @@ const APPEARANCE_OPTIONS: { value: Appearance; label: string }[] = [
 ];
 
 export function SettingsPage() {
-  const { activeOrg, activeOrgCanManage, activeOrgPlan } = useAuth();
+  const { activeOrg, activeOrgCanManage, activeOrgPlan, myOrgs } = useAuth();
+  // Moving content only goes from the personal space into a club you staff.
+  const canMoveToClub = myOrgs.some((o) => !o.isPersonal && isStaffRole(o.role));
   const { theme, setTheme } = useTheme();
   const [version, setVersion] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
@@ -70,6 +73,23 @@ export function SettingsPage() {
                   trailing={
                     <Button variant="outline" size="sm" asChild>
                       <Link to="/organization">Manage…</Link>
+                    </Button>
+                  }
+                />
+              </GroupedList>
+            </section>
+          )}
+
+          {canMoveToClub && (
+            <section>
+              <GroupHeader title="Personal space" />
+              <GroupedList>
+                <GroupRow
+                  label="Move content to a club"
+                  description="Move games and playlists from your personal space into a club"
+                  trailing={
+                    <Button variant="outline" size="sm" asChild>
+                      <Link to="/settings/move-to-club">Choose content…</Link>
                     </Button>
                   }
                 />

@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { VideoPlaceholder } from "@/components/video-placeholder";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
-import { listMatchesLight, listEventsForMatches, listFolders, createFolder, updateFolder, deleteFolder, updateVideoUrl } from "@/lib/matches-db";
+import { listMatchesLight, listMatchesByIds, listEventsForMatches, listFolders, createFolder, updateFolder, deleteFolder, updateVideoUrl } from "@/lib/matches-db";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { probeMatches, type VideoFileStatus } from "@/lib/video-probe";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
@@ -60,6 +60,7 @@ import {
 import {
   collectClipMatchIds,
   mergeEventsIntoMatches,
+  missingClipMatchIds,
 } from "@scoutable/shared/lib/playlist-matches";
 import { getOrgContext, getOrgContextForOrg, getOrgMembers, getTeamMemberIds } from "@/lib/profile-db";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
@@ -194,6 +195,13 @@ export function PlaylistsPage() {
     if (activeOrgId && !canAccess) navigate("/my-playlists", { replace: true });
   }, [activeOrgId, canAccess, profileLoading, navigate]);
   const [matches, setMatches] = useState<StoredMatch[]>([]);
+  // Games in another space that this space's playlists have clips on: a
+  // personal playlist whose game moved to a club, or a club playlist with a
+  // clip on the personal sample game. For resolving clips only; the clip
+  // browser keeps listing this space's games (`matches`).
+  const [outsideMatches, setOutsideMatches] = useState<StoredMatch[]>([]);
+  const outsideMatchesRef = useRef(outsideMatches);
+  useEffect(() => { outsideMatchesRef.current = outsideMatches; }, [outsideMatches]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [loading, setLoading] = useState(true);
   // Which matches already have their play-by-play in `matches`. The mount load
@@ -525,9 +533,13 @@ export function PlaylistsPage() {
           // ensureEventsFor refetches per-game as the clip browser opens.
         }
         const loadedMatches = mergeEventsIntoMatches(matchShells, eventsByMatch);
+        // referencedIds already covered their events; only the rows are missing.
+        const outsideIds = missingClipMatchIds(loadedPlaylists, new Set(matchShells.map((m) => m.id)));
+        const outsideShells = outsideIds.length > 0 ? await listMatchesByIds(outsideIds) : [];
 
         setPlaylists(loadedPlaylists);
         setMatches(loadedMatches);
+        setOutsideMatches(mergeEventsIntoMatches(outsideShells, eventsByMatch));
         const sorted = [...loadedFolders].sort((a, b) => a.sortOrder - b.sortOrder);
         setFolders(sorted);
         if (orgCtx) {
@@ -608,6 +620,17 @@ export function PlaylistsPage() {
           });
         })
         .catch(() => {});
+      // A relink of a game in another space fires matches-changed too.
+      const outside = outsideMatchesRef.current;
+      if (outside.length > 0) {
+        listMatchesByIds(outside.map((m) => m.id)).then((rows) => {
+          if (rows.length === 0) return;
+          setOutsideMatches((prev) => {
+            const prevById = new Map(prev.map((m) => [m.id, m]));
+            return rows.map((r) => ({ ...r, events: prevById.get(r.id)?.events ?? [] }));
+          });
+        });
+      }
     };
     window.addEventListener("demo-seeded", refreshMatches);
     window.addEventListener("matches-changed", refreshMatches);
@@ -884,10 +907,16 @@ export function PlaylistsPage() {
   );
 
 
+  // Every game a clip here can be on: this space's plus the outside ones.
+  const clipMatches = useMemo(
+    () => (outsideMatches.length > 0 ? [...matches, ...outsideMatches] : matches),
+    [matches, outsideMatches],
+  );
+
   // Build match lookup for cross-match event resolution
   const matchLookup = useMemo(
-    () => new Map(matches.map((m) => [m.id, m])),
-    [matches]
+    () => new Map(clipMatches.map((m) => [m.id, m])),
+    [clipMatches]
   );
   const matchLookupRef = useRef(matchLookup);
   useEffect(() => { matchLookupRef.current = matchLookup; }, [matchLookup]);
@@ -901,11 +930,11 @@ export function PlaylistsPage() {
    */
   const eventByKey = useMemo(() => {
     const map = new Map<string, PlayByPlayEvent>();
-    for (const m of matches) {
+    for (const m of clipMatches) {
       for (const e of m.events) map.set(`${m.id}:${e.eventId}`, e);
     }
     return map;
-  }, [matches]);
+  }, [clipMatches]);
 
   // Determine the primary match for a playlist (first clip item's match)
   function primaryMatchId(pl: Playlist): string | null {
@@ -3831,18 +3860,18 @@ export function PlaylistsPage() {
   // captured on the same render the signature changed, so it's never staler
   // than the signature.
   const videoPathSignature = useMemo(
-    () => matches.map((m) => `${m.id}:${m.videoUrl ?? ""}`).join("\n"),
-    [matches],
+    () => clipMatches.map((m) => `${m.id}:${m.videoUrl ?? ""}`).join("\n"),
+    [clipMatches],
   );
   useEffect(() => {
-    if (matches.length === 0) return;
+    if (clipMatches.length === 0) return;
     let cancelled = false;
     lastProbeAtRef.current = Date.now();
-    probeMatches(matches).then((map) => {
+    probeMatches(clipMatches).then((map) => {
       if (!cancelled) setVideoStatusByMatch(map);
     });
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- matches is fully represented by videoPathSignature for probing purposes
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- clipMatches is fully represented by videoPathSignature for probing purposes
   }, [videoPathSignature, probeTick]);
 
   /** Relink the ACTIVE game's video from the player overlay. */

@@ -107,4 +107,8 @@ export type AnalyticsEvent =
   | "watermark_toggled"
   | "free_refill_granted" // /admin Free refills card; props: amount, emailed, forced
   | "color_theme_changed" // desktop/web/mobile Appearance surfaces; props: theme, mode
-  | "account_delete_requested";
+  | "account_delete_requested"
+  // Move content to a club (desktop Settings, web Profile; web sends origin: "web")
+  | "content_move_opened" // clubs (how many clubs the user can move into)
+  | "content_moved" // games, playlists, folders, auto_games, merged, second_copies, select_all, club_plan
+  | "content_move_failed"; // error

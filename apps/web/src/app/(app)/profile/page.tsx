@@ -245,6 +245,8 @@ export default function ProfilePage() {
   // Managing a club is staff-only; players get the same row read-only.
   const canManageActiveOrg =
     !!activeOrg && !activeOrg.isPersonal && (activeOrg.role === "coach" || activeOrg.role === "admin");
+  // Moving content only goes from the personal space into a club you staff.
+  const canMoveToClub = ctx.myOrgs.some((o) => !o.isPersonal && (o.role === "coach" || o.role === "admin"));
 
   const planColors = orgPlanColors(activeOrgPlan);
   const planLabel = orgPlanLabel(activeOrgPlan);
@@ -401,6 +403,23 @@ export default function ProfilePage() {
                       </Button>
                     )}
                   </>
+                }
+              />
+            </GroupedList>
+          </section>
+        )}
+
+        {canMoveToClub && (
+          <section>
+            <GroupHeader title="Personal space" />
+            <GroupedList>
+              <GroupRow
+                label="Move content to a club"
+                description="Move games and playlists from your personal space into a club"
+                trailing={
+                  <Button variant="outline" size="xs" asChild>
+                    <Link href="/profile/move-to-club">Choose content…</Link>
+                  </Button>
                 }
               />
             </GroupedList>

@@ -4,6 +4,7 @@ import {
   collectClipMatchIds,
   collectReferencedMatchIds,
   mergeEventsIntoMatches,
+  missingClipMatchIds,
 } from "../playlist-matches";
 import type {
   Playlist,
@@ -215,5 +216,48 @@ describe("collectClipMatchIds", () => {
   it("returns [] for playlists with no clips", () => {
     expect(collectClipMatchIds([pl({ items: [] })])).toEqual([]);
     expect(collectClipMatchIds([])).toEqual([]);
+  });
+});
+
+describe("missingClipMatchIds", () => {
+  it("returns clip matchIds not in knownIds, in first-seen order", () => {
+    const ids = missingClipMatchIds(
+      [
+        pl({ items: [clip({ matchId: "m1" }), clip({ matchId: "m2", eventId: 2 })] }),
+        pl({ id: "p2", items: [clip({ matchId: "m3", eventId: 3 })] }),
+      ],
+      new Set(["m2"]),
+    );
+    expect(ids).toEqual(["m1", "m3"]);
+  });
+
+  it("ignores text cards", () => {
+    const ids = missingClipMatchIds([pl({ items: [textCard({}), clip({ matchId: "m9" })] })], new Set());
+    expect(ids).toEqual(["m9"]);
+  });
+
+  it("dedupes a match used by several clips and playlists", () => {
+    const ids = missingClipMatchIds(
+      [
+        pl({ items: [clip({ matchId: "other" }), clip({ matchId: "other", eventId: 2 })] }),
+        pl({ id: "p2", items: [clip({ matchId: "other", eventId: 3 })] }),
+      ],
+      new Set(["m1"]),
+    );
+    expect(ids).toEqual(["other"]);
+  });
+
+  it("includes unshipped clips — the editor needs their games too", () => {
+    const ids = missingClipMatchIds(
+      [pl({ items: [clip({ matchId: "draft" }), clip({ matchId: "shipped", r2Url: "https://r2/a.mp4" })] })],
+      new Set(),
+    );
+    expect(ids).toEqual(["draft", "shipped"]);
+  });
+
+  it("is empty when every clip's match is known, or there are no clips", () => {
+    expect(missingClipMatchIds([pl({ items: [clip({ matchId: "m1" })] })], new Set(["m1"]))).toEqual([]);
+    expect(missingClipMatchIds([pl({ items: [textCard({})] })], new Set())).toEqual([]);
+    expect(missingClipMatchIds([], new Set(["m1"]))).toEqual([]);
   });
 });

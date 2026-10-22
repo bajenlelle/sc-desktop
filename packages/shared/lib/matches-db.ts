@@ -647,6 +647,19 @@ export async function listMatchesLight(
   });
 }
 
+/**
+ * Light rows (no plays) for these games, as far as RLS lets the caller see
+ * them: a colleague's games behind a playlist's clips, in one read. A game
+ * the caller can't see is simply absent.
+ */
+export async function listMatchesByIds(supabase: SupabaseClient, ids: readonly string[]): Promise<StoredMatch[]> {
+  if (ids.length === 0) return [];
+  const { data, error } = await supabase.from("matches").select("*").in("id", [...new Set(ids)]);
+  if (error) reportDbError("listMatchesByIds", error);
+  if (error || !data) return [];
+  return (data as MatchRow[]).map((row) => rowToStoredMatch(row, []));
+}
+
 export async function countMatchesThisMonth(supabase: SupabaseClient): Promise<number> {
   const now = new Date();
   const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();

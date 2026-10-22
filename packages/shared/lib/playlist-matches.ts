@@ -42,6 +42,18 @@ export function collectClipMatchIds(playlists: Playlist[]): string[] {
 }
 
 /**
+ * Games a set of playlists' clips use that aren't in `knownIds` (the active
+ * space's list). A clip can sit on a game in another space: a playlist that
+ * stayed in the personal space after its game moved to a club, or a club
+ * playlist with a clip on the personal sample game. The editor must fetch
+ * those games separately, or the clips vanish (an unresolvable clip renders
+ * nothing).
+ */
+export function missingClipMatchIds(playlists: Playlist[], knownIds: ReadonlySet<string>): string[] {
+  return collectClipMatchIds(playlists).filter((id) => !knownIds.has(id));
+}
+
+/**
  * Fill listMatchesLight shells with events fetched via listEventsForMatches.
  * Callers must publish the merged result in ONE state update — clip rows
  * silently drop when an event lookup misses, so a light-shells-first render
