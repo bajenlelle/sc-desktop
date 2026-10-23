@@ -180,12 +180,14 @@ export function canExport(tier: OrgPlanTier, access: PlayerAccess | null): boole
 }
 
 /**
- * What importing a game takes from what is left: "Uses 1 of 3 free games",
- * "Uses your last free game". The badge names the cost of this import; the
- * total left (free and bought) is playerMeterLabel's job.
+ * What importing a game takes from what is left: "Uses 1 of your 4 games",
+ * "Uses your last game". Free and bought games count together, because to the
+ * player they are the same thing; free ones are used first, and the split is
+ * playerMeterLabel's job (the line above the list).
  */
-function usesLabel(left: number, kind: "free" | "bought"): string {
-  return left === 1 ? `Uses your last ${kind} game` : `Uses 1 of ${left} ${kind} games`;
+function usesLabel(access: PlayerAccess): string {
+  const left = access.trialLeft + access.singlesLeft;
+  return left === 1 ? "Uses your last game" : `Uses 1 of your ${left} games`;
 }
 
 export type GameBadgeTone = "covered" | "free" | "bought" | "imported" | "price";
@@ -204,9 +206,9 @@ export function gameBadge(game: GameAccess, access: PlayerAccess): GameBadge | n
     case "season_pass":
       return { label: "In your season pass", tone: "covered" };
     case "trial":
-      return { label: usesLabel(access.trialLeft, "free"), tone: "free" };
+      return { label: usesLabel(access), tone: "free" };
     case "single":
-      return { label: usesLabel(access.singlesLeft, "bought"), tone: "bought" };
+      return { label: usesLabel(access), tone: "bought" };
     case "plan":
     case "exempt":
       return null;
@@ -224,8 +226,8 @@ export function gameBadge(game: GameAccess, access: PlayerAccess): GameBadge | n
 export function importBadge(game: { imported: boolean; covered: boolean }, access: PlayerAccess): GameBadge | null {
   if (game.imported) return { label: "Imported", tone: "imported" };
   if (game.covered) return { label: "In your season pass", tone: "covered" };
-  if (access.trialLeft > 0) return { label: usesLabel(access.trialLeft, "free"), tone: "free" };
-  if (access.singlesLeft > 0) return { label: usesLabel(access.singlesLeft, "bought"), tone: "bought" };
+  if (access.trialLeft > 0) return { label: usesLabel(access), tone: "free" };
+  if (access.singlesLeft > 0) return { label: usesLabel(access), tone: "bought" };
   return access.enabled ? { label: `${PLAYER_PRICES.singleGame} kr`, tone: "price" } : null;
 }
 

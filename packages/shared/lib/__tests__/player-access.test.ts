@@ -116,10 +116,10 @@ describe("gameBadge", () => {
   it("names what importing the game would use", () => {
     const a = access({ trialLeft: 2, singlesLeft: 1 });
     expect(gameBadge(game({ allowed: true, via: "season_pass" }), a)?.label).toBe("In your season pass");
-    expect(gameBadge(game({ allowed: true, via: "trial" }), a)?.label).toBe("Uses 1 of 2 free games");
-    expect(gameBadge(game({ allowed: true, via: "trial" }), access({ trialLeft: 1 }))?.label).toBe("Uses your last free game");
-    expect(gameBadge(game({ allowed: true, via: "single" }), a)?.label).toBe("Uses your last bought game");
-    expect(gameBadge(game({ allowed: true, via: "single" }), access({ singlesLeft: 3 }))?.label).toBe("Uses 1 of 3 bought games");
+    expect(gameBadge(game({ allowed: true, via: "trial" }), a)?.label).toBe("Uses 1 of your 3 games");
+    expect(gameBadge(game({ allowed: true, via: "trial" }), access({ trialLeft: 1 }))?.label).toBe("Uses your last game");
+    expect(gameBadge(game({ allowed: true, via: "single" }), access({ trialLeft: 0, singlesLeft: 1 }))?.label).toBe("Uses your last game");
+    expect(gameBadge(game({ allowed: true, via: "single" }), access({ trialLeft: 0, singlesLeft: 3 }))?.label).toBe("Uses 1 of your 3 games");
     expect(gameBadge(game({ allowed: true, via: "season_pass", imported: true }), a)?.label).toBe("Imported");
   });
 
@@ -248,10 +248,10 @@ describe("importBadge", () => {
     const a = access({ trialLeft: 1, singlesLeft: 2 });
     expect(importBadge({ imported: true, covered: true }, a)?.label).toBe("Imported");
     expect(importBadge({ imported: false, covered: true }, a)?.label).toBe("In your season pass");
-    expect(importBadge({ imported: false, covered: false }, a)?.label).toBe("Uses your last free game");
-    expect(importBadge({ imported: false, covered: false }, access({ trialLeft: 3, singlesLeft: 1 }))?.label).toBe("Uses 1 of 3 free games");
+    expect(importBadge({ imported: false, covered: false }, a)?.label).toBe("Uses 1 of your 3 games");
+    expect(importBadge({ imported: false, covered: false }, access({ trialLeft: 3, singlesLeft: 1 }))?.label).toBe("Uses 1 of your 4 games");
     expect(importBadge({ imported: false, covered: false }, access({ trialLeft: 0, singlesLeft: 2 }))?.label).toBe(
-      "Uses 1 of 2 bought games",
+      "Uses 1 of your 2 games",
     );
     expect(importBadge({ imported: false, covered: false }, access({ trialLeft: 0 }))).toEqual({ label: "129 kr", tone: "price" });
   });
