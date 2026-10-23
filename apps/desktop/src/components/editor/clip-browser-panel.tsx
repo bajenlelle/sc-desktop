@@ -1169,6 +1169,7 @@ export function ClipBrowserPanel({
               <PlayerStage
                 video={video}
                 src={localVideoUrl}
+                fileMissing={videoMissing}
                 fullscreen={playerFs.active}
                 onToggleFullscreen={toggleFullscreen}
                 onExitFullscreen={() => void playerFs.exit()}
