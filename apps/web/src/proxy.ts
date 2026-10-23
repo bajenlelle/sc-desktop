@@ -76,7 +76,7 @@ export async function proxy(request: NextRequest) {
   // Onboarding guard: authenticated users without an org must go to /onboarding.
   // Done here (not in layout) so Next.js issues a real HTTP redirect, not a soft
   // client-router redirect that skips re-running the shared layout.
-  if (user && !pathname.startsWith("/onboarding") && !pathname.startsWith("/view/") && !pathname.startsWith("/join/") && !pathname.startsWith("/h/") && !pathname.startsWith("/unsubscribe") && !pathname.startsWith("/api/unsubscribe")) {
+  if (user && !pathname.startsWith("/onboarding") && !pathname.startsWith("/view/") && !pathname.startsWith("/join/") && !pathname.startsWith("/h/") && !pathname.startsWith("/r/") && !pathname.startsWith("/unsubscribe") && !pathname.startsWith("/api/unsubscribe")) {
     // Once a user is known to have an org the answer rarely changes, so it is
     // remembered for a day instead of asked on every navigation. Bound to the
     // user id so a different account on the same browser asks again. The

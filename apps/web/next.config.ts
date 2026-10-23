@@ -6,6 +6,21 @@ const nextConfig: NextConfig = {
   // The dev-mode badge sits bottom left, on top of the sidebar's account row
   // and the tab bar's first tab. Build errors still show as an overlay.
   devIndicators: false,
+  // The scouting report page (/r/<id>) is an unlisted link to staff and players:
+  // never indexed or archived, never sent on as a referrer (the id is the
+  // capability), never cached by a shared cache.
+  async headers() {
+    return [
+      {
+        source: "/r/:path*",
+        headers: [
+          { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "Cache-Control", value: "private, no-store" },
+        ],
+      },
+    ];
+  },
 };
 
 export default withSentryConfig(nextConfig, {
