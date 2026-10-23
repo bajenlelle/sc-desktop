@@ -25,6 +25,7 @@ import {
 import { exportProgressLabel, exportProgressPercent, type ExportProgress } from "@scoutable/shared/lib/export-progress";
 import type { ExportAction } from "@/components/export-format-dialog";
 import { Toolbar } from "@/components/shell/toolbar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -141,22 +142,36 @@ function Explained({ reason, children }: { reason: string | null; children: Reac
 const highlightRing = "ring-2 ring-selection ring-offset-2 ring-offset-background animate-pulse";
 
 /** A menu item that, when it can't be used, says why underneath. */
+/** Marks a menu item whose feature is still in beta. */
+function BetaBadge() {
+  return (
+    <Badge variant="secondary" className="px-1.5 text-caption">
+      Beta
+    </Badge>
+  );
+}
+
 function CardMenuItem({
   icon,
   label,
   reason,
   onSelect,
+  beta,
 }: {
   icon: React.ReactElement;
   label: string;
   reason: string | null;
   onSelect: () => void;
+  beta?: boolean;
 }) {
   return (
     <DropdownMenuItem onSelect={onSelect} disabled={!!reason} className="items-start">
       <span className="mt-0.5 text-muted-foreground [&_svg]:size-4">{icon}</span>
       <span className="flex flex-col">
-        {label}
+        <span className="flex items-center gap-1.5">
+          {label}
+          {beta && <BetaBadge />}
+        </span>
         {reason && <span className="text-caption text-muted-foreground">{reason}</span>}
       </span>
     </DropdownMenuItem>
@@ -279,7 +294,7 @@ export function EditorToolbar(p: EditorToolbarProps) {
               <DropdownMenuContent align="end" className="w-64">
                 <CardMenuItem icon={<Type />} label="Add text card" reason={p.addTextCardDisabledReason} onSelect={p.onAddTextCard} />
                 <CardMenuItem icon={<BarChart3 />} label="Add stats card" reason={p.addStatsCardDisabledReason} onSelect={p.onAddStatsCard} />
-                <CardMenuItem icon={<UserRound />} label="Add player" reason={p.addPlayerCardDisabledReason} onSelect={p.onAddPlayerCard} />
+                <CardMenuItem icon={<UserRound />} label="Add player" reason={p.addPlayerCardDisabledReason} onSelect={p.onAddPlayerCard} beta />
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -335,7 +350,10 @@ export function EditorToolbar(p: EditorToolbarProps) {
                   <DropdownMenuItem onSelect={p.onShareReport} disabled={!!p.shareReportDisabledReason} className="items-start">
                     <span className="mt-0.5 text-muted-foreground [&_svg]:size-4">{p.reportLocked ? <Lock /> : <FileText />}</span>
                     <span className="flex flex-col">
-                      Share scouting report…
+                      <span className="flex items-center gap-1.5">
+                        Share scouting report…
+                        <BetaBadge />
+                      </span>
                       {(p.shareReportDisabledReason ?? p.reportStatus) && (
                         <span className="text-caption text-muted-foreground">{p.shareReportDisabledReason ?? p.reportStatus}</span>
                       )}
