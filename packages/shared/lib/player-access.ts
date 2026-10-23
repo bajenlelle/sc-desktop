@@ -1,8 +1,8 @@
 /**
  * Player passes: what a Free personal space may import and export, and what
  * the purchase sheet offers. A player buys a single game (any game) or goes
- * Pro; any purchase, a past Pro subscription included, opens export for all
- * of their games. The season pass (every game of one team in one season) is
+ * Pro; a bought game opens export for all of their games (a Pro subscription
+ * doesn't once it ends). The season pass (every game of one team in one season) is
  * dormant since 2026-10-23 (`app_config.season_pass_enabled`): the sheet no
  * longer offers it, and only an existing pass still shows.
  *
@@ -66,7 +66,7 @@ export interface PlayerAccess {
   passEnabled: boolean;
   seasonOnSale: string | null;
   personalOrgId: string | null;
-  /** Bought a game or a pass, or has had a Pro subscription. */
+  /** Bought a game or a pass (not refunded). A past subscription doesn't count. */
   hasPaid: boolean;
   /** Free games including refill grants. */
   trialGames: number;
@@ -179,6 +179,14 @@ export function canExport(tier: OrgPlanTier, access: PlayerAccess | null): boole
   return tier !== "free" || !!access?.hasPaid;
 }
 
+/** "Free game · 2 left", or with bought games still to use "Free game · 3 free and 1 bought left". */
+function freeGameLabel(access: PlayerAccess): string {
+  const { trialLeft, singlesLeft } = access;
+  return singlesLeft > 0
+    ? `Free game · ${trialLeft} free and ${singlesLeft} bought left`
+    : `Free game · ${trialLeft} left`;
+}
+
 export type GameBadgeTone = "covered" | "free" | "bought" | "imported" | "price";
 export interface GameBadge {
   label: string;
@@ -195,7 +203,7 @@ export function gameBadge(game: GameAccess, access: PlayerAccess): GameBadge | n
     case "season_pass":
       return { label: "In your season pass", tone: "covered" };
     case "trial":
-      return { label: `Free game · ${access.trialLeft} left`, tone: "free" };
+      return { label: freeGameLabel(access), tone: "free" };
     case "single":
       return { label: `Uses 1 bought game · ${access.singlesLeft} left`, tone: "bought" };
     case "plan":
@@ -215,7 +223,7 @@ export function gameBadge(game: GameAccess, access: PlayerAccess): GameBadge | n
 export function importBadge(game: { imported: boolean; covered: boolean }, access: PlayerAccess): GameBadge | null {
   if (game.imported) return { label: "Imported", tone: "imported" };
   if (game.covered) return { label: "In your season pass", tone: "covered" };
-  if (access.trialLeft > 0) return { label: `Free game · ${access.trialLeft} left`, tone: "free" };
+  if (access.trialLeft > 0) return { label: freeGameLabel(access), tone: "free" };
   if (access.singlesLeft > 0) return { label: `Uses 1 bought game · ${access.singlesLeft} left`, tone: "bought" };
   return access.enabled ? { label: `${PLAYER_PRICES.singleGame} kr`, tone: "price" } : null;
 }

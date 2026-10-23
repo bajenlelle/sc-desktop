@@ -58,8 +58,8 @@ playlists, and share them with teams; players watch on web/mobile.
   unlimited. Players buy single games (129 kr) or go Pro (399 kr a month,
   2,990 kr a year, sold on scoutable.se); the season pass is dormant
   (`app_config.season_pass_enabled` off since 2026-10-23: never offered,
-  existing passes still work). Any purchase, a past Pro subscription
-  included (`_has_paid`), opens export for all of a player's games.
+  existing passes still work). A bought game (`_has_paid`) opens export
+  for all of a player's games; a Pro subscription only while it lasts.
   `_import_allowance` summarises it for the meters, and
   `packages/shared/lib/plan-tier.ts` and `player-access.ts` mirror it for
   display only — change them together. Player purchases (`purchases`,

@@ -197,7 +197,7 @@ export default function MyHighlightsPage() {
   const { access } = usePlayerAccess();
 
   const personalOrg = myOrgs.find((o) => o.isPersonal) ?? null;
-  // A bought game, or a Pro subscription now or before, counts: any purchase opens the player's own space.
+  // A paid plan or a bought game counts: any purchase opens the player's own space.
   const upgraded = personalOrg != null && (personalOrg.planTier !== "free" || !!access?.hasPaid);
 
   return (

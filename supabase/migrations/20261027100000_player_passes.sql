@@ -189,9 +189,10 @@ AS $$
      AND COALESCE((SELECT value FROM app_config WHERE key = 'season_pass_enabled'), 'false') = 'true';
 $$;
 
--- The user has paid for something: a game or a pass, or a subscription at
--- some point (the scoutable.se webhook records it in stripe_customers). Any
--- purchase opens export for all of the user's games, so a Pro month does too.
+-- The user has bought a game or a pass that isn't refunded. Any purchase
+-- opens export for all of the user's games. A subscription doesn't count:
+-- once Pro ends, a Free space exports again only after a purchase (decided
+-- 2026-10-23).
 CREATE OR REPLACE FUNCTION _has_paid(p_user uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -199,10 +200,7 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT EXISTS (SELECT 1 FROM purchases WHERE user_id = p_user AND status = 'paid')
-      OR EXISTS (SELECT 1 FROM stripe_customers sc
-                   JOIN auth.users u ON lower(u.email) = lower(sc.email)
-                  WHERE u.id = p_user AND sc.subscription_id IS NOT NULL);
+  SELECT EXISTS (SELECT 1 FROM purchases WHERE user_id = p_user AND status = 'paid');
 $$;
 
 -- The Genius team ids playing a game, read from the fixture cache (every

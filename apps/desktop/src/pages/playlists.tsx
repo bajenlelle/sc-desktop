@@ -189,7 +189,7 @@ const BROWSER_WIDTH_KEY = "scoutable_playlist_browser_width";
 export function PlaylistsPage() {
   const { user, activeOrgId, activeOrgPlan, activeOrgRole, activeOrgIsPersonal, myOrgs, profileLoading } = useAuth();
   // Export opens for paid plans, and for a Free space once anything is bought
-  // (a single game, or a Pro subscription now or before).
+  // (a single game; a Pro subscription only while it lasts).
   const { access: playerAccess, playerMode } = usePlayerAccess();
   const exportAllowed = canExport(activeOrgPlan, playerAccess);
   const navigate = useNavigate();

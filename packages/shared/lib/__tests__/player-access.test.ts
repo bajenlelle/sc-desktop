@@ -116,7 +116,8 @@ describe("gameBadge", () => {
   it("names what importing the game would use", () => {
     const a = access({ trialLeft: 2, singlesLeft: 1 });
     expect(gameBadge(game({ allowed: true, via: "season_pass" }), a)?.label).toBe("In your season pass");
-    expect(gameBadge(game({ allowed: true, via: "trial" }), a)?.label).toBe("Free game · 2 left");
+    expect(gameBadge(game({ allowed: true, via: "trial" }), a)?.label).toBe("Free game · 2 free and 1 bought left");
+    expect(gameBadge(game({ allowed: true, via: "trial" }), access({ trialLeft: 2 }))?.label).toBe("Free game · 2 left");
     expect(gameBadge(game({ allowed: true, via: "single" }), a)?.label).toBe("Uses 1 bought game · 1 left");
     expect(gameBadge(game({ allowed: true, via: "season_pass", imported: true }), a)?.label).toBe("Imported");
   });
@@ -245,7 +246,8 @@ describe("importBadge", () => {
     const a = access({ trialLeft: 1, singlesLeft: 2 });
     expect(importBadge({ imported: true, covered: true }, a)?.label).toBe("Imported");
     expect(importBadge({ imported: false, covered: true }, a)?.label).toBe("In your season pass");
-    expect(importBadge({ imported: false, covered: false }, a)?.label).toBe("Free game · 1 left");
+    expect(importBadge({ imported: false, covered: false }, a)?.label).toBe("Free game · 1 free and 2 bought left");
+    expect(importBadge({ imported: false, covered: false }, access({ trialLeft: 3, singlesLeft: 0 }))?.label).toBe("Free game · 3 left");
     expect(importBadge({ imported: false, covered: false }, access({ trialLeft: 0, singlesLeft: 2 }))?.label).toBe(
       "Uses 1 bought game · 2 left",
     );
