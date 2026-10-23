@@ -21,6 +21,7 @@ import { trackEvent } from "@/lib/analytics";
 import { formatDate } from "@/lib/format-date";
 import {
   PLAYER_PRICES,
+  PRO_PRICES,
   activePass,
   formatKronor,
   purchaseLabel,
@@ -201,7 +202,7 @@ export function PlayerGamesCard() {
           ))}
           <GroupRow
             label="Buy games"
-            description={`A single game is ${PLAYER_PRICES.singleGame} kr. The season pass covers every game of your team this season for ${PLAYER_PRICES.seasonPass} kr.`}
+            description={`A single game is ${PLAYER_PRICES.singleGame} kr. Pro covers every game of any team for ${PRO_PRICES.monthly} kr a month.`}
             trailing={
               <Button size="sm" onClick={() => setSheetOpen(true)}>
                 Buy…

@@ -7,14 +7,13 @@ import {
   importBadge,
   parseGameAccess,
   parsePlayerAccess,
-  passNotOfferedReason,
-  passValueLine,
   playerMeterLabel,
+  proNudge,
   purchaseArrived,
   purchaseLabel,
   seasonLabel,
   sheetOffers,
-  watermarkForced,
+  singlesInLast30Days,
   type GameAccess,
   type PlayerAccess,
 } from "../player-access";
@@ -23,6 +22,7 @@ import {
 // (20261027100000_player_passes.sql).
 const RAW_ACCESS = {
   enabled: true,
+  pass_enabled: false,
   season_on_sale: "2026-27",
   personal_org_id: "org-1",
   has_paid: false,
@@ -76,6 +76,7 @@ describe("parsePlayerAccess", () => {
       purchases: [{ id: "u", kind: "season_pass", quantity: 1, amount_total: 79900, currency: "sek", status: "paid", source: "stripe", receipt_url: "https://r", created_at: "y" }],
     });
     expect(a.trialGames).toBe(2);
+    expect(a.passEnabled).toBe(false);
     expect(a.team?.gamesInSeason).toBe(26);
     expect(a.passes[0]).toMatchObject({ seasonId: "2026-27", movesLeft: 0, status: "active" });
     expect(a.purchases[0]).toMatchObject({ kind: "season_pass", amountTotal: 79900, receiptUrl: "https://r" });
@@ -109,24 +110,6 @@ describe("export", () => {
     expect(canExport("free", access())).toBe(false);
     expect(canExport("free", access({ hasPaid: true }))).toBe(true);
   });
-
-  it("forces the mark for Rookie and for pass or single buyers, not for Pro", () => {
-    expect(watermarkForced("rookie", null)).toBe(true);
-    expect(watermarkForced("free", access({ hasPaid: true }))).toBe(true);
-    expect(watermarkForced("free", access())).toBe(false);
-    expect(watermarkForced("pro", access({ hasPaid: true }))).toBe(false);
-  });
-});
-
-describe("passValueLine", () => {
-  it("prices the pass per game of the team's season", () => {
-    expect(passValueLine(26)).toBe("26 games · 31 kr a game");
-    expect(passValueLine(33)).toBe("33 games · 24 kr a game");
-  });
-
-  it("says nothing without a schedule", () => {
-    expect(passValueLine(0)).toBeNull();
-  });
 });
 
 describe("gameBadge", () => {
@@ -149,26 +132,21 @@ describe("gameBadge", () => {
 });
 
 describe("sheetOffers", () => {
-  it("offers this game and the season pass for an own-team game, then Pro", () => {
+  it("offers this game, then Pro, and never the season pass", () => {
     const offers = sheetOffers(game(), access(), "player");
-    expect(offers.map((o) => o.kind)).toEqual(["single_game", "season_pass", "pro"]);
-    expect(offers[1].title).toBe("Season pass 2026/27");
-    expect(offers[1].detail).toContain("Every Fryshuset Basket game this season");
-    expect(offers[1].detail).toContain("31 kr a game");
-  });
-
-  it("leaves the pass out for another team's game", () => {
-    const offers = sheetOffers(game({ ownTeam: false, passAvailable: false }), access(), "player");
     expect(offers.map((o) => o.kind)).toEqual(["single_game", "pro"]);
+    expect(offers[0]).toMatchObject({ title: "This game", price: 129 });
+    expect(offers[1]).toMatchObject({ title: "Pro", price: 399, detail: "Every game, any team. Cancel anytime." });
   });
 
-  it("puts Pro first for coaches", () => {
-    expect(sheetOffers(game(), access(), "coach")[0].kind).toBe("pro");
+  it("puts Pro first for coaches, with the yearly price", () => {
+    const offers = sheetOffers(game(), access(), "coach");
+    expect(offers.map((o) => o.kind)).toEqual(["pro", "single_game"]);
+    expect(offers[0].detail).toBe("Every game, any team. Or 2\u00a0990 kr a year.");
   });
 
-  it("from export: offers the pass when the team can have one", () => {
-    expect(sheetOffers(null, access(), "player").map((o) => o.kind)).toEqual(["single_game", "season_pass", "pro"]);
-    expect(sheetOffers(null, access({ passes: [PASS] }), "player").map((o) => o.kind)).toEqual(["single_game", "pro"]);
+  it("from export: one more game, then Pro", () => {
+    expect(sheetOffers(null, access(), "player").map((o) => o.title)).toEqual(["One game", "Pro"]);
   });
 
   it("mentions export only until something is bought", () => {
@@ -181,15 +159,38 @@ describe("sheetOffers", () => {
   });
 });
 
-describe("passNotOfferedReason", () => {
-  it("explains a missing pass offer", () => {
-    expect(passNotOfferedReason(game({ ownTeam: false, passAvailable: false }), access())).toBe(
-      "The season pass covers Fryshuset Basket games only.",
-    );
-    expect(passNotOfferedReason(game({ passAvailable: false }), access({ team: null }))).toBe(
-      "Set your team to see the season pass.",
-    );
-    expect(passNotOfferedReason(game(), access())).toBeNull();
+describe("proNudge", () => {
+  const NOW = new Date("2026-10-23T12:00:00Z");
+  const single = (createdAt: string, quantity = 1, status: "paid" | "refunded" = "paid") => ({
+    id: createdAt,
+    kind: "single_game" as const,
+    quantity,
+    amountTotal: 12900 * quantity,
+    currency: "sek",
+    status,
+    source: "stripe" as const,
+    receiptUrl: null,
+    createdAt,
+  });
+
+  it("counts paid singles from the last 30 days", () => {
+    const a = access({
+      purchases: [single("2026-10-20T10:00:00Z", 2), single("2026-10-01T10:00:00Z"), single("2026-09-01T10:00:00Z"), single("2026-10-22T10:00:00Z", 1, "refunded")],
+    });
+    expect(singlesInLast30Days(a, NOW)).toBe(3);
+  });
+
+  it("names the game from which Pro costs less", () => {
+    expect(proNudge(access(), NOW)).toBe("From your 4th game in a month, Pro costs less.");
+  });
+
+  it("prices the next single against Pro once two are bought", () => {
+    const a = access({ purchases: [single("2026-10-10T10:00:00Z"), single("2026-10-20T10:00:00Z")] });
+    expect(proNudge(a, NOW)).toBe("3 games: 387 kr. Pro: 399 kr for every game this month.");
+  });
+
+  it("says nothing while sales are off", () => {
+    expect(proNudge(access({ enabled: false }), NOW)).toBeNull();
   });
 });
 

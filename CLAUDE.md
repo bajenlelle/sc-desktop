@@ -55,7 +55,12 @@ playlists, and share them with teams; players watch on web/mobile.
   that covers the game, else a trial slot (2 for accounts created from
   `app_config.free_games_two_since`, 3 before, plus refill grants), else a
   bought single game; rookie = 6/month (legacy, no longer sold); paid =
-  unlimited. `_import_allowance` summarises it for the meters, and
+  unlimited. Players buy single games (129 kr) or go Pro (399 kr a month,
+  2,990 kr a year, sold on scoutable.se); the season pass is dormant
+  (`app_config.season_pass_enabled` off since 2026-10-23: never offered,
+  existing passes still work). Any purchase, a past Pro subscription
+  included (`_has_paid`), opens export for all of a player's games.
+  `_import_allowance` summarises it for the meters, and
   `packages/shared/lib/plan-tier.ts` and `player-access.ts` mirror it for
   display only — change them together. Player purchases (`purchases`,
   `season_passes`) are written only by apps/web's Stripe player webhook

@@ -3,10 +3,10 @@
 /**
  * My Highlights — the player's own space as a first-class destination.
  *
- * Personal orgs exist so players acquired through club orgs can upgrade to
- * Rookie/Pro and cut their own tapes. Free tier sees a value-first pitch
+ * Personal orgs exist so players acquired through club orgs can buy a game
+ * or go Pro and cut their own tapes. Free tier sees a value-first pitch
  * whose only ask is the FREE desktop download — activation before
- * monetization: the free tier (3 imports) is the trial, and the upsell
+ * monetization: the free tier (2 imports) is the trial, and the upsell
  * happens inside the desktop app at the quota/watermark gates, where intent
  * is highest. Upgraded players see their own playlists (built in the
  * desktop app, listed here for reference — watching stays on their phone
@@ -197,7 +197,7 @@ export default function MyHighlightsPage() {
   const { access } = usePlayerAccess();
 
   const personalOrg = myOrgs.find((o) => o.isPersonal) ?? null;
-  // A bought game or season pass counts: any purchase opens the player's own space.
+  // A bought game, or a Pro subscription now or before, counts: any purchase opens the player's own space.
   const upgraded = personalOrg != null && (personalOrg.planTier !== "free" || !!access?.hasPaid);
 
   return (

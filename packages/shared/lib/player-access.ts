@@ -1,21 +1,23 @@
 /**
  * Player passes: what a Free personal space may import and export, and what
- * the purchase sheet offers. A player buys a single game (any game) or a
- * season pass (every game of one team in one season); any purchase opens
- * export for all of their games.
+ * the purchase sheet offers. A player buys a single game (any game) or goes
+ * Pro; any purchase, a past Pro subscription included, opens export for all
+ * of their games. The season pass (every game of one team in one season) is
+ * dormant since 2026-10-23 (`app_config.season_pass_enabled`): the sheet no
+ * longer offers it, and only an existing pass still shows.
  *
  * Display only. The import trigger (`_game_access` in
  * supabase/migrations/20261027100000_player_passes.sql) makes the decision,
- * and Stripe's prices are what's charged — keep PLAYER_PRICES in step with
+ * and Stripe's prices are what's charged — keep these prices in step with
  * them.
  */
 import type { OrgPlanTier } from "../types/org";
 
 /** Prices in SEK, VAT included. */
-export const PLAYER_PRICES = { singleGame: 129, seasonPass: 799 } as const;
+export const PLAYER_PRICES = { singleGame: 129 } as const;
 
-/** Pro's monthly price, for the coach line in the purchase sheet. */
-export const PRO_MONTHLY_PRICE = 399;
+/** Pro, sold on scoutable.se: SEK a month, or a year paid at once. */
+export const PRO_PRICES = { monthly: 399, yearly: 2990 } as const;
 
 /** What paid for a logged game (`import_log.via`). */
 export type ImportVia = "trial" | "single" | "season_pass" | "plan" | "exempt";
@@ -60,8 +62,11 @@ export interface PlayerTeam {
 export interface PlayerAccess {
   /** Sales are on (`app_config.player_pass_enabled`). */
   enabled: boolean;
+  /** The season pass is on sale too (`app_config.season_pass_enabled`); off since 2026-10-23. */
+  passEnabled: boolean;
   seasonOnSale: string | null;
   personalOrgId: string | null;
+  /** Bought a game or a pass, or has had a Pro subscription. */
   hasPaid: boolean;
   /** Free games including refill grants. */
   trialGames: number;
@@ -100,6 +105,7 @@ export function parsePlayerAccess(raw: unknown): PlayerAccess {
   const team = obj(r.team);
   return {
     enabled: bool(r.enabled),
+    passEnabled: bool(r.pass_enabled),
     seasonOnSale: str(r.season_on_sale) || null,
     personalOrgId: str(r.personal_org_id) || null,
     hasPaid: bool(r.has_paid),
@@ -173,18 +179,6 @@ export function canExport(tier: OrgPlanTier, access: PlayerAccess | null): boole
   return tier !== "free" || !!access?.hasPaid;
 }
 
-/** The Scoutable mark is always on for Rookie and for pass and single buyers. */
-export function watermarkForced(tier: OrgPlanTier, access: PlayerAccess | null): boolean {
-  return tier === "rookie" || (tier === "free" && !!access?.hasPaid);
-}
-
-/** What the pass costs per game of the team's season: "26 games · 31 kr a game". */
-export function passValueLine(gamesInSeason: number): string | null {
-  if (gamesInSeason <= 0) return null;
-  const perGame = Math.round(PLAYER_PRICES.seasonPass / gamesInSeason);
-  return `${gamesInSeason} ${gamesInSeason === 1 ? "game" : "games"} · ${perGame} kr a game`;
-}
-
 export type GameBadgeTone = "covered" | "free" | "bought" | "imported" | "price";
 export interface GameBadge {
   label: string;
@@ -235,10 +229,17 @@ export interface SheetOffer {
   detail: string;
 }
 
+/** "2 990 kr", the way formatKronor prints whole kronor. */
+function kronor(sek: number): string {
+  return `${sek.toLocaleString("sv-SE")} kr`;
+}
+
 /**
- * What the purchase sheet offers, in order. `game` is the game that hit the
- * limit (null when the sheet opens from export). Coaches see Pro first.
- * Empty while sales are off: the caller shows the old upgrade dialog.
+ * What the purchase sheet offers, in order: a single game and Pro (the
+ * season pass is no longer sold). `game` is the game that hit the limit
+ * (null when the sheet opens from export). Coaches see Pro first, with the
+ * yearly price. Empty while sales are off: the caller shows the old upgrade
+ * dialog.
  */
 export function sheetOffers(
   game: GameAccess | null,
@@ -246,58 +247,63 @@ export function sheetOffers(
   role: "coach" | "player" | null,
 ): SheetOffer[] {
   if (!access.enabled) return [];
-  const offers: SheetOffer[] = [];
-  const team = access.team;
-  const season = access.seasonOnSale ? seasonLabel(access.seasonOnSale) : "";
 
   const opensExport = access.hasPaid ? "" : " Also opens export for all your games.";
-  offers.push(
-    game
-      ? {
-          kind: "single_game",
-          price: PLAYER_PRICES.singleGame,
-          title: "This game",
-          detail: `Yours to keep.${opensExport}`,
-        }
-      : {
-          kind: "single_game",
-          price: PLAYER_PRICES.singleGame,
-          title: "One game",
-          detail: `One more game to import, yours to keep.${opensExport}`,
-        },
-  );
-
-  const passOnOffer = game
-    ? game.passAvailable
-    : !!team && team.inSeasonOnSale && !activePass(access);
-  if (passOnOffer && team) {
-    const value = passValueLine(team.gamesInSeason);
-    offers.push({
-      kind: "season_pass",
-      price: PLAYER_PRICES.seasonPass,
-      title: `Season pass ${season}`,
-      detail: [`Every ${team.name} game this season, playoffs included.`, value].filter(Boolean).join(" "),
-    });
-  }
+  const single: SheetOffer = game
+    ? {
+        kind: "single_game",
+        price: PLAYER_PRICES.singleGame,
+        title: "This game",
+        detail: `Yours to keep.${opensExport}`,
+      }
+    : {
+        kind: "single_game",
+        price: PLAYER_PRICES.singleGame,
+        title: "One game",
+        detail: `One more game to import, yours to keep.${opensExport}`,
+      };
 
   const pro: SheetOffer = {
     kind: "pro",
-    price: PRO_MONTHLY_PRICE,
+    price: PRO_PRICES.monthly,
     title: "Pro",
-    detail: "Unlimited games of any team. Billed monthly.",
+    detail:
+      role === "coach"
+        ? `Every game, any team. Or ${kronor(PRO_PRICES.yearly)} a year.`
+        : "Every game, any team. Cancel anytime.",
   };
-  return role === "coach" ? [pro, ...offers] : [...offers, pro];
+  return role === "coach" ? [pro, single] : [single, pro];
 }
 
-/** Why the pass isn't offered for a game, when the player might expect it. */
-export function passNotOfferedReason(game: GameAccess, access: PlayerAccess): string | null {
-  if (!access.enabled || game.passAvailable) return null;
-  const team = access.team;
-  if (!team) return "Set your team to see the season pass.";
-  if (!game.ownTeam) return `The season pass covers ${team.name} games only.`;
-  if (activePass(access)) return null;
-  if (!team.inSeasonOnSale) return `${team.name} has no games in the season on sale.`;
-  return null;
+/** Single games bought in the 30 days before `now` (paid, quantities added up). */
+export function singlesInLast30Days(access: PlayerAccess, now: Date = new Date()): number {
+  const since = now.getTime() - 30 * 24 * 60 * 60 * 1000;
+  return access.purchases
+    .filter((p) => p.kind === "single_game" && p.status === "paid" && Date.parse(p.createdAt) >= since)
+    .reduce((n, p) => n + p.quantity, 0);
+}
+
+/**
+ * The line under the sheet's offers that points at Pro: from the game where
+ * singles bought within 30 days would cost more than a month of Pro. Once two
+ * or more singles are bought, it prices the next one against Pro.
+ */
+export function proNudge(access: PlayerAccess, now: Date = new Date()): string | null {
+  if (!access.enabled) return null;
+  const { singleGame } = PLAYER_PRICES;
+  const bought = singlesInLast30Days(access, now);
+  if (bought >= 2) {
+    const next = bought + 1;
+    return `${next} games: ${kronor(next * singleGame)}. Pro: ${kronor(PRO_PRICES.monthly)} for every game this month.`;
+  }
+  const crossover = Math.floor(PRO_PRICES.monthly / singleGame) + 1;
+  return `From your ${ordinal(crossover)} game in a month, Pro costs less.`;
+}
+
+function ordinal(n: number): string {
+  const tens = n % 100;
+  if (tens >= 11 && tens <= 13) return `${n}th`;
+  return `${n}${({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[n % 10] ?? "th"}`;
 }
 
 /** One line for the space switcher and profile meters. */

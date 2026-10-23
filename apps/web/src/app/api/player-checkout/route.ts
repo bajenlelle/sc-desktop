@@ -72,6 +72,8 @@ export async function POST(request: NextRequest) {
   const team = access.team;
   const seasonId = access.seasonOnSale;
   if (kind === "season_pass") {
+    // The pass is dormant (app_config.season_pass_enabled, off since 2026-10-23).
+    if (!access.passEnabled) return json(409, { error: "pass_not_offered" });
     if (!team) return json(400, { error: "no_team" });
     if (!seasonId || !team.inSeasonOnSale) return json(400, { error: "team_not_in_season" });
     if (activePass(access)?.teamId === team.id) return json(400, { error: "already_have_pass" });

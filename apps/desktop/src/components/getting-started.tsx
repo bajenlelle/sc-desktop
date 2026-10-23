@@ -194,8 +194,8 @@ export function GettingStarted({
           hint: exportOpen
             ? undefined
             : playerMode
-              ? "Opens when you buy a game or the season pass"
-              : "Available on Rookie and Pro",
+              ? "Opens when you buy a game or go Pro"
+              : "Available on Pro",
         }
       : {
           key: "share",

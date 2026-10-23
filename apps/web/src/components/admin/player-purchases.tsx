@@ -38,17 +38,20 @@ const ERRORS: Record<string, string> = {
   team_not_in_season: "That team has no games in the season on sale",
   already_have_pass: "This user already has a pass for that team",
   invalid_quantity: "Quantity must be 1 to 50",
+  pass_not_offered: "The season pass is switched off (app_config.season_pass_enabled)",
 };
 
 /**
  * Player purchases: every single game and season pass, bought in Stripe or
- * given here (comps, support fixes, a second team for a dual licence, App
- * Store review accounts). Stripe purchases are refunded in the Stripe
- * Dashboard; the webhook takes them back.
+ * given here (comps, support fixes, App Store review accounts). Stripe
+ * purchases are refunded in the Stripe Dashboard; the webhook takes them
+ * back. A pass can be given only while app_config.season_pass_enabled is on
+ * (off since 2026-10-23); the list still shows the passes that exist.
  */
 export function PlayerPurchases() {
   const [rows, setRows] = useState<PurchaseRow[]>([]);
   const [season, setSeason] = useState<string | null>(null);
+  const [passOn, setPassOn] = useState(false);
   const [teams, setTeams] = useState<TeamOption[]>([]);
   const [kind, setKind] = useState<"single_game" | "season_pass">("single_game");
   const [email, setEmail] = useState("");
@@ -66,10 +69,16 @@ export function PlayerPurchases() {
     void loadRows();
     const supabase = createClient();
     void (async () => {
-      const { data: cfg } = await supabase.from("app_config").select("value").eq("key", "season_pass_season").maybeSingle();
-      const s = (cfg?.value as string | undefined) ?? null;
+      const { data: cfg } = await supabase
+        .from("app_config")
+        .select("key, value")
+        .in("key", ["season_pass_season", "season_pass_enabled"]);
+      const value = (key: string) => ((cfg ?? []) as { key: string; value: string }[]).find((r) => r.key === key)?.value ?? null;
+      const s = value("season_pass_season");
       setSeason(s);
-      if (!s) return;
+      const on = value("season_pass_enabled") === "true";
+      setPassOn(on);
+      if (!s || !on) return;
       const { data } = await supabase
         .from("league_team_sources")
         .select("league_team_id, league_id, name_seen")
@@ -121,7 +130,7 @@ export function PlayerPurchases() {
   return (
     <div className="space-y-7">
       <section>
-        <GroupHeader title="Give games or a season pass" />
+        <GroupHeader title={passOn ? "Give games or a season pass" : "Give games"} />
         <GroupedList>
           <FormRow label="What">
             <PopUpButton
@@ -131,7 +140,9 @@ export function PlayerPurchases() {
               onValueChange={setKind}
               options={[
                 { value: "single_game", label: "Single games" },
-                { value: "season_pass", label: season ? `Season pass ${seasonLabel(season)}` : "Season pass" },
+                ...(passOn
+                  ? [{ value: "season_pass" as const, label: season ? `Season pass ${seasonLabel(season)}` : "Season pass" }]
+                  : []),
               ]}
             />
           </FormRow>

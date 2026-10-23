@@ -259,7 +259,7 @@ export default function ProfilePage() {
   // spaces have no limit and don't show the count.
   // Player passes (sales on): a Free personal space shows its games below
   // instead of the import meter, and only Pro is offered as an upgrade here
-  // (single games and the season pass are bought in the desktop app).
+  // (single games are bought in the desktop app; an existing season pass still shows).
   const playerMode = !!playerAccess?.enabled && activeOrgIsPersonal && activeOrgPlan === "free";
   const pass = playerAccess ? activePass(playerAccess) : null;
   const showUsage = activeOrgIsPersonal && importQuota !== null && !playerMode;
@@ -376,7 +376,7 @@ export default function ProfilePage() {
             )}
             {activeOrgIsPersonal && isFreeOrRookie && (
               <GroupRow
-                label={activeOrgPlan === "free" && !playerMode ? "Upgrade to Rookie or Pro" : "Upgrade to Pro"}
+                label="Upgrade to Pro"
                 description={playerMode ? "Unlimited games of any team" : "More imports and clean exports"}
                 trailing={
                   <Button size="sm" onClick={handleUpgrade} disabled={loadingPortal}>
@@ -432,7 +432,7 @@ export default function ProfilePage() {
               ))}
             </GroupedList>
             <GroupFooter>
-              Buy a single game or the season pass in the Scoutable desktop app, when you import or export.
+              Buy a single game in the Scoutable desktop app when you import or export, or go Pro for every game.
               Re-importing a game is always free.
             </GroupFooter>
           </section>

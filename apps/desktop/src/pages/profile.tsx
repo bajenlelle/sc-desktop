@@ -346,7 +346,7 @@ export function ProfilePage() {
               )}
               {activeOrgIsPersonal && isFreeOrRookie && (
                 <GroupRow
-                  label={activeOrgPlan === 'free' && !playerMode ? "Upgrade to Rookie or Pro" : "Upgrade to Pro"}
+                  label="Upgrade to Pro"
                   description={playerMode ? "Unlimited games of any team" : "More imports and clean exports"}
                   trailing={
                     <Button size="sm" onClick={handleUpgrade} disabled={loadingPortal}>

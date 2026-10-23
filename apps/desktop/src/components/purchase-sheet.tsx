@@ -22,7 +22,7 @@ import { trackEvent } from "@/lib/analytics";
 import { fadeVariants } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import {
-  passNotOfferedReason,
+  proNudge,
   purchaseArrived,
   sheetOffers,
   type GameAccess,
@@ -48,8 +48,6 @@ interface PurchaseSheetProps {
   analyticsFeature: string;
   /** A purchase arrived while the sheet waited, e.g. to resume an import. */
   onPurchased?: (kind: PurchaseKind) => void;
-  /** Opens "Your team" when the pass can't be offered without one. */
-  onSetTeam?: () => void;
 }
 
 const POLL_MS = 3_000;
@@ -65,8 +63,8 @@ function defaultDescription(surface: PurchaseSurface, access: PlayerAccess | nul
       ? `You've used your ${access.trialGames} free games. Choose how to import this one.`
       : "Choose how to import this game.";
   }
-  if (surface === "profile") return "Buy a game or the season pass. Export opens with any purchase.";
-  return "Export opens for all your games when you buy a game or the season pass.";
+  if (surface === "profile") return "Buy a game, or go Pro for every game. Export opens with any purchase.";
+  return "Export opens for all your games when you buy a game or go Pro.";
 }
 
 export function PurchaseSheet({
@@ -79,7 +77,6 @@ export function PurchaseSheet({
   gameKey,
   analyticsFeature,
   onPurchased,
-  onSetTeam,
 }: PurchaseSheetProps) {
   const { user, profile, expectPlanChange } = useAuth();
   const { access, reload } = usePlayerAccess();
@@ -196,8 +193,7 @@ export function PurchaseSheet({
   }
 
   const offers = access ? sheetOffers(game, access, role === "coach" || role === "player" ? role : null) : [];
-  const missingPass = access && game ? passNotOfferedReason(game, access) : null;
-  const needsTeam = !!access && !access.team && !!onSetTeam;
+  const nudge = access && offers.length > 0 ? proNudge(access) : null;
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
@@ -227,7 +223,7 @@ export function PurchaseSheet({
                       onClick={() => void choose(o)}
                       className={cn(
                         "flex w-full items-start gap-3 bg-card px-4 py-3 text-left transition-colors hover:bg-primary/10 focus-visible:bg-primary/10 focus-visible:outline-none disabled:opacity-60",
-                        o.kind === "season_pass" && "bg-primary/5",
+                        o.kind === "pro" && "bg-primary/5",
                       )}
                     >
                       <span className="min-w-0 flex-1">
@@ -241,19 +237,7 @@ export function PurchaseSheet({
                     </button>
                   ))}
                 </div>
-                {missingPass && (
-                  <Callout
-                    action={
-                      needsTeam ? (
-                        <Button size="xs" variant="outline" onClick={onSetTeam}>
-                          Set your team
-                        </Button>
-                      ) : undefined
-                    }
-                  >
-                    {missingPass}
-                  </Callout>
-                )}
+                {nudge && <p className="px-1 text-callout text-muted-foreground">{nudge}</p>}
                 {error && <Callout tone="destructive">{error}</Callout>}
               </motion.div>
             ) : (

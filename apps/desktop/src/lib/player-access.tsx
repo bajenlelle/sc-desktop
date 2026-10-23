@@ -10,8 +10,9 @@ import { parsePlayerAccess, type PlayerAccess } from "@scoutable/shared/lib/play
  * regains focus, since a purchase finishes in the browser.
  *
  * `playerMode` is true while sales are on and the active space is a Free
- * personal space: that is where single games and the season pass replace
- * the Rookie/Pro upgrade path. Everywhere else the old UI stays.
+ * personal space: that is where single games sit next to Pro (the season
+ * pass is no longer sold; an existing one still shows). Everywhere else the
+ * old UI stays.
  */
 interface PlayerAccessValue {
   access: PlayerAccess | null;

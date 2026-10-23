@@ -805,7 +805,7 @@ export function UploadZone({
       featureName={activeOrgPlan === "rookie" ? "Monthly import limit reached" : "Free import limit reached"}
       description={activeOrgPlan === "rookie"
         ? `You've used all ${importLimitInfo?.limit ?? 6} Rookie imports for this month — they reset on the 1st. Upgrade to Pro and never count imports again.`
-        : `That was the last of your ${importLimitInfo?.limit ?? 3} free games. Keep importing with Rookie — 6 games every month plus MP4 export. Cancel anytime.`}
+        : `That was the last of your ${importLimitInfo?.limit ?? 3} free games. Keep importing with Pro: every game of any team, plus MP4 export. Cancel anytime.`}
     />
     <PurchaseSheet
       open={purchaseSheetOpen}
@@ -816,10 +816,6 @@ export function UploadZone({
       gameKey={selectedGame?.uuid ?? null}
       analyticsFeature="import_limit"
       onPurchased={() => void submitRef.current()}
-      onSetTeam={() => {
-        setPurchaseSheetOpen(false);
-        setTeamPromptOpen(true);
-      }}
     />
     <div className="mx-auto max-w-2xl space-y-8 pt-2">
       {/* Step 1 — Pick a game */}
