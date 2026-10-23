@@ -19,8 +19,10 @@ inline) that staff and players open from a link, and that "Save as PDF" prints.
 - **Whose card**: anyone in the games the playlist's clips come from, not only
   players with clips (`playerRoster`, `lib/player-roster.ts`): the clipped
   players first, most clips first, then the rest of those games' players (both
-  teams) from the stored plays and the box scores the desktop reads in the
-  background (which also list players who played without a recorded action).
+  teams) from the stored plays, plus the box scores a card has already read
+  (they also list players who played without a recorded action). Nothing is
+  fetched to fill the roster or when a playlist or a card opens: stats are read
+  only when a card is added, its player is changed, or a season is picked.
   "Add player" (`pickPlayerCardSpot`) never refuses for the position: from a
   clip's row menu it is that clip's player; else a free player in the clips next
   to the insertion; else the free player with the most clips, above their first
@@ -30,6 +32,11 @@ inline) that staff and players open from a link, and that "Save as PDF" prints.
 - **A new card's numbers** are read while its row is written (the spinner shows
   from the start) and applied once the row exists; saves wait for the row too
   (`playerRowsRef`), otherwise an edit made during a slow insert matches no row.
+  The season line is read from the game's league (`leagueSeasonsOf`), not from
+  its box score, and a card with no numbers says which season has none and
+  offers the league's other seasons (a clip from last season, a player still
+  playing this one). A game imported before leagues existed has no league, so it
+  has no season to read: "No official stats for this game".
 - **Sections**: a player card opens a section; the clips below it, up to the
   next player card, are that player's. Clips and cards before the first player
   card are the "Team" section. A text card is a paragraph where it sits, a

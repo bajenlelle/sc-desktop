@@ -28,7 +28,10 @@ export function PlayerCardInspector({
   clipCount,
   elsewhere,
   statsLoading,
+  statsFailed,
   canReadStats,
+  seasons,
+  gameSeasonId,
   autoFocusNote,
   onChange,
   onPlayerChange,
@@ -46,16 +49,25 @@ export function PlayerCardInspector({
   /** The same player's clips elsewhere in the playlist that the helper can bring here. */
   elsewhere: number;
   statsLoading: boolean;
+  /** The last read failed (the network), as opposed to the league having no numbers for the player. */
+  statsFailed: boolean;
   /** One of the player's games has official stats, so a failed read is worth retrying. */
   canReadStats: boolean;
+  /** The seasons of the league the player's game is in, newest first; empty when the game isn't linked to one. */
+  seasons: { competitionId: number; label: string }[];
+  /** The game's own season: what is read unless another is picked. */
+  gameSeasonId: number | null;
   /** The card was just added: the note takes focus. */
   autoFocusNote?: boolean;
   onChange: (spec: PlayerCardSpec) => void;
   onPlayerChange: (playerId: string) => void;
-  onRetryStats: () => void;
+  /** Read the numbers again, for the picked season when there is one (else the game's). */
+  onRetryStats: (competitionId?: number) => void;
   onMoveClips: () => void;
 }) {
   const [note, setNote] = useState(spec.note);
+  // The season picked while the card has no numbers; the game's own until then.
+  const [seasonPick, setSeasonPick] = useState<number | null>(null);
   const ref = useRef<HTMLTextAreaElement | null>(null);
   const noteDirty = useRef(false);
 
@@ -70,6 +82,8 @@ export function PlayerCardInspector({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardId]);
 
+  useEffect(() => setSeasonPick(null), [cardId, spec.player.id]);
+
   // The textarea grows with its lines, up to eight.
   useEffect(() => {
     const el = ref.current;
@@ -80,6 +94,8 @@ export function PlayerCardInspector({
 
   const { player } = spec;
   const left = PLAYER_NOTE_LIMIT - note.length;
+  const shownSeasonId = seasonPick ?? gameSeasonId;
+  const shownSeason = seasons.find((s) => s.competitionId === shownSeasonId) ?? null;
   const options = players.some((p) => p.playerId === player.id)
     ? players
     : [{ playerId: player.id, name: player.name, number: player.number, teamName: player.teamName, clips: 0, matchId: "", taken: false }, ...players];
@@ -116,16 +132,38 @@ export function PlayerCardInspector({
           onChange={(stats: StatsCardSpec) => onChange({ ...spec, stats })}
         />
       ) : (
-        <p className="flex flex-wrap items-center gap-x-2 text-callout text-muted-foreground">
-          {statsLoading
-            ? "Reading the official stats…"
-            : "No official stats for this league. The report shows the note and clips."}
-          {!statsLoading && canReadStats && (
-            <Button variant="ghost" size="xs" onClick={onRetryStats}>
-              Try again
-            </Button>
+        <div className="flex flex-col gap-2">
+          {seasons.length > 1 && (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+              <span className="text-callout text-muted-foreground">Season</span>
+              <PopUpButton
+                size="sm"
+                aria-label="Season"
+                value={String(shownSeasonId)}
+                onValueChange={(v) => {
+                  setSeasonPick(Number(v));
+                  onRetryStats(Number(v));
+                }}
+                disabled={statsLoading}
+                options={seasons.map((s) => ({ value: String(s.competitionId), label: s.label }))}
+              />
+            </div>
           )}
-        </p>
+          <p className="flex flex-wrap items-center gap-x-2 text-callout text-muted-foreground">
+            {statsLoading
+              ? "Reading the official stats…"
+              : statsFailed
+                ? "Couldn't read the official stats. Check the connection and try again."
+              : shownSeason
+                ? `No official stats for ${firstName(player.name)} in ${shownSeason.label}. The report shows the note and clips.`
+                : "No official stats for this game. The report shows the note and clips."}
+            {!statsLoading && canReadStats && (
+              <Button variant="ghost" size="xs" onClick={() => onRetryStats(seasonPick ?? undefined)}>
+                Try again
+              </Button>
+            )}
+          </p>
+        </div>
       )}
 
       <div className="flex flex-col gap-1">
