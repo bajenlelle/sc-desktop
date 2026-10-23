@@ -4405,34 +4405,51 @@ export function PlaylistsPage() {
     return out;
   }, [clipAssignments, labels]);
 
-  /** The report as the playlist builds it now: the share sheet's preview, and what its "up to date" compares. */
-  const reportPreview = useMemo(
-    () =>
-      selected
-        ? buildScoutingReport({
-            playlist: selected,
-            eventByKey,
-            matchLabel: (id) => matchLookup.get(id)?.title ?? "",
-            title: selected.name,
-            opponent: defaultOpponent(selected.items),
-            labelsByKey: labelNamesByClip,
-          })
-        : null,
-    [selected, eventByKey, matchLookup, labelNamesByClip],
-  );
+  /**
+   * The report as the playlist builds it now: the share sheet's preview, and
+   * what its "up to date" compares. Built (and hashed) only while the sheet is
+   * open: it was rebuilt on every edit, note saves and trims included. The
+   * last one stays for the sheet's closing animation.
+   */
+  const lastReportRef = useRef<{ preview: ReturnType<typeof buildScoutingReport>; outline: ReturnType<typeof reportOutline> } | null>(null);
+  const reportBuilt = useMemo(() => {
+    if (!reportOpen || !selected) return null;
+    return {
+      preview: buildScoutingReport({
+        playlist: selected,
+        eventByKey,
+        matchLabel: (id) => matchLookup.get(id)?.title ?? "",
+        title: selected.name,
+        opponent: defaultOpponent(selected.items),
+        labelsByKey: labelNamesByClip,
+      }),
+      outline: reportOutline(selected.items, eventByKey),
+    };
+  }, [reportOpen, selected, eventByKey, matchLookup, labelNamesByClip]);
+  if (reportBuilt) lastReportRef.current = reportBuilt;
+  const reportShown = reportBuilt ?? lastReportRef.current;
+  const reportPreview = reportShown?.preview ?? null;
+  const reportOutlineRows = reportShown?.outline ?? [];
 
-  const reportOutlineRows = useMemo(() => (selected ? reportOutline(selected.items, eventByKey) : []), [selected, eventByKey]);
-
-  const refreshMyReport = useCallback(() => {
+  /** Each playlist's report as last read this session: going back to a playlist doesn't read it again (opening the dialog and its changes still do). */
+  const reportByPlaylistRef = useRef(new Map<string, MyScoutingReport | null>());
+  const refreshMyReport = useCallback((opts?: { cached?: boolean }) => {
     const id = selected?.id;
     if (!id) {
       setMyReport(null);
       return;
     }
-    void getMyScoutingReport(id).then((r) => setMyReport((cur) => (selectedRef.current?.id === id ? r : cur)));
+    if (opts?.cached && reportByPlaylistRef.current.has(id)) {
+      setMyReport(reportByPlaylistRef.current.get(id) ?? null);
+      return;
+    }
+    void getMyScoutingReport(id).then((r) => {
+      reportByPlaylistRef.current.set(id, r);
+      setMyReport((cur) => (selectedRef.current?.id === id ? r : cur));
+    });
   }, [selected?.id]);
   useEffect(() => {
-    refreshMyReport();
+    refreshMyReport({ cached: true });
   }, [refreshMyReport]);
   const liveReport = myReport && new Date(myReport.expiresAt).getTime() > Date.now() ? myReport : null;
 
@@ -5614,7 +5631,7 @@ export function PlaylistsPage() {
               outline={reportOutlineRows}
               contentKey={reportPreview.contentKey}
               existing={myReport}
-              onExistingChange={refreshMyReport}
+              onExistingChange={() => refreshMyReport()}
               initialTitle={selected.name}
               initialOpponent={defaultOpponent(selected.items)}
               blockedByPlan={activeOrgPlan === 'free'}
