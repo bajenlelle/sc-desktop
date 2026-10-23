@@ -10,7 +10,8 @@ playlists, and share them with teams; players watch on web/mobile.
   Native side in `src-tauri` (video streaming protocol, ffmpeg export
   sidecar, updater). Released via git tags (see Releases below).
 - `apps/web` — Next.js 16 App Router at app.scoutable.se, auto-deployed from
-  `main` by Vercel. Player-facing playlist viewing + org/billing/admin.
+  `main` by Vercel. Player-facing playlist viewing + org/billing/admin;
+  `/r/[token]` is a scouting report (public, unlisted).
   API routes use Stripe + the Supabase service role.
 - `apps/mobile` — Expo SDK 57, expo-router (`src/app`), NativeWind v4,
   expo-video. Built with EAS; OTA fixes via `npm run ota` (EAS Update,
@@ -54,6 +55,21 @@ playlists, and share them with teams; players watch on web/mobile.
   single source of truth (free = 3 lifetime, rookie = 6/month, paid =
   unlimited). `packages/shared/lib/plan-tier.ts` mirrors it for display only
   — change both together.
+- **Playlist cards**: a text item (`playlist_clips.item_type 'text'`) may
+  carry a stats card spec in `playlist_clips.card`
+  (`packages/shared/lib/stats-card.ts`); `text_content` keeps a readable
+  fallback line for builds and apps that don't draw specs. The numbers come
+  from Genius's public hosted statistics pages (`lib/hosted-stats.ts`, parsed
+  by header label; a layout change throws `hosted_layout_changed`, reported
+  to Sentry) through one loader, `lib/stats-card-data.ts`, which the desktop
+  hands its plugin-http fetcher.
+  A **player card** (`item_type 'player'`, `lib/player-card.ts`) is the scouting
+  report's entry (`docs/scouting-reports.md`): never drawn, played, exported or
+  shown to a recipient, so the painter rule below doesn't cover it.
+  Two painters draw the same pixels over `lib/card-layout.ts` with the same
+  Roboto files: the desktop's (`apps/desktop/src/lib/card-painter.ts`, its
+  stage and its export) and the web's (`apps/web/src/lib/card-painter.ts`,
+  the players' watch view). Change both together.
 - **Errors**: Sentry on all three apps (org `scoutable`, EU). DSNs are
   hardcoded (public); desktop/mobile dev builds are offline unless the DSN
   env var is set. Don't add error tracking dependencies to `packages/shared`.
@@ -92,6 +108,18 @@ playlists, and share them with teams; players watch on web/mobile.
   `ffmpeg-binaries` release (evermeet.cx's download API is gone); the update
   steps are in the comment above it in release.yml.
 - Web ships on merge to `main`. Mobile JS fixes ship with `npm run ota`.
+
+## Docs
+
+- `docs/scouting-reports.md`: player cards and the public scouting report page.
+- `docs/maintenance.md`: the bug pipeline, and every secret: where it lives
+  and what reads it.
+- `docs/desktop-design-audit.md`, `docs/web-design-audit.md`: the redesign
+  of each app against Apple's interface principles.
+- `docs/stripe-b2c-tier-integration.md`: the B2C tiers in Stripe.
+- `docs/invite-flow.md`: the invite and role design.
+- `docs/leagues.md`, `docs/play-by-play-data-inventory.md`: superseded by the
+  Genius API import; kept for history.
 
 ## Maintenance pipeline
 

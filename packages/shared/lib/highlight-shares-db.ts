@@ -49,7 +49,7 @@ export type HighlightContentSegment =
   | { kind: "text"; text: string; durationSeconds: number; card?: StatsCardSpec };
 
 /** cyrb53 — small, fast, deterministic 53-bit string hash (public domain). */
-function cyrb53(str: string, seed = 0): string {
+export function cyrb53(str: string, seed = 0): string {
   let h1 = 0xdeadbeef ^ seed;
   let h2 = 0x41c6ce57 ^ seed;
   for (let i = 0; i < str.length; i++) {

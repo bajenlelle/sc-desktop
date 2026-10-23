@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Checks for moving content from a personal space into a club
-# (20261028100000_move_to_club.sql).
+# (20261028100000_move_to_club.sql; player cards: 20261029110000).
 #
 # Only a coach or admin of an unlocked club can move, only their own content
 # from their personal space, and demo games never move. A moved playlist takes
@@ -257,6 +257,7 @@ run "a clip file link stays as it was"                                        "A
 run "a playlist with the play from both copies keeps one"                     "ALLOWED rows=1"  "$(mv "" "$L1" ""); RESET ROLE; SELECT count(*) AS n FROM playlist_clips WHERE playlist_id = $(d $L1) AND event_id = 101" "$DUP INSERT INTO playlist_clips (playlist_id, match_id, event_id, position) VALUES ($(d $L1), $(d $CA), 101, 2);"
 run "watch history survives, without duplicates"                              "ALLOWED rows=1"  "$(mv "" "$L1" ""); RESET ROLE; SELECT count(*) AS n FROM clip_views WHERE playlist_id = $(d $L3) AND event_id = 101" "$DUP INSERT INTO clip_views (user_id, playlist_id, match_id, event_id) VALUES ($(d $W), $(d $L3), $(d $GA), 101), ($(d $W), $(d $L3), $(d $CA), 101);"
 run "a stats card names the club copy"                                        "ALLOWED rows=1"  "$(mv "" "$L1" ""); RESET ROLE; SELECT count(*) AS n FROM playlist_clips WHERE playlist_id = $(d $L3) AND card #>> '{game,matchId}' = $(d $CA)" "$DUP INSERT INTO playlist_clips (playlist_id, item_type, text_content, position, card) VALUES ($(d $L3), 'text', $(d 'card'), 5, jsonb_build_object('type', 'stats', 'game', jsonb_build_object('matchId', $(d $GA))));"
+run "a player card's stats name the club copy too"                      "ALLOWED rows=1"  "$(mv "" "$L1" ""); RESET ROLE; SELECT count(*) AS n FROM playlist_clips WHERE playlist_id = $(d $L3) AND card #>> '{stats,game,matchId}' = $(d $CA)" "$DUP INSERT INTO playlist_clips (playlist_id, item_type, item_id, text_content, position, card) VALUES ($(d $L3), 'player', $(d probe-player-card), $(d '#7 Probe'), 6, jsonb_build_object('type', 'player', 'stats', jsonb_build_object('type', 'stats', 'game', jsonb_build_object('matchId', $(d $GA)))));"
 run "a club copy without video takes the personal video and sync"             "ALLOWED rows=1"  "$(mv "" "$L1" ""); RESET ROLE; SELECT count(*) AS n FROM matches WHERE id = $(d $CA) AND video_url = $(d /v/a.mp4) AND sync_point = $(d '{"t":1}')::jsonb" "$DUP UPDATE matches SET video_url = $(d /v/a.mp4), sync_point = $(d '{"t":1}')::jsonb WHERE id = $(d $GA);"
 run "the same file, unsynced in the club, merges and takes the sync"          "ALLOWED rows=1"  "$(mv "" "$L1" ""); RESET ROLE; SELECT count(*) AS n FROM matches WHERE id = $(d $CA) AND sync_point = $(d '{"t":1}')::jsonb" "$DUP UPDATE matches SET video_url = $(d /v/a.mp4), sync_point = $(d '{"t":1}')::jsonb WHERE id = $(d $GA); UPDATE matches SET video_url = $(d /v/a.mp4) WHERE id = $(d $CA);"
 

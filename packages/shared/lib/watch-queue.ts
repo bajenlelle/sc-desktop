@@ -12,6 +12,7 @@ import { isClipItem } from "../types/match";
 import type { OrgMembership } from "../types/org";
 import { clipViewKey } from "./clip-views-db";
 import { isStaffRole } from "./orgs";
+import { isPlayerCard } from "./player-card";
 import { playableClips } from "./playlist-feed";
 
 /** One item a recipient can watch: a clip's own uploaded file, or a timed text card. */
@@ -32,6 +33,8 @@ export function clipKey(matchId: string, eventId: number): string {
 export function buildWatchItems(playlist: Playlist, eventByKey: Map<string, PlayByPlayEvent>): WatchItem[] {
   const items: WatchItem[] = [];
   for (const item of playlist.items) {
+    // A scouting-report entry, not footage: the owner's own playlist can carry one.
+    if (isPlayerCard(item)) continue;
     if (isClipItem(item)) {
       if (!item.r2Url) continue;
       const key = clipKey(item.matchId, item.eventId);
