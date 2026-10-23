@@ -252,7 +252,7 @@ export function PurchaseSheet({
                       <QRCode value={checkoutUrl} size={168} />
                     </div>
                     <p className="text-center text-callout text-muted-foreground">
-                      Scan the code with your phone to pay with Swish or a card.
+                      Scan the code with your phone to pay there.
                     </p>
                     <Button variant="outline" size="sm" onClick={copyLink}>
                       {copied ? <Check /> : <Copy />}

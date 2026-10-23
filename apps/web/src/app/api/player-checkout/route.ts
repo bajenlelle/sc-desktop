@@ -10,7 +10,7 @@ import { isPlayerKind, priceIdFor, stripe } from "@/lib/player-purchase";
  *
  * Desktop calls it with the user's Bearer token (same dual auth as
  * billing-portal) and opens the returned URL in the browser; the same URL can
- * be paid on a parent's phone (Swish), because the session is tied to the
+ * be paid on a parent's phone (Swish, once Stripe enables it), because the session is tied to the
  * player by client_reference_id. A season pass is for the personal space's
  * "Your team" in the season on sale, read here, never from the client.
  * Fulfilment: /api/stripe/player-webhook and /purchase/complete.
