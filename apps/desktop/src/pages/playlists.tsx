@@ -78,6 +78,9 @@ import {
 } from "@scoutable/shared/lib/playlist-matches";
 import { getOrgContext, getOrgContextForOrg, getOrgMembers, getTeamMemberIds } from "@/lib/profile-db";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
+import { PurchaseSheet } from "@/components/purchase-sheet";
+import { usePlayerAccess } from "@/lib/player-access";
+import { canExport } from "@scoutable/shared/lib/player-access";
 import { SendToPhoneDialog } from "@/components/send-to-phone-dialog";
 import { PlaylistFilterBar, EMPTY_QUEUE_FILTERS, queueFiltersActive, type QueueFilters } from "@/components/playlist-filter-bar";
 import type { OrgTeam, UserProfile } from "@/types/org";
@@ -226,6 +229,10 @@ function writeStatsHintDismissed(ids: ReadonlySet<string>): void {
 
 export function PlaylistsPage() {
   const { user, activeOrgId, activeOrgPlan, activeOrgRole, activeOrgIsPersonal, myOrgs, profileLoading } = useAuth();
+  // Export opens for paid plans, and for a Free space once anything is bought
+  // (a single game; a Pro subscription only while it lasts).
+  const { access: playerAccess, playerMode } = usePlayerAccess();
+  const exportAllowed = canExport(activeOrgPlan, playerAccess);
   const navigate = useNavigate();
   const location = useLocation();
   const canAccess = activeOrgIsPersonal || activeOrgRole === "coach" || activeOrgRole === "admin";
@@ -339,6 +346,19 @@ export function PlaylistsPage() {
   // What the last format pick asked for — shapes the upgrade dialog's copy
   // and its upgrade_gate_hit analytics when the free-plan gate trips.
   const [upsellContext, setUpsellContext] = useState<{ action: ExportAction; format: "16:9" | "9:16" } | null>(null);
+  // A purchase from the export gate carries on with what was asked for, once
+  // the fresh player access has re-rendered the gate open.
+  const [resumeExport, setResumeExport] = useState<{ action: ExportAction; format: "16:9" | "9:16" } | null>(null);
+  useEffect(() => {
+    if (!resumeExport || !exportAllowed) return;
+    const { action, format } = resumeExport;
+    setResumeExport(null);
+    const vertical = format === "9:16";
+    if (action === "save") void handleExport(vertical);
+    else handleSendToPhone(vertical);
+    // handleExport/handleSendToPhone read the current render's state
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumeExport, exportAllowed]);
   // Vertical-crop editor: overlay visible + "export view" dim toggle.
   const [cropMode, setCropMode] = useState(false);
   const [cropDimmed, setCropDimmed] = useState(false);
@@ -2480,7 +2500,7 @@ export function PlaylistsPage() {
   }
 
   function handleSendToPhone(vertical = false) {
-    if (activeOrgPlan === 'free') {
+    if (!exportAllowed) {
       setUpgradeDialogOpen(true);
       return;
     }
@@ -2527,7 +2547,7 @@ export function PlaylistsPage() {
   }, [selectedClipIds, queueItems, selected]);
 
   async function handleExport(vertical = false) {
-    if (activeOrgPlan === 'free') {
+    if (!exportAllowed) {
       setUpgradeDialogOpen(true);
       return;
     }
@@ -4571,7 +4591,7 @@ export function PlaylistsPage() {
   // Free users must stay able to CLICK export — the click is what opens the
   // UpgradeDialog. Mechanical blockers (demo game, missing video/sync) only
   // disable the button for paid users, who could otherwise actually export.
-  const exportLocked = activeOrgPlan === 'free';
+  const exportLocked = !exportAllowed;
 
   const exportDisabledReason = (() => {
     if (!selected || queueItems.length === 0) return filtersActive ? "No clips match the filters" : "Playlist is empty";
@@ -5275,6 +5295,7 @@ export function PlaylistsPage() {
         hasItems={queueItems.length > 0}
         onSelectAll={() => setSelectedClipIds(new Set(queueItems.map(itemKey)))}
         exportLocked={exportLocked}
+        exportLockedTitle={playerMode ? "Export opens when you buy a game or go Pro" : undefined}
         exportDisabledReason={exportDisabledReason}
         isExporting={isExporting}
         onStopExport={stopExport}
@@ -5600,9 +5621,23 @@ export function PlaylistsPage() {
               />
             </SheetContent>
           </Sheet>
-          {/* Upgrade dialog — shown when free user tries a paid feature */}
+          {/* Upgrade dialog — shown when free user tries a paid feature.
+              With player passes on, a Free personal space gets the purchase
+              sheet instead, and a purchase carries on with the export. */}
+          <PurchaseSheet
+            open={upgradeDialogOpen && playerMode && !upsellReport}
+            onClose={() => setUpgradeDialogOpen(false)}
+            title={upsellContext?.action === "send" ? "Send your tape to your phone" : "Save your tape as an MP4"}
+            surface={upsellContext?.action === "send" ? "send_to_phone" : "export_playlist"}
+            game={null}
+            analyticsFeature={
+              (upsellContext?.action === "send" ? "send_to_phone" : "export_playlist") +
+              (upsellContext?.format === "9:16" ? "_vertical" : "")
+            }
+            onPurchased={() => setResumeExport(upsellContext ?? { action: "save", format: "16:9" })}
+          />
           <UpgradeDialog
-            open={upgradeDialogOpen}
+            open={upgradeDialogOpen && (!playerMode || upsellReport)}
             onClose={() => { setUpgradeDialogOpen(false); setUpsellReport(false); }}
             featureName={
               upsellReport

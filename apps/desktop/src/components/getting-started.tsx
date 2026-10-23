@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { Check, ChevronRight, Lock, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
+import { usePlayerAccess } from "@/lib/player-access";
+import { canExport } from "@scoutable/shared/lib/player-access";
 import { dismissOnboardingChecklist, getOrgContextForOrg, listOrgSetupInvites, setDeclaredRole } from "@/lib/profile-db";
 import { hasSharedAnyPlaylist } from "@/lib/playlists-db";
 import { deriveOrgSetupProgress, type OrgSetupProgress } from "@scoutable/shared/lib/org-setup";
@@ -41,6 +43,8 @@ export function GettingStarted({
 }) {
   const navigate = useNavigate();
   const { user, profile, activeOrg, activeOrgId, activeOrgIsPersonal, activeOrgPlan, activeOrgRole, myOrgs, reloadProfile } = useAuth();
+  const { access: playerAccess, playerMode } = usePlayerAccess();
+  const exportOpen = canExport(activeOrgPlan, playerAccess);
   const [hidden, setHidden] = useState(false);
   const [hasSharedOut, setHasSharedOut] = useState(false);
   const [hasExported, setHasExported] = useState(() => getHasExported(user?.id));
@@ -186,8 +190,12 @@ export function GettingStarted({
           done: hasExported,
           to: "/playlists",
           toState: firstPlaylistState && { ...firstPlaylistState, highlight: "export" },
-          locked: activeOrgPlan === "free",
-          hint: activeOrgPlan === "free" ? "Available on Rookie and Pro" : undefined,
+          locked: !exportOpen,
+          hint: exportOpen
+            ? undefined
+            : playerMode
+              ? "Opens when you buy a game or go Pro"
+              : "Available on Pro",
         }
       : {
           key: "share",

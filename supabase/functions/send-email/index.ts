@@ -22,7 +22,8 @@ type TemplateId =
   | "removed_from_org"
   | "promoted_to_admin"
   | "org_invite"
-  | "free_refill";
+  | "free_refill"
+  | "player_purchase";
 
 // Marketing templates (an offer, not a service notice) never go to anyone
 // who unsubscribed (email_preferences, 20261001110000; the SQL caller checks).
@@ -436,11 +437,49 @@ ${ctaButton(inviteUrl, "Accept Invitation")}`,
   }.
 </p>
 <p style="margin:0 0 32px 0;font-size:14px;line-height:1.65;color:#6b7280;">
-  Want to stop counting games? Rookie gives you 6 imports every month plus MP4 export, and Pro has no limit at all.
+  ${
+    d("offer") === "passes"
+      ? "Want more games? In the desktop app you can buy a single game for 129 kr, with MP4 export included, or go Pro for every game from 399 kr a month."
+      : "Want to stop counting games? Pro has no limit at all, from 399 kr a month."
+  }
 </p>
 ${ctaButton(pricingUrl, "See plans")}`,
           "You received this because you have a Scoutable account.",
           d("unsubscribe_url"),
+        ),
+      };
+    }
+
+    case "player_purchase": {
+      // Sent once per purchase by fulfill_player_purchase. It confirms that
+      // access started at once, which ends the right of withdrawal for
+      // digital content (distansavtalslagen 2 kap. 11 §) — the confirmation
+      // has to say so.
+      const isPass = d("kind") === "season_pass";
+      const season = d("season_label");
+      const team = d("team_name");
+      const amount = d("amount");
+      const currency = d("currency", "SEK");
+      const receiptUrl = d("receipt_url");
+      const title = isPass ? `Your season pass${season ? ` ${season}` : ""} is ready` : "Your game is ready";
+      const lead = isPass
+        ? `Every ${team ? esc(team) : "team"} game this season is included, playoffs too. Open the Scoutable desktop app and import your games.`
+        : "Open the Scoutable desktop app and import your game. Export is open for all your games.";
+      return {
+        subject: isPass ? `Your Scoutable season pass${season ? ` ${season}` : ""}` : "Your Scoutable game",
+        html: wrapEmail(
+          title,
+          `<h1 style="margin:0 0 12px 0;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">${esc(title)}</h1>
+<p style="margin:0 0 16px 0;font-size:14px;line-height:1.65;color:#6b7280;">${lead}</p>
+<p style="margin:0 0 16px 0;font-size:14px;line-height:1.65;color:#6b7280;">
+  Paid: <strong>${esc(amount)} ${esc(currency)}</strong>, VAT included.${
+    receiptUrl ? ` <a href="${esc(receiptUrl)}" style="color:#0096b1;">View receipt</a>` : ""
+  }
+</p>
+<p style="margin:0;font-size:12px;line-height:1.6;color:#9ca3af;">
+  You asked for access right away, so your right of withdrawal ended when access started. Questions about your purchase: hello@scoutable.se
+</p>`,
+          "You received this because you bought something from Scoutable.",
         ),
       };
     }

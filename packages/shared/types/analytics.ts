@@ -107,6 +107,15 @@ export type AnalyticsEvent =
   | "plan_upgraded"
   | "subscription_started" // server-side (Stripe webhook)
   | "subscription_canceled" // server-side (Stripe webhook)
+  // Player purchases (single games, one-time; the season pass is dormant since
+  // 2026-10-23). The purchase sheet opening still fires upgrade_gate_hit so
+  // the existing funnel continues.
+  | "player_checkout_started" // props: kind, surface, own_team, trial_left, singles_left, role
+  | "player_parent_link_shown" // "Pay with phone" QR/link opened
+  | "player_purchase_seen" // the app noticed the paid purchase; props: kind
+  | "season_pass_moved" // props: from_team, to_team
+  | "player_purchase_completed" // server-side (apps/web player webhook); props: kind, quantity, amount, currency
+  | "player_purchase_refunded" // server-side (apps/web player webhook)
   | "checkout_started" // landing page
   | "download_clicked" // landing page + web My Highlights — always key it on
                        // `placement`; a second property shape (it was `source`

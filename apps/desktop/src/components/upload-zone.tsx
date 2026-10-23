@@ -18,6 +18,10 @@ import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import type { OrgMembership } from "@/types/org";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
+import { PurchaseSheet } from "@/components/purchase-sheet";
+import { PlayerBadge } from "@/components/import/player-badge";
+import { usePlayerAccess } from "@/lib/player-access";
+import { activePass, importBadge, parseGameAccess, playerMeterLabel, type GameAccess, type GameBadge } from "@scoutable/shared/lib/player-access";
 import { ImportSuccessDialog, type ImportSummary } from "@/components/import-success-dialog";
 import { NT_LEAGUE_IDS } from "@scoutable/shared/lib/plan-tier";
 import { fetchGameData, getLeagueSchedule, NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
@@ -135,12 +139,15 @@ function GameRow({
   selected,
   loading,
   imported = false,
+  badge,
   onClick,
 }: {
   game: ScheduleGame;
   selected: boolean;
   loading: boolean;
   imported?: boolean;
+  /** Player passes: replaces the Imported tag when given. */
+  badge?: GameBadge | null;
   onClick: () => void;
 }) {
   const date = formatDate(game.rawStartDateTime);
@@ -176,7 +183,7 @@ function GameRow({
       <div className="shrink-0 text-xs text-muted-foreground hidden sm:block truncate max-w-[100px]">
         {game.venueInfo?.name}
       </div>
-      {imported && <ImportedTag />}
+      {badge !== undefined ? badge && <PlayerBadge badge={badge} /> : imported && <ImportedTag />}
       {loading && selected ? (
         <Loader2 className="h-4 w-4 animate-spin shrink-0 text-primary" />
       ) : (
@@ -195,6 +202,7 @@ export function UploadZone({
 }) {
   const { activeOrgId, activeOrg, activeOrgPlan, myOrgs, profile } = useAuth();
   const { choices, loaded: teamsLoaded } = useMyTeam();
+  const { access: playerAccess, playerMode } = usePlayerAccess();
 
   const hasNtAccess = ntMemberships.length > 0;
   // Club leagues come from the edge function (see use-leagues); national teams
@@ -306,6 +314,43 @@ export function UploadZone({
     () => new Set((teamSeasonList ?? []).flatMap((s) => [...s.teamIds])),
     [teamSeasonList],
   );
+
+  // Player passes: the live pass team's ids in the pass's season, so each
+  // listed game can say whether the pass covers it (same rule as the import
+  // trigger). The pass team can differ from "Your team" after a move.
+  const livePass = playerMode && playerAccess ? activePass(playerAccess) : null;
+  const [passTeamIds, setPassTeamIds] = useState<{ key: string; ids: Set<string> } | null>(null);
+  const passKey = livePass ? `${livePass.teamId}/${livePass.seasonId}` : null;
+  useEffect(() => {
+    if (!livePass || !passKey) return;
+    let cancelled = false;
+    getTeamSources(createClient(), livePass.teamId)
+      .then((sources) => {
+        if (cancelled) return;
+        const ids = new Set(sources.filter((s) => s.source === "genius" && s.seasonId === livePass.seasonId).map((s) => s.sourceTeamId));
+        setPassTeamIds({ key: passKey, ids });
+      })
+      .catch((err) => console.error("[import] pass team sources", err));
+    return () => {
+      cancelled = true;
+    };
+    // passKey captures the pass's team and season
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [passKey]);
+  const coveredIds = passKey && passTeamIds?.key === passKey ? passTeamIds.ids : null;
+  const badgeFor = (game: ScheduleGame): GameBadge | null =>
+    playerMode && playerAccess
+      ? importBadge(
+          { imported: importedIds.has(game.uuid), covered: !!coveredIds && fromTeamSide(game, coveredIds) !== null },
+          playerAccess,
+        )
+      : null;
+
+  // Purchase sheet (player passes): opened by the precheck or the server's
+  // import_limit_reached; a purchase that arrives resumes the import.
+  const [purchaseSheetOpen, setPurchaseSheetOpen] = useState(false);
+  const [sheetGame, setSheetGame] = useState<GameAccess | null>(null);
+  const submitRef = useRef<() => Promise<void>>(async () => {});
 
   // How the picked game was found, for game_synced.
   const pickedFromRef = useRef<PickedFrom | "all_list">("all_list");
@@ -580,7 +625,23 @@ export function UploadZone({
     // UX precheck only — the real gate is the import trigger's
     // import_limit_reached, handled in the saveMatch catch below. Updates of
     // an existing game never touch the quota (upsert, not insert).
-    if (!isNtLeague && activeOrgId && !existingMatch) {
+    if (playerMode && activeOrgId && !existingMatch && selectedGame) {
+      // Player passes: ask about this game (season pass, free game, bought
+      // game); a failed check falls through to the server's gate.
+      const { data, error } = await createClient().rpc("check_game_access", {
+        p_org_id: activeOrgId,
+        p_game_key: selectedGame.uuid,
+        p_league_id: selectedLeague.id,
+      });
+      if (!error && data) {
+        const ga = parseGameAccess(data);
+        if (!ga.allowed) {
+          setSheetGame(ga);
+          setPurchaseSheetOpen(true);
+          return;
+        }
+      }
+    } else if (!isNtLeague && activeOrgId && !existingMatch) {
       const { data } = await createClient().rpc("get_import_quota", { p_org_id: activeOrgId });
       const quota = data as { limit: number | null; used: number; remaining: number | null } | null;
       if (quota?.limit != null && (quota.remaining ?? 0) <= 0) {
@@ -661,9 +722,19 @@ export function UploadZone({
       setSavePhase(null);
       // Server-side quota gate (the precheck can race a concurrent import).
       if (err instanceof Error && err.message.includes("import_limit_reached")) {
+        setSubmitError(null);
+        if (playerMode && activeOrgId && selectedGame) {
+          const { data } = await createClient().rpc("check_game_access", {
+            p_org_id: activeOrgId,
+            p_game_key: selectedGame.uuid,
+            p_league_id: selectedLeague.id,
+          });
+          setSheetGame(data ? parseGameAccess(data) : null);
+          setPurchaseSheetOpen(true);
+          return;
+        }
         setImportLimitInfo(null);
         setImportLimitDialogOpen(true);
-        setSubmitError(null);
         return;
       }
       trackEvent("game_sync_failed", { error: String(err).slice(0, 200) });
@@ -695,6 +766,8 @@ export function UploadZone({
       }, Math.max(0, 600 - shown)),
     );
   }
+
+  submitRef.current = handleSubmit;
 
   const tipoffLocalHint = tipoffRealWorldTime
     ? (() => {
@@ -732,7 +805,17 @@ export function UploadZone({
       featureName={activeOrgPlan === "rookie" ? "Monthly import limit reached" : "Free import limit reached"}
       description={activeOrgPlan === "rookie"
         ? `You've used all ${importLimitInfo?.limit ?? 6} Rookie imports for this month — they reset on the 1st. Upgrade to Pro and never count imports again.`
-        : `That was the last of your ${importLimitInfo?.limit ?? 3} free games. Keep importing with Rookie — 6 games every month plus MP4 export. Cancel anytime.`}
+        : `That was the last of your ${importLimitInfo?.limit ?? 3} free games. Keep importing with Pro: every game of any team, plus MP4 export. Cancel anytime.`}
+    />
+    <PurchaseSheet
+      open={purchaseSheetOpen}
+      onClose={() => setPurchaseSheetOpen(false)}
+      title="Import this game"
+      surface="import"
+      game={sheetGame}
+      gameKey={selectedGame?.uuid ?? null}
+      analyticsFeature="import_limit"
+      onPurchased={() => void submitRef.current()}
     />
     <div className="mx-auto max-w-2xl space-y-8 pt-2">
       {/* Step 1 — Pick a game */}
@@ -741,6 +824,10 @@ export function UploadZone({
         <Card className="py-4">
           <CardContent className="px-4">
           <AutoHeight innerClassName="space-y-3">
+            {/* What's left in total (free and bought); each game's badge says what importing it uses. */}
+            {!selectedGame && playerMode && playerAccess && (
+              <p className="text-xs text-muted-foreground nums">{playerMeterLabel(playerAccess)}</p>
+            )}
             {!selectedGame && team && (
               <ImportViewToggle team={team} view={view} onChange={changeView} />
             )}
@@ -768,6 +855,7 @@ export function UploadZone({
                 importedIds={importedIds}
                 onPick={handlePickTeamGame}
                 onShowAll={() => changeView("all")}
+                badgeFor={playerMode ? badgeFor : undefined}
               />
             ) : (
             <>
@@ -897,6 +985,7 @@ export function UploadZone({
                           selected={false}
                           loading={false}
                           imported={importedIds.has(game.uuid)}
+                          badge={playerMode ? badgeFor(game) : undefined}
                           onClick={() => handleSelectGame(game)}
                         />
                       ))

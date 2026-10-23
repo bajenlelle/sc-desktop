@@ -6,7 +6,11 @@ import { getSubscriptionStatus } from "@/lib/profile-db";
 import { trackEvent } from "@/lib/analytics";
 
 const PRICING_URL = "https://scoutable.se/pricing";
-const BILLING_PORTAL_URL = "https://app.scoutable.se/api/billing-portal";
+// The web app behind billing and player checkout. Staging points it at a
+// local apps/web (http://localhost:3000, allowed in capabilities/default.json),
+// because a staging token means nothing to production.
+const WEB_APP_URL = (import.meta.env.VITE_WEB_APP_URL ?? "https://app.scoutable.se").replace(/\/$/, "");
+const BILLING_PORTAL_URL = `${WEB_APP_URL}/api/billing-portal`;
 
 /**
  * Opens the Stripe billing portal for the signed-in user.
@@ -85,4 +89,50 @@ export async function openUpgradeFlow(email?: string | null): Promise<string | n
   }
   await openPricingPage(email);
   return null;
+}
+
+const PLAYER_CHECKOUT_URL = `${WEB_APP_URL}/api/player-checkout`;
+
+export type PlayerCheckoutKind = "single_game" | "season_pass";
+
+// The checkout route's error tokens, in words.
+const CHECKOUT_ERRORS: Record<string, string> = {
+  sales_closed: "Buying games isn't open yet.",
+  no_team: "Set your team before buying the season pass.",
+  team_not_in_season: "Your team has no games this season, so there's no season pass for it.",
+  already_have_pass: "You already have the season pass for this team.",
+  price_not_configured: "Buying games is unavailable right now. Try again later.",
+  checkout_failed: "The payment page didn't open. Try again.",
+  unauthorized: "Sign in again to buy.",
+};
+
+/**
+ * Creates a one-time Checkout for a single game or the season pass and
+ * returns its URL (valid 24 hours, payable on any device, so a parent can
+ * pay it on their phone). The caller opens it and waits for the purchase.
+ */
+export async function startPlayerCheckout(opts: {
+  kind: PlayerCheckoutKind;
+  gameKey?: string | null;
+  surface: string;
+}): Promise<{ url: string } | { error: string }> {
+  try {
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return { error: CHECKOUT_ERRORS.unauthorized };
+    const lang = navigator.language?.toLowerCase().startsWith("sv") ? "sv" : "en";
+    const res = await tauriFetch(PLAYER_CHECKOUT_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: opts.kind, game_key: opts.gameKey ?? undefined, surface: opts.surface, lang }),
+    });
+    const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+    if (!res.ok || !body.url) {
+      return { error: (body.error && CHECKOUT_ERRORS[body.error]) || CHECKOUT_ERRORS.checkout_failed };
+    }
+    await openUrl(body.url);
+    return { url: body.url };
+  } catch {
+    return { error: CHECKOUT_ERRORS.checkout_failed };
+  }
 }

@@ -3,10 +3,10 @@
 /**
  * My Highlights — the player's own space as a first-class destination.
  *
- * Personal orgs exist so players acquired through club orgs can upgrade to
- * Rookie/Pro and cut their own tapes. Free tier sees a value-first pitch
+ * Personal orgs exist so players acquired through club orgs can buy a game
+ * or go Pro and cut their own tapes. Free tier sees a value-first pitch
  * whose only ask is the FREE desktop download — activation before
- * monetization: the free tier (3 imports) is the trial, and the upsell
+ * monetization: the free tier (2 imports) is the trial, and the upsell
  * happens inside the desktop app at the quota/watermark gates, where intent
  * is highest. Upgraded players see their own playlists (built in the
  * desktop app, listed here for reference — watching stays on their phone
@@ -22,6 +22,7 @@ import { createClient } from "@/lib/supabase/client";
 import { trackEvent } from "@/lib/analytics";
 import { listPlaylists } from "@scoutable/shared/lib/playlists-db";
 import { isClipItem, type Playlist } from "@scoutable/shared/types/match";
+import { usePlayerAccess } from "@/lib/use-player-access";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
 
@@ -193,8 +194,11 @@ function OwnPlaylists() {
 export default function MyHighlightsPage() {
   const { myOrgs, profileLoading } = useAuth();
 
+  const { access } = usePlayerAccess();
+
   const personalOrg = myOrgs.find((o) => o.isPersonal) ?? null;
-  const upgraded = personalOrg != null && personalOrg.planTier !== "free";
+  // A paid plan or a bought game counts: any purchase opens the player's own space.
+  const upgraded = personalOrg != null && (personalOrg.planTier !== "free" || !!access?.hasPaid);
 
   return (
     <Page width="medium">

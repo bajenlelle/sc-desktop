@@ -11,8 +11,8 @@ import {
 // Display fallbacks for the `_import_allowance` SQL function — if these
 // change, the migration must change with them (see plan-tier.ts docs).
 describe("getOrgImportLimit", () => {
-  it("caps free at 3 and rookie at 6", () => {
-    expect(getOrgImportLimit("free")).toBe(3);
+  it("caps free at 2 (new accounts) and rookie at 6", () => {
+    expect(getOrgImportLimit("free")).toBe(2);
     expect(getOrgImportLimit("rookie")).toBe(6);
   });
 

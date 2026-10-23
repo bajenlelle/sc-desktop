@@ -96,6 +96,8 @@ export interface EditorToolbarProps {
   onSelectAll: () => void;
 
   exportLocked: boolean;
+  /** Tooltip on the locked Export button; defaults to the Pro line. */
+  exportLockedTitle?: string;
   exportDisabledReason: string | null;
   isExporting: boolean;
   exportProgress: ExportProgress | null;
@@ -330,7 +332,7 @@ export function EditorToolbar(p: EditorToolbarProps) {
                     variant="outline"
                     className={cn(p.highlightExport && highlightRing)}
                     disabled={p.exportLocked ? !p.hasItems : !!p.exportDisabledReason}
-                    title={p.exportLocked ? "Export playlists as MP4 with Rookie or Pro" : undefined}
+                    title={p.exportLocked ? (p.exportLockedTitle ?? "Export playlists as MP4 with Pro") : undefined}
                   >
                     {p.exportLocked ? <Lock /> : <FileDown />}
                     {p.exportLabel}

@@ -50,11 +50,23 @@ playlists, and share them with teams; players watch on web/mobile.
   (`not_owner`, `import_limit_reached`), and end with `GRANT EXECUTE ... TO
   authenticated`. Tables get RLS; client-written tables get explicit
   policies, server-written tables get none (service role bypasses).
-- **Import quota**: `_import_allowance` (latest definition in
-  `supabase/migrations/20261001130000_rookie_six_imports.sql`) is the
-  single source of truth (free = 3 lifetime, rookie = 6/month, paid =
-  unlimited). `packages/shared/lib/plan-tier.ts` mirrors it for display only
-  — change both together.
+- **Import quota**: `_game_access` (latest definition in
+  `supabase/migrations/20261027100000_player_passes.sql`) decides each new
+  game, and `import_log.via` records what paid for it. Free = a season pass
+  that covers the game, else a trial slot (2 for accounts created from
+  `app_config.free_games_two_since`, 3 before, plus refill grants), else a
+  bought single game; rookie = 6/month (legacy, no longer sold); paid =
+  unlimited. Players buy single games (129 kr) or go Pro (399 kr a month,
+  2,990 kr a year, sold on scoutable.se); the season pass is dormant
+  (`app_config.season_pass_enabled` off since 2026-10-23: never offered,
+  existing passes still work). A bought game (`_has_paid`) opens export
+  for all of a player's games; a Pro subscription only while it lasts.
+  `_import_allowance` summarises it for the meters, and
+  `packages/shared/lib/plan-tier.ts` and `player-access.ts` mirror it for
+  display only — change them together. Player purchases (`purchases`,
+  `season_passes`) are written only by apps/web's Stripe player webhook
+  (`/api/stripe/player-webhook`) or `/admin/imports`; sales are switched on
+  with `app_config.player_pass_enabled`.
 - **Playlist cards**: a text item (`playlist_clips.item_type 'text'`) may
   carry a stats card spec in `playlist_clips.card`
   (`packages/shared/lib/stats-card.ts`); `text_content` keeps a readable
