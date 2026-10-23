@@ -593,6 +593,42 @@ async fn export_playlist(
     std::fs::rename(&partial, &target).map_err(|e| format!("Couldn't save the video: {e}"))
 }
 
+/// ffmpeg argv for a clip that is uploaded and then played back in a browser
+/// (Clip & Ship, and the clips in a scouting report). A phone is the player
+/// here, which is what separates this from the local export paths: mobile
+/// decoding is hardware-only, so the pixel format has to be forced down to
+/// 4:2:0 (a 4:2:2 or 10-bit source otherwise encodes to a High 4:2:2 stream
+/// that desktop plays and no phone will), and the moov atom has to lead the
+/// file or playback over HTTP stalls before the first frame.
+fn ship_clip_args(video_path: &str, start: f64, end: f64, out: &str) -> Vec<String> {
+    let duration = (end - start).max(0.001);
+    let fade_out_start = (duration - 0.25).max(0.0);
+    [
+        "-y",
+        "-ss", &format!("{start:.3}"),
+        "-to", &format!("{end:.3}"),
+        "-i", video_path,
+        "-vf", &format!(
+            "setpts=PTS-STARTPTS,\
+             scale=960:540:force_original_aspect_ratio=decrease,\
+             pad=960:540:(ow-iw)/2:(oh-ih)/2:color=black,\
+             fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25"
+        ),
+        "-af", "asetpts=PTS-STARTPTS",
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-crf", "28",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        "-c:a", "aac",
+        "-b:a", "96k",
+        out,
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
 #[tauri::command]
 async fn export_clip_for_ship(
     app: tauri::AppHandle,
@@ -608,30 +644,7 @@ async fn export_clip_for_ship(
     if let Some(job) = &job {
         job.own(std::path::Path::new(&output_path));
     }
-    let duration = (end - start).max(0.001);
-    let fade_out_start = (duration - 0.25).max(0.0);
-    let args: Vec<String> = [
-            "-y",
-            "-ss", &format!("{start:.3}"),
-            "-to", &format!("{end:.3}"),
-            "-i", &video_path,
-            "-vf", &format!(
-                "setpts=PTS-STARTPTS,\
-                 scale=960:540:force_original_aspect_ratio=decrease,\
-                 pad=960:540:(ow-iw)/2:(oh-ih)/2:color=black,\
-                 fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25"
-            ),
-            "-af", "asetpts=PTS-STARTPTS",
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-crf", "28",
-            "-c:a", "aac",
-            "-b:a", "96k",
-            &output_path,
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    let args = ship_clip_args(&video_path, start, end, &output_path);
     let outcome = match run_ffmpeg(&app, &args, job.as_ref()).await {
         Ok(result) if result.success => assert_rendered_output(std::path::Path::new(&output_path), "This clip"),
         Ok(result) => Err(result.stderr),
@@ -1511,6 +1524,24 @@ mod tests {
              fade=t=in:st=0:d=0.25,fade=t=out:st=1.750:d=0.25"
         );
         assert_eq!(arg_after(&args, "-pix_fmt"), "yuv420p");
+    }
+
+    #[test]
+    fn ship_clip_encodes_for_a_phone() {
+        let args = ship_clip_args("/v/game.mp4", 10.0, 14.0, "/tmp/ship.mp4");
+        assert_eq!(&args[..7], ["-y", "-ss", "10.000", "-to", "14.000", "-i", "/v/game.mp4"]);
+        assert_eq!(
+            arg_after(&args, "-vf"),
+            "setpts=PTS-STARTPTS,\
+             scale=960:540:force_original_aspect_ratio=decrease,\
+             pad=960:540:(ow-iw)/2:(oh-ih)/2:color=black,\
+             fade=t=in:st=0:d=0.25,fade=t=out:st=3.750:d=0.25"
+        );
+        // A 4:2:2 or 10-bit game video must still come out as something a
+        // hardware decoder takes, and the moov atom has to lead the file.
+        assert_eq!(arg_after(&args, "-pix_fmt"), "yuv420p");
+        assert_eq!(arg_after(&args, "-movflags"), "+faststart");
+        assert_eq!(args.last().unwrap(), "/tmp/ship.mp4");
     }
 
     fn png_base64(w: u32, h: u32) -> String {
