@@ -34,8 +34,6 @@ import { generateScoutingReport, type GenerateOutcome } from "@/lib/scouting-rep
 import { getMyScoutingReport, type MyScoutingReport } from "@/lib/scouting-reports-db";
 import { isPlayerCard, newPlayerCard, playerCardLabel, playerCardsOf, type PlayerCardItem, type PlayerCardSpec } from "@scoutable/shared/lib/player-card";
 import { buildScoutingReport, defaultOpponent, playerSectionInfo, reportOutline, sectionBlockKeys, sectionEnd, snapGapToSectionBoundary } from "@scoutable/shared/lib/scouting-report";
-import { SegmentedControl } from "@/components/ui/segmented-control";
-import type { CardAspect } from "@scoutable/shared/lib/card-layout";
 import { cardContent, fallbackText, formatCardDate, opponentLabel, pickDefaultPlayer, type StatsCardPlayer, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
 import { loadGameStats, loadSeasonPlayer, makeGameCard, makeSeasonCard, seasonOf, statsKindOf, type GameStats } from "@/lib/stats-card-data";
 import { useLeagues } from "@/lib/use-leagues";
@@ -444,8 +442,6 @@ export function PlaylistsPage() {
   const [cardPaused, setCardPaused] = useState(false);
   const cardRemainingRef = useRef(0);
   const cardStartedAtRef = useRef(0);
-  // How the stage previews cards: as the widescreen or the vertical export.
-  const [cardAspect, setCardAspect] = useState<CardAspect>("16:9");
   // A card just added, to show held on the stage once the list has it.
   const [pendingShowCardId, setPendingShowCardId] = useState<string | null>(null);
   const leagues = useLeagues();
@@ -4721,7 +4717,7 @@ export function PlaylistsPage() {
             )}
             {stageCard && (
               <div className="absolute inset-0 z-10 bg-black">
-                <CardImage source={stageCard} aspect={cardAspect} className="size-full" />
+                <CardImage source={stageCard} aspect="16:9" className="size-full" />
               </div>
             )}
             {playerCardItem && !stageCard && <PlayerCardPreview spec={playerCardItem.player} clips={playerPreviewClips} />}
@@ -4761,26 +4757,10 @@ export function PlaylistsPage() {
                 durationSeconds={stageCard.durationSeconds}
                 games={statsGames}
                 leagues={leagues}
-                aspect={cardAspect}
-                onAspectChange={setCardAspect}
                 onChange={(spec) => handleStatsCardChange(stageCard.id, spec)}
                 onDurationChange={(n) => handleTextCardDurationChange(stageCard.id, n)}
                 onHold={pauseCard}
               />
-            )}
-            {stageCard && !stageCard.card && (
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1">
-                <span className="text-callout text-muted-foreground">Text card</span>
-                <SegmentedControl
-                  aria-label="Preview the card as"
-                  value={cardAspect}
-                  onValueChange={setCardAspect}
-                  options={[
-                    { value: "16:9", label: "Widescreen", title: "As the 16:9 export" },
-                    { value: "9:16", label: "Vertical", title: "As the 9:16 export" },
-                  ]}
-                />
-              </div>
             )}
             {activeClipKey && (
               <CropEditorBar

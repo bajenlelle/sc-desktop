@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import type { CardAspect } from "@scoutable/shared/lib/card-layout";
 import {
   MAX_STAT_COLUMNS,
   autoDetails,
@@ -52,8 +51,6 @@ export function StatsCardInspector({
   durationSeconds = 5,
   games,
   leagues,
-  aspect = "16:9",
-  onAspectChange,
   onChange,
   onDurationChange,
   onHold,
@@ -65,8 +62,6 @@ export function StatsCardInspector({
   /** The playlist's games that have stats. */
   games: StoredMatch[];
   leagues: League[];
-  aspect?: CardAspect;
-  onAspectChange?: (aspect: CardAspect) => void;
   onChange: (spec: StatsCardSpec) => void;
   onDurationChange?: (seconds: number) => void;
   /** Editing holds the card on the stage. */
@@ -349,17 +344,6 @@ export function StatsCardInspector({
           <div className="flex items-center gap-1.5">
             <Stepper label="Seconds on screen" value={durationSeconds} min={1} max={120} onChange={onDurationChange} format={(v) => `${v} s`} />
           </div>
-        )}
-        {!embedded && onAspectChange && (
-          <SegmentedControl
-            aria-label="Preview the card as"
-            value={aspect}
-            onValueChange={onAspectChange}
-            options={[
-              { value: "16:9", label: "Widescreen", title: "As the 16:9 export" },
-              { value: "9:16", label: "Vertical", title: "As the 9:16 export" },
-            ]}
-          />
         )}
         <span className="text-caption text-muted-foreground">{sourceLine(spec)}</span>
         {spec.scope === "season" && spec.source === "genius_hosted" && (
