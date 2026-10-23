@@ -179,12 +179,13 @@ export function canExport(tier: OrgPlanTier, access: PlayerAccess | null): boole
   return tier !== "free" || !!access?.hasPaid;
 }
 
-/** "Free game · 2 left", or with bought games still to use "Free game · 3 free and 1 bought left". */
-function freeGameLabel(access: PlayerAccess): string {
-  const { trialLeft, singlesLeft } = access;
-  return singlesLeft > 0
-    ? `Free game · ${trialLeft} free and ${singlesLeft} bought left`
-    : `Free game · ${trialLeft} left`;
+/**
+ * What importing a game takes from what is left: "Uses 1 of 3 free games",
+ * "Uses your last free game". The badge names the cost of this import; the
+ * total left (free and bought) is playerMeterLabel's job.
+ */
+function usesLabel(left: number, kind: "free" | "bought"): string {
+  return left === 1 ? `Uses your last ${kind} game` : `Uses 1 of ${left} ${kind} games`;
 }
 
 export type GameBadgeTone = "covered" | "free" | "bought" | "imported" | "price";
@@ -203,9 +204,9 @@ export function gameBadge(game: GameAccess, access: PlayerAccess): GameBadge | n
     case "season_pass":
       return { label: "In your season pass", tone: "covered" };
     case "trial":
-      return { label: freeGameLabel(access), tone: "free" };
+      return { label: usesLabel(access.trialLeft, "free"), tone: "free" };
     case "single":
-      return { label: `Uses 1 bought game · ${access.singlesLeft} left`, tone: "bought" };
+      return { label: usesLabel(access.singlesLeft, "bought"), tone: "bought" };
     case "plan":
     case "exempt":
       return null;
@@ -223,8 +224,8 @@ export function gameBadge(game: GameAccess, access: PlayerAccess): GameBadge | n
 export function importBadge(game: { imported: boolean; covered: boolean }, access: PlayerAccess): GameBadge | null {
   if (game.imported) return { label: "Imported", tone: "imported" };
   if (game.covered) return { label: "In your season pass", tone: "covered" };
-  if (access.trialLeft > 0) return { label: freeGameLabel(access), tone: "free" };
-  if (access.singlesLeft > 0) return { label: `Uses 1 bought game · ${access.singlesLeft} left`, tone: "bought" };
+  if (access.trialLeft > 0) return { label: usesLabel(access.trialLeft, "free"), tone: "free" };
+  if (access.singlesLeft > 0) return { label: usesLabel(access.singlesLeft, "bought"), tone: "bought" };
   return access.enabled ? { label: `${PLAYER_PRICES.singleGame} kr`, tone: "price" } : null;
 }
 
@@ -320,7 +321,7 @@ export function playerMeterLabel(access: PlayerAccess): string {
   if (pass) return `Season pass · ${pass.teamName}`;
   const { trialLeft, trialGames, singlesLeft } = access;
   if (trialLeft > 0 && singlesLeft > 0) {
-    return `${trialLeft} free and ${singlesLeft} bought ${trialLeft + singlesLeft === 1 ? "game" : "games"} left`;
+    return `${trialLeft + singlesLeft} games left: ${trialLeft} free, ${singlesLeft} bought`;
   }
   if (singlesLeft > 0) return `${singlesLeft} bought ${singlesLeft === 1 ? "game" : "games"} left`;
   if (trialLeft > 0) return `${trialLeft} of ${trialGames} free ${trialGames === 1 ? "game" : "games"} left`;

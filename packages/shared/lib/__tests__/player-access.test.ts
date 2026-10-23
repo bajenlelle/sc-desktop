@@ -116,9 +116,10 @@ describe("gameBadge", () => {
   it("names what importing the game would use", () => {
     const a = access({ trialLeft: 2, singlesLeft: 1 });
     expect(gameBadge(game({ allowed: true, via: "season_pass" }), a)?.label).toBe("In your season pass");
-    expect(gameBadge(game({ allowed: true, via: "trial" }), a)?.label).toBe("Free game · 2 free and 1 bought left");
-    expect(gameBadge(game({ allowed: true, via: "trial" }), access({ trialLeft: 2 }))?.label).toBe("Free game · 2 left");
-    expect(gameBadge(game({ allowed: true, via: "single" }), a)?.label).toBe("Uses 1 bought game · 1 left");
+    expect(gameBadge(game({ allowed: true, via: "trial" }), a)?.label).toBe("Uses 1 of 2 free games");
+    expect(gameBadge(game({ allowed: true, via: "trial" }), access({ trialLeft: 1 }))?.label).toBe("Uses your last free game");
+    expect(gameBadge(game({ allowed: true, via: "single" }), a)?.label).toBe("Uses your last bought game");
+    expect(gameBadge(game({ allowed: true, via: "single" }), access({ singlesLeft: 3 }))?.label).toBe("Uses 1 of 3 bought games");
     expect(gameBadge(game({ allowed: true, via: "season_pass", imported: true }), a)?.label).toBe("Imported");
   });
 
@@ -203,7 +204,8 @@ describe("playerMeterLabel", () => {
   it("counts what is left, remaining first", () => {
     expect(playerMeterLabel(access({ trialLeft: 1, trialGames: 2 }))).toBe("1 of 2 free games left");
     expect(playerMeterLabel(access({ trialLeft: 0, singlesLeft: 2 }))).toBe("2 bought games left");
-    expect(playerMeterLabel(access({ trialLeft: 1, singlesLeft: 1 }))).toBe("1 free and 1 bought games left");
+    expect(playerMeterLabel(access({ trialLeft: 1, singlesLeft: 1 }))).toBe("2 games left: 1 free, 1 bought");
+    expect(playerMeterLabel(access({ trialLeft: 3, singlesLeft: 1 }))).toBe("4 games left: 3 free, 1 bought");
     expect(playerMeterLabel(access({ trialLeft: 0, singlesLeft: 0 }))).toBe("No games left");
   });
 
@@ -246,10 +248,10 @@ describe("importBadge", () => {
     const a = access({ trialLeft: 1, singlesLeft: 2 });
     expect(importBadge({ imported: true, covered: true }, a)?.label).toBe("Imported");
     expect(importBadge({ imported: false, covered: true }, a)?.label).toBe("In your season pass");
-    expect(importBadge({ imported: false, covered: false }, a)?.label).toBe("Free game · 1 free and 2 bought left");
-    expect(importBadge({ imported: false, covered: false }, access({ trialLeft: 3, singlesLeft: 0 }))?.label).toBe("Free game · 3 left");
+    expect(importBadge({ imported: false, covered: false }, a)?.label).toBe("Uses your last free game");
+    expect(importBadge({ imported: false, covered: false }, access({ trialLeft: 3, singlesLeft: 1 }))?.label).toBe("Uses 1 of 3 free games");
     expect(importBadge({ imported: false, covered: false }, access({ trialLeft: 0, singlesLeft: 2 }))?.label).toBe(
-      "Uses 1 bought game · 2 left",
+      "Uses 1 of 2 bought games",
     );
     expect(importBadge({ imported: false, covered: false }, access({ trialLeft: 0 }))).toEqual({ label: "129 kr", tone: "price" });
   });

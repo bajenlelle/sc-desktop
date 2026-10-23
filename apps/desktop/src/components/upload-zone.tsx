@@ -21,7 +21,7 @@ import { UpgradeDialog } from "@/components/upgrade-dialog";
 import { PurchaseSheet } from "@/components/purchase-sheet";
 import { PlayerBadge } from "@/components/import/player-badge";
 import { usePlayerAccess } from "@/lib/player-access";
-import { activePass, importBadge, parseGameAccess, type GameAccess, type GameBadge } from "@scoutable/shared/lib/player-access";
+import { activePass, importBadge, parseGameAccess, playerMeterLabel, type GameAccess, type GameBadge } from "@scoutable/shared/lib/player-access";
 import { ImportSuccessDialog, type ImportSummary } from "@/components/import-success-dialog";
 import { NT_LEAGUE_IDS } from "@scoutable/shared/lib/plan-tier";
 import { fetchGameData, getLeagueSchedule, NATIONAL_TEAM_LEAGUES } from "@/lib/basketball-api";
@@ -824,6 +824,10 @@ export function UploadZone({
         <Card className="py-4">
           <CardContent className="px-4">
           <AutoHeight innerClassName="space-y-3">
+            {/* What's left in total (free and bought); each game's badge says what importing it uses. */}
+            {!selectedGame && playerMode && playerAccess && (
+              <p className="text-xs text-muted-foreground nums">{playerMeterLabel(playerAccess)}</p>
+            )}
             {!selectedGame && team && (
               <ImportViewToggle team={team} view={view} onChange={changeView} />
             )}
