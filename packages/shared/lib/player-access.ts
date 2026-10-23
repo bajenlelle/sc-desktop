@@ -5,7 +5,7 @@
  * export for all of their games.
  *
  * Display only. The import trigger (`_game_access` in
- * supabase/migrations/20261017100000_player_passes.sql) makes the decision,
+ * supabase/migrations/20261027100000_player_passes.sql) makes the decision,
  * and Stripe's prices are what's charged — keep PLAYER_PRICES in step with
  * them.
  */

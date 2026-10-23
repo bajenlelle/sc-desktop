@@ -90,6 +90,14 @@ CREATE POLICY season_passes_own_read ON season_passes
   FOR SELECT TO authenticated
   USING (user_id = (SELECT auth.uid()));
 
+-- Explicit privileges: the schema's default privileges would hand both tables
+-- to anon and authenticated in full. Signed-in users only read (RLS keeps it
+-- to their own rows); every write goes through the service role or a
+-- SECURITY DEFINER function.
+REVOKE ALL ON TABLE purchases, season_passes FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE purchases, season_passes TO authenticated;
+GRANT ALL ON TABLE purchases, season_passes TO service_role;
+
 -- ---------------------------------------------------------------------------
 -- 2. import_log records what paid for each game
 -- ---------------------------------------------------------------------------
@@ -125,21 +133,31 @@ ON CONFLICT (key) DO NOTHING;
 -- ---------------------------------------------------------------------------
 
 -- Free trial size: 2 games for accounts created from free_games_two_since,
--- 3 for older accounts (their copy promised 3).
+-- 3 for older accounts (their copy promised 3). A value that isn't a date
+-- counts as unset, so a typo in app_config can't fail every Free import.
 CREATE OR REPLACE FUNCTION _free_trial_games(p_user uuid)
 RETURNS integer
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT CASE
-           WHEN c.value IS NOT NULL AND u.created_at >= c.value::timestamptz THEN 2
-           ELSE 3
-         END
-    FROM (SELECT 1) AS one
-    LEFT JOIN auth.users u ON u.id = p_user
-    LEFT JOIN app_config c ON c.key = 'free_games_two_since';
+DECLARE
+  v_since   timestamptz;
+  v_created timestamptz;
+BEGIN
+  BEGIN
+    SELECT value::timestamptz INTO v_since
+      FROM app_config WHERE key = 'free_games_two_since';
+  EXCEPTION WHEN data_exception THEN
+    v_since := NULL;
+  END;
+  IF v_since IS NULL THEN
+    RETURN 3;
+  END IF;
+  SELECT created_at INTO v_created FROM auth.users WHERE id = p_user;
+  RETURN CASE WHEN v_created >= v_since THEN 2 ELSE 3 END;
+END;
 $$;
 
 -- Single games a user has bought and not had refunded.

@@ -20,7 +20,7 @@ import {
 } from "../player-access";
 
 // The shapes get_my_player_access() and check_game_access() return
-// (20261017100000_player_passes.sql).
+// (20261027100000_player_passes.sql).
 const RAW_ACCESS = {
   enabled: true,
   season_on_sale: "2026-27",

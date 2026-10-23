@@ -50,7 +50,7 @@ playlists, and share them with teams; players watch on web/mobile.
   authenticated`. Tables get RLS; client-written tables get explicit
   policies, server-written tables get none (service role bypasses).
 - **Import quota**: `_game_access` (latest definition in
-  `supabase/migrations/20261017100000_player_passes.sql`) decides each new
+  `supabase/migrations/20261027100000_player_passes.sql`) decides each new
   game, and `import_log.via` records what paid for it. Free = a season pass
   that covers the game, else a trial slot (2 for accounts created from
   `app_config.free_games_two_since`, 3 before, plus refill grants), else a

@@ -90,7 +90,7 @@ export function PurchaseSheet({
   const [error, setError] = useState<string | null>(null);
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [waitingKind, setWaitingKind] = useState<PurchaseKind | null>(null);
-  const [parentOpen, setParentOpen] = useState(false);
+  const [phoneOpen, setPhoneOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [waitedTooLong, setWaitedTooLong] = useState(false);
   const beforeRef = useRef<PlayerAccess | null>(null);
@@ -103,7 +103,7 @@ export function PurchaseSheet({
     setError(null);
     setCheckoutUrl(null);
     setWaitingKind(null);
-    setParentOpen(false);
+    setPhoneOpen(false);
     setWaitedTooLong(false);
     doneRef.current = false;
   }, [open, analyticsFeature]);
@@ -190,9 +190,9 @@ export function PurchaseSheet({
     });
   }
 
-  function toggleParent() {
-    if (!parentOpen) trackEvent("player_parent_link_shown", { kind: waitingKind, surface });
-    setParentOpen((v) => !v);
+  function togglePhone() {
+    if (!phoneOpen) trackEvent("player_parent_link_shown", { kind: waitingKind, surface });
+    setPhoneOpen((v) => !v);
   }
 
   const offers = access ? sheetOffers(game, access, role === "coach" || role === "player" ? role : null) : [];
@@ -262,13 +262,13 @@ export function PurchaseSheet({
                   <Loader2 className="size-4 animate-spin" />
                   Waiting for the payment…
                 </div>
-                {parentOpen && checkoutUrl && (
+                {phoneOpen && checkoutUrl && (
                   <div className="flex flex-col items-center gap-3 py-1">
                     <div className="rounded-lg bg-white p-3 shadow-menu">
                       <QRCode value={checkoutUrl} size={168} />
                     </div>
                     <p className="text-center text-callout text-muted-foreground">
-                      Scan with a phone to pay there, with Swish or a card.
+                      Scan the code with your phone to pay with Swish or a card.
                     </p>
                     <Button variant="outline" size="sm" onClick={copyLink}>
                       {copied ? <Check /> : <Copy />}
@@ -287,9 +287,9 @@ export function PurchaseSheet({
         <DialogFooter>
           {phase === "waiting" ? (
             <>
-              <Button variant="outline" onClick={toggleParent}>
+              <Button variant="outline" onClick={togglePhone}>
                 <Smartphone />
-                {parentOpen ? "Hide parent link" : "Let a parent pay"}
+                {phoneOpen ? "Hide QR code" : "Pay with phone"}
               </Button>
               <Button variant="outline" onClick={() => checkoutUrl && void openUrl(checkoutUrl)}>
                 <ExternalLink />

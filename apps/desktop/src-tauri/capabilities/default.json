@@ -10,6 +10,7 @@
       "allow": [
         { "url": "https://*.supabase.co/**" },
         { "url": "https://app.scoutable.se/api/**" },
+        { "url": "http://localhost:3000/api/**" },
         { "url": "https://*.r2.cloudflarestorage.com/**" }
       ]
     },

@@ -6,7 +6,11 @@ import { getSubscriptionStatus } from "@/lib/profile-db";
 import { trackEvent } from "@/lib/analytics";
 
 const PRICING_URL = "https://scoutable.se/pricing";
-const BILLING_PORTAL_URL = "https://app.scoutable.se/api/billing-portal";
+// The web app behind billing and player checkout. Staging points it at a
+// local apps/web (http://localhost:3000, allowed in capabilities/default.json),
+// because a staging token means nothing to production.
+const WEB_APP_URL = (import.meta.env.VITE_WEB_APP_URL ?? "https://app.scoutable.se").replace(/\/$/, "");
+const BILLING_PORTAL_URL = `${WEB_APP_URL}/api/billing-portal`;
 
 /**
  * Opens the Stripe billing portal for the signed-in user.
@@ -87,7 +91,7 @@ export async function openUpgradeFlow(email?: string | null): Promise<string | n
   return null;
 }
 
-const PLAYER_CHECKOUT_URL = "https://app.scoutable.se/api/player-checkout";
+const PLAYER_CHECKOUT_URL = `${WEB_APP_URL}/api/player-checkout`;
 
 export type PlayerCheckoutKind = "single_game" | "season_pass";
 

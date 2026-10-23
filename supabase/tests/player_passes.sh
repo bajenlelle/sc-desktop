@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Player passes (20261017100000): the import decision, purchases and the
+# Player passes (20261027100000): the import decision, purchases and the
 # hardening that came with them.
 #
 # A new game in a Free personal space is paid for, in order, by a season pass
@@ -13,9 +13,16 @@
 # Every probe creates a throwaway account and made-up teams and fixtures
 # inside BEGIN … ROLLBACK, so nothing is committed.
 #
-#   RLS_PREFLIGHT=supabase/migrations/20261017100000_player_passes.sql supabase/tests/player_passes.sh   # before db push
+#   RLS_PREFLIGHT=supabase/migrations/20261027100000_player_passes.sql supabase/tests/player_passes.sh   # before db push
 #   supabase/tests/player_passes.sh                                                                     # after
+#
+# Runs against the linked project (prod) through the CLI, unless
+# SUPABASE_DB_URL is set: then every probe runs through psql (e.g. staging
+# through the session pooler), because `db query --db-url` sends one prepared
+# statement at a time and can't hold a BEGIN … ROLLBACK. The URL is never
+# printed; its password is masked out of any output.
 set -euo pipefail
+trap 'echo "player_passes.sh: failed at line $LINENO" >&2' ERR
 
 cd "$(dirname "$0")/../.."
 
@@ -31,11 +38,42 @@ pick_supabase() {
   done
   return 1
 }
-BIN="$(pick_supabase || true)"
-if [[ -z "$BIN" ]]; then
-  echo "No supabase CLI with 'db query' found. Update it or set SUPABASE_BIN." >&2
-  exit 1
+
+MODE=cli
+MASK=""
+if [[ -n "${SUPABASE_DB_URL:-}" ]]; then
+  MODE=psql
+  PSQL="${PSQL_BIN:-$(command -v psql || true)}"
+  if [[ -z "$PSQL" ]]; then echo "SUPABASE_DB_URL is set but psql was not found (set PSQL_BIN)." >&2; exit 1; fi
+  MASK="${SUPABASE_DB_URL#*//}"; MASK="${MASK#*:}"; MASK="${MASK%%@*}"   # the password
+  echo "# Target: psql over SUPABASE_DB_URL (password masked in output)"
+else
+  BIN="$(pick_supabase || true)"
+  if [[ -z "$BIN" ]]; then
+    echo "No supabase CLI with 'db query' found. Update it or set SUPABASE_BIN." >&2
+    exit 1
+  fi
 fi
+mask() { if [[ -n "$MASK" ]]; then local s="$1"; echo "${s//"$MASK"/***}"; else echo "$1"; fi; }
+
+# One probe transaction. Prints something the classifier in run() reads the
+# same way for both transports: the CLI's JSON, or for psql the errors (with
+# SQLSTATEs, so "P0001: token" and "42501" appear as in the CLI's output)
+# followed by a `"n": <value>` line built from the last row the probe printed.
+probe() {  # $1=sql
+  if [[ "$MODE" == psql ]]; then
+    local rows errs status
+    errs="$(mktemp)"
+    rows="$("$PSQL" "$SUPABASE_DB_URL" -X -q -A -t -v ON_ERROR_STOP=1 -f - <<<$'\\set VERBOSITY verbose\n'"$1" 2>"$errs")" && status=0 || status=$?
+    cat "$errs"; rm -f "$errs"
+    if [[ $status -eq 0 ]]; then
+      local n; n="$(grep -v '^$' <<<"$rows" | tail -1 || true)"
+      echo "\"n\": ${n:-?}"
+    fi
+  else
+    "$BIN" db query --linked "$1" </dev/null 2>&1 || true
+  fi
+}
 
 PREFLIGHT=""
 if [[ -n "${RLS_PREFLIGHT:-}" ]]; then
@@ -47,14 +85,15 @@ FAILED=0
 run() {  # $1=label  $2=expected  $3=sql as the actor  [$4=privileged setup sql, ending in ;]
   # expected: ALLOWED | ALLOWED rows=N | DENIED (RLS/grant) | RAISES:<token> (guard) | BLOCKED (either)
   local out got st actor="${ACTOR:-$W}" role="${ROLE:-authenticated}" claims
-  claims="{\"sub\":\"$actor\",\"role\":\"$role\"}"
-  out=$("$BIN" db query --linked "BEGIN; $PREFLIGHT ${4:-} SELECT set_config(\$\$request.jwt.claims\$\$, \$\$$claims\$\$, true); SET LOCAL ROLE $role; $3; ROLLBACK;" </dev/null 2>&1 || true)
+  if [[ "$role" == "anon" ]]; then claims='{"role":"anon"}'; else claims="{\"sub\":\"$actor\",\"role\":\"$role\"}"; fi
+  out="$(probe "BEGIN; $PREFLIGHT ${4:-} SELECT set_config(\$\$request.jwt.claims\$\$, \$\$$claims\$\$, true); SET LOCAL ROLE $role; $3; ROLLBACK;" || true)"
+  out="$(mask "$out")"
   if grep -q "42501\|violates row-level security\|permission denied" <<<"$out"; then
     got="DENIED"
   elif grep -qE 'P0001: [a-z_]+' <<<"$out"; then
     got="RAISES:$(grep -oE 'P0001: [a-z_]+' <<<"$out" | head -1 | sed 's/P0001: //')"
-  elif grep -q '"_tag":"Error"' <<<"$out"; then
-    got="ERR:$(grep -o 'ERROR: *[0-9A-Z]*' <<<"$out" | head -1)"
+  elif grep -q '"_tag":"Error"\|ERROR:' <<<"$out"; then
+    got="ERR:$(grep -o 'ERROR: *[0-9A-Z]*' <<<"$out" | head -1 || true)"
   else
     got="ALLOWED rows=$(grep -o '"n": *[0-9]*' <<<"$out" | head -1 | grep -o '[0-9]*' || echo '?')"
   fi
@@ -124,6 +163,7 @@ ACCESS="get_my_player_access()"
 echo "# Free trial"
 run "a new account gets 2 free games"                                  "ALLOWED rows=2" "SELECT ($ACCESS->>'trial_left')::int AS n" "$SEED"
 run "an account from before the switch keeps 3"                        "ALLOWED rows=3" "SELECT ($ACCESS->>'trial_left')::int AS n" "$SEED $SWITCH_LATER"
+run "a switch date that isn't a date counts as unset: 3"               "ALLOWED rows=3" "SELECT ($ACCESS->>'trial_left')::int AS n" "$SEED UPDATE app_config SET value = $(d not-a-date) WHERE key = $(d free_games_two_since);"
 run "two free games are logged as trial"                               "ALLOWED rows=2" "$(imp m1 9900000002) $(imp m2 9900000004) SELECT count(*) AS n FROM import_log WHERE user_id = $(d $W) AND via = $(d trial)" "$SEED"
 run "the third game is refused"                                        "RAISES:import_limit_reached" "$(imp m1 9900000002) $(imp m2 9900000004) $(imp m3 9900000005) SELECT 1 AS n" "$SEED"
 run "the old meter agrees: 0 of 2 left"                                "ALLOWED rows=0" "$(imp m1 9900000002) $(imp m2 9900000004) SELECT (get_import_quota($PW)->>'remaining')::int AS n" "$SEED"
@@ -139,6 +179,7 @@ run "a pass covers its team's home game"                               "ALLOWED 
 run "…and its away game"                                               "ALLOWED rows=1" "$(imp m1 9900000003) $(via 9900000003 season_pass)" "$SEED $PASS_A"
 run "…without using a free game"                                       "ALLOWED rows=2" "$(imp m1 9900000001) $(imp m2 9900000003) SELECT ($ACCESS->>'trial_left')::int AS n" "$SEED $PASS_A"
 run "a pass doesn't cover other teams' games"                          "ALLOWED rows=1" "$(imp m1 9900000002) $(via 9900000002 trial)" "$SEED $PASS_A"
+run "with a pass, another team's game still takes a bought single"     "ALLOWED rows=1" "$(imp m1 9900000002) $(imp m2 9900000004) $(imp m3 9900000005) $(via 9900000005 single)" "$SEED $PASS_A $SINGLE"
 run "a 2026/27 pass doesn't cover the club's 2025/26 game"             "ALLOWED rows=1" "$(imp m1 9900000011) $(via 9900000011 trial)" "$SEED $PASS_A"
 run "a pass holder's old meter shows no limit"                         "ALLOWED rows=1" "SELECT CASE WHEN get_import_quota($PW)->>'remaining' IS NULL THEN 1 ELSE 0 END AS n" "$SEED $PASS_A"
 run "a refunded pass stops covering new games"                         "ALLOWED rows=1" "$(imp m1 9900000001) $(via 9900000001 trial)" "$SEED $STRIPE_PASS_A SELECT refund_player_purchase($(d pi_probe));"
@@ -171,7 +212,11 @@ run "a user can't fulfil their own purchase"                           "DENIED" 
 run "a user can't refund"                                              "DENIED" "SELECT refund_player_purchase($(d pi_probe))" "$SEED $STRIPE_PASS_A"
 run "a user can't write a purchase"                                    "DENIED" "INSERT INTO purchases (user_id, kind, source) VALUES ($(d $W), $(d single_game), $(d admin))" "$SEED"
 run "a user can't write a season pass"                                 "DENIED" "INSERT INTO season_passes (user_id, purchase_id, season_id, league_team_id) VALUES ($(d $W), $(d $PUR), $(d 2026-27), $(team pp-9901))" "$SEED $PASS_A"
+run "a user can't change their own purchase"                           "DENIED" "UPDATE purchases SET status = $(d refunded) WHERE user_id = $(d $W)" "$SEED $SINGLE"
 run "a user reads their own purchases"                                 "ALLOWED rows=1" "SELECT count(*) AS n FROM purchases" "$SEED $SINGLE"
+ROLE=anon run "anon can't read purchases"                             "DENIED" "SELECT count(*) AS n FROM purchases" "$SEED $SINGLE"
+ROLE=anon run "anon can't read season passes"                         "DENIED" "SELECT count(*) AS n FROM season_passes" "$SEED $PASS_A"
+ROLE=anon run "anon can't read anyone's access"                       "DENIED" "SELECT get_my_player_access()" "$SEED"
 run "an admin grant needs a platform admin"                            "RAISES:not_admin" "SELECT admin_grant_player_purchase($(d probe-pass@example.invalid), $(d single_game))" "$SEED"
 run "any purchase marks the account as paid"                           "ALLOWED rows=1" "SELECT CASE WHEN ($ACCESS->>'has_paid')::boolean THEN 1 ELSE 0 END AS n" "$SEED $SINGLE"
 
