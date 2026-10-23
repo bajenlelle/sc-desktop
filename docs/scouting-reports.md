@@ -16,6 +16,20 @@ inline) that staff and players open from a link, and that "Save as PDF" prints.
   builds (the clip branch of `rowToPlaylist` needs a `match_id`), so they see
   nothing. In the apps the item is a `PlaylistTextCard` with `player` set
   (`isPlayerCard`), so the editors' card rows, selection and undo carry it.
+- **Whose card**: anyone in the games the playlist's clips come from, not only
+  players with clips (`playerRoster`, `lib/player-roster.ts`): the clipped
+  players first, most clips first, then the rest of those games' players (both
+  teams) from the stored plays and the box scores the desktop reads in the
+  background (which also list players who played without a recorded action).
+  "Add player" (`pickPlayerCardSpot`) never refuses for the position: from a
+  clip's row menu it is that clip's player; else a free player in the clips next
+  to the insertion; else the free player with the most clips, above their first
+  clip (how a removed card comes back, since its clips then sit in the card
+  above's section); else the first free player of the games, picked in the
+  inspector. A card with no clips renders as stats and the note.
+- **A new card's numbers** are read while its row is written (the spinner shows
+  from the start) and applied once the row exists; saves wait for the row too
+  (`playerRowsRef`), otherwise an edit made during a slow insert matches no row.
 - **Sections**: a player card opens a section; the clips below it, up to the
   next player card, are that player's. Clips and cards before the first player
   card are the "Team" section. A text card is a paragraph where it sits, a

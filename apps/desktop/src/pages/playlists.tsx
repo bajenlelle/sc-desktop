@@ -26,17 +26,18 @@ import { VideoPlaceholder } from "@/components/video-placeholder";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { CardImage } from "@/components/editor/card-image";
 import { StatsCardInspector } from "@/components/editor/stats-card-inspector";
-import { PlayerCardInspector, type PlayerChoice } from "@/components/editor/player-card-inspector";
+import { PlayerCardInspector } from "@/components/editor/player-card-inspector";
+import { pickPlayerCardSpot, playerRoster, type PlayerChoice } from "@scoutable/shared/lib/player-roster";
 import { PlayerCardPreview, type PreviewClip } from "@/components/editor/player-card-preview";
 import { ScoutingReportDialog, type ScoutingReportRun } from "@/components/editor/scouting-report-dialog";
 import { generateScoutingReport, type GenerateOutcome } from "@/lib/scouting-report";
 import { getMyScoutingReport, type MyScoutingReport } from "@/lib/scouting-reports-db";
 import { isPlayerCard, newPlayerCard, playerCardLabel, playerCardsOf, type PlayerCardItem, type PlayerCardSpec } from "@scoutable/shared/lib/player-card";
-import { buildScoutingReport, defaultOpponent, playerCardTarget, playerSectionInfo, reportOutline, sectionBlockKeys, sectionEnd, snapGapToSectionBoundary } from "@scoutable/shared/lib/scouting-report";
+import { buildScoutingReport, defaultOpponent, playerSectionInfo, reportOutline, sectionBlockKeys, sectionEnd, snapGapToSectionBoundary } from "@scoutable/shared/lib/scouting-report";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import type { CardAspect } from "@scoutable/shared/lib/card-layout";
-import { cardContent, fallbackText, formatCardDate, opponentLabel, pickDefaultPlayer, rankPlayersByClips, type StatsCardPlayer, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
-import { loadGameStats, loadSeasonPlayer, makeGameCard, makeSeasonCard, seasonOf, statsKindOf } from "@/lib/stats-card-data";
+import { cardContent, fallbackText, formatCardDate, opponentLabel, pickDefaultPlayer, type StatsCardPlayer, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
+import { loadGameStats, loadSeasonPlayer, makeGameCard, makeSeasonCard, seasonOf, statsKindOf, type GameStats } from "@/lib/stats-card-data";
 import { useLeagues } from "@/lib/use-leagues";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { listMatchesLight, listMatchesByIds, listEventsForMatches, listFolders, createFolder, updateFolder, deleteFolder, updateVideoUrl } from "@/lib/matches-db";
@@ -4116,18 +4117,41 @@ export function PlaylistsPage() {
   // Player cards (the scouting report's entries)
   // ---------------------------------------------------------------------------
 
-  /** Players with clips in the playlist, most clips first; the ones that already have a card are taken. */
-  const playerChoices = useMemo((): PlayerChoice[] => {
-    const items = selected?.items ?? [];
-    const events = items.filter(isClipItem).map((c) => eventByKey.get(playlistItemKey(c))).filter((e): e is PlayByPlayEvent => !!e);
-    const taken = new Set(playerCardsOf(items).map((c) => c.player.player.id));
-    return rankPlayersByClips(events).map((p) => ({ ...p, taken: taken.has(p.playerId) }));
-  }, [selected?.items, eventByKey]);
+  // The playlist's games' box scores, read in the background: they add the players who played
+  // without a recorded action to the roster, and warm the cache a card's numbers come from.
+  const [boxScores, setBoxScores] = useState<ReadonlyMap<string, GameStats>>(() => new Map());
+  const boxGameIds = useMemo(() => statsGames.slice(0, 8).map((m) => m.id).join(","), [statsGames]);
+  useEffect(() => {
+    if (!boxGameIds) return;
+    let cancelled = false;
+    for (const id of boxGameIds.split(",")) {
+      const match = matchLookup.get(id);
+      if (!match) continue;
+      loadGameStats(match, leagues)
+        .then((s) => {
+          if (cancelled || !s) return;
+          setBoxScores((prev) => (prev.has(id) ? prev : new Map(prev).set(id, s)));
+        })
+        .catch(() => {});
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [boxGameIds, matchLookup, leagues]);
+
+  /**
+   * Everyone a card can be about: the players with clips in the playlist first, then the rest of
+   * its games' players (both teams). The ones that already have a card are taken.
+   */
+  const playerChoices = useMemo(
+    (): PlayerChoice[] => playerRoster({ items: selected?.items ?? [], eventByKey, matches: matchLookup, boxScores }),
+    [selected?.items, eventByKey, matchLookup, boxScores],
+  );
 
   const playerCardDisabledReason = filtersActive
     ? "Clear filters to edit the playlist"
     : playerChoices.length === 0
-      ? "Needs clips with a player"
+      ? "No players in this playlist's games"
       : null;
 
   /**
@@ -4158,14 +4182,16 @@ export function PlaylistsPage() {
 
   /** The player as the card keeps them, and their numbers: season averages where the league has them, else a game line, else none. */
   async function readPlayerStats(
-    person: { playerId: string; name: string; number: string | null; teamName: string },
+    person: { playerId: string; name: string; number: string | null; teamName: string; matchId?: string },
     preferMatchId?: string,
   ): Promise<{ player: StatsCardPlayer; stats: StatsCardSpec | null }> {
     const base: StatsCardPlayer = { id: person.playerId, name: person.name, number: person.number, teamId: null, teamName: person.teamName };
     const theirs = statsClips.filter((c) => String(c.event.player?.playerId) === person.playerId);
     const counts = new Map<string, number>();
     for (const c of theirs) counts.set(c.matchId, (counts.get(c.matchId) ?? 0) + 1);
-    const matchId = preferMatchId && counts.has(preferMatchId) ? preferMatchId : [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
+    // The game their clips are mostly in; a player with none (a card for anyone in the game) uses the game they played in.
+    const withClips = preferMatchId && counts.has(preferMatchId) ? preferMatchId : [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
+    const matchId = withClips ?? person.matchId;
     const match = matchId ? matchLookup.get(matchId) : undefined;
     if (!match) return { player: base, stats: null };
     const stats = await loadGameStats(match, leagues);
@@ -4181,6 +4207,9 @@ export function PlaylistsPage() {
 
   // Player card edits show at once and save after a pause in the typing.
   const playerSaveTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  // A new card is in the list before its row is in the database: until the insert has finished,
+  // a save would match no row and be lost, so saves (and the card's numbers) wait for it.
+  const playerRowsRef = useRef(new Map<string, Promise<void>>());
   function handlePlayerCardChange(id: string, spec: PlayerCardSpec) {
     const pl = selectedRef.current;
     if (!pl) return;
@@ -4194,19 +4223,30 @@ export function PlaylistsPage() {
     clearTimeout(timers.get(id));
     timers.set(id, setTimeout(() => {
       timers.delete(id);
-      updatePlayerCard(pl.id, id, spec).catch(() => toast.error("Couldn't save the player card. Try again."));
+      const save = () => updatePlayerCard(pl.id, id, spec);
+      // A failed insert was already reported, and its card taken back out of the list.
+      const rowReady = playerRowsRef.current.get(id);
+      (rowReady ? rowReady.then(save, () => undefined) : save()).catch(() => toast.error("Couldn't save the player card. Try again."));
     }, 400));
   }
 
-  /** Reads a card's player's numbers into the card; null when the league has none or the read failed (the inspector offers a retry). */
+  /**
+   * Reads a card's player's numbers into the card; null when the league has none or the read
+   * failed (the inspector offers a retry). `rowReady` is a card still being inserted: the read
+   * runs meanwhile, and the numbers are applied (and saved) once the row exists.
+   */
   async function loadPlayerCardStats(
     cardId: string,
-    person: { playerId: string; name: string; number: string | null; teamName: string },
+    person: { playerId: string; name: string; number: string | null; teamName: string; matchId?: string },
     preferMatchId?: string,
+    rowReady?: Promise<unknown>,
   ): Promise<StatsCardSpec | null> {
     setPlayerStatsLoading(cardId);
     try {
-      const { player, stats } = await readPlayerStats(person, preferMatchId);
+      const reading = readPlayerStats(person, preferMatchId);
+      reading.catch(() => {}); // surfaced below; this keeps an early failure from going unhandled while the insert finishes
+      await rowReady;
+      const { player, stats } = await reading;
       const card = selectedRef.current?.items.find((i): i is PlayerCardItem => isPlayerCard(i) && i.id === cardId);
       // The card changed player while the numbers were read: they aren't its numbers.
       if (!card || card.player.player.id !== person.playerId) return null;
@@ -4227,30 +4267,33 @@ export function PlaylistsPage() {
     const playlistId = before.id;
     const targetKey = cardInsertTarget(place);
     const found = targetKey ? before.items.findIndex((item) => playlistItemKey(item) === targetKey) : -1;
-    let insertAt = found >= 0 ? found : before.items.length;
     const playing = activeMatchId !== null && activeEventId !== null ? eventByKey.get(`${activeMatchId}:${activeEventId}`) : undefined;
-    const target = playerCardTarget(before.items, insertAt, eventByKey, {
-      anchor: anchor ? { matchId: anchor.matchId, event: anchor.event } : null,
-      activePlayerId: playing?.player ? String(playing.player.playerId) : null,
-    });
-    const person = target ? rankPlayersByClips(target.events).find((p) => p.playerId === target.playerId) : undefined;
-    if (!target || !person) {
-      toast.error(anchor ? "That player already has a card" : "Every player with clips here already has a card");
+    // Who and where (shared/lib/player-roster): never refused for the position, only when everyone has a card.
+    const spot = pickPlayerCardSpot(
+      before.items,
+      found >= 0 ? found : before.items.length,
+      eventByKey,
+      playerRoster({ items: before.items, eventByKey, matches: matchLookup, boxScores }),
+      {
+        anchor: anchor ? { matchId: anchor.matchId, event: anchor.event } : null,
+        activePlayerId: playing?.player ? String(playing.player.playerId) : null,
+        fromToolbar: !anchor && place.at === "toolbar",
+      },
+    );
+    if (!spot.ok) {
+      toast.error(
+        spot.reason === "anchor_has_card"
+          ? "That player already has a card"
+          : spot.reason === "anchor_no_player"
+            ? "That play has no player"
+            : "Everyone in these games already has a card",
+      );
       return;
     }
-    // From the toolbar the card goes above the player's first clip of the run it lands in,
-    // not between two of them (a group's inside is never entered).
-    if (!anchor && place.at === "toolbar") {
-      while (insertAt > 0) {
-        const prev = before.items[insertAt - 1];
-        const e = isClipItem(prev) ? eventByKey.get(playlistItemKey(prev)) : undefined;
-        if (!isClipItem(prev) || prev.groupId || !e?.player || String(e.player.playerId) !== target.playerId) break;
-        insertAt--;
-      }
-    }
+    const { player: person, matchId, insertAt } = spot;
 
-    // The card is in the list at once, with the name, number and team from the clips already
-    // in memory; only the numbers wait on the network.
+    // The card is in the list at once, with the name, number and team the game data already has;
+    // only the numbers wait on the network.
     const spec = newPlayerCard({ id: person.playerId, name: person.name, number: person.number, teamId: null, teamName: person.teamName }, null);
     const newCard: PlaylistTextCard = { type: 'text', id: crypto.randomUUID(), text: playerCardLabel(spec), durationSeconds: 0, player: spec };
     const newItems: PlaylistItem[] = [...before.items.slice(0, insertAt), newCard, ...before.items.slice(insertAt)];
@@ -4262,9 +4305,22 @@ export function PlaylistsPage() {
     setPlayerCardId(newCard.id);
     setNewlyInsertedCardId(newCard.id);
     setFocusKey(`text:${newCard.id}`);
-    try {
+
+    // The row is written and the order saved while the numbers are read: the spinner shows from the
+    // start, and the numbers are applied once the row exists.
+    const rows = playerRowsRef.current;
+    const written = (async () => {
       await insertPlayerCard(playlistId, newCard.id, spec, insertAt);
       await reorderItems(playlistId, newItems);
+    })();
+    rows.set(newCard.id, written);
+    const settled = () => {
+      if (rows.get(newCard.id) === written) rows.delete(newCard.id);
+    };
+    written.then(settled, settled);
+    const reading = loadPlayerCardStats(newCard.id, person, matchId, written);
+    try {
+      await written;
     } catch {
       toast.error("Couldn't add the card. Try again.");
       if (selectedRef.current?.id === playlistId) {
@@ -4275,7 +4331,7 @@ export function PlaylistsPage() {
       setPlayerCardId(null);
       return;
     }
-    const stats = await loadPlayerCardStats(newCard.id, person, target.matchId);
+    const stats = await reading;
     trackEvent("player_card_inserted", { entry, has_stats: !!stats, ...(stats ? { scope: stats.scope, source: stats.source } : {}) });
   }
 
@@ -4289,7 +4345,7 @@ export function PlaylistsPage() {
       player: { id: choice.playerId, name: choice.name, number: choice.number, teamId: null, teamName: choice.teamName },
       stats: null,
     });
-    void loadPlayerCardStats(cardId, choice);
+    void loadPlayerCardStats(cardId, choice, choice.matchId);
   }
 
   /** "Move n more clips of Alva here": brings the same player's clips from elsewhere in the playlist to the end of this card's section. */
@@ -4555,6 +4611,8 @@ export function PlaylistsPage() {
   // The player card whose inspector is open, its section's clips, and what the inspector says about them.
   const playerCardItem: PlayerCardItem | null =
     playerCardId && selected ? (selected.items.find((i): i is PlayerCardItem => isPlayerCard(i) && i.id === playerCardId) ?? null) : null;
+  // A card (player, text or stats) is on the stage, not footage: the video's errors are about a clip, not about it.
+  const cardOnStage = !!stageCard || !!playerCardItem;
   const playerCardAt = playerCardItem && selected ? selected.items.indexOf(playerCardItem) : -1;
   const playerSection = playerCardItem && selected ? playerSectionInfo(selected.items, playerCardAt, eventByKey) : null;
   const playerPreviewClips: PreviewClip[] =
@@ -4589,8 +4647,9 @@ export function PlaylistsPage() {
               !!activeMatchId &&
               videoStatusByMatch.get(activeMatchId) !== undefined &&
               videoStatusByMatch.get(activeMatchId) !== "ok" &&
-              !activeTextCard
+              !cardOnStage
             }
+            onCard={cardOnStage}
             fullscreen={playerFs.active}
             onToggleFullscreen={toggleFullscreen}
             onExitFullscreen={() => void playerFs.exit()}
@@ -4616,7 +4675,7 @@ export function PlaylistsPage() {
             speed={playbackSpeed}
             onSpeedChange={setPlaybackSpeed}
             interactive={!cropMode && !(playerCardItem && !stageCard)}
-            hideChrome={!!playerCardItem && !stageCard}
+            hideChrome={!playerFs.active && (!!stageCard || !!playerCardItem)}
             playback={stageCard ? { paused: cardPaused, toggle: toggleCard } : undefined}
             trimBar={
               trim ? (
@@ -4642,7 +4701,7 @@ export function PlaylistsPage() {
             {activeMatchId &&
               videoStatusByMatch.get(activeMatchId) !== undefined &&
               videoStatusByMatch.get(activeMatchId) !== "ok" &&
-              !activeTextCard && (
+              !cardOnStage && (
               <div
                 className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-3 bg-black/85 px-6 text-center"
                 onClick={(e) => e.stopPropagation()}
@@ -4680,13 +4739,17 @@ export function PlaylistsPage() {
                 clipCount={playerSection.clips}
                 elsewhere={playerSection.elsewhere.length}
                 statsLoading={playerStatsLoading === playerCardItem.id}
-                canReadStats={statsClips.some((c) => String(c.event.player?.playerId) === playerCardItem.player.player.id)}
+                canReadStats={
+                  statsClips.some((c) => String(c.event.player?.playerId) === playerCardItem.player.player.id) ||
+                  statsKindOf(matchLookup.get(playerChoices.find((c) => c.playerId === playerCardItem.player.player.id)?.matchId ?? "")) !== null
+                }
                 autoFocusNote={newlyInsertedCardId === playerCardItem.id}
                 onChange={(spec) => handlePlayerCardChange(playerCardItem.id, spec)}
                 onPlayerChange={(id) => handlePlayerCardPlayerChange(playerCardItem.id, id)}
                 onRetryStats={() => {
                   const p = playerCardItem.player.player;
-                  void loadPlayerCardStats(playerCardItem.id, { playerId: p.id, name: p.name, number: p.number, teamName: p.teamName });
+                  const matchId = playerChoices.find((c) => c.playerId === p.id)?.matchId;
+                  void loadPlayerCardStats(playerCardItem.id, { playerId: p.id, name: p.name, number: p.number, teamName: p.teamName, matchId }, matchId);
                 }}
                 onMoveClips={() => handleMovePlayerClips(playerCardItem.id)}
               />

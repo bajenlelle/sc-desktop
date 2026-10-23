@@ -57,6 +57,12 @@ export interface PlayerStageProps {
   interactive?: boolean;
   /** Nothing to play on the stage (a player card's report section is shown): no controls over it. */
   hideChrome?: boolean;
+  /**
+   * A card (player, text or stats) is on the stage, not footage: the video
+   * underneath keeps whatever the last clip left it with, and its error says
+   * nothing about the card, so none is shown (or reported).
+   */
+  onCard?: boolean;
   /** Overlays stacked on the footage (crop window, missing file, text card). */
   children?: React.ReactNode;
   className?: string;
@@ -94,6 +100,7 @@ export function PlayerStage({
   onSpeedChange,
   interactive = true,
   hideChrome = false,
+  onCard = false,
   children,
   className,
   handleRef,
@@ -107,9 +114,8 @@ export function PlayerStage({
   const [failure, setFailure] = React.useState<MediaFailure | null>(null);
   // A failure of the video underneath says nothing about what is on screen
   // when the file is gone (the caller's panel covers that) or a card is up
-  // (`playback` is the card's own clock; the element keeps whatever the
-  // previous clip left it with).
-  const hideFailure = !!fileMissing || !!playback;
+  // (the element keeps whatever the previous clip left it with).
+  const hideFailure = !!fileMissing || !!playback || onCard;
   const hideFailureRef = React.useRef(false);
   hideFailureRef.current = hideFailure;
   const [flash, setFlash] = React.useState<{ id: number; kind: "play" | "pause" | "sound" } | null>(null);
