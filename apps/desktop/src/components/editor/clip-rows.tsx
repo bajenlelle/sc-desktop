@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { BarChart3, Link2, MessageSquare, Play, Tag, Trash2, Type, X } from "lucide-react";
+import { BarChart3, Link2, MessageSquare, Play, Tag, Trash2, Type, UserRound, X } from "lucide-react";
 import type { Label, LabelColor } from "@scoutable/shared/types/labels";
 import { eventColors, eventLabel, formatGameClock, playerName } from "@scoutable/shared/lib/events";
 import type { GroupRunInfo } from "@scoutable/shared/lib/clip-groups";
+import { playerCardLabel, type PlayerCardItem } from "@scoutable/shared/lib/player-card";
 import { cardContent, opponentLabel } from "@scoutable/shared/lib/stats-card";
 import type { PlayByPlayEvent, PlaylistTextCard } from "@/types/match";
 import { LabelChip } from "@/components/labels/LabelChip";
@@ -150,8 +151,17 @@ function RowLead({
 const rowBase =
   "group relative flex min-h-11 cursor-default select-none items-stretch gap-1.5 pr-2 outline-none transition-colors duration-100";
 
-function rowClasses({ isSelected }: { isSelected: boolean }) {
-  return cn(rowBase, isSelected ? "bg-selection text-selection-foreground" : "hover:bg-fill-1 active:bg-fill-2");
+function rowClasses({ isSelected, underPlayer }: { isSelected: boolean; underPlayer?: boolean }) {
+  return cn(rowBase, underPlayer && "pl-2", isSelected ? "bg-selection text-selection-foreground" : "hover:bg-fill-1 active:bg-fill-2");
+}
+
+/**
+ * The thin rule down the left of the clips under a player card: they belong
+ * to that player in the scouting report. Neutral on purpose: the group rail's
+ * primary colour already means "these move together".
+ */
+function PlayerRail() {
+  return <span aria-hidden className="pointer-events-none absolute inset-y-0 left-1 w-[2px] bg-fill-4" />;
 }
 
 export function ClipRow({
@@ -172,6 +182,7 @@ export function ClipRow({
   drag,
   onInsertTextCardAbove,
   onInsertStatsCardAbove,
+  onInsertPlayerCardAbove,
   onTrim,
   onRemove,
   labelControls,
@@ -181,6 +192,7 @@ export function ClipRow({
   canGroupSelection,
   selectionCount,
   onGroupSelected,
+  underPlayer,
 }: {
   /** The row's id, for the grid's aria-activedescendant. */
   domId: string;
@@ -203,6 +215,8 @@ export function ClipRow({
   onInsertTextCardAbove?: () => void;
   /** Absent when this clip's game has no stats. */
   onInsertStatsCardAbove?: () => void;
+  /** Absent when this clip has no player, or filters are on. */
+  onInsertPlayerCardAbove?: () => void;
   /** Opens the clip for trimming; absent when it can't play (no sync point). */
   onTrim?: () => void;
   onRemove: () => void;
@@ -213,6 +227,8 @@ export function ClipRow({
   canGroupSelection?: boolean;
   selectionCount?: number;
   onGroupSelected?: () => void;
+  /** Sits under a player card: indented, with the rail. */
+  underPlayer?: boolean;
 }) {
   const colors = eventColors(event);
   const assigned = labelControls ? labelControls.labels.filter((l) => labelControls.assignedIds.has(l.id)) : [];
@@ -230,13 +246,14 @@ export function ClipRow({
           data-row-index={index}
           data-focused={focused || undefined}
           aria-selected={isSelected}
-          className={rowClasses({ isSelected })}
+          className={rowClasses({ isSelected, underPlayer })}
           onClick={onClick}
           onMouseDown={(e) => {
             if (e.shiftKey) e.preventDefault();
           }}
           onPointerDown={drag.onPointerDown}
         >
+          {underPlayer && <PlayerRail />}
           {isActive && !isSelected && <ActiveRowPill />}
           {focused && <FocusRing onSelection={isSelected} />}
           <div className={cn("relative z-10 w-[3px] shrink-0 self-stretch", colors.strip)} aria-hidden />
@@ -342,6 +359,7 @@ export function ClipRow({
         {onTrim && <ContextMenuItem onSelect={onTrim}>Trim clip…</ContextMenuItem>}
         {onInsertTextCardAbove && <ContextMenuItem onSelect={onInsertTextCardAbove}>Insert text card above</ContextMenuItem>}
         {onInsertStatsCardAbove && <ContextMenuItem onSelect={onInsertStatsCardAbove}>Insert stats card above</ContextMenuItem>}
+        {onInsertPlayerCardAbove && <ContextMenuItem onSelect={onInsertPlayerCardAbove}>Insert player card above</ContextMenuItem>}
         {canGroupSelection && isSelected && onGroupSelected && (
           <ContextMenuItem onSelect={onGroupSelected}>Group {selectionCount} selected items</ContextMenuItem>
         )}
@@ -390,6 +408,7 @@ export function TextCardRow({
   groupPos,
   groupSize,
   onUngroup,
+  underPlayer,
 }: {
   domId: string;
   card: PlaylistTextCard;
@@ -414,6 +433,8 @@ export function TextCardRow({
   groupPos?: GroupRunInfo["pos"];
   groupSize?: number;
   onUngroup?: () => void;
+  /** Sits under a player card: indented, with the rail. */
+  underPlayer?: boolean;
 }) {
   const [durationOpen, setDurationOpen] = useState(false);
   const [draftDuration, setDraftDuration] = useState(card.durationSeconds);
@@ -431,13 +452,14 @@ export function TextCardRow({
           data-row-index={index}
           data-focused={focused || undefined}
           aria-selected={isSelected}
-          className={rowClasses({ isSelected })}
+          className={rowClasses({ isSelected, underPlayer })}
           onClick={onClick}
           onMouseDown={(e) => {
             if (e.shiftKey) e.preventDefault();
           }}
           onPointerDown={drag.onPointerDown}
         >
+          {underPlayer && <PlayerRail />}
           {isActive && !isSelected && <ActiveRowPill />}
           {focused && <FocusRing onSelection={isSelected} />}
           <div className="relative z-10 w-[3px] shrink-0 self-stretch" aria-hidden />
@@ -535,6 +557,147 @@ export function TextCardRow({
       <ContextMenuContent>
         {onInsertTextCardAbove && <ContextMenuItem onSelect={onInsertTextCardAbove}>Insert text card above</ContextMenuItem>}
         {onInsertStatsCardAbove && <ContextMenuItem onSelect={onInsertStatsCardAbove}>Insert stats card above</ContextMenuItem>}
+        {groupPos && onUngroup && <ContextMenuItem onSelect={onUngroup}>Ungroup ({groupSize} items)</ContextMenuItem>}
+        <ContextMenuItem onSelect={onRemove} className="text-destructive focus:bg-destructive focus:text-white">
+          Remove from playlist
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+/**
+ * A player card in the list: the head of a section of the scouting report.
+ * The clips below it, up to the next player card, are that player's. It is
+ * never played or exported (the "Report only" chip says so); selecting it
+ * opens its inspector under the player.
+ */
+export function PlayerCardRow({
+  domId,
+  card,
+  index,
+  isInspected,
+  focused,
+  isSelected,
+  anySelected,
+  clipCount,
+  onSelect,
+  drag,
+  onClick,
+  onRemove,
+  onInsertTextCardAbove,
+  onInsertPlayerCardAbove,
+  groupPos,
+  groupSize,
+  onUngroup,
+}: {
+  domId: string;
+  card: PlayerCardItem;
+  index: number;
+  /** Its inspector is open. */
+  isInspected: boolean;
+  focused: boolean;
+  isSelected: boolean;
+  anySelected: boolean;
+  /** Clips between this card and the next. */
+  clipCount: number;
+  onSelect: (e: React.MouseEvent) => void;
+  drag: RowDragProps;
+  onClick: (e: React.MouseEvent) => void;
+  onRemove: () => void;
+  /** Absent while filters are on (a filtered list can't place it). */
+  onInsertTextCardAbove?: () => void;
+  onInsertPlayerCardAbove?: () => void;
+  groupPos?: GroupRunInfo["pos"];
+  groupSize?: number;
+  onUngroup?: () => void;
+}) {
+  const spec = card.player;
+  const { player } = spec;
+  const secondary = isSelected ? "text-selection-foreground/80" : "text-muted-foreground";
+  const detail = [player.number ? `#${player.number}` : null, player.teamName || null, `${clipCount} ${clipCount === 1 ? "clip" : "clips"}`]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div
+          id={domId}
+          role="row"
+          data-row-key={drag.rowKey}
+          data-row-index={index}
+          data-focused={focused || undefined}
+          aria-selected={isSelected}
+          aria-label={`Player card: ${playerCardLabel(spec)}`}
+          className={rowClasses({ isSelected })}
+          onClick={onClick}
+          onMouseDown={(e) => {
+            if (e.shiftKey) e.preventDefault();
+          }}
+          onPointerDown={drag.onPointerDown}
+        >
+          {isInspected && !isSelected && <ActiveRowPill />}
+          {focused && <FocusRing onSelection={isSelected} />}
+          <div className="relative z-10 w-[3px] shrink-0 self-stretch bg-primary/60" aria-hidden />
+          <RowLead groupPos={groupPos} isSelected={isSelected} showCheckbox={anySelected} onSelect={onSelect} />
+
+          <div role="gridcell" className="relative z-10 flex min-w-0 flex-1 items-center gap-2 py-1.5">
+            {(groupPos === "first" || groupPos === "only") && <GroupPill size={groupSize} onUngroup={onUngroup} />}
+            <span
+              aria-hidden
+              className={cn(
+                "flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold nums ring-1",
+                isSelected ? "ring-selection-foreground/50" : "ring-foreground/30",
+              )}
+            >
+              {player.number ? player.number : <UserRound className={cn("size-3.5", secondary)} />}
+            </span>
+            <div className="flex min-w-0 flex-1 flex-col justify-center">
+              <span className="truncate text-sm font-medium">{player.name}</span>
+              <span className={cn("truncate text-subheadline nums", secondary)}>{detail}</span>
+            </div>
+            {spec.note && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <MessageSquare className={cn("size-3 shrink-0", isSelected ? "text-selection-foreground/80" : "text-primary/60")} />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-56 whitespace-pre-wrap">{spec.note}</TooltipContent>
+              </Tooltip>
+            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className={cn(
+                    "inline-flex shrink-0 items-center rounded-full px-2 py-px text-[11px] font-medium",
+                    isSelected ? "bg-white/20 text-selection-foreground" : "bg-fill-2 text-muted-foreground",
+                  )}
+                >
+                  Report only
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>Not in the video. Shows in the shared report.</TooltipContent>
+            </Tooltip>
+          </div>
+
+          <div className="relative z-10 flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className={cn(
+                "flex size-6 items-center justify-center rounded-md transition-[opacity,background-color] duration-100 hover:bg-destructive/10 hover:text-destructive active:scale-95",
+                REVEAL,
+              )}
+              onClick={onRemove}
+              title="Remove from playlist"
+            >
+              <Trash2 className="size-3.5" />
+            </button>
+          </div>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        {onInsertTextCardAbove && <ContextMenuItem onSelect={onInsertTextCardAbove}>Insert text card above</ContextMenuItem>}
+        {onInsertPlayerCardAbove && <ContextMenuItem onSelect={onInsertPlayerCardAbove}>Insert player card above</ContextMenuItem>}
         {groupPos && onUngroup && <ContextMenuItem onSelect={onUngroup}>Ungroup ({groupSize} items)</ContextMenuItem>}
         <ContextMenuItem onSelect={onRemove} className="text-destructive focus:bg-destructive focus:text-white">
           Remove from playlist

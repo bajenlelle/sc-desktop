@@ -702,6 +702,79 @@ async fn extract_poster_frame(
     Err(format!("extract_poster_frame: {last_err}"))
 }
 
+/// Where a file about to be written goes: the output's parent must be inside
+/// `dir` (the file doesn't exist yet, so its parent is what gets resolved).
+fn resolve_output_within(output_path: &str, dir: &std::path::Path, who: &str) -> Result<std::path::PathBuf, String> {
+    let out = std::path::Path::new(output_path);
+    let file_name = out
+        .file_name()
+        .ok_or_else(|| format!("{who}: output has no file name"))?
+        .to_owned();
+    let parent = out
+        .parent()
+        .ok_or_else(|| format!("{who}: output has no parent"))?
+        .to_string_lossy()
+        .to_string();
+    Ok(resolve_within(&parent, dir)
+        .map_err(|e| format!("{who}: {e}"))?
+        .join(file_name))
+}
+
+/// One frame of the coach's own game video at `at_seconds`, as a 640 px JPEG:
+/// the poster of a clip in a scouting report (a video doesn't print, its
+/// poster does). The input must be a real file (no URL or protocol reaches
+/// ffmpeg: the path is resolved first); the output must be inside the temp
+/// dir, like every file this app writes for upload. If the second asked for is
+/// past the end, an earlier one is tried, so a clip near the end still gets one.
+#[tauri::command]
+async fn extract_clip_poster(
+    app: tauri::AppHandle,
+    video_path: String,
+    at_seconds: f64,
+    output_path: String,
+) -> Result<(), String> {
+    use tauri_plugin_shell::ShellExt;
+    if !at_seconds.is_finite() || at_seconds < 0.0 {
+        return Err("extract_clip_poster: bad time".into());
+    }
+    let video = std::path::Path::new(&video_path)
+        .canonicalize()
+        .map_err(|e| format!("extract_clip_poster: cannot resolve video: {e}"))?;
+    if !video.is_file() {
+        return Err("extract_clip_poster: video is not a file".into());
+    }
+    let output = resolve_output_within(&output_path, &std::env::temp_dir(), "extract_clip_poster")?;
+
+    let video_arg = video.to_string_lossy().to_string();
+    let output_arg = output.to_string_lossy().to_string();
+    let mut last_err = String::from("no frame extracted");
+    for seek in [at_seconds, (at_seconds - 3.0).max(0.0)] {
+        let result = app
+            .shell()
+            .sidecar("ffmpeg")
+            .map_err(|e| e.to_string())?
+            .args([
+                "-y",
+                "-ss", &format!("{seek:.3}"),
+                "-i", &video_arg,
+                "-frames:v", "1",
+                "-vf", "scale=640:-2",
+                "-q:v", "4",
+                &output_arg,
+            ])
+            .output()
+            .await
+            .map_err(sidecar_error)?;
+        // ffmpeg can exit 0 without producing a frame when -ss is past EOF.
+        let produced = std::fs::metadata(&output).map(|m| m.len() > 0).unwrap_or(false);
+        if result.status.success() && produced {
+            return Ok(());
+        }
+        last_err = String::from_utf8_lossy(&result.stderr).to_string();
+    }
+    Err(format!("extract_clip_poster: {last_err}"))
+}
+
 #[tauri::command]
 async fn get_temp_dir() -> String {
     std::env::temp_dir().to_string_lossy().to_string()
@@ -1016,6 +1089,7 @@ pub fn run() {
             read_file,
             export_clip_for_ship,
             extract_poster_frame,
+            extract_clip_poster,
             video_frames::probe_video,
             video_frames::grab_frames,
             device_identity::get_device_identity,
@@ -1228,6 +1302,30 @@ mod tests {
         let file = sandbox.join("file.txt");
         std::fs::write(&file, b"x").unwrap();
         assert!(resolve_within(file.to_str().unwrap(), &sandbox).is_ok());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn resolve_output_within_accepts_a_new_file_in_the_dir() {
+        let base = scratch("output_ok");
+        let sandbox = base.join("sandbox");
+        let out = sandbox.join("poster.jpg");
+        let got = resolve_output_within(out.to_str().unwrap(), &sandbox, "t").unwrap();
+        assert_eq!(got.file_name().unwrap(), "poster.jpg");
+        assert!(got.starts_with(sandbox.canonicalize().unwrap()));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn resolve_output_within_rejects_a_parent_outside_the_dir() {
+        let base = scratch("output_outside");
+        let sandbox = base.join("sandbox");
+        let elsewhere = base.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        let out = elsewhere.join("poster.jpg");
+        assert!(resolve_output_within(out.to_str().unwrap(), &sandbox, "t").is_err());
+        // The dir itself has no file name to write.
+        assert!(resolve_output_within("/", &sandbox, "t").is_err());
         let _ = std::fs::remove_dir_all(&base);
     }
 
