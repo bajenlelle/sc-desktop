@@ -140,6 +140,14 @@ SEED="UPDATE app_config SET value = $(d true) WHERE key = $(d player_pass_enable
     VALUES (990000001, $(d "$FIXTURES")::jsonb), (990000002, $(d "$FIXTURES_OLD")::jsonb);
   INSERT INTO space_team_choices (user_id, org_id, league_team_id) VALUES ($(d $W), $PW, $(team pp-9901));"
 
+# The season pass is off since 2026-10-23; probes of the pass offer turn it on.
+PASS_ON="INSERT INTO app_config (key, value) VALUES ($(d season_pass_enabled), $(d true))
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;"
+PASS_OFF="UPDATE app_config SET value = $(d false) WHERE key = $(d season_pass_enabled);"
+NO_TEAM="DELETE FROM space_team_choices WHERE user_id = $(d $W);"
+PAST_PRO="INSERT INTO stripe_customers (email, stripe_customer_id, subscription_id, subscription_status, plan_name)
+    VALUES ($(d probe-pass@example.invalid), $(d cus_probe), $(d sub_probe), $(d canceled), $(d pro));"
+ADMIN="UPDATE profiles SET is_platform_admin = true WHERE id = $(d $W);"
 SWITCH_LATER="UPDATE app_config SET value = (now() + interval '1 hour')::text WHERE key = $(d free_games_two_since);"
 SINGLE="INSERT INTO purchases (user_id, kind, source) VALUES ($(d $W), $(d single_game), $(d admin));"
 PASS_A="INSERT INTO purchases (id, user_id, kind, source) VALUES ($(d $PUR), $(d $W), $(d season_pass), $(d admin));
@@ -170,6 +178,7 @@ run "the old meter agrees: 0 of 2 left"                                "ALLOWED 
 
 echo "# Single games"
 run "a bought single pays for the third game"                          "ALLOWED rows=1" "$(imp m1 9900000002) $(imp m2 9900000004) $(imp m3 9900000005) $(via 9900000005 single)" "$SEED $SINGLE"
+run "a single needs no team"                                         "ALLOWED rows=1" "$(imp m1 9900000002) $(imp m2 9900000004) $(imp m3 9900000005) $(via 9900000005 single)" "$SEED $NO_TEAM $SINGLE"
 run "…and the fourth is refused"                                       "RAISES:import_limit_reached" "$(imp m1 9900000002) $(imp m2 9900000004) $(imp m3 9900000005) $(imp m4 9900000011) SELECT 1 AS n" "$SEED $SINGLE"
 run "the old meter counts the single: 1 of 3 left"                     "ALLOWED rows=1" "$(imp m1 9900000002) $(imp m2 9900000004) SELECT (get_import_quota($PW)->>'remaining')::int AS n" "$SEED $SINGLE"
 run "an expired refill grant never eats a bought single"               "ALLOWED rows=1" "$(imp m1 9900000002) $(imp m2 9900000004) $(imp m3 9900000005) RESET ROLE; UPDATE import_grants SET expires_at = now() - interval '1 second' WHERE user_id = $(d $W); INSERT INTO purchases (user_id, kind, source) VALUES ($(d $W), $(d single_game), $(d admin)); SET LOCAL ROLE authenticated; $(imp m4 9900000011) $(via 9900000011 single)" "$SEED INSERT INTO import_grants (user_id, amount, reason, expires_at, created_by) VALUES ($(d $W), 1, $(d free_refill), now() + interval '1 hour', $(d $W));"
@@ -195,9 +204,12 @@ run "…the old team's new games are not"                                "ALLOWE
 run "…and a game imported before the move re-imports free"             "ALLOWED rows=1" "$(imp m1 9900000003) SELECT move_season_pass($(d $SP), $(team pp-9902)); DELETE FROM matches WHERE id = $(d m1); $(imp m1b 9900000003) SELECT count(*) AS n FROM import_log WHERE user_id = $(d $W)" "$SEED $PASS_A"
 
 echo "# Access check (badges and the purchase sheet)"
-run "own team's game: the pass is on offer"                            "ALLOWED rows=1" "SELECT CASE WHEN (check_game_access($PW, $(d 9900000001))->>'pass_available')::boolean THEN 1 ELSE 0 END AS n" "$SEED"
-run "other teams' game: no pass on offer"                              "ALLOWED rows=0" "SELECT CASE WHEN (check_game_access($PW, $(d 9900000002))->>'pass_available')::boolean THEN 1 ELSE 0 END AS n" "$SEED"
-run "holding the pass: no second pass on offer"                        "ALLOWED rows=0" "SELECT CASE WHEN (check_game_access($PW, $(d 9900000001))->>'pass_available')::boolean THEN 1 ELSE 0 END AS n" "$SEED $PASS_A"
+run "pass switched on: own team's game has the pass on offer"           "ALLOWED rows=1" "SELECT CASE WHEN (check_game_access($PW, $(d 9900000001))->>'pass_available')::boolean THEN 1 ELSE 0 END AS n" "$SEED $PASS_ON"
+run "pass switched off: no pass on offer, own team or not"             "ALLOWED rows=0" "SELECT CASE WHEN (check_game_access($PW, $(d 9900000001))->>'pass_available')::boolean THEN 1 ELSE 0 END AS n" "$SEED $PASS_OFF"
+run "pass switched off: the access says so"                            "ALLOWED rows=0" "SELECT CASE WHEN ($ACCESS->>'pass_enabled')::boolean THEN 1 ELSE 0 END AS n" "$SEED $PASS_OFF"
+run "pass switched off: singles stay on offer"                         "ALLOWED rows=1" "SELECT CASE WHEN (check_game_access($PW, $(d 9900000002))->>'single_available')::boolean THEN 1 ELSE 0 END AS n" "$SEED $PASS_OFF"
+run "other teams' game: no pass on offer"                              "ALLOWED rows=0" "SELECT CASE WHEN (check_game_access($PW, $(d 9900000002))->>'pass_available')::boolean THEN 1 ELSE 0 END AS n" "$SEED $PASS_ON"
+run "holding the pass: no second pass on offer"                        "ALLOWED rows=0" "SELECT CASE WHEN (check_game_access($PW, $(d 9900000001))->>'pass_available')::boolean THEN 1 ELSE 0 END AS n" "$SEED $PASS_ON $PASS_A"
 run "holding the pass: the game reads as covered"                      "ALLOWED rows=1" "SELECT CASE WHEN check_game_access($PW, $(d 9900000001))->>'via' = $(d season_pass) THEN 1 ELSE 0 END AS n" "$SEED $PASS_A"
 run "sales off: no single on offer"                                    "ALLOWED rows=0" "SELECT CASE WHEN (check_game_access($PW, $(d 9900000002))->>'single_available')::boolean THEN 1 ELSE 0 END AS n" "$SEED UPDATE app_config SET value = $(d false) WHERE key = $(d player_pass_enabled);"
 run "the check needs membership of the space"                          "RAISES:not_member" "SELECT check_game_access($(d $K), $(d 9900000001))" "$SEED $CLUB"
@@ -207,7 +219,7 @@ echo "# Purchases"
 FULFIL="SELECT fulfill_player_purchase($(d cs_probe_1), $(d $W), $(d single_game), 1, 12900, $(d sek), $(d pi_probe_1), NULL)"
 ROLE=service_role run "the service role fulfils a purchase"           "ALLOWED rows=1" "$FULFIL; SELECT count(*) AS n FROM purchases WHERE user_id = $(d $W)" "$SEED"
 ROLE=service_role run "fulfilling the same session twice records one" "ALLOWED rows=1" "$FULFIL; $FULFIL; SELECT count(*) AS n FROM purchases WHERE user_id = $(d $W)" "$SEED"
-ROLE=service_role run "a fulfilled pass exists"                       "ALLOWED rows=1" "SELECT fulfill_player_purchase($(d cs_probe_2), $(d $W), $(d season_pass), 1, 79900, $(d sek), $(d pi_probe_2), NULL, $(d 2026-27), $(team pp-9901)); SELECT count(*) AS n FROM season_passes WHERE user_id = $(d $W) AND status = $(d active)" "$SEED"
+ROLE=service_role run "a paid pass is fulfilled even while it's off"  "ALLOWED rows=1" "SELECT fulfill_player_purchase($(d cs_probe_2), $(d $W), $(d season_pass), 1, 79900, $(d sek), $(d pi_probe_2), NULL, $(d 2026-27), $(team pp-9901)); SELECT count(*) AS n FROM season_passes WHERE user_id = $(d $W) AND status = $(d active)" "$SEED $PASS_OFF"
 run "a user can't fulfil their own purchase"                           "DENIED" "$FULFIL" "$SEED"
 run "a user can't refund"                                              "DENIED" "SELECT refund_player_purchase($(d pi_probe))" "$SEED $STRIPE_PASS_A"
 run "a user can't write a purchase"                                    "DENIED" "INSERT INTO purchases (user_id, kind, source) VALUES ($(d $W), $(d single_game), $(d admin))" "$SEED"
@@ -219,6 +231,10 @@ ROLE=anon run "anon can't read season passes"                         "DENIED" "
 ROLE=anon run "anon can't read anyone's access"                       "DENIED" "SELECT get_my_player_access()" "$SEED"
 run "an admin grant needs a platform admin"                            "RAISES:not_admin" "SELECT admin_grant_player_purchase($(d probe-pass@example.invalid), $(d single_game))" "$SEED"
 run "any purchase marks the account as paid"                           "ALLOWED rows=1" "SELECT CASE WHEN ($ACCESS->>'has_paid')::boolean THEN 1 ELSE 0 END AS n" "$SEED $SINGLE"
+run "a past Pro subscription marks the account as paid"                "ALLOWED rows=1" "SELECT CASE WHEN ($ACCESS->>'has_paid')::boolean THEN 1 ELSE 0 END AS n" "$SEED $PAST_PRO"
+run "a customer row without a subscription doesn't"                    "ALLOWED rows=0" "SELECT CASE WHEN ($ACCESS->>'has_paid')::boolean THEN 1 ELSE 0 END AS n" "$SEED INSERT INTO stripe_customers (email, stripe_customer_id) VALUES ($(d probe-pass@example.invalid), $(d cus_probe));"
+run "an admin can grant a single"                                      "ALLOWED rows=1" "SELECT admin_grant_player_purchase($(d probe-pass@example.invalid), $(d single_game)); SELECT count(*) AS n FROM purchases WHERE user_id = $(d $W)" "$SEED $ADMIN"
+run "an admin can't grant a pass while it's switched off"              "RAISES:pass_not_offered" "SELECT admin_grant_player_purchase($(d probe-pass@example.invalid), $(d season_pass), 1, $(team pp-9901))" "$SEED $PASS_OFF $ADMIN"
 
 echo "# Hardening"
 run "re-saving a game with the same source id passes"                  "ALLOWED rows=1" "$(imp m1 9900000002) INSERT INTO matches (id, user_id, title, source_game_id) VALUES ($(d m1), $(d $W), $(d 'Probe again'), $(d 9900000002)) ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title, source_game_id = EXCLUDED.source_game_id; SELECT count(*) AS n FROM matches WHERE id = $(d m1) AND title = $(d 'Probe again')" "$SEED"

@@ -19,7 +19,10 @@
 --
 -- Purchases are written only by the service role (the Stripe webhook in
 -- apps/web) or by a platform admin. Dormant until app_config
--- player_pass_enabled = 'true': nothing can be bought before that.
+-- player_pass_enabled = 'true': nothing can be bought before that. The season
+-- pass has its own switch, season_pass_enabled, off since 2026-10-23: players
+-- buy single games or go Pro, and the pass stays dormant (tables, functions
+-- and any existing pass keep working) until it returns for youth parents.
 --
 -- Also closes two quota holes that start to cost money once games are paid:
 --   * a saved game's source_game_id could be rewritten into another game (an
@@ -125,6 +128,7 @@ UPDATE import_log il SET via = 'plan'
 -- ---------------------------------------------------------------------------
 INSERT INTO app_config (key, value) VALUES
   ('player_pass_enabled', 'false'),
+  ('season_pass_enabled', 'false'),
   ('season_pass_season', '2026-27')
 ON CONFLICT (key) DO NOTHING;
 
@@ -171,6 +175,34 @@ AS $$
   SELECT COALESCE(SUM(quantity), 0)::int
     FROM purchases
    WHERE user_id = p_user AND kind = 'single_game' AND status = 'paid';
+$$;
+
+-- The season pass is on sale: sales are on and so is the pass itself.
+CREATE OR REPLACE FUNCTION _season_pass_on()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT COALESCE((SELECT value FROM app_config WHERE key = 'player_pass_enabled'), 'false') = 'true'
+     AND COALESCE((SELECT value FROM app_config WHERE key = 'season_pass_enabled'), 'false') = 'true';
+$$;
+
+-- The user has paid for something: a game or a pass, or a subscription at
+-- some point (the scoutable.se webhook records it in stripe_customers). Any
+-- purchase opens export for all of the user's games, so a Pro month does too.
+CREATE OR REPLACE FUNCTION _has_paid(p_user uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (SELECT 1 FROM purchases WHERE user_id = p_user AND status = 'paid')
+      OR EXISTS (SELECT 1 FROM stripe_customers sc
+                   JOIN auth.users u ON lower(u.email) = lower(sc.email)
+                  WHERE u.id = p_user AND sc.subscription_id IS NOT NULL);
 $$;
 
 -- The Genius team ids playing a game, read from the fixture cache (every
@@ -307,6 +339,8 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION _free_trial_games(uuid) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION _singles_bought(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION _season_pass_on() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION _has_paid(uuid) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION _game_teams(text) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION _covering_season_pass(uuid, text) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION _free_usage(uuid, uuid) FROM PUBLIC, anon, authenticated;
@@ -450,8 +484,8 @@ GRANT EXECUTE ON FUNCTION get_import_quota(uuid) TO authenticated;
 
 -- What importing one game would use, for the import badges and precheck.
 -- own_team: the game is one of "Your team"'s in this space. pass_available:
--- a season pass can be bought that would cover it (the game is in the season
--- on sale and no live pass for that team exists).
+-- a season pass can be bought that would cover it (the pass is on sale, the
+-- game is in the season on sale and no live pass for that team exists).
 CREATE OR REPLACE FUNCTION check_game_access(p_org_id uuid, p_game_key text, p_league_id text DEFAULT NULL)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -501,7 +535,7 @@ BEGIN
     'own_team', v_season IS NOT NULL,
     'pass_team', (SELECT lt.name FROM season_passes sp JOIN league_teams lt ON lt.id = sp.league_team_id
                    WHERE sp.id = v_pass),
-    'pass_available', v_enabled
+    'pass_available', _season_pass_on()
       AND v_season IS NOT NULL
       AND v_season = v_on_sale
       AND NOT EXISTS (SELECT 1 FROM season_passes sp
@@ -544,9 +578,10 @@ BEGIN
 
   RETURN jsonb_build_object(
     'enabled',         v_enabled,
+    'pass_enabled',    _season_pass_on(),
     'season_on_sale',  v_on_sale,
     'personal_org_id', v_org,
-    'has_paid',        EXISTS (SELECT 1 FROM purchases WHERE user_id = v_uid AND status = 'paid'),
+    'has_paid',        _has_paid(v_uid),
     'trial_games',     u.trial_cap,
     'trial_left',      GREATEST(0, u.trial_cap - u.trial_used),
     'singles_left',    GREATEST(0, u.singles - u.single_used),
@@ -686,6 +721,8 @@ BEGIN
   IF p_kind = 'season_pass' AND (p_season_id IS NULL OR p_league_team_id IS NULL) THEN
     RAISE EXCEPTION 'pass_needs_team';
   END IF;
+  -- A paid pass is fulfilled even while the pass is off: checkout stops new
+  -- ones (apps/web player-checkout), and money taken must buy what it was for.
 
   PERFORM pg_advisory_xact_lock(hashtextextended('purchase:' || p_checkout_session_id, 0));
 
@@ -796,6 +833,7 @@ DECLARE
 BEGIN
   IF NOT is_platform_admin() THEN RAISE EXCEPTION 'not_admin'; END IF;
   IF p_kind NOT IN ('single_game', 'season_pass') THEN RAISE EXCEPTION 'invalid_kind'; END IF;
+  IF p_kind = 'season_pass' AND NOT _season_pass_on() THEN RAISE EXCEPTION 'pass_not_offered'; END IF;
   IF p_quantity IS NULL OR p_quantity < 1 OR p_quantity > 50 THEN RAISE EXCEPTION 'invalid_quantity'; END IF;
 
   SELECT id INTO v_user FROM auth.users WHERE lower(email) = lower(trim(p_email));
