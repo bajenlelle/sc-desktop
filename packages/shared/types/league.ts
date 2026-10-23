@@ -13,6 +13,9 @@
  *    wire shape by attaching stages client-side.
  */
 
+/** Which play-by-play provider a league comes from (see lib/provider.ts). */
+export type LeagueProvider = "genius" | "profixio";
+
 /** A phase within a season — regular season or playoffs. */
 export interface Stage {
   id: string;
@@ -29,6 +32,8 @@ export interface Season {
   id: string;
   label: string;
   competitionId?: number;
+  /** Absent = genius (bundled and national-team placeholders never set it). */
+  provider?: LeagueProvider;
   stages: Stage[];
 }
 
@@ -38,6 +43,7 @@ export interface League {
   /** ISO 3166-1 alpha-2 — drives grouping and the flag in the picker. */
   country: string;
   gender?: "men" | "women";
+  provider?: LeagueProvider;
   /** Ordered newest-first; seasons[0] is treated as the current season. */
   seasons: Season[];
 }
