@@ -158,6 +158,37 @@ pub(crate) fn sidecar_error(e: tauri_plugin_shell::Error) -> String {
     }
 }
 
+/// ffmpeg argv that cuts one clip for Clip & Ship and scouting reports (the
+/// public per-clip files phones play). `rate` is export_frame_rate's, from
+/// the source: without it the released ffmpeg keeps a source's irregular
+/// timestamps, and x264 then signals H.264 level 6.2, which iPhones refuse.
+fn ship_clip_args(video_path: &str, start: f64, end: f64, rate: &str, out: &str) -> Vec<String> {
+    let duration = (end - start).max(0.001);
+    let fade_out_start = (duration - 0.25).max(0.0);
+    [
+        "-y",
+        "-ss", &format!("{start:.3}"),
+        "-to", &format!("{end:.3}"),
+        "-i", video_path,
+        "-vf", &format!(
+            "setpts=PTS-STARTPTS,fps={rate},\
+             scale=960:540:force_original_aspect_ratio=decrease,\
+             pad=960:540:(ow-iw)/2:(oh-ih)/2:color=black,\
+             fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25"
+        ),
+        "-af", "asetpts=PTS-STARTPTS",
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-crf", "28",
+        "-c:a", "aac",
+        "-b:a", "96k",
+        out,
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
 // ── export_playlist argument builders ────────────────────────────────────────
 // Pure so the exact argv is unit-tested and the ignored end-to-end test can run
 // it against the bundled ffmpeg.
@@ -608,30 +639,8 @@ async fn export_clip_for_ship(
     if let Some(job) = &job {
         job.own(std::path::Path::new(&output_path));
     }
-    let duration = (end - start).max(0.001);
-    let fade_out_start = (duration - 0.25).max(0.0);
-    let args: Vec<String> = [
-            "-y",
-            "-ss", &format!("{start:.3}"),
-            "-to", &format!("{end:.3}"),
-            "-i", &video_path,
-            "-vf", &format!(
-                "setpts=PTS-STARTPTS,\
-                 scale=960:540:force_original_aspect_ratio=decrease,\
-                 pad=960:540:(ow-iw)/2:(oh-ih)/2:color=black,\
-                 fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25"
-            ),
-            "-af", "asetpts=PTS-STARTPTS",
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-crf", "28",
-            "-c:a", "aac",
-            "-b:a", "96k",
-            &output_path,
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    let rate = export_frame_rate(video_frames::probe_fps(&app, &video_path).await);
+    let args = ship_clip_args(&video_path, start, end, &rate, &output_path);
     let outcome = match run_ffmpeg(&app, &args, job.as_ref()).await {
         Ok(result) if result.success => assert_rendered_output(std::path::Path::new(&output_path), "This clip"),
         Ok(result) => Err(result.stderr),
@@ -1511,6 +1520,25 @@ mod tests {
              fade=t=in:st=0:d=0.25,fade=t=out:st=1.750:d=0.25"
         );
         assert_eq!(arg_after(&args, "-pix_fmt"), "yuv420p");
+    }
+
+    #[test]
+    fn ship_clip_args_pin_the_source_rate() {
+        // Without fps= the released ffmpeg (7.1) carries a source's irregular
+        // timestamps into the clip, and x264 signals level 6.2, which iPhones
+        // refuse to play (scouting report clips, 2026-10-24).
+        let args = ship_clip_args("/v/game.mp4", 455.9, 468.9, "25", "/tmp/clip.mp4");
+        assert_eq!(&args[..7], ["-y", "-ss", "455.900", "-to", "468.900", "-i", "/v/game.mp4"]);
+        assert_eq!(
+            arg_after(&args, "-vf"),
+            "setpts=PTS-STARTPTS,fps=25,\
+             scale=960:540:force_original_aspect_ratio=decrease,\
+             pad=960:540:(ow-iw)/2:(oh-ih)/2:color=black,\
+             fade=t=in:st=0:d=0.25,fade=t=out:st=12.750:d=0.25"
+        );
+        assert_eq!(arg_after(&args, "-crf"), "28");
+        assert_eq!(arg_after(&args, "-b:a"), "96k");
+        assert_eq!(args.last().unwrap(), "/tmp/clip.mp4");
     }
 
     fn png_base64(w: u32, h: u32) -> String {
