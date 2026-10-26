@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { Loader2, X } from "lucide-react";
@@ -8,10 +8,12 @@ import {
   INITIAL_DOWNLOAD_PROGRESS,
   type DownloadProgress,
 } from "@scoutable/shared/lib/update-progress";
+import { releaseNoteLines, type ReleaseNoteLine } from "@scoutable/shared/lib/release-notes";
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Sentry } from "@/lib/sentry";
+import { cn } from "@/lib/utils";
 import { silentUpdateCheck, UPDATE_FOUND_EVENT } from "@/lib/updates";
 
 /**
@@ -112,6 +114,41 @@ export function UpdateChecker() {
   return null;
 }
 
+/** Lines the card shows before "More". */
+const NOTES_PREVIEW = 3;
+
+/**
+ * What's new in the release: its notes (the release tag's message), the first
+ * few lines in the card and the rest behind "More", so a coach knows what the
+ * update brings before restarting for it.
+ */
+function ReleaseNotes({ lines }: { lines: ReleaseNoteLine[] }) {
+  const [open, setOpen] = useState(false);
+  const shown = open ? lines : lines.slice(0, NOTES_PREVIEW);
+  return (
+    <div className="mt-2 flex flex-col gap-1">
+      <ul className={cn("flex flex-col gap-0.5 text-callout text-foreground", open && "max-h-48 overflow-y-auto")}>
+        {shown.map((l, i) => (
+          <li key={i} className={cn("[text-wrap:pretty]", l.kind === "bullet" && "relative pl-3")}>
+            {l.kind === "bullet" && <span aria-hidden className="absolute left-0 text-muted-foreground">•</span>}
+            {l.text}
+          </li>
+        ))}
+      </ul>
+      {lines.length > NOTES_PREVIEW && (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="self-start rounded-sm text-callout text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-selection"
+        >
+          {open ? "Less" : "More"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** The sidebar's update notice. */
 export function UpdateCard() {
   const { update, status, error, progress } = useUpdateState();
@@ -137,7 +174,8 @@ export function UpdateCard() {
                 {status === "error" ? error : `Version ${update.version}`}
               </p>
             );
-            const full = status === "error" ? error : update.body;
+            // A long error reads in full on hover; the release notes show in the card.
+            const full = status === "error" ? error : null;
             return full ? (
               <Tooltip>
                 <TooltipTrigger asChild>{line}</TooltipTrigger>
@@ -161,6 +199,7 @@ export function UpdateCard() {
           </button>
         )}
       </div>
+      {status === "idle" && <ReleaseNotes lines={releaseNoteLines(update.body)} />}
       {status === "downloading" && (
         <>
           <ProgressBar percent={progress.percent} className="mt-2" />
