@@ -23,6 +23,7 @@ import { PopUpButton } from "@/components/ui/pop-up-button";
 import { SearchField } from "@/components/ui/search-field";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { WelcomeCard } from "@/components/welcome-card";
+import { GetTheAppBanner } from "@/components/get-the-app-banner";
 
 /**
  * Playlists shared with the user (and, for coaches, the ones they share):
@@ -294,7 +295,12 @@ export default function MyPlaylistsPage() {
             onClearFilters={() => setFeedFilters(EMPTY_FEED_FILTERS)}
             onOpen={openPlaylist}
             onResume={resumePlaylist}
-            welcome={<WelcomeCard />}
+            welcome={
+              <>
+                <GetTheAppBanner className="mb-4" />
+                <WelcomeCard />
+              </>
+            }
             emptyBody={isCoachOrAdmin ? "Playlists other coaches share with you show up here." : undefined}
             filterControls={filterButtons || undefined}
           />

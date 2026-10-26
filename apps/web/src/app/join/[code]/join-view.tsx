@@ -13,6 +13,7 @@ import { clearPendingInvite } from "@/lib/pending-invite";
 import { asRole, inviteDestination } from "@/lib/invite-preview";
 import { setStoredActiveOrg } from "@/components/auth-context";
 import type { InviteInvalidReason, InvitePreview } from "@scoutable/shared/types/org";
+import { GET_THE_APP_PATH } from "@scoutable/shared/lib/store-links";
 import { toast } from "sonner";
 
 const INVALID_COPY: Record<InviteInvalidReason, { title: string; body: string }> = {
@@ -93,6 +94,8 @@ export default function JoinView({ code, preview }: { code: string; preview: Inv
   const isNewAccount =
     !!userCreatedAt &&
     Date.now() - new Date(userCreatedAt).getTime() < 5 * 60 * 1000;
+  // Players get the app pitch once they're in; coaches and admins go on to their work.
+  const isPlayer = preview.role === "player";
 
   // Once this page has settled the invite, the account stops carrying it
   // (lib/pending-invite.ts). Every outcome counts: joined, already in,
@@ -119,7 +122,7 @@ export default function JoinView({ code, preview }: { code: string; preview: Inv
           // (This page is outside AuthProvider, so write the stored choice
           // directly; the reload / next mount picks it up.)
           setStoredActiveOrg(result.orgId);
-          if (result.type === "org" || result.type === "secondary_org") {
+          if ((result.type === "org" || result.type === "secondary_org") && !isPlayer) {
             toast.success(`You joined ${preview.orgName ?? "the organization"}!`);
             // Admins land where their setup work happens (teams, invites);
             // everyone else lands on the playlists they came for.
@@ -221,18 +224,32 @@ export default function JoinView({ code, preview }: { code: string; preview: Inv
               <>
                 You&apos;ve been added to <span className="font-medium text-foreground">{destination}</span>
                 {preview.role && <> as {asRole(preview.role)}</>}.
+                {isPlayer && <> Scoutable for players is an app for iPhone and Android.</>}
               </>
             )
           }
         />
-        <div className="grid gap-2">
-          <Button className="w-full" onClick={() => { window.location.href = "/organization"; }}>
-            Go to your club
-          </Button>
-          <Button asChild variant="outline" className="w-full">
-            <Link href="/my-playlists">Go to my playlists</Link>
-          </Button>
-        </div>
+        {isPlayer ? (
+          <div className="grid gap-2">
+            <Button asChild className="w-full">
+              <Link href={GET_THE_APP_PATH} onClick={() => trackEvent("app_download_clicked", { surface: "join" })}>
+                Get the app
+              </Link>
+            </Button>
+            <Button asChild variant="outline" className="w-full">
+              <Link href="/my-playlists">Continue on the web</Link>
+            </Button>
+          </div>
+        ) : (
+          <div className="grid gap-2">
+            <Button className="w-full" onClick={() => { window.location.href = "/organization"; }}>
+              Go to your club
+            </Button>
+            <Button asChild variant="outline" className="w-full">
+              <Link href="/my-playlists">Go to my playlists</Link>
+            </Button>
+          </div>
+        )}
       </AuthShell>
     );
   }
