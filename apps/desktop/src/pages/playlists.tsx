@@ -45,7 +45,7 @@ import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { cn } from "@/lib/utils";
 import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderItems, updateClip, clearShippedClip, insertTextCard, updateTextCard, insertPlayerCard, updatePlayerCard, setPlaylistTeams, setPlaylistUsers, notifyPendingPlaylistShares } from "@/lib/playlists-db";
 import { groupShipFailures, mergeShipResults, type ClipShipResult } from "@scoutable/shared/lib/ship-result";
-import { listLabels, createLabel as apiCreateLabel, updateLabel as apiUpdateLabel, deleteLabel as apiDeleteLabel, seedDefaultLabels, listAssignmentsForClips, setClipAssignments as apiSetClipAssignments, bulkAssign as apiBulkAssign } from "@/lib/labels-db";
+import { listLabels, createLabel as apiCreateLabel, updateLabel as apiUpdateLabel, deleteLabel as apiDeleteLabel, seedDefaultLabels, listAssignmentsForMatches, setClipAssignments as apiSetClipAssignments, bulkAssign as apiBulkAssign } from "@/lib/labels-db";
 import { LabelChip } from "@/components/labels/LabelChip";
 import { LabelPickerPopover, type LabelTriState } from "@/components/labels/LabelPickerPopover";
 import type { Label, LabelColor, ClipKey } from "@scoutable/shared/types/labels";
@@ -264,6 +264,9 @@ export function PlaylistsPage() {
   // any game, so it asks for the rest on demand via ensureEventsFor.
   const loadedEventMatchIdsRef = useRef<Set<string>>(new Set());
   const eventFetchInFlightRef = useRef<Set<string>>(new Set());
+  // The same bookkeeping for the games whose labels are loaded (ensureLabelsFor).
+  const loadedLabelMatchIdsRef = useRef<Set<string>>(new Set());
+  const labelFetchInFlightRef = useRef<Set<string>>(new Set());
   // `playlistId:clipKey` pairs with an addClips call in flight — the drop
   // handlers' membership checks read state that lags the network call.
   const clipAddInFlightRef = useRef<Set<string>>(new Set());
@@ -424,10 +427,10 @@ export function PlaylistsPage() {
 
   // Labels — per (user, org) vocabulary + per-clip assignments
   const [labels, setLabels] = useState<Label[]>([]);
-  // Map keyed `${matchId}:${eventId}` -> Set of labelIds assigned to that clip
+  // Map keyed `${matchId}:${eventId}` -> Set of labelIds on that clip, for
+  // every game loaded so far (ensureLabelsFor). The editor and the clip
+  // browser both read it, so a label set in either shows in both.
   const [clipAssignments, setClipAssignments] = useState<Map<string, Set<string>>>(new Map());
-  /** Bank-scoped assignments for the same clips — the label filter matches both scopes. */
-  const [bankAssignments, setBankAssignments] = useState<Map<string, Set<string>>>(new Map());
   // In-playlist filter lens (transient — reset on playlist switch).
   const [queueFilters, setQueueFilters] = useState<QueueFilters>({ ...EMPTY_QUEUE_FILTERS });
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -595,6 +598,10 @@ export function PlaylistsPage() {
     setPendingNewPlaylistId(null);
     setEditingPlaylistId(null);
     setEditPlaylistName("");
+    // Labels belong to the space too: the per-game cache starts over.
+    setClipAssignments(new Map());
+    loadedLabelMatchIdsRef.current = new Set();
+    labelFetchInFlightRef.current = new Set();
     // Matches take the same includeUnscoped treatment as playlists/folders:
     // a legacy unscoped playlist otherwise references matches this page
     // can't see, so its clips silently vanish from every list.
@@ -753,6 +760,41 @@ export function PlaylistsPage() {
     }
   }, []);
 
+  /**
+   * Fetch the user's labels on every clip of these games and merge them in,
+   * the way ensureEventsFor does for play-by-play: loaded and in-flight games
+   * are skipped, other games' entries stay. The editor asks for the open
+   * playlist's games, the clip browser for the game it shows. Merged, not
+   * replaced, so a label toggled while its game's rows are still on the way
+   * isn't lost.
+   */
+  const ensureLabelsFor = useCallback(async (matchIds: string[]) => {
+    if (!activeOrgId) return;
+    const wanted = matchIds.filter(
+      (id) => id && !loadedLabelMatchIdsRef.current.has(id) && !labelFetchInFlightRef.current.has(id),
+    );
+    if (wanted.length === 0) return;
+    for (const id of wanted) labelFetchInFlightRef.current.add(id);
+    try {
+      const rows = await listAssignmentsForMatches(activeOrgId, wanted);
+      for (const id of wanted) loadedLabelMatchIdsRef.current.add(id);
+      setClipAssignments((prev) => {
+        const next = new Map(prev);
+        for (const r of rows) {
+          const key = `${r.matchId}:${r.eventId}`;
+          const set = new Set(next.get(key) ?? []);
+          set.add(r.labelId);
+          next.set(key, set);
+        }
+        return next;
+      });
+    } catch (e) {
+      console.error("ensureLabelsFor:", e);
+    } finally {
+      for (const id of wanted) labelFetchInFlightRef.current.delete(id);
+    }
+  }, [activeOrgId]);
+
   // Load label vocabulary for the active org. Re-runs when org switches.
   useEffect(() => {
     if (!activeOrgId) { setLabels([]); return; }
@@ -790,13 +832,14 @@ export function PlaylistsPage() {
   // missed (it failed, or the playlist arrived after mount) rendered its
   // clips invisible until the clip browser happened to fetch that game.
   // ensureEventsFor skips loaded/in-flight ids, so this is free when healthy.
+  // The clips' labels come from the same kind of per-game cache.
   useEffect(() => {
-    const missing = [
-      ...new Set(selectedClipKeys.map((c) => c.matchId)),
-    ].filter((id) => !loadedEventMatchIdsRef.current.has(id));
+    const games = [...new Set(selectedClipKeys.map((c) => c.matchId))];
+    const missing = games.filter((id) => !loadedEventMatchIdsRef.current.has(id));
     if (missing.length > 0) void ensureEventsFor(missing);
+    void ensureLabelsFor(games);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedClipKeys is fully represented by selectedClipKeysKey
-  }, [selectedClipKeysKey, ensureEventsFor]);
+  }, [selectedClipKeysKey, ensureEventsFor, ensureLabelsFor]);
 
   /**
    * Clip lookup by `matchId:eventId`.
@@ -817,35 +860,6 @@ export function PlaylistsPage() {
     return map;
   }, [selected]);
 
-  // Load label assignments for the selected playlist's clips.
-  // Scope is the active playlist's id — labels here are playlist-scoped.
-  useEffect(() => {
-    if (!activeOrgId || !selected || isUnsavedId(selected.id)) { setClipAssignments(new Map()); setBankAssignments(new Map()); return; }
-    const clipKeys = selectedClipKeys;
-    if (clipKeys.length === 0) { setClipAssignments(new Map()); setBankAssignments(new Map()); return; }
-    const playlistScopeId = selected.id;
-    const toMap = (rows: Awaited<ReturnType<typeof listAssignmentsForClips>>) => {
-      const next = new Map<string, Set<string>>();
-      for (const r of rows) {
-        const key = `${r.matchId}:${r.eventId}`;
-        const set = next.get(key) ?? new Set<string>();
-        set.add(r.labelId);
-        next.set(key, set);
-      }
-      return next;
-    };
-    listAssignmentsForClips(activeOrgId, clipKeys, playlistScopeId)
-      .then((rows) => setClipAssignments(toMap(rows)))
-      .catch((e) => console.error("listAssignmentsForClips:", e));
-    // Bank scope too — the in-playlist label filter matches either scope.
-    listAssignmentsForClips(activeOrgId, clipKeys, null)
-      .then((rows) => setBankAssignments(toMap(rows)))
-      .catch((e) => console.error("listAssignmentsForClips (bank):", e));
-    // selectedClipKeysKey stands in for the clip set; `selected` is read only
-    // for its id and that same set, so a same-key identity change is inert.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeOrgId, selected?.id, selectedClipKeysKey]);
-
   // -------------------------------------------------------------------------
   // Label handlers — vocabulary mgmt + per-clip and bulk assignment
   // -------------------------------------------------------------------------
@@ -864,7 +878,7 @@ export function PlaylistsPage() {
 
   const handleToggleClipLabel = useCallback(
     async (matchId: string, eventId: number, labelId: string, state: LabelTriState) => {
-      if (!activeOrgId || !selected) return;
+      if (!activeOrgId) return;
       // 'all' -> remove, 'some'/'none' -> add (Trello union semantics)
       const nextAssigned = state === "all" ? false : true;
       // Optimistic update
@@ -876,14 +890,14 @@ export function PlaylistsPage() {
         const existing = clipAssignments.get(`${matchId}:${eventId}`) ?? new Set<string>();
         const wanted = new Set(existing);
         if (nextAssigned) wanted.add(labelId); else wanted.delete(labelId);
-        await apiSetClipAssignments(activeOrgId, matchId, eventId, Array.from(wanted), selected.id);
+        await apiSetClipAssignments(activeOrgId, matchId, eventId, Array.from(wanted));
         if (nextAssigned) trackEvent("label_applied", { bulk: false });
       } catch (e) {
         console.error("toggle clip label:", e);
         toast.error("Failed to update label");
       }
     },
-    [activeOrgId, clipAssignments, setClipAssignmentLocal, selected],
+    [activeOrgId, clipAssignments, setClipAssignmentLocal],
   );
 
   const handleCreateLabel = useCallback(
@@ -966,14 +980,15 @@ export function PlaylistsPage() {
     return { bulkAssignedAll: all, bulkAssignedSome: some };
   }, [selectedClipKeyPairs, clipAssignments]);
 
-  const handleBulkToggleLabel = useCallback(
-    async (labelId: string, state: LabelTriState) => {
-      if (!activeOrgId || !selected || selectedClipKeyPairs.length === 0) return;
+  /** One label on or off many clips at once: the selection bar's and the clip browser's bulk picker. */
+  const applyBulkLabel = useCallback(
+    async (clips: ClipKey[], labelId: string, state: LabelTriState) => {
+      if (!activeOrgId || clips.length === 0) return;
       const mode: "add" | "remove" = state === "all" ? "remove" : "add";
       // Optimistic UI
       setClipAssignments((prev) => {
         const next = new Map(prev);
-        for (const { matchId, eventId } of selectedClipKeyPairs) {
+        for (const { matchId, eventId } of clips) {
           const key = `${matchId}:${eventId}`;
           const set = new Set(next.get(key) ?? []);
           if (mode === "add") set.add(labelId); else set.delete(labelId);
@@ -982,14 +997,19 @@ export function PlaylistsPage() {
         return next;
       });
       try {
-        await apiBulkAssign(activeOrgId, selectedClipKeyPairs, labelId, mode, selected.id);
+        await apiBulkAssign(activeOrgId, clips, labelId, mode);
         if (mode === "add") trackEvent("label_applied", { bulk: true });
       } catch (e) {
         console.error("bulk toggle label:", e);
         toast.error("Failed to apply label");
       }
     },
-    [activeOrgId, selectedClipKeyPairs, selected],
+    [activeOrgId],
+  );
+
+  const handleBulkToggleLabel = useCallback(
+    (labelId: string, state: LabelTriState) => applyBulkLabel(selectedClipKeyPairs, labelId, state),
+    [applyBulkLabel, selectedClipKeyPairs],
   );
 
 
@@ -1216,18 +1236,12 @@ export function PlaylistsPage() {
       if (queueFilters.eventTypes.size > 0 && !queueFilters.eventTypes.has(eventLabel(ev))) return false;
       if (queueFilters.players.size > 0 && !queueFilters.players.has(playerName(ev))) return false;
       if (queueFilters.labelIds.size > 0) {
-        const key = `${qi.matchId}:${ev.eventId}`;
-        const assigned = clipAssignments.get(key);
-        const bank = bankAssignments.get(key);
-        let hit = false;
-        for (const id of queueFilters.labelIds) {
-          if (assigned?.has(id) || bank?.has(id)) { hit = true; break; }
-        }
-        if (!hit) return false;
+        const assigned = clipAssignments.get(`${qi.matchId}:${ev.eventId}`);
+        if (!assigned || ![...queueFilters.labelIds].some((id) => assigned.has(id))) return false;
       }
       return true;
     });
-  }, [sortedEvents, filtersActive, queueFilters, clipAssignments, bankAssignments]);
+  }, [sortedEvents, filtersActive, queueFilters, clipAssignments]);
 
   /** What the queue, playback, selection and export actually operate on. */
   const queueItems = filtersActive ? filteredEvents : sortedEvents;
@@ -4931,8 +4945,6 @@ export function PlaylistsPage() {
               const key = `${activeClipKey.matchId}:${activeClipKey.eventId}`;
               const assignedIds = clipAssignments.get(key) ?? new Set<string>();
               const assigned = labels.filter((l) => assignedIds.has(l.id));
-              const playlistName = selected?.name ?? "this playlist";
-              const scopeTitle = `Labels in ${playlistName}`;
               return (
                 <div className="flex flex-wrap items-center gap-1.5 px-1">
                   <LabelPickerPopover
@@ -4940,7 +4952,7 @@ export function PlaylistsPage() {
                       <button
                         type="button"
                         className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-muted-foreground ring-1 ring-separator transition-[background-color,color,transform] duration-100 hover:bg-fill-1 hover:text-primary active:scale-95"
-                        title={scopeTitle}
+                        title="Labels"
                       >
                         <Tag className="size-3" />
                         {assigned.length === 0 ? "Add labels" : "Edit"}
@@ -4955,8 +4967,6 @@ export function PlaylistsPage() {
                     onDelete={handleDeleteLabel}
                     onSeedDefaults={handleSeedDefaultLabels}
                     align="start"
-                    scopeTitle={scopeTitle}
-                    scopeHint="Visible only in this playlist"
                   />
                   {assigned.map((l) => <LabelChip key={l.id} label={l} />)}
                 </div>
@@ -5194,8 +5204,6 @@ export function PlaylistsPage() {
                   onRecolor: handleRecolorLabel,
                   onDelete: handleDeleteLabel,
                   onSeedDefaults: handleSeedDefaultLabels,
-                  scopeTitle: `Labels in ${selected?.name ?? "this playlist"}`,
-                  scopeHint: "Visible only in this playlist",
                 } : undefined}
                 groupPos={!filtersActive ? groupRuns.get(key)?.pos : undefined}
                 groupSize={groupRuns.get(key)?.size}
@@ -5253,8 +5261,6 @@ export function PlaylistsPage() {
             onDelete={handleDeleteLabel}
             onSeedDefaults={handleSeedDefaultLabels}
             side="top"
-            scopeTitle={`Labels in ${selected?.name ?? "this playlist"}`}
-            scopeHint="Visible only in this playlist"
           />
         ) : null}
         addTo={
@@ -5638,9 +5644,13 @@ export function PlaylistsPage() {
                 onClose={() => setShowClipBrowser(false)}
                 activeOrgId={activeOrgId}
                 labels={labels}
+                labelAssignments={clipAssignments}
                 onNeedEvents={ensureEventsFor}
+                onNeedLabels={ensureLabelsFor}
                 videoStatusByMatch={videoStatusByMatch}
                 labelHandlers={{
+                  onToggleClip: handleToggleClipLabel,
+                  onBulkToggle: applyBulkLabel,
                   onCreate: handleCreateLabel,
                   onRename: handleRenameLabel,
                   onRecolor: handleRecolorLabel,

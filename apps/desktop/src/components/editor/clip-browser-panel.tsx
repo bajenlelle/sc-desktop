@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, ChevronDown, Play, Plus, Scissors, Tag, VideoOff, X } from "lucide-react";
-import { toast } from "sonner";
 import type { ClipKey, Label, LabelColor } from "@scoutable/shared/types/labels";
 import {
   eventColors,
@@ -17,11 +16,6 @@ import type { PlayByPlayEvent, Playlist, PlaylistClipItem, StoredMatch } from "@
 import { isClipItem } from "@/types/match";
 import { trackEvent } from "@/lib/analytics";
 import { togglePlayerMuted } from "@/lib/player-sound";
-import {
-  bulkAssign as apiBulkAssign,
-  listAssignmentsForClips,
-  setClipAssignments as apiSetClipAssignments,
-} from "@/lib/labels-db";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
@@ -245,7 +239,13 @@ function BrowserRow({
 // The panel
 // ---------------------------------------------------------------------------
 
+/**
+ * The page owns the labels: one cache for every game, written through these,
+ * so a label set here shows on the same clip in the open playlist at once.
+ */
 export interface ClipBrowserLabelHandlers {
+  onToggleClip: (matchId: string, eventId: number, labelId: string, state: LabelTriState) => Promise<void>;
+  onBulkToggle: (clips: ClipKey[], labelId: string, state: LabelTriState) => Promise<void>;
   onCreate: (name: string, color: LabelColor) => Promise<Label>;
   onRename: (id: string, name: string) => Promise<void>;
   onRecolor: (id: string, color: LabelColor) => Promise<void>;
@@ -266,8 +266,10 @@ export function ClipBrowserPanel({
   onClose,
   activeOrgId,
   labels,
+  labelAssignments,
   labelHandlers,
   onNeedEvents,
+  onNeedLabels,
   videoStatusByMatch,
 }: {
   matches: StoredMatch[];
@@ -277,9 +279,13 @@ export function ClipBrowserPanel({
   onClose: () => void;
   activeOrgId: string | null;
   labels: Label[];
+  /** The page's per-clip label sets, keyed `${matchId}:${eventId}`. */
+  labelAssignments: Map<string, Set<string>>;
   labelHandlers: ClipBrowserLabelHandlers;
   /** Ask the page to load play-by-play for these matches if it hasn't yet. */
   onNeedEvents: (matchIds: string[]) => Promise<void>;
+  /** The same for the labels on their clips. */
+  onNeedLabels: (matchIds: string[]) => Promise<void>;
   /** Per-match video-file health from the page's probe (machine switches). */
   videoStatusByMatch: Map<string, VideoFileStatus>;
 }) {
@@ -292,22 +298,22 @@ export function ClipBrowserPanel({
   // and flicker the loading state.
   const matchIdsKey = matches.map((m) => m.id).join(",");
 
-  // The page only preloads events for games a playlist references, so the
-  // browser pulls the game it is showing. Runs on open and on every game
-  // switch; onNeedEvents ignores ids it already has or is already fetching.
+  // The page only preloads events (and labels) for games a playlist
+  // references, so the browser pulls the game it is showing. Runs on open and
+  // on every game switch; the page ignores ids it already has or is fetching.
   useEffect(() => {
     // No filter means "all games" — the panel would render every event.
     const ids = filterMatchId ? [filterMatchId] : matchIdsKey.split(",").filter(Boolean);
     if (ids.length === 0) return;
     let cancelled = false;
     setEventsLoading(true);
-    void onNeedEvents(ids).finally(() => {
+    void Promise.all([onNeedEvents(ids), onNeedLabels(ids)]).finally(() => {
       if (!cancelled) setEventsLoading(false);
     });
     return () => {
       cancelled = true;
     };
-  }, [filterMatchId, matchIdsKey, onNeedEvents]);
+  }, [filterMatchId, matchIdsKey, onNeedEvents, onNeedLabels]);
 
   const [filterTypes, setFilterTypes] = useState<Set<string>>(new Set());
   const [filterSubTypes, setFilterSubTypes] = useState<Set<string>>(new Set());
@@ -318,8 +324,6 @@ export function ClipBrowserPanel({
   const [preRoll, setPreRoll] = useState(10);
   const [postRoll, setPostRoll] = useState(3);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set()); // "matchId:eventId"
-  // Local assignment state for the visible match.
-  const [clipAssignments, setClipAssignments] = useState<Map<string, Set<string>>>(new Map());
   const [activeEventKey, setActiveEventKey] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [queueIdx, setQueueIdx] = useState(0);
@@ -394,30 +398,11 @@ export function ClipBrowserPanel({
     if (filterTeams.size > 0 && !filterTeams.has(event.eventTeam?.teamName ?? "")) return false;
     if (filterPlayers.size > 0 && !filterPlayers.has(playerName(event))) return false;
     if (filterLabelIds.size > 0) {
-      const assigned = clipAssignments.get(`${matchId}:${event.eventId}`);
+      const assigned = labelAssignments.get(`${matchId}:${event.eventId}`);
       if (!assigned || ![...filterLabelIds].some((id) => assigned.has(id))) return false;
     }
     return true;
-  }), [allEvents, filterTypes, filterSubTypes, filterSituations, filterTeams, filterPlayers, filterLabelIds, clipAssignments]);
-
-  // Load bank-scope assignments for the visible match(es) — refreshes on
-  // game change. The bank surfaces only playlist_id IS NULL rows.
-  useEffect(() => {
-    if (!activeOrgId || allEvents.length === 0) { setClipAssignments(new Map()); return; }
-    const clips: ClipKey[] = allEvents.map(({ event, matchId }) => ({ matchId, eventId: event.eventId }));
-    listAssignmentsForClips(activeOrgId, clips, null)
-      .then((rows) => {
-        const next = new Map<string, Set<string>>();
-        for (const r of rows) {
-          const key = `${r.matchId}:${r.eventId}`;
-          const set = next.get(key) ?? new Set<string>();
-          set.add(r.labelId);
-          next.set(key, set);
-        }
-        setClipAssignments(next);
-      })
-      .catch((e) => console.error("browser listAssignmentsForClips:", e));
-  }, [activeOrgId, allEvents]);
+  }), [allEvents, filterTypes, filterSubTypes, filterSituations, filterTeams, filterPlayers, filterLabelIds, labelAssignments]);
 
   const selectedClipKeyPairs = useMemo<ClipKey[]>(() => {
     const out: ClipKey[] = [];
@@ -435,7 +420,7 @@ export function ClipBrowserPanel({
     if (selectedClipKeyPairs.length === 0) return { bulkAssignedAll: all, bulkAssignedSome: some };
     const counts = new Map<string, number>();
     for (const { matchId, eventId } of selectedClipKeyPairs) {
-      const s = clipAssignments.get(`${matchId}:${eventId}`);
+      const s = labelAssignments.get(`${matchId}:${eventId}`);
       if (!s) continue;
       for (const id of s) counts.set(id, (counts.get(id) ?? 0) + 1);
     }
@@ -445,58 +430,7 @@ export function ClipBrowserPanel({
       else if (n > 0) some.add(id);
     }
     return { bulkAssignedAll: all, bulkAssignedSome: some };
-  }, [selectedClipKeyPairs, clipAssignments]);
-
-  const handleToggleClipLabel = useCallback(
-    async (matchId: string, eventId: number, labelId: string, state: LabelTriState) => {
-      if (!activeOrgId) return;
-      const nextAssigned = state !== "all";
-      const key = `${matchId}:${eventId}`;
-      setClipAssignments((prev) => {
-        const next = new Map(prev);
-        const set = new Set(next.get(key) ?? []);
-        if (nextAssigned) set.add(labelId); else set.delete(labelId);
-        next.set(key, set);
-        return next;
-      });
-      try {
-        const existing = clipAssignments.get(key) ?? new Set<string>();
-        const wanted = new Set(existing);
-        if (nextAssigned) wanted.add(labelId); else wanted.delete(labelId);
-        await apiSetClipAssignments(activeOrgId, matchId, eventId, Array.from(wanted), null);
-        if (nextAssigned) trackEvent("label_applied", { bulk: false });
-      } catch (e) {
-        console.error("toggle clip label:", e);
-        toast.error("Failed to update label");
-      }
-    },
-    [activeOrgId, clipAssignments],
-  );
-
-  const handleBulkToggleLabel = useCallback(
-    async (labelId: string, state: LabelTriState) => {
-      if (!activeOrgId || selectedClipKeyPairs.length === 0) return;
-      const mode: "add" | "remove" = state === "all" ? "remove" : "add";
-      setClipAssignments((prev) => {
-        const next = new Map(prev);
-        for (const { matchId, eventId } of selectedClipKeyPairs) {
-          const key = `${matchId}:${eventId}`;
-          const set = new Set(next.get(key) ?? []);
-          if (mode === "add") set.add(labelId); else set.delete(labelId);
-          next.set(key, set);
-        }
-        return next;
-      });
-      try {
-        await apiBulkAssign(activeOrgId, selectedClipKeyPairs, labelId, mode, null);
-        if (mode === "add") trackEvent("label_applied", { bulk: true });
-      } catch (e) {
-        console.error("bulk toggle label:", e);
-        toast.error("Failed to apply label");
-      }
-    },
-    [activeOrgId, selectedClipKeyPairs],
-  );
+  }, [selectedClipKeyPairs, labelAssignments]);
 
   function handleGameChange(newMatchId: string | null) {
     setFilterMatchId(newMatchId);
@@ -928,11 +862,6 @@ export function ClipBrowserPanel({
       ?.scrollIntoView({ block: "nearest" });
   }, [activeEventKey]);
 
-  const bankScope = {
-    scopeTitle: "Bank labels",
-    scopeHint: "Use these to find clips later — not visible inside playlists",
-  };
-
   const videoMissing =
     videoMatchId !== null &&
     videoStatusByMatch.get(videoMatchId) !== undefined &&
@@ -958,22 +887,21 @@ export function ClipBrowserPanel({
           {activeOrgId && selectedClipKeyPairs.length > 0 && (
             <LabelPickerPopover
               trigger={
-                <Button size="sm" variant="outline" title="Bank labels">
+                <Button size="sm" variant="outline" title="Labels">
                   <Tag />
-                  Apply bank label
+                  Apply label
                   <ChevronDown className="size-3 text-muted-foreground" />
                 </Button>
               }
               labels={labels}
               assignedAllIds={bulkAssignedAll}
               assignedSomeIds={bulkAssignedSome}
-              onToggle={handleBulkToggleLabel}
+              onToggle={(labelId, state) => labelHandlers.onBulkToggle(selectedClipKeyPairs, labelId, state)}
               onCreate={labelHandlers.onCreate}
               onRename={labelHandlers.onRename}
               onRecolor={labelHandlers.onRecolor}
               onDelete={labelHandlers.onDelete}
               onSeedDefaults={labelHandlers.onSeedDefaults}
-              {...bankScope}
             />
           )}
           <Tooltip>
@@ -1114,7 +1042,7 @@ export function ClipBrowserPanel({
                 {filtered.map(({ event, matchId, matchTitle }) => {
                   const key = `${matchId}:${event.eventId}`;
                   const alreadyIn = existingSet.has(key);
-                  const assigned = activeOrgId ? labels.filter((l) => clipAssignments.get(key)?.has(l.id)) : [];
+                  const assigned = activeOrgId ? labels.filter((l) => labelAssignments.get(key)?.has(l.id)) : [];
                   return (
                     <BrowserRow
                       key={key}
@@ -1134,20 +1062,19 @@ export function ClipBrowserPanel({
                             <button
                               type="button"
                               className="flex size-6 items-center justify-center rounded-md opacity-0 transition-[opacity,background-color] duration-100 group-hover:opacity-100 hover:bg-primary/10 hover:text-primary active:scale-95 data-[state=open]:opacity-100 data-[state=open]:text-primary"
-                              title="Bank labels"
+                              title="Labels"
                             >
                               <Tag className="size-3.5" />
                             </button>
                           }
                           labels={labels}
-                          assignedAllIds={clipAssignments.get(key) ?? new Set<string>()}
-                          onToggle={(labelId, state) => handleToggleClipLabel(matchId, event.eventId, labelId, state)}
+                          assignedAllIds={labelAssignments.get(key) ?? new Set<string>()}
+                          onToggle={(labelId, state) => labelHandlers.onToggleClip(matchId, event.eventId, labelId, state)}
                           onCreate={labelHandlers.onCreate}
                           onRename={labelHandlers.onRename}
                           onRecolor={labelHandlers.onRecolor}
                           onDelete={labelHandlers.onDelete}
                           onSeedDefaults={labelHandlers.onSeedDefaults}
-                          {...bankScope}
                         />
                       ) : undefined}
                     />
