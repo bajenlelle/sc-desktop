@@ -30,8 +30,6 @@ export interface LabelRowControls {
   onRecolor: (id: string, color: LabelColor) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onSeedDefaults?: () => Promise<void>;
-  scopeTitle?: string;
-  scopeHint?: string;
 }
 
 /**
@@ -324,7 +322,7 @@ export function ClipRow({
                       "flex size-6 items-center justify-center rounded-md transition-[opacity,background-color] duration-100 hover:bg-primary/10 hover:text-primary active:scale-95 data-[state=open]:opacity-100",
                       REVEAL,
                     )}
-                    title={labelControls.scopeTitle ?? "Labels"}
+                    title="Labels"
                   >
                     <Tag className="size-3.5" />
                   </button>
@@ -337,8 +335,6 @@ export function ClipRow({
                 onRecolor={labelControls.onRecolor}
                 onDelete={labelControls.onDelete}
                 onSeedDefaults={labelControls.onSeedDefaults}
-                scopeTitle={labelControls.scopeTitle}
-                scopeHint={labelControls.scopeHint}
               />
             )}
             <button

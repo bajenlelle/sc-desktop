@@ -84,6 +84,14 @@ playlists, and share them with teams; players watch on web/mobile.
   Roboto files: the desktop's (`apps/desktop/src/lib/card-painter.ts`, its
   stage and its export) and the web's (`apps/web/src/lib/card-painter.ts`,
   the players' watch view). Change both together.
+- **Labels**: a coach's own vocabulary per space (`labels`), put on a clip
+  by `(match_id, event_id)` in `clip_label_assignments`. One kind of label,
+  shown wherever that clip appears (editor, Add clips browser, scouting
+  report), never to players directly. The desktop playlists page caches
+  them per game (`ensureLabelsFor`) and the clip browser reads and writes
+  through it. `playlist_id` on the table is a dead column from the old
+  playlist-scoped labels, kept until `20261030100000_unify_clip_labels`
+  has a follow-up that drops it.
 - **Errors**: Sentry on all three apps (org `scoutable`, EU). DSNs are
   hardcoded (public); desktop/mobile dev builds are offline unless the DSN
   env var is set. Don't add error tracking dependencies to `packages/shared`.

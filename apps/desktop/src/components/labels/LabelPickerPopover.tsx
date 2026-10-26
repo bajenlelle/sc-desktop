@@ -36,14 +36,6 @@ interface LabelPickerPopoverProps {
   onSeedDefaults?: () => Promise<void>;
   align?: "start" | "center" | "end";
   side?: "top" | "right" | "bottom" | "left";
-  /**
-   * Header shown at the top of the popover so users know which scope they're
-   * editing (e.g., "Labels in {playlist name}" or "Bank labels"). Strongly
-   * recommended whenever the same picker UI is reused across scopes.
-   */
-  scopeTitle?: string;
-  /** Optional one-liner under scopeTitle. e.g. "Visible only in this playlist". */
-  scopeHint?: string;
 }
 
 function triState(
@@ -113,8 +105,6 @@ export function LabelPickerPopover({
   onSeedDefaults,
   align = "end",
   side = "bottom",
-  scopeTitle,
-  scopeHint,
 }: LabelPickerPopoverProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -196,17 +186,6 @@ export function LabelPickerPopover({
           inputRef.current?.focus();
         }}
       >
-        {/* Scope header — clarifies which "labels" the user is editing */}
-        {scopeTitle && (
-          <div className="border-b px-3 py-2">
-            <div className="text-xs font-semibold text-foreground truncate" title={scopeTitle}>
-              {scopeTitle}
-            </div>
-            {scopeHint && (
-              <div className="text-[11px] text-muted-foreground mt-0.5">{scopeHint}</div>
-            )}
-          </div>
-        )}
 
         {/* Search / create input */}
         <div className="flex items-center gap-2 border-b px-3 py-2">
