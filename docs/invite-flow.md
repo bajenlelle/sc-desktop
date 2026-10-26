@@ -118,6 +118,17 @@ Add role-aware redirects to `ProtectedRoute` (or a new wrapper):
 - Authenticated, no `org_id` → `/onboarding`
 - Authenticated, player role, tries to access `/matches` | `/upload` | `/playlists` → redirect to `/`
 
+## What carries the invite through signup (2026-10-26)
+
+An invite link is `app.scoutable.se/join/<CODE>`. The page (`apps/web/src/app/join/[code]/`) is a server component for the link preview ("Join {club} — {team}") and a client view for the join. A signed-out visitor is sent to `/signup?next=/join/CODE` or `/login?next=…`, and `next` is kept on every link and redirect in between (validated by `packages/shared/lib/safe-next.ts`).
+
+`next` alone isn't enough, because the confirmation email may open in any browser. So the invite is also kept in two places until the person is signed in and opens it again (`apps/web/src/lib/pending-invite.ts`):
+
+- **A first-party cookie** (`sc_pending_invite`), set by the proxy when a signed-out visitor opens `/join/CODE`. Once there is a session, the proxy sends the next visit to an app page to the invite, ahead of the onboarding guard, and the cookie goes with that redirect. Same browser, any account.
+- **The account's `user_metadata.pending_invite`**, written by the signup form. Sign-in, `/auth/callback`, `/auth/confirm` and the reset page read it from a fresh user object and go to the invite when nothing else says where. Any browser, that account. Never read from the JWT: its claims lag a metadata change by up to an hour.
+
+The join page forgets the code once it has settled the invite (joined, already a member, invalid, or failed). The confirmation email itself (`supabase/templates/confirm.html`) carries a token to `/auth/confirm`, which verifies it on the server, so the session is made in whichever browser opens the email; `/auth/callback` stays for Google and Apple sign-in. `get_invite_preview` answers `already_member` for someone who is in already, so the browser that started a signup confirmed elsewhere sees "You're already in" instead of a spent single-use invite.
+
 ---
 
 ## Implementation Phases (High-Level)
