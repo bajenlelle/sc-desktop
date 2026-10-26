@@ -11,6 +11,19 @@ export type InviteInvalidReason =
   | 'expired_license'
   | 'seat_limit_reached';
 
+/** What `get_invite_preview` says about an invite code, before anyone joins. */
+export interface InvitePreview {
+  valid: boolean;
+  reason?: InviteInvalidReason;
+  /** The person asking already belongs to the club (and the invite's team). */
+  alreadyMember?: boolean;
+  orgName?: string;
+  teamName?: string | null;
+  role?: UserRole;
+  /** The address an emailed invite was sent to; admin and coach invites only work for it. */
+  email?: string | null;
+}
+
 export interface UserProfile {
   id: string;
   fullName: string | null;

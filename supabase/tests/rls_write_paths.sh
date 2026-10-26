@@ -307,6 +307,22 @@ run "join: emailed player invite sent to another address" "ALLOWED rows=1" \
 run "join: coach link without an email" "ALLOWED rows=1" \
   "SELECT count(join_by_code(\$\$RLSPRG\$\$)) AS n" \
   "$(invite RLSPRG coach NULL) $ROOM"
+# The preview (20261031100000_invite_preview_team_member): an org invite made
+# for a team names it; someone already in the club (and its team, when the
+# invite names one) is told so even when the single-use invite is spent; a
+# team member can't mint a team invite any more.
+run "preview: an org invite with a team names the team" "ALLOWED rows=1" \
+  "SELECT count(*) AS n FROM (SELECT 1 WHERE (get_invite_preview(\$\$RLSPRI\$\$)->>'team_name') IS NOT NULL) s" \
+  "INSERT INTO org_invites (org_id, code, role, created_by, team_id) VALUES (\$\$$foreign_club\$\$, \$\$RLSPRI\$\$, \$\$player\$\$, \$\$$U\$\$, \$\$$foreign_team\$\$); $ROOM"
+run "preview: a member sees 'already in' on a spent invite" "ALLOWED rows=1" \
+  "SELECT count(*) AS n FROM (SELECT 1 WHERE (get_invite_preview(\$\$RLSPRJ\$\$)->>'already_member') = \$\$true\$\$) s" \
+  "$(invite RLSPRJ player NULL) UPDATE org_invites SET used_count = 1 WHERE code=\$\$RLSPRJ\$\$; INSERT INTO org_memberships (user_id, org_id, role) VALUES (\$\$$plain_user\$\$, \$\$$foreign_club\$\$, \$\$player\$\$); $ROOM"
+run "preview: in the club but not the invite's team isn't 'already in'" "ALLOWED rows=0" \
+  "SELECT count(*) AS n FROM (SELECT 1 WHERE (get_invite_preview(\$\$RLSPRK\$\$)->>'already_member') = \$\$true\$\$) s" \
+  "INSERT INTO org_invites (org_id, code, role, created_by, team_id) VALUES (\$\$$foreign_club\$\$, \$\$RLSPRK\$\$, \$\$player\$\$, \$\$$U\$\$, \$\$$foreign_team\$\$); INSERT INTO org_memberships (user_id, org_id, role) VALUES (\$\$$plain_user\$\$, \$\$$foreign_club\$\$, \$\$player\$\$); $ROOM"
+run "rpc: generate_team_invite as a team member" DENIED \
+  "SELECT count(generate_team_invite(\$\$$foreign_team\$\$, \$\$coach\$\$)) AS n" \
+  "INSERT INTO team_members (team_id, user_id, role) VALUES (\$\$$foreign_team\$\$, \$\$$plain_user\$\$, \$\$player\$\$);"
 unset ACTOR
 run "staff: read own org's invite" "ALLOWED rows=1" \
   "SELECT count(*) AS n FROM org_invites WHERE code=\$\$RLSPRH\$\$" \

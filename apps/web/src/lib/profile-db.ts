@@ -478,33 +478,6 @@ export async function createTeam(name: string, season?: string, orgId?: string):
   return data as string;
 }
 
-export async function generateInviteCode(
-  teamId: string,
-  role: "coach" | "player",
-  maxUses?: number
-): Promise<string> {
-  const supabase = createClient();
-  const { data, error } = await supabase.rpc("generate_team_invite", {
-    p_team_id: teamId,
-    p_role: role,
-    p_max_uses: maxUses ?? null,
-    p_expires_in_hours: null,
-  });
-  if (error) throw new Error(`Failed to generate invite: ${error.message}`);
-  return data as string;
-}
-
-export async function listInvitesForTeam(teamId: string): Promise<TeamInvite[]> {
-  const supabase = createClient();
-  const { data, error } = await supabase
-    .from("team_invites")
-    .select("id, team_id, code, role, created_by, created_at, expires_at, used_count, max_uses")
-    .eq("team_id", teamId)
-    .order("created_at", { ascending: false });
-  if (error) throw new Error(`Failed to list invites: ${error.message}`);
-  return (data ?? []).map((r) => rowToInvite(r as TeamInviteRow));
-}
-
 export async function deleteInvite(inviteId: string): Promise<void> {
   const supabase = createClient();
   const { error } = await supabase.from("team_invites").delete().eq("id", inviteId);
