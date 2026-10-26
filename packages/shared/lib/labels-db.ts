@@ -1,10 +1,11 @@
 /**
  * Database operations for the `labels` and `clip_label_assignments` tables.
  *
- * Vocabulary (the `labels` table) is per-(user, org). Assignments are stored
- * in `clip_label_assignments` with a nullable `playlist_id`:
- *   * playlist_id IS NULL — bank scope (clip property, visible in Add-Clips browser)
- *   * playlist_id = <id>  — playlist scope (clip's role inside that playlist)
+ * Vocabulary (the `labels` table) is per-(user, org). An assignment puts a
+ * label on a clip, keyed by (match_id, event_id): one kind of label, shown
+ * wherever that clip appears. The table's `playlist_id` column is a leftover
+ * of the old playlist-scoped labels (20261030100000_unify_clip_labels.sql);
+ * nothing here reads or writes it, and a later migration drops it.
  *
  * Each function accepts a SupabaseClient so this module is isomorphic.
  */
@@ -17,9 +18,6 @@ import type {
   Label,
   LabelColor,
 } from "../types/labels";
-
-/** Scope discriminator: `null` = bank, string = playlist UUID. */
-export type LabelScope = string | null;
 
 // ---------------------------------------------------------------------------
 // Row types (snake_case from Postgres)
@@ -40,7 +38,6 @@ interface ClipLabelAssignmentRow {
   match_id: string;
   event_id: number;
   label_id: string;
-  playlist_id: string | null;
   assigned_at: string;
 }
 
@@ -64,15 +61,6 @@ function rowToAssignment(r: ClipLabelAssignmentRow): ClipLabelAssignment {
     labelId: r.label_id,
     assignedAt: r.assigned_at,
   };
-}
-
-// PostgREST builders for the scope filter need slightly different syntax for
-// IS NULL vs equality, so we centralize it here.
-function applyScope<T extends { is: (col: string, val: null) => T; eq: (col: string, val: string) => T }>(
-  query: T,
-  scope: LabelScope,
-): T {
-  return scope === null ? query.is("playlist_id", null) : query.eq("playlist_id", scope);
 }
 
 // ---------------------------------------------------------------------------
@@ -158,39 +146,31 @@ export async function seedDefaultLabels(
 // ---------------------------------------------------------------------------
 
 /**
- * Fetch all label assignments for a set of clips in a specific scope.
- * `scope` is `null` for the bank, or a playlist UUID for the playlist scope.
+ * Every label the user has put on any clip of these games, in one read. A
+ * game's rows are few, so callers cache per game rather than per clip.
  */
-export async function listAssignmentsForClips(
+export async function listAssignmentsForMatches(
   supabase: SupabaseClient,
   orgId: string,
-  clips: ClipKey[],
-  scope: LabelScope,
+  matchIds: string[],
 ): Promise<ClipLabelAssignment[]> {
-  if (clips.length === 0) return [];
-  // One read for every game, not one per game (a playlist with clips from
-  // eight games made eight). The two IN lists cross, so a play id asked for
-  // in one game can match a row of another: the exact pairs are kept below.
-  const wanted = new Set(clips.map(({ matchId, eventId }) => `${matchId}:${eventId}`));
-  const q = supabase
+  const ids = [...new Set(matchIds)];
+  if (ids.length === 0) return [];
+  const { data, error } = await supabase
     .from("clip_label_assignments")
-    .select("user_id, org_id, match_id, event_id, label_id, playlist_id, assigned_at")
+    .select("user_id, org_id, match_id, event_id, label_id, assigned_at")
     .eq("org_id", orgId)
-    .in("match_id", [...new Set(clips.map((c) => c.matchId))])
-    .in("event_id", [...new Set(clips.map((c) => c.eventId))]);
-  const { data, error } = await applyScope(q, scope);
+    .in("match_id", ids);
   if (error) {
-    reportDbError("listAssignmentsForClips", error);
+    reportDbError("listAssignmentsForMatches", error);
     return [];
   }
-  return ((data ?? []) as ClipLabelAssignmentRow[])
-    .filter((r) => wanted.has(`${r.match_id}:${r.event_id}`))
-    .map(rowToAssignment);
+  return ((data ?? []) as ClipLabelAssignmentRow[]).map(rowToAssignment);
 }
 
 /**
- * Replace-all semantics for one clip in one scope: set the assignment set to
- * exactly `labelIds`. Adds missing, removes extras.
+ * Replace-all semantics for one clip: set its labels to exactly `labelIds`.
+ * Adds missing, removes extras.
  */
 export async function setClipAssignments(
   supabase: SupabaseClient,
@@ -198,19 +178,16 @@ export async function setClipAssignments(
   matchId: string,
   eventId: number,
   labelIds: string[],
-  scope: LabelScope,
 ): Promise<void> {
   const { data: { user }, error: authErr } = await supabase.auth.getUser();
   if (authErr || !user) throw new Error("Not authenticated");
 
-  let readQuery = supabase
+  const { data: existing, error: readErr } = await supabase
     .from("clip_label_assignments")
     .select("label_id")
     .eq("org_id", orgId)
     .eq("match_id", matchId)
     .eq("event_id", eventId);
-  readQuery = applyScope(readQuery, scope);
-  const { data: existing, error: readErr } = await readQuery;
   if (readErr) throw new Error(`Failed to read assignments: ${readErr.message}`);
 
   const have = new Set((existing ?? []).map((r) => (r as { label_id: string }).label_id));
@@ -227,30 +204,27 @@ export async function setClipAssignments(
         match_id: matchId,
         event_id: eventId,
         label_id,
-        playlist_id: scope,
       })),
     );
     if (error) throw new Error(`Failed to add assignments: ${error.message}`);
   }
 
   if (toRemove.length > 0) {
-    let delQuery = supabase
+    const { error } = await supabase
       .from("clip_label_assignments")
       .delete()
       .eq("org_id", orgId)
       .eq("match_id", matchId)
       .eq("event_id", eventId)
       .in("label_id", toRemove);
-    delQuery = applyScope(delQuery, scope);
-    const { error } = await delQuery;
     if (error) throw new Error(`Failed to remove assignments: ${error.message}`);
   }
 }
 
 /**
- * Bulk add or remove a single label across many clips in a single scope.
+ * Bulk add or remove a single label across many clips.
  * Uses explicit diff (not upsert) because Postgrest's on_conflict doesn't
- * work with partial unique indexes.
+ * work with the table's partial unique indexes.
  */
 export async function bulkAssign(
   supabase: SupabaseClient,
@@ -258,7 +232,6 @@ export async function bulkAssign(
   clips: ClipKey[],
   labelId: string,
   mode: "add" | "remove",
-  scope: LabelScope,
 ): Promise<void> {
   if (clips.length === 0) return;
   const { data: { user }, error: authErr } = await supabase.auth.getUser();
@@ -273,19 +246,17 @@ export async function bulkAssign(
   }
 
   if (mode === "add") {
-    // Existence check, scope-aware, then insert only the missing rows.
+    // Existence check, then insert only the missing rows.
     const existing = new Set<string>();
     await Promise.all(
       Array.from(byMatch.entries()).map(async ([matchId, eventIds]) => {
-        let q = supabase
+        const { data, error } = await supabase
           .from("clip_label_assignments")
           .select("event_id")
           .eq("org_id", orgId)
           .eq("match_id", matchId)
           .eq("label_id", labelId)
           .in("event_id", eventIds);
-        q = applyScope(q, scope);
-        const { data, error } = await q;
         if (error) { reportDbError("bulkAssign existence", error); return; }
         for (const r of (data ?? []) as { event_id: number }[]) {
           existing.add(`${matchId}:${r.event_id}`);
@@ -301,7 +272,6 @@ export async function bulkAssign(
         match_id: c.matchId,
         event_id: c.eventId,
         label_id: labelId,
-        playlist_id: scope,
       }));
     if (toInsert.length > 0) {
       const { error } = await supabase.from("clip_label_assignments").insert(toInsert);
@@ -310,18 +280,16 @@ export async function bulkAssign(
     return;
   }
 
-  // remove — one delete per match, scope-aware
+  // remove — one delete per match
   await Promise.all(
     Array.from(byMatch.entries()).map(async ([matchId, eventIds]) => {
-      let q = supabase
+      const { error } = await supabase
         .from("clip_label_assignments")
         .delete()
         .eq("org_id", orgId)
         .eq("match_id", matchId)
         .eq("label_id", labelId)
         .in("event_id", eventIds);
-      q = applyScope(q, scope);
-      const { error } = await q;
       if (error) throw new Error(`Failed bulk remove: ${error.message}`);
     }),
   );

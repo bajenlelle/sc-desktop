@@ -5,7 +5,6 @@
 import { createClient } from "@/lib/supabase/client";
 import * as db from "@scoutable/shared/lib/labels-db";
 import type { ClipKey, LabelColor } from "@scoutable/shared/types/labels";
-import type { LabelScope } from "@scoutable/shared/lib/labels-db";
 
 const c = () => createClient();
 
@@ -17,23 +16,19 @@ export const updateLabel = (id: string, patch: { name?: string; color?: LabelCol
 export const deleteLabel = (id: string) => db.deleteLabel(c(), id);
 export const seedDefaultLabels = (orgId: string) => db.seedDefaultLabels(c(), orgId);
 
-export const listAssignmentsForClips = (orgId: string, clips: ClipKey[], scope: LabelScope) =>
-  db.listAssignmentsForClips(c(), orgId, clips, scope);
+export const listAssignmentsForMatches = (orgId: string, matchIds: string[]) =>
+  db.listAssignmentsForMatches(c(), orgId, matchIds);
 
 export const setClipAssignments = (
   orgId: string,
   matchId: string,
   eventId: number,
   labelIds: string[],
-  scope: LabelScope,
-) => db.setClipAssignments(c(), orgId, matchId, eventId, labelIds, scope);
+) => db.setClipAssignments(c(), orgId, matchId, eventId, labelIds);
 
 export const bulkAssign = (
   orgId: string,
   clips: ClipKey[],
   labelId: string,
   mode: "add" | "remove",
-  scope: LabelScope,
-) => db.bulkAssign(c(), orgId, clips, labelId, mode, scope);
-
-export type { LabelScope };
+) => db.bulkAssign(c(), orgId, clips, labelId, mode);
