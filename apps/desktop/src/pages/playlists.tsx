@@ -240,7 +240,7 @@ function writeStatsHintDismissed(ids: ReadonlySet<string>): void {
 }
 
 export function PlaylistsPage() {
-  const { user, activeOrgId, activeOrgPlan, activeOrgRole, activeOrgIsPersonal, myOrgs, profileLoading } = useAuth();
+  const { user, activeOrgId, activeOrgPlan, activeOrgRole, activeOrgIsPersonal, myOrgs, profile, profileLoading } = useAuth();
   // Export opens for paid plans, and for a Free space once anything is bought
   // (a single game; a Pro subscription only while it lasts).
   const { access: playerAccess, playerMode } = usePlayerAccess();
@@ -3992,15 +3992,17 @@ export function PlaylistsPage() {
     () => sortedEvents.filter((i): i is QueueItem => !isTextCard(i) && statsKindOf(matchLookup.get((i as QueueItem).matchId)) !== null),
     [sortedEvents, matchLookup],
   );
-  // The one-time suggestion in personal spaces: "Show your stats in the video".
+  // The one-time suggestion for a player in their own space: "Show your stats in the video". A coach
+  // isn't in the video, so it's never offered to one (the rule getting-started.tsx uses for a player).
+  const isPlayer = activeOrgIsPersonal && profile?.declaredRole === "player";
   const [statsHintDismissed, setStatsHintDismissed] = useState<ReadonlySet<string>>(() => readStatsHintDismissed());
   const statsHint = useMemo(() => {
-    if (!activeOrgIsPersonal || !selected || filtersActive || statsHintDismissed.has(selected.id)) return null;
+    if (!isPlayer || !selected || filtersActive || statsHintDismissed.has(selected.id)) return null;
     if (selected.items.some((i) => !isClipItem(i) && (i as PlaylistTextCard).card)) return null;
     const top = pickDefaultPlayer(statsClips.map((c) => c.event));
     if (!top || top.clips < 3) return null;
     return { severalGames: new Set(statsClips.map((c) => c.matchId)).size > 1 };
-  }, [activeOrgIsPersonal, selected, filtersActive, statsHintDismissed, statsClips]);
+  }, [isPlayer, selected, filtersActive, statsHintDismissed, statsClips]);
   // The suggestion is only the question: the numbers are read when "Add stats card" is clicked, not when the playlist opens.
 
   function dismissStatsHint() {
