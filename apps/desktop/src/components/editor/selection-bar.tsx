@@ -93,7 +93,7 @@ export function SelectionBar({
             {labelPicker}
             {addTo}
             <span aria-hidden className="mx-0.5 h-4 w-px shrink-0 bg-separator" />
-            <PillButton icon aria-label="Clear selection" title="Clear selection" onClick={onClear}>
+            <PillButton icon aria-label="Deselect all" title="Deselect all (Esc, or click empty space in the list)" onClick={onClear}>
               <X />
             </PillButton>
           </div>

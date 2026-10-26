@@ -373,6 +373,60 @@ describe("loadSeasonPlayer", () => {
   });
 });
 
+describe("loadSeasonPlayers", () => {
+  it("lists every player of the competition from one page read", async () => {
+    const { fetchPage, loader } = setup();
+    const players = await loader.loadSeasonPlayers(42132);
+    expect(fetchPage).toHaveBeenCalledExactlyOnceWith(SEASON_URL, false);
+    expect([...players.keys()].sort()).toEqual(["2000001", "2000002", "2000003", "2000004"]);
+    expect(players.get("2000002")?.line).toMatchObject({ gp: 28, ppg: 10.7, rpg: 5.2 });
+    // A player who changed teams has both rows combined.
+    expect(players.get("2000004")).toMatchObject({ stints: 2, line: { gp: 16 } });
+  });
+
+  it("parses the cached page once, and a following loadSeasonPlayer fetches nothing new", async () => {
+    const { fetchPage, loader } = setup();
+    const first = await loader.loadSeasonPlayers(42132);
+    const again = await loader.loadSeasonPlayers(42132);
+    expect(again).toBe(first);
+    expect(await loader.loadSeasonPlayer(42132, "2000003")).toBe(first.get("2000003"));
+    expect(fetchPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("shares one parse between overlapping reads", async () => {
+    const { fetchPage, loader } = setup();
+    const [a, b] = await Promise.all([loader.loadSeasonPlayers(42132), loader.loadSeasonPlayer(42132, "2000001")]);
+    expect(b).toBe(a.get("2000001"));
+    expect(fetchPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-reads and re-parses when asked for fresh numbers", async () => {
+    const { fetchPage, loader } = setup();
+    const stale = await loader.loadSeasonPlayers(42132);
+    const fresh = await loader.loadSeasonPlayers(42132, { fresh: true });
+    expect(fetchPage).toHaveBeenCalledTimes(2);
+    expect(fetchPage).toHaveBeenLastCalledWith(SEASON_URL, true);
+    expect(fresh).not.toBe(stale);
+    expect(fresh.get("2000002")?.line.ppg).toBe(10.7);
+  });
+
+  it("throws when the page can't be read, reporting only a layout change, and tries again next time", async () => {
+    const network = setup({});
+    await expect(network.loader.loadSeasonPlayers(42132)).rejects.toThrow("404");
+    expect(network.onLayoutError).not.toHaveBeenCalled();
+
+    const layout = setup({ [SEASON_URL]: seasonHtml.replaceAll(">FG%<", ">FGP<") });
+    await expect(layout.loader.loadSeasonPlayers(42132)).rejects.toBeInstanceOf(HostedLayoutError);
+    expect(layout.onLayoutError).toHaveBeenCalledExactlyOnceWith(expect.any(HostedLayoutError), SEASON_URL);
+
+    const flaky = setup();
+    flaky.fetchPage.mockRejectedValueOnce(new Error("The stats page answered 503"));
+    await expect(flaky.loader.loadSeasonPlayers(42132)).rejects.toThrow("503");
+    expect((await flaky.loader.loadSeasonPlayers(42132)).size).toBe(4);
+    expect(flaky.fetchPage).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("makeGameCard", () => {
   it("builds the card from the player's side of the game", async () => {
     const { loader } = setup();

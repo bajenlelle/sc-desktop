@@ -58,7 +58,7 @@ export interface JumpItem {
   label: string;
 }
 
-/** A row of player chips under the header, for a report with three or more players. */
+/** A row of section chips under the header (Team, then the players), for a report with three or more sections. */
 export function JumpBar({ items }: { items: JumpItem[] }) {
   const [active, setActive] = useState<string | null>(null);
 
@@ -79,7 +79,7 @@ export function JumpBar({ items }: { items: JumpItem[] }) {
 
   return (
     <nav
-      aria-label="Players"
+      aria-label="Sections"
       className="report-screen-only sticky top-0 z-10 -mx-5 border-b border-separator bg-material-toolbar px-5 py-2 backdrop-blur-xl [@media(prefers-reduced-transparency:reduce)]:bg-background [@media(prefers-reduced-transparency:reduce)]:backdrop-blur-none"
     >
       <ul className="flex gap-2 overflow-x-auto [scrollbar-width:none]">

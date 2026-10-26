@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { newPlayerCard } from "../player-card";
-import { pickPlayerCardSpot, playerRoster, type PlayerChoice } from "../player-roster";
+import { playerRoster, rosterByTeam, type PlayerChoice } from "../player-roster";
 import type { GameStats } from "../stats-card-data";
-import type { PlayByPlayEvent, PlaylistClipItem, PlaylistItem, PlaylistTextCard, StoredMatch } from "../../types/match";
+import type { PlayByPlayEvent, PlaylistClipItem, PlaylistItem, StoredMatch } from "../../types/match";
 
 type Person = { pid: number; first: string; family: string; pno: number; team: 1 | 2 };
 
@@ -36,16 +35,6 @@ function clip(matchId: string, eventId: number, over: Partial<PlaylistClipItem> 
   return { type: "clip", matchId, eventId, ...over };
 }
 
-function card(id: string, p: Person): PlaylistTextCard {
-  return {
-    type: "text",
-    id,
-    text: p.first,
-    durationSeconds: 0,
-    player: newPlayerCard({ id: String(p.pid), name: `${p.first} ${p.family}`, number: String(p.pno), teamId: null, teamName: p.team === 1 ? "Bajen Basket" : "AIK" }, null),
-  };
-}
-
 // Game m1: Alva 2 clips, Ola 1 clip; Benny, Ines and Ulf have plays but no clip in the playlist.
 const m1Events = [ev(1, ALVA), ev(2, ALVA), ev(3, OLA), ev(4, BENNY), ev(5, INES), ev(6, ULF)];
 const m1 = match("m1", m1Events);
@@ -61,7 +50,7 @@ const eventByKey = new Map<string, PlayByPlayEvent>([
 ]);
 const matches = new Map([m1, m2, m3].map((m) => [m.id, m]));
 
-const names = (r: PlayerChoice[]) => r.map((p) => p.name);
+const names = (r: readonly PlayerChoice[]) => r.map((p) => p.name);
 
 describe("playerRoster", () => {
   it("lists the players with clips first, then everyone else in the games", () => {
@@ -123,13 +112,18 @@ describe("playerRoster", () => {
     expect(roster.find((p) => p.playerId === "99")).toMatchObject({ name: "Bo Bänk", number: "14", clips: 0, matchId: "m1" });
   });
 
-  it("marks the players who already have a card", () => {
-    const items: PlaylistItem[] = [card("c1", ALVA), clip("m1", 1), clip("m1", 3)];
-    const roster = playerRoster({ items, eventByKey, matches });
+  it("marks the players who already have a report section", () => {
+    const items: PlaylistItem[] = [clip("m1", 1), clip("m1", 3)];
+    const roster = playerRoster({ items, eventByKey, matches, taken: new Set(["1"]) });
     expect(roster.find((p) => p.name === "Alva Berg")?.taken).toBe(true);
     expect(roster.find((p) => p.name === "Ola Nilsson")?.taken).toBe(false);
-    // A card is allowed for someone with no clips too.
+    // A section is allowed for someone with no clips too.
     expect(roster.find((p) => p.name === "Benny Holm")?.taken).toBe(false);
+  });
+
+  it("takes nobody when no sections are given", () => {
+    const roster = playerRoster({ items: [clip("m1", 1), clip("m1", 3)], eventByKey, matches });
+    expect(roster.every((p) => !p.taken)).toBe(true);
   });
 
   it("takes a blank team name from the game data", () => {
@@ -144,93 +138,41 @@ describe("playerRoster", () => {
   });
 });
 
-describe("pickPlayerCardSpot", () => {
-  const roster = (items: PlaylistItem[]) => playerRoster({ items, eventByKey, matches });
-
-  it("takes the player of the clips next to the insertion", () => {
-    const items: PlaylistItem[] = [clip("m1", 3), clip("m1", 1), clip("m1", 2)];
-    const spot = pickPlayerCardSpot(items, 1, eventByKey, roster(items));
-    expect(spot).toMatchObject({ ok: true, matchId: "m1", insertAt: 1 });
-    expect(spot.ok && spot.player.name).toBe("Alva Berg");
+describe("rosterByTeam", () => {
+  const choice = (name: string, teamName: string, clips: number): PlayerChoice => ({
+    playerId: name,
+    name,
+    number: null,
+    teamName,
+    clips,
+    matchId: "m1",
+    taken: false,
   });
 
-  it("from the toolbar goes above the player's run of clips", () => {
-    const items: PlaylistItem[] = [clip("m1", 3), clip("m1", 1), clip("m1", 2)];
-    // Inserting after Alva's two clips would split nothing but land below them: back up to the run's start.
-    const spot = pickPlayerCardSpot(items, 3, eventByKey, roster(items), { fromToolbar: true });
-    expect(spot).toMatchObject({ ok: true, insertAt: 1 });
-    expect(spot.ok && spot.player.name).toBe("Alva Berg");
+  it("groups the roster by team, the team with most clips first, players in roster order", () => {
+    const roster = playerRoster({ items: [clip("m1", 5), clip("m1", 6), clip("m1", 1)], eventByKey, matches });
+    const teams = rosterByTeam(roster);
+    expect(teams.map((t) => t.teamName)).toEqual(["AIK", "Bajen Basket"]);
+    // Ines (1 clip) and Ulf (1 clip) stay in roster order; the rest of Bajen keep theirs too.
+    expect(names(teams[0].players)).toEqual(["Ines Ek", "Ulf Sand"]);
+    expect(names(teams[1].players)).toEqual(["Alva Berg", "Benny Holm", "Ola Nilsson"]);
   });
 
-  it("brings a removed card back above that player's clips", () => {
-    // Alva's card, Alva's clip, then Ola's two clips whose card was just removed, then Benny's card and clip.
-    const items: PlaylistItem[] = [
-      card("a", ALVA),
-      clip("m1", 1),
-      clip("m2", 1),
-      clip("m2", 2),
-      card("b", BENNY),
-      clip("m1", 4),
-    ];
-    const spot = pickPlayerCardSpot(items, items.length, eventByKey, roster(items), { fromToolbar: true });
-    expect(spot).toMatchObject({ ok: true, insertAt: 2, matchId: "m2" });
-    expect(spot.ok && spot.player.name).toBe("Ola Nilsson");
+  it("orders teams with the same clips by name", () => {
+    const teams = rosterByTeam([choice("b", "Zebras", 1), choice("a", "Antelopes", 1), choice("c", "Zebras", 0)]);
+    expect(teams.map((t) => t.teamName)).toEqual(["Antelopes", "Zebras"]);
+    expect(names(teams[1].players)).toEqual(["b", "c"]);
   });
 
-  it("keeps the card out of a group", () => {
-    const items: PlaylistItem[] = [
-      card("a", ALVA),
-      clip("m1", 1),
-      clip("m1", 3, { groupId: "g" }),
-      clip("m2", 1, { groupId: "g" }),
-      card("b", BENNY),
-      clip("m1", 4),
-    ];
-    // Ola's first clip is the group's first member: the card goes above the group's start (index 2).
-    const spot = pickPlayerCardSpot(items, items.length, eventByKey, roster(items), { fromToolbar: true });
-    expect(spot).toMatchObject({ ok: true, insertAt: 2 });
-    expect(spot.ok && spot.player.name).toBe("Ola Nilsson");
-
-    // And when the group starts earlier, at the group's first item.
-    const grouped: PlaylistItem[] = [
-      card("a", ALVA),
-      clip("m1", 1, { groupId: "g" }),
-      clip("m1", 3, { groupId: "g" }),
-      card("b", BENNY),
-      clip("m1", 4),
-    ];
-    const spot2 = pickPlayerCardSpot(grouped, grouped.length, eventByKey, roster(grouped), { fromToolbar: true });
-    expect(spot2).toMatchObject({ ok: true, insertAt: 1 });
+  it("puts players with no team name in a nameless team after the named ones with as many clips", () => {
+    const teams = rosterByTeam([choice("x", "", 1), choice("a", "Antelopes", 1), choice("y", "", 0)]);
+    expect(teams.map((t) => t.teamName)).toEqual(["Antelopes", ""]);
+    expect(names(teams[1].players)).toEqual(["x", "y"]);
+    // More clips still wins: the nameless group is a data gap, not a ranking.
+    expect(rosterByTeam([choice("x", "", 2), choice("a", "Antelopes", 1)]).map((t) => t.teamName)).toEqual(["", "Antelopes"]);
   });
 
-  it("falls back to a player with no clips when everyone with clips has a card", () => {
-    const items: PlaylistItem[] = [card("a", ALVA), clip("m1", 1), card("o", OLA), clip("m1", 3)];
-    const spot = pickPlayerCardSpot(items, items.length, eventByKey, roster(items), { fromToolbar: true });
-    expect(spot).toMatchObject({ ok: true, insertAt: items.length, matchId: "m1" });
-    // The first free player of the games: the clipped team's, by shirt number.
-    expect(spot.ok && spot.player.name).toBe("Benny Holm");
-  });
-
-  it("says so when everyone in the games has a card", () => {
-    const everyone = [ALVA, OLA, BENNY, INES, ULF];
-    const items: PlaylistItem[] = [...everyone.map((p, i) => card(`c${i}`, p)), clip("m1", 1)];
-    const spot = pickPlayerCardSpot(items, items.length, eventByKey, roster(items));
-    expect(spot).toEqual({ ok: false, reason: "none_free" });
-  });
-
-  it("starts from the clip a row's menu names", () => {
-    const items: PlaylistItem[] = [clip("m1", 1), clip("m1", 3)];
-    const spot = pickPlayerCardSpot(items, 1, eventByKey, roster(items), { anchor: { matchId: "m1", event: eventByKey.get("m1:3")! } });
-    expect(spot).toMatchObject({ ok: true, insertAt: 1, matchId: "m1" });
-    expect(spot.ok && spot.player.name).toBe("Ola Nilsson");
-  });
-
-  it("refuses a row's menu when that player has a card, or the play has no player", () => {
-    const items: PlaylistItem[] = [card("o", OLA), clip("m1", 3), clip("m1", 1)];
-    const taken = pickPlayerCardSpot(items, 2, eventByKey, roster(items), { anchor: { matchId: "m1", event: eventByKey.get("m1:3")! } });
-    expect(taken).toEqual({ ok: false, reason: "anchor_has_card" });
-    const marker = ev(50, null, { type: "period_start" });
-    const none = pickPlayerCardSpot(items, 2, eventByKey, roster(items), { anchor: { matchId: "m1", event: marker } });
-    expect(none).toEqual({ ok: false, reason: "anchor_no_player" });
+  it("is empty for an empty roster", () => {
+    expect(rosterByTeam([])).toEqual([]);
   });
 });

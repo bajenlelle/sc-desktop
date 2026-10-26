@@ -50,18 +50,6 @@ describe("buildWatchItems", () => {
     expect(items[1]).toMatchObject({ kind: "text", card: { text: "Box out" } });
   });
 
-  it("leaves out player cards: the owner's own playlist can carry them, a watcher plays footage", () => {
-    const player: PlaylistTextCard = {
-      type: "text",
-      id: "pc1",
-      text: "#7 Alva Berg",
-      durationSeconds: 0,
-      player: { type: "player", v: 1, player: { id: "9", name: "Alva Berg", number: "7", teamId: null, teamName: "" }, note: "", stats: null },
-    };
-    const items = buildWatchItems(playlist([clip("m1", 1), player, card("c1"), clip("m1", 2)]), events);
-    expect(items.map((i) => i.key)).toEqual(["m1:1", "text:c1", "m1:2"]);
-  });
-
   it("leaves out clips that are not uploaded or whose play is missing", () => {
     const items = buildWatchItems(
       playlist([clip("m1", 1, { r2Url: undefined }), clip("m1", 9), clip("m1", 2)]),

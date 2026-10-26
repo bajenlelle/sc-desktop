@@ -26,14 +26,13 @@ import { VideoPlaceholder } from "@/components/video-placeholder";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { CardImage } from "@/components/editor/card-image";
 import { StatsCardInspector } from "@/components/editor/stats-card-inspector";
-import { PlayerCardInspector } from "@/components/editor/player-card-inspector";
-import { pickPlayerCardSpot, playerRoster, type PlayerChoice } from "@scoutable/shared/lib/player-roster";
-import { PlayerCardPreview, type PreviewClip } from "@/components/editor/player-card-preview";
-import { ScoutingReportDialog, type ScoutingReportRun } from "@/components/editor/scouting-report-dialog";
+import type { ScoutingReportRun } from "@/components/editor/scouting-report-dialog";
+import { ReportView } from "@/components/report/report-view";
 import { generateScoutingReport, type GenerateOutcome } from "@/lib/scouting-report";
 import { getMyScoutingReport, type MyScoutingReport } from "@/lib/scouting-reports-db";
-import { isPlayerCard, newPlayerCard, playerCardLabel, playerCardsOf, type PlayerCardItem, type PlayerCardSpec } from "@scoutable/shared/lib/player-card";
-import { buildScoutingReport, defaultOpponent, playerSectionInfo, reportOutline, sectionBlockKeys, sectionEnd, snapGapToSectionBoundary } from "@scoutable/shared/lib/scouting-report";
+import { defaultOpponent, type ReportDraft } from "@scoutable/shared/lib/report-draft";
+import { emptyHistory, itemsDiff, materialize, pasteIndexAfter, pasteItems, recordEdit, takeRedo, takeUndo, type History, type ItemsEdit } from "@scoutable/shared/lib/playlist-history";
+import { IS_MACOS } from "@/lib/platform";
 import { fallbackText, formatCardDate, pickDefaultPlayer, type StatsCardPlayer, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
 import { leagueSeasonsOf, loadGameStats, loadSeasonPlayer, makeGameCard, makeSeasonCard, seasonOf, statsKindOf, type GameStats } from "@/lib/stats-card-data";
 import { useLeagues } from "@/lib/use-leagues";
@@ -43,7 +42,7 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { probeMatches, type VideoFileStatus } from "@/lib/video-probe";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { cn } from "@/lib/utils";
-import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderItems, updateClip, clearShippedClip, insertTextCard, updateTextCard, insertPlayerCard, updatePlayerCard, setPlaylistTeams, setPlaylistUsers, notifyPendingPlaylistShares } from "@/lib/playlists-db";
+import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderItems, updateClip, clearShippedClip, insertTextCard, updateTextCard, setPlaylistTeams, setPlaylistUsers, notifyPendingPlaylistShares } from "@/lib/playlists-db";
 import { groupShipFailures, mergeShipResults, type ClipShipResult } from "@scoutable/shared/lib/ship-result";
 import { listLabels, createLabel as apiCreateLabel, updateLabel as apiUpdateLabel, deleteLabel as apiDeleteLabel, seedDefaultLabels, listAssignmentsForMatches, setClipAssignments as apiSetClipAssignments, bulkAssign as apiBulkAssign } from "@/lib/labels-db";
 import { LabelChip } from "@/components/labels/LabelChip";
@@ -120,7 +119,7 @@ import { Toolbar } from "@/components/shell/toolbar";
 import { EditorToolbar } from "@/components/editor/editor-toolbar";
 import { PlayerStage } from "@/components/editor/player-stage";
 import { usePersistentVideo } from "@/components/editor/use-persistent-video";
-import { ClipRow, PlayerCardRow, TextCardRow } from "@/components/editor/clip-rows";
+import { ClipRow, TextCardRow } from "@/components/editor/clip-rows";
 import { ClipTrimmer, type TrimWindow } from "@/components/editor/clip-trimmer";
 import { formatSeconds, offsetsForTrim, stepToWhole } from "@scoutable/shared/lib/trim-math";
 import { Kbd } from "@/components/ui/kbd";
@@ -163,11 +162,6 @@ function isTextCard(i: PlaybackItem): i is PlaylistTextCard {
   return (i as PlaylistTextCard).type === 'text';
 }
 
-/** A player card (the scouting report's entry): in the list, never played or exported. */
-function isPlayerItem(i: PlaybackItem): i is PlayerCardItem {
-  return isTextCard(i) && i.player !== undefined;
-}
-
 function itemKey(i: PlaybackItem): string {
   if (isTextCard(i)) return `text:${i.id}`;
   return `${i.matchId}:${i.event.eventId}`;
@@ -192,6 +186,16 @@ function findRow(container: HTMLElement | null, key: string): HTMLElement | null
  * A new playlist keeps its `temp-` id until the save of its name returns, and
  * the database rejects that id: until then nothing may open, fill or target it.
  */
+/** One toast for changes to the rows and their undo: a new one replaces the last. */
+const EDIT_TOAST = "playlist-edit";
+/** The modifier the edit shortcuts use, as the toasts name it. */
+const MOD = IS_MACOS ? "⌘" : "Ctrl+";
+/**
+ * What ⌘C or ⌘X took, for ⌘V in this playlist or another. The app's own
+ * clipboard: rows can't travel through the system's, which gets them as text.
+ */
+let rowClipboard: PlaylistItem[] = [];
+
 function isUnsavedId(id: string): boolean {
   return id.startsWith("temp-");
 }
@@ -481,14 +485,18 @@ export function PlaylistsPage() {
 
   const [newlyInsertedCardId, setNewlyInsertedCardId] = useState<string | null>(null);
 
-  // The scouting report: the player card whose inspector is open (selecting its
-  // row opens it, playing anything closes it), the card whose stats are being
-  // read, the share dialog, and the playlist's live report.
-  const [playerCardId, setPlayerCardId] = useState<string | null>(null);
-  const [playerStatsLoading, setPlayerStatsLoading] = useState<string | null>(null);
-  // Cards whose last read failed (the network), as opposed to a player the league has no numbers for.
-  const [playerStatsFailed, setPlayerStatsFailed] = useState<ReadonlySet<string>>(() => new Set());
-  const [reportOpen, setReportOpen] = useState(false);
+  // The scouting report: whether the playlist's report view is open in place of
+  // the editor, the clip to reveal when coming back from it, and the playlist's live report.
+  // The playlist whose report is open; another playlist selected means the editor again, in the same render.
+  const [reportFor, setReportFor] = useState<string | null>(null);
+  const reportView = !!selected && reportFor === selected.id;
+  const pendingRevealKeyRef = useRef<string | null>(null);
+  // ⌘Z / ⇧⌘Z per playlist for this session (lib/playlist-history.ts), and each
+  // playlist's writes in order, so an undo never overtakes the edit it undoes.
+  const historyRef = useRef(new Map<string, History>());
+  const writeChainRef = useRef(new Map<string, Promise<boolean>>());
+  // The toolbar row the report view fills, so its toolbar sits where the clips toolbar does.
+  const [reportToolbarSlot, setReportToolbarSlot] = useState<HTMLDivElement | null>(null);
   const [myReport, setMyReport] = useState<MyScoutingReport | null>(null);
   const [upsellReport, setUpsellReport] = useState(false);
 
@@ -1247,9 +1255,8 @@ export function PlaylistsPage() {
   const queueItems = filtersActive ? filteredEvents : sortedEvents;
   /** The rows on screen, in order: what focus moves over and ranges span. */
   const visibleKeys = useMemo(() => queueItems.map(itemKey), [queueItems]);
-  /** What can play: the list without the player cards, which are the report's. */
-  const playableItems = useMemo(() => queueItems.filter((i) => !isPlayerItem(i)), [queueItems]);
-  const playableKeys = useMemo(() => playableItems.map(itemKey), [playableItems]);
+  const playableItems = queueItems;
+  const playableKeys = visibleKeys;
 
   // Rows that leave the screen (a filter hid them, or they were removed)
   // leave the selection too, so a bulk remove never takes rows nobody can
@@ -1708,10 +1715,7 @@ export function PlaylistsPage() {
   }, [localVideoUrl]);
 
   function startQueue(queue: PlaybackItem[], holdFirstCard = false) {
-    // Player cards are the report's: never played.
-    queue = queue.filter((i) => !isPlayerItem(i));
     if (queue.length === 0) return;
-    setPlayerCardId(null);
     abandonTrim();
     const firstItem = queue[0];
     queueRef.current = queue;
@@ -1743,12 +1747,6 @@ export function PlaylistsPage() {
   }
 
   function handleRowClick(item: PlaybackItem) {
-    // A player card opens its inspector and shows its section on the stage; nothing plays.
-    if (isPlayerItem(item)) {
-      handleStop();
-      setPlayerCardId(item.id);
-      return;
-    }
     const idx = queueItems.findIndex((i) => itemKey(i) === itemKey(item));
     const queue = idx >= 0 ? queueItems.slice(idx) : [item];
     // A card shows held, so it can be read and edited; Play carries on from it.
@@ -1849,19 +1847,17 @@ export function PlaylistsPage() {
     setFocusKey(to);
   }
 
-  /** A click on a row: plain plays it, ⌘ toggles it, Shift selects the range from the anchor. */
+  /**
+   * A click on a row: plain plays it (and lets go of the selection when the row
+   * isn't in it), ⌘ toggles it, Shift selects the range from the anchor.
+   */
   function handleRowPress(item: PlaybackItem, e: React.MouseEvent) {
     const key = itemKey(item);
     const shift = e.shiftKey;
     const toggle = e.metaKey || e.ctrlKey;
     gridRef.current?.focus({ preventScroll: true });
-    if (!shift && !toggle) {
-      setFocusKey(key);
-      setAnchorKey(key);
-      handleRowClick(item);
-      return;
-    }
     applyClickSelection(key, shift, toggle);
+    if (!shift && !toggle) handleRowClick(item);
   }
 
   /** The row's checkbox: a toggle, or with Shift the range from the anchor. */
@@ -1880,7 +1876,9 @@ export function PlaylistsPage() {
       shift,
       toggle,
     });
-    setSelectedClipIds(next.selected);
+    // A plain click inside the selection keeps it: same rows, no re-render of every row.
+    const same = next.selected.size === selectedClipIds.size && [...next.selected].every((k) => selectedClipIds.has(k));
+    if (!same) setSelectedClipIds(next.selected);
     setAnchorKey(next.anchor);
     setFocusKey(next.focus);
   }
@@ -2003,8 +2001,24 @@ export function PlaylistsPage() {
   // One key owner for the page (src/lib/key-scope.ts); the Add Clips sheet
   // registers its own scope on top while it is open. The handler closes
   // over the latest render, so no refs are needed for state.
-  useKeyScope("editor", true);
+  useKeyScope("editor", !reportView);
   useHotkeys("editor", (e) => {
+    // Edit shortcuts for the rows. A text field keeps its own (useHotkeys skips fields), and so
+    // does text selected on the page for ⌘C.
+    if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+      const k = e.key.toLowerCase();
+      const textSelected = !!window.getSelection()?.toString();
+      const done =
+        k === "z" ? stepHistory(e.shiftKey ? "redo" : "undo")
+        : k === "y" && !IS_MACOS && !e.shiftKey ? stepHistory("redo")
+        : (k === "c" || k === "x") && !e.shiftKey && !textSelected ? copyRows(k === "x")
+        : k === "v" && !e.shiftKey ? pasteRows()
+        : false;
+      if (done) {
+        e.preventDefault();
+        return;
+      }
+    }
     // ⌘. is the Mac's "stop what's running": here, a Save to computer render.
     if ((e.metaKey || e.ctrlKey) && e.key === "." && isExporting) {
       e.preventDefault();
@@ -2163,6 +2177,19 @@ export function PlaylistsPage() {
     setNewlyInsertedCardId(null);
   }, [newlyInsertedCardId, sortedEvents]);
 
+  // Back from the report with "Open in playlist": that clip is the focused, selected row.
+  useEffect(() => {
+    const key = pendingRevealKeyRef.current;
+    if (reportView || !key) return;
+    pendingRevealKeyRef.current = null;
+    if (!visibleKeys.includes(key)) return;
+    setFocusKey(key);
+    setAnchorKey(key);
+    setSelectedClipIds(new Set([key]));
+    setKeyboardNav(true);
+    requestAnimationFrame(() => findRow(gridRef.current, key)?.scrollIntoView({ block: "center" }));
+  }, [reportView, visibleKeys]);
+
   /** Map display items back to PlaylistItems, preserving all original fields (incl. groupId). */
   function mapDisplayToItems(newDisplayItems: PlaybackItem[]): PlaylistItem[] {
     if (!selected) return [];
@@ -2179,28 +2206,10 @@ export function PlaylistsPage() {
     });
   }
 
-  /**
-   * Optimistic local update + persist positions and group membership. A
-   * failed save puts the old order back and offers a retry, so the list
-   * never keeps showing an order the server doesn't have.
-   */
-  async function applyItemsUpdate(newItems: PlaylistItem[]) {
+  /** A new order or new groups (a move, Group, Ungroup): shown at once, saved in order, undoable. */
+  async function applyItemsUpdate(newItems: PlaylistItem[], label = "Move") {
     if (!selected) return;
-    const before = selected;
-    const updatedPlaylist = { ...selected, items: newItems };
-    setPlaylists((prev) => prev.map((p) => p.id === before.id ? updatedPlaylist : p));
-    setSelected(updatedPlaylist);
-    try {
-      await reorderItems(before.id, newItems);
-    } catch (err) {
-      console.error("[playlists] Failed to save the new order:", err);
-      Sentry.captureException(err);
-      setPlaylists((prev) => prev.map((p) => p.id === before.id ? before : p));
-      setSelected((prev) => (prev && prev.id === before.id ? before : prev));
-      toast.error("Couldn't save the new order", {
-        action: { label: "Retry", onClick: () => void applyItemsUpdate(newItems) },
-      });
-    }
+    await commitItemsEdit(selected, newItems, label);
   }
 
   async function handleReorder(newDisplayItems: PlaybackItem[]) {
@@ -2245,7 +2254,7 @@ export function PlaylistsPage() {
     setClockSort("none");
     setSelectedClipIds(new Set());
     trackEvent("clips_grouped", { playlist_id: selected.id, clip_count: memberKeys.size });
-    await applyItemsUpdate(newItems);
+    await applyItemsUpdate(newItems, "Group");
   }
 
   async function handleUngroup(groupId: string) {
@@ -2256,7 +2265,7 @@ export function PlaylistsPage() {
       const { groupId: _g, ...rest } = it;
       return rest as PlaylistItem;
     });
-    await applyItemsUpdate(newItems);
+    await applyItemsUpdate(newItems, "Ungroup");
     trackEvent("clips_ungrouped", { clip_count: clipCount });
   }
 
@@ -2378,22 +2387,11 @@ export function PlaylistsPage() {
     const newItems = [...selected.items];
     newItems.splice(itemsInsertIndex, 0, newClip);
     const target = selected;
-    setPlaylists((prev) => prev.map((p) => (p.id === target.id ? { ...p, items: newItems } : p)));
-    setSelected((prev) => (prev && prev.id === target.id ? { ...prev, items: newItems } : prev));
     trackEvent("clip_added_to_playlist", { playlist_id: target.id, match_id: matchId });
-    // Arm after the rows exist so updateClipR2Url has something to patch.
-    void addClips(target.id, [newClip], itemsInsertIndex)
-      .then(() => queuePendingShip(target))
-      .catch((err) => {
-        console.error("[playlists] Failed to add dropped clip to queue:", err);
-        // Catching it here is what keeps the toast honest, but it also stops
-        // the rejection reaching Sentry on its own — so report it.
-        Sentry.captureException(err);
-        const without = (items: PlaylistItem[]) => items.filter((i) => !(isClipItem(i) && isSame(i)));
-        setPlaylists((prev) => prev.map((p) => (p.id === target.id ? { ...p, items: without(p.items) } : p)));
-        setSelected((prev) => (prev && prev.id === target.id ? { ...prev, items: without(prev.items) } : prev));
-        toast.error("Couldn't add the clip");
-      });
+    // Shipping is armed once the row exists, so updateClipR2Url has something to patch.
+    void commitItemsEdit(target, newItems, "Add clip").then((ok) => {
+      if (ok) queuePendingShip(target);
+    });
   }
 
   const listDrag = useListDrag({
@@ -2408,17 +2406,8 @@ export function PlaylistsPage() {
       }
       return true;
     },
-    // A player card travels with its section: the clips below it, up to the next card.
-    blockFor: (anchorKey) =>
-      sectionBlockKeys(sortedEvents, itemKey, isPlayerItem, anchorKey) ??
-      dragBlockKeys(anchorKey, selectedClipIds, sortedEvents.map(itemKey), itemGroupIds),
-    snapGap: (gap, blockKeys) => {
-      const keys = new Set(blockKeys);
-      const head = sortedEvents.find((i) => itemKey(i) === blockKeys[0]);
-      // A dragged section snaps to a section boundary, else it would take or give away clips.
-      if (head && isPlayerItem(head)) return snapGapToSectionBoundary(gap, sortedEvents, itemKey, isPlayerItem, keys);
-      return snapGapToGroupBoundary(gap, sortedEvents, itemKey, itemGroupIds, keys);
-    },
+    blockFor: (anchorKey) => dragBlockKeys(anchorKey, selectedClipIds, sortedEvents.map(itemKey), itemGroupIds),
+    snapGap: (gap, blockKeys) => snapGapToGroupBoundary(gap, sortedEvents, itemKey, itemGroupIds, new Set(blockKeys)),
     onTarget: handleDragTarget,
     onDrop: ({ gap, blockKeys, anchorKey, foreign }) => {
       if (foreign) commitForeignDrop(anchorKey, gap);
@@ -2489,10 +2478,9 @@ export function PlaylistsPage() {
 
   /** Segments for export / send-to-phone — honors the current selection. */
   function buildExportSegments(): ExportSegment[] {
-    // Player cards are the scouting report's, never in the video.
-    const itemsToExport = (selectedClipIds.size > 0
+    const itemsToExport = selectedClipIds.size > 0
       ? queueItems.filter(item => selectedClipIds.has(itemKey(item)))
-      : queueItems).filter((item) => !isPlayerItem(item));
+      : queueItems;
 
     return itemsToExport
       .map((item): ExportSegment | null => {
@@ -3729,162 +3717,191 @@ export function PlaylistsPage() {
 
   async function handleAddClips(newClips: PlaylistClipItem[]) {
     if (!selected || isUnsavedId(selected.id) || newClips.length === 0) return;
-    const updatedItems = [...selected.items, ...newClips];
-    const updatedPlaylist = { ...selected, items: updatedItems };
-    setSelected(updatedPlaylist);
-    setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updatedPlaylist : p));
-    try {
-      await addClips(selected.id, newClips, selected.items.length);
-    } catch (err) {
-      // The clip browser has already closed: without this the clips stayed on
-      // screen unsaved, with no word that the add failed.
-      console.error("[playlists] Failed to add clips:", err);
-      Sentry.captureException(err);
-      const added = new Set(newClips.map((c) => `${c.matchId}:${c.eventId}`));
-      const without = (items: PlaylistItem[]) =>
-        items.filter((i) => !(isClipItem(i) && added.has(`${i.matchId}:${i.eventId}`)));
-      setPlaylists((prev) => prev.map((p) => (p.id === selected.id ? { ...p, items: without(p.items) } : p)));
-      setSelected((prev) => (prev && prev.id === selected.id ? { ...prev, items: without(prev.items) } : prev));
-      toast.error("Couldn't add the clips");
-      return;
-    }
+    const pl = selected;
+    const ok = await commitItemsEdit(pl, [...pl.items, ...newClips], newClips.length === 1 ? "Add clip" : `Add ${newClips.length} clips`);
+    // A failed add is taken back and says so (the clip browser has already closed).
+    if (!ok) return;
     newClips.forEach((clip) => {
-      trackEvent('clip_added_to_playlist', { playlist_id: selected.id, match_id: clip.matchId })
+      trackEvent('clip_added_to_playlist', { playlist_id: pl.id, match_id: clip.matchId })
     })
     // Clips added to an already-shared playlist must ship immediately —
     // recipients can't see unshipped clips at all, and nothing else would
     // ever upload them (sharing only ships toward NEW recipients). Armed
-    // after addClips so the rows exist before updateClipR2Url patches them.
-    queuePendingShip(selected);
+    // after the rows exist so updateClipR2Url has something to patch.
+    queuePendingShip(pl);
   }
 
   // ---------------------------------------------------------------------------
   // Clip selection helpers
   // ---------------------------------------------------------------------------
 
+  // ---------------------------------------------------------------------------
+  // Changes to the rows: one path, ⌘Z / ⇧⌘Z, and ⌘X / ⌘C / ⌘V
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Brings the server from `from` to `to` (rows deleted, rows put back with
+   * their settings and hosted files, then the order and groups), after the
+   * playlist's earlier writes. A failure takes the change back on screen when
+   * nothing changed since, and forgets the playlist's history: it no longer
+   * matches what is saved.
+   */
+  function writeItems(playlistId: string, from: PlaylistItem[], to: PlaylistItem[]): Promise<boolean> {
+    const prev = writeChainRef.current.get(playlistId) ?? Promise.resolve(true);
+    const run = prev.then(async () => {
+      try {
+        const d = itemsDiff(from, to);
+        if (d.removedClips.length > 0 || d.removedTextIds.length > 0) await removeClips(playlistId, d.removedClips, d.removedTextIds);
+        if (d.addedClips.length > 0) await addClips(playlistId, d.addedClips, 0, { restore: true });
+        for (const t of d.addedText) await insertTextCard(playlistId, t.id, t.text, t.durationSeconds, 0, t.card);
+        await reorderItems(playlistId, to);
+        return true;
+      } catch (err) {
+        console.error("[playlists] Failed to save a change to the list:", err);
+        Sentry.captureException(err);
+        historyRef.current.delete(playlistId);
+        const now = selectedRef.current;
+        if (now?.id === playlistId && now.items === to) {
+          const restored = { ...now, items: from };
+          selectedRef.current = restored;
+          setSelected(restored);
+        }
+        setPlaylists((ps) => ps.map((p) => (p.id === playlistId && p.items === to ? { ...p, items: from } : p)));
+        toast.error("Couldn’t save that change, so it was taken back. Check the connection and try again.", { id: EDIT_TOAST });
+        return false;
+      }
+    });
+    writeChainRef.current.set(playlistId, run);
+    return run;
+  }
+
+  /**
+   * One change to the open playlist's rows (remove, move, group, add, paste,
+   * cut): shown at once, recorded for ⌘Z, saved after the playlist's earlier
+   * writes. `notice` is a toast with Undo. Resolves false when the save failed
+   * (the change was taken back).
+   */
+  function commitItemsEdit(pl: Playlist, after: PlaylistItem[], label: string, notice?: string): Promise<boolean> {
+    const before = pl.items;
+    const updated = { ...pl, items: after };
+    selectedRef.current = updated;
+    setSelected(updated);
+    setPlaylists((prev) => prev.map((p) => (p.id === pl.id ? updated : p)));
+    if (isUnsavedId(pl.id)) return Promise.resolve(true);
+    const edit: ItemsEdit = { label, before, after };
+    historyRef.current.set(pl.id, recordEdit(historyRef.current.get(pl.id) ?? emptyHistory(), edit));
+    if (notice) toast(notice, { id: EDIT_TOAST, action: { label: "Undo", onClick: () => undoIfLatest(pl.id, edit) } });
+    return writeItems(pl.id, before, after);
+  }
+
+  /** The toast's Undo: the same as ⌘Z, while the edit it names is still the last one. */
+  function undoIfLatest(playlistId: string, edit: ItemsEdit) {
+    const past = historyRef.current.get(playlistId)?.past ?? [];
+    if (selectedRef.current?.id === playlistId && past[past.length - 1] === edit) stepHistory("undo");
+  }
+
+  /**
+   * ⌘Z / ⇧⌘Z: the open playlist's rows go back to (or forward to) an edit's
+   * snapshot, each row as it is now (a later note stays). What comes back is
+   * selected, as in Finder. False when there is nothing to step to.
+   */
+  function stepHistory(direction: "undo" | "redo"): boolean {
+    const pl = selectedRef.current;
+    if (!pl || isUnsavedId(pl.id)) return false;
+    const step = (direction === "undo" ? takeUndo : takeRedo)(historyRef.current.get(pl.id) ?? emptyHistory());
+    if (!step) return false;
+    historyRef.current.set(pl.id, step.history);
+    const from = pl.items;
+    const to = materialize(direction === "undo" ? step.edit.before : step.edit.after, from);
+    const updated = { ...pl, items: to };
+    selectedRef.current = updated;
+    setSelected(updated);
+    setPlaylists((prev) => prev.map((p) => (p.id === pl.id ? updated : p)));
+    const had = new Set(from.map(playlistItemKey));
+    const back = to.map(playlistItemKey).filter((k) => !had.has(k));
+    if (back.length > 0) {
+      setSelectedClipIds(new Set(back));
+      setFocusKey(back[0]);
+      setAnchorKey(back[0]);
+    }
+    toast(`${direction === "undo" ? "Undo" : "Redo"}: ${step.edit.label}`, { id: EDIT_TOAST, duration: 2000 });
+    void writeItems(pl.id, from, to).then((ok) => {
+      if (ok && itemsDiff(from, to).addedClips.length > 0) queuePendingShip(updated);
+    });
+    return true;
+  }
+
   function handleRemoveSelected() {
     if (!selected || selectedClipIds.size === 0) return;
-    const prevItems = selected.items;
-    const survivors = prevItems.filter((c) => !selectedClipIds.has(playlistItemKey(c)));
-    // Groups that fell below 2 members dissolve.
-    const newItems = normalizeGroups(survivors);
-    const groupsChanged = newItems.some((it, i) => it !== survivors[i]);
-    const updated = { ...selected, items: newItems };
-    setSelected(updated);
-    setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updated : p));
-    const clipKeysToRemove = prevItems.filter(isClipItem)
-      .filter((c) => selectedClipIds.has(`${c.matchId}:${c.eventId}`))
-      .map((c) => ({ matchId: c.matchId, eventId: c.eventId }));
-    const textCardIdsToRemove = prevItems.filter((i) => !isClipItem(i))
-      .filter((c) => selectedClipIds.has(`text:${(c as PlaylistTextCard).id}`))
-      .map((c) => (c as PlaylistTextCard).id);
-    const count = clipKeysToRemove.length + textCardIdsToRemove.length;
+    const newItems = normalizeGroups(selected.items.filter((c) => !selectedClipIds.has(playlistItemKey(c))));
+    const count = selected.items.length - newItems.length;
     const after = focusAfterRemoval(visibleKeys, selectedClipIds, focusKey);
     setFocusKey(after);
     setAnchorKey(after);
     setSelectedClipIds(new Set());
-
-    // A slip waiting to happen, so it stays undoable for the life of the
-    // toast; the rows only leave the server once it is gone.
-    let undone = false;
-    let committed = false;
-    const commit = () => {
-      if (undone || committed) return;
-      committed = true;
-      void (async () => {
-        await removeClips(selected.id, clipKeysToRemove, textCardIdsToRemove);
-        // removeClips only deletes rows — a dissolved survivor's group_id must
-        // be NULLed explicitly.
-        if (groupsChanged) await reorderItems(selected.id, newItems);
-      })().catch((err) => {
-        console.error("[playlists] Failed to remove items:", err);
-        Sentry.captureException(err);
-        toast.error("Couldn't remove the items");
-      });
-    };
-    toast(`${count} item${count !== 1 ? "s" : ""} removed`, {
-      action: {
-        label: "Undo",
-        onClick: () => {
-          undone = true;
-          // Restore the pre-removal array wholesale — also restores any
-          // groupId the normalization dissolved.
-          const restored = { ...updated, items: prevItems };
-          setSelected(restored);
-          setPlaylists((prev) => prev.map((p) => p.id === selected.id ? restored : p));
-        },
-      },
-      onAutoClose: commit,
-      onDismiss: commit,
-    });
+    const noun = `${count} item${count !== 1 ? "s" : ""}`;
+    void commitItemsEdit(selected, newItems, `Remove ${noun}`, `${noun} removed`);
   }
 
   function handleRemoveSingleClip(item: PlaylistClipItem) {
     if (!selected) return;
-    const prevItems = selected.items;
-    const idx = prevItems.indexOf(item);
-    // Groups that fell below 2 members dissolve with the removal.
-    const survivors = prevItems.filter((_, i) => i !== idx);
-    const newItems = normalizeGroups(survivors);
-    const groupsChanged = newItems.some((it, i) => it !== survivors[i]);
-    const updated = { ...selected, items: newItems };
-    setSelected(updated);
-    setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updated : p));
-
-    let undone = false;
-    const commit = () => {
-      if (undone) return;
-      removeClips(selected.id, [{ matchId: item.matchId, eventId: item.eventId }], []);
-      // A dissolved survivor's group_id must be NULLed explicitly.
-      if (groupsChanged) reorderItems(selected.id, newItems);
-    };
-    toast('Clip removed', {
-      action: {
-        label: 'Undo',
-        onClick: () => {
-          undone = true;
-          // Restore the pre-removal array wholesale — also restores any
-          // groupId the normalization dissolved.
-          const restored = { ...updated, items: prevItems };
-          setSelected(restored);
-          setPlaylists((prev) => prev.map((p) => p.id === selected.id ? restored : p));
-        },
-      },
-      onAutoClose: commit,
-      onDismiss: commit,
-    });
+    void commitItemsEdit(selected, normalizeGroups(selected.items.filter((i) => i !== item)), "Remove clip", "Clip removed");
   }
 
   function handleRemoveSingleTextCard(card: PlaylistTextCard) {
     if (!selected) return;
-    const prevItems = selected.items;
-    const idx = prevItems.indexOf(card);
-    const survivors = prevItems.filter((_, i) => i !== idx);
-    const newItems = normalizeGroups(survivors);
-    const groupsChanged = newItems.some((it, i) => it !== survivors[i]);
-    const updated = { ...selected, items: newItems };
-    setSelected(updated);
-    setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updated : p));
+    void commitItemsEdit(selected, normalizeGroups(selected.items.filter((i) => i !== card)), "Remove text card", "Text card removed");
+  }
 
-    let undone = false;
-    const commit = () => {
-      if (undone) return;
-      removeClips(selected.id, [], [card.id]);
-      if (groupsChanged) reorderItems(selected.id, newItems);
-    };
-    toast(card.player ? 'Player card removed' : 'Text card removed', {
-      action: {
-        label: 'Undo',
-        onClick: () => {
-          undone = true;
-          const restored = { ...updated, items: prevItems };
-          setSelected(restored);
-          setPlaylists((prev) => prev.map((p) => p.id === selected.id ? restored : p));
-        },
-      },
-      onAutoClose: commit,
-      onDismiss: commit,
+  /** A row as text for the system clipboard: "Q2 04:31 · 3PT Made · Alva Berg", or a card's text. */
+  function rowText(item: PlaylistItem): string {
+    if (!isClipItem(item)) return item.text;
+    const e = eventByKey.get(`${item.matchId}:${item.eventId}`);
+    return e ? [`${periodLabel(e.period)} ${formatGameClock(e.gameClockTime)}`, eventLabel(e), playerName(e)].filter(Boolean).join(" · ") : "";
+  }
+
+  /** ⌘C / ⌘X: the selected rows, else the focused one. False when there is nothing to take. */
+  function copyRows(cut: boolean): boolean {
+    const pl = selectedRef.current;
+    if (!pl) return false;
+    const keys = selectedClipIds.size > 0 ? selectedClipIds : focusKey !== null ? new Set([focusKey]) : null;
+    const rows = keys ? pl.items.filter((i) => keys.has(playlistItemKey(i))) : [];
+    if (rows.length === 0) return false;
+    rowClipboard = rows;
+    void navigator.clipboard?.writeText(rows.map(rowText).filter(Boolean).join("\n")).catch(() => {});
+    const noun = `${rows.length} item${rows.length !== 1 ? "s" : ""}`;
+    if (!cut) {
+      toast(`${noun} copied. Paste with ${MOD}V here or in another playlist.`, { id: EDIT_TOAST, duration: 2500 });
+      return true;
+    }
+    const taken = new Set(rows.map(playlistItemKey));
+    const next = focusAfterRemoval(visibleKeys, taken, focusKey);
+    setFocusKey(next);
+    setAnchorKey(next);
+    setSelectedClipIds(new Set());
+    void commitItemsEdit(pl, normalizeGroups(pl.items.filter((i) => !taken.has(playlistItemKey(i)))), `Cut ${noun}`, `${noun} cut. Paste with ${MOD}V.`);
+    return true;
+  }
+
+  /** ⌘V: what ⌘C or ⌘X took, after the focused row (past its group), else at the end; then selected. */
+  function pasteRows(): boolean {
+    const pl = selectedRef.current;
+    if (!pl || rowClipboard.length === 0) return false;
+    const { items, pasted } = pasteItems(pl.items, rowClipboard, pasteIndexAfter(pl.items, focusKey));
+    if (pasted.length === 0) {
+      toast("Those clips are already in this playlist", { id: EDIT_TOAST });
+      return true;
+    }
+    const keys = pasted.map(playlistItemKey);
+    setSelectedClipIds(new Set(keys));
+    setFocusKey(keys[0]);
+    setAnchorKey(keys[0]);
+    const noun = `${pasted.length} item${pasted.length !== 1 ? "s" : ""}`;
+    pasted.filter(isClipItem).forEach((c) => trackEvent("clip_added_to_playlist", { playlist_id: pl.id, match_id: c.matchId }));
+    void commitItemsEdit(pl, items, `Paste ${noun}`, `${noun} pasted`).then((ok) => {
+      if (ok && pasted.some(isClipItem)) queuePendingShip({ ...pl, items });
     });
+    return true;
   }
 
   async function handleAddSelectedToPlaylist(target: Playlist) {
@@ -4072,25 +4089,10 @@ export function PlaylistsPage() {
     const found = targetKey ? before.items.findIndex((item) => playlistItemKey(item) === targetKey) : -1;
     const insertAt = found >= 0 ? found : before.items.length;
     const newItems: PlaylistItem[] = [...before.items.slice(0, insertAt), newCard, ...before.items.slice(insertAt)];
-    const updated = { ...before, items: newItems };
-    selectedRef.current = updated;
-    setSelected(updated);
-    setPlaylists((prev) => prev.map((p) => p.id === playlistId ? updated : p));
     setNewlyInsertedCardId(newCard.id);
     setFocusKey(`text:${newCard.id}`);
     setPendingShowCardId(newCard.id);
-    try {
-      await insertTextCard(playlistId, newCard.id, newCard.text, newCard.durationSeconds, insertAt, spec ?? undefined);
-      await reorderItems(playlistId, newItems);
-    } catch {
-      toast.error("Couldn't add the card. Try again.");
-      if (selectedRef.current?.id === playlistId) {
-        selectedRef.current = before;
-        setSelected(before);
-      }
-      setPlaylists((prev) => prev.map((p) => p.id === playlistId ? before : p));
-      return;
-    }
+    if (!(await commitItemsEdit(before, newItems, spec ? "Add stats card" : "Add text card"))) return;
     if (spec) {
       trackEvent("stats_card_inserted", { entry, scope: spec.scope, source: spec.source, columns: spec.columns.length });
     } else {
@@ -4154,309 +4156,24 @@ export function PlaylistsPage() {
     }, 400));
   }
 
+
   // ---------------------------------------------------------------------------
-  // Player cards (the scouting report's entries)
+  // The scouting report: its view, the playlist's live report, and what generating does
   // ---------------------------------------------------------------------------
 
-  // Box scores a card has already read (readPlayerStats keeps them): their players join the roster,
-  // among the ones the stored plays name. Nothing is fetched to fill the roster.
-  const [boxScores, setBoxScores] = useState<ReadonlyMap<string, GameStats>>(() => new Map());
-
-  // Every game the playlist's clips come from, once each, in playlist order. A player card's season
-  // choices need only a game's league, not its box score, so this includes games with no Genius game id.
-  const clipGames = useMemo(() => {
-    const seen = new Set<string>();
-    return (selected?.items ?? []).flatMap((i) => {
-      if (!isClipItem(i) || seen.has(i.matchId)) return [];
-      const m = matchLookup.get(i.matchId);
-      if (!m) return [];
-      seen.add(m.id);
-      return [m];
-    });
-  }, [selected?.items, matchLookup]);
-
-  /**
-   * Everyone a card can be about: the players with clips in the playlist first, then the rest of
-   * its games' players (both teams). The ones that already have a card are taken.
-   */
-  const playerChoices = useMemo(
-    (): PlayerChoice[] => playerRoster({ items: selected?.items ?? [], eventByKey, matches: matchLookup, boxScores }),
-    [selected?.items, eventByKey, matchLookup, boxScores],
-  );
-
-  const playerCardDisabledReason = filtersActive
-    ? "Clear filters to edit the playlist"
-    : playerChoices.length === 0
-      ? "No players in this playlist's games"
-      : null;
-
-  /**
-   * Which rows sit under a player card (indented, with the rail), each card's
-   * clip count, and whether clips come before the first card (the report's
-   * Team section). Filtering hides the cards, so a filtered list has none.
-   */
-  const sections = useMemo(() => {
-    const under = new Set<string>();
-    const counts = new Map<string, number>();
-    let current: string | null = null;
-    let sawCard = false;
-    let beforeFirst = false;
-    for (const it of queueItems) {
-      if (isPlayerItem(it)) {
-        current = it.id;
-        sawCard = true;
-        counts.set(it.id, 0);
-        continue;
-      }
-      if (current) {
-        under.add(itemKey(it));
-        if (!isTextCard(it)) counts.set(current, (counts.get(current) ?? 0) + 1);
-      } else beforeFirst = true;
-    }
-    return { under, counts, teamLabel: sawCard && beforeFirst };
-  }, [queueItems]);
-
-  /**
-   * The game a player's numbers are read from: where most of their clips from games with stats
-   * are; a player with none (a card for anyone in the game) uses the game they played in.
-   */
-  function statsMatchIdOf(person: { playerId: string; matchId?: string }, preferMatchId?: string): string | undefined {
-    const counts = new Map<string, number>();
-    for (const c of statsClips) {
-      if (String(c.event.player?.playerId) === person.playerId) counts.set(c.matchId, (counts.get(c.matchId) ?? 0) + 1);
-    }
-    const withClips = preferMatchId && counts.has(preferMatchId) ? preferMatchId : [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
-    return withClips ?? person.matchId;
-  }
-
-  /**
-   * The player as the card keeps them, and their numbers: season averages where the league has
-   * them, else a game line, else none. `competitionId` is a season the coach picked (any season of
-   * the game's league): exactly that season's line, or none, never a fall back to the game.
-   */
-  async function readPlayerStats(
-    person: { playerId: string; name: string; number: string | null; teamName: string; matchId?: string },
-    preferMatchId?: string,
-    competitionId?: number,
-  ): Promise<{ player: StatsCardPlayer; stats: StatsCardSpec | null; failed: boolean }> {
-    const base: StatsCardPlayer = { id: person.playerId, name: person.name, number: person.number, teamId: null, teamName: person.teamName };
-    const matchId = statsMatchIdOf(person, preferMatchId);
-    const match = matchId ? matchLookup.get(matchId) : undefined;
-    if (!match) return { player: base, stats: null, failed: false };
-    const stats = await loadGameStats(match, leagues);
-    // Its players join the roster from now on (the official box score names players the plays don't).
-    if (stats?.source === "genius_hosted") setBoxScores((prev) => (prev.has(match.id) ? prev : new Map(prev).set(match.id, stats)));
-    const option = stats?.players.find((o) => o.player.id === person.playerId);
-    const who = option?.player ?? base;
-    // The season line needs only the game's league, not the game's box score: a player who barely
-    // played, or a game with no Genius game id, still has one.
-    const season =
-      competitionId !== undefined ? (leagueSeasonsOf(match, leagues).find((s) => s.competitionId === competitionId) ?? null) : seasonOf(match, leagues);
-    // A season page that couldn't be read is not a season the player isn't in: say so apart.
-    let failed = false;
-    if (season) {
-      const line = await loadSeasonPlayer(season.competitionId, person.playerId).catch(() => {
-        failed = true;
-        return null;
-      });
-      if (line) return { player: who, stats: makeSeasonCard(season, who, line), failed: false };
-    }
-    if (competitionId !== undefined || !stats || !option) return { player: who, stats: null, failed };
-    return { player: who, stats: makeGameCard(match, stats, option, seasonOf(match, leagues)?.competitionId ?? null), failed: false };
-  }
-
-  // Player card edits show at once and save after a pause in the typing.
-  const playerSaveTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  // A new card is in the list before its row is in the database: until the insert has finished,
-  // a save would match no row and be lost, so saves (and the card's numbers) wait for it.
-  const playerRowsRef = useRef(new Map<string, Promise<void>>());
-  function handlePlayerCardChange(id: string, spec: PlayerCardSpec) {
-    const pl = selectedRef.current;
-    if (!pl) return;
-    const text = playerCardLabel(spec);
-    const newItems = pl.items.map((c) => (!isClipItem(c) && c.id === id && c.player ? { ...c, player: spec, text } : c));
-    const updated = { ...pl, items: newItems };
-    selectedRef.current = updated;
-    setSelected(updated);
-    setPlaylists((prev) => prev.map((p) => (p.id === pl.id ? updated : p)));
-    const timers = playerSaveTimersRef.current;
-    clearTimeout(timers.get(id));
-    timers.set(id, setTimeout(() => {
-      timers.delete(id);
-      const save = () => updatePlayerCard(pl.id, id, spec);
-      // A failed insert was already reported, and its card taken back out of the list.
-      const rowReady = playerRowsRef.current.get(id);
-      (rowReady ? rowReady.then(save, () => undefined) : save()).catch(() => toast.error("Couldn't save the player card. Try again."));
-    }, 400));
-  }
-
-  /**
-   * Reads a card's player's numbers into the card; null when the league has none or the read
-   * failed (the inspector offers a retry). `rowReady` is a card still being inserted: the read
-   * runs meanwhile, and the numbers are applied (and saved) once the row exists.
-   */
-  async function loadPlayerCardStats(
-    cardId: string,
-    person: { playerId: string; name: string; number: string | null; teamName: string; matchId?: string },
-    preferMatchId?: string,
-    rowReady?: Promise<unknown>,
-    competitionId?: number,
-  ): Promise<StatsCardSpec | null> {
-    setPlayerStatsLoading(cardId);
-    const setFailed = (failed: boolean) =>
-      setPlayerStatsFailed((prev) => {
-        if (prev.has(cardId) === failed) return prev;
-        const next = new Set(prev);
-        if (failed) next.add(cardId);
-        else next.delete(cardId);
-        return next;
-      });
-    setFailed(false);
-    try {
-      const reading = readPlayerStats(person, preferMatchId, competitionId);
-      reading.catch(() => {}); // surfaced below; this keeps an early failure from going unhandled while the insert finishes
-      await rowReady;
-      const { player, stats, failed } = await reading;
-      const card = selectedRef.current?.items.find((i): i is PlayerCardItem => isPlayerCard(i) && i.id === cardId);
-      // The card changed player while the numbers were read: they aren't its numbers.
-      if (!card || card.player.player.id !== person.playerId) return null;
-      handlePlayerCardChange(cardId, { ...card.player, player, stats });
-      setFailed(!stats && failed);
-      return stats;
-    } catch {
-      setFailed(true);
-      return null;
-    } finally {
-      setPlayerStatsLoading((cur) => (cur === cardId ? null : cur));
-    }
-  }
-
-  async function handleInsertPlayerCard(place: CardPlace, entry: "menu" | "row", anchor?: QueueItem) {
-    // Inserting against a filtered (partial) list computes the wrong position.
-    if (filtersActive || !selected) return;
-    const before = selectedRef.current;
-    if (!before || before.id !== selected.id) return;
-    const playlistId = before.id;
-    const targetKey = cardInsertTarget(place);
-    const found = targetKey ? before.items.findIndex((item) => playlistItemKey(item) === targetKey) : -1;
-    const playing = activeMatchId !== null && activeEventId !== null ? eventByKey.get(`${activeMatchId}:${activeEventId}`) : undefined;
-    // Who and where (shared/lib/player-roster): never refused for the position, only when everyone has a card.
-    const spot = pickPlayerCardSpot(
-      before.items,
-      found >= 0 ? found : before.items.length,
-      eventByKey,
-      playerRoster({ items: before.items, eventByKey, matches: matchLookup, boxScores }),
-      {
-        anchor: anchor ? { matchId: anchor.matchId, event: anchor.event } : null,
-        activePlayerId: playing?.player ? String(playing.player.playerId) : null,
-        fromToolbar: !anchor && place.at === "toolbar",
-      },
-    );
-    if (!spot.ok) {
-      toast.error(
-        spot.reason === "anchor_has_card"
-          ? "That player already has a card"
-          : spot.reason === "anchor_no_player"
-            ? "That play has no player"
-            : "Everyone in these games already has a card",
-      );
-      return;
-    }
-    const { player: person, matchId, insertAt } = spot;
-
-    // The card is in the list at once, with the name, number and team the game data already has;
-    // only the numbers wait on the network.
-    const spec = newPlayerCard({ id: person.playerId, name: person.name, number: person.number, teamId: null, teamName: person.teamName }, null);
-    const newCard: PlaylistTextCard = { type: 'text', id: crypto.randomUUID(), text: playerCardLabel(spec), durationSeconds: 0, player: spec };
-    const newItems: PlaylistItem[] = [...before.items.slice(0, insertAt), newCard, ...before.items.slice(insertAt)];
-    const updated = { ...before, items: newItems };
-    selectedRef.current = updated;
-    setSelected(updated);
-    setPlaylists((prev) => prev.map((p) => (p.id === playlistId ? updated : p)));
-    handleStop();
-    setPlayerCardId(newCard.id);
-    setNewlyInsertedCardId(newCard.id);
-    setFocusKey(`text:${newCard.id}`);
-
-    // The row is written and the order saved while the numbers are read: the spinner shows from the
-    // start, and the numbers are applied once the row exists.
-    const rows = playerRowsRef.current;
-    const written = (async () => {
-      await insertPlayerCard(playlistId, newCard.id, spec, insertAt);
-      await reorderItems(playlistId, newItems);
-    })();
-    rows.set(newCard.id, written);
-    const settled = () => {
-      if (rows.get(newCard.id) === written) rows.delete(newCard.id);
-    };
-    written.then(settled, settled);
-    const reading = loadPlayerCardStats(newCard.id, person, matchId, written);
-    try {
-      await written;
-    } catch {
-      toast.error("Couldn't add the card. Try again.");
-      if (selectedRef.current?.id === playlistId) {
-        selectedRef.current = before;
-        setSelected(before);
-      }
-      setPlaylists((prev) => prev.map((p) => (p.id === playlistId ? before : p)));
-      setPlayerCardId(null);
-      return;
-    }
-    const stats = await reading;
-    trackEvent("player_card_inserted", { entry, has_stats: !!stats, ...(stats ? { scope: stats.scope, source: stats.source } : {}) });
-  }
-
-  function handlePlayerCardPlayerChange(cardId: string, playerId: string) {
-    const choice = playerChoices.find((p) => p.playerId === playerId);
-    const card = selectedRef.current?.items.find((i): i is PlayerCardItem => isPlayerCard(i) && i.id === cardId);
-    if (!choice || !card || choice.taken) return;
-    // A different player: their own numbers, not the last one's.
-    handlePlayerCardChange(cardId, {
-      ...card.player,
-      player: { id: choice.playerId, name: choice.name, number: choice.number, teamId: null, teamName: choice.teamName },
-      stats: null,
-    });
-    void loadPlayerCardStats(cardId, choice, choice.matchId);
-  }
-
-  /** "Move n more clips of Alva here": brings the same player's clips from elsewhere in the playlist to the end of this card's section. */
-  function handleMovePlayerClips(cardId: string) {
-    const pl = selectedRef.current;
-    if (!pl) return;
-    const at = pl.items.findIndex((i) => isPlayerCard(i) && i.id === cardId);
-    const card = pl.items[at];
-    if (at < 0 || !card || !isPlayerCard(card)) return;
-    const { elsewhere } = playerSectionInfo(pl.items, at, eventByKey);
-    if (elsewhere.length === 0) return;
-    const moving = new Set(elsewhere);
-    const moved = pl.items.filter((i) => isClipItem(i) && moving.has(playlistItemKey(i)));
-    const rest = pl.items.filter((i) => !(isClipItem(i) && moving.has(playlistItemKey(i))));
-    const end = sectionEnd(rest, rest.findIndex((i) => isPlayerCard(i) && i.id === cardId));
-    const newItems = [...rest.slice(0, end), ...moved, ...rest.slice(end)];
-    const apply = (items: PlaylistItem[]) => {
-      const next = { ...pl, items };
-      selectedRef.current = next;
-      setSelected(next);
-      setPlaylists((prev) => prev.map((p) => (p.id === pl.id ? next : p)));
-      void reorderItems(pl.id, items).catch(() => toast.error("Couldn't save the new order. Try again."));
-    };
-    apply(newItems);
-    const first = card.player.player.name.trim().split(/\s+/)[0];
-    toast(`Moved ${moved.length} ${moved.length === 1 ? "clip" : "clips"} under ${first}`, {
-      action: { label: "Undo", onClick: () => apply(pl.items) },
-    });
-  }
-
-  // A different playlist: nothing of the last one's inspector or share sheet carries over.
+  // A different playlist: the report view was the last one's (coming back opens the editor).
   useEffect(() => {
-    setPlayerCardId(null);
-    setReportOpen(false);
+    setReportFor(null);
   }, [selected?.id]);
 
-  // ---------------------------------------------------------------------------
-  // The scouting report: preview, share dialog, and what generating does
-  // ---------------------------------------------------------------------------
+  /** Opens the playlist's report in place of the editor; nothing keeps playing behind it. */
+  function openReport() {
+    handleStop();
+    videoRef.current?.pause();
+    if (playerFs.active) void playerFs.exit();
+    refreshMyReport();
+    setReportFor(selectedRef.current?.id ?? null);
+  }
 
   /** The coach's labels per clip, by name, for the report. */
   const labelNamesByClip = useMemo(() => {
@@ -4468,31 +4185,6 @@ export function PlaylistsPage() {
     return out;
   }, [clipAssignments, labels]);
 
-  /**
-   * The report as the playlist builds it now: the share sheet's preview, and
-   * what its "up to date" compares. Built (and hashed) only while the sheet is
-   * open: it was rebuilt on every edit, note saves and trims included. The
-   * last one stays for the sheet's closing animation.
-   */
-  const lastReportRef = useRef<{ preview: ReturnType<typeof buildScoutingReport>; outline: ReturnType<typeof reportOutline> } | null>(null);
-  const reportBuilt = useMemo(() => {
-    if (!reportOpen || !selected) return null;
-    return {
-      preview: buildScoutingReport({
-        playlist: selected,
-        eventByKey,
-        matchLabel: (id) => matchLookup.get(id)?.title ?? "",
-        title: selected.name,
-        opponent: defaultOpponent(selected.items),
-        labelsByKey: labelNamesByClip,
-      }),
-      outline: reportOutline(selected.items, eventByKey),
-    };
-  }, [reportOpen, selected, eventByKey, matchLookup, labelNamesByClip]);
-  if (reportBuilt) lastReportRef.current = reportBuilt;
-  const reportShown = reportBuilt ?? lastReportRef.current;
-  const reportPreview = reportShown?.preview ?? null;
-  const reportOutlineRows = reportShown?.outline ?? [];
 
   /** Each playlist's report as last read this session: going back to a playlist doesn't read it again (opening the dialog and its changes still do). */
   const reportByPlaylistRef = useRef(new Map<string, MyScoutingReport | null>());
@@ -4516,20 +4208,18 @@ export function PlaylistsPage() {
   }, [refreshMyReport]);
   const liveReport = myReport && new Date(myReport.expiresAt).getTime() > Date.now() ? myReport : null;
 
-  const reportDisabledReason = !selected
-    ? null
-    : playerCardsOf(selected.items).length === 0
-      ? "Add a player card first"
-      : demoShipBlockReason(selected);
+  /** Why the report can't be shared (a demo game), else null. */
+  const reportShareDisabledReason = selected ? demoShipBlockReason(selected) : null;
 
-  /** Prepares the clips and previews and publishes the report (lib/scouting-report.ts); the dialog drives it. */
-  async function runReport(a: ScoutingReportRun): Promise<GenerateOutcome> {
+  /** Prepares the clips and previews and publishes the report (lib/scouting-report.ts); the report view's share sheet drives it. */
+  async function runReport(draft: ReportDraft, a: ScoutingReportRun): Promise<GenerateOutcome> {
     const pl = selectedRef.current;
     if (!pl) throw new Error("No playlist is open");
     // The footer mark follows the video watermark rule: always on Rookie, the Settings choice on Pro and Franchise.
     const canDisableWatermark = activeOrgPlan === "pro" || activeOrgPlan === "franchise";
     return generateScoutingReport({
       playlist: pl,
+      draft,
       eventByKey,
       shipSegments: buildShipSegments(pl),
       clipSource: (matchId) => {
@@ -4540,8 +4230,8 @@ export function PlaylistsPage() {
       labelsByKey: labelNamesByClip,
       preRoll,
       postRoll,
-      title: a.title,
-      opponent: a.opponent,
+      title: draft.title ?? pl.name,
+      opponent: draft.opponent ?? defaultOpponent(draft),
       attribution: !(canDisableWatermark && getExportWatermarkDisabled()),
       allowMissing: a.allowMissing,
       signal: a.signal,
@@ -4697,41 +4387,10 @@ export function PlaylistsPage() {
     ? (selected?.items.find((i): i is PlaylistTextCard => i.type === 'text' && i.id === activeTextCard.id) ?? activeTextCard)
     : null;
 
-  // The player card whose inspector is open, its section's clips, and what the inspector says about them.
-  const playerCardItem: PlayerCardItem | null =
-    playerCardId && selected ? (selected.items.find((i): i is PlayerCardItem => isPlayerCard(i) && i.id === playerCardId) ?? null) : null;
-  // A card (player, text or stats) is on the stage, not footage: the video's errors are about a clip, not about it.
-  const cardOnStage = !!stageCard || !!playerCardItem;
-  const playerCardAt = playerCardItem && selected ? selected.items.indexOf(playerCardItem) : -1;
-  const playerSection = playerCardItem && selected ? playerSectionInfo(selected.items, playerCardAt, eventByKey) : null;
-  // The game the open card's numbers come from, and that game's league seasons (the season it can show).
-  const cardPlayerId = playerCardItem?.player.player.id;
-  const cardMatchId = cardPlayerId
-    ? statsMatchIdOf({ playerId: cardPlayerId, matchId: playerChoices.find((c) => c.playerId === cardPlayerId)?.matchId })
-    : undefined;
-  const cardMatch = cardMatchId ? matchLookup.get(cardMatchId) : undefined;
-  const cardSeasons = cardMatch ? leagueSeasonsOf(cardMatch, leagues) : [];
-  const cardGameSeasonId = cardMatch ? (seasonOf(cardMatch, leagues)?.competitionId ?? null) : null;
-  const playerPreviewClips: PreviewClip[] =
-    playerCardItem && selected
-      ? selected.items
-          .slice(playerCardAt + 1, sectionEnd(selected.items, playerCardAt))
-          .filter(isClipItem)
-          .flatMap((c) => {
-            const e = eventByKey.get(playlistItemKey(c));
-            return e
-              ? [{
-                  key: playlistItemKey(c),
-                  label: eventLabel(e),
-                  when: `${periodLabel(e.period)} · ${formatGameClock(e.gameClockTime).replace(/^0/, "")}`,
-                  note: c.note,
-                  badge: eventColors(e).badge,
-                }]
-              : [];
-          })
-      : [];
+  // A card (text or stats) is on the stage, not footage: the video's errors are about a clip, not about it.
+  const cardOnStage = !!stageCard;
 
-  const playerStack = localVideoUrl || stageCard || playerCardItem ? (
+  const playerStack = localVideoUrl || stageCard ? (
       <div className={playerFs.active ? "fixed inset-0 z-50 flex flex-col bg-black" : "contents"}>
         {/* Stage: in fullscreen it fills the layer; every overlay's coordinate
             system (crop window, keyframes, text cards) is the rendered video
@@ -4771,8 +4430,8 @@ export function PlaylistsPage() {
             }}
             speed={playbackSpeed}
             onSpeedChange={setPlaybackSpeed}
-            interactive={!cropMode && !(playerCardItem && !stageCard)}
-            hideChrome={!playerFs.active && (!!stageCard || !!playerCardItem)}
+            interactive={!cropMode}
+            hideChrome={!playerFs.active && !!stageCard}
             playback={stageCard ? { paused: cardPaused, toggle: toggleCard } : undefined}
             trimBar={
               trim ? (
@@ -4821,41 +4480,10 @@ export function PlaylistsPage() {
                 <CardImage source={stageCard} aspect="16:9" className="size-full" />
               </div>
             )}
-            {playerCardItem && !stageCard && <PlayerCardPreview spec={playerCardItem.player} clips={playerPreviewClips} />}
           </PlayerStage>
         </div>
         {!playerFs.active && (
           <div className="flex flex-col gap-2">
-            {playerCardItem && !stageCard && playerSection && (
-              <PlayerCardInspector
-                cardId={playerCardItem.id}
-                spec={playerCardItem.player}
-                players={playerChoices}
-                games={clipGames}
-                leagues={leagues}
-                clipCount={playerSection.clips}
-                elsewhere={playerSection.elsewhere.length}
-                statsLoading={playerStatsLoading === playerCardItem.id}
-                statsFailed={playerStatsFailed.has(playerCardItem.id)}
-                canReadStats={cardSeasons.length > 0 || statsKindOf(cardMatch) !== null}
-                seasons={cardSeasons}
-                gameSeasonId={cardGameSeasonId}
-                autoFocusNote={newlyInsertedCardId === playerCardItem.id}
-                onChange={(spec) => handlePlayerCardChange(playerCardItem.id, spec)}
-                onPlayerChange={(id) => handlePlayerCardPlayerChange(playerCardItem.id, id)}
-                onRetryStats={(competitionId) => {
-                  const p = playerCardItem.player.player;
-                  void loadPlayerCardStats(
-                    playerCardItem.id,
-                    { playerId: p.id, name: p.name, number: p.number, teamName: p.teamName, matchId: cardMatchId },
-                    cardMatchId,
-                    undefined,
-                    competitionId,
-                  );
-                }}
-                onMoveClips={() => handleMovePlayerClips(playerCardItem.id)}
-              />
-            )}
             {stageCard?.card && (
               <StatsCardInspector
                 cardId={stageCard.id}
@@ -5059,6 +4687,10 @@ export function PlaylistsPage() {
       <div
         ref={playlistScrollRef}
         className={cn("min-h-0 flex-1 overflow-y-auto", selectedClipIds.size > 0 && "pb-16")}
+        // A click on the list's empty space lets go of the selection, as in Finder.
+        onClick={(e) => {
+          if (e.target === e.currentTarget && !e.metaKey && !e.shiftKey && selectedClipIds.size > 0) setSelectedClipIds(new Set());
+        }}
       >
       {queueItems.length === 0 ? (
         <div
@@ -5099,39 +4731,12 @@ export function PlaylistsPage() {
           }}
           className="overflow-hidden rounded-window bg-card ring-1 ring-separator outline-none [&>[role=row]:not(:first-child)]:shadow-[inset_0_1px_0_var(--separator)]"
         >
-          {sections.teamLabel && (
-            <div role="presentation" className="px-3 pt-2 pb-1 text-caption text-muted-foreground" title="Clips above the first player card appear under Team in the report.">
-              Team
-            </div>
-          )}
           {queueItems.map((item, index) => {
             const key = itemKey(item);
             const drag = { rowKey: key, onPointerDown: (e: React.PointerEvent) => listDrag.onRowPointerDown(e, key) };
             const focused = keyboardNav && focusKey === key;
-            if (isPlayerItem(item)) {
-              return (
-                <PlayerCardRow
-                  key={key}
-                  domId={rowDomId(key)}
-                  card={item}
-                  index={index}
-                  isInspected={item.id === playerCardId}
-                  focused={focused}
-                  isSelected={selectedClipIds.has(key)}
-                  anySelected={selectedClipIds.size > 0}
-                  clipCount={sections.counts.get(item.id) ?? 0}
-                  onSelect={(e) => handleRowCheckbox(key, e)}
-                  drag={drag}
-                  onClick={(e) => handleRowPress(item, e)}
-                  onRemove={() => handleRemoveSingleTextCard(item)}
-                  onInsertTextCardAbove={filtersActive ? undefined : () => void handleInsertCard("text", { at: "above", index }, "row")}
-                  onInsertPlayerCardAbove={playerCardDisabledReason ? undefined : () => void handleInsertPlayerCard({ at: "above", index }, "row")}
-                  groupPos={!filtersActive ? groupRuns.get(key)?.pos : undefined}
-                  groupSize={groupRuns.get(key)?.size}
-                  onUngroup={!filtersActive && groupRuns.get(key) ? () => handleUngroup(groupRuns.get(key)!.groupId) : undefined}
-                />
-              );
-            }
+            // One of several selected rows: its own actions act on the whole selection.
+            const inSelection = selectedClipIds.size > 1 && selectedClipIds.has(key);
             if (isTextCard(item)) {
               const card = item as PlaylistTextCard;
               return (
@@ -5150,14 +4755,14 @@ export function PlaylistsPage() {
                   onTextChange={handleTextCardTextChange}
                   onTextSave={handleTextCardTextSave}
                   onDurationChange={handleTextCardDurationChange}
-                  onRemove={() => handleRemoveSingleTextCard(card)}
+                  onRemove={inSelection ? handleRemoveSelected : () => handleRemoveSingleTextCard(card)}
+                  removeCount={inSelection ? selectedClipIds.size : 1}
                   onInsertTextCardAbove={filtersActive ? undefined : () => void handleInsertCard("text", { at: "above", index }, "row")}
                   onInsertStatsCardAbove={statsCardDisabledReason ? undefined : () => void handleInsertCard("stats", { at: "above", index }, "row")}
                   autoFocusText={card.id === newlyInsertedCardId && !card.card}
                   groupPos={!filtersActive ? groupRuns.get(key)?.pos : undefined}
                   groupSize={groupRuns.get(key)?.size}
                   onUngroup={!filtersActive && groupRuns.get(key) ? () => handleUngroup(groupRuns.get(key)!.groupId) : undefined}
-                  underPlayer={sections.under.has(key)}
                 />
               );
             }
@@ -5187,18 +4792,16 @@ export function PlaylistsPage() {
                     ? undefined
                     : () => void handleInsertCard("stats", { at: "above", index }, "row", queueItem)
                 }
-                onInsertPlayerCardAbove={
-                  playerCardDisabledReason || !queueItem.event.player
-                    ? undefined
-                    : () => void handleInsertPlayerCard({ at: "above", index }, "row", queueItem)
-                }
-                underPlayer={sections.under.has(key)}
                 onTrim={noSync ? undefined : () => trimRow(queueItem)}
-                onRemove={() => { if (clip) handleRemoveSingleClip(clip); }}
+                onRemove={inSelection ? handleRemoveSelected : () => { if (clip) handleRemoveSingleClip(clip); }}
+                removeCount={inSelection ? selectedClipIds.size : 1}
                 labelControls={activeOrgId ? {
                   labels,
                   assignedIds: clipAssignments.get(key) ?? new Set<string>(),
                   onToggle: (labelId, state) => handleToggleClipLabel(queueItem.matchId, queueItem.event.eventId, labelId, state),
+                  selection: inSelection && selectedClipKeyPairs.length > 1
+                    ? { count: selectedClipKeyPairs.length, allIds: bulkAssignedAll, someIds: bulkAssignedSome, onToggle: handleBulkToggleLabel }
+                    : undefined,
                   onCreate: handleCreateLabel,
                   onRename: handleRenameLabel,
                   onRecolor: handleRecolorLabel,
@@ -5285,7 +4888,7 @@ export function PlaylistsPage() {
   return (
     <>
     <Page>
-    {selected ? (
+    {selected && !reportView ? (
       <EditorToolbar
         name={selected.name}
         itemCount={selected.items.length}
@@ -5314,12 +4917,8 @@ export function PlaylistsPage() {
         addTextCardDisabledReason={filtersActive ? "Clear filters to edit the playlist" : null}
         onAddStatsCard={() => void handleInsertCard("stats", { at: "toolbar" }, "menu")}
         addStatsCardDisabledReason={statsCardDisabledReason}
-        onAddPlayerCard={() => void handleInsertPlayerCard({ at: "toolbar" }, "menu")}
-        addPlayerCardDisabledReason={playerCardDisabledReason}
-        onShareReport={() => { refreshMyReport(); setReportOpen(true); }}
-        shareReportDisabledReason={reportDisabledReason}
+        onOpenReport={openReport}
         reportStatus={liveReport ? `Shared · expires ${formatCardDate(liveReport.expiresAt)}` : null}
-        reportLocked={activeOrgPlan === 'free'}
         preRoll={preRoll}
         postRoll={postRoll}
         onPreRollChange={setPreRoll}
@@ -5366,6 +4965,9 @@ export function PlaylistsPage() {
           setShareDialogOpen(true);
         }}
       />
+    ) : selected ? (
+      // Holds the toolbar's height from the first frame, so nothing below jumps while the report fills it.
+      <div ref={setReportToolbarSlot} className="h-[var(--toolbar-height)] shrink-0" />
     ) : (
       <Toolbar
         variant="static"
@@ -5597,6 +5199,28 @@ export function PlaylistsPage() {
           </div>
         ) : (
           <>
+          {reportView ? (
+            <ReportView
+              key={selected.id}
+              toolbarSlot={reportToolbarSlot}
+              playlist={selected}
+              eventByKey={eventByKey}
+              matchLookup={matchLookup}
+              leagues={leagues}
+              isMultiMatch={isMultiMatch}
+              labels={labels}
+              clipAssignments={clipAssignments}
+              labelNamesByClip={labelNamesByClip}
+              myReport={myReport}
+              onRefreshReport={() => refreshMyReport()}
+              blockedByPlan={activeOrgPlan === 'free'}
+              onUpgrade={() => { setUpsellReport(true); setUpgradeDialogOpen(true); }}
+              shareDisabledReason={reportShareDisabledReason}
+              runReport={runReport}
+              onBack={() => setReportFor(null)}
+              onOpenClip={(key) => { pendingRevealKeyRef.current = key; setReportFor(null); }}
+            />
+          ) : (
           <div className="flex h-full flex-col gap-3 p-4">
 
             {/* Layout: horizontal split (default) or vertical theater mode */}
@@ -5634,6 +5258,7 @@ export function PlaylistsPage() {
               </ResizablePanelGroup>
             )}
           </div>
+          )}
           <Sheet open={showClipBrowser} onOpenChange={setShowClipBrowser}>
             <SheetContent>
               <ClipBrowserPanel
@@ -5697,22 +5322,6 @@ export function PlaylistsPage() {
                   (upsellContext?.format === "9:16" ? "_vertical" : "")
             }
           />
-          {/* Scouting report — review, generate the link, copy / open / PDF / stop sharing */}
-          {selected && reportPreview && (
-            <ScoutingReportDialog
-              open={reportOpen}
-              onClose={() => setReportOpen(false)}
-              outline={reportOutlineRows}
-              contentKey={reportPreview.contentKey}
-              existing={myReport}
-              onExistingChange={() => refreshMyReport()}
-              initialTitle={selected.name}
-              initialOpponent={defaultOpponent(selected.items)}
-              blockedByPlan={activeOrgPlan === 'free'}
-              onUpgrade={() => { setUpsellReport(true); setUpgradeDialogOpen(true); }}
-              run={runReport}
-            />
-          )}
           {/* Send to phone — render + upload + QR */}
           <ExportFormatDialog
             action={exportFormatAction}

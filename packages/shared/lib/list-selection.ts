@@ -73,8 +73,10 @@ export interface ListSelection {
 /**
  * What a click on a row does to the selection. ⌘ toggles the row and moves
  * the anchor to it; Shift selects from the anchor to the row, leaving the
- * anchor where it was. A plain click moves focus and anchor and leaves the
- * selection alone: in the editor a plain click plays the clip.
+ * anchor where it was. A plain click moves focus and anchor (in the editor it
+ * plays the clip): on a row outside the selection it lets go of the
+ * selection, as a click elsewhere does in Finder; on a row inside it, the
+ * selection stays, so the picked rows can be watched one by one.
  */
 export function clickSelection({
   order,
@@ -102,11 +104,13 @@ export function clickSelection({
       focus: key,
     };
   }
-  const next = new Set(selected);
-  if (toggle) {
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
+  if (!toggle) {
+    const keep = selected.size === 0 || selected.has(key);
+    return { selected: keep ? new Set(selected) : new Set<string>(), anchor: key, focus: key };
   }
+  const next = new Set(selected);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
   return { selected: next, anchor: key, focus: key };
 }
 

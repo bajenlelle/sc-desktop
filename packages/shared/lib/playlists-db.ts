@@ -13,7 +13,6 @@ import { currentUserId } from "./current-user";
 import type { Playlist, PlaylistItem, PlaylistClipItem, PlaylistTextCard } from "../types/match";
 import type { CropKeyframe } from "./crop-path";
 import { parseCardSpec, type StatsCardSpec } from "./stats-card";
-import { parsePlayerCard, playerCardLabel, type PlayerCardSpec } from "./player-card";
 
 // ---------------------------------------------------------------------------
 // DB row types (snake_case columns from Postgres)
@@ -64,29 +63,13 @@ export interface PlaylistRow {
 
 /**
  * Exported for tests — the DB-row → domain mapper everything downstream consumes.
- *
- * Player cards (item_type 'player', the scouting report's entries) are the
- * owner's: RLS lets anyone a playlist is shared with read its rows, so the
- * mapper leaves them out unless the caller is the owner and asks for them.
- * A recipient's playlist never carries one.
+ * A row of an item type this build doesn't know (the retired 'player' cards,
+ * anything newer) falls through to the clip branch and is dropped there.
  */
-export function rowToPlaylist(row: PlaylistRow, opts: { includePlayerCards?: boolean } = {}): Playlist {
+export function rowToPlaylist(row: PlaylistRow): Playlist {
   const items = [...(row.playlist_clips ?? [])]
     .sort((a, b) => a.position - b.position)
     .map((c): PlaylistItem | null => {
-      if (c.item_type === 'player') {
-        if (!opts.includePlayerCards || !c.item_id) return null;
-        const player = parsePlayerCard(c.card);
-        if (!player) return null;
-        return {
-          type: 'text',
-          id: c.item_id,
-          text: c.text_content ?? playerCardLabel(player),
-          durationSeconds: 0,
-          ...(c.group_id ? { groupId: c.group_id } : {}),
-          player,
-        } satisfies PlaylistTextCard;
-      }
       if (c.item_type === 'text') {
         if (!c.item_id) return null;
         // A spec this build can't draw leaves a plain text card (its fallback line).
@@ -266,8 +249,8 @@ export async function listPlaylists(
   opts?: OrgScopeOpts,
 ): Promise<Playlist[]> {
   const rows = await ownPlaylistRows(supabase, orgId, opts, "listPlaylists");
-  // Own playlists only (ownPlaylistRows reads user_id = uid): the player cards are theirs.
-  return rows.map((r) => rowToPlaylist(r, { includePlayerCards: true }));
+  // Own playlists only (ownPlaylistRows reads user_id = uid).
+  return rows.map((r) => rowToPlaylist(r));
 }
 
 // ---------------------------------------------------------------------------
@@ -327,11 +310,16 @@ export async function deletePlaylist(supabase: SupabaseClient, id: string): Prom
 // Add clips to a playlist
 // ---------------------------------------------------------------------------
 
+/**
+ * `restore`: the clips are coming back (undo of a removal), so each keeps its
+ * hosted file. A plain add never carries one: the playlist cuts its own.
+ */
 export async function addClips(
   supabase: SupabaseClient,
   playlistId: string,
   clips: PlaylistClipItem[],
-  startPosition: number
+  startPosition: number,
+  opts: { restore?: boolean } = {},
 ): Promise<void> {
   if (clips.length === 0) return;
   // One row per (match, event): a caller's stale membership snapshot, or a
@@ -354,6 +342,7 @@ export async function addClips(
       post_roll_offset: clip.postRollOffset ?? 0,
       note: clip.note ?? null,
       crop_keyframes: clip.cropKeyframes ?? null,
+      ...(opts.restore ? { r2_url: clip.r2Url ?? null } : {}),
     }));
   // A clip already in the playlist is a no-op, not an error: every caller
   // dedupes against optimistic React state, which can never be atomic with
@@ -419,46 +408,6 @@ export async function updateTextCard(
 }
 
 // ---------------------------------------------------------------------------
-// Player cards (the scouting report's entries, lib/player-card.ts)
-// ---------------------------------------------------------------------------
-
-export async function insertPlayerCard(
-  supabase: SupabaseClient,
-  playlistId: string,
-  itemId: string,
-  spec: PlayerCardSpec,
-  position: number
-): Promise<void> {
-  const { error } = await supabase.from("playlist_clips").insert({
-    playlist_id: playlistId,
-    item_type: 'player',
-    item_id: itemId,
-    // An inert label: no build draws it, and builds that don't know the type drop the row.
-    text_content: playerCardLabel(spec),
-    duration_seconds: null,
-    position,
-    match_id: null,
-    event_id: null,
-    pre_roll_offset: 0,
-    post_roll_offset: 0,
-    card: spec,
-  });
-  if (error) throw new Error(`Failed to insert player card: ${error.message}`);
-}
-
-export async function updatePlayerCard(
-  supabase: SupabaseClient,
-  playlistId: string,
-  itemId: string,
-  spec: PlayerCardSpec
-): Promise<void> {
-  const { error } = await supabase
-    .from("playlist_clips")
-    .update({ card: spec, text_content: playerCardLabel(spec) })
-    .eq("playlist_id", playlistId)
-    .eq("item_id", itemId);
-  if (error) throw new Error(`Failed to update player card: ${error.message}`);
-}
 
 // ---------------------------------------------------------------------------
 // Remove specific items from a playlist
@@ -504,7 +453,7 @@ export async function reorderItems(
   // the RPC writes it unconditionally, so each reorder rewrites membership.
   const p_items = items.map((item, i) =>
     item.type === 'text'
-      ? { item_type: item.player ? 'player' : 'text', item_id: item.id, position: i, group_id: item.groupId ?? null }
+      ? { item_type: 'text', item_id: item.id, position: i, group_id: item.groupId ?? null }
       : { item_type: 'clip', match_id: item.matchId, event_id: item.eventId, position: i, group_id: item.groupId ?? null }
   );
   const { error } = await supabase.rpc('reorder_playlist_items', {
@@ -831,7 +780,7 @@ export async function listOwnPlaylistsAndShared(
   opts?: OrgScopeOpts,
 ): Promise<{ playlists: Playlist[]; shared: SharedPlaylist[] }> {
   const rows = await ownPlaylistRows(supabase, orgId, opts, "listOwnPlaylistsAndShared");
-  return { playlists: rows.map((r) => rowToPlaylist(r, { includePlayerCards: true })), shared: sharedFromRows(rows) };
+  return { playlists: rows.map((r) => rowToPlaylist(r)), shared: sharedFromRows(rows) };
 }
 
 /**

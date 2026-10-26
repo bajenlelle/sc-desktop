@@ -172,6 +172,8 @@ export interface StatsCardLoaderDeps {
 export interface StatsCardLoader {
   /** Everyone's line in one game, or null when the game has no stats at all. */
   loadGameStats(match: StoredMatch, leagues: League[], opts?: { fresh?: boolean }): Promise<GameStats | null>;
+  /** Every player's season line in the competition, by personId. Throws when the page can't be read. */
+  loadSeasonPlayers(competitionId: number, opts?: { fresh?: boolean }): Promise<ReadonlyMap<string, HostedSeasonPlayer>>;
   /** The player's season line in the competition, or null when they aren't listed. Throws when the page can't be read. */
   loadSeasonPlayer(competitionId: number, personId: string, opts?: { fresh?: boolean }): Promise<HostedSeasonPlayer | null>;
 }
@@ -181,6 +183,8 @@ const PAGE_TTL_MS = 10 * 60 * 1000;
 /** One app's loader, with its own session cache of pages. Create it once, at module level. */
 export function createStatsCardLoader({ fetchPage, onLayoutError }: StatsCardLoaderDeps): StatsCardLoader {
   const pages = new Map<string, { at: number; html: Promise<string> }>();
+  /** A season page parsed once per read of it: the picker asks for every player, the card for one. */
+  const seasons = new Map<string, { html: Promise<string>; players: Promise<ReadonlyMap<string, HostedSeasonPlayer>> }>();
 
   function hostedPage(url: string, fresh = false): Promise<string> {
     const hit = pages.get(url);
@@ -192,6 +196,16 @@ export function createStatsCardLoader({ fetchPage, onLayoutError }: StatsCardLoa
       if (pages.get(url)?.html === html) pages.delete(url);
     });
     return html;
+  }
+
+  /** The parsed season page behind the page read `hostedPage` gives: a new read (expiry, fresh, a retried failure) parses again. */
+  function seasonPage(url: string, fresh = false): Promise<ReadonlyMap<string, HostedSeasonPlayer>> {
+    const html = hostedPage(url, fresh);
+    const hit = seasons.get(url);
+    if (hit && hit.html === html) return hit.players;
+    const players = html.then(parseHostedPlayerStats);
+    seasons.set(url, { html, players });
+    return players;
   }
 
   /** A layout change is ours to fix; a network failure isn't worth a report. */
@@ -244,18 +258,21 @@ export function createStatsCardLoader({ fetchPage, onLayoutError }: StatsCardLoa
     }
   }
 
-  async function loadSeasonPlayer(competitionId: number, personId: string, opts: { fresh?: boolean } = {}): Promise<HostedSeasonPlayer | null> {
+  async function loadSeasonPlayers(competitionId: number, opts: { fresh?: boolean } = {}): Promise<ReadonlyMap<string, HostedSeasonPlayer>> {
     const url = hostedPlayerStatsUrl(competitionId);
     try {
-      const players = parseHostedPlayerStats(await hostedPage(url, opts.fresh));
-      return players.get(personId) ?? null;
+      return await seasonPage(url, opts.fresh);
     } catch (e) {
       noteFailure(e, url);
       throw e;
     }
   }
 
-  return { loadGameStats, loadSeasonPlayer };
+  async function loadSeasonPlayer(competitionId: number, personId: string, opts: { fresh?: boolean } = {}): Promise<HostedSeasonPlayer | null> {
+    return (await loadSeasonPlayers(competitionId, opts)).get(personId) ?? null;
+  }
+
+  return { loadGameStats, loadSeasonPlayers, loadSeasonPlayer };
 }
 
 // ---------------------------------------------------------------------------

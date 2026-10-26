@@ -2,9 +2,10 @@
 #
 # Checks for scouting reports (20261029100000).
 #
-# Player items: a 'player' playlist item must carry a player card spec, a clip
-# or a plain text item may not carry one, reorder_playlist_items moves it.
-# Publishing: only the playlist's owner, only on a paid plan, only with content
+# Player items: a 'player' playlist item is refused since 20261101100000 (the
+# report is a draft per playlist; scouting_report_drafts.sh); a text item may
+# still carry a stats card, a clip may not, reorder_playlist_items moves a text
+# item. Publishing: only the playlist's owner, only on a paid plan, only with content
 # of the right shape (version, section and clip counts, clip and poster key
 # shapes, poster files of the caller's own); a second publish updates the same
 # row (same link, a fresh 30 days). Reading: the table is the owner's to read
@@ -23,6 +24,7 @@
 # default the founder's staging account) and one other user.
 #
 #   SUPABASE_DB_URL=<session pooler url> supabase/tests/scouting_reports.sh
+#   SUPABASE_DB_URL=<url> RLS_PREFLIGHT=supabase/migrations/<file>.sql supabase/tests/scouting_reports.sh   # a migration applied inside every probe
 set -euo pipefail
 trap 'echo "scouting_reports.sh: failed at line $LINENO" >&2' ERR
 
@@ -56,6 +58,12 @@ probe() {  # $1=sql
   fi
 }
 
+PREFLIGHT=""
+if [[ -n "${RLS_PREFLIGHT:-}" ]]; then
+  PREFLIGHT="$(cat "$RLS_PREFLIGHT")"$'\n;'
+  echo "# Preflight: $RLS_PREFLIGHT applied inside every probe (rolled back)"
+fi
+
 # U owns the probe playlists, V is another signed-in user.
 U="${RLS_TEST_USER:-5dc28ee0-0186-4ca5-9e8d-9023d4794a92}"
 V="$(q1 "SELECT id::text AS v FROM auth.users WHERE id <> \$\$$U\$\$ ORDER BY created_at LIMIT 1")"
@@ -70,7 +78,7 @@ run() {  # $1=label  $2=expected  $3=sql as the actor  [$4=privileged setup sql,
   # expected: ALLOWED | ALLOWED rows=N | DENIED (RLS / privilege) | RAISES:<token> | ERR (any other error)
   local out got st actor="${ACTOR:-$U}" role="${ROLE:-authenticated}" claims
   if [[ "$role" == "anon" ]]; then claims='{"role":"anon"}'; else claims="{\"sub\":\"$actor\",\"role\":\"$role\"}"; fi
-  out="$(probe "BEGIN; ${4:-} SELECT set_config(\$\$request.jwt.claims\$\$, \$\$$claims\$\$, true); SET LOCAL ROLE $role; $3; ROLLBACK;" || true)"
+  out="$(probe "BEGIN; $PREFLIGHT ${4:-} SELECT set_config(\$\$request.jwt.claims\$\$, \$\$$claims\$\$, true); SET LOCAL ROLE $role; $3; ROLLBACK;" || true)"
   out="$(mask "$out")"
   if grep -q "42501\|violates row-level security\|permission denied" <<<"$out"; then
     got="DENIED"
@@ -121,18 +129,16 @@ insert_item() {  # $1=item_type  $2=card sql
   echo "WITH x AS (INSERT INTO playlist_clips (playlist_id, item_type, item_id, match_id, event_id, text_content, duration_seconds, position, card) VALUES ($(d $PL), '$1', 'probe-new', $( [[ $1 == clip ]] && echo "$(d no-such-match), 1" || echo "NULL, NULL" ), 'Probe', NULL, 1, $2) RETURNING 1) SELECT count(*) AS n FROM x"
 }
 
-echo "== player items"
-run "a player item with a player card"            "ALLOWED rows=1" "$(insert_item player "$(d "$CARD")::jsonb")" "$MAKE_PLAYLIST"
+echo "== player items (refused since 20261101100000: the report is a draft)"
+run "a player item with a player card"            "ERR"            "$(insert_item player "$(d "$CARD")::jsonb")" "$MAKE_PLAYLIST"
 run "a player item with no card"                  "ERR"            "$(insert_item player NULL)" "$MAKE_PLAYLIST"
 run "a player item with a stats card"             "ERR"            "$(insert_item player "$(d '{"type":"stats","v":1}')::jsonb")" "$MAKE_PLAYLIST"
-run "a player item whose card isn't an object"    "ERR"            "$(insert_item player "$(d '[1,2]')::jsonb")" "$MAKE_PLAYLIST"
-run "a player card over 16 KB"                    "ERR"            "$(insert_item player "jsonb_build_object('type','player','pad',repeat('x',17000))")" "$MAKE_PLAYLIST"
 run "a clip row with a player card"               "ERR"            "$(insert_item clip "$(d "$CARD")::jsonb")" "$MAKE_PLAYLIST"
 run "a text item with a stats card still works"   "ALLOWED rows=1" "$(insert_item text "$(d '{"type":"stats","v":1}')::jsonb")" "$MAKE_PLAYLIST"
 run "a plain text item still works"               "ALLOWED rows=1" "$(insert_item text NULL)" "$MAKE_PLAYLIST"
-PLAYER_ROW="INSERT INTO playlist_clips (playlist_id, item_type, item_id, text_content, position, card) VALUES ($(d $PL), 'player', 'probe-player', 'Probe', 0, $(d "$CARD")::jsonb);"
-run "reordering moves a player item"              "ALLOWED rows=1" "SELECT reorder_playlist_items($(d $PL), '[{\"item_type\":\"player\",\"item_id\":\"probe-player\",\"position\":5,\"group_id\":null}]'::jsonb); SELECT count(*) AS n FROM playlist_clips WHERE playlist_id = $(d $PL) AND item_id = 'probe-player' AND position = 5" "$MAKE_PLAYLIST $PLAYER_ROW"
-ACTOR="$V" run "someone else can't reorder it"    "RAISES:not_owner" "SELECT reorder_playlist_items($(d $PL), '[]'::jsonb)" "$MAKE_PLAYLIST $PLAYER_ROW"
+TEXT_ROW="INSERT INTO playlist_clips (playlist_id, item_type, item_id, text_content, position) VALUES ($(d $PL), 'text', 'probe-text', 'Probe', 0);"
+run "reordering moves a text item"                "ALLOWED rows=1" "SELECT reorder_playlist_items($(d $PL), '[{\"item_type\":\"text\",\"item_id\":\"probe-text\",\"position\":5,\"group_id\":null}]'::jsonb); SELECT count(*) AS n FROM playlist_clips WHERE playlist_id = $(d $PL) AND item_id = 'probe-text' AND position = 5" "$MAKE_PLAYLIST $TEXT_ROW"
+ACTOR="$V" run "someone else can't reorder it"    "RAISES:not_owner" "SELECT reorder_playlist_items($(d $PL), '[]'::jsonb)" "$MAKE_PLAYLIST $TEXT_ROW"
 
 echo "== publishing"
 run "the owner on a paid plan publishes"          "ALLOWED rows=1" "SELECT (($(publish "$GOOD"))->>'created')::boolean::int AS n" "$PRO"

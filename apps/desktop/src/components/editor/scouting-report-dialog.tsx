@@ -6,14 +6,12 @@ import { toast } from "sonner";
 import { Check, Copy, ExternalLink, FileText, Loader2, Lock } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { AutoHeight } from "@/components/ui/auto-height";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { trackEvent } from "@/lib/analytics";
 import { fadeVariants, springs } from "@/lib/motion";
 import { reportBaseUrl, type GenerateOutcome, type ReportProgress } from "@/lib/scouting-report";
 import { ScoutingReportError, revokeScoutingReport, type MyScoutingReport } from "@/lib/scouting-reports-db";
-import { REPORT_TITLE_MAX, type OutlineRow } from "@scoutable/shared/lib/scouting-report";
 import { scoutingReportUrl } from "@scoutable/shared/lib/scouting-reports-db";
 import { formatCardDate } from "@scoutable/shared/lib/stats-card";
 
@@ -32,8 +30,6 @@ const STAGE_LABEL = {
 } as const;
 
 export interface ScoutingReportRun {
-  title: string;
-  opponent: string | null;
   allowMissing: boolean;
   signal: AbortSignal;
   onProgress: (p: ReportProgress) => void;
@@ -51,48 +47,50 @@ function errorMessage(e: unknown): string {
   return "Couldn’t create the link. Nothing was shared. Try again.";
 }
 
+/** What the report holds, counted before any clip file is cut. */
+export interface ReportSummary {
+  players: number;
+  clips: number;
+  /** Players with neither a note nor clips. */
+  empty: number;
+}
+
 /**
- * Share a playlist's scouting report: review what it holds, generate the
- * link (clips and previews are prepared first), then copy it, open it, save it
- * as a PDF, update it or stop sharing. Closing while it works cancels, and a
- * cancelled run publishes nothing: the page is only made public in the last step.
+ * Share a report: a last look at what it holds, generate the link (clips and
+ * previews are prepared first), then copy it, open it, save it as a PDF,
+ * update it or stop sharing. The document itself is the report view behind
+ * this sheet. Closing while it works cancels, and a cancelled run publishes
+ * nothing: the page is only made public in the last step.
  *
- * A free plan can open this and look at the review; Generate is where the
+ * A free plan can open this and look at the summary; Generate is where the
  * upgrade dialog opens (the gate is on sharing, not on building).
  */
 export function ScoutingReportDialog({
   open,
   onClose,
-  outline,
+  summary,
   contentKey,
   existing,
   onExistingChange,
-  initialTitle,
-  initialOpponent,
   blockedByPlan,
   onUpgrade,
   run,
 }: {
   open: boolean;
   onClose: () => void;
-  /** What the playlist holds, section by section (clips count before their files are cut). */
-  outline: OutlineRow[];
-  /** What the playlist says as a hash, to tell whether a published report is up to date. */
+  summary: ReportSummary;
+  /** What the report says as a hash, to tell whether a published report is up to date. */
   contentKey: string;
   /** The playlist's report that is not switched off, if any. */
   existing: MyScoutingReport | null;
   /** Called after a run or a stop, so the page reads the playlist's report again. */
   onExistingChange: () => void;
-  initialTitle: string;
-  initialOpponent: string | null;
   /** The playlist's plan is free: Generate opens the upgrade dialog instead. */
   blockedByPlan: boolean;
   onUpgrade: () => void;
   run: (args: ScoutingReportRun) => Promise<GenerateOutcome>;
 }) {
   const [phase, setPhase] = useState<Phase>({ kind: "review" });
-  const [title, setTitle] = useState(initialTitle);
-  const [opponent, setOpponent] = useState(initialOpponent ?? "");
   const [copied, setCopied] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const runIdRef = useRef(0);
@@ -103,15 +101,10 @@ export function ScoutingReportDialog({
   useEffect(() => {
     if (!open) return;
     setCopied(false);
-    setTitle(isLive(existing) ? existing.title : initialTitle);
-    setOpponent(initialOpponent ?? "");
     if (isLive(existing)) setPhase({ kind: "done", id: existing.id, expiresAt: existing.expiresAt, leftOut: 0 });
     else {
       setPhase({ kind: "review" });
-      trackEvent("scouting_report_previewed", {
-        players: outline.filter((r) => r.id !== "team").length,
-        clips: outline.reduce((n, r) => n + r.clips, 0),
-      });
+      trackEvent("scouting_report_previewed", { players: summary.players, clips: summary.clips });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -141,8 +134,6 @@ export function ScoutingReportDialog({
     setPhase({ kind: "working", progress: null });
     const current = () => id === runIdRef.current;
     run({
-      title,
-      opponent: opponent.trim() || null,
       allowMissing,
       signal: controller.signal,
       onProgress: (progress) => current() && setPhase({ kind: "working", progress }),
@@ -159,7 +150,7 @@ export function ScoutingReportDialog({
           return;
         }
         trackEvent("scouting_report_generated", {
-          players: outline.filter((r) => r.id !== "team").length,
+          players: summary.players,
           clips: outcome.clips,
           shipped: outcome.shipped,
           posters: outcome.posters,
@@ -205,7 +196,7 @@ export function ScoutingReportDialog({
     }
   }
 
-  const empty = outline.filter((r) => r.id !== "team" && !r.note && r.clips === 0).length;
+  const { empty } = summary;
   const working = phase.kind === "working";
   const stale = isLive(existing) && existing.contentKey !== contentKey;
 
@@ -234,30 +225,9 @@ export function ScoutingReportDialog({
                     This report’s link has expired. Generating again brings the same link back for 30 days.
                   </p>
                 )}
-                <label className="flex flex-col gap-1 text-callout text-muted-foreground">
-                  Title
-                  <Input value={title} maxLength={REPORT_TITLE_MAX} onChange={(e) => setTitle(e.target.value)} className="text-foreground" />
-                </label>
-                <label className="flex flex-col gap-1 text-callout text-muted-foreground">
-                  Opponent <span className="sr-only">(optional)</span>
-                  <Input value={opponent} maxLength={80} placeholder="Optional" onChange={(e) => setOpponent(e.target.value)} className="text-foreground" />
-                </label>
-                <div className="flex flex-col gap-1">
-                  <p className="text-callout text-muted-foreground">Preview</p>
-                  <ul className="max-h-44 divide-y divide-separator overflow-y-auto rounded-window bg-card ring-1 ring-separator" aria-label="Report preview">
-                    {outline.length === 0 && <li className="px-3 py-2 text-sm text-muted-foreground">Nothing to show yet.</li>}
-                    {outline.map((r) => (
-                      <li key={r.id} className="flex items-baseline justify-between gap-3 px-3 py-1.5 text-sm">
-                        <span className="truncate font-medium">{r.label}</span>
-                        <span className="shrink-0 text-callout text-muted-foreground nums">
-                          {[r.clips > 0 ? `${r.clips} ${r.clips === 1 ? "clip" : "clips"}` : null, r.stats ? "stats" : null, r.note ? "note" : null]
-                            .filter(Boolean)
-                            .join(" · ") || "empty"}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                <p className="text-sm text-foreground nums">
+                  {summary.players} {summary.players === 1 ? "player" : "players"} · {summary.clips} {summary.clips === 1 ? "clip" : "clips"}
+                </p>
                 {empty > 0 && (
                   <p className="text-callout text-muted-foreground">
                     {empty} {empty === 1 ? "player has" : "players have"} no note or clips.
@@ -381,7 +351,7 @@ export function ScoutingReportDialog({
               <Button variant="outline" onClick={close}>
                 Cancel
               </Button>
-              <Button onClick={() => generate(false)} disabled={!title.trim() || outline.length === 0}>
+              <Button onClick={() => generate(false)} disabled={summary.players === 0 && summary.clips === 0} title={summary.players === 0 && summary.clips === 0 ? "Add a player or a clip first" : undefined}>
                 {blockedByPlan && <Lock />}
                 {isLive(existing) ? "Update link" : "Generate link"}
               </Button>

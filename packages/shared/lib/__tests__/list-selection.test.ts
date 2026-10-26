@@ -89,11 +89,23 @@ describe("extendSelection", () => {
 describe("clickSelection", () => {
   const base = { order, shift: false, toggle: false };
 
-  it("moves focus and anchor on a plain click without touching the selection", () => {
-    const r = clickSelection({ ...base, selected: new Set(["a"]), anchor: "a", focus: "a", key: "d" });
-    expect(sorted(r.selected)).toEqual(["a"]);
+  it("lets go of the selection on a plain click on a row outside it, moving focus and anchor there", () => {
+    const r = clickSelection({ ...base, selected: new Set(["a", "b"]), anchor: "a", focus: "b", key: "d" });
+    expect(sorted(r.selected)).toEqual([]);
     expect(r.anchor).toBe("d");
     expect(r.focus).toBe("d");
+  });
+
+  it("keeps the selection on a plain click on a row inside it, so the picked rows can be watched one by one", () => {
+    const selected = new Set(["a", "c"]);
+    const r = clickSelection({ ...base, selected, anchor: "a", focus: "a", key: "c" });
+    expect(sorted(r.selected)).toEqual(["a", "c"]);
+    expect(r.anchor).toBe("c");
+    expect(r.focus).toBe("c");
+  });
+
+  it("leaves an empty selection empty on a plain click", () => {
+    expect(sorted(clickSelection({ ...base, selected: new Set<string>(), anchor: null, focus: null, key: "c" }).selected)).toEqual([]);
   });
 
   it("toggles a row with ⌘ and anchors there", () => {

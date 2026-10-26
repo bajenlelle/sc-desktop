@@ -6,15 +6,12 @@ import {
   createPlaylist,
   getMySharedPlaylists,
   getMyTeamPlaylists,
-  insertPlayerCard,
   listPlaylists,
   reorderItems,
   rowToPlaylist,
-  updatePlayerCard,
   type PlaylistClipRow,
   type PlaylistRow,
 } from "../playlists-db";
-import { newPlayerCard } from "../player-card";
 
 function clipRow(partial: Partial<PlaylistClipRow>): PlaylistClipRow {
   return {
@@ -455,6 +452,16 @@ function mockUpsertClient(error: { message: string } | null = null) {
 }
 
 describe("addClips", () => {
+  it("puts a clip's hosted file back only when restoring it (undo), never on a plain add", async () => {
+    const shipped = { type: "clip" as const, matchId: "m1", eventId: 7, r2Url: "https://media.example.com/clips/m1/7.mp4" };
+    const plain = mockUpsertClient();
+    await addClips(plain.client, "pl1", [shipped], 0);
+    expect(plain.calls.rows?.[0]).not.toHaveProperty("r2_url");
+    const restore = mockUpsertClient();
+    await addClips(restore.client, "pl1", [shipped, { type: "clip", matchId: "m1", eventId: 8 }], 0, { restore: true });
+    expect(restore.calls.rows?.map((r) => r["r2_url"])).toEqual(["https://media.example.com/clips/m1/7.mp4", null]);
+  });
+
   it("upserts on uq_playlist_clip and ignores duplicates, so a re-add is a no-op", async () => {
     const { client, calls } = mockUpsertClient();
     await addClips(client, "pl1", [{ type: "clip", matchId: "m1", eventId: 7 }], 0);
@@ -574,130 +581,17 @@ describe("clearShippedClip", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Player cards (the scouting report's entries)
+// Rows this build doesn't know
 // ---------------------------------------------------------------------------
 
-const PLAYER = { id: "1693025", name: "Alva Berg", number: "7", teamId: "187005", teamName: "Bajen Basket" };
-
-function playerRow(partial: Partial<PlaylistClipRow> = {}): PlaylistClipRow {
-  return clipRow({
-    item_type: "player",
-    item_id: "pc1",
-    match_id: null,
-    event_id: null,
-    text_content: "#7 Alva Berg",
-    duration_seconds: null,
-    card: { ...newPlayerCard(PLAYER, null), note: "Drives left." },
-    ...partial,
-  });
-}
-
-describe("rowToPlaylist: player cards", () => {
-  const rows = [clipRow({ event_id: 1, position: 0 }), playerRow({ position: 1 }), clipRow({ event_id: 2, position: 2 })];
-
-  it("leaves them out by default, as a recipient's playlist is mapped", () => {
+describe("rowToPlaylist: unknown item types", () => {
+  it("drops a row of an item type it doesn't know (the retired player cards among them), keeping the rest", () => {
+    const rows = [
+      clipRow({ event_id: 1, position: 0 }),
+      { ...textRow({ item_id: "pc1", position: 1 }), item_type: "player" as PlaylistClipRow["item_type"], card: { type: "player", v: 1 } },
+      clipRow({ event_id: 2, position: 2 }),
+    ];
     const p = rowToPlaylist(plRow({ playlist_clips: rows }));
-    expect(p.items.map((i) => i.type)).toEqual(["clip", "clip"]);
-  });
-
-  it("brings them in for the owner, in position, as text-typed items that never play", () => {
-    const p = rowToPlaylist(plRow({ playlist_clips: rows }), { includePlayerCards: true });
-    expect(p.items.map((i) => i.type)).toEqual(["clip", "text", "clip"]);
-    expect(p.items[1]).toEqual({
-      type: "text",
-      id: "pc1",
-      text: "#7 Alva Berg",
-      durationSeconds: 0,
-      player: { ...newPlayerCard(PLAYER, null), note: "Drives left." },
-    });
-  });
-
-  it("keeps a player card's group, and falls back to the label when text_content is null", () => {
-    const [item] = rowToPlaylist(plRow({ playlist_clips: [playerRow({ group_id: "g1", text_content: null })] }), {
-      includePlayerCards: true,
-    }).items;
-    expect(item).toMatchObject({ groupId: "g1", text: "#7 Alva Berg" });
-  });
-
-  it("drops a player row without an id or whose spec can't be read", () => {
-    const p = rowToPlaylist(
-      plRow({ playlist_clips: [playerRow({ item_id: null }), playerRow({ item_id: "pc2", card: { type: "player", v: 9 } }), playerRow({ item_id: "pc3", card: null })] }),
-      { includePlayerCards: true },
-    );
-    expect(p.items).toEqual([]);
-  });
-});
-
-describe("player card writes", () => {
-  function writeClient() {
-    const calls: { table?: string; insert?: unknown; update?: unknown; eq: Array<[string, unknown]>; rpc?: { name: string; args: unknown } } = { eq: [] };
-    const result = { error: null as { message: string } | null };
-    const client = {
-      from(table: string) {
-        calls.table = table;
-        const b: Record<string, unknown> = {
-          insert(row: unknown) { calls.insert = row; return Promise.resolve(result); },
-          update(row: unknown) { calls.update = row; return b; },
-          eq(col: string, val: unknown) { calls.eq.push([col, val]); return calls.eq.length >= 2 ? Promise.resolve(result) : b; },
-        };
-        return b;
-      },
-      rpc(name: string, args: unknown) { calls.rpc = { name, args }; return Promise.resolve(result); },
-    } as unknown as SupabaseClient;
-    return { client, calls, result };
-  }
-
-  it("inserts a row of item_type 'player' with an inert label and no duration", async () => {
-    const { client, calls } = writeClient();
-    const spec = { ...newPlayerCard(PLAYER, null), note: "Drives left." };
-    await insertPlayerCard(client, "pl1", "pc1", spec, 3);
-    expect(calls.table).toBe("playlist_clips");
-    expect(calls.insert).toEqual({
-      playlist_id: "pl1",
-      item_type: "player",
-      item_id: "pc1",
-      text_content: "#7 Alva Berg",
-      duration_seconds: null,
-      position: 3,
-      match_id: null,
-      event_id: null,
-      pre_roll_offset: 0,
-      post_roll_offset: 0,
-      card: spec,
-    });
-  });
-
-  it("updates the spec and the label by playlist and item", async () => {
-    const { client, calls } = writeClient();
-    const spec = { ...newPlayerCard(PLAYER, null), note: "Now right-handed." };
-    await updatePlayerCard(client, "pl1", "pc1", spec);
-    expect(calls.update).toEqual({ card: spec, text_content: "#7 Alva Berg" });
-    expect(calls.eq).toEqual([["playlist_id", "pl1"], ["item_id", "pc1"]]);
-  });
-
-  it("throws on a failed insert", async () => {
-    const { client, result } = writeClient();
-    result.error = { message: "boom" };
-    await expect(insertPlayerCard(client, "pl1", "pc1", newPlayerCard(PLAYER, null), 0)).rejects.toThrow("boom");
-  });
-
-  it("reorders a player card as 'player', a text card as 'text' and a clip as a clip", async () => {
-    const { client, calls } = writeClient();
-    await reorderItems(client, "pl1", [
-      { type: "clip", matchId: "m1", eventId: 1 },
-      { type: "text", id: "pc1", text: "#7 Alva Berg", durationSeconds: 0, player: newPlayerCard(PLAYER, null) },
-      { type: "text", id: "t1", text: "Box out", durationSeconds: 4, groupId: "g1" },
-    ]);
-    expect(calls.rpc).toEqual({
-      name: "reorder_playlist_items",
-      args: {
-        p_playlist_id: "pl1",
-        p_items: [
-          { item_type: "clip", match_id: "m1", event_id: 1, position: 0, group_id: null },
-          { item_type: "player", item_id: "pc1", position: 1, group_id: null },
-          { item_type: "text", item_id: "t1", position: 2, group_id: "g1" },
-        ],
-      },
-    });
+    expect(p.items.map((i) => (i.type === "clip" ? i.eventId : i.id))).toEqual([1, 2]);
   });
 });

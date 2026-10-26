@@ -75,11 +75,11 @@ playlists, and share them with teams; players watch on web/mobile.
   by header label; a layout change throws `hosted_layout_changed`, reported
   to Sentry) through one loader, `lib/stats-card-data.ts`, which the desktop
   hands its plugin-http fetcher.
-  A **player card** (`item_type 'player'`, `lib/player-card.ts`) is the scouting
-  report's entry (`docs/scouting-reports.md`): never drawn, played, exported or
-  shown to a recipient, so the painter rule below doesn't cover it. It
-  can be about anyone in the playlist's games, not only players with clips
-  (`lib/player-roster.ts`).
+  The **scouting report** is not a card: it is a draft document per playlist
+  (`scouting_report_drafts`, `lib/report-draft.ts`; `docs/scouting-reports.md`)
+  whose sections are players from the playlist's games (`lib/player-roster.ts`)
+  and whose clips are placed by who is in the play. `item_type 'player'` rows
+  are retired and refused by the table's check.
   Two painters draw the same pixels over `lib/card-layout.ts` with the same
   Roboto files: the desktop's (`apps/desktop/src/lib/card-painter.ts`, its
   stage and its export) and the web's (`apps/web/src/lib/card-painter.ts`,

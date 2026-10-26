@@ -1,14 +1,14 @@
 /**
- * The scouting report: a playlist with player cards, as the public page
- * shows it. Pure, so the desktop's preview and the page the recipient opens
- * come from one walk over the playlist.
+ * The scouting report: a playlist's clips laid out under the players of its
+ * draft (lib/report-draft.ts), as the public page shows it. Pure, so the
+ * desktop's view and the page the recipient opens come from one walk.
  *
- * The walk: a player card opens a section, and the clips after it belong to
- * that player until the next player card. Anything before the first card
- * (clips, text cards, stats cards) goes in a "Team" section, left out when
- * empty. A text card is a paragraph where it sits and a stats card a stats
- * row. Nothing in the playlist is dropped except a clip that has no hosted
- * file yet or whose play the game data no longer has (`missing`).
+ * The walk (deriveReportLayout): a Team section first, holding the intro and
+ * the clips no player claims, left out when empty; then a section per draft
+ * player, in draft order, with the clips placed under them. The playlist's
+ * text and stats cards are video cards and not part of the report. Nothing
+ * else is dropped except a clip that has no hosted file yet or whose play the
+ * game data no longer has (`missing`).
  *
  * The report is a SNAPSHOT: only a game's owner can read the plays a report
  * is built from, and the page is anonymous. It carries storage KEYS, never
@@ -16,20 +16,18 @@
  * below), so a coach can't point a report at an arbitrary address.
  */
 import type { PlayByPlayEvent, Playlist, PlaylistClipItem, PlaylistItem } from "../types/match";
-import { isClipItem } from "../types/match";
 import { eventLabel, formatGameClock, periodLabel } from "./events";
 import { cyrb53 } from "./highlight-shares-db";
 import { itemKey } from "./playlist-edits";
-import { isPlayerCard, playerCardsOf } from "./player-card";
+import { deriveReportLayout, sectionLabel, REPORT_MAX_SECTIONS, REPORT_TITLE_MAX, type ReportDraft } from "./report-draft";
 import { cardContent, type StatsCardSpec } from "./stats-card";
-import { statsCardTarget, type StatsCardTarget, type StatsClip } from "./stats-card-defaults";
+
+export { REPORT_MAX_SECTIONS, REPORT_TITLE_MAX };
 
 export const SCOUTING_REPORT_VERSION = 1 as const;
 
-/** What the database accepts (publish_scouting_report checks the same numbers). */
-export const REPORT_MAX_SECTIONS = 60;
+/** What the database accepts (publish_scouting_report checks the same numbers; sections and the title are in report-draft.ts). */
 export const REPORT_MAX_CLIPS = 300;
-export const REPORT_TITLE_MAX = 120;
 
 /** presign-upload's CLIP_KEY: a clip file in the public media bucket. */
 export const REPORT_CLIP_KEY =
@@ -128,11 +126,14 @@ export interface MissingClip {
 }
 
 export interface BuildReportInput {
+  draft: ReportDraft;
   playlist: Pick<Playlist, "items">;
   /** Plays by `<matchId>:<eventId>`. */
   eventByKey: ReadonlyMap<string, PlayByPlayEvent>;
   matchLabel?: (matchId: string) => string;
-  title: string;
+  /** The share sheet's title; the draft's when absent. */
+  title?: string;
+  /** The share sheet's opponent; the draft's when absent (null = none). */
   opponent?: string | null;
   /** Poster storage key by clip item key (`<matchId>:<eventId>`). */
   posters?: ReadonlyMap<string, string>;
@@ -171,32 +172,25 @@ function statsOf(card: StatsCardSpec): ReportStats {
 }
 
 export function buildScoutingReport(input: BuildReportInput): BuiltReport {
-  const { playlist, eventByKey, title, now = new Date() } = input;
-  const items = playlist.items;
-  const missing: MissingClip[] = [];
+  const { draft, playlist, eventByKey, now = new Date() } = input;
+  const title = (input.title ?? draft.title ?? "").trim();
+  const opponent = input.opponent === undefined ? draft.opponent : input.opponent;
+  const layout = deriveReportLayout(draft, playlist.items, eventByKey);
+  const missing: MissingClip[] = layout.missing.map((m) => ({ ...m, reason: "no_play" }));
 
   // The clips that make the page, to know whether it spans several games.
   const games = new Set<string>();
-  for (const item of items) {
-    if (isClipItem(item) && item.r2Url && clipKeyFromUrl(item.r2Url) && eventByKey.has(itemKey(item))) {
-      games.add(item.matchId);
-    }
+  for (const s of layout.sections) {
+    for (const item of s.clips) if (item.r2Url && clipKeyFromUrl(item.r2Url)) games.add(item.matchId);
   }
   const multiGame = games.size > 1;
 
-  const team: ReportSection = { id: "team", kind: "team", player: null, note: "", stats: null, blocks: [] };
-  const sections: ReportSection[] = [];
-  let current = team;
   let clipCount = 0;
   const clipKeys: string[] = [];
 
   const clipBlock = (item: PlaylistClipItem): ReportClip | null => {
     const key = itemKey(item);
-    const event = eventByKey.get(key);
-    if (!event) {
-      missing.push({ key, matchId: item.matchId, eventId: item.eventId, reason: "no_play" });
-      return null;
-    }
+    const event = eventByKey.get(key)!; // the layout placed it, so its play exists
     const clipKey = item.r2Url ? clipKeyFromUrl(item.r2Url) : null;
     if (!clipKey) {
       missing.push({ key, matchId: item.matchId, eventId: item.eventId, reason: "not_shipped" });
@@ -221,46 +215,45 @@ export function buildScoutingReport(input: BuildReportInput): BuiltReport {
     };
   };
 
-  for (const item of items) {
-    if (isPlayerCard(item)) {
-      const spec = item.player;
-      current = {
-        id: `p${sections.length + 1}`,
-        kind: "player",
-        player: { id: spec.player.id, name: spec.player.name, number: spec.player.number, teamName: spec.player.teamName },
-        note: spec.note.trim(),
-        stats: spec.stats ? statsOf(spec.stats) : null,
-        blocks: [],
-      };
-      sections.push(current);
-      continue;
+  const sections: ReportSection[] = [];
+  let players = 0;
+  for (const s of layout.sections) {
+    const blocks: ReportBlock[] = [];
+    if (!s.section) {
+      const intro = draft.intro.trim();
+      if (intro) blocks.push({ kind: "text", text: intro });
     }
-    if (isClipItem(item)) {
+    for (const item of s.clips) {
       const block = clipBlock(item);
-      if (block) current.blocks.push(block);
+      if (block) blocks.push(block);
+    }
+    if (!s.section) {
+      // The layout lists the team only when it has an intro or clips; with every clip unshipped it would be empty.
+      if (blocks.length > 0) sections.push({ id: "team", kind: "team", player: null, note: "", stats: null, blocks });
       continue;
     }
-    if (item.card) {
-      const c = cardContent(item.card);
-      current.blocks.push({ kind: "stats", heading: c.heading, stats: statsOf(item.card) });
-      continue;
-    }
-    const text = item.text.trim();
-    if (text) current.blocks.push({ kind: "text", text });
+    const { player, note, stats } = s.section;
+    sections.push({
+      id: `p${++players}`,
+      kind: "player",
+      player: { id: player.id, name: player.name, number: player.number, teamName: player.teamName },
+      note: note.trim(),
+      stats: stats ? statsOf(stats) : null,
+      blocks,
+    });
   }
 
-  const ordered = team.blocks.length > 0 ? [team, ...sections] : sections;
   const report: ScoutingReport = {
     v: SCOUTING_REPORT_VERSION,
     header: {
-      title: title.trim(),
-      opponent: input.opponent?.trim() ? input.opponent.trim() : null,
+      title,
+      opponent: opponent?.trim() ? opponent.trim() : null,
       preparedAt: now.toISOString(),
-      players: sections.length,
+      players,
       clips: clipCount,
       attribution: input.attribution ?? true,
     },
-    sections: ordered,
+    sections,
   };
   return { report, contentKey: reportContentKey(report), clipKeys, missing };
 }
@@ -290,104 +283,6 @@ export function reportContentKey(report: ScoutingReport): string {
     })),
   };
   return cyrb53(`r1|${JSON.stringify(stable)}`);
-}
-
-// ---------------------------------------------------------------------------
-// Where a new player card starts
-// ---------------------------------------------------------------------------
-
-/**
- * A new player card's player and game, for a card inserted at `insertIndex`:
- * the clips below it (up to the next player card) say whose it is, else the
- * clips above (back to the previous one). A player who already has a card
- * is never the default. From a clip's row ("Insert player card above"),
- * `anchor` names that clip. Season first: for opponent prep the season
- * says more than one game, and the caller falls back to the game where the
- * league has no season line. Null when no clip near the insertion has a
- * player who has no card yet.
- */
-export function playerCardTarget(
-  items: readonly PlaylistItem[],
-  insertIndex: number,
-  eventByKey: ReadonlyMap<string, PlayByPlayEvent>,
-  opts: { anchor?: StatsClip | null; activePlayerId?: string | null } = {},
-): StatsCardTarget | null {
-  const taken = new Set(playerCardsOf(items).map((c) => c.player.player.id));
-  const personOf = (c: StatsClip) => (c.event.player ? String(c.event.player.playerId) : null);
-  const free = (c: StatsClip) => {
-    const id = personOf(c);
-    return id !== null && !taken.has(id);
-  };
-  const clipAt = (item: PlaylistItem): StatsClip | null => {
-    if (!isClipItem(item)) return null;
-    const event = eventByKey.get(itemKey(item));
-    return event ? { matchId: item.matchId, event } : null;
-  };
-
-  let clips: StatsClip[];
-  if (opts.anchor) {
-    clips = [opts.anchor];
-  } else {
-    const below: StatsClip[] = [];
-    for (let i = insertIndex; i < items.length && !isPlayerCard(items[i]); i++) {
-      const c = clipAt(items[i]);
-      if (c) below.push(c);
-    }
-    const above: StatsClip[] = [];
-    for (let i = insertIndex - 1; i >= 0 && !isPlayerCard(items[i]); i--) {
-      const c = clipAt(items[i]);
-      if (c) above.push(c);
-    }
-    clips = below.filter(free).length > 0 ? below : above;
-  }
-  const usable = clips.filter(free);
-  if (usable.length === 0) return null;
-  const target = statsCardTarget(usable, {
-    anchor: opts.anchor && free(opts.anchor) ? opts.anchor : null,
-    activePlayerId: opts.activePlayerId ?? null,
-  });
-  return target ? { ...target, defaultScope: "season" } : null;
-}
-
-// ---------------------------------------------------------------------------
-// A player card's section in the list
-// ---------------------------------------------------------------------------
-
-/** Index just past the last item of the player card at `cardIndex`'s section. */
-export function sectionEnd(items: readonly PlaylistItem[], cardIndex: number): number {
-  let i = cardIndex + 1;
-  while (i < items.length && !isPlayerCard(items[i])) i++;
-  return i;
-}
-
-/**
- * What the inspector says about a card's section: how many clips sit below it,
- * and the keys of the same player's clips elsewhere in the playlist (the
- * "Move n more clips here" helper). A clip in a group that also holds other
- * players' clips moves with its group, so the helper leaves grouped clips alone.
- */
-export function playerSectionInfo(
-  items: readonly PlaylistItem[],
-  cardIndex: number,
-  eventByKey: ReadonlyMap<string, PlayByPlayEvent>,
-): { clips: number; elsewhere: string[] } {
-  const card = items[cardIndex];
-  if (!card || !isPlayerCard(card)) return { clips: 0, elsewhere: [] };
-  const end = sectionEnd(items, cardIndex);
-  const playerId = card.player.player.id;
-  let clips = 0;
-  const elsewhere: string[] = [];
-  items.forEach((item, i) => {
-    if (!isClipItem(item)) return;
-    const inside = i > cardIndex && i < end;
-    if (inside) {
-      clips++;
-      return;
-    }
-    const event = eventByKey.get(itemKey(item));
-    if (event?.player && String(event.player.playerId) === playerId && !item.groupId) elsewhere.push(itemKey(item));
-  });
-  return { clips, elsewhere };
 }
 
 // ---------------------------------------------------------------------------
@@ -479,85 +374,9 @@ export function parseScoutingReport(raw: unknown): ScoutingReport | null {
   };
 }
 
-// ---------------------------------------------------------------------------
-// The share sheet's defaults
-// ---------------------------------------------------------------------------
-
-/**
- * The opponent the share sheet starts with: for opponent prep, the team the
- * player cards are about, so the most common team name among them (a tie keeps
- * the first). Null when no card has one.
- */
-export function defaultOpponent(items: readonly PlaylistItem[]): string | null {
-  const counts = new Map<string, number>();
-  for (const card of playerCardsOf(items)) {
-    const team = card.player.player.teamName.trim();
-    if (team) counts.set(team, (counts.get(team) ?? 0) + 1);
-  }
-  let best: string | null = null;
-  let n = 0;
-  for (const [team, c] of counts) {
-    if (c > n) {
-      best = team;
-      n = c;
-    }
-  }
-  return best;
-}
-
 /** A title the database accepts: trimmed, at most REPORT_TITLE_MAX characters. */
 export function clampReportTitle(title: string): string {
   return title.trim().slice(0, REPORT_TITLE_MAX);
-}
-
-// ---------------------------------------------------------------------------
-// Dragging a player's section
-// ---------------------------------------------------------------------------
-
-/**
- * The keys a section travels with when its head row (a player card) is
- * dragged: the head and every row after it up to the next head. Null when the
- * grabbed row isn't a head.
- */
-export function sectionBlockKeys<T>(
-  list: readonly T[],
-  keyOf: (item: T) => string,
-  isHead: (item: T) => boolean,
-  anchorKey: string,
-): string[] | null {
-  const at = list.findIndex((item) => keyOf(item) === anchorKey);
-  if (at < 0 || !isHead(list[at])) return null;
-  let end = at + 1;
-  while (end < list.length && !isHead(list[end])) end++;
-  return list.slice(at, end).map(keyOf);
-}
-
-/**
- * A section dropped between two rows of another would take that section's
- * clips below it, or hand its own to the one above: so a dragged section's
- * drop gap snaps to the nearest section boundary (a head row, or the end of
- * the list; a tie goes to the earlier). A gap inside the dragged block itself
- * passes through, as the engine reads it as "stay".
- */
-export function snapGapToSectionBoundary<T>(
-  gap: number,
-  list: readonly T[],
-  keyOf: (item: T) => string,
-  isHead: (item: T) => boolean,
-  blockKeys: ReadonlySet<string>,
-): number {
-  if (gap > 0 && gap < list.length && blockKeys.has(keyOf(list[gap])) && blockKeys.has(keyOf(list[gap - 1]))) return gap;
-  let best = -1;
-  let bestDistance = Infinity;
-  for (let i = 0; i <= list.length; i++) {
-    if (i < list.length && !isHead(list[i])) continue;
-    const distance = Math.abs(i - gap);
-    if (distance < bestDistance) {
-      best = i;
-      bestDistance = distance;
-    }
-  }
-  return best < 0 ? gap : best;
 }
 
 // ---------------------------------------------------------------------------
@@ -577,31 +396,34 @@ export interface OutlineRow {
 /**
  * What the share sheet previews: a row per section, counting the clips the
  * playlist holds whether or not their files are hosted yet (Generate prepares
- * those; the built report leaves them out until it has). A section with
- * nothing in it is left out, the Team section included.
+ * those; the built report leaves them out until it has). The Team row shows
+ * when it has clips or an intro; a player's row always, empty or not.
  */
-export function reportOutline(items: readonly PlaylistItem[], eventByKey: ReadonlyMap<string, PlayByPlayEvent>): OutlineRow[] {
-  const team: OutlineRow = { id: "team", label: "Team", clips: 0, note: false, stats: false };
-  const rows: OutlineRow[] = [];
-  let current = team;
-  let teamHasContent = false;
-  for (const item of items) {
-    if (isPlayerCard(item)) {
-      const { player, note, stats } = item.player;
-      current = {
-        id: `p${rows.length + 1}`,
-        label: player.number ? `#${player.number} ${player.name}` : player.name,
-        clips: 0,
-        note: note.trim().length > 0,
-        stats: stats !== null,
-      };
-      rows.push(current);
-      continue;
-    }
-    const counted = isClipItem(item) ? eventByKey.has(itemKey(item)) : item.card ? true : item.text.trim().length > 0;
-    if (!counted) continue;
-    if (isClipItem(item)) current.clips++;
-    if (current === team) teamHasContent = true;
-  }
-  return teamHasContent ? [team, ...rows] : rows;
+export function reportOutline(draft: ReportDraft, items: readonly PlaylistItem[], eventByKey: ReadonlyMap<string, PlayByPlayEvent>): OutlineRow[] {
+  let players = 0;
+  return deriveReportLayout(draft, items, eventByKey).sections.map((s) =>
+    s.section
+      ? { id: `p${++players}`, label: sectionLabel(s.section.player), clips: s.clips.length, note: s.section.note.trim().length > 0, stats: s.section.stats !== null }
+      : { id: "team", label: "Team", clips: s.clips.length, note: draft.intro.trim().length > 0, stats: false },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The page's jump bar
+// ---------------------------------------------------------------------------
+
+/** The page shows its jump bar from this many sections (the Team section counts). */
+export const JUMP_BAR_MIN_SECTIONS = 3;
+
+function lastName(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  return parts[parts.length - 1] || name;
+}
+
+/** One chip per section, in page order: the team's as "Team", a player's as "#7 Berg" (number when known, last name). */
+export function reportJumpItems(sections: readonly ReportSection[]): { id: string; label: string }[] {
+  return sections.map((s) => ({
+    id: s.id,
+    label: s.player ? [s.player.number ? `#${s.player.number}` : null, lastName(s.player.name)].filter(Boolean).join(" ") : "Team",
+  }));
 }

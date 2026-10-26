@@ -31,7 +31,7 @@ export {
 const PAGE_TIMEOUT_MS = 30_000;
 const PAGE_ATTEMPTS = 2;
 
-export const { loadGameStats, loadSeasonPlayer } = createStatsCardLoader({
+export const { loadGameStats, loadSeasonPlayer, loadSeasonPlayers } = createStatsCardLoader({
   fetchPage: async (url) => {
     let failure: unknown = new Error("The stats page could not be read");
     for (let attempt = 0; attempt < PAGE_ATTEMPTS; attempt++) {

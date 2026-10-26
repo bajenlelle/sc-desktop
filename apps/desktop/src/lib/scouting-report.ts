@@ -23,10 +23,11 @@ import type { ExportSegment } from "@/lib/export";
 import { computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { isExportCancelled } from "@scoutable/shared/lib/export-progress";
 import { itemKey } from "@scoutable/shared/lib/playlist-edits";
+import type { ReportDraft } from "@scoutable/shared/lib/report-draft";
 import { buildScoutingReport, clampReportTitle, type MissingClip } from "@scoutable/shared/lib/scouting-report";
 import { scoutingReportUrl } from "@scoutable/shared/lib/scouting-reports-db";
 import type { ClipShipFailure, ClipShipResult } from "@scoutable/shared/lib/ship-result";
-import { isClipItem, type PlayByPlayEvent, type Playlist, type SyncPoint } from "@/types/match";
+import { isClipItem, type PlayByPlayEvent, type Playlist, type PlaylistItem, type SyncPoint } from "@/types/match";
 
 export type ReportStage = "clips" | "posters" | "publishing";
 
@@ -43,8 +44,10 @@ export interface ClipSource {
 }
 
 export interface GenerateReportArgs {
-  /** The playlist as the editor holds it (player cards included). */
+  /** The playlist as the editor holds it. */
   playlist: Playlist;
+  /** The report's draft (lib/report-draft.ts): the players, notes and where clips go. */
+  draft: ReportDraft;
   eventByKey: ReadonlyMap<string, PlayByPlayEvent>;
   /** The clip segments Clip & Ship cuts, for the whole playlist (the page's buildShipSegments). */
   shipSegments: ExportSegment[];
@@ -94,7 +97,7 @@ export function reportBaseUrl(): string {
 const POSTER_CONCURRENCY = 3;
 
 /** Runs `work` over `items` with at most `limit` in flight; stops taking new ones once aborted. */
-async function pool<T>(items: readonly T[], limit: number, signal: AbortSignal, work: (item: T) => Promise<void>) {
+export async function pool<T>(items: readonly T[], limit: number, signal: AbortSignal, work: (item: T) => Promise<void>) {
   let next = 0;
   const worker = async () => {
     while (next < items.length && !signal.aborted) await work(items[next++]);
@@ -102,25 +105,23 @@ async function pool<T>(items: readonly T[], limit: number, signal: AbortSignal, 
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
-/** The playlist with freshly uploaded file URLs on its clips. */
-function withUploads(playlist: Playlist, uploaded: ClipShipResult["uploaded"]): Playlist {
-  if (uploaded.length === 0) return playlist;
+/** The items with freshly uploaded file URLs on their clips. */
+function withUploads(items: PlaylistItem[], uploaded: ClipShipResult["uploaded"]): PlaylistItem[] {
+  if (uploaded.length === 0) return items;
   const byKey = new Map(uploaded.map((u) => [`${u.matchId}:${u.eventId}`, u.r2Url]));
-  return {
-    ...playlist,
-    items: playlist.items.map((i) => (isClipItem(i) && byKey.has(itemKey(i)) ? { ...i, r2Url: byKey.get(itemKey(i))! } : i)),
-  };
+  return items.map((i) => (isClipItem(i) && byKey.has(itemKey(i)) ? { ...i, r2Url: byKey.get(itemKey(i))! } : i));
 }
 
 export async function generateScoutingReport(args: GenerateReportArgs): Promise<GenerateOutcome> {
   const { eventByKey, signal, onProgress } = args;
   const title = clampReportTitle(args.title);
-  let playlist = args.playlist;
+  let items = args.playlist.items;
   let shipped = 0;
 
   const build = (posters?: ReadonlyMap<string, string>) =>
     buildScoutingReport({
-      playlist,
+      draft: args.draft,
+      playlist: { items },
       eventByKey,
       matchLabel: args.matchLabel,
       title,
@@ -133,12 +134,12 @@ export async function generateScoutingReport(args: GenerateReportArgs): Promise<
   // 1. Clips that have no hosted file yet.
   if (build().missing.some((m) => m.reason === "not_shipped")) {
     onProgress({ stage: "clips", done: 0, total: 1 });
-    const result = await clipAndShip(playlist, args.shipSegments, args.preRoll, args.postRoll, {
+    const result = await clipAndShip({ ...args.playlist, items }, args.shipSegments, args.preRoll, args.postRoll, {
       signal,
       onProgress: (done, total) => onProgress({ stage: "clips", done, total }),
     });
     args.onShipped(result.uploaded);
-    playlist = withUploads(playlist, result.uploaded);
+    items = withUploads(items, result.uploaded);
     shipped = result.shipped;
     if (result.aborted || signal.aborted) return { kind: "cancelled", stage: "clips" };
     if (result.failures.length > 0 && !args.allowMissing) return { kind: "clips_failed", failures: result.failures, shipped };
@@ -148,7 +149,7 @@ export async function generateScoutingReport(args: GenerateReportArgs): Promise<
   const first = build();
   const clips = first.report.sections.flatMap((s) => s.blocks).filter((b) => b.kind === "clip");
   const left = new Set(first.missing.map((m) => m.key));
-  const posterTargets = playlist.items.filter(isClipItem).filter((i) => !left.has(itemKey(i)));
+  const posterTargets = items.filter(isClipItem).filter((i) => !left.has(itemKey(i)));
   const posters = new Map<string, string>();
   if (clips.length > 0) {
     const supabase = createClient();
@@ -188,7 +189,7 @@ export async function generateScoutingReport(args: GenerateReportArgs): Promise<
   onProgress({ stage: "publishing", done: 0, total: 1 });
   const final = build(posters);
   const published = await publishScoutingReport({
-    playlistId: playlist.id,
+    playlistId: args.playlist.id,
     title,
     report: final.report,
     contentKey: final.contentKey,

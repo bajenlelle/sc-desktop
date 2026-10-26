@@ -3,15 +3,16 @@
  * is the report, and the few interactive parts (playing a clip, the jump bar,
  * Save as PDF, the printed QR) are the client components next to it.
  *
- * One scrolling page, a section per player in playlist order (lib/scouting-
- * report.ts walked the playlist into them). It follows the viewer's system
- * theme on screen and prints light.
+ * One scrolling page: the Team section when there is one, then a section per
+ * player in the report's order (lib/scouting-report.ts built them from the
+ * coach's draft), with a chip for each in the jump bar. It follows the
+ * viewer's system theme on screen and prints light.
  */
 import type { ReactNode } from "react";
 import { Wordmark } from "@/components/logo";
 import { cn } from "@/lib/utils";
 import { formatCardDate } from "@scoutable/shared/lib/stats-card";
-import type { ReportBlock, ReportClip, ReportSection, ReportStats, ScoutingReport } from "@scoutable/shared/lib/scouting-report";
+import { JUMP_BAR_MIN_SECTIONS, reportJumpItems, type ReportBlock, type ReportClip, type ReportSection, type ReportStats, type ScoutingReport } from "@scoutable/shared/lib/scouting-report";
 import { ClipTile } from "./clip-tile";
 import { JumpBar, PrintQr, SaveAsPdf, type JumpItem } from "./report-chrome";
 
@@ -44,11 +45,6 @@ const STAT_NAMES: Record<string, string> = {
 function mediaUrl(base: string | null, key: string | null): string | null {
   if (!base || !key) return null;
   return `${base.replace(/\/+$/, "")}/${key.split("/").map(encodeURIComponent).join("/")}`;
-}
-
-function lastName(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  return parts[parts.length - 1] ?? name;
 }
 
 function StatsRow({ stats }: { stats: ReportStats }) {
@@ -150,11 +146,9 @@ function Section({ section, report, mediaBase, bare }: { section: ReportSection;
 
 export function ReportDocument({ report, mediaBase }: { report: ScoutingReport; mediaBase: string | null }) {
   const { header, sections } = report;
-  const players = sections.filter((s) => s.kind === "player");
-  const jump: JumpItem[] = players.map((s) => ({
-    id: s.id,
-    label: [s.player?.number ? `#${s.player.number}` : null, s.player ? lastName(s.player.name) : null].filter(Boolean).join(" "),
-  }));
+  // A chip per section, the Team section's first, once the page is long enough to need them.
+  const jump: JumpItem[] = reportJumpItems(sections);
+  const showJump = jump.length >= JUMP_BAR_MIN_SECTIONS;
   const meta = [
     `Prepared ${formatCardDate(header.preparedAt)}`,
     `${header.players} ${header.players === 1 ? "player" : "players"}`,
@@ -174,12 +168,12 @@ export function ReportDocument({ report, mediaBase }: { report: ScoutingReport; 
         <p className="text-callout text-muted-foreground nums">{meta}</p>
       </header>
 
-      {jump.length >= 3 && <JumpBar items={jump} />}
+      {showJump && <JumpBar items={jump} />}
 
       {sections.length === 0 && <p className="text-body text-muted-foreground">This report has no players or clips yet.</p>}
       {sections.map((s, i) => (
         // With the jump bar, its own rule already separates the header from the first section.
-        <Section key={s.id} section={s} report={report} mediaBase={mediaBase} bare={i === 0 && jump.length >= 3} />
+        <Section key={s.id} section={s} report={report} mediaBase={mediaBase} bare={i === 0 && showJump} />
       ))}
 
       {header.attribution && (

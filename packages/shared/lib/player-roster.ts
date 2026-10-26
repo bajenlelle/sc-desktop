@@ -1,18 +1,16 @@
 /**
- * Who a player card can be about, and where "Add player" puts one.
+ * Who a scouting report section can be about.
  *
- * A card can be about anyone in the games the playlist's clips come from, not
- * only the players who have clips: the roster is the clipped players first
- * (most clips first), then everyone else the game data has, from the stored
- * plays and, once loaded, the box score (which also lists players who played
- * without a recorded action). Pure, so the desktop picker and its tests share
- * one definition.
+ * A section can be about anyone in the games the playlist's clips come from,
+ * not only the players who have clips: the roster is the clipped players
+ * first (most clips first), then everyone else the game data has, from the
+ * stored plays and, once loaded, the box score (which also lists players who
+ * played without a recorded action). Pure, so the desktop picker and its
+ * tests share one definition.
  */
 import type { PlayByPlayEvent, PlaylistItem, StoredMatch } from "../types/match";
 import { isClipItem } from "../types/match";
 import { itemKey } from "./playlist-edits";
-import { playerCardsOf } from "./player-card";
-import { playerCardTarget } from "./scouting-report";
 import { rankPlayersByClips } from "./stats-card";
 import { eventPeople, type GameStats } from "./stats-card-data";
 import type { StatsClip } from "./stats-card-defaults";
@@ -26,7 +24,7 @@ export interface PlayerChoice {
   clips: number;
   /** The game their numbers are read from first: the one with most of their clips, else a game they played in. */
   matchId: string;
-  /** Another player card already has them. */
+  /** The report already has a section about them. */
   taken: boolean;
 }
 
@@ -37,10 +35,10 @@ const jersey = (n: string | null): number => {
 };
 
 /**
- * Everyone a card can be about: the players with clips in the playlist, most
- * clips first, then the rest of the games' players by team (the team with
- * more clips first), shirt number and name. Games are the ones the playlist's
- * clips come from; a player in several is listed once.
+ * Everyone a section can be about: the players with clips in the playlist,
+ * most clips first, then the rest of the games' players by team (the team
+ * with more clips first), shirt number and name. Games are the ones the
+ * playlist's clips come from; a player in several is listed once.
  */
 export function playerRoster(input: {
   items: readonly PlaylistItem[];
@@ -48,9 +46,11 @@ export function playerRoster(input: {
   matches: ReadonlyMap<string, StoredMatch>;
   /** Box scores read so far, by game: their players join the roster. */
   boxScores?: ReadonlyMap<string, GameStats>;
+  /** Players the report already has a section about (report-draft's sections). Nobody, when absent. */
+  taken?: ReadonlySet<string>;
 }): PlayerChoice[] {
   const { items, eventByKey, matches, boxScores } = input;
-  const taken = new Set(playerCardsOf(items).map((c) => c.player.player.id));
+  const taken = input.taken ?? new Set<string>();
 
   const clips: StatsClip[] = [];
   for (const item of items) {
@@ -124,79 +124,21 @@ export function playerRoster(input: {
   return [...ranked, ...rest];
 }
 
-export type PlayerCardSpot =
-  | { ok: true; player: PlayerChoice; matchId: string; insertAt: number }
-  | { ok: false; reason: "anchor_has_card" | "anchor_no_player" | "none_free" };
-
-/** Back over the ungrouped clips of one player just above `at`: a card goes above their run, not inside it. */
-function aboveRun(
-  items: readonly PlaylistItem[],
-  at: number,
-  playerId: string,
-  eventByKey: ReadonlyMap<string, PlayByPlayEvent>,
-): number {
-  let i = at;
-  while (i > 0) {
-    const prev = items[i - 1];
-    const e = isClipItem(prev) ? eventByKey.get(itemKey(prev)) : undefined;
-    if (!isClipItem(prev) || prev.groupId || !e?.player || String(e.player.playerId) !== playerId) break;
-    i--;
-  }
-  return i;
-}
-
 /**
- * Where "Add player" puts a card, and for whom. Never refuses because of the
- * position, only when everyone already has a card:
- *  1. From a clip's row menu (`anchor`): that clip's player, right there.
- *  2. A free player in the clips next to the insertion (playerCardTarget).
- *     From the toolbar the card goes above their run of clips.
- *  3. Else the free player with the most clips anywhere in the playlist,
- *     above their first clip (outside any group): this is how a removed card
- *     comes back, since its clips now sit in the card above's section.
- *  4. Else the first free player of the games, at the insertion; the coach
- *     picks who in the inspector.
- * `roster` carries who is taken (playerRoster).
+ * The roster as the picker lists it: one group per team, the team with most
+ * clips first, then by name; players keep their roster order. Players whose
+ * team the data doesn't name share a "" group, which sorts after the named
+ * teams with as many clips (a data gap, not a team to rank).
  */
-export function pickPlayerCardSpot(
-  items: readonly PlaylistItem[],
-  insertIndex: number,
-  eventByKey: ReadonlyMap<string, PlayByPlayEvent>,
-  roster: readonly PlayerChoice[],
-  opts: { anchor?: StatsClip | null; activePlayerId?: string | null; fromToolbar?: boolean } = {},
-): PlayerCardSpot {
-  const byId = new Map(roster.map((p) => [p.playerId, p]));
-
-  if (opts.anchor) {
-    const id = opts.anchor.event.player ? String(opts.anchor.event.player.playerId) : null;
-    const player = id ? byId.get(id) : undefined;
-    if (!player) return { ok: false, reason: "anchor_no_player" };
-    if (player.taken) return { ok: false, reason: "anchor_has_card" };
-    return { ok: true, player, matchId: opts.anchor.matchId, insertAt: insertIndex };
+export function rosterByTeam(roster: readonly PlayerChoice[]): { teamName: string; players: PlayerChoice[] }[] {
+  const teams = new Map<string, { teamName: string; players: PlayerChoice[]; clips: number }>();
+  for (const p of roster) {
+    const team = teams.get(p.teamName) ?? { teamName: p.teamName, players: [], clips: 0 };
+    team.players.push(p);
+    team.clips += p.clips;
+    teams.set(p.teamName, team);
   }
-
-  const near = playerCardTarget(items, insertIndex, eventByKey, { activePlayerId: opts.activePlayerId ?? null });
-  const nearPlayer = near ? byId.get(near.playerId) : undefined;
-  if (near && nearPlayer && !nearPlayer.taken) {
-    const insertAt = opts.fromToolbar ? aboveRun(items, insertIndex, near.playerId, eventByKey) : insertIndex;
-    return { ok: true, player: nearPlayer, matchId: near.matchId, insertAt };
-  }
-
-  const free = roster.filter((p) => !p.taken);
-  const clipped = free.find((p) => p.clips > 0);
-  if (clipped) {
-    let at = items.findIndex((i) => {
-      const e = isClipItem(i) ? eventByKey.get(itemKey(i)) : undefined;
-      return !!e?.player && String(e.player.playerId) === clipped.playerId;
-    });
-    if (at >= 0) {
-      const group = items[at].groupId;
-      while (group && at > 0 && items[at - 1].groupId === group) at--;
-      return { ok: true, player: clipped, matchId: clipped.matchId, insertAt: at };
-    }
-  }
-
-  const first = free[0];
-  if (first) return { ok: true, player: first, matchId: first.matchId, insertAt: insertIndex };
-  return { ok: false, reason: "none_free" };
+  return [...teams.values()]
+    .sort((a, b) => b.clips - a.clips || Number(a.teamName === "") - Number(b.teamName === "") || a.teamName.localeCompare(b.teamName))
+    .map(({ teamName, players }) => ({ teamName, players }));
 }
