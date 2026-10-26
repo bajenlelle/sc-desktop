@@ -1,15 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import type { User } from "@supabase/supabase-js";
 import { AuthHeading, AuthShell } from "@/components/auth/auth-frame";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { roleLabel } from "@/lib/roles";
 import { joinByCode } from "@/lib/profile-db";
 import { trackEvent } from "@/lib/analytics";
+import { clearPendingInvite } from "@/lib/pending-invite";
 import { setStoredActiveOrg } from "@/components/auth-context";
 import type { InviteInvalidReason } from "@scoutable/shared/types/org";
 import { toast } from "sonner";
@@ -56,6 +58,7 @@ export default function JoinPage() {
   const [preview, setPreview] = useState<{
     valid: boolean;
     reason?: InviteInvalidReason;
+    alreadyMember?: boolean;
     orgName?: string;
     teamName?: string | null;
     role?: string;
@@ -64,6 +67,8 @@ export default function JoinPage() {
   const [userId, setUserId] = useState<string | null | undefined>(undefined);
   const [userEmail, setUserEmail] = useState<string | null | undefined>(undefined);
   const [userCreatedAt, setUserCreatedAt] = useState<string | null>(null);
+  // The signed-in user, for forgetting the invite once this page settles it.
+  const authUserRef = useRef<User | null>(null);
   const [mismatchConfirmed, setMismatchConfirmed] = useState(false);
   const [joining, setJoining] = useState(false);
   const [joinResult, setJoinResult] = useState<{
@@ -78,7 +83,7 @@ export default function JoinPage() {
     const supabase = createClient();
     Promise.all([
       Promise.resolve(supabase.rpc("get_invite_preview", { p_code: code.toUpperCase() })).then(({ data }) => {
-        const r = data as { valid: boolean; reason?: string; org_name?: string; team_name?: string | null; role?: string; email?: string | null } | null;
+        const r = data as { valid: boolean; reason?: string; already_member?: boolean; org_name?: string; team_name?: string | null; role?: string; email?: string | null } | null;
         if (!r) {
           setPreview({ valid: false, reason: 'not_found' });
           trackEvent("invite_link_viewed", { valid: false, reason: "not_found" });
@@ -88,6 +93,7 @@ export default function JoinPage() {
         setPreview({
           valid: r.valid,
           reason: r.reason as InviteInvalidReason | undefined,
+          alreadyMember: r.already_member === true,
           orgName: r.org_name,
           teamName: r.team_name,
           role: r.role,
@@ -95,6 +101,7 @@ export default function JoinPage() {
         });
       }).catch(() => setLoadError("Failed to load invite details.")),
       supabase.auth.getUser().then(({ data: { user } }) => {
+        authUserRef.current = user;
         setUserId(user?.id ?? null);
         setUserEmail(user?.email ?? null);
         setUserCreatedAt(user?.created_at ?? null);
@@ -117,12 +124,25 @@ export default function JoinPage() {
     !!userCreatedAt &&
     Date.now() - new Date(userCreatedAt).getTime() < 5 * 60 * 1000;
 
+  // Once this page has settled the invite, the account stops carrying it
+  // (lib/pending-invite.ts). Every outcome counts: joined, already in,
+  // invalid, or failed.
+  const settle = () => {
+    void clearPendingInvite(createClient(), authUserRef.current, code);
+  };
+
   useEffect(() => {
-    if (userId && preview?.valid && !joining && !joinResult && (!emailMismatch || mismatchConfirmed)) {
+    if (userId && preview && (!preview.valid || preview.alreadyMember)) settle();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once the preview and the user are known
+  }, [userId, preview]);
+
+  useEffect(() => {
+    if (userId && preview?.valid && !preview.alreadyMember && !joining && !joinResult && (!emailMismatch || mismatchConfirmed)) {
       setJoining(true);
       joinByCode(code)
         .then((result) => {
           setJoining(false);
+          settle();
           trackEvent(result.type === "team" ? "team_joined" : "org_joined", { via: "link" });
           // Make the joined org the active space — otherwise the user lands
           // back in their personal space and never sees what they joined.
@@ -141,9 +161,11 @@ export default function JoinPage() {
         })
         .catch((e) => {
           setJoining(false);
+          settle();
           setJoinError((e as Error).message);
         });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- joins once per preview and user, as before
   }, [userId, preview, mismatchConfirmed]);
 
   if (loadError) {
@@ -224,7 +246,7 @@ export default function JoinPage() {
     );
   }
 
-  if (joinResult) {
+  if (joinResult || (userId !== null && preview.alreadyMember)) {
     const destination = preview.teamName
       ? `${preview.orgName} — ${preview.teamName}`
       : preview.orgName ?? "the club";
@@ -232,12 +254,18 @@ export default function JoinPage() {
     return (
       <AuthShell>
         <AuthHeading
-          title={isNewAccount ? "Welcome to Scoutable" : "You're in"}
+          title={preview.alreadyMember ? "You're already in" : isNewAccount ? "Welcome to Scoutable" : "You're in"}
           description={
-            <>
-              You&apos;ve been added to <span className="font-medium text-foreground">{destination}</span>
-              {preview.role && <> as {asRole(preview.role)}</>}.
-            </>
+            preview.alreadyMember ? (
+              <>
+                You&apos;re a member of <span className="font-medium text-foreground">{destination}</span> already.
+              </>
+            ) : (
+              <>
+                You&apos;ve been added to <span className="font-medium text-foreground">{destination}</span>
+                {preview.role && <> as {asRole(preview.role)}</>}.
+              </>
+            )
           }
         />
         <div className="grid gap-2">

@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 import { safeNext } from "@scoutable/shared/lib/safe-next";
 import { DEFAULT_NEXT } from "@/lib/with-next";
+import { pendingInvitePath } from "@/lib/pending-invite";
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
@@ -29,9 +30,9 @@ export async function GET(request: NextRequest) {
       }
     );
 
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      return NextResponse.redirect(`${origin}${next ?? DEFAULT_NEXT}`);
+      return NextResponse.redirect(`${origin}${next ?? pendingInvitePath(data.user) ?? DEFAULT_NEXT}`);
     }
   }
 

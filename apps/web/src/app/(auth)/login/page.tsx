@@ -13,6 +13,7 @@ import { createClient } from "@/lib/supabase/client";
 import { trackEvent } from "@/lib/analytics";
 import { safeNext } from "@scoutable/shared/lib/safe-next";
 import { DEFAULT_NEXT, withNext } from "@/lib/with-next";
+import { pendingInvitePath } from "@/lib/pending-invite";
 
 /** What an auth redirect wants the person to know before they sign in. */
 const NOTICE_COPY: Record<string, string> = {
@@ -41,7 +42,7 @@ function LoginContent() {
     setError(null);
 
     const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
       setError(error.message);
@@ -49,7 +50,8 @@ function LoginContent() {
       return;
     }
 
-    router.push(nextParam);
+    // An invite the account signed up for, confirmed in another browser.
+    router.push(nextParam === DEFAULT_NEXT ? (pendingInvitePath(data.user) ?? nextParam) : nextParam);
   }
 
   async function signInWithProvider(provider: "google" | "apple") {

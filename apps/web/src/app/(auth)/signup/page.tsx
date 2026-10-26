@@ -14,6 +14,7 @@ import { createClient } from "@/lib/supabase/client";
 import { trackEvent, getStashedAttribution } from "@/lib/analytics";
 import { safeNext } from "@scoutable/shared/lib/safe-next";
 import { DEFAULT_NEXT, withNext } from "@/lib/with-next";
+import { INVITE_CODE } from "@/lib/pending-invite";
 
 /**
  * Self-declared role: a copy and analytics signal only, never a permission
@@ -30,6 +31,10 @@ const ROLE_HINT: Record<DeclaredRole, string> = {
 function SignupContent() {
   const searchParams = useSearchParams();
   const next = safeNext(searchParams.get("next")) ?? DEFAULT_NEXT;
+  // An invite travels on the account too, so it survives confirming the
+  // email in another browser (lib/pending-invite.ts).
+  const inviteCode = next.match(/^\/join\/([^/]+)$/)?.[1] ?? "";
+  const pendingInvite = INVITE_CODE.test(inviteCode) ? inviteCode.toUpperCase() : null;
   const [declaredRole, setDeclaredRole] = useState<DeclaredRole | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -66,6 +71,7 @@ function SignupContent() {
         data: {
           full_name: `${firstName.trim()} ${lastName.trim()}`,
           declared_role: declaredRole,
+          ...(pendingInvite ? { pending_invite: pendingInvite } : {}),
         },
         // `flow=signup` lets the callback tell a confirmed email from a
         // failed sign-in when the link opens in another browser.

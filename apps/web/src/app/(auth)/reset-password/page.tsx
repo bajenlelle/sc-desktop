@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { safeNext } from "@scoutable/shared/lib/safe-next";
 import { DEFAULT_NEXT, withNext } from "@/lib/with-next";
+import { pendingInvitePath } from "@/lib/pending-invite";
 
 type View = "choose" | "saved" | "request" | "sent";
 
@@ -25,6 +26,9 @@ function ResetPasswordContent() {
   const [token] = useState(() => searchParams.get("token_hash"));
   // Read once: the address bar is cleaned below, query and all.
   const [next] = useState(() => safeNext(searchParams.get("next")));
+  // Where "Continue" goes once the password is saved: `next`, else an invite
+  // the account signed up for, else the playlists.
+  const [landing, setLanding] = useState(DEFAULT_NEXT);
   const [view, setView] = useState<View>(token ? "choose" : "request");
   const [expired, setExpired] = useState(false);
   const [verified, setVerified] = useState(false);
@@ -62,12 +66,13 @@ function ResetPasswordContent() {
       }
       setVerified(true);
     }
-    const { error } = await supabase.auth.updateUser({ password });
+    const { data, error } = await supabase.auth.updateUser({ password });
     if (error) {
       setError(error.message);
       setLoading(false);
       return;
     }
+    setLanding(next ?? pendingInvitePath(data.user) ?? DEFAULT_NEXT);
     setView("saved");
   }
 
@@ -96,7 +101,7 @@ function ResetPasswordContent() {
           Sign in with your new password in the Scoutable app, or continue here.
         </p>
         <Button asChild className="mt-6 w-full">
-          <Link href={next ?? DEFAULT_NEXT}>Continue on the web</Link>
+          <Link href={landing}>Continue on the web</Link>
         </Button>
       </div>
     );
