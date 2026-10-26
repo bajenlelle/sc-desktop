@@ -83,6 +83,9 @@ function LoginContent() {
           {loading && <Loader2 className="animate-spin" />}
           Sign in
         </Button>
+        <Link href="/reset-password" className="justify-self-center text-callout text-primary hover:underline">
+          Forgot your password?
+        </Link>
       </form>
       <AuthDivider />
       <SocialSignIn onProvider={signInWithProvider} />
