@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { safeNext } from "@scoutable/shared/lib/safe-next";
 
 /** Set once check_onboarding_needed has answered "has an org" for this user. */
 const ORG_OK_COOKIE = "sc_org_ok";
@@ -45,25 +46,30 @@ export async function proxy(request: NextRequest) {
   const userId = claimsData?.claims?.sub ?? null;
   const user = userId ? { id: userId } : null;
 
-  // Redirect unauthenticated users away from app routes
+  // Redirect unauthenticated users away from app routes, keeping where they
+  // were going for after the sign-in.
   const isAppRoute =
     pathname.startsWith("/my-playlists") ||
+    pathname.startsWith("/my-highlights") ||
     pathname.startsWith("/organization") ||
     pathname.startsWith("/profile") ||
     pathname.startsWith("/admin") ||
-    pathname.startsWith("/onboarding");
+    pathname.startsWith("/onboarding") ||
+    pathname.startsWith("/get-started") ||
+    pathname.startsWith("/view");
 
   if (!user && isAppRoute) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
+    const url = new URL("/login", request.url);
+    const back = safeNext(pathname + request.nextUrl.search);
+    if (back) url.searchParams.set("next", back);
     return NextResponse.redirect(url);
   }
 
-  // Redirect authenticated users away from auth pages
+  // Redirect authenticated users away from auth pages, on to wherever the
+  // page would have sent them.
   if (user && (pathname === "/login" || pathname === "/signup")) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/my-playlists";
-    return NextResponse.redirect(url);
+    const target = safeNext(request.nextUrl.searchParams.get("next")) ?? "/my-playlists";
+    return NextResponse.redirect(new URL(target, request.url));
   }
 
   // Redirect root to playlists or login

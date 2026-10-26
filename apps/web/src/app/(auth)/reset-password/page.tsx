@@ -9,6 +9,8 @@ import { CircleCheck, Loader2, Mail } from "lucide-react";
 import { AuthError, AuthHeading, FieldGroup, GroupField } from "@/components/auth/auth-frame";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
+import { safeNext } from "@scoutable/shared/lib/safe-next";
+import { DEFAULT_NEXT, withNext } from "@/lib/with-next";
 
 type View = "choose" | "saved" | "request" | "sent";
 
@@ -21,6 +23,8 @@ type View = "choose" | "saved" | "request" | "sent";
 function ResetPasswordContent() {
   const searchParams = useSearchParams();
   const [token] = useState(() => searchParams.get("token_hash"));
+  // Read once: the address bar is cleaned below, query and all.
+  const [next] = useState(() => safeNext(searchParams.get("next")));
   const [view, setView] = useState<View>(token ? "choose" : "request");
   const [expired, setExpired] = useState(false);
   const [verified, setVerified] = useState(false);
@@ -92,7 +96,7 @@ function ResetPasswordContent() {
           Sign in with your new password in the Scoutable app, or continue here.
         </p>
         <Button asChild className="mt-6 w-full">
-          <Link href="/my-playlists">Continue on the web</Link>
+          <Link href={next ?? DEFAULT_NEXT}>Continue on the web</Link>
         </Button>
       </div>
     );
@@ -110,7 +114,7 @@ function ResetPasswordContent() {
           is on its way.
         </p>
         <p className="mt-6 text-callout">
-          <Link href="/login" className="font-medium text-primary hover:underline">
+          <Link href={withNext("/login", next)} className="font-medium text-primary hover:underline">
             Back to sign in
           </Link>
         </p>
@@ -149,7 +153,7 @@ function ResetPasswordContent() {
           </Button>
         </form>
         <p className="mt-6 text-center text-callout">
-          <Link href="/login" className="font-medium text-primary hover:underline">
+          <Link href={withNext("/login", next)} className="font-medium text-primary hover:underline">
             Back to sign in
           </Link>
         </p>

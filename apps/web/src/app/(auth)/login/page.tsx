@@ -11,11 +11,25 @@ import { SocialSignIn } from "@/components/auth/social-sign-in";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { trackEvent } from "@/lib/analytics";
+import { safeNext } from "@scoutable/shared/lib/safe-next";
+import { DEFAULT_NEXT, withNext } from "@/lib/with-next";
+
+/** What an auth redirect wants the person to know before they sign in. */
+const NOTICE_COPY: Record<string, string> = {
+  confirmed: "Your email is confirmed. Sign in to continue.",
+  link_used: "That link was already used or has expired. Sign in to continue, or sign up again for a new link.",
+};
+
+const ERROR_COPY: Record<string, string> = {
+  auth_callback_error: "Couldn't finish signing in. Try again.",
+};
 
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const nextParam = searchParams.get("next") ?? "/my-playlists";
+  const nextParam = safeNext(searchParams.get("next")) ?? DEFAULT_NEXT;
+  const notice = NOTICE_COPY[searchParams.get("notice") ?? ""] ?? null;
+  const urlError = ERROR_COPY[searchParams.get("error") ?? ""] ?? null;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -35,18 +49,16 @@ function LoginContent() {
       return;
     }
 
-    const next = new URLSearchParams(window.location.search).get("next") ?? "/my-playlists";
-    router.push(next);
+    router.push(nextParam);
   }
 
   async function signInWithProvider(provider: "google" | "apple") {
     trackEvent("login_provider_clicked", { provider });
-    const next = new URLSearchParams(window.location.search).get("next") ?? "/my-playlists";
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextParam)}`,
       },
     });
     if (error) throw new Error(error.message);
@@ -54,7 +66,7 @@ function LoginContent() {
 
   return (
     <>
-      <AuthHeading title="Sign in to Scoutable" />
+      <AuthHeading title="Sign in to Scoutable" description={notice ?? undefined} />
       <form onSubmit={handleSubmit} className="grid gap-3">
         <FieldGroup>
           <GroupField
@@ -78,12 +90,12 @@ function LoginContent() {
             onChange={(e) => setPassword(e.target.value)}
           />
         </FieldGroup>
-        <AuthError message={error} />
+        <AuthError message={error ?? urlError} />
         <Button type="submit" className="w-full" disabled={loading}>
           {loading && <Loader2 className="animate-spin" />}
           Sign in
         </Button>
-        <Link href="/reset-password" className="justify-self-center text-callout text-primary hover:underline">
+        <Link href={withNext("/reset-password", nextParam)} className="justify-self-center text-callout text-primary hover:underline">
           Forgot your password?
         </Link>
       </form>
@@ -91,7 +103,7 @@ function LoginContent() {
       <SocialSignIn onProvider={signInWithProvider} />
       <p className="mt-6 text-center text-callout text-muted-foreground">
         New to Scoutable?{" "}
-        <Link href={"/signup?next=" + encodeURIComponent(nextParam)} className="font-medium text-primary hover:underline">
+        <Link href={withNext("/signup", nextParam)} className="font-medium text-primary hover:underline">
           Create an account
         </Link>
       </p>

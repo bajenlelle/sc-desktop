@@ -1,7 +1,10 @@
 "use client";
 
-import { useState } from "react";
+export const dynamic = "force-dynamic";
+
+import { useState, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Loader2, Mail } from "lucide-react";
 import { AuthDivider, AuthError, AuthHeading, FieldGroup, GroupField } from "@/components/auth/auth-frame";
 import { SocialSignIn } from "@/components/auth/social-sign-in";
@@ -9,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { createClient } from "@/lib/supabase/client";
 import { trackEvent, getStashedAttribution } from "@/lib/analytics";
+import { safeNext } from "@scoutable/shared/lib/safe-next";
+import { DEFAULT_NEXT, withNext } from "@/lib/with-next";
 
 /**
  * Self-declared role: a copy and analytics signal only, never a permission
@@ -22,7 +27,9 @@ const ROLE_HINT: Record<DeclaredRole, string> = {
   player: "Study your games and build your own highlight tapes.",
 };
 
-export default function SignupPage() {
+function SignupContent() {
+  const searchParams = useSearchParams();
+  const next = safeNext(searchParams.get("next")) ?? DEFAULT_NEXT;
   const [declaredRole, setDeclaredRole] = useState<DeclaredRole | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -51,7 +58,6 @@ export default function SignupPage() {
     }
 
     setLoading(true);
-    const next = new URLSearchParams(window.location.search).get("next") ?? "/my-playlists";
     const supabase = createClient();
     const { error } = await supabase.auth.signUp({
       email,
@@ -61,7 +67,9 @@ export default function SignupPage() {
           full_name: `${firstName.trim()} ${lastName.trim()}`,
           declared_role: declaredRole,
         },
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+        // `flow=signup` lets the callback tell a confirmed email from a
+        // failed sign-in when the link opens in another browser.
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}&flow=signup`,
       },
     });
 
@@ -78,7 +86,6 @@ export default function SignupPage() {
 
   async function signInWithProvider(provider: "google" | "apple") {
     trackEvent("signup_provider_clicked", { provider });
-    const next = new URLSearchParams(window.location.search).get("next") ?? "/my-playlists";
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
@@ -102,7 +109,7 @@ export default function SignupPage() {
         </p>
         <p className="mt-6 text-callout text-muted-foreground">
           Already confirmed?{" "}
-          <Link href="/login" className="font-medium text-primary hover:underline">
+          <Link href={withNext("/login", next)} className="font-medium text-primary hover:underline">
             Sign in
           </Link>
         </p>
@@ -189,10 +196,18 @@ export default function SignupPage() {
       <SocialSignIn onProvider={signInWithProvider} />
       <p className="mt-6 text-center text-callout text-muted-foreground">
         Already have an account?{" "}
-        <Link href="/login" className="font-medium text-primary hover:underline">
+        <Link href={withNext("/login", next)} className="font-medium text-primary hover:underline">
           Sign in
         </Link>
       </p>
     </>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense fallback={null}>
+      <SignupContent />
+    </Suspense>
   );
 }
