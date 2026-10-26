@@ -9,7 +9,6 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { APP_STORE_URL, GET_THE_APP_PATH, PLAY_STORE_URL, storeUrlFor } from "@scoutable/shared/lib/store-links";
 import { AuthHeading, AuthShell } from "@/components/auth/auth-frame";
-import { Button } from "@/components/ui/button";
 import { StoreQr } from "./store-qr";
 
 export const metadata: Metadata = {
@@ -29,13 +28,17 @@ export default async function GetTheAppPage() {
         description="Scoutable for players is an app for iPhone and Android. Scan the code with your phone, or open this page there."
       />
       <StoreQr url={`${origin}${GET_THE_APP_PATH}`} />
-      <div className="grid gap-2">
-        <Button asChild className="w-full">
-          <a href={APP_STORE_URL}>Download on the App Store</a>
-        </Button>
-        <Button asChild variant="outline" className="w-full">
-          <a href={PLAY_STORE_URL}>Get it on Google Play</a>
-        </Button>
+      {/* The stores' own badges (public/badges), as their guidelines ask.
+          Google's has padding built in, so it is drawn taller to match. */}
+      <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2">
+        <a href={APP_STORE_URL} className="inline-flex rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-selection">
+          {/* eslint-disable-next-line @next/next/no-img-element -- official badge artwork, sized by attributes */}
+          <img src="/badges/app-store.svg" alt="Download on the App Store" width={120} height={40} />
+        </a>
+        <a href={PLAY_STORE_URL} className="inline-flex rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-selection">
+          {/* eslint-disable-next-line @next/next/no-img-element -- official badge artwork, sized by attributes */}
+          <img src="/badges/google-play.png" alt="Get it on Google Play" width={140} height={54} />
+        </a>
       </div>
     </AuthShell>
   );
