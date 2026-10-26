@@ -403,6 +403,11 @@ ${ctaButton(appUrl + "/organization", "Manage Organization")}`,
       const lead = inviterName
         ? `${esc(inviterName)} invited you to join ${where}`
         : `You've been invited to join ${where}`;
+      // Players live in the mobile app, but the account comes first: the
+      // button creates it on the web, which then sends them to the store.
+      const appLine = role === "player"
+        ? " Scoutable for players is an app for iPhone and Android: accept first, then install it."
+        : "";
       return {
         subject: inviterName
           ? `${inviterName} invited you to join ${orgName} on Scoutable`
@@ -411,7 +416,7 @@ ${ctaButton(appUrl + "/organization", "Manage Organization")}`,
           `Join ${orgName} on Scoutable`,
           `<h1 style="margin:0 0 12px 0;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">You're invited to join ${esc(orgName)}</h1>
 <p style="margin:0 0 32px 0;font-size:14px;line-height:1.65;color:#6b7280;">
-  ${lead} on Scoutable as a <strong>${esc(roleLabel)}</strong>. Click below to accept your invitation.
+  ${lead} on Scoutable as a <strong>${esc(roleLabel)}</strong>.${appLine} Click below to accept your invitation.
 </p>
 ${ctaButton(inviteUrl, "Accept Invitation")}`,
           "This invitation expires in 7 days. If you weren't expecting this, you can ignore this email.",

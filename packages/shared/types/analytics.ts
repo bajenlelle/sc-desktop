@@ -79,6 +79,7 @@ export type AnalyticsEvent =
   | "invite_emails_sent"
   | "org_joined"
   | "team_joined"
+  | "app_download_clicked" // { surface: "join" | "banner" }: a player sent to /get-the-app
   // Consumption & engagement (web + desktop players)
   | "playlist_opened"
   | "clip_watched"
