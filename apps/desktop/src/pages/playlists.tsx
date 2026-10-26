@@ -188,6 +188,14 @@ function findRow(container: HTMLElement | null, key: string): HTMLElement | null
   return container?.querySelector<HTMLElement>(`[data-row-key="${CSS.escape(key)}"]`) ?? null;
 }
 
+/**
+ * A new playlist keeps its `temp-` id until the save of its name returns, and
+ * the database rejects that id: until then nothing may open, fill or target it.
+ */
+function isUnsavedId(id: string): boolean {
+  return id.startsWith("temp-");
+}
+
 /** The filter bar and the "Filtered" strip under the toolbar: a few points of travel, then still. */
 const revealVariants = {
   hidden: { opacity: 0, y: -6 },
@@ -812,7 +820,7 @@ export function PlaylistsPage() {
   // Load label assignments for the selected playlist's clips.
   // Scope is the active playlist's id — labels here are playlist-scoped.
   useEffect(() => {
-    if (!activeOrgId || !selected) { setClipAssignments(new Map()); setBankAssignments(new Map()); return; }
+    if (!activeOrgId || !selected || isUnsavedId(selected.id)) { setClipAssignments(new Map()); setBankAssignments(new Map()); return; }
     const clipKeys = selectedClipKeys;
     if (clipKeys.length === 0) { setClipAssignments(new Map()); setBankAssignments(new Map()); return; }
     const playlistScopeId = selected.id;
@@ -2971,6 +2979,9 @@ export function PlaylistsPage() {
 
   function selectPlaylist(pl: Playlist) {
     if (selected?.id === pl.id) return;
+    // The save of a new playlist opens it once it has a real id (a slow save
+    // left one open and filled under its temp id, SCOUTABLE-DESKTOP-M).
+    if (isUnsavedId(pl.id)) return;
     setSelected(pl);
     setShowClipBrowser(false);
   }
@@ -3240,11 +3251,14 @@ export function PlaylistsPage() {
     const isEditingThis = editingPlaylistId === pl.id;
     const isDropTarget = clipDragOverPlaylistId === pl.id;
     const menuOpen = openMenuPlaylistId === pl.id;
+    // Named, but its save hasn't returned: the row waits, out of reach of
+    // clicks, menus and drops, which would all target its temp id.
+    const isSaving = isUnsavedId(pl.id) && !isEditingThis;
     return (
       <ContextMenu key={pl.id}>
         <ContextMenuTrigger asChild>
           <div
-            data-playlist-id={pl.id}
+            data-playlist-id={isUnsavedId(pl.id) ? undefined : pl.id}
             draggable={!isEditingThis}
             onDragStart={(e) => handleDragStart(pl.id, e)}
             onDragEnd={() => setDragOverFolder(null)}
@@ -3254,6 +3268,7 @@ export function PlaylistsPage() {
               isActive ? "bg-selection text-selection-foreground" : "text-foreground hover:bg-fill-1 active:bg-fill-2",
               isDropTarget && "bg-selection/20 ring-2 ring-inset ring-selection",
               clipOpenPlaylistId === pl.id && "animate-pulse",
+              isSaving && "pointer-events-none opacity-60",
             )}
             onClick={() => !isEditingThis && selectPlaylist(pl)}
           >
@@ -3699,12 +3714,26 @@ export function PlaylistsPage() {
   // ---------------------------------------------------------------------------
 
   async function handleAddClips(newClips: PlaylistClipItem[]) {
-    if (!selected || newClips.length === 0) return;
+    if (!selected || isUnsavedId(selected.id) || newClips.length === 0) return;
     const updatedItems = [...selected.items, ...newClips];
     const updatedPlaylist = { ...selected, items: updatedItems };
     setSelected(updatedPlaylist);
     setPlaylists((prev) => prev.map((p) => p.id === selected.id ? updatedPlaylist : p));
-    await addClips(selected.id, newClips, selected.items.length);
+    try {
+      await addClips(selected.id, newClips, selected.items.length);
+    } catch (err) {
+      // The clip browser has already closed: without this the clips stayed on
+      // screen unsaved, with no word that the add failed.
+      console.error("[playlists] Failed to add clips:", err);
+      Sentry.captureException(err);
+      const added = new Set(newClips.map((c) => `${c.matchId}:${c.eventId}`));
+      const without = (items: PlaylistItem[]) =>
+        items.filter((i) => !(isClipItem(i) && added.has(`${i.matchId}:${i.eventId}`)));
+      setPlaylists((prev) => prev.map((p) => (p.id === selected.id ? { ...p, items: without(p.items) } : p)));
+      setSelected((prev) => (prev && prev.id === selected.id ? { ...prev, items: without(prev.items) } : prev));
+      toast.error("Couldn't add the clips");
+      return;
+    }
     newClips.forEach((clip) => {
       trackEvent('clip_added_to_playlist', { playlist_id: selected.id, match_id: clip.matchId })
     })
@@ -5230,7 +5259,7 @@ export function PlaylistsPage() {
         ) : null}
         addTo={
           <AddToPopover
-            playlists={playlists}
+            playlists={playlists.filter((p) => !isUnsavedId(p.id))}
             activePlaylistId={selected?.id ?? null}
             onAddToPlaylist={handleAddSelectedToPlaylist}
             onCreatePlaylist={handleCreatePlaylistAndAdd}
