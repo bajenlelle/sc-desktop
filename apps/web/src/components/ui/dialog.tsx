@@ -160,7 +160,10 @@ function DialogContent({
                 dragElastic={{ top: 0, bottom: 1 }}
                 onDragEnd={onDragEnd}
                 className={cn(
-                  "pointer-events-auto relative grid w-full gap-4 overflow-y-auto bg-material-sheet text-foreground shadow-dialog outline-none",
+                  // minmax(0, 1fr): a grid track defaults to min-content, so one
+                  // child too wide for a phone (a footer of three buttons) would
+                  // widen every sibling past the edge. Now the child overflows alone.
+                  "pointer-events-auto relative grid w-full grid-cols-[minmax(0,1fr)] gap-4 overflow-y-auto bg-material-sheet text-foreground shadow-dialog outline-none",
                   compact
                     ? "max-h-[calc(100dvh-var(--safe-top)-2.5rem)] rounded-t-[14px] px-5 pt-3 pb-[calc(1.5rem+var(--safe-bottom))]"
                     : "max-h-[calc(100vh-2rem)] max-w-lg rounded-window p-6",

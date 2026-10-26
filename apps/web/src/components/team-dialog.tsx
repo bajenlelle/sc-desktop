@@ -195,11 +195,18 @@ export function TeamDialog({ mode, org, otherSpaces, defaultChecked, initialTeam
           </GroupedList>
         )}
 
-        <DialogFooter className="items-center sm:justify-between">
-          <Button variant="ghost" size="sm" className="-ml-2 text-primary" onClick={() => setNoteMode((v) => !v)}>
+        {/* Three buttons don't fit a phone in one row: the link takes its own
+            line there and the actions sit right beneath it. */}
+        <DialogFooter className="flex-wrap items-center gap-y-2 sm:justify-between">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="-ml-2 text-primary max-sm:basis-full max-sm:justify-start"
+            onClick={() => setNoteMode((v) => !v)}
+          >
             {noteMode ? "Back to the list" : "My team isn't listed"}
           </Button>
-          <div className="flex gap-2">
+          <div className="flex gap-2 max-sm:ml-auto">
             {mode === "step" ? (
               <Button variant="ghost" onClick={handleSkip} disabled={saving}>
                 Skip for now
