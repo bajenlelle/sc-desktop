@@ -142,8 +142,9 @@ players open from a link, and that "Save as PDF" prints.
     each time the sheet opens. The sheet's buttons that open the link in a
     browser add `#app` (view) or `#print` (PDF), so the coach's own looks
     don't count.
-  - The desktop no longer sends `header.attribution`; the page doesn't read it
-    (see the page, below). Nothing in the report view is labelled Beta.
+  - The desktop no longer sends `header.attribution`; the builder's default
+    (true) is what a new report carries, and the page doesn't read it (see the
+    page, below).
 
 ## Publishing (`supabase/migrations/20261029100000_scouting_reports.sql`, `20261102100000_scouting_report_launch.sql`)
 
@@ -210,18 +211,23 @@ never a player's name, stat or note.
 - **The footer is on every report**, on screen and in the saved PDF, on every
   plan: "Made with scoutable." (`FooterMark`) links to `REPORT_FOOTER_URL`,
   `https://scoutable.se/?utm_source=scouting_report&utm_medium=report_footer`.
-  `header.attribution` stays in the stored report (older ones carry it) but the
-  page ignores it, and the desktop doesn't set it. A click fires
+  `header.attribution` stays in the stored report and is always true now (the
+  builder's default; older reports may carry another value), but the page
+  ignores it, and the desktop doesn't set it. A click fires
   `scouting_report_footer_clicked`.
 - **Opens are counted from the browser** (`ViewTracker`), after the page shows,
   not by the server render: link previews and crawlers fetch the page without
   running it. A live report's reader calls `record_scouting_report_open`
   (anonymous; adds one to `scouting_reports.open_count`; an expired, stopped or
-  unknown id changes nothing; `updated_at` is left alone). The owner reads the
-  number through the table's read policy. Nothing about the reader is kept: no
-  cookies (PostHog runs in memory), no person profiles, no IP (the PostHog
-  project discards IPs, `anonymize_ips`). Anyone with the link can raise the
-  number; the only effect is a bigger number on the coach's sheet.
+  unknown id changes nothing; the owner's own opens while signed in aren't
+  counted; `updated_at` is left alone). The owner reads the number through the
+  table's read policy. Scoutable stores nothing about the reader: no cookies
+  (PostHog runs in memory), no person profiles, and no IP in the report or in
+  the analytics (the PostHog project discards IPs, `anonymize_ips`). The count
+  is a request from the reader's browser to Supabase, though, and Supabase's API
+  request logs keep that request's IP for their usual retention. Anyone with the
+  link can raise the number; the only effect is a bigger number on the coach's
+  sheet.
 - **The app's own opens don't count.** The desktop opens the link with `#app`
   (and `#print` to print on arrival); `countsAsReaderOpen` skips both, for the
   count and for the event. `#app` is stripped from the address afterwards.
@@ -281,11 +287,13 @@ the draft's game stats and placement keys when a game is merged into the club.
   and `scouting_reports.sh` (rolled-back probes; `RLS_PREFLIGHT=<the migration>`
   applies it inside the transaction before it is pushed). `scouting_reports.sh`
   covers the launch rules: the one free report (a second is refused and names
-  the first; a lapsed Pro's reports count; a paid plan isn't limited), the share
-  sheet's check (`scouting_report_share_limit`, owner only, not for anon), the
-  reader counts (`record_scouting_report_open`: live reports only, an update
-  keeps the count) and the takedown (service role only; content wiped, clip
-  files queued, a second call says `already_off`, an unknown id `not_found`).
+  the first; a lapsed Pro's reports count; a paid plan isn't limited, a
+  single-game buyer still is), the share sheet's check
+  (`scouting_report_share_limit`, owner only, not for anon), the reader counts
+  (`record_scouting_report_open`: live reports only, not the owner's own, an
+  update keeps the count and an open leaves `updated_at` alone) and the
+  takedown (service role only; content wiped, clip files queued, a second call
+  says `already_off`, an unknown id `not_found`).
 - Desktop and web against staging as in CLAUDE.md, with a Franchise test club
   for the paid path and a Free space for the gate: share one report, open its
   link in a browser and see the sheet say "Opened once"; try to share a second

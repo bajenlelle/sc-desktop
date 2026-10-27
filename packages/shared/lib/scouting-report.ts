@@ -111,7 +111,7 @@ export interface ScoutingReport {
     preparedAt: string;
     players: number;
     clips: number;
-    /** Show the "made with scoutable." mark (decided at generate time by the plan and watermark setting). */
+    /** Always true now (the builder's default). The page shows the "made with scoutable." mark regardless. */
     attribution: boolean;
   };
   sections: ReportSection[];
