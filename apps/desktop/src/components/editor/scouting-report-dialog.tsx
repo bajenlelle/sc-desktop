@@ -19,7 +19,7 @@ import {
   type MyScoutingReport,
   type ShareLimit,
 } from "@/lib/scouting-reports-db";
-import { APP_OPEN_HASH, openedLabel, scoutingReportUrl } from "@scoutable/shared/lib/scouting-reports-db";
+import { APP_OPEN_HASH, isLiveReport, openedLabel, scoutingReportUrl } from "@scoutable/shared/lib/scouting-reports-db";
 import { formatCardDate } from "@scoutable/shared/lib/stats-card";
 import type { OrgPlanTier } from "@scoutable/shared/types/org";
 
@@ -27,8 +27,8 @@ type Phase =
   | { kind: "review" }
   | { kind: "working"; progress: ReportProgress | null }
   | { kind: "resolve"; failed: number; total: number }
-  | { kind: "done"; id: string; expiresAt: string; leftOut: number }
-  | { kind: "confirm-stop"; id: string; expiresAt: string }
+  | { kind: "done"; id: string; expiresAt: string | null; leftOut: number }
+  | { kind: "confirm-stop"; id: string; expiresAt: string | null }
   /** The plan shares one report at a time and another one is live. */
   | { kind: "limit"; blockedBy: LiveReportRef }
   | { kind: "confirm-stop-other"; blockedBy: LiveReportRef }
@@ -46,8 +46,11 @@ export interface ScoutingReportRun {
   onProgress: (p: ReportProgress) => void;
 }
 
-function isLive(r: MyScoutingReport | null): r is MyScoutingReport {
-  return !!r && new Date(r.expiresAt).getTime() > Date.now();
+const isLive = isLiveReport;
+
+/** "It works until 26 Nov 2026", or, for a kept report, until it is stopped. */
+function worksUntil(expiresAt: string | null): string {
+  return expiresAt === null ? "It works until you stop sharing it." : `It works until ${formatCardDate(expiresAt)}.`;
 }
 
 /** Where the review step starts: on the limit when another report is in the way. */
@@ -294,7 +297,7 @@ export function ScoutingReportDialog({
           </DialogTitle>
           <DialogDescription>
             {phase.kind === "done" || phase.kind === "confirm-stop"
-              ? `Scan the code or copy the link. It works until ${formatCardDate(phase.expiresAt)}.`
+              ? `Scan the code or copy the link. ${worksUntil(phase.expiresAt)}`
               : "One page with each player’s stats, note and clips."}
           </DialogDescription>
         </DialogHeader>

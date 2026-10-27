@@ -5,13 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Toolbar } from "@/components/shell/toolbar";
 import { ScoutingReportDialog, type ScoutingReportRun } from "@/components/editor/scouting-report-dialog";
 import { PlaylistViewSwitch } from "@/components/editor/playlist-view-switch";
-import { formatCardDate } from "@scoutable/shared/lib/stats-card";
 import { trackEvent } from "@/lib/analytics";
 import { useKeyScope, useHotkeys } from "@/lib/key-scope";
 import { useReducedMotionSafe } from "@/lib/motion";
 import { IS_MACOS } from "@/lib/platform";
 import { pool, type GenerateOutcome } from "@/lib/scouting-report";
 import type { MyScoutingReport } from "@/lib/scouting-reports-db";
+import { isLiveReport, sharedStatusLabel } from "@scoutable/shared/lib/scouting-reports-db";
 import { leagueSeasonsOf, loadSeasonPlayers, seasonOf, statsKindOf } from "@/lib/stats-card-data";
 import { cn } from "@/lib/utils";
 import type { HostedSeasonPlayer } from "@scoutable/shared/lib/hosted-stats";
@@ -502,7 +502,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   // ---------------------------------------------------------------------------
 
   const [shareOpen, setShareOpen] = useState(false);
-  const liveReport = myReport && new Date(myReport.expiresAt).getTime() > Date.now() ? myReport : null;
+  const liveReport = isLiveReport(myReport) ? myReport : null;
   const effectiveTitle = draft?.title ?? playlist.name;
   const effectiveOpponent = draft ? (draft.opponent ?? defaultOpponent(draft)) : null;
   // What the page would say now, to compare with what was shared. Built only while it matters.
@@ -561,7 +561,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   const toolbar = (
     <Toolbar
       variant="static"
-      leading={<PlaylistViewSwitch value="report" onChange={(v) => v === "clips" && onBack()} sharedStatus={liveReport ? `Shared · expires ${formatCardDate(liveReport.expiresAt)}` : null} />}
+      leading={<PlaylistViewSwitch value="report" onChange={(v) => v === "clips" && onBack()} sharedStatus={liveReport ? sharedStatusLabel(liveReport) : null} />}
       title={playlist.name}
       subtitle="Scouting report"
       actions={

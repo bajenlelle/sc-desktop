@@ -7,12 +7,14 @@ import {
   getMyScoutingReport,
   getScoutingReport,
   getScoutingReportShareLimit,
+  isLiveReport,
   openedLabel,
   publishScoutingReport,
   recordScoutingReportOpen,
   revokeScoutingReport,
   scoutingReportErrorCode,
   scoutingReportUrl,
+  sharedStatusLabel,
 } from "../scouting-reports-db";
 import { parseScoutingReport, type ScoutingReport } from "../scouting-report";
 
@@ -140,6 +142,11 @@ describe("publishScoutingReport", () => {
       name: "publish_scouting_report",
       args: { p_playlist_id: "pl1", p_title: "AIK scouting", p_content: report, p_content_key: "k1" },
     });
+  });
+
+  it("answers no expiry when a kept report was updated (the database keeps infinity)", async () => {
+    const { client } = rpcClient({ data: { id: "r1", expires_at: "infinity", created: false } });
+    expect(await publishScoutingReport(client, { playlistId: "pl1", title: "AIK scouting", report, contentKey: "k1" })).toEqual({ id: "r1", expiresAt: null, created: false });
   });
 
   it("raises a coded error the UI can branch on", async () => {
@@ -294,6 +301,38 @@ describe("getMyScoutingReport", () => {
   it("is null when there is none or the read fails", async () => {
     expect(await getMyScoutingReport(tableClient({ data: null, error: null }).client, "pl1")).toBeNull();
     expect(await getMyScoutingReport(tableClient({ data: null, error: { message: "x" } }).client, "pl1")).toBeNull();
+  });
+
+  it("answers no expiry for a kept report (the database says infinity)", async () => {
+    const { client } = tableClient({
+      data: { id: "r1", title: "AIK", content_key: "k", created_at: "a", updated_at: "b", expires_at: "infinity", open_count: 0 },
+      error: null,
+    });
+    expect((await getMyScoutingReport(client, "pl1"))?.expiresAt).toBeNull();
+  });
+});
+
+describe("isLiveReport", () => {
+  const base = { id: "r1", title: "AIK", contentKey: "k", createdAt: "a", updatedAt: "b", opens: 0 };
+  it("is live until its expiry", () => {
+    expect(isLiveReport({ ...base, expiresAt: new Date(Date.now() + 86_400_000).toISOString() })).toBe(true);
+    expect(isLiveReport({ ...base, expiresAt: new Date(Date.now() - 1_000).toISOString() })).toBe(false);
+  });
+  it("is live for ever when kept", () => {
+    expect(isLiveReport({ ...base, expiresAt: null })).toBe(true);
+  });
+  it("is not live when there is no report", () => {
+    expect(isLiveReport(null)).toBe(false);
+  });
+});
+
+describe("sharedStatusLabel", () => {
+  const base = { id: "r1", title: "AIK", contentKey: "k", createdAt: "a", updatedAt: "b", opens: 0 };
+  it("says when a shared report expires", () => {
+    expect(sharedStatusLabel({ ...base, expiresAt: "2026-11-26T12:00:00Z" })).toMatch(/^Shared · expires .*2026$/);
+  });
+  it("says a kept report never expires", () => {
+    expect(sharedStatusLabel({ ...base, expiresAt: null })).toBe("Shared · never expires");
   });
 });
 

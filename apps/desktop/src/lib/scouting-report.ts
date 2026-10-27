@@ -73,7 +73,8 @@ export type GenerateOutcome =
       kind: "published";
       id: string;
       url: string;
-      expiresAt: string;
+      /** Null for a kept report, which never expires. */
+      expiresAt: string | null;
       /** False when the playlist's live report was updated in place (the same link). */
       created: boolean;
       clips: number;

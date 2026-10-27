@@ -30,10 +30,11 @@ import type { ScoutingReportRun } from "@/components/editor/scouting-report-dial
 import { ReportView } from "@/components/report/report-view";
 import { generateScoutingReport, type GenerateOutcome } from "@/lib/scouting-report";
 import { getMyScoutingReport, type MyScoutingReport } from "@/lib/scouting-reports-db";
+import { isLiveReport, sharedStatusLabel } from "@scoutable/shared/lib/scouting-reports-db";
 import { defaultOpponent, type ReportDraft } from "@scoutable/shared/lib/report-draft";
 import { emptyHistory, itemsDiff, materialize, pasteIndexAfter, pasteItems, recordEdit, takeRedo, takeUndo, type History, type ItemsEdit } from "@scoutable/shared/lib/playlist-history";
 import { IS_MACOS } from "@/lib/platform";
-import { fallbackText, formatCardDate, pickDefaultPlayer, type StatsCardPlayer, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
+import { fallbackText, pickDefaultPlayer, type StatsCardPlayer, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
 import { leagueSeasonsOf, loadGameStats, loadSeasonPlayer, makeGameCard, makeSeasonCard, seasonOf, statsKindOf, type GameStats } from "@/lib/stats-card-data";
 import { useLeagues } from "@/lib/use-leagues";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
@@ -4210,7 +4211,7 @@ export function PlaylistsPage() {
   useEffect(() => {
     refreshMyReport({ cached: true });
   }, [refreshMyReport]);
-  const liveReport = myReport && new Date(myReport.expiresAt).getTime() > Date.now() ? myReport : null;
+  const liveReport = isLiveReport(myReport) ? myReport : null;
 
   /** Why the report can't be shared (a demo game), else null. */
   const reportShareDisabledReason = selected ? demoShipBlockReason(selected) : null;
@@ -4932,7 +4933,7 @@ export function PlaylistsPage() {
         onAddStatsCard={() => void handleInsertCard("stats", { at: "toolbar" }, "menu")}
         addStatsCardDisabledReason={statsCardDisabledReason}
         onOpenReport={openReport}
-        reportStatus={liveReport ? `Shared · expires ${formatCardDate(liveReport.expiresAt)}` : null}
+        reportStatus={liveReport ? sharedStatusLabel(liveReport) : null}
         preRoll={preRoll}
         postRoll={postRoll}
         onPreRollChange={setPreRoll}

@@ -6,6 +6,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseScoutingReport, type ScoutingReport } from "./scouting-report";
+import { formatCardDate } from "./stats-card";
 
 /** What the public page gets back: the report, or why there isn't one. */
 export type ScoutingReportPage =
@@ -101,9 +102,18 @@ export function scoutingReportErrorCode(message: string | undefined): ScoutingRe
 
 export interface PublishedReport {
   id: string;
-  expiresAt: string;
+  /** Null for a kept report (Scoutable's own sample), which never expires. */
+  expiresAt: string | null;
   /** False when an existing live report of the playlist was updated in place (same link). */
   created: boolean;
+}
+
+/**
+ * The database writes a kept report's expiry as the timestamp `infinity`
+ * (20261103100000), which Postgres hands to clients as that word: no expiry.
+ */
+function reportExpiry(raw: string): string | null {
+  return raw === "infinity" ? null : raw;
 }
 
 /**
@@ -130,7 +140,7 @@ export async function publishScoutingReport(
     throw new ScoutingReportError(code, `Failed to publish scouting report: ${error.message}`, blockedBy);
   }
   const r = data as { id: string; expires_at: string; created: boolean };
-  return { id: r.id, expiresAt: r.expires_at, created: r.created };
+  return { id: r.id, expiresAt: reportExpiry(r.expires_at), created: r.created };
 }
 
 /** Whether a playlist's plan limits sharing, and which live report (if any) is in the way. */
@@ -204,12 +214,23 @@ export interface MyScoutingReport {
   contentKey: string;
   createdAt: string;
   updatedAt: string;
-  expiresAt: string;
+  /** Null for a kept report, which never expires. */
+  expiresAt: string | null;
   /** How many times readers opened the link (0 for a report never opened). */
   opens: number;
 }
 
-/** The playlist's report that is not switched off, or null. It may be past its expiry: the caller compares expiresAt. */
+/** Live: there is a report, and it is kept (no expiry) or not yet past its expiry. */
+export function isLiveReport(r: MyScoutingReport | null): r is MyScoutingReport {
+  return !!r && (r.expiresAt === null || new Date(r.expiresAt).getTime() > Date.now());
+}
+
+/** The toolbar's word on a live report: "Shared · expires 26 Nov 2026", or never, for a kept one. */
+export function sharedStatusLabel(r: MyScoutingReport): string {
+  return r.expiresAt === null ? "Shared · never expires" : `Shared · expires ${formatCardDate(r.expiresAt)}`;
+}
+
+/** The playlist's report that is not switched off, or null. It may be past its expiry: isLiveReport tells (a kept report never is). */
 export async function getMyScoutingReport(supabase: SupabaseClient, playlistId: string): Promise<MyScoutingReport | null> {
   const { data, error } = await supabase
     .from("scouting_reports")
@@ -225,7 +246,7 @@ export async function getMyScoutingReport(supabase: SupabaseClient, playlistId: 
     contentKey: r.content_key,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
-    expiresAt: r.expires_at,
+    expiresAt: reportExpiry(r.expires_at),
     opens: r.open_count ?? 0,
   };
 }
