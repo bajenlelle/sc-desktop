@@ -17,10 +17,11 @@ import { cn } from "@/lib/utils";
 import { APP_OPEN_HASH, countsAsReaderOpen, recordScoutingReportOpen } from "@scoutable/shared/lib/scouting-reports-db";
 
 /**
- * Where "Made with Scoutable" leads: the home page, tagged so the visits from
- * reports can be told apart. It points at the scouting report page once that exists.
+ * Where "Made with Scoutable" leads: the scouting report page on scoutable.se
+ * (Swedish; it links its English twin), tagged so the visits from reports can
+ * be told apart from the site's other traffic.
  */
-export const REPORT_FOOTER_URL = "https://scoutable.se/?utm_source=scouting_report&utm_medium=report_footer";
+export const REPORT_FOOTER_URL = "https://scoutable.se/scoutingrapport?utm_source=scouting_report&utm_medium=report_footer";
 
 /**
  * Counts a reader's open: the page-view event, and (for a live report) the
