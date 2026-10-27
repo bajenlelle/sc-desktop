@@ -43,12 +43,19 @@ export function ReportClipPlayer({
   source,
   onClose,
   autoFocus = false,
+  playRequest = 0,
   className,
 }: {
   source: ReportClipSource;
   onClose: () => void;
   /** Take the keyboard on opening (a click on the tile; not a row in the side panel, which keeps it). */
   autoFocus?: boolean;
+  /**
+   * Goes up each time the side panel's row for this clip is clicked while its
+   * player is already open: a paused clip resumes, an ended one plays again
+   * from its start, a playing one carries on.
+   */
+  playRequest?: number;
   /** On the tile's box: the selection's and the side panel's ring. */
   className?: string;
 }) {
@@ -56,7 +63,7 @@ export function ReportClipPlayer({
   const src = source.kind === "local" ? streamFileSrc(source.path) : source.url;
   const clip = source.kind === "local" ? { start: source.start, end: source.end } : null;
   // A new source is a new player: the old element is released, the new one starts at the top.
-  return <ClipVideo key={`${src}|${clip?.start}|${clip?.end}`} src={src} clip={clip} onClose={onClose} autoFocus={autoFocus} className={className} />;
+  return <ClipVideo key={`${src}|${clip?.start}|${clip?.end}`} src={src} clip={clip} onClose={onClose} autoFocus={autoFocus} playRequest={playRequest} className={className} />;
 }
 
 function NothingToPlay({ message, onClose, autoFocus, className }: { message: string; onClose: () => void; autoFocus: boolean; className?: string }) {
@@ -90,6 +97,7 @@ function ClipVideo({
   clip,
   onClose,
   autoFocus,
+  playRequest,
   className,
 }: {
   src: string;
@@ -97,6 +105,7 @@ function ClipVideo({
   clip: { start: number; end: number } | null;
   onClose: () => void;
   autoFocus: boolean;
+  playRequest: number;
   className?: string;
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -170,6 +179,17 @@ function ClipVideo({
     else if (v.paused) v.play().catch(() => {});
     else v.pause();
   }
+
+  // The side panel's row for this clip was clicked: bring it to life unless it is playing.
+  const seenRequest = useRef(playRequest);
+  useEffect(() => {
+    if (playRequest === seenRequest.current) return;
+    seenRequest.current = playRequest;
+    const v = videoRef.current;
+    if (!v) return;
+    if (ended) replay();
+    else if (v.paused) v.play().catch(() => {});
+  }, [playRequest]);
 
   function seek(t: number) {
     const v = videoRef.current;

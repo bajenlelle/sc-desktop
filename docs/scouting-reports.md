@@ -121,7 +121,9 @@ players open from a link, and that "Save as PDF" prints.
   out or removes a player, Return shows a section in the document, ⌘A, Esc
   stops a playing clip, then clears the selection, before it leaves the view.
   A plain click on a clip row, or Return on it, scrolls to its tile and plays
-  it there; the row's menu has "Show in report" (scroll only) and "Edit clip".
+  it there; on the clip that is already open it resumes a paused clip and plays
+  an ended one again from its start (a playing clip carries on). The row's menu
+  has "Show in report" (scroll only) and "Edit clip".
 - **Share** keeps `scouting-report-dialog.tsx` minus the title and opponent
   inputs (they are in the document): a summary line, Generate, then the link,
   QR, PDF, Update and Stop sharing. `generateScoutingReport`

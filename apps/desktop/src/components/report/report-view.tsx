@@ -456,6 +456,8 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   // whose section goes, stops. `via` "tile" hands its player the keyboard.
   const [playing, setPlaying] = useState<{ key: string; at: Placement; via: "tile" | "panel" } | null>(null);
   const clipByKey = useMemo(() => new Map(sections.flatMap((s) => s.clips.map((clip) => [clip.key, { clip, at: s.id }] as const))), [sections]);
+  // Counts the side panel's clicks on the clip that is already open in its tile.
+  const [playRequest, setPlayRequest] = useState(0);
   const livePlaying = playing && clipByKey.get(playing.key)?.at === playing.at ? playing : null;
   useEffect(() => {
     if (playing && !livePlaying) setPlaying(null);
@@ -481,7 +483,11 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
     const found = clipByKey.get(key);
     if (!found) return;
     if (via === "panel") showClip(key);
-    if (livePlaying?.key === key) return;
+    if (livePlaying?.key === key) {
+      // Already open: a row click resumes it if paused and plays it again if it ended (a playing clip carries on).
+      if (via === "panel") setPlayRequest((n) => n + 1);
+      return;
+    }
     setPlaying({ key, at: found.at, via });
     trackEvent("scouting_report_clip_played", { via, source: sourceOf(found.clip).kind });
   }
@@ -642,6 +648,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
                 playingKey={livePlaying?.key ?? null}
                 playingSource={playingSource}
                 focusPlayer={livePlaying?.via === "tile"}
+                playRequest={playRequest}
                 onPlayClip={(key) => playClip(key, "tile")}
                 onStopClip={() => setPlaying(null)}
                 onMoveClips={(keys, to) => moveClipsTo(keys, to, null, "menu")}

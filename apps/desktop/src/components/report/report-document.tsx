@@ -73,6 +73,8 @@ export interface ReportDocumentProps {
   playingKey: string | null;
   playingSource: ReportClipSource | null;
   focusPlayer: boolean;
+  /** Goes up when the side panel's row for the playing clip is clicked again (see ReportClipPlayer). */
+  playRequest: number;
   onPlayClip: (key: string) => void;
   onStopClip: () => void;
   onTitle: (title: string) => void;
@@ -327,6 +329,7 @@ const ClipTileCard = memo(function ClipTileCard({
   count,
   playing,
   focusPlayer,
+  playRequest,
   onPlay,
   onStop,
   onMove,
@@ -346,6 +349,7 @@ const ClipTileCard = memo(function ClipTileCard({
   /** What the tile plays while it is the playing one; null shows the placeholder. */
   playing: ReportClipSource | null;
   focusPlayer: boolean;
+  playRequest: number;
   onPlay: () => void;
   onStop: () => void;
   onMove: (to: Placement) => void;
@@ -368,7 +372,7 @@ const ClipTileCard = memo(function ClipTileCard({
   return (
     <figure className="group/tile relative flex flex-col gap-2" data-clip-key={clip.key}>
       {playing ? (
-        <ReportClipPlayer source={playing} onClose={onStop} autoFocus={focusPlayer} className={cn((selected || flashing) && "ring-2 ring-selection")} />
+        <ReportClipPlayer source={playing} onClose={onStop} autoFocus={focusPlayer} playRequest={playRequest} className={cn((selected || flashing) && "ring-2 ring-selection")} />
       ) : (
         <button
           ref={placeholderRef}
@@ -451,6 +455,7 @@ function ClipGrid({ clips, here, targets, empty, props }: { clips: ViewClip[]; h
             count={many ? props.selected.size : 1}
             playing={props.playingKey === clip.key ? props.playingSource : null}
             focusPlayer={props.focusPlayer}
+            playRequest={props.playingKey === clip.key ? props.playRequest : 0}
             onPlay={() => props.onPlayClip(clip.key)}
             onStop={props.onStopClip}
             onMove={(to) => props.onMoveClips(many ? [...props.selected] : [clip.key], to)}
