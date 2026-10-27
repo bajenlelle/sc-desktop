@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Toolbar } from "@/components/shell/toolbar";
 import { ScoutingReportDialog, type ScoutingReportRun } from "@/components/editor/scouting-report-dialog";
 import { PlaylistViewSwitch } from "@/components/editor/playlist-view-switch";
-import { Badge } from "@/components/ui/badge";
 import { formatCardDate } from "@scoutable/shared/lib/stats-card";
 import { trackEvent } from "@/lib/analytics";
 import { useKeyScope, useHotkeys } from "@/lib/key-scope";
@@ -514,14 +513,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
       variant="static"
       leading={<PlaylistViewSwitch value="report" onChange={(v) => v === "clips" && onBack()} sharedStatus={liveReport ? `Shared · expires ${formatCardDate(liveReport.expiresAt)}` : null} />}
       title={playlist.name}
-      subtitle={
-        <span className="flex items-center gap-1.5">
-          Scouting report
-          <Badge variant="secondary" className="px-1.5 text-caption">
-            Beta
-          </Badge>
-        </span>
-      }
+      subtitle="Scouting report"
       actions={
         <>
           {saveCaption && <span className={cn("text-caption text-muted-foreground", status === "error" && "text-destructive")}>{saveCaption}</span>}

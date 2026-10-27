@@ -103,8 +103,25 @@ players open from a link, and that "Save as PDF" prints.
   QR, PDF, Update and Stop sharing. `generateScoutingReport`
   (`apps/desktop/src/lib/scouting-report.ts`) takes the draft. "Changed since
   sharing" compares the live report's content key with the document's.
+  - **The limit, checked on open** (`scouting_report_share_limit`, read each
+    time the sheet opens, so a report shared or stopped meanwhile is seen; a
+    failed check shows nothing and leaves the publish to answer). A free plan
+    with nothing in the way reads "1 shared report included. Go Pro to share as
+    many as you like." When another report is in the way the sheet opens on it
+    instead, before any clip is prepared: the other report's title and its
+    expiry, with "Stop sharing it" (it asks first: its link stops working at
+    once, then the sheet goes back to the review) and "Go Pro". A publish that
+    still meets `report_limit_reached` ends up on the same view, named from the
+    error's `DETAIL`.
+  - **Opens**: once the link is shown, "Opened n times" (or "Not opened yet",
+    "Opened once"; `openedLabel`) from `scouting_reports.open_count`, read again
+    each time the sheet opens. The sheet's buttons that open the link in a
+    browser add `#app` (view) or `#print` (PDF), so the coach's own looks
+    don't count.
+  - The desktop no longer sends `header.attribution`; the page doesn't read it
+    (see the page, below). Nothing in the report view is labelled Beta.
 
-## Publishing (`supabase/migrations/20261029100000_scouting_reports.sql`)
+## Publishing (`supabase/migrations/20261029100000_scouting_reports.sql`, `20261102100000_scouting_report_launch.sql`)
 
 - `scouting_reports`: the snapshot (`content`, ≤256 KB) behind an unguessable id
   (the link), owner-only RLS, no client writes. A snapshot, not live: only a
@@ -112,11 +129,30 @@ players open from a link, and that "Save as PDF" prints.
   anonymous. It stores storage **keys**, never URLs (`clips/…mp4`, posters
   `highlights/<user>/<uuid>.jpg`); the page prepends the media host
   (`NEXT_PUBLIC_R2_PUBLIC_URL`), the database checks the key shapes.
-- `publish_scouting_report` (owner; `upgrade_required` on a free plan;
-  `license_locked`; `invalid_content`) updates the playlist's live report in
-  place, so **regenerating keeps the same link** and gives it a fresh 30 days.
+- `publish_scouting_report` (owner; `report_limit_reached`; `license_locked`;
+  `invalid_content`) updates the playlist's live report in place, so
+  **regenerating keeps the same link** and gives it a fresh 30 days.
   `revoke_scouting_report` wipes the content at once and queues the clip files
   for the purge. `get_scouting_report` is the one anonymous door.
+- **One live report on a free plan, any number on a paid one.** Free and
+  single-game users (a bought game doesn't change the plan) share one live
+  report at a time; Rookie, Pro and Franchise share any number.
+  `_scouting_report_blocker(uid, playlist)` finds the report in the way: the
+  caller's live one (not stopped, not expired, still on a playlist) on another
+  playlist billed to a free plan, newest first. A playlist's own live report
+  doesn't count against it, so updating the only one always works. Two
+  publishes at once can't both pass (a per-user advisory lock).
+- **`report_limit_reached`** is what publish raises instead of `upgrade_required`
+  (gone from publishing: free plans are no longer refused outright). Its
+  `DETAIL` is the blocking report as JSON, `{id, playlist_id, title,
+  expires_at}`, which `publishScoutingReport` turns into
+  `ScoutingReportError.blockedBy`. The plan is read when publishing, not when
+  the report was made, so the reports of a lapsed Pro count against the one
+  allowed from then on (and the lapsed Pro can't update one of two live ones).
+- **`scouting_report_share_limit(playlist)`** is the share sheet's check, ahead
+  of the publish: `{limited, blocked_by}` (`limited` is true on a free plan;
+  `blocked_by` is the same JSON, or null). Owner only. `open_count` on the
+  report row is how often readers opened the link (see the page).
 - Main has no media purge yet, so clip files stay where they are. Revoked and
   swept reports queue their keys in `media_deletions`; when the purge ships
   (feat/cloud-game-videos), a live report counts as a reference to its clip
@@ -145,9 +181,60 @@ One scrolling document: header, then a section per player. Follows the system
 theme on screen and prints light (A4, a player per page, posters for clips, a
 QR per player). `X-Robots-Tag`, `Referrer-Policy: no-referrer` and no-store come
 from `next.config.ts`; the link preview carries the title, opponent and counts,
-never a player's name, stat or note. The footer mark follows the video
-watermark rule (always on Rookie, the Settings choice on Pro and Franchise),
-decided when publishing.
+never a player's name, stat or note.
+
+- **The footer is on every report**, on screen and in the saved PDF, on every
+  plan: "Made with scoutable." (`FooterMark`) links to `REPORT_FOOTER_URL`,
+  `https://scoutable.se/?utm_source=scouting_report&utm_medium=report_footer`.
+  `header.attribution` stays in the stored report (older ones carry it) but the
+  page ignores it, and the desktop doesn't set it. A click fires
+  `scouting_report_footer_clicked`.
+- **Opens are counted from the browser** (`ViewTracker`), after the page shows,
+  not by the server render: link previews and crawlers fetch the page without
+  running it. A live report's reader calls `record_scouting_report_open`
+  (anonymous; adds one to `scouting_reports.open_count`; an expired, stopped or
+  unknown id changes nothing; `updated_at` is left alone). The owner reads the
+  number through the table's read policy. Nothing about the reader is kept: no
+  cookies (PostHog runs in memory), no person profiles, no IP (the PostHog
+  project discards IPs, `anonymize_ips`). Anyone with the link can raise the
+  number; the only effect is a bigger number on the coach's sheet.
+- **The app's own opens don't count.** The desktop opens the link with `#app`
+  (and `#print` to print on arrival); `countsAsReaderOpen` skips both, for the
+  count and for the event. `#app` is stripped from the address afterwards.
+- **In PostHog**, a reader's open is `scouting_report_page_viewed` (`valid`, and
+  `reason` for an unavailable page). Count readers with it, not with
+  `page_viewed`: the web app's PageTracker still fires that for the app's own
+  `#app` and `#print` opens. (Before the launch rules
+  `scouting_report_page_viewed` never reached PostHog, because it fired before
+  analytics had started; `trackEvent` now starts it itself, so nothing was
+  recorded earlier.)
+
+## Taking a report down
+
+When a named player asks for their report to go (an email to
+hello@scoutable.se), find the report's id (the last part of its link,
+`/r/<id>`) and run in the prod SQL editor:
+
+```sql
+SELECT _take_down_scouting_report('<id>');
+```
+
+It returns `taken_down`, `already_off` (it was stopped before: nothing left to
+do) or `not_found` (a wrong id). Service role only; the owner can't call it.
+
+It follows the revoke path exactly (`revoke_scouting_report` without the owner
+check). The page, notes and stats go at once: the content is wiped, and the page
+says the report is no longer shared. The clip files are another matter. They
+stay at their unguessable public R2 keys until the media purge ships (it lives
+on feat/cloud-game-videos): the keys are queued in `media_deletions`, but
+nothing drains the queue yet. The posters (`highlights/<user>/<uuid>.jpg`) are
+never queued at all, because `_queue_media_deletion` only accepts `clips/` keys,
+so they stay too. The URLs aren't published anywhere and can't be guessed, but
+the files are not deleted.
+
+The coach can share the playlist again; that makes a new report with a new link
+(a stopped report is never revived). A coach who puts the same player back is a
+repeat case, handled by hand.
 
 ## Before the draft: player cards (retired 2026-10-26)
 
@@ -167,6 +254,14 @@ the draft's game stats and placement keys when a game is merged into the club.
   `report-leaders`, `report-drafts-db`, `player-roster`, `stats-card-data`).
 - SQL: `SUPABASE_DB_URL=<staging session pooler> supabase/tests/scouting_report_drafts.sh`
   and `scouting_reports.sh` (rolled-back probes; `RLS_PREFLIGHT=<the migration>`
-  applies it inside the transaction before it is pushed).
+  applies it inside the transaction before it is pushed). `scouting_reports.sh`
+  covers the launch rules: the one free report (a second is refused and names
+  the first; a lapsed Pro's reports count; a paid plan isn't limited), the share
+  sheet's check (`scouting_report_share_limit`, owner only, not for anon), the
+  reader counts (`record_scouting_report_open`: live reports only, an update
+  keeps the count) and the takedown (service role only; content wiped, clip
+  files queued, a second call says `already_off`, an unknown id `not_found`).
 - Desktop and web against staging as in CLAUDE.md, with a Franchise test club
-  for the paid path and a Free space for the gate.
+  for the paid path and a Free space for the gate: share one report, open its
+  link in a browser and see the sheet say "Opened once"; try to share a second
+  from the Free space and get the limit view; stop the first from there.

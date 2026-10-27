@@ -24,7 +24,6 @@ import { exportProgressLabel, exportProgressPercent, type ExportProgress } from 
 import type { ExportAction } from "@/components/export-format-dialog";
 import { Toolbar } from "@/components/shell/toolbar";
 import { PlaylistViewSwitch } from "@/components/editor/playlist-view-switch";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -138,36 +137,22 @@ function Explained({ reason, children }: { reason: string | null; children: Reac
 const highlightRing = "ring-2 ring-selection ring-offset-2 ring-offset-background animate-pulse";
 
 /** A menu item that, when it can't be used, says why underneath. */
-/** Marks a menu item whose feature is still in beta. */
-function BetaBadge() {
-  return (
-    <Badge variant="secondary" className="px-1.5 text-caption">
-      Beta
-    </Badge>
-  );
-}
-
 function CardMenuItem({
   icon,
   label,
   reason,
   onSelect,
-  beta,
 }: {
   icon: React.ReactElement;
   label: string;
   reason: string | null;
   onSelect: () => void;
-  beta?: boolean;
 }) {
   return (
     <DropdownMenuItem onSelect={onSelect} disabled={!!reason} className="items-start">
       <span className="mt-0.5 text-muted-foreground [&_svg]:size-4">{icon}</span>
       <span className="flex flex-col">
-        <span className="flex items-center gap-1.5">
-          {label}
-          {beta && <BetaBadge />}
-        </span>
+        <span>{label}</span>
         {reason && <span className="text-caption text-muted-foreground">{reason}</span>}
       </span>
     </DropdownMenuItem>
