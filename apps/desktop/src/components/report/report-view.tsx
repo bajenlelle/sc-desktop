@@ -40,6 +40,7 @@ import {
   type ReportDraft,
 } from "@scoutable/shared/lib/report-draft";
 import { leaderCompetition, leaderRows } from "@scoutable/shared/lib/report-leaders";
+import { reportClipSource, type ReportClipSource } from "@scoutable/shared/lib/report-clip-source";
 import { buildScoutingReport, reportOutline } from "@scoutable/shared/lib/scouting-report";
 import type { Label } from "@scoutable/shared/types/labels";
 import type { League } from "@scoutable/shared/types/league";
@@ -78,8 +79,13 @@ export interface ReportViewProps {
   /** Prepares the clips and previews and publishes (the page owns the pipeline). */
   runReport: (draft: ReportDraft, run: ScoutingReportRun) => Promise<GenerateOutcome>;
   onBack: () => void;
-  /** Back to the playlist with this clip selected. */
+  /** Edit clip: back to the playlist with this clip selected. */
   onOpenClip: (key: string) => void;
+  /** The playlist's seconds before and after each play, as the Clips view plays them. */
+  preRoll: number;
+  postRoll: number;
+  /** The game's video file when it is on this computer, else null. */
+  localVideoPath: (matchId: string) => string | null;
 }
 
 const STATS_CONCURRENCY = 3;
@@ -102,7 +108,7 @@ function toPerson(p: PlayerChoice): StatsPerson {
  * (use-player-stats), and never changes the playlist.
  */
 export const ReportView = memo(function ReportView(props: ReportViewProps) {
-  const { playlist, eventByKey, matchLookup, leagues, myReport, onBack, onOpenClip } = props;
+  const { playlist, eventByKey, matchLookup, leagues, myReport, onBack, onOpenClip, preRoll, postRoll, localVideoPath } = props;
   const items = playlist.items;
   const reducedMotion = useReducedMotionSafe();
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -443,6 +449,41 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
     flashTimer.current = setTimeout(() => setFlashKey(null), FLASH_MS);
   }
 
+  // The clip playing in its tile. One at a time: only that tile holds a video.
+  // `at` is its section when it started: a clip that leaves the report, or
+  // whose section goes, stops. `via` "tile" hands its player the keyboard.
+  const [playing, setPlaying] = useState<{ key: string; at: Placement; via: "tile" | "panel" } | null>(null);
+  const clipByKey = useMemo(() => new Map(sections.flatMap((s) => s.clips.map((clip) => [clip.key, { clip, at: s.id }] as const))), [sections]);
+  const livePlaying = playing && clipByKey.get(playing.key)?.at === playing.at ? playing : null;
+  useEffect(() => {
+    if (playing && !livePlaying) setPlaying(null);
+  }, [playing, livePlaying]);
+
+  const sourceOf = useCallback(
+    (clip: ViewClip): ReportClipSource =>
+      reportClipSource({
+        item: clip.item,
+        event: clip.event,
+        videoPath: localVideoPath(clip.item.matchId),
+        syncPoint: matchLookup.get(clip.item.matchId)?.syncPoint ?? null,
+        preRoll,
+        postRoll,
+      }),
+    [localVideoPath, matchLookup, preRoll, postRoll],
+  );
+  const playingClip = livePlaying ? clipByKey.get(livePlaying.key)?.clip : undefined;
+  const playingSource = useMemo(() => (playingClip ? sourceOf(playingClip) : null), [playingClip, sourceOf]);
+
+  /** A click on a tile plays it there; a row in the side panel also brings the tile into view. */
+  function playClip(key: string, via: "tile" | "panel") {
+    const found = clipByKey.get(key);
+    if (!found) return;
+    if (via === "panel") showClip(key);
+    if (livePlaying?.key === key) return;
+    setPlaying({ key, at: found.at, via });
+    trackEvent("scouting_report_clip_played", { via, source: sourceOf(found.clip).kind });
+  }
+
   function removeWithUndo(id: string) {
     const clips = sections.find((s) => s.id === id)?.clips.length ?? 0;
     removeSectionWithUndo(id, clips);
@@ -498,8 +539,9 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
     }
     if (e.key === "Escape" && !pickerOpen && !shareOpen) {
       e.preventDefault();
-      // The selection goes first, then the view.
-      if (selected.size > 0) selectClips(new Set(), null);
+      // The playing clip stops first, then the selection goes, then the view.
+      if (livePlaying) setPlaying(null);
+      else if (selected.size > 0) selectClips(new Set(), null);
       else onBack();
     }
   });
@@ -557,6 +599,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
             reducedMotion={reducedMotion}
             onShowSection={scrollTo}
             onShowClip={showClip}
+            onPlayClip={(key) => playClip(key, "panel")}
             onMoveSection={(id, to) => apply((d) => moveSection(d, id, to), "Move player")}
             onRemoveSection={removeWithUndo}
             onMoveClips={moveClipsTo}
@@ -594,6 +637,11 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
                 leftOutCount={layout?.leftOut.length ?? 0}
                 selected={selected}
                 flashKey={flashKey}
+                playingKey={livePlaying?.key ?? null}
+                playingSource={playingSource}
+                focusPlayer={livePlaying?.via === "tile"}
+                onPlayClip={(key) => playClip(key, "tile")}
+                onStopClip={() => setPlaying(null)}
                 onMoveClips={(keys, to) => moveClipsTo(keys, to, null, "menu")}
                 onOpenClip={onOpenClip}
                 onRemoveSection={removeWithUndo}

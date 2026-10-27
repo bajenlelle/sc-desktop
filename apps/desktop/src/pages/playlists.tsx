@@ -2177,7 +2177,7 @@ export function PlaylistsPage() {
     setNewlyInsertedCardId(null);
   }, [newlyInsertedCardId, sortedEvents]);
 
-  // Back from the report with "Open in playlist": that clip is the focused, selected row.
+  // Back from the report with "Edit clip": that clip is the focused, selected row.
   useEffect(() => {
     const key = pendingRevealKeyRef.current;
     if (reportView || !key) return;
@@ -4282,6 +4282,19 @@ export function PlaylistsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- clipMatches is fully represented by videoPathSignature for probing purposes
   }, [videoPathSignature, probeTick]);
 
+  // The scouting report plays a clip from the game's own file while it is on
+  // this computer (as the export gate below: not found missing or unreadable;
+  // not probed yet counts as here), else from the clip's uploaded copy.
+  const reportLocalVideoPath = useCallback(
+    (matchId: string) => {
+      const url = matchLookup.get(matchId)?.videoUrl;
+      if (!url || !isLocalPath(url)) return null;
+      const status = videoStatusByMatch.get(matchId);
+      return status === "missing" || status === "unreadable" ? null : url;
+    },
+    [matchLookup, videoStatusByMatch],
+  );
+
   /** Relink the ACTIVE game's video from the player overlay. */
   async function handleLocateActiveVideo() {
     const mId = activeMatchIdRef.current ?? (selected ? primaryMatchId(selected) : null);
@@ -5220,6 +5233,9 @@ export function PlaylistsPage() {
               runReport={runReport}
               onBack={() => setReportFor(null)}
               onOpenClip={(key) => { pendingRevealKeyRef.current = key; setReportFor(null); }}
+              preRoll={preRoll}
+              postRoll={postRoll}
+              localVideoPath={reportLocalVideoPath}
             />
           ) : (
           <div className="flex h-full flex-col gap-3 p-4">

@@ -53,13 +53,17 @@ export interface ReportOutlineProps {
   onSelectionChange: (selected: Set<string>, anchor: string | null) => void;
   reducedMotion: boolean;
   onShowSection: (id: Placement) => void;
+  /** Scrolls to the clip's tile (the row's "Show in report"). */
   onShowClip: (key: string) => void;
+  /** Scrolls to the clip's tile and plays it there (a plain click, Return). */
+  onPlayClip: (key: string) => void;
   /** `toIndex` counts player sections only. */
   onMoveSection: (id: string, toIndex: number) => void;
   onRemoveSection: (id: string) => void;
   onMoveClips: (keys: string[], to: Placement, before: string | null, via: MoveVia) => void;
   onNudgeClips: (keys: string[], dir: -1 | 1) => void;
   onIncludeClips: (keys: string[], via: MoveVia) => void;
+  /** Edit clip: the clip in the Clips view. */
   onOpenClip: (key: string) => void;
   onAddPlayers: () => void;
 }
@@ -78,8 +82,9 @@ const clipsNoun = (n: number) => (n === 1 ? "clip" : `${n} clips`);
  * another player, into the team or out of the report; dragging a player's
  * header moves the player with their clips. The keys do the same: ⌥↑/⌥↓
  * moves the focused row, ⌫ leaves clips out (or removes a player), ←/→ fold
- * and unfold. ⌘-click and ⇧-click select clips, as in the playlist. Where a
- * drop lands is worked out in lib/report-outline.ts.
+ * and unfold. ⌘-click and ⇧-click select clips, as in the playlist; a plain
+ * click or Return plays the clip in its tile. Where a drop lands is worked
+ * out in lib/report-outline.ts.
  */
 export function ReportOutline(props: ReportOutlineProps) {
   const { layout, sectionInfo, clipInfo, collapsed, selected, anchor, activeId } = props;
@@ -200,7 +205,7 @@ export function ReportOutline(props: ReportOutlineProps) {
         if (row.id === LEFT_OUT) props.onToggleCollapsed(LEFT_OUT, false);
         else props.onShowSection(row.id);
       } else if (row.id !== LEFT_OUT) {
-        props.onShowClip(row.key);
+        props.onPlayClip(row.key);
       }
       return;
     }
@@ -228,7 +233,7 @@ export function ReportOutline(props: ReportOutlineProps) {
     const next = clickSelection({ order: clipOrder, selected, anchor, focus: current, key: row.key, shift, toggle });
     props.onSelectionChange(next.selected, next.anchor);
     setCurrent(row.key);
-    if (!shift && !toggle && row.id !== LEFT_OUT) props.onShowClip(row.key);
+    if (!shift && !toggle && row.id !== LEFT_OUT) props.onPlayClip(row.key);
   }
 
   return (
@@ -518,7 +523,7 @@ function ClipRow({
         )}
         <ContextMenuSeparator />
         {!leftOut && <ContextMenuItem onSelect={onShow}>Show in report</ContextMenuItem>}
-        <ContextMenuItem onSelect={onOpen}>Open in playlist</ContextMenuItem>
+        <ContextMenuItem onSelect={onOpen}>Edit clip</ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   );

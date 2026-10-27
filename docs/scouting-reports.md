@@ -86,7 +86,29 @@ players open from a link, and that "Save as PDF" prints.
   stats (a popover with the embedded `StatsCardInspector`, or the no-stats line
   with the league's other seasons), note and clip tiles. A tile's menu moves
   the clip (or the side panel's selection it is in) to another player or the
-  team, leaves it out, or opens it in the playlist.
+  team, leaves it out, or, with **Edit clip**, goes to the clip in the Clips
+  view (the playlist, the clip selected).
+- **Clips play in their tiles** (`report-clip-player.tsx`), one at a time: a
+  click on a tile plays it there, a click on another stops the first. Only the
+  playing tile holds a `<video>` (`VideoPlayer`, so the free-tier mark, the
+  shared volume and the load-failure messages are the Clips view's); the
+  others are placeholders, and a stopped tile gives its element back
+  (`release-video.ts`), since leftover videos in WKWebView end in black paused
+  frames. A click on the footage or Space (while the player has focus) plays
+  and pauses; the bar has play/pause and the scrubber; at the end the last
+  frame stays with Replay; ✕ (Stop), Esc, or the clip leaving the report or
+  its section stops it. What plays is `reportClipSource`
+  (`packages/shared/lib/report-clip-source.ts`), in this order: the game's own
+  video while it is on this computer (the playlists page's file probe hasn't
+  found it missing or unreadable) and the play can be placed in it (the game
+  is synced), over the clip's window
+  (`clipBounds`, the window exports and uploads are cut with, so with the
+  playlist's pre- and post-roll and the clip's own trim); else the clip's
+  uploaded copy (`r2Url`, cleared whenever the trim changes, so a present one
+  is current), from 0 to the end of the file; else the tile says why: "The
+  game’s video isn’t on this computer." or "This game isn’t synced to its
+  video yet." Each play is `scouting_report_clip_played` (via tile or panel,
+  source local, shared or none).
 - **The side panel** (`report-outline.tsx`, a tree): Team (always, with 0),
   each player and "Not in report" (folded at first), each with its clips as
   one-line rows (the play's colour, the play, the time, a note mark; the hover
@@ -96,8 +118,10 @@ players open from a link, and that "Save as PDF" prints.
   (`clipDrop`, `sectionGap`, `sectionDropIndex`) over the drag engine's flat
   rows; a drop on a folded section appends. Keys: ↑/↓, ⇧↑/⇧↓, ←/→ fold,
   ⌥↑/⌥↓ moves (`nudgeClips` crosses into the next section), ⌫ leaves clips
-  out or removes a player, Return shows the clip or section in the document,
-  ⌘A, Esc clears the selection before it leaves the view.
+  out or removes a player, Return shows a section in the document, ⌘A, Esc
+  stops a playing clip, then clears the selection, before it leaves the view.
+  A plain click on a clip row, or Return on it, scrolls to its tile and plays
+  it there; the row's menu has "Show in report" (scroll only) and "Edit clip".
 - **Share** keeps `scouting-report-dialog.tsx` minus the title and opponent
   inputs (they are in the document): a summary line, Generate, then the link,
   QR, PDF, Update and Stop sharing. `generateScoutingReport`

@@ -18,10 +18,12 @@ import { LabelChip } from "@/components/labels/LabelChip";
 import { cn } from "@/lib/utils";
 import { eventColors, eventLabel, formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { LEFT_OUT, REPORT_INTRO_LIMIT, REPORT_NOTE_LIMIT, REPORT_TITLE_MAX, TEAM_SECTION, sectionLabel, type DraftSection, type Placement, type ReportDraft } from "@scoutable/shared/lib/report-draft";
+import type { ReportClipSource } from "@scoutable/shared/lib/report-clip-source";
 import { cardContent, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
 import type { Label } from "@scoutable/shared/types/labels";
 import type { League } from "@scoutable/shared/types/league";
 import type { PlayByPlayEvent, PlaylistClipItem, StoredMatch } from "@/types/match";
+import { ReportClipPlayer } from "./report-clip-player";
 
 /** One clip as the document shows it: the item, and the play it is. */
 export interface ViewClip {
@@ -67,6 +69,12 @@ export interface ReportDocumentProps {
   selected: ReadonlySet<string>;
   /** The clip the side panel just showed, lit up for a moment. */
   flashKey: string | null;
+  /** The clip playing in its tile (one at a time), what it plays, and whether its player takes the keyboard. */
+  playingKey: string | null;
+  playingSource: ReportClipSource | null;
+  focusPlayer: boolean;
+  onPlayClip: (key: string) => void;
+  onStopClip: () => void;
   onTitle: (title: string) => void;
   onOpponent: (opponent: string) => void;
   onIntro: (intro: string) => void;
@@ -75,6 +83,7 @@ export interface ReportDocumentProps {
   onRetryStats: (id: string, competitionId?: number) => void;
   /** To a section's end, or out of the report (LEFT_OUT). */
   onMoveClips: (keys: string[], to: Placement) => void;
+  /** Edit clip: the clip in the Clips view. */
   onOpenClip: (key: string) => void;
   onRemoveSection: (id: string) => void;
 }
@@ -316,6 +325,10 @@ const ClipTileCard = memo(function ClipTileCard({
   selected,
   flashing,
   count,
+  playing,
+  focusPlayer,
+  onPlay,
+  onStop,
   onMove,
   onOpen,
 }: {
@@ -330,26 +343,47 @@ const ClipTileCard = memo(function ClipTileCard({
   flashing: boolean;
   /** How many clips the menu acts on: more than 1 when the tile is one of several selected. */
   count: number;
+  /** What the tile plays while it is the playing one; null shows the placeholder. */
+  playing: ReportClipSource | null;
+  focusPlayer: boolean;
+  onPlay: () => void;
+  onStop: () => void;
   onMove: (to: Placement) => void;
   onOpen: () => void;
 }) {
   const { event, item } = clip;
   const when = `${periodLabel(event.period)} · ${formatGameClock(event.gameClockTime).replace(/^0/, "")}`;
   const note = item.note?.trim();
+
+  // A clip stopped from the keyboard (Esc, the Stop button) leaves focus nowhere: it comes back to the tile.
+  const placeholderRef = useRef<HTMLButtonElement | null>(null);
+  const isPlaying = playing !== null;
+  const wasPlaying = useRef(isPlaying);
+  useEffect(() => {
+    const lost = document.activeElement === null || document.activeElement === document.body;
+    if (wasPlaying.current && !isPlaying && lost) placeholderRef.current?.focus({ preventScroll: true });
+    wasPlaying.current = isPlaying;
+  }, [isPlaying]);
+
   return (
     <figure className="group/tile relative flex flex-col gap-2" data-clip-key={clip.key}>
-      <button
-        type="button"
-        onClick={onOpen}
-        aria-label={`Open ${eventLabel(event)} in the playlist`}
-        className={cn(
-          "flex aspect-video items-center justify-center rounded-window bg-fill-2 ring-1 ring-separator outline-none transition-[background-color,box-shadow] duration-300 hover:bg-fill-3 focus-visible:ring-2 focus-visible:ring-selection",
-          (selected || flashing) && "ring-2 ring-selection",
-          flashing && "bg-fill-3",
-        )}
-      >
-        <Play className="size-5 fill-current text-muted-foreground" aria-hidden />
-      </button>
+      {playing ? (
+        <ReportClipPlayer source={playing} onClose={onStop} autoFocus={focusPlayer} className={cn((selected || flashing) && "ring-2 ring-selection")} />
+      ) : (
+        <button
+          ref={placeholderRef}
+          type="button"
+          onClick={onPlay}
+          aria-label={`Play ${eventLabel(event)}`}
+          className={cn(
+            "flex aspect-video items-center justify-center rounded-window bg-fill-2 ring-1 ring-separator outline-none transition-[background-color,box-shadow] duration-300 hover:bg-fill-3 focus-visible:ring-2 focus-visible:ring-selection",
+            (selected || flashing) && "ring-2 ring-selection",
+            flashing && "bg-fill-3",
+          )}
+        >
+          <Play className="size-5 fill-current text-muted-foreground" aria-hidden />
+        </button>
+      )}
       <figcaption className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className={cn("rounded-full px-2 py-0.5 text-caption font-medium", eventColors(event).badge)}>{eventLabel(event)}</span>
@@ -388,7 +422,7 @@ const ClipTileCard = memo(function ClipTileCard({
           </DropdownMenuSub>
           <DropdownMenuItem onSelect={() => onMove(LEFT_OUT)}>{count === 1 ? "Leave out of report" : `Leave ${count} clips out of report`}</DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={onOpen}>Open in playlist</DropdownMenuItem>
+          <DropdownMenuItem onSelect={onOpen}>Edit clip</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </figure>
@@ -415,6 +449,10 @@ function ClipGrid({ clips, here, targets, empty, props }: { clips: ViewClip[]; h
             selected={props.selected.has(clip.key)}
             flashing={props.flashKey === clip.key}
             count={many ? props.selected.size : 1}
+            playing={props.playingKey === clip.key ? props.playingSource : null}
+            focusPlayer={props.focusPlayer}
+            onPlay={() => props.onPlayClip(clip.key)}
+            onStop={props.onStopClip}
             onMove={(to) => props.onMoveClips(many ? [...props.selected] : [clip.key], to)}
             onOpen={() => props.onOpenClip(clip.key)}
           />
@@ -512,8 +550,9 @@ function PlayerSection({ view, targets, props }: { view: ViewSection; targets: {
  * The report as the coach writes it: the same document the page will show,
  * with the title, opponent, intro and notes typed in place, and each clip's
  * menu to move it under another player or out of the report (the side panel
- * arranges them by dragging). Clip tiles show the play and its time, no
- * footage; "Open in playlist" goes to the video.
+ * arranges them by dragging). A clip tile shows the play and its time and
+ * plays the clip in place when clicked, one tile at a time (the others keep
+ * no video); "Edit clip" in its menu goes to the clip in the Clips view.
  */
 export function ReportDocument(props: ReportDocumentProps) {
   const { draft, sections } = props;
