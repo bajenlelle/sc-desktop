@@ -229,8 +229,9 @@ stay at their unguessable public R2 keys until the media purge ships (it lives
 on feat/cloud-game-videos): the keys are queued in `media_deletions`, but
 nothing drains the queue yet. The posters (`highlights/<user>/<uuid>.jpg`) are
 never queued at all, because `_queue_media_deletion` only accepts `clips/` keys,
-so they stay too. The URLs aren't published anywhere and can't be guessed, but
-the files are not deleted.
+so they stay too. The clip URLs are only ever shown by pages and playlists that
+play them and are unguessable in practice, but anyone who opened the report may
+still have one, and the files are not deleted.
 
 The coach can share the playlist again; that makes a new report with a new link
 (a stopped report is never revived). A coach who puts the same player back is a
