@@ -60,8 +60,6 @@ export interface GenerateReportArgs {
   postRoll: number;
   title: string;
   opponent: string | null;
-  /** The "made with" mark: always on Rookie, the coach's watermark setting on Pro and Franchise. */
-  attribution: boolean;
   /** Publish with the clips that could not be uploaded left out. */
   allowMissing: boolean;
   signal: AbortSignal;
@@ -128,7 +126,6 @@ export async function generateScoutingReport(args: GenerateReportArgs): Promise<
       opponent: args.opponent,
       posters,
       labelsByKey: args.labelsByKey,
-      attribution: args.attribution,
     });
 
   // The clips the page shows: not the ones the coach left out of the report.

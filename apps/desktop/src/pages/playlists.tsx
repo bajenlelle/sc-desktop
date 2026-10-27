@@ -4219,8 +4219,6 @@ export function PlaylistsPage() {
   async function runReport(draft: ReportDraft, a: ScoutingReportRun): Promise<GenerateOutcome> {
     const pl = selectedRef.current;
     if (!pl) throw new Error("No playlist is open");
-    // The footer mark follows the video watermark rule: always on Rookie, the Settings choice on Pro and Franchise.
-    const canDisableWatermark = activeOrgPlan === "pro" || activeOrgPlan === "franchise";
     return generateScoutingReport({
       playlist: pl,
       draft,
@@ -4236,7 +4234,6 @@ export function PlaylistsPage() {
       postRoll,
       title: draft.title ?? pl.name,
       opponent: draft.opponent ?? defaultOpponent(draft),
-      attribution: !(canDisableWatermark && getExportWatermarkDisabled()),
       allowMissing: a.allowMissing,
       signal: a.signal,
       onProgress: a.onProgress,
@@ -5217,7 +5214,7 @@ export function PlaylistsPage() {
               labelNamesByClip={labelNamesByClip}
               myReport={myReport}
               onRefreshReport={() => refreshMyReport()}
-              blockedByPlan={activeOrgPlan === 'free'}
+              plan={activeOrgPlan}
               onUpgrade={() => { setUpsellReport(true); setUpgradeDialogOpen(true); }}
               shareDisabledReason={reportShareDisabledReason}
               runReport={runReport}
@@ -5308,19 +5305,19 @@ export function PlaylistsPage() {
             onClose={() => { setUpgradeDialogOpen(false); setUpsellReport(false); }}
             featureName={
               upsellReport
-                ? "Share your scouting report"
+                ? "Share as many reports as you like"
                 : upsellContext?.action === "send"
                   ? "Send your tape to your phone"
                   : "Save your tape as an MP4"
             }
             description={
               upsellReport
-                ? "Send staff and players one link with every player, note and clip, or save it as a PDF. Cancel anytime."
+                ? "Free plans share one scouting report at a time. Pro shares as many as you like and saves your playlists as MP4s. Cancel anytime."
                 : undefined
             }
             analyticsFeature={
               upsellReport
-                ? "scouting_report"
+                ? "scouting_report_limit"
                 : (upsellContext?.action === "send" ? "send_to_phone" : "export_playlist") +
                   (upsellContext?.format === "9:16" ? "_vertical" : "")
             }

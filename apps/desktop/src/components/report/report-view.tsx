@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Lock, UserPlus } from "lucide-react";
+import { UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Toolbar } from "@/components/shell/toolbar";
 import { ScoutingReportDialog, type ScoutingReportRun } from "@/components/editor/scouting-report-dialog";
@@ -44,6 +44,7 @@ import { leaderCompetition, leaderRows } from "@scoutable/shared/lib/report-lead
 import { buildScoutingReport, reportOutline } from "@scoutable/shared/lib/scouting-report";
 import type { Label } from "@scoutable/shared/types/labels";
 import type { League } from "@scoutable/shared/types/league";
+import type { OrgPlanTier } from "@scoutable/shared/types/org";
 import { isClipItem, type PlayByPlayEvent, type Playlist, type StoredMatch } from "@/types/match";
 import { ReportDocument, clipDomSelector, sectionDomId, type SectionStatsContext, type ViewClip, type ViewSection } from "./report-document";
 import { ReportOutline, type MoveVia, type OutlineClipInfo, type OutlineSectionInfo } from "./report-outline";
@@ -70,8 +71,8 @@ export interface ReportViewProps {
   /** The playlist's report that is not switched off, if any. */
   myReport: MyScoutingReport | null;
   onRefreshReport: () => void;
-  /** The space is on a free plan: Share opens the upgrade dialog. */
-  blockedByPlan: boolean;
+  /** The space's plan tier: the share sheet reports it with its events. */
+  plan: OrgPlanTier;
   onUpgrade: () => void;
   /** Why sharing is off (a demo game), else null. */
   shareDisabledReason: string | null;
@@ -528,8 +529,16 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
             <UserPlus />
             Add players
           </Button>
-          <Button size="sm" onClick={() => setShareOpen(true)} disabled={!draft || !!props.shareDisabledReason} title={props.shareDisabledReason ?? undefined}>
-            {props.blockedByPlan && <Lock />}
+          <Button
+            size="sm"
+            onClick={() => {
+              // Read the report again so the sheet's open count is fresh each time it opens.
+              props.onRefreshReport();
+              setShareOpen(true);
+            }}
+            disabled={!draft || !!props.shareDisabledReason}
+            title={props.shareDisabledReason ?? undefined}
+          >
             {liveReport && <span aria-hidden className={cn("size-1.5 rounded-full", stale ? "bg-warning" : "bg-success")} />}
             {shareLabel}
           </Button>
@@ -630,7 +639,8 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
           contentKey={shownBuilt.contentKey}
           existing={myReport}
           onExistingChange={props.onRefreshReport}
-          blockedByPlan={props.blockedByPlan}
+          playlistId={playlist.id}
+          plan={props.plan}
           onUpgrade={props.onUpgrade}
           run={run}
         />
