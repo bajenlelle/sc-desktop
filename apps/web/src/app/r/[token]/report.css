@@ -77,6 +77,8 @@
   .report-header ~ .report-section:first-of-type { break-before: auto; }
   /* Page 1 already names the report in its header. */
   .report-header ~ .report-section:first-of-type > .report-print-only { display: none; }
+  /* The wordmark's dark-theme colour would print as pale on white. */
+  .report .report-footer svg g[class] { fill: #2e2e2e; }
   .report-section h2 { break-after: avoid; }
   .report-intro { break-inside: avoid; break-after: avoid; }
   .report-clip { break-inside: avoid; }

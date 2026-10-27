@@ -51,6 +51,8 @@ export function resetUser() {
 }
 
 export function trackEvent(event: AnalyticsEvent, properties?: Record<string, unknown>) {
+  // A child's effect runs before PostHogProvider's, so an event fired on mount would find PostHog not yet started and be dropped.
+  if (!posthog.__loaded) initAnalytics();
   if (!posthog.__loaded) return;
   posthog.capture(event, properties);
 }

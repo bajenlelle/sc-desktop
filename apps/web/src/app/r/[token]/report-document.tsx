@@ -1,20 +1,21 @@
 /**
  * The scouting report, as the page draws it. A server component: the markup
  * is the report, and the few interactive parts (playing a clip, the jump bar,
- * Save as PDF, the printed QR) are the client components next to it.
+ * Save as PDF, the printed QR, the footer link) are the client components next
+ * to it.
  *
  * One scrolling page: the Team section when there is one, then a section per
  * player in the report's order (lib/scouting-report.ts built them from the
  * coach's draft), with a chip for each in the jump bar. It follows the
- * viewer's system theme on screen and prints light.
+ * viewer's system theme on screen and prints light. Every report ends with the
+ * "Made with Scoutable" mark, on screen and in the saved PDF.
  */
 import type { ReactNode } from "react";
-import { Wordmark } from "@/components/logo";
 import { cn } from "@/lib/utils";
 import { formatCardDate } from "@scoutable/shared/lib/stats-card";
 import { JUMP_BAR_MIN_SECTIONS, reportJumpItems, type ReportBlock, type ReportClip, type ReportSection, type ReportStats, type ScoutingReport } from "@scoutable/shared/lib/scouting-report";
 import { ClipTile } from "./clip-tile";
-import { JumpBar, PrintQr, SaveAsPdf, type JumpItem } from "./report-chrome";
+import { FooterMark, JumpBar, PrintQr, SaveAsPdf, type JumpItem } from "./report-chrome";
 
 /** What a stat's short label means, for screen readers and hover. */
 const STAT_NAMES: Record<string, string> = {
@@ -176,14 +177,7 @@ export function ReportDocument({ report, mediaBase }: { report: ScoutingReport; 
         <Section key={s.id} section={s} report={report} mediaBase={mediaBase} bare={i === 0 && showJump} />
       ))}
 
-      {header.attribution && (
-        <footer className="report-screen-only mt-auto flex items-center justify-center gap-2 pt-6 text-callout text-muted-foreground">
-          <span>Made with</span>
-          <a href="https://scoutable.se" target="_blank" rel="noreferrer noopener" aria-label="scoutable.">
-            <Wordmark className="h-4 w-auto" />
-          </a>
-        </footer>
-      )}
+      <FooterMark />
     </main>
   );
 }

@@ -3,22 +3,60 @@
 /**
  * The report page's few client-side parts: the sticky jump bar between
  * players, Save as PDF (the browser's own print dialog, so no PDF library), a
- * per-player QR for the printed copy, and the page-view event.
+ * per-player QR for the printed copy, the "Made with Scoutable" footer link,
+ * and the page-view event that also counts the reader's open.
  */
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import QRCode from "react-qr-code";
 import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Wordmark } from "@/components/logo";
 import { trackEvent } from "@/lib/analytics";
+import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import { APP_OPEN_HASH, countsAsReaderOpen, recordScoutingReportOpen } from "@scoutable/shared/lib/scouting-reports-db";
 
-export function ViewTracker({ valid, reason }: { valid: boolean; reason?: string }) {
+/**
+ * Where "Made with Scoutable" leads: the home page, tagged so the visits from
+ * reports can be told apart. Project 3 points this at the scouting report page.
+ */
+export const REPORT_FOOTER_URL = "https://scoutable.se/?utm_source=scouting_report&utm_medium=report_footer";
+
+/**
+ * Counts a reader's open: the page-view event, and (for a live report) the
+ * report's open count. The coach opening their own link from the desktop app
+ * (#app) or to print it (#print) is not a reader, so neither is counted.
+ *
+ * It renders before the document, so its effect reads #print before SaveAsPdf
+ * strips it. #app is stripped here so a reload or a copied address from that
+ * tab doesn't carry it on.
+ */
+export function ViewTracker({ valid, reason, id }: { valid: boolean; reason?: string; id?: string }) {
+  const done = useRef(false);
   useEffect(() => {
+    // Once per page load, also where React runs effects twice (development): the hash is gone the second time.
+    if (done.current) return;
+    done.current = true;
+    const hash = window.location.hash;
+    if (hash === APP_OPEN_HASH) history.replaceState(null, "", window.location.pathname + window.location.search);
+    if (!countsAsReaderOpen(hash)) return;
     trackEvent("scouting_report_page_viewed", { valid, ...(reason ? { reason } : {}) });
-    // Once per page load.
+    if (valid && id) void recordScoutingReportOpen(createClient(), id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return null;
+}
+
+/** "Made with Scoutable" at the foot of every report (on screen and in the saved PDF), with the click counted. */
+export function FooterMark() {
+  return (
+    <footer className="report-footer mt-auto flex items-center justify-center gap-2 pt-6 text-callout text-muted-foreground">
+      <span>Made with</span>
+      <a href={REPORT_FOOTER_URL} target="_blank" rel="noreferrer noopener" aria-label="scoutable." onClick={() => trackEvent("scouting_report_footer_clicked")}>
+        <Wordmark className="h-4 w-auto" />
+      </a>
+    </footer>
+  );
 }
 
 /** Lazy images only load near the viewport, so print would find blanks: load them all, then wait for them. */

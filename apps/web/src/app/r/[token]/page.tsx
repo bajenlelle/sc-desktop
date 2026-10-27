@@ -3,7 +3,11 @@
  * shares from the desktop app. No auth (outside the (app) group, like /h and
  * /join): the report's id is a 122-bit uuid, it expires after 30 days, and the
  * coach can switch it off. Read through get_scouting_report, the one anonymous
- * door (the table itself is the owner's).
+ * door (the table itself is the owner's). Each reader's open is counted by the
+ * browser after the page shows (ViewTracker), not by this render: link
+ * previews and crawlers fetch the page without running it, and the coach's own
+ * opens from the desktop app carry #app and are left out. Every report ends
+ * with the "Made with Scoutable" mark.
  *
  * The link goes to staff and players, often through a chat that unfurls it:
  * the metadata carries the title, the opponent and counts, never a player's
@@ -70,7 +74,7 @@ export default async function ScoutingReportPage({ params }: Props) {
   const mediaBase = process.env.NEXT_PUBLIC_R2_PUBLIC_URL ?? null;
   return (
     <>
-      <ViewTracker valid />
+      <ViewTracker valid id={token} />
       <ReportDocument report={page.report} mediaBase={mediaBase} />
     </>
   );
