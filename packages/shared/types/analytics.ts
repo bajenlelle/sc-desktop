@@ -56,13 +56,15 @@ export type AnalyticsEvent =
   | "scouting_report_clip_moved" // to (player | team | out | in: put back), clips, via (drag | keys | menu), reorder (stayed in its section)
   | "scouting_report_section_removed" // had_note, clips, undone
   | "scouting_report_previewed" // players, clips (the share sheet opened)
-  | "scouting_report_generated" // players, clips, shipped (clips cut for it), posters, regenerated, seconds
+  | "scouting_report_generated" // players, clips, shipped (clips cut for it), posters, regenerated, seconds, plan (the space's tier), limited (free tier: one live report)
   | "scouting_report_failed" // stage (ship | posters | publish), error
   | "scouting_report_cancelled" // stage
   | "scouting_report_link_copied" // method (button | qr)
-  | "scouting_report_revoked"
+  | "scouting_report_revoked" // via (sheet | limit)
+  | "scouting_report_limit_reached" // source (check | publish): the share sheet showed the one-report limit
   | "scouting_report_page_viewed" // valid, reason (not_found | expired | revoked) — fired by the public page
   | "scouting_report_pdf_saved" // fired by the public page's Save as PDF
+  | "scouting_report_footer_clicked" // fired by the public page's "Made with Scoutable"
   | "folder_created"
   | "label_created"
   | "label_applied"

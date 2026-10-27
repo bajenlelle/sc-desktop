@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  APP_OPEN_HASH,
   ScoutingReportError,
+  countsAsReaderOpen,
   getMyScoutingReport,
   getScoutingReport,
+  getScoutingReportShareLimit,
+  openedLabel,
   publishScoutingReport,
+  recordScoutingReportOpen,
   revokeScoutingReport,
   scoutingReportErrorCode,
   scoutingReportUrl,
@@ -35,7 +40,7 @@ const report: ScoutingReport = {
   ],
 };
 
-function rpcClient(result: { data?: unknown; error?: { message: string } | null }) {
+function rpcClient(result: { data?: unknown; error?: { message: string; details?: string } | null }) {
   const calls: { name: string; args: unknown }[] = [];
   const client = {
     rpc(name: string, args: unknown) {
@@ -143,6 +148,93 @@ describe("publishScoutingReport", () => {
     expect(err).toBeInstanceOf(ScoutingReportError);
     expect(err.code).toBe("upgrade_required");
   });
+
+  it("names the live report when the free plan's one report is taken", async () => {
+    const details = JSON.stringify({ id: "r2", playlist_id: "pl2", title: "Djurgården", expires_at: "2026-11-20T10:00:00Z" });
+    const { client } = rpcClient({ error: { message: "report_limit_reached", details } });
+    const err = await publishScoutingReport(client, { playlistId: "pl1", title: "t", report, contentKey: "k" }).catch((e) => e);
+    expect(err).toBeInstanceOf(ScoutingReportError);
+    expect(err).toMatchObject({
+      code: "report_limit_reached",
+      blockedBy: { id: "r2", playlistId: "pl2", title: "Djurgården", expiresAt: "2026-11-20T10:00:00Z" },
+    });
+  });
+
+  it("has no blockedBy when the details can't be read", async () => {
+    for (const details of ["garbage", JSON.stringify({ id: "r2" }), undefined]) {
+      const { client } = rpcClient({ error: { message: "report_limit_reached", details } });
+      const err = await publishScoutingReport(client, { playlistId: "pl1", title: "t", report, contentKey: "k" }).catch((e) => e);
+      expect(err).toMatchObject({ code: "report_limit_reached", blockedBy: null });
+    }
+  });
+
+  it("has no blockedBy on any other error", async () => {
+    const details = JSON.stringify({ id: "r2", playlist_id: "pl2", title: "x", expires_at: "2026-11-20T10:00:00Z" });
+    const { client } = rpcClient({ error: { message: "not_owner", details } });
+    const err = await publishScoutingReport(client, { playlistId: "pl1", title: "t", report, contentKey: "k" }).catch((e) => e);
+    expect(err).toMatchObject({ code: "not_owner", blockedBy: null });
+  });
+});
+
+describe("getScoutingReportShareLimit", () => {
+  it("reads whether the plan is limited and which report blocks", async () => {
+    const { client, calls } = rpcClient({
+      data: { limited: true, blocked_by: { id: "r2", playlist_id: "pl2", title: "Djurgården", expires_at: "2026-11-20T10:00:00Z" } },
+    });
+    expect(await getScoutingReportShareLimit(client, "pl1")).toEqual({
+      limited: true,
+      blockedBy: { id: "r2", playlistId: "pl2", title: "Djurgården", expiresAt: "2026-11-20T10:00:00Z" },
+    });
+    expect(calls).toEqual([{ name: "scouting_report_share_limit", args: { p_playlist_id: "pl1" } }]);
+  });
+
+  it("is limited with nothing blocking when the free plan's report is free", async () => {
+    const { client } = rpcClient({ data: { limited: true, blocked_by: null } });
+    expect(await getScoutingReportShareLimit(client, "pl1")).toEqual({ limited: true, blockedBy: null });
+  });
+
+  it("is unlimited with nothing blocking on a paid plan", async () => {
+    const { client } = rpcClient({ data: { limited: false, blocked_by: null } });
+    expect(await getScoutingReportShareLimit(client, "pl1")).toEqual({ limited: false, blockedBy: null });
+  });
+
+  it("is null when the check fails", async () => {
+    expect(await getScoutingReportShareLimit(rpcClient({ error: { message: "not_owner" } }).client, "pl1")).toBeNull();
+    expect(await getScoutingReportShareLimit(rpcClient({ data: null }).client, "pl1")).toBeNull();
+    const rejecting = { rpc: () => Promise.reject(new Error("network")) } as unknown as SupabaseClient;
+    expect(await getScoutingReportShareLimit(rejecting, "pl1")).toBeNull();
+  });
+});
+
+describe("recordScoutingReportOpen", () => {
+  it("counts an open", async () => {
+    const { client, calls } = rpcClient({});
+    await recordScoutingReportOpen(client, "r1");
+    expect(calls).toEqual([{ name: "record_scouting_report_open", args: { p_id: "r1" } }]);
+  });
+
+  it("never throws", async () => {
+    await expect(recordScoutingReportOpen(rpcClient({ error: { message: "boom" } }).client, "r1")).resolves.toBeUndefined();
+    const rejecting = { rpc: () => Promise.reject(new Error("network")) } as unknown as SupabaseClient;
+    await expect(recordScoutingReportOpen(rejecting, "r1")).resolves.toBeUndefined();
+    const throwing = { rpc: () => { throw new Error("sync"); } } as unknown as SupabaseClient;
+    await expect(recordScoutingReportOpen(throwing, "r1")).resolves.toBeUndefined();
+  });
+});
+
+describe("openedLabel", () => {
+  it("says how often the link was opened", () => {
+    expect([0, 1, 2, 23].map(openedLabel)).toEqual(["Not opened yet", "Opened once", "Opened 2 times", "Opened 23 times"]);
+  });
+});
+
+describe("countsAsReaderOpen", () => {
+  it("counts a reader's open, not the coach's own from the app", () => {
+    expect(countsAsReaderOpen("")).toBe(true);
+    expect(countsAsReaderOpen("#p3")).toBe(true);
+    expect(countsAsReaderOpen(APP_OPEN_HASH)).toBe(false);
+    expect(countsAsReaderOpen("#print")).toBe(false);
+  });
 });
 
 describe("revokeScoutingReport", () => {
@@ -159,6 +251,7 @@ describe("scoutingReportErrorCode", () => {
   it("finds the raised token in a message, else unknown", () => {
     expect(scoutingReportErrorCode("license_locked")).toBe("license_locked");
     expect(scoutingReportErrorCode("P0001: invalid_content")).toBe("invalid_content");
+    expect(scoutingReportErrorCode("P0001: report_limit_reached")).toBe("report_limit_reached");
     expect(scoutingReportErrorCode("boom")).toBe("unknown");
     expect(scoutingReportErrorCode(undefined)).toBe("unknown");
   });
@@ -179,14 +272,23 @@ describe("getMyScoutingReport", () => {
 
   it("reads the playlist's live row without its content", async () => {
     const { client, calls } = tableClient({
+      data: { id: "r1", title: "AIK", content_key: "k", created_at: "a", updated_at: "b", expires_at: "c", open_count: 3 },
+      error: null,
+    });
+    expect(await getMyScoutingReport(client, "pl1")).toEqual({ id: "r1", title: "AIK", contentKey: "k", createdAt: "a", updatedAt: "b", expiresAt: "c", opens: 3 });
+    expect(calls.table).toBe("scouting_reports");
+    expect(calls.select).not.toContain("content,");
+    expect(calls.select).toContain("open_count");
+    expect(calls.eq).toEqual([["playlist_id", "pl1"]]);
+    expect(calls.is).toEqual([["revoked_at", null]]);
+  });
+
+  it("reads a row without open_count as never opened", async () => {
+    const { client } = tableClient({
       data: { id: "r1", title: "AIK", content_key: "k", created_at: "a", updated_at: "b", expires_at: "c" },
       error: null,
     });
-    expect(await getMyScoutingReport(client, "pl1")).toEqual({ id: "r1", title: "AIK", contentKey: "k", createdAt: "a", updatedAt: "b", expiresAt: "c" });
-    expect(calls.table).toBe("scouting_reports");
-    expect(calls.select).not.toContain("content,");
-    expect(calls.eq).toEqual([["playlist_id", "pl1"]]);
-    expect(calls.is).toEqual([["revoked_at", null]]);
+    expect(await getMyScoutingReport(client, "pl1")).toMatchObject({ opens: 0 });
   });
 
   it("is null when there is none or the read fails", async () => {

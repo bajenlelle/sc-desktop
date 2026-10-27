@@ -27,9 +27,15 @@ export async function getScoutingReport(supabase: SupabaseClient, id: string): P
   return { valid: true, title: r.title ?? report.header.title, updatedAt: r.updated_at ?? "", expiresAt: r.expires_at ?? "", report };
 }
 
-/** The tokens publish_scouting_report and revoke_scouting_report raise. */
+/**
+ * The tokens publish_scouting_report and revoke_scouting_report raise.
+ * `report_limit_reached` is what publish raises when a free plan already has
+ * another live report; it replaced `upgrade_required`, which stays in the list
+ * because older rows of history may still carry it.
+ */
 export type ScoutingReportErrorCode =
   | "upgrade_required"
+  | "report_limit_reached"
   | "license_locked"
   | "not_owner"
   | "not_found"
@@ -39,6 +45,7 @@ export type ScoutingReportErrorCode =
 
 const CODES: readonly ScoutingReportErrorCode[] = [
   "upgrade_required",
+  "report_limit_reached",
   "license_locked",
   "not_owner",
   "not_found",
@@ -46,10 +53,40 @@ const CODES: readonly ScoutingReportErrorCode[] = [
   "invalid_content",
 ];
 
+/** A live report as the limit names it: which one stands in the way of publishing another. */
+export interface LiveReportRef {
+  id: string;
+  playlistId: string;
+  title: string;
+  expiresAt: string;
+}
+
+/** A report ref from the database's JSON (a string or an already-parsed object), or null when it isn't one. */
+function parseLiveReportRef(v: unknown): LiveReportRef | null {
+  let o: unknown = v;
+  if (typeof v === "string") {
+    try {
+      o = JSON.parse(v);
+    } catch {
+      return null;
+    }
+  }
+  if (!o || typeof o !== "object") return null;
+  const r = o as Record<string, unknown>;
+  if (typeof r.id !== "string" || typeof r.playlist_id !== "string" || typeof r.title !== "string" || typeof r.expires_at !== "string") return null;
+  return { id: r.id, playlistId: r.playlist_id, title: r.title, expiresAt: r.expires_at };
+}
+
+/**
+ * What the report functions raise. `blockedBy` is set only on
+ * `report_limit_reached`, and only when the database named the live report
+ * (null otherwise).
+ */
 export class ScoutingReportError extends Error {
   constructor(
     readonly code: ScoutingReportErrorCode,
     message: string,
+    readonly blockedBy: LiveReportRef | null = null,
   ) {
     super(message);
     this.name = "ScoutingReportError";
@@ -70,8 +107,10 @@ export interface PublishedReport {
 
 /**
  * Publishes the playlist's report, or updates its live one in place (the same
- * link, a fresh 30 days). Throws a ScoutingReportError: `upgrade_required` on
- * the free plan, `license_locked`, `not_owner`, `invalid_content`.
+ * link, a fresh 30 days). Throws a ScoutingReportError: `report_limit_reached`
+ * when a free plan already has another live report (`blockedBy` names it; it
+ * replaced `upgrade_required` here), `license_locked`, `not_owner`,
+ * `invalid_content`.
  */
 export async function publishScoutingReport(
   supabase: SupabaseClient,
@@ -83,9 +122,72 @@ export async function publishScoutingReport(
     p_content: args.report,
     p_content_key: args.contentKey,
   });
-  if (error) throw new ScoutingReportError(scoutingReportErrorCode(error.message), `Failed to publish scouting report: ${error.message}`);
+  if (error) {
+    const code = scoutingReportErrorCode(error.message);
+    // The database names the live report in the error's details.
+    const blockedBy = code === "report_limit_reached" ? parseLiveReportRef(error.details) : null;
+    throw new ScoutingReportError(code, `Failed to publish scouting report: ${error.message}`, blockedBy);
+  }
   const r = data as { id: string; expires_at: string; created: boolean };
   return { id: r.id, expiresAt: r.expires_at, created: r.created };
+}
+
+/** Whether a playlist's plan limits sharing, and which live report (if any) is in the way. */
+export interface ShareLimit {
+  /** True on a plan that shares one live report at a time. */
+  limited: boolean;
+  /** The caller's other live report that would have to be switched off first; null when nothing blocks. */
+  blockedBy: LiveReportRef | null;
+}
+
+/**
+ * What the share sheet asks before it offers to publish. Null when the check
+ * itself failed: the caller then tries to publish and handles `report_limit_reached`.
+ */
+export async function getScoutingReportShareLimit(supabase: SupabaseClient, playlistId: string): Promise<ShareLimit | null> {
+  try {
+    const { data, error } = await supabase.rpc("scouting_report_share_limit", { p_playlist_id: playlistId });
+    if (error) return null;
+    const r = data as { limited?: unknown; blocked_by?: unknown } | null;
+    if (!r || typeof r.limited !== "boolean") return null;
+    return { limited: r.limited, blockedBy: parseLiveReportRef(r.blocked_by) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Counts one reader's open of a live report (record_scouting_report_open). A
+ * best-effort side effect of showing the page: never throws, and an expired,
+ * stopped or unknown id changes nothing.
+ */
+export async function recordScoutingReportOpen(supabase: SupabaseClient, id: string): Promise<void> {
+  try {
+    await supabase.rpc("record_scouting_report_open", { p_id: id });
+  } catch {
+    // Counting must never get in the reader's way.
+  }
+}
+
+/** The share sheet's line for how often the link was opened. */
+export function openedLabel(opens: number): string {
+  if (opens <= 0) return "Not opened yet";
+  if (opens === 1) return "Opened once";
+  return `Opened ${opens} times`;
+}
+
+/** The hash the desktop app opens a report's link with, so the coach's own look isn't counted as a reader. */
+export const APP_OPEN_HASH = "#app";
+
+/** The hash the desktop app opens the report with to print it on arrival. */
+const PRINT_OPEN_HASH = "#print";
+
+/**
+ * Whether opening the page at this location hash is a reader's open. The coach
+ * opening their own link from the app (or to print it) is not.
+ */
+export function countsAsReaderOpen(hash: string): boolean {
+  return hash !== APP_OPEN_HASH && hash !== PRINT_OPEN_HASH;
 }
 
 /** Switches a report off: the page, stats and notes are wiped at once. Switching off twice is fine. */
@@ -102,18 +204,20 @@ export interface MyScoutingReport {
   createdAt: string;
   updatedAt: string;
   expiresAt: string;
+  /** How many times readers opened the link (0 for a report never opened). */
+  opens: number;
 }
 
 /** The playlist's report that is not switched off, or null. It may be past its expiry: the caller compares expiresAt. */
 export async function getMyScoutingReport(supabase: SupabaseClient, playlistId: string): Promise<MyScoutingReport | null> {
   const { data, error } = await supabase
     .from("scouting_reports")
-    .select("id, title, content_key, created_at, updated_at, expires_at")
+    .select("id, title, content_key, created_at, updated_at, expires_at, open_count")
     .eq("playlist_id", playlistId)
     .is("revoked_at", null)
     .maybeSingle();
   if (error || !data) return null;
-  const r = data as { id: string; title: string; content_key: string; created_at: string; updated_at: string; expires_at: string };
+  const r = data as { id: string; title: string; content_key: string; created_at: string; updated_at: string; expires_at: string; open_count?: number | null };
   return {
     id: r.id,
     title: r.title,
@@ -121,6 +225,7 @@ export async function getMyScoutingReport(supabase: SupabaseClient, playlistId: 
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     expiresAt: r.expires_at,
+    opens: r.open_count ?? 0,
   };
 }
 
