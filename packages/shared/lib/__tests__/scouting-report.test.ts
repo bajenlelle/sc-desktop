@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildScoutingReport, clampReportTitle, clipKeyFromUrl, reportContentKey, reportJumpItems, reportOutline, type BuildReportInput } from "../scouting-report";
-import { addSections, emptyDraft, moveClip, setIntro, setNote, setOpponent, setStats, setTitle, type ReportDraft } from "../report-draft";
+import { LEFT_OUT, addSections, emptyDraft, moveClip, setIntro, setNote, setOpponent, setStats, setTitle, type ReportDraft } from "../report-draft";
 import type { SeasonStatsCard, StatsCardPlayer } from "../stats-card";
 import type { PlayByPlayEvent, PlaylistClipItem, PlaylistItem, PlaylistTextCard } from "../../types/match";
 
@@ -111,6 +111,15 @@ describe("buildScoutingReport", () => {
     ]);
   });
 
+  it("reads the clips in the report's own order and leaves out the clips the coach left out", () => {
+    const draft: ReportDraft = { ...twoPlayers(), order: ["m1:2", "m1:1"], placements: { "m1:4": LEFT_OUT } };
+    const { report, missing } = buildScoutingReport(input(draft, [clip("m1", 1), clip("m1", 2), clip("m1", 3), clip("m1", 4)]));
+    expect(report.sections.map((s) => s.id)).toEqual(["p1", "p2"]);
+    expect(report.sections[0].blocks.map((b) => (b as { label: string }).label)).toEqual(["2PT Miss", "3PT Made"]);
+    expect(report.header.clips).toBe(3);
+    expect(missing).toEqual([]);
+  });
+
   it("leaves the playlist's text and stats cards out: they are video cards", () => {
     const stats: PlaylistTextCard = { type: "text", id: "c1", text: "fallback line", durationSeconds: 5, card: season };
     const { report } = buildScoutingReport(input(twoPlayers(), [text("t1", "Sits on the left block."), stats, clip("m1", 1)]));
@@ -194,7 +203,12 @@ describe("content key", () => {
     const noClip = buildScoutingReport(input(twoPlayers(), [clip("m1", 1)])).contentKey;
     const unshipped = buildScoutingReport(input(twoPlayers(), [clip("m1", 1), clip("m1", 2, { r2Url: undefined })])).contentKey;
     const moved = buildScoutingReport(input(moveClip(twoPlayers(), "m1:1", "s2"), items())).contentKey;
+    const reordered = buildScoutingReport(input({ ...twoPlayers(), order: ["m1:2", "m1:1"] }, items())).contentKey;
+    const leftOut = buildScoutingReport(input({ ...twoPlayers(), placements: { "m1:2": LEFT_OUT } }, items())).contentKey;
     expect(new Set([base, note, order, noClip, moved]).size).toBe(5);
+    // The report's own order reads like a playlist in that order; a clip left out like one that isn't there.
+    expect(reordered).toBe(order);
+    expect(leftOut).toBe(noClip);
     // A clip that lost its hosted file reads like a dropped one: the page can't play it either way.
     expect(unshipped).toBe(noClip);
   });

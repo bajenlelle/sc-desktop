@@ -11,7 +11,7 @@ players open from a link, and that "Save as PDF" prints.
 - **One draft per playlist**, `scouting_report_drafts.content` (migration
   `20261101100000_scouting_report_drafts.sql`, owner-only RLS, client-written,
   ≤ 256 KB, ≤ 60 sections): `{v:1, title, opponent, intro, sections:[{id,
-  player, note, stats}], placements}`. `stats` is a stats card spec, a snapshot
+  player, note, stats}], placements, order}`. `stats` is a stats card spec, a snapshot
   like any stats card. `title` and `opponent` are null until the coach types
   them: the playlist's name and the team most sections are about stand in.
 - **Clip membership is derived, never stored as a list** (`deriveReportLayout`):
@@ -20,8 +20,18 @@ players open from a link, and that "Save as PDF" prints.
   (`event.player.playerId`), else to the Team section. So a clip added to the
   playlist later shows up under its player at once, a removed section's clips
   fall back to the team, and **the playlist's order is never changed by the
-  report**. `prunePlacements` drops placements for clips that left the
-  playlist before every save.
+  report**. A placement of `"out"` (`LEFT_OUT`) leaves a clip out of the
+  report while it stays in the playlist. `pruneDraft` drops placements and
+  order entries for clips that left the playlist before every save.
+- **The report has its own reading order** (`order`, clip keys; added in
+  desktop 1.5.0 without a migration: the table's check only looks at `v`,
+  `placements` and `sections`). Empty means playlist order. The first move of
+  a clip writes down the whole order (`moveClips`); a clip it doesn't name
+  (added to the playlist since) reads after the ones it does, in playlist
+  order. Two known gaps: a club move that merges a game into the club's copy
+  re-keys `placements` but not `order` (`move_to_club`), so that game's clips
+  keep their sections and move to the end of them; and a 1.4.0 app that saves
+  a draft drops `order` and the left-out placements (it reads neither).
 - **The playlist's text and stats cards are video cards**, not part of the
   report. The report has its own intro and notes.
 - **Whose section**: anyone in the games the playlist's clips come from, not
@@ -38,7 +48,10 @@ players open from a link, and that "Save as PDF" prints.
 - `buildScoutingReport` (`lib/scouting-report.ts`) walks the layout into the
   same `{header, sections[]}` as before: the Team section (intro as its first
   paragraph, then its clips) only when it has something, then `p1..pn` in draft
-  order. The content key, the stored report (v1) and the page are unchanged.
+  order, each section's clips in reading order and none of the left-out ones.
+  The editor asks the layout to keep an empty Team section (`keepTeam`) so its
+  intro can be written and clips dropped on it. The content key, the stored
+  report (v1) and the page are unchanged.
 
 ## The desktop (`apps/desktop/src/components/report/`)
 
@@ -51,9 +64,12 @@ players open from a link, and that "Save as PDF" prints.
   key scope yields to the view's (`useKeyScope("editor", !reportView)`).
 - **`use-report-draft.ts`**: reads the draft once per playlist (kept in a
   cache, so coming back is instant), applies ops optimistically, saves 600 ms
-  after the last edit (`prunePlacements` first), flushes on unmount or a
-  playlist change. A draft that was never edited is never written. Section
-  removal has an Undo in its toast.
+  after the last edit (`pruneDraft` first), flushes on unmount or a
+  playlist change. A draft that was never edited is never written. An edit
+  with a label goes on an undo stack per playlist (⌘Z / ⇧⌘Z, the toast's
+  Undo): undo restores the structure (`restoreStructure`: sections, placements,
+  order) and keeps the words typed since; notes and the intro keep their
+  fields' own undo.
 - **`use-player-stats.ts`**: `readPlayerStats` (season averages where the
   league has them, else a game line, else none; a failed page read is told
   apart from a league with no numbers), `statsMatchIdOf`, and the box scores
@@ -69,9 +85,19 @@ players open from a link, and that "Save as PDF" prints.
   opponent as inline fields, the intro, then each player's number, name, team,
   stats (a popover with the embedded `StatsCardInspector`, or the no-stats line
   with the league's other seasons), note and clip tiles. A tile's menu moves
-  the clip to another player or the team, or opens it in the playlist. The
-  outline (`report-outline.tsx`) scrolls, reorders (drag with `useListDrag`,
-  ⌥↑/⌥↓, the row's menu) and removes.
+  the clip (or the side panel's selection it is in) to another player or the
+  team, leaves it out, or opens it in the playlist.
+- **The side panel** (`report-outline.tsx`, a tree): Team (always, with 0),
+  each player and "Not in report" (folded at first), each with its clips as
+  one-line rows (the play's colour, the play, the time, a note mark; the hover
+  has the rest). Dragging a clip, or the ⌘/⇧-selection it is in, reorders it,
+  moves it to another section or out; dragging a player's header moves the
+  player with their clips. Where a drop lands is `lib/report-outline.ts`
+  (`clipDrop`, `sectionGap`, `sectionDropIndex`) over the drag engine's flat
+  rows; a drop on a folded section appends. Keys: ↑/↓, ⇧↑/⇧↓, ←/→ fold,
+  ⌥↑/⌥↓ moves (`nudgeClips` crosses into the next section), ⌫ leaves clips
+  out or removes a player, Return shows the clip or section in the document,
+  ⌘A, Esc clears the selection before it leaves the view.
 - **Share** keeps `scouting-report-dialog.tsx` minus the title and opponent
   inputs (they are in the document): a summary line, Generate, then the link,
   QR, PDF, Update and Stop sharing. `generateScoutingReport`
@@ -106,7 +132,8 @@ players open from a link, and that "Save as PDF" prints.
 
 ## Generating on the desktop (`apps/desktop/src/lib/scouting-report.ts`)
 
-Ship the clips that have no hosted file yet (Clip & Ship, idempotent), cut a
+Ship the clips in the report that have no hosted file yet (Clip & Ship,
+idempotent; left-out clips aren't cut), cut a
 640 px poster per clip from the local game video (`extract_clip_poster`) and
 upload it as the coach's own `highlights/<user>/<uuid>.jpg` (best effort), then
 publish. Publishing is the only step that makes anything public; cancelling

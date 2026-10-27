@@ -23,7 +23,7 @@ import type { ExportSegment } from "@/lib/export";
 import { computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { isExportCancelled } from "@scoutable/shared/lib/export-progress";
 import { itemKey } from "@scoutable/shared/lib/playlist-edits";
-import type { ReportDraft } from "@scoutable/shared/lib/report-draft";
+import { deriveReportLayout, type ReportDraft } from "@scoutable/shared/lib/report-draft";
 import { buildScoutingReport, clampReportTitle, type MissingClip } from "@scoutable/shared/lib/scouting-report";
 import { scoutingReportUrl } from "@scoutable/shared/lib/scouting-reports-db";
 import type { ClipShipFailure, ClipShipResult } from "@scoutable/shared/lib/ship-result";
@@ -49,7 +49,7 @@ export interface GenerateReportArgs {
   /** The report's draft (lib/report-draft.ts): the players, notes and where clips go. */
   draft: ReportDraft;
   eventByKey: ReadonlyMap<string, PlayByPlayEvent>;
-  /** The clip segments Clip & Ship cuts, for the whole playlist (the page's buildShipSegments). */
+  /** The clip segments Clip & Ship cuts, for the whole playlist (the page's buildShipSegments); only the report's are cut. */
   shipSegments: ExportSegment[];
   /** A game's local video and sync, or null where this computer has none. */
   clipSource: (matchId: string) => ClipSource | null;
@@ -131,10 +131,14 @@ export async function generateScoutingReport(args: GenerateReportArgs): Promise<
       attribution: args.attribution,
     });
 
+  // The clips the page shows: not the ones the coach left out of the report.
+  const inReport = new Set(deriveReportLayout(args.draft, items, eventByKey).sections.flatMap((s) => s.clips.map(itemKey)));
+
   // 1. Clips that have no hosted file yet.
   if (build().missing.some((m) => m.reason === "not_shipped")) {
     onProgress({ stage: "clips", done: 0, total: 1 });
-    const result = await clipAndShip({ ...args.playlist, items }, args.shipSegments, args.preRoll, args.postRoll, {
+    const segments = args.shipSegments.filter((s) => s.kind !== "clip" || inReport.has(`${s.matchId}:${s.event.eventId}`));
+    const result = await clipAndShip({ ...args.playlist, items }, segments, args.preRoll, args.postRoll, {
       signal,
       onProgress: (done, total) => onProgress({ stage: "clips", done, total }),
     });
@@ -149,7 +153,7 @@ export async function generateScoutingReport(args: GenerateReportArgs): Promise<
   const first = build();
   const clips = first.report.sections.flatMap((s) => s.blocks).filter((b) => b.kind === "clip");
   const left = new Set(first.missing.map((m) => m.key));
-  const posterTargets = items.filter(isClipItem).filter((i) => !left.has(itemKey(i)));
+  const posterTargets = items.filter(isClipItem).filter((i) => inReport.has(itemKey(i)) && !left.has(itemKey(i)));
   const posters = new Map<string, string>();
   if (clips.length > 0) {
     const supabase = createClient();

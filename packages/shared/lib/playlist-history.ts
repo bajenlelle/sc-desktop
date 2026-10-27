@@ -8,6 +8,9 @@
  * rows are NOW (materialize): a note written after the edit stays, and the
  * server is brought there with itemsDiff (delete what came in, put back what
  * went, then save the order). Pure, so the editor and the tests share it.
+ *
+ * The stack itself (pushEdit, takeUndo, takeRedo) takes any kind of edit: the
+ * scouting report keeps one of its own (recordReportEdit in report-draft.ts).
  */
 import type { PlaylistClipItem, PlaylistItem, PlaylistTextCard } from "../types/match";
 import { isClipItem } from "../types/match";
@@ -15,19 +18,21 @@ import { itemKey } from "./playlist-edits";
 
 export const HISTORY_LIMIT = 50;
 
-export interface ItemsEdit {
+export interface Edit<S> {
   /** "Remove 3 items", for the menu and the toast. */
   label: string;
-  before: PlaylistItem[];
-  after: PlaylistItem[];
+  before: S;
+  after: S;
 }
 
-export interface History {
-  past: ItemsEdit[];
-  future: ItemsEdit[];
+export type ItemsEdit = Edit<PlaylistItem[]>;
+
+export interface History<E = ItemsEdit> {
+  past: E[];
+  future: E[];
 }
 
-export function emptyHistory(): History {
+export function emptyHistory<E = ItemsEdit>(): History<E> {
   return { past: [], future: [] };
 }
 
@@ -36,20 +41,25 @@ function shape(items: readonly PlaylistItem[]): string {
   return items.map((i) => `${itemKey(i)}|${i.groupId ?? ""}`).join("\n");
 }
 
-/** Adds an edit (dropping what could be redone); an edit that changed nothing is not one. */
-export function recordEdit(history: History, edit: ItemsEdit): History {
-  if (shape(edit.before) === shape(edit.after)) return history;
+/** Adds an edit, dropping what could be redone and the oldest past the limit. */
+export function pushEdit<E>(history: History<E>, edit: E): History<E> {
   const past = [...history.past, edit];
   return { past: past.length > HISTORY_LIMIT ? past.slice(past.length - HISTORY_LIMIT) : past, future: [] };
 }
 
-export function takeUndo(history: History): { history: History; edit: ItemsEdit } | null {
+/** Adds a playlist edit; one that changed nothing is not one. */
+export function recordEdit(history: History, edit: ItemsEdit): History {
+  if (shape(edit.before) === shape(edit.after)) return history;
+  return pushEdit(history, edit);
+}
+
+export function takeUndo<E>(history: History<E>): { history: History<E>; edit: E } | null {
   const edit = history.past[history.past.length - 1];
   if (!edit) return null;
   return { history: { past: history.past.slice(0, -1), future: [...history.future, edit] }, edit };
 }
 
-export function takeRedo(history: History): { history: History; edit: ItemsEdit } | null {
+export function takeRedo<E>(history: History<E>): { history: History<E>; edit: E } | null {
   const edit = history.future[history.future.length - 1];
   if (!edit) return null;
   return { history: { past: [...history.past, edit], future: history.future.slice(0, -1) }, edit };

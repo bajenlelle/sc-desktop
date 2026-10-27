@@ -53,6 +53,8 @@ export interface ListDragOptions {
   canStart: (anchorKey: string) => boolean;
   /** Keys that move with the grabbed row, in display order. */
   blockFor: (anchorKey: string) => string[];
+  /** The number on the lifted card; the block's size by default (a header with its rows is one thing). */
+  badgeCount?: (blockKeys: readonly string[]) => number;
   /** Group-aware correction of a raw gap. */
   snapGap: (gap: number, blockKeys: readonly string[]) => number;
   /** Fires only when the target changes. */
@@ -452,7 +454,7 @@ export function useListDrag(options: ListDragOptions): ListDrag {
         .slice(0, blockRows.findIndex((r) => r.key === p.key))
         .reduce((sum, r) => sum + r.rect.height, 0);
 
-      const overlay = createDragOverlay(anchor.el, blockKeys.length, opts.current.reducedMotion);
+      const overlay = createDragOverlay(anchor.el, opts.current.badgeCount?.(blockKeys) ?? blockKeys.length, opts.current.reducedMotion);
       const anchorRect = anchor.el.getBoundingClientRect();
       window.getSelection()?.removeAllRanges();
       const s: Session = {

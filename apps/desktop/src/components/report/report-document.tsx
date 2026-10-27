@@ -17,7 +17,7 @@ import { StatsCardInspector } from "@/components/editor/stats-card-inspector";
 import { LabelChip } from "@/components/labels/LabelChip";
 import { cn } from "@/lib/utils";
 import { eventColors, eventLabel, formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
-import { REPORT_INTRO_LIMIT, REPORT_NOTE_LIMIT, REPORT_TITLE_MAX, TEAM_SECTION, sectionLabel, type DraftSection, type Placement, type ReportDraft } from "@scoutable/shared/lib/report-draft";
+import { LEFT_OUT, REPORT_INTRO_LIMIT, REPORT_NOTE_LIMIT, REPORT_TITLE_MAX, TEAM_SECTION, sectionLabel, type DraftSection, type Placement, type ReportDraft } from "@scoutable/shared/lib/report-draft";
 import { cardContent, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
 import type { Label } from "@scoutable/shared/types/labels";
 import type { League } from "@scoutable/shared/types/league";
@@ -61,13 +61,20 @@ export interface ReportDocumentProps {
   statsLoading: ReadonlySet<string>;
   statsFailed: ReadonlySet<string>;
   statsContextOf: (section: DraftSection) => SectionStatsContext;
+  /** Clips the coach left out of the report (the side panel lists them). */
+  leftOutCount: number;
+  /** The side panel's selected clips: a tile's menu acts on all of them. */
+  selected: ReadonlySet<string>;
+  /** The clip the side panel just showed, lit up for a moment. */
+  flashKey: string | null;
   onTitle: (title: string) => void;
   onOpponent: (opponent: string) => void;
   onIntro: (intro: string) => void;
   onNote: (id: string, note: string) => void;
   onStats: (id: string, stats: StatsCardSpec) => void;
   onRetryStats: (id: string, competitionId?: number) => void;
-  onMoveClip: (key: string, to: Placement) => void;
+  /** To a section's end, or out of the report (LEFT_OUT). */
+  onMoveClips: (keys: string[], to: Placement) => void;
   onOpenClip: (key: string) => void;
   onRemoveSection: (id: string) => void;
 }
@@ -76,6 +83,8 @@ const firstName = (name: string) => name.trim().split(/\s+/)[0] || name;
 
 /** The id a section's element carries, so the outline can scroll to it. */
 export const sectionDomId = (id: Placement) => `report-section-${id}`;
+/** Finds a clip's tile, for the outline to scroll to. */
+export const clipDomSelector = (key: string) => `[data-clip-key="${CSS.escape(key)}"]`;
 
 /** The editor's keys stay out of the fields; Esc commits by leaving the field. */
 function fieldKeys(e: KeyboardEvent<HTMLElement>, opts: { enterBlurs?: boolean } = {}) {
@@ -157,12 +166,21 @@ function GrowingText({
   );
 }
 
-function ReportHeader({ draft, playlistName, defaultOpponent, players, clips, onTitle, onOpponent }: Pick<ReportDocumentProps, "draft" | "playlistName" | "defaultOpponent" | "onTitle" | "onOpponent"> & { players: number; clips: number }) {
+function ReportHeader({
+  draft,
+  playlistName,
+  defaultOpponent,
+  players,
+  clips,
+  leftOut,
+  onTitle,
+  onOpponent,
+}: Pick<ReportDocumentProps, "draft" | "playlistName" | "defaultOpponent" | "onTitle" | "onOpponent"> & { players: number; clips: number; leftOut: number }) {
   const [title, setTitle] = useState(draft.title ?? "");
   const [opponent, setOpponent] = useState(draft.opponent ?? "");
   useEffect(() => setTitle(draft.title ?? ""), [draft.title]);
   useEffect(() => setOpponent(draft.opponent ?? ""), [draft.opponent]);
-  const meta = `${players} ${players === 1 ? "player" : "players"} · ${clips} ${clips === 1 ? "clip" : "clips"}`;
+  const meta = `${players} ${players === 1 ? "player" : "players"} · ${clips} ${clips === 1 ? "clip" : "clips"}${leftOut > 0 ? ` · ${leftOut} not in report` : ""}`;
   const field = "w-full rounded-md bg-transparent outline-none transition-[background-color,box-shadow] duration-150 placeholder:text-muted-foreground/60 hover:bg-fill-1/60 focus:bg-fill-1 focus:ring-2 focus:ring-selection";
   return (
     <header className="flex flex-col gap-1">
@@ -295,6 +313,9 @@ const ClipTileCard = memo(function ClipTileCard({
   targets,
   gameTitle,
   labels,
+  selected,
+  flashing,
+  count,
   onMove,
   onOpen,
 }: {
@@ -305,6 +326,10 @@ const ClipTileCard = memo(function ClipTileCard({
   targets: { id: Placement; label: string }[];
   gameTitle: string | null;
   labels: Pick<Label, "name" | "color">[];
+  selected: boolean;
+  flashing: boolean;
+  /** How many clips the menu acts on: more than 1 when the tile is one of several selected. */
+  count: number;
   onMove: (to: Placement) => void;
   onOpen: () => void;
 }) {
@@ -317,7 +342,11 @@ const ClipTileCard = memo(function ClipTileCard({
         type="button"
         onClick={onOpen}
         aria-label={`Open ${eventLabel(event)} in the playlist`}
-        className="flex aspect-video items-center justify-center rounded-window bg-fill-2 ring-1 ring-separator outline-none transition-[background-color,box-shadow] duration-150 hover:bg-fill-3 focus-visible:ring-2 focus-visible:ring-selection"
+        className={cn(
+          "flex aspect-video items-center justify-center rounded-window bg-fill-2 ring-1 ring-separator outline-none transition-[background-color,box-shadow] duration-300 hover:bg-fill-3 focus-visible:ring-2 focus-visible:ring-selection",
+          (selected || flashing) && "ring-2 ring-selection",
+          flashing && "bg-fill-3",
+        )}
       >
         <Play className="size-5 fill-current text-muted-foreground" aria-hidden />
       </button>
@@ -348,15 +377,16 @@ const ClipTileCard = memo(function ClipTileCard({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger>Move to</DropdownMenuSubTrigger>
+            <DropdownMenuSubTrigger>{count === 1 ? "Move to" : `Move ${count} clips to`}</DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
               {targets.map((t) => (
-                <DropdownMenuItem key={t.id} disabled={t.id === here} onSelect={() => onMove(t.id)}>
+                <DropdownMenuItem key={t.id} disabled={count === 1 && t.id === here} onSelect={() => onMove(t.id)}>
                   {t.label}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
+          <DropdownMenuItem onSelect={() => onMove(LEFT_OUT)}>{count === 1 ? "Leave out of report" : `Leave ${count} clips out of report`}</DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={onOpen}>Open in playlist</DropdownMenuItem>
         </DropdownMenuContent>
@@ -372,6 +402,8 @@ function ClipGrid({ clips, here, targets, empty, props }: { clips: ViewClip[]; h
       {clips.map((clip) => {
         const ids = props.clipAssignments.get(clip.key);
         const labels = ids ? props.labels.filter((l) => ids.has(l.id)).slice(0, 2) : [];
+        // A tile that is one of several selected acts for all of them, as in the playlist.
+        const many = props.selected.size > 1 && props.selected.has(clip.key);
         return (
           <ClipTileCard
             key={clip.key}
@@ -380,7 +412,10 @@ function ClipGrid({ clips, here, targets, empty, props }: { clips: ViewClip[]; h
             targets={targets}
             gameTitle={props.isMultiMatch ? (props.matchLookup.get(clip.item.matchId)?.title ?? null) : null}
             labels={labels}
-            onMove={(to) => props.onMoveClip(clip.key, to)}
+            selected={props.selected.has(clip.key)}
+            flashing={props.flashKey === clip.key}
+            count={many ? props.selected.size : 1}
+            onMove={(to) => props.onMoveClips(many ? [...props.selected] : [clip.key], to)}
             onOpen={() => props.onOpenClip(clip.key)}
           />
         );
@@ -403,7 +438,7 @@ function TeamSection({ view, targets, props }: { view: ViewSection; targets: { i
         maxLines={12}
         ariaLabel="Team intro"
       />
-      <ClipGrid clips={view.clips} here={TEAM_SECTION} targets={targets} empty="Clips that aren't about one player show here. Move one here from its menu." props={props} />
+      <ClipGrid clips={view.clips} here={TEAM_SECTION} targets={targets} empty="Clips that aren't about one player show here. Drag one here in the side panel." props={props} />
     </section>
   );
 }
@@ -466,7 +501,7 @@ function PlayerSection({ view, targets, props }: { view: ViewSection; targets: {
         clips={view.clips}
         here={section.id}
         targets={targets}
-        empty={`No clips of ${firstName(player.name)} in this playlist yet. Add some in the playlist, or move clips here.`}
+        empty={`No clips of ${firstName(player.name)} yet. Add some in the playlist, or drag clips here in the side panel.`}
         props={props}
       />
     </section>
@@ -476,8 +511,9 @@ function PlayerSection({ view, targets, props }: { view: ViewSection; targets: {
 /**
  * The report as the coach writes it: the same document the page will show,
  * with the title, opponent, intro and notes typed in place, and each clip's
- * menu to move it under another player. Clip tiles show the play and its
- * time, no footage; "Open in playlist" goes to the video.
+ * menu to move it under another player or out of the report (the side panel
+ * arranges them by dragging). Clip tiles show the play and its time, no
+ * footage; "Open in playlist" goes to the video.
  */
 export function ReportDocument(props: ReportDocumentProps) {
   const { draft, sections } = props;
@@ -489,7 +525,16 @@ export function ReportDocument(props: ReportDocumentProps) {
   ];
   return (
     <div className="mx-auto flex w-full max-w-[680px] flex-col gap-8 px-8 py-10">
-      <ReportHeader draft={draft} playlistName={props.playlistName} defaultOpponent={props.defaultOpponent} players={players} clips={clips} onTitle={props.onTitle} onOpponent={props.onOpponent} />
+      <ReportHeader
+        draft={draft}
+        playlistName={props.playlistName}
+        defaultOpponent={props.defaultOpponent}
+        players={players}
+        clips={clips}
+        leftOut={props.leftOutCount}
+        onTitle={props.onTitle}
+        onOpponent={props.onOpponent}
+      />
       {sections.map((s) => (s.section ? <PlayerSection key={s.id} view={s} targets={targets} props={props} /> : <TeamSection key={s.id} view={s} targets={targets} props={props} />))}
     </div>
   );

@@ -10,20 +10,25 @@ import { formatCardDate } from "@scoutable/shared/lib/stats-card";
 import { trackEvent } from "@/lib/analytics";
 import { useKeyScope, useHotkeys } from "@/lib/key-scope";
 import { useReducedMotionSafe } from "@/lib/motion";
+import { IS_MACOS } from "@/lib/platform";
 import { pool, type GenerateOutcome } from "@/lib/scouting-report";
 import type { MyScoutingReport } from "@/lib/scouting-reports-db";
 import { leagueSeasonsOf, loadSeasonPlayers, seasonOf, statsKindOf } from "@/lib/stats-card-data";
 import { cn } from "@/lib/utils";
 import type { HostedSeasonPlayer } from "@scoutable/shared/lib/hosted-stats";
+import { pruneSelection } from "@scoutable/shared/lib/list-selection";
 import { itemKey } from "@scoutable/shared/lib/playlist-edits";
 import { playerRoster, type PlayerChoice } from "@scoutable/shared/lib/player-roster";
 import {
+  LEFT_OUT,
   TEAM_SECTION,
   addSections,
   defaultOpponent,
   deriveReportLayout,
-  moveClip,
+  includeClips,
+  moveClips,
   moveSection,
+  nudgeClips,
   removeSection,
   setIntro,
   setNote,
@@ -40,8 +45,8 @@ import { buildScoutingReport, reportOutline } from "@scoutable/shared/lib/scouti
 import type { Label } from "@scoutable/shared/types/labels";
 import type { League } from "@scoutable/shared/types/league";
 import { isClipItem, type PlayByPlayEvent, type Playlist, type StoredMatch } from "@/types/match";
-import { ReportDocument, sectionDomId, type SectionStatsContext, type ViewSection } from "./report-document";
-import { ReportOutline, type OutlineRow } from "./report-outline";
+import { ReportDocument, clipDomSelector, sectionDomId, type SectionStatsContext, type ViewClip, type ViewSection } from "./report-document";
+import { ReportOutline, type MoveVia, type OutlineClipInfo, type OutlineSectionInfo } from "./report-outline";
 import { ReportPlayerPicker, type PickerConfirm } from "./report-player-picker";
 import { usePlayerStats, type StatsPerson } from "./use-player-stats";
 import { useReportDraft } from "./use-report-draft";
@@ -81,6 +86,9 @@ const STATS_CONCURRENCY = 3;
 
 /** Playlists whose picker opened by itself this session: once is a welcome, twice is in the way. */
 const autoOpened = new Set<string>();
+/** The side panel's folded sections per playlist, for the session; the left-out clips start folded. */
+const collapsedByPlaylist = new Map<string, ReadonlySet<Placement>>();
+const FLASH_MS = 1200;
 
 function toPerson(p: PlayerChoice): StatsPerson {
   return { playerId: p.playerId, name: p.name, number: p.number, teamName: p.teamName, matchId: p.matchId };
@@ -99,7 +107,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   const reducedMotion = useReducedMotionSafe();
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  const { draft, isNew, status, apply, removeSectionWithUndo, reload } = useReportDraft({ playlistId: playlist.id, items });
+  const { draft, isNew, status, apply, stepHistory, removeSectionWithUndo, reload } = useReportDraft({ playlistId: playlist.id, items });
 
   // The playlist's games and the clips whose game has stats, for the roster and the numbers.
   const clipGames = useMemo(() => {
@@ -127,15 +135,14 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   const roster = useMemo(() => playerRoster({ items, eventByKey, matches: matchLookup, boxScores, taken }), [items, eventByKey, matchLookup, boxScores, taken]);
   const rosterById = useMemo(() => new Map(roster.map((p) => [p.playerId, p])), [roster]);
 
+  // The report's shape, the Team section kept so it can be written in and dropped on.
+  const layout = useMemo(() => (draft ? deriveReportLayout(draft, items, eventByKey, { keepTeam: true }) : null), [draft, items, eventByKey]);
   // The document's sections: the layout joined with the plays.
   const sections = useMemo((): ViewSection[] => {
-    if (!draft) return [];
-    return deriveReportLayout(draft, items, eventByKey).sections.map((s) => ({
-      id: s.id,
-      section: s.section,
-      clips: s.clips.map((item) => ({ key: itemKey(item), item, event: eventByKey.get(itemKey(item))! })),
-    }));
-  }, [draft, items, eventByKey]);
+    if (!layout) return [];
+    const join = (item: (typeof layout.leftOut)[number]): ViewClip => ({ key: itemKey(item), item, event: eventByKey.get(itemKey(item))! });
+    return layout.sections.map((s) => ({ id: s.id, section: s.section, clips: s.clips.map(join) }));
+  }, [layout, eventByKey]);
   const clipCount = sections.reduce((n, s) => n + s.clips.length, 0);
 
   // ---------------------------------------------------------------------------
@@ -261,6 +268,8 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
     const removedIds = c.removed.map((pid) => draft.sections.find((s) => s.player.id === pid)?.id).filter((id): id is string => !!id);
     const players = c.added.map((p) => ({ id: p.playerId, name: p.name, number: p.number, teamId: null, teamName: p.teamName }));
     let newIds: string[] = [];
+    const n = (k: number) => (k === 1 ? "1 player" : `${k} players`);
+    const label = removedIds.length > 0 && c.added.length > 0 ? "Change players" : removedIds.length > 0 ? `Remove ${n(removedIds.length)}` : `Add ${n(c.added.length)}`;
     apply((d) => {
       let next = d;
       for (const id of removedIds) next = removeSection(next, id);
@@ -268,7 +277,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
       next = addSections(next, players);
       newIds = next.sections.slice(before).map((s) => s.id);
       return next;
-    });
+    }, label);
     if (newIds[0]) setFocusSectionId(newIds[0]);
     trackEvent("scouting_report_players_picked", {
       players: draft.sections.length - removedIds.length + newIds.length,
@@ -287,13 +296,111 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   // The outline and the document
   // ---------------------------------------------------------------------------
 
-  const outlineRows: OutlineRow[] = sections.map((s) => ({
-    id: s.id,
-    label: s.section ? s.section.player.name : "Team",
-    number: s.section?.player.number ?? null,
-    clips: s.clips.length,
-    statsLoading: !!s.section && statsLoading.has(s.section.id),
-  }));
+  const sectionInfo = useMemo(() => {
+    const m = new Map<Placement, OutlineSectionInfo>([[TEAM_SECTION, { label: "Team", number: null, statsLoading: false }]]);
+    for (const s of draft?.sections ?? []) m.set(s.id, { label: s.player.name, number: s.player.number, statsLoading: statsLoading.has(s.id) });
+    m.set(LEFT_OUT, { label: "Not in report", number: null, statsLoading: false });
+    return m;
+  }, [draft?.sections, statsLoading]);
+
+  const clipInfo = useMemo(() => {
+    const m = new Map<string, OutlineClipInfo>();
+    if (!layout) return m;
+    const add = (item: (typeof layout.leftOut)[number], playerId: string | null) => {
+      const key = itemKey(item);
+      const event = eventByKey.get(key);
+      if (!event) return;
+      // The section says who it's about; a play by someone else names them.
+      const actor = event.player && String(event.player.playerId) !== playerId ? event.player.familyName || null : null;
+      m.set(key, { item, event, actor, game: matchLookup.get(item.matchId)?.title ?? null, labels: props.labelNamesByClip.get(key) ?? [] });
+    };
+    for (const s of layout.sections) for (const item of s.clips) add(item, s.section?.player.id ?? null);
+    for (const item of layout.leftOut) add(item, null);
+    return m;
+  }, [layout, eventByKey, matchLookup, props.labelNamesByClip]);
+
+  const [collapsed, setCollapsedState] = useState<ReadonlySet<Placement>>(() => collapsedByPlaylist.get(playlist.id) ?? new Set([LEFT_OUT]));
+  const setCollapsed = useCallback(
+    (next: ReadonlySet<Placement>) => {
+      collapsedByPlaylist.set(playlist.id, next);
+      setCollapsedState(next);
+    },
+    [playlist.id],
+  );
+  function toggleCollapsed(id: Placement, all: boolean) {
+    const fold = !collapsed.has(id);
+    if (all) {
+      setCollapsed(fold ? new Set([...(layout?.sections.map((s) => s.id) ?? []), LEFT_OUT]) : new Set());
+      return;
+    }
+    const next = new Set(collapsed);
+    if (fold) next.add(id);
+    else next.delete(id);
+    setCollapsed(next);
+  }
+
+  // The side panel's selection of clips (⌘-click, ⇧-click); the document rings them too.
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
+  const [anchor, setAnchor] = useState<string | null>(null);
+  const selectClips = useCallback((next: Set<string>, nextAnchor: string | null) => {
+    setSelected(next);
+    setAnchor(nextAnchor);
+  }, []);
+  // Clips that left the panel (a folded section, the playlist) leave the selection.
+  useEffect(() => {
+    if (!layout) return;
+    const shown = [...layout.sections.filter((s) => !collapsed.has(s.id)).flatMap((s) => s.clips), ...(collapsed.has(LEFT_OUT) ? [] : layout.leftOut)].map(itemKey);
+    setSelected((prev) => pruneSelection(prev, shown));
+  }, [layout, collapsed]);
+
+  /** Where every clip sits now, to name an edit and to tell a reorder from a move. */
+  const placeOf = useMemo(() => {
+    const m = new Map<string, Placement>();
+    for (const s of layout?.sections ?? []) for (const c of s.clips) m.set(itemKey(c), s.id);
+    for (const c of layout?.leftOut ?? []) m.set(itemKey(c), LEFT_OUT);
+    return m;
+  }, [layout]);
+
+  const moveClipsTo = useCallback(
+    (keys: string[], to: Placement, before: string | null, via: MoveVia) => {
+      if (keys.length === 0) return;
+      const from = new Set(keys.map((k) => placeOf.get(k)));
+      const noun = keys.length === 1 ? "1 clip" : `${keys.length} clips`;
+      const label = to === LEFT_OUT ? `Leave out ${noun}` : from.size === 1 && from.has(LEFT_OUT) ? `Put back ${noun}` : `Move ${noun}`;
+      const moved = apply((d) => moveClips(d, deriveReportLayout(d, items, eventByKey, { keepTeam: true }), keys, to, before), label);
+      if (!moved) return;
+      // A clip moved into a folded section shows where it went.
+      if (via === "keys" && collapsed.has(to)) {
+        const next = new Set(collapsed);
+        next.delete(to);
+        setCollapsed(next);
+      }
+      trackEvent("scouting_report_clip_moved", {
+        to: to === TEAM_SECTION ? "team" : to === LEFT_OUT ? "out" : "player",
+        clips: keys.length,
+        via,
+        reorder: from.size === 1 && from.has(to),
+      });
+    },
+    [apply, items, eventByKey, placeOf, collapsed, setCollapsed],
+  );
+
+  const nudge = useCallback(
+    (keys: string[], dir: -1 | 1) => {
+      if (!layout) return;
+      const target = nudgeClips(layout, keys, dir);
+      if (target) moveClipsTo(keys, target.to, target.before, "keys");
+    },
+    [layout, moveClipsTo],
+  );
+
+  const include = useCallback(
+    (keys: string[], via: MoveVia) => {
+      const noun = keys.length === 1 ? "1 clip" : `${keys.length} clips`;
+      if (apply((d) => includeClips(d, keys), `Put back ${noun}`)) trackEvent("scouting_report_clip_moved", { to: "in", clips: keys.length, via, reorder: false });
+    },
+    [apply],
+  );
 
   const [activeId, setActiveId] = useState<Placement | null>(null);
   useEffect(() => {
@@ -321,6 +428,19 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   function scrollTo(id: Placement) {
     document.getElementById(sectionDomId(id))?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
     setActiveId(id);
+  }
+
+  // A clip picked in the side panel: its tile comes into view and lights up for a moment.
+  const [flashKey, setFlashKey] = useState<string | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+  }, []);
+  function showClip(key: string) {
+    scrollRef.current?.querySelector<HTMLElement>(clipDomSelector(key))?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
+    setFlashKey(key);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlashKey(null), FLASH_MS);
   }
 
   function removeWithUndo(id: string) {
@@ -369,9 +489,18 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   // No container: the toolbar sits outside the view's own box. The scope still yields to open dialogs.
   useKeyScope("report", true);
   useHotkeys("report", (e) => {
+    // ⌘Z / ⇧⌘Z for the report's structure; a text field keeps its own (useHotkeys skips fields).
+    if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+      const k = e.key.toLowerCase();
+      const done = k === "z" ? stepHistory(e.shiftKey ? "redo" : "undo") : k === "y" && !IS_MACOS && !e.shiftKey ? stepHistory("redo") : false;
+      if (done) e.preventDefault();
+      return;
+    }
     if (e.key === "Escape" && !pickerOpen && !shareOpen) {
       e.preventDefault();
-      onBack();
+      // The selection goes first, then the view.
+      if (selected.size > 0) selectClips(new Set(), null);
+      else onBack();
     }
   });
 
@@ -413,7 +542,31 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
     <div className="flex h-full min-h-0 flex-col">
       {props.toolbarSlot && createPortal(toolbar, props.toolbarSlot)}
       <div className="flex min-h-0 flex-1">
-        <ReportOutline rows={outlineRows} activeId={activeId} reducedMotion={reducedMotion} onSelect={scrollTo} onMove={(id, to) => apply((d) => moveSection(d, id, to))} onRemove={removeWithUndo} onAddPlayers={openPicker} />
+        {layout ? (
+          <ReportOutline
+            layout={layout}
+            sectionInfo={sectionInfo}
+            clipInfo={clipInfo}
+            collapsed={collapsed}
+            onToggleCollapsed={toggleCollapsed}
+            activeId={activeId}
+            selected={selected}
+            anchor={anchor}
+            onSelectionChange={selectClips}
+            reducedMotion={reducedMotion}
+            onShowSection={scrollTo}
+            onShowClip={showClip}
+            onMoveSection={(id, to) => apply((d) => moveSection(d, id, to), "Move player")}
+            onRemoveSection={removeWithUndo}
+            onMoveClips={moveClipsTo}
+            onNudgeClips={nudge}
+            onIncludeClips={include}
+            onOpenClip={onOpenClip}
+            onAddPlayers={openPicker}
+          />
+        ) : (
+          <div className="w-[288px] shrink-0 border-r border-separator" />
+        )}
         <div ref={scrollRef} className="min-w-0 flex-1 overflow-y-auto">
           {draft ? (
             <>
@@ -437,14 +590,14 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
                 onNote={(id, n) => apply((d) => setNote(d, id, n))}
                 onStats={(id, s) => apply((d) => setStats(d, id, s))}
                 onRetryStats={retryStats}
-                onMoveClip={(key, to) => {
-                  apply((d) => moveClip(d, key, to));
-                  trackEvent("scouting_report_clip_moved", { to: to === TEAM_SECTION ? "team" : "player" });
-                }}
+                leftOutCount={layout?.leftOut.length ?? 0}
+                selected={selected}
+                flashKey={flashKey}
+                onMoveClips={(keys, to) => moveClipsTo(keys, to, null, "menu")}
                 onOpenClip={onOpenClip}
                 onRemoveSection={removeWithUndo}
               />
-              {sections.length === 0 && (
+              {draft.sections.length === 0 && (
                 <div className="mx-auto flex w-full max-w-[680px] flex-col items-start gap-3 px-8 pb-10">
                   <p className="text-body text-muted-foreground">No players yet. Add players to start the report.</p>
                   <Button variant="outline" size="sm" onClick={openPicker}>

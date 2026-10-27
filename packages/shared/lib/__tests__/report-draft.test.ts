@@ -5,6 +5,7 @@ import {
   REPORT_MAX_SECTIONS,
   REPORT_NOTE_LIMIT,
   REPORT_NOTE_STORED_MAX,
+  LEFT_OUT,
   TEAM_SECTION,
   addSections,
   clearPlacement,
@@ -12,12 +13,17 @@ import {
   deriveReportLayout,
   draftBytes,
   emptyDraft,
+  includeClips,
   moveClip,
+  moveClips,
   moveSection,
+  nudgeClips,
   parseReportDraft,
   placementOf,
-  prunePlacements,
+  pruneDraft,
+  recordReportEdit,
   removeSection,
+  restoreStructure,
   sectionLabel,
   sectionOf,
   setIntro,
@@ -26,8 +32,11 @@ import {
   setSectionPlayer,
   setStats,
   setTitle,
+  structureKey,
   type ReportDraft,
 } from "../report-draft";
+import { emptyHistory, takeRedo, takeUndo } from "../playlist-history";
+import { itemKey } from "../playlist-edits";
 import type { SeasonStatsCard, StatsCardPlayer } from "../stats-card";
 import type { PlayByPlayEvent, PlaylistClipItem, PlaylistItem, PlaylistTextCard } from "../../types/match";
 
@@ -94,7 +103,7 @@ function two(): ReportDraft {
 
 describe("an empty draft", () => {
   it("has no players, no placements and no header of its own", () => {
-    expect(emptyDraft()).toEqual({ v: 1, title: null, opponent: null, intro: "", sections: [], placements: {} });
+    expect(emptyDraft()).toEqual({ v: 1, title: null, opponent: null, intro: "", sections: [], placements: {}, order: [] });
   });
 });
 
@@ -102,7 +111,19 @@ describe("parseReportDraft", () => {
   it("reads back what the ops wrote", () => {
     const draft = setNote(setIntro(setTitle(two(), "AIK scouting"), "Press early."), "s1", "Drives left.");
     const withStats = setStats(moveClip(draft, "m1:3", "s1"), "s1", season);
-    expect(parseReportDraft(JSON.parse(JSON.stringify(withStats)))).toEqual(withStats);
+    const arranged = moveClips(withStats, deriveReportLayout(withStats, [clip("m1", 1), clip("m1", 2), clip("m1", 3), clip("m1", 4)], events), ["m1:4"], LEFT_OUT, null);
+    expect(arranged.order.length).toBeGreaterThan(0);
+    expect(parseReportDraft(JSON.parse(JSON.stringify(arranged)))).toEqual(arranged);
+  });
+
+  it("reads a draft stored before the report had its own order (1.4.0) as playlist order", () => {
+    const { order: _o, ...old } = two();
+    expect(parseReportDraft(old)?.order).toEqual([]);
+  });
+
+  it("keeps the order's strings once each, the first time they appear", () => {
+    expect(parseReportDraft({ ...two(), order: ["m1:2", 7, "m1:1", "m1:2", null] })?.order).toEqual(["m1:2", "m1:1"]);
+    expect(parseReportDraft({ ...two(), order: "m1:2" })?.order).toEqual([]);
   });
 
   it("rejects what isn't a version 1 draft", () => {
@@ -135,13 +156,13 @@ describe("parseReportDraft", () => {
       title: "t".repeat(500),
       intro: "i".repeat(REPORT_INTRO_LIMIT + 5),
       sections: [{ id: "s1", player: ALVA, note: "n".repeat(REPORT_NOTE_STORED_MAX + 5), stats: null }],
-      placements: { "m1:1": "s1", "m1:2": 7, "m1:3": TEAM_SECTION },
+      placements: { "m1:1": "s1", "m1:2": 7, "m1:3": TEAM_SECTION, "m1:4": LEFT_OUT },
     };
     const parsed = parseReportDraft(raw)!;
     expect(parsed.title).toHaveLength(120);
     expect(parsed.intro).toHaveLength(REPORT_INTRO_LIMIT);
     expect(parsed.sections[0].note).toHaveLength(REPORT_NOTE_STORED_MAX);
-    expect(parsed.placements).toEqual({ "m1:1": "s1", "m1:3": TEAM_SECTION });
+    expect(parsed.placements).toEqual({ "m1:1": "s1", "m1:3": TEAM_SECTION, "m1:4": LEFT_OUT });
   });
 });
 
@@ -245,12 +266,25 @@ describe("placements", () => {
     expect(clearPlacement(draft, "m1:1")).toBe(draft);
   });
 
-  it("prunes placements for clips that left the playlist and targets that are gone", () => {
-    const draft = { ...two(), placements: { "m1:1": "s2", "m1:9": "s1", "m1:3": "zzz", "m1:2": TEAM_SECTION } };
-    const items: PlaylistItem[] = [clip("m1", 1), clip("m1", 2), clip("m1", 3)];
-    expect(prunePlacements(draft, items).placements).toEqual({ "m1:1": "s2", "m1:2": TEAM_SECTION });
+  it("prunes placements for clips that left the playlist and targets that are gone, and keeps the left-out ones", () => {
+    const draft = { ...two(), placements: { "m1:1": "s2", "m1:9": "s1", "m1:3": "zzz", "m1:2": TEAM_SECTION, "m1:4": LEFT_OUT } };
+    const items: PlaylistItem[] = [clip("m1", 1), clip("m1", 2), clip("m1", 3), clip("m1", 4)];
+    expect(pruneDraft(draft, items).placements).toEqual({ "m1:1": "s2", "m1:2": TEAM_SECTION, "m1:4": LEFT_OUT });
     const clean = moveClip(two(), "m1:1", "s2");
-    expect(prunePlacements(clean, items)).toBe(clean);
+    expect(pruneDraft(clean, items)).toBe(clean);
+  });
+
+  it("prunes the order of clips that left the playlist", () => {
+    const draft = { ...two(), order: ["m1:3", "m1:9", "m1:1"] };
+    expect(pruneDraft(draft, [clip("m1", 1), clip("m1", 3)]).order).toEqual(["m1:3", "m1:1"]);
+    const clean = { ...two(), order: ["m1:3", "m1:1"] };
+    expect(pruneDraft(clean, [clip("m1", 1), clip("m1", 3)])).toBe(clean);
+  });
+
+  it("places a left-out clip nowhere", () => {
+    const draft = moveClip(two(), "m1:1", "s2");
+    const out = { ...draft, placements: { "m1:1": LEFT_OUT } };
+    expect(placementOf(out, clip("m1", 1), events.get("m1:1"))).toBe(LEFT_OUT);
   });
 });
 
@@ -301,5 +335,176 @@ describe("draftBytes", () => {
     expect(draftBytes(emptyDraft())).toBe(JSON.stringify(emptyDraft()).length);
     expect(draftBytes(setIntro(emptyDraft(), "åäö"))).toBe(JSON.stringify(emptyDraft()).length + 6);
     expect(REPORT_DRAFT_MAX_BYTES).toBe(256 * 1024);
+  });
+});
+
+describe("the report's own order", () => {
+  const items: PlaylistItem[] = [clip("m1", 3), text("t1"), clip("m1", 1), clip("m1", 4), clip("m1", 2), clip("m2", 1), clip("m1", 99)];
+  const keysOf = (d: ReportDraft, opts?: { keepTeam?: boolean }) => {
+    const layout = deriveReportLayout(d, items, events, opts);
+    return { sections: layout.sections.map((s) => [s.id, s.clips.map(itemKey)]), leftOut: layout.leftOut.map(itemKey) };
+  };
+
+  it("sorts a section's clips by the report's order, and the clips it doesn't rank after them in playlist order", () => {
+    const draft = { ...two(), order: ["m1:2", "m2:1"] };
+    expect(keysOf(draft).sections).toEqual([
+      [TEAM_SECTION, ["m2:1", "m1:4"]],
+      ["s1", ["m1:2", "m1:1"]],
+      ["s2", ["m1:3"]],
+    ]);
+  });
+
+  it("lists a left-out clip apart, in playlist order, and under no section", () => {
+    const draft = { ...two(), placements: { "m1:2": LEFT_OUT, "m1:4": LEFT_OUT } };
+    expect(keysOf(draft)).toEqual({
+      sections: [
+        [TEAM_SECTION, ["m2:1"]],
+        ["s1", ["m1:1"]],
+        ["s2", ["m1:3"]],
+      ],
+      leftOut: ["m1:4", "m1:2"],
+    });
+  });
+
+  it("keeps an empty team section when asked, as the editor does", () => {
+    const { sections } = deriveReportLayout(two(), [clip("m1", 1)], events, { keepTeam: true });
+    expect(sections.map((s) => [s.id, s.clips.length])).toEqual([
+      [TEAM_SECTION, 0],
+      ["s1", 1],
+      ["s2", 0],
+    ]);
+  });
+});
+
+describe("moveClips", () => {
+  const items: PlaylistItem[] = [clip("m1", 3), clip("m1", 1), clip("m1", 4), clip("m1", 2), clip("m2", 1), clip("m1", 99)];
+  const lay = (d: ReportDraft) => deriveReportLayout(d, items, events, { keepTeam: true });
+  const shape = (d: ReportDraft) => {
+    const layout = lay(d);
+    return { sections: Object.fromEntries(layout.sections.map((s) => [s.id, s.clips.map(itemKey)])), leftOut: layout.leftOut.map(itemKey) };
+  };
+  const move = (d: ReportDraft, keys: string[], to: string, before: string | null) => moveClips(d, lay(d), keys, to, before);
+
+  it("reorders a section and writes down the whole reading order", () => {
+    const moved = move(two(), ["m1:2"], "s1", "m1:1");
+    expect(shape(moved).sections).toEqual({ [TEAM_SECTION]: ["m1:4", "m2:1"], s1: ["m1:2", "m1:1"], s2: ["m1:3"] });
+    expect(moved.order).toEqual(["m1:4", "m2:1", "m1:2", "m1:1", "m1:3"]);
+    expect(moved.placements).toEqual({ "m1:2": "s1" });
+  });
+
+  it("moves a clip under another player, before a clip there or to the end", () => {
+    expect(shape(move(two(), ["m1:1"], "s2", "m1:3")).sections).toEqual({ [TEAM_SECTION]: ["m1:4", "m2:1"], s1: ["m1:2"], s2: ["m1:1", "m1:3"] });
+    expect(shape(move(two(), ["m1:1"], "s2", null)).sections).toEqual({ [TEAM_SECTION]: ["m1:4", "m2:1"], s1: ["m1:2"], s2: ["m1:3", "m1:1"] });
+  });
+
+  it("moves several clips together, in the order they are read", () => {
+    const moved = move(two(), ["m1:2", "m1:4"], "s2", null);
+    expect(shape(moved).sections).toEqual({ [TEAM_SECTION]: ["m2:1"], s1: ["m1:1"], s2: ["m1:3", "m1:4", "m1:2"] });
+  });
+
+  it("moves a clip to the team when the layout it was given had no team section", () => {
+    const d = two();
+    const noTeam = deriveReportLayout(d, [clip("m1", 1), clip("m1", 2)], events);
+    expect(noTeam.sections[0].id).toBe("s1");
+    const moved = moveClips(d, noTeam, ["m1:2"], TEAM_SECTION, null);
+    expect(moved.placements).toEqual({ "m1:2": TEAM_SECTION });
+    expect(moved.order).toEqual(["m1:2", "m1:1"]);
+  });
+
+  it("leaves clips out of the order, and puts one back where it is dropped", () => {
+    const out = move(two(), ["m1:1"], LEFT_OUT, null);
+    expect(shape(out)).toEqual({ sections: { [TEAM_SECTION]: ["m1:4", "m2:1"], s1: ["m1:2"], s2: ["m1:3"] }, leftOut: ["m1:1"] });
+    expect(out.order).not.toContain("m1:1");
+    const back = move(out, ["m1:1"], "s2", "m1:3");
+    expect(shape(back)).toEqual({ sections: { [TEAM_SECTION]: ["m1:4", "m2:1"], s1: ["m1:2"], s2: ["m1:1", "m1:3"] }, leftOut: [] });
+  });
+
+  it("changes nothing for a target that isn't one, clips it doesn't know, or a drop where the clips already are", () => {
+    const d = two();
+    expect(move(d, ["m1:1"], "zzz", null)).toBe(d);
+    expect(move(d, ["m1:77", "m1:99"], "s2", null)).toBe(d);
+    expect(move(d, ["m1:1"], "s1", "m1:2")).toBe(d);
+    expect(move(d, ["m1:2"], "s1", null)).toBe(d);
+  });
+
+  it("lets a left-out clip follow its player again, at the end of the player's clips", () => {
+    const ordered = move(two(), ["m1:2"], "s1", "m1:1");
+    const out = move(ordered, ["m1:2"], LEFT_OUT, null);
+    const back = includeClips(out, ["m1:2"]);
+    expect(shape(back).sections.s1).toEqual(["m1:1", "m1:2"]);
+    expect(back.placements).toEqual({});
+    expect(includeClips(back, ["m1:2"])).toBe(back);
+  });
+});
+
+describe("nudgeClips", () => {
+  const items: PlaylistItem[] = [clip("m1", 3), clip("m1", 1), clip("m1", 4), clip("m1", 2), clip("m2", 1)];
+  // Team: m1:4, m2:1 · s1 (Alva): m1:1, m1:2 · s2 (Ola): m1:3
+  const layout = deriveReportLayout(two(), items, events, { keepTeam: true });
+
+  it("moves a clip one place up or down within its section", () => {
+    expect(nudgeClips(layout, ["m1:2"], -1)).toEqual({ to: "s1", before: "m1:1" });
+    expect(nudgeClips(layout, ["m1:1"], 1)).toEqual({ to: "s1", before: null });
+  });
+
+  it("crosses into the section above (to its end) or below (to its start)", () => {
+    expect(nudgeClips(layout, ["m1:1"], -1)).toEqual({ to: TEAM_SECTION, before: null });
+    expect(nudgeClips(layout, ["m1:2"], 1)).toEqual({ to: "s2", before: "m1:3" });
+  });
+
+  it("stops at the top and the bottom of the report", () => {
+    expect(nudgeClips(layout, ["m1:4"], -1)).toBeNull();
+    expect(nudgeClips(layout, ["m1:3"], 1)).toBeNull();
+  });
+
+  it("moves a selection from its last clip down, and does nothing for left-out clips", () => {
+    expect(nudgeClips(layout, ["m2:1", "m1:1"], 1)).toEqual({ to: "s1", before: null });
+    const out = deriveReportLayout({ ...two(), placements: { "m1:1": LEFT_OUT } }, items, events, { keepTeam: true });
+    expect(nudgeClips(out, ["m1:1"], -1)).toBeNull();
+  });
+});
+
+describe("undoing the report's structure", () => {
+  const items: PlaylistItem[] = [clip("m1", 3), clip("m1", 1), clip("m1", 4), clip("m1", 2)];
+  const lay = (d: ReportDraft) => deriveReportLayout(d, items, events, { keepTeam: true });
+
+  it("tells a change of structure from a change of words", () => {
+    const d = two();
+    expect(structureKey(setTitle(setNote(d, "s1", "Drives left."), "AIK"))).toBe(structureKey(d));
+    expect(structureKey(moveSection(d, "s2", 0))).not.toBe(structureKey(d));
+    expect(structureKey(moveClip(d, "m1:1", "s2"))).not.toBe(structureKey(d));
+    expect(structureKey(moveClips(d, lay(d), ["m1:2"], "s1", "m1:1"))).not.toBe(structureKey(d));
+  });
+
+  it("brings a removed player back with their note and keeps what was typed since", () => {
+    const before = setNote(two(), "s1", "Drives left.");
+    const now = setTitle(setNote(removeSection(before, "s1"), "s2", "Shoots corners."), "AIK");
+    const restored = restoreStructure(before, now);
+    expect(restored.sections.map((s) => [s.id, s.note])).toEqual([
+      ["s1", "Drives left."],
+      ["s2", "Shoots corners."],
+    ]);
+    expect(restored.title).toBe("AIK");
+  });
+
+  it("drops players added since, and takes back the snapshot's placements and order", () => {
+    const before = two();
+    expect(restoreStructure(before, addSections(before, [INES], ids("t"))).sections.map((s) => s.id)).toEqual(["s1", "s2"]);
+    const moved = moveClips(before, lay(before), ["m1:1"], "s2", null);
+    const restored = restoreStructure(before, moved);
+    expect(restored.placements).toEqual({});
+    expect(restored.order).toEqual([]);
+    expect(restoreStructure(before, before)).toBe(before);
+  });
+
+  it("records an edit only when the structure changed, and steps back and forth through them", () => {
+    const d = two();
+    const noted = setNote(d, "s1", "x");
+    expect(recordReportEdit(emptyHistory(), { label: "Note", before: d, after: noted }).past).toHaveLength(0);
+    const moved = moveSection(d, "s2", 0);
+    const h = recordReportEdit(emptyHistory(), { label: "Move player", before: d, after: moved });
+    const undone = takeUndo(h)!;
+    expect(undone.edit.before).toBe(d);
+    expect(takeRedo(undone.history)!.edit.after).toBe(moved);
   });
 });

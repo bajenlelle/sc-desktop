@@ -53,7 +53,7 @@ export type AnalyticsEvent =
   // Scouting report (lib/scouting-report.ts, lib/report-draft.ts). origin: "web" from the web.
   | "scouting_report_opened" // players, clips, has_draft, shared
   | "scouting_report_players_picked" // players (in the report after), added, removed, with_clips, from_leaders, sorted_by
-  | "scouting_report_clip_moved" // to (player | team)
+  | "scouting_report_clip_moved" // to (player | team | out | in: put back), clips, via (drag | keys | menu), reorder (stayed in its section)
   | "scouting_report_section_removed" // had_note, clips, undone
   | "scouting_report_previewed" // players, clips (the share sheet opened)
   | "scouting_report_generated" // players, clips, shipped (clips cut for it), posters, regenerated, seconds
@@ -99,6 +99,7 @@ export type AnalyticsEvent =
   | "player_feed_personal_space_link"
   // Clip browser
   | "clip_leaders_used" // player picked from the Leaders popover (props: metric)
+  | "clip_browser_opened" // the Add clips sheet opened; start (remembered | most_clips | newest), games_in_playlist
   // Device registry & gate
   | "device_identity_migrated" // legacy random-uuid row collapsed into a hardware id
   | "device_gate_hit" // touch returned blocked (flag on)

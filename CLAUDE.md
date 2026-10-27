@@ -133,7 +133,7 @@ playlists, and share them with teams; players watch on web/mobile.
 
 ## Docs
 
-- `docs/scouting-reports.md`: player cards and the public scouting report page.
+- `docs/scouting-reports.md`: the scouting report: its draft, the desktop view and the public page.
 - `docs/maintenance.md`: the bug pipeline, and every secret: where it lives
   and what reads it.
 - `docs/desktop-design-audit.md`, `docs/web-design-audit.md`: the redesign
