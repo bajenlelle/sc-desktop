@@ -223,9 +223,11 @@ REVOKE EXECUTE ON FUNCTION scouting_report_share_limit(uuid) FROM PUBLIC, anon;
 -- 3. Counting opens
 -- ---------------------------------------------------------------------------
 -- The page calls this when a reader opens a live report; an expired, stopped
--- or unknown id changes nothing. updated_at is left alone (it is the report's
--- "up to date"). Anyone holding the link can bump the number; the only harm is
--- a larger number shown to the coach.
+-- or unknown id changes nothing. The owner's own opens while signed in are not
+-- counted (auth.uid() is NULL for a reader without an account, so those still
+-- count). updated_at is left alone (it is the report's "up to date"). Anyone
+-- holding the link can bump the number; the only harm is a larger number shown
+-- to the coach.
 CREATE OR REPLACE FUNCTION record_scouting_report_open(p_id uuid)
 RETURNS void
 LANGUAGE plpgsql
@@ -235,7 +237,8 @@ AS $$
 BEGIN
   UPDATE scouting_reports
      SET open_count = open_count + 1
-   WHERE id = p_id AND revoked_at IS NULL AND expires_at > now();
+   WHERE id = p_id AND revoked_at IS NULL AND expires_at > now()
+     AND user_id IS DISTINCT FROM auth.uid();
 END;
 $$;
 

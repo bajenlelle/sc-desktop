@@ -14,7 +14,7 @@
 # the table is the owner's to read and nobody's to write; the page's anonymous
 # doors are get_scouting_report, which says valid, expired, revoked or not
 # found, and record_scouting_report_open, which counts a reader's open of a live
-# report (never of an ended one). Revoking wipes the content and queues the clip
+# report (never of an ended one, nor the owner's own while signed in). Revoking wipes the content and queues the clip
 # files for the purge; the service role can take any report down the same way
 # (_take_down_scouting_report); deleting the playlist revokes; the sweep deletes
 # rows a week past their end. (Which files the purge may delete,
@@ -172,6 +172,9 @@ ROLE=anon run "anon can't publish"                "DENIED"         "SELECT $(pub
 echo "== publishing: the one free report"
 run "a free plan publishes its first report"      "ALLOWED rows=1" "SELECT (($(publish "$GOOD"))->>'created')::boolean::int AS n" "$FREE"
 run "…not while another live report is shared from a free plan" "RAISES:report_limit_reached" "SELECT $(publish "$GOOD")" "$FREE $MAKE_PL2 $OTHER_LIVE"
+# A bought single game opens export (_has_paid) but the report limit reads only the plan.
+BOUGHT_SINGLE="INSERT INTO purchases (user_id, kind, source) VALUES ($(d $U), $(d single_game), $(d admin));"
+run "a single-game buyer is still limited"        "RAISES:report_limit_reached" "SELECT $(publish "$GOOD")" "$FREE $BOUGHT_SINGLE $MAKE_PL2 $OTHER_LIVE"
 run "…and the refusal names that report"          "ALLOWED rows=1" "DO \$probe\$ DECLARE d text; BEGIN
   PERFORM $(publish "$GOOD");
 EXCEPTION WHEN raise_exception THEN
@@ -238,6 +241,10 @@ opens() {  # $1=report id  -> count an open as the caller, then read the counter
 ROLE=anon run "anon counts an open of a live report"  "ALLOWED rows=1" "$(opens $R)" "$MAKE_PLAYLIST $LIVE"
 ROLE=anon run "…not of an expired one"                "ALLOWED rows=0" "$(opens $R)" "$MAKE_PLAYLIST $(report_row "now() - interval '1 day'" NULL)"
 ROLE=anon run "…nor of a stopped one"                 "ALLOWED rows=0" "$(opens $R)" "$MAKE_PLAYLIST $(report_row "now() + interval '10 days'" 'now()')"
+run "…but the owner's own open isn't counted"          "ALLOWED rows=0" "$(opens $R)" "$MAKE_PLAYLIST $LIVE"
+# The report's updated_at is its "up to date": set a week back and held, so an open that touched it would show.
+HOLD_UPDATED_AT="UPDATE scouting_reports SET updated_at = now() - interval '7 days' WHERE id = $(d $R); SELECT set_config('probe.updated_at', (SELECT updated_at::text FROM scouting_reports WHERE id = $(d $R)), true);"
+ROLE=anon run "…and doesn't touch updated_at"         "ALLOWED rows=1" "SELECT record_scouting_report_open($(d $R)); RESET ROLE; SELECT (updated_at = current_setting('probe.updated_at')::timestamptz AND open_count = 1)::int AS n FROM scouting_reports WHERE id = $(d $R)" "$MAKE_PLAYLIST $LIVE $HOLD_UPDATED_AT"
 ROLE=anon run "an unknown id is ignored"              "ALLOWED rows=1" "SELECT record_scouting_report_open(gen_random_uuid()); SELECT 1 AS n" ""
 run "updating the report keeps its count"             "ALLOWED rows=5" "RESET ROLE; UPDATE scouting_reports SET open_count = 5 WHERE id = $(d $R); SET LOCAL ROLE authenticated; SELECT $(publish "$GOOD"); SELECT open_count AS n FROM scouting_reports WHERE id = $(d $R)" "$PRO $LIVE"
 
