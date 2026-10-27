@@ -89,6 +89,7 @@ export function ScoutingReportDialog({
   contentKey,
   existing,
   onExistingChange,
+  onOtherReportStopped,
   playlistId,
   plan,
   onUpgrade,
@@ -103,6 +104,8 @@ export function ScoutingReportDialog({
   existing: MyScoutingReport | null;
   /** Called after a run or a stop, so the page reads the playlist's report again. */
   onExistingChange: () => void;
+  /** Called after another playlist's report was stopped from the limit view, so the page forgets what it held for that playlist. */
+  onOtherReportStopped: (playlistId: string) => void;
   playlistId: string;
   /** The space's plan tier, reported with the sheet's events. */
   plan: OrgPlanTier;
@@ -227,6 +230,12 @@ export function ScoutingReportDialog({
           });
           return;
         }
+        // A database from before the one-report limit asks for an upgrade outright.
+        if (e instanceof ScoutingReportError && e.code === "upgrade_required") {
+          onUpgrade();
+          close();
+          return;
+        }
         trackEvent("scouting_report_failed", { stage: "publish", error: e instanceof ScoutingReportError ? e.code : "unknown" });
         setPhase({ kind: "error", message: errorMessage(e) });
       })
@@ -266,6 +275,7 @@ export function ScoutingReportDialog({
       return;
     }
     trackEvent("scouting_report_revoked", { via: "limit" });
+    onOtherReportStopped(blocked.playlistId);
     toast(`“${blocked.title}” is no longer shared`);
     toReview(await readLimit());
   }

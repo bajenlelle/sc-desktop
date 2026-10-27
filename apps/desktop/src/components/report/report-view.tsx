@@ -71,6 +71,8 @@ export interface ReportViewProps {
   /** The playlist's report that is not switched off, if any. */
   myReport: MyScoutingReport | null;
   onRefreshReport: () => void;
+  /** Another playlist's report was stopped from the share sheet: the page forgets what it held for it. */
+  onOtherReportStopped: (playlistId: string) => void;
   /** The space's plan tier: the share sheet reports it with its events. */
   plan: OrgPlanTier;
   onUpgrade: () => void;
@@ -679,6 +681,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
           contentKey={shownBuilt.contentKey}
           existing={myReport}
           onExistingChange={props.onRefreshReport}
+          onOtherReportStopped={props.onOtherReportStopped}
           playlistId={playlist.id}
           plan={props.plan}
           onUpgrade={props.onUpgrade}

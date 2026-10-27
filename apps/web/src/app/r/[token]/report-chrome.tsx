@@ -18,7 +18,7 @@ import { APP_OPEN_HASH, countsAsReaderOpen, recordScoutingReportOpen } from "@sc
 
 /**
  * Where "Made with Scoutable" leads: the home page, tagged so the visits from
- * reports can be told apart. Project 3 points this at the scouting report page.
+ * reports can be told apart. It points at the scouting report page once that exists.
  */
 export const REPORT_FOOTER_URL = "https://scoutable.se/?utm_source=scouting_report&utm_medium=report_footer";
 

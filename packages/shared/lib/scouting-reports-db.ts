@@ -31,7 +31,8 @@ export async function getScoutingReport(supabase: SupabaseClient, id: string): P
  * The tokens publish_scouting_report and revoke_scouting_report raise.
  * `report_limit_reached` is what publish raises when a free plan already has
  * another live report; it replaced `upgrade_required`, which stays in the list
- * because older rows of history may still carry it.
+ * because an older database may still raise it, and the desktop falls back to
+ * the upgrade dialog for it.
  */
 export type ScoutingReportErrorCode =
   | "upgrade_required"

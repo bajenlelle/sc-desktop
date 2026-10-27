@@ -5227,6 +5227,7 @@ export function PlaylistsPage() {
               labelNamesByClip={labelNamesByClip}
               myReport={myReport}
               onRefreshReport={() => refreshMyReport()}
+              onOtherReportStopped={(playlistId) => reportByPlaylistRef.current.delete(playlistId)}
               plan={activeOrgPlan}
               onUpgrade={() => { setUpsellReport(true); setUpgradeDialogOpen(true); }}
               shareDisabledReason={reportShareDisabledReason}
