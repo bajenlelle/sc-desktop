@@ -272,5 +272,19 @@ ROLE=service_role run "…and queues its clip file"                  "ALLOWED ro
 ROLE=service_role run "…but leaves a live one"                     "ALLOWED rows=1" "SELECT run_scouting_report_sweep(); SELECT count(*) AS n FROM scouting_reports WHERE id = $(d $R)" "$MAKE_PLAYLIST $LIVE"
 run "the sweep isn't the user's to call"          "DENIED"         "SELECT run_scouting_report_sweep()" ""
 
+echo "== a kept report (the sample; 20261103100000)"
+KEEP="SELECT _keep_scouting_report($(d $R), true);"
+ROLE=service_role run "keeping a live report answers kept"            "ALLOWED rows=1" "SELECT (_keep_scouting_report($(d $R), true) = 'kept')::int AS n" "$MAKE_PLAYLIST $LIVE"
+ROLE=service_role run "…and its expiry is infinity"                   "ALLOWED rows=1" "SELECT (expires_at = 'infinity')::int AS n FROM scouting_reports WHERE id = $(d $R)" "$MAKE_PLAYLIST $LIVE $KEEP"
+run "publishing the kept report again keeps infinity"                 "ALLOWED rows=1" "SELECT $(publish "$GOOD"); SELECT (expires_at = 'infinity')::int AS n FROM scouting_reports WHERE id = $(d $R)" "$PRO $LIVE $KEEP"
+ROLE=anon run "the page still opens a kept report"                    "ALLOWED rows=1" "$(page)" "$MAKE_PLAYLIST $LIVE $KEEP"
+ROLE=service_role run "the sweep leaves a kept report"                "ALLOWED rows=1" "SELECT run_scouting_report_sweep(); SELECT count(*) AS n FROM scouting_reports WHERE id = $(d $R)" "$MAKE_PLAYLIST $(report_row "now() - interval '8 days'" NULL) $KEEP"
+ROLE=service_role run "the sweep deletes a kept report a week after it was stopped" "ALLOWED rows=0" "SELECT run_scouting_report_sweep(); SELECT count(*) AS n FROM scouting_reports WHERE id = $(d $R)" "$MAKE_PLAYLIST $LIVE $KEEP UPDATE scouting_reports SET revoked_at = now() - interval '8 days' WHERE id = $(d $R);"
+ROLE=service_role run "releasing answers released"                    "ALLOWED rows=1" "SELECT (_keep_scouting_report($(d $R), false) = 'released')::int AS n" "$MAKE_PLAYLIST $LIVE $KEEP"
+ROLE=service_role run "…and sets a fresh 30 days"                     "ALLOWED rows=1" "SELECT _keep_scouting_report($(d $R), false); SELECT (expires_at BETWEEN now() + interval '29 days' AND now() + interval '31 days')::int AS n FROM scouting_reports WHERE id = $(d $R)" "$MAKE_PLAYLIST $LIVE $KEEP"
+ROLE=service_role run "keeping a stopped report answers already_off"  "ALLOWED rows=1" "SELECT (_keep_scouting_report($(d $R), true) = 'already_off')::int AS n" "$MAKE_PLAYLIST $(report_row "now() + interval '10 days'" 'now()')"
+ROLE=service_role run "an unknown id answers not_found"               "ALLOWED rows=1" "SELECT (_keep_scouting_report(gen_random_uuid(), true) = 'not_found')::int AS n" ""
+run "keeping isn't the user's to call"                                "DENIED"         "SELECT _keep_scouting_report($(d $R), true)" "$MAKE_PLAYLIST $LIVE"
+
 echo
 if [[ $FAILED -eq 0 ]]; then echo "All probes passed."; else echo "Some probes FAILED."; exit 1; fi

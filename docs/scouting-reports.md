@@ -188,6 +188,20 @@ players open from a link, and that "Save as PDF" prints.
 - Deleting the playlist revokes its report; a cron sweep deletes rows a week
   past their expiry or revocation. Deleting the playlist deletes its draft
   (cascade).
+- A **kept** report (Scoutable's own sample, the one scoutable.se opens from
+  "See an example"; `20261103100000_scouting_report_keep.sql`) never expires:
+  `SELECT _keep_scouting_report('<id>', true);` in the SQL editor sets
+  `kept` and a trigger pins `expires_at` to infinity, so Update link, the
+  page and the sweep leave it alone (and so do the open counter and the
+  one-free-report check of `20261102100000`, which compare against `now()`);
+  `false` releases it to a fresh 30 days. Stop sharing still takes it down
+  at once (revoked, swept a week later). Clients get `expires_at` as the
+  string `"infinity"` for a kept report. **Until the share sheet learns
+  that** (planned: `expiresAt: null` → "It works until you stop sharing
+  it"), the desktop's `isLive` reads `"infinity"` as not live: the sheet
+  opens as if the report were off, and sharing again says "It works until
+  infinity" while keeping the same link and the flag. The report is still
+  live; check the page, not the sheet.
 - After stop or expiry the page, stats and notes are gone; the clip files are the
   public per-clip cuts the playlists share and stay reachable by URL (unguessable
   in practice, not secret). Per-report copies would make access really end, at
