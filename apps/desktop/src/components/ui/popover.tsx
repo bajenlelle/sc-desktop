@@ -3,6 +3,12 @@ import { Popover as PopoverPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * Inside a sheet or dialog (a modal Radix dialog), a popover whose content
+ * scrolls must be `modal`: the dialog locks scrolling to its own content, and
+ * the popover renders in a portal outside it, so its list ignores the wheel
+ * unless it takes the lock itself while open (menus do this on their own).
+ */
 function Popover({
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Root>) {

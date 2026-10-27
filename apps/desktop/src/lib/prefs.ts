@@ -69,3 +69,35 @@ export function getHasExported(userId: string | undefined): boolean {
 export function setHasExported(userId: string | undefined): void {
   if (userId) localStorage.setItem(`scoutable_has_exported:${userId}`, "1");
 }
+
+/**
+ * Where the Add clips sheet was last left for a playlist: the game and the
+ * teams picked in it, so the next round starts there. This computer only;
+ * a missing or unreadable value is null.
+ */
+export interface AddClipsScope {
+  gameId: string;
+  teams: string[];
+}
+
+const addClipsScopeKey = (playlistId: string) => `scoutable_add_clips_scope:${playlistId}`;
+
+export function getAddClipsScope(playlistId: string): AddClipsScope | null {
+  try {
+    const raw = JSON.parse(localStorage.getItem(addClipsScopeKey(playlistId)) ?? "null") as unknown;
+    if (typeof raw !== "object" || raw === null) return null;
+    const { gameId, teams } = raw as Record<string, unknown>;
+    if (typeof gameId !== "string") return null;
+    return { gameId, teams: Array.isArray(teams) ? teams.filter((t): t is string => typeof t === "string") : [] };
+  } catch {
+    return null;
+  }
+}
+
+export function setAddClipsScope(playlistId: string, scope: AddClipsScope): void {
+  try {
+    localStorage.setItem(addClipsScopeKey(playlistId), JSON.stringify(scope));
+  } catch {
+    // Storage is full or off: the sheet starts by its other rules next time.
+  }
+}

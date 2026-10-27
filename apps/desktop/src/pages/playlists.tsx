@@ -3718,8 +3718,10 @@ export function PlaylistsPage() {
   async function handleAddClips(newClips: PlaylistClipItem[]) {
     if (!selected || isUnsavedId(selected.id) || newClips.length === 0) return;
     const pl = selected;
-    const ok = await commitItemsEdit(pl, [...pl.items, ...newClips], newClips.length === 1 ? "Add clip" : `Add ${newClips.length} clips`);
-    // A failed add is taken back and says so (the clip browser has already closed).
+    const noun = newClips.length === 1 ? "1 clip" : `${newClips.length} clips`;
+    // The Add clips sheet stays open, where ⌘Z isn't the playlist's: the toast carries the Undo.
+    const ok = await commitItemsEdit(pl, [...pl.items, ...newClips], newClips.length === 1 ? "Add clip" : `Add ${newClips.length} clips`, `${noun} added`);
+    // A failed add is taken back and says so (over the clip browser, which stays open for the next round).
     if (!ok) return;
     newClips.forEach((clip) => {
       trackEvent('clip_added_to_playlist', { playlist_id: pl.id, match_id: clip.matchId })
@@ -5268,7 +5270,6 @@ export function PlaylistsPage() {
                 matchLookup={matchLookup}
                 playlist={selected}
                 onAddClips={handleAddClips}
-                onClose={() => setShowClipBrowser(false)}
                 activeOrgId={activeOrgId}
                 labels={labels}
                 labelAssignments={clipAssignments}

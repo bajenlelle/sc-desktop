@@ -41,7 +41,8 @@ export function LeadersPopover({
   }
 
   return (
-    <Popover>
+    // Modal, so its list scrolls inside the Add clips sheet (see components/ui/popover.tsx).
+    <Popover modal>
       <PopoverTrigger asChild>
         <button
           type="button"

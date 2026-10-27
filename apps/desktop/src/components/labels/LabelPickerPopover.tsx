@@ -174,7 +174,8 @@ export function LabelPickerPopover({
 
   return (
     <>
-    <Popover open={open} onOpenChange={setOpen}>
+    {/* Modal, so its list scrolls inside the Add clips sheet (see components/ui/popover.tsx). */}
+    <Popover modal open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent
         align={align}

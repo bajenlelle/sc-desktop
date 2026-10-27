@@ -12,9 +12,11 @@ import {
 import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
 import { clickSelection, extendSelection, moveFocus, type FocusMove } from "@scoutable/shared/lib/list-selection";
+import { orderForAdd, startGame } from "@scoutable/shared/lib/add-clips-games";
 import type { PlayByPlayEvent, Playlist, PlaylistClipItem, StoredMatch } from "@/types/match";
 import { isClipItem } from "@/types/match";
 import { trackEvent } from "@/lib/analytics";
+import { getAddClipsScope, setAddClipsScope } from "@/lib/prefs";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
@@ -26,13 +28,14 @@ import { LabelPickerPopover, type LabelTriState } from "@/components/labels/Labe
 import { LeadersPopover } from "@/components/leaders-popover";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
-import { MultiSelectDropdown, SingleSelectDropdown } from "@/components/ui/multi-select-dropdown";
+import { MultiSelectDropdown } from "@/components/ui/multi-select-dropdown";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { SheetClose, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Stepper } from "@/components/ui/stepper";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { EventTypeChips } from "./event-type-chips";
+import { GamePicker } from "./game-picker";
 import { PlayerStage } from "./player-stage";
 import { usePersistentVideo } from "./use-persistent-video";
 
@@ -257,13 +260,17 @@ export interface ClipBrowserLabelHandlers {
  * Add clips to the open playlist: every imported game's play-by-play,
  * filtered down, previewed on its own stage, ticked and added. Lives in a
  * sheet over the editor and owns the keys while it is open.
+ *
+ * A coach adds in rounds (one player, then the next, from the same game), so
+ * Add keeps the sheet open, and the sheet starts where the last round left
+ * this playlist: that game and team (lib/prefs.ts), else the game the
+ * playlist has most clips from, else the latest game (lib/add-clips-games.ts).
  */
 export function ClipBrowserPanel({
   matches,
   matchLookup,
   playlist,
   onAddClips,
-  onClose,
   activeOrgId,
   labels,
   labelAssignments,
@@ -276,7 +283,6 @@ export function ClipBrowserPanel({
   matchLookup: Map<string, StoredMatch>;
   playlist: Playlist;
   onAddClips: (clips: PlaylistClipItem[]) => void;
-  onClose: () => void;
   activeOrgId: string | null;
   labels: Label[];
   /** The page's per-clip label sets, keyed `${matchId}:${eventId}`. */
@@ -290,7 +296,18 @@ export function ClipBrowserPanel({
   videoStatusByMatch: Map<string, VideoFileStatus>;
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const [filterMatchId, setFilterMatchId] = useState<string | null>(matches[0]?.id ?? null);
+  const [start] = useState(() => {
+    const scope = getAddClipsScope(playlist.id);
+    const s = startGame(matches, playlist.items, scope?.gameId ?? null);
+    return { ...s, teams: s.source === "remembered" ? (scope?.teams ?? []) : [] };
+  });
+  const [filterMatchId, setFilterMatchId] = useState<string | null>(start.id);
+  // Once per opening: where it started, and that start is now the playlist's last game.
+  useEffect(() => {
+    trackEvent("clip_browser_opened", { start: start.source, games_in_playlist: new Set(playlist.items.filter(isClipItem).map((c) => c.matchId)).size });
+    if (start.id && start.source !== "remembered") setAddClipsScope(playlist.id, { gameId: start.id, teams: [] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [eventsLoading, setEventsLoading] = useState(false);
 
   // Keyed on the match ID SET, not the matches array: merging fetched events
@@ -365,6 +382,15 @@ export function ClipBrowserPanel({
     () => Array.from(new Set(allEvents.map((x) => x.event.eventTeam?.teamName).filter(Boolean) as string[])),
     [allEvents],
   );
+  // The team remembered with the game comes back once the game's plays are in, if the game still has it.
+  const pendingTeamsRef = useRef<string[] | null>(start.teams.length > 0 ? start.teams : null);
+  useEffect(() => {
+    const wanted = pendingTeamsRef.current;
+    if (!wanted || teams.length === 0) return;
+    pendingTeamsRef.current = null;
+    const kept = wanted.filter((t) => teams.includes(t));
+    if (kept.length > 0) setFilterTeams(new Set(kept));
+  }, [teams]);
   const players = useMemo(() => {
     const source = filterTeams.size > 0
       ? allEvents.filter(({ event }) => filterTeams.has(event.eventTeam?.teamName ?? ""))
@@ -433,13 +459,17 @@ export function ClipBrowserPanel({
   }, [selectedClipKeyPairs, labelAssignments]);
 
   function handleGameChange(newMatchId: string | null) {
+    pendingTeamsRef.current = null;
     setFilterMatchId(newMatchId);
     setFilterTeams(new Set());
     setFilterPlayers(new Set());
+    if (newMatchId) setAddClipsScope(playlist.id, { gameId: newMatchId, teams: [] });
   }
 
   function handleTeamChange(newTeams: Set<string>) {
+    pendingTeamsRef.current = null;
     setFilterTeams(newTeams);
+    if (filterMatchId) setAddClipsScope(playlist.id, { gameId: filterMatchId, teams: [...newTeams] });
     const source = newTeams.size > 0
       ? allEvents.filter(({ event }) => newTeams.has(event.eventTeam?.teamName ?? ""))
       : allEvents;
@@ -754,15 +784,17 @@ export function ClipBrowserPanel({
     el.currentTime = Math.min(hi, Math.max(lo, el.currentTime + delta));
   }
 
+  /**
+   * Adds every ticked clip the playlist doesn't have, as the button counts
+   * them (filtered out of view or not), in game order, and stays open for
+   * the next round: the ticks clear, the filters stay.
+   */
   function handleAdd() {
-    const toAdd: PlaylistClipItem[] = filtered
-      .filter(({ event, matchId }) => {
-        const key = `${matchId}:${event.eventId}`;
-        return selectedIds.has(key) && !existingSet.has(key);
-      })
-      .map(({ event, matchId }) => ({ type: "clip" as const, matchId, eventId: event.eventId }));
+    const toAdd = orderForAdd([...selectedIds].filter((k) => !existingSet.has(k)), matches);
+    if (toAdd.length === 0) return;
+    // The page says "5 clips added" with an Undo.
     onAddClips(toAdd);
-    onClose();
+    setSelectedIds(new Set());
   }
   const handleAddRef = useRef(handleAdd);
   handleAddRef.current = handleAdd;
@@ -930,13 +962,7 @@ export function ClipBrowserPanel({
       {/* Filters */}
       <div className="flex shrink-0 flex-col gap-2 border-b border-separator px-5 pb-3">
         <div className="flex flex-wrap items-center gap-2">
-          <SingleSelectDropdown
-            options={matches.map((m) => ({ value: m.id, label: m.title }))}
-            value={filterMatchId}
-            onChange={handleGameChange}
-            placeholder="All games"
-            required
-          />
+          <GamePicker matches={matches} items={playlist.items} value={filterMatchId} onChange={handleGameChange} />
           <MultiSelectDropdown options={SHOT_TYPE_OPTIONS} selected={filterSubTypes} onChange={setFilterSubTypes} placeholder="Shot type" />
           <MultiSelectDropdown options={SITUATION_OPTIONS} selected={filterSituations} onChange={setFilterSituations} placeholder="Situation" />
           <MultiSelectDropdown

@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
  * keyboard-navigable (arrows, type-ahead, Escape) and animate from their
  * trigger. Same props as the hand-rolled originals.
  */
-function TriggerButton({
+export function TriggerButton({
   label,
   active,
   className,
