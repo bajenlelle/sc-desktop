@@ -35,13 +35,16 @@ import { colorScheme as nwColorScheme, useColorScheme, vars } from "nativewind";
 import {
   DEFAULT_THEME,
   getTheme,
-  hexToRgbTriplet,
   THEME_TOKENS,
   type MobileThemeTokens,
   type ThemeMode,
 } from "@scoutable/shared/lib/themes";
 import type { ThemeModeSetting } from "@scoutable/shared/lib/theme-sync";
-import { deriveThemeColors, type DerivedThemeColors } from "@scoutable/shared/lib/theme-derived";
+import {
+  deriveThemeColors,
+  themeVarMap,
+  type DerivedThemeColors,
+} from "@scoutable/shared/lib/theme-derived";
 import { trackEvent } from "@/lib/analytics";
 
 const KEYS = {
@@ -65,6 +68,11 @@ interface AppThemeContextValue {
   resolvedMode: ThemeMode;
   /** vars() style of the active palette — re-anchor inside <Modal> trees. */
   varsStyle: Record<string, string>;
+  /**
+   * vars() style of the user's dark theme, for surfaces that are dark in both
+   * modes (the player's chrome, its speed menu): the web's forced-dark island.
+   */
+  darkVarsStyle: Record<string, string>;
   setColorTheme: (id: string) => void;
   setModeSetting: (mode: ThemeModeSetting) => void;
   /** Sync adoption: apply + persist locally, nothing else. */
@@ -127,34 +135,18 @@ export function MobileThemeProvider({ children }: { children: ReactNode }) {
     [activeThemeId, resolved, increasedContrast],
   );
 
-  const varsStyle = useMemo(
+  const varsStyle = useMemo(() => vars(themeVarMap(colors, derived)), [colors, derived]);
+
+  const darkThemeId = getTheme(slots.dark)?.mode === "dark" ? slots.dark : DEFAULT_THEME.dark;
+  const darkVarsStyle = useMemo(
     () =>
-      vars({
-        "--color-background": hexToRgbTriplet(colors.background),
-        "--color-foreground": hexToRgbTriplet(colors.foreground),
-        "--color-card": hexToRgbTriplet(colors.card),
-        "--color-primary": hexToRgbTriplet(colors.primary),
-        "--color-primary-foreground": hexToRgbTriplet(colors.primaryForeground),
-        "--color-secondary": hexToRgbTriplet(colors.secondary),
-        "--color-muted": hexToRgbTriplet(colors.muted),
-        "--color-muted-foreground": hexToRgbTriplet(colors.mutedForeground),
-        "--color-accent": hexToRgbTriplet(colors.accent),
-        "--color-destructive": hexToRgbTriplet(colors.destructive),
-        "--color-border": hexToRgbTriplet(colors.border),
-        "--color-input": hexToRgbTriplet(colors.input),
-        "--color-popover": hexToRgbTriplet(derived.popover),
-        "--color-success": hexToRgbTriplet(derived.success),
-        "--color-warning": hexToRgbTriplet(derived.warning),
-        "--color-fill-1": derived.fill1,
-        "--color-fill-2": derived.fill2,
-        "--color-fill-3": derived.fill3,
-        "--color-fill-4": derived.fill4,
-        "--color-separator": derived.separator,
-        "--color-separator-strong": derived.separatorStrong,
-        "--color-material-toolbar": derived.materialToolbar,
-        "--color-material-popover": derived.materialPopover,
-      }),
-    [colors, derived],
+      vars(
+        themeVarMap(
+          THEME_TOKENS[darkThemeId] ?? THEME_TOKENS[DEFAULT_THEME.dark],
+          deriveThemeColors(darkThemeId, "dark", { increasedContrast }),
+        ),
+      ),
+    [darkThemeId, increasedContrast],
   );
 
   const setModeSetting = useCallback((mode: ThemeModeSetting) => {
@@ -208,11 +200,24 @@ export function MobileThemeProvider({ children }: { children: ReactNode }) {
       derived,
       resolvedMode: resolved,
       varsStyle,
+      darkVarsStyle,
       setColorTheme,
       setModeSetting,
       adoptColorThemes,
     }),
-    [activeThemeId, slots, modeSetting, colors, derived, resolved, varsStyle, setColorTheme, setModeSetting, adoptColorThemes],
+    [
+      activeThemeId,
+      slots,
+      modeSetting,
+      colors,
+      derived,
+      resolved,
+      varsStyle,
+      darkVarsStyle,
+      setColorTheme,
+      setModeSetting,
+      adoptColorThemes,
+    ],
   );
 
   return (

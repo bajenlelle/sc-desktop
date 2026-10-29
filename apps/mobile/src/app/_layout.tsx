@@ -7,8 +7,7 @@ import * as Sentry from "@sentry/react-native";
 import { setDbErrorReporter } from "@scoutable/shared/lib/report";
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider, usePathname, type ErrorBoundaryProps } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { Platform, Pressable, Text, View, useColorScheme } from "react-native";
-import { SymbolView } from "expo-symbols";
+import { Pressable, Text, View, useColorScheme } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import * as ScreenOrientation from "expo-screen-orientation";
@@ -16,6 +15,7 @@ import { initAnalytics, trackEvent } from "@/lib/analytics";
 import { AuthProvider } from "@/lib/auth-context";
 import { MobileThemeProvider, useAppTheme, useThemeColors } from "@/lib/theme-context";
 import { ThemeSync } from "@/components/ThemeSync";
+import { Icon } from "@/components/ui/Icon";
 import { themeColors } from "@/lib/theme";
 
 // DSNs are public identifiers, not secrets. Dev builds stay offline unless
@@ -101,12 +101,7 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
             backgroundColor: scheme === "dark" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
           }}
         >
-          <SymbolView
-            name={{ ios: "exclamationmark.triangle", android: "warning" }}
-            size={24}
-            tintColor={colors.mutedForeground}
-            accessible={false}
-          />
+          <Icon name="warning" size={24} color={colors.mutedForeground} />
         </View>
         <Text
           accessibilityRole="header"
@@ -170,11 +165,6 @@ function ThemedShell() {
   return (
     <ThemeProvider value={navTheme}>
       <PageTracker />
-      {/* Android draws icons from a Material Symbols font; load it before the
-          first screen so icons never flash in blank. */}
-      {Platform.OS === "android" && (
-        <SymbolView name={{ android: "check" }} size={1} style={{ position: "absolute", opacity: 0 }} />
-      )}
       <Stack
         screenOptions={{
           headerShown: false,

@@ -3,11 +3,12 @@ import { cn } from "@/lib/cn";
 
 /**
  * The web app's text styles at touch sizes (apps/web/src/app/globals.css,
- * `pointer: coarse`), defined as `fontSize` entries in tailwind.config.js so
- * a className can still override weight or colour. The system font: SF Pro on
- * iOS, Roboto on Android. No letter-spacing: iOS applies SF's size-specific
- * tracking itself, which the web approximates by hand. Text follows the
- * system text size.
+ * `pointer: coarse`), defined as `fontSize` entries in tailwind.config.js
+ * (size, leading, tracking, weight) so a className can still override weight
+ * or colour. The system font: SF Pro on iOS, Roboto on Android. Text follows
+ * the system text size; pass `maxFontSizeMultiplier` where a bar can't grow.
+ * Don't follow a variant with a `text-[Npx]` size class: the tracking is in
+ * em of the variant's own size.
  */
 const VARIANT_CLASS = {
   largeTitle: "text-large-title",
@@ -41,10 +42,3 @@ export function Text({ variant = "body", nums, className, style, ...props }: Tex
   );
 }
 
-/** The same styles as plain values, for native options that take a style object (header titles). */
-export const TEXT_STYLES = {
-  largeTitle: { fontSize: 34, lineHeight: 41, fontWeight: "700" },
-  title3: { fontSize: 20, lineHeight: 25, fontWeight: "600" },
-  headline: { fontSize: 17, lineHeight: 22, fontWeight: "700" },
-  body: { fontSize: 17, lineHeight: 22, fontWeight: "400" },
-} as const;

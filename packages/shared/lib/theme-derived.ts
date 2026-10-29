@@ -11,10 +11,27 @@
  *
  * Success and warning are set per mode, not per theme, as on the web.
  */
-import { DEFAULT_THEME, THEME_TOKENS, getTheme, type ThemeMode } from "./themes";
+import type { EventHue } from "./events";
+import {
+  DEFAULT_THEME,
+  THEME_TOKENS,
+  getTheme,
+  hexToRgbTriplet,
+  type MobileThemeTokens,
+  type ThemeMode,
+} from "./themes";
 
 export interface DerivedThemeColors {
   popover: string;
+  /**
+   * The floor of grouped (settings) screens. Where a light theme's cards are
+   * its page colour (Scoutable Light), the floor drops to `muted` so inset
+   * groups stand off it, as iOS's grouped background does; elsewhere it is
+   * the page. Content screens stay on `background`.
+   */
+  canvas: string;
+  /** One dot colour per event family (`eventHue`), for clip rows. */
+  eventDot: Record<EventHue, string>;
   success: string;
   successForeground: string;
   warning: string;
@@ -46,6 +63,15 @@ const POPOVERS: Record<string, string> = {
   mocha: "#313244",
 };
 
+/**
+ * Rebounds, steals and blocks, and fouls have no status colour of their own;
+ * the system's blue, violet and orange stand in, one shade per mode.
+ */
+const EVENT_EXTRA: Record<ThemeMode, { rebound: string; violet: string; foul: string }> = {
+  light: { rebound: "#3b82f6", violet: "#7c3aed", foul: "#ea580c" },
+  dark: { rebound: "#60a5fa", violet: "#a78bfa", foul: "#fb923c" },
+};
+
 /** "#rrggbb" at an alpha, as an rgba() string React Native understands. */
 export function rgba(hex: string, alpha: number): string {
   const h = hex.replace("#", "");
@@ -65,9 +91,23 @@ export function deriveThemeColors(
   const tokens = THEME_TOKENS[id];
   const popover = POPOVERS[id] ?? tokens.card;
   const separatorStrong = rgba(tokens.foreground, 0.18);
+  const status = STATUS[mode];
+  const extra = EVENT_EXTRA[mode];
   return {
     popover,
-    ...STATUS[mode],
+    canvas: mode === "light" && tokens.card === tokens.background ? tokens.muted : tokens.background,
+    eventDot: {
+      make: status.success,
+      miss: tokens.destructive,
+      rebound: extra.rebound,
+      assist: tokens.primary,
+      steal: extra.violet,
+      block: extra.violet,
+      turnover: status.warning,
+      foul: extra.foul,
+      neutral: tokens.mutedForeground,
+    },
+    ...status,
     fill1: rgba(tokens.foreground, 0.05),
     fill2: rgba(tokens.foreground, 0.08),
     fill3: rgba(tokens.foreground, 0.12),
@@ -78,5 +118,39 @@ export function deriveThemeColors(
     selectionForeground: tokens.primaryForeground,
     materialToolbar: rgba(tokens.background, 0.72),
     materialPopover: rgba(popover, 0.88),
+  };
+}
+
+/**
+ * The `--color-*` variables tailwind.config.js reads, for NativeWind's vars().
+ * Solid colours are RGB triplets so `bg-primary/10` alpha modifiers work;
+ * the derived ones are already translucent rgba() strings.
+ */
+export function themeVarMap(tokens: MobileThemeTokens, derived: DerivedThemeColors): Record<string, string> {
+  return {
+    "--color-background": hexToRgbTriplet(tokens.background),
+    "--color-foreground": hexToRgbTriplet(tokens.foreground),
+    "--color-card": hexToRgbTriplet(tokens.card),
+    "--color-canvas": hexToRgbTriplet(derived.canvas),
+    "--color-primary": hexToRgbTriplet(tokens.primary),
+    "--color-primary-foreground": hexToRgbTriplet(tokens.primaryForeground),
+    "--color-secondary": hexToRgbTriplet(tokens.secondary),
+    "--color-muted": hexToRgbTriplet(tokens.muted),
+    "--color-muted-foreground": hexToRgbTriplet(tokens.mutedForeground),
+    "--color-accent": hexToRgbTriplet(tokens.accent),
+    "--color-destructive": hexToRgbTriplet(tokens.destructive),
+    "--color-border": hexToRgbTriplet(tokens.border),
+    "--color-input": hexToRgbTriplet(tokens.input),
+    "--color-popover": hexToRgbTriplet(derived.popover),
+    "--color-success": hexToRgbTriplet(derived.success),
+    "--color-warning": hexToRgbTriplet(derived.warning),
+    "--color-fill-1": derived.fill1,
+    "--color-fill-2": derived.fill2,
+    "--color-fill-3": derived.fill3,
+    "--color-fill-4": derived.fill4,
+    "--color-separator": derived.separator,
+    "--color-separator-strong": derived.separatorStrong,
+    "--color-material-toolbar": derived.materialToolbar,
+    "--color-material-popover": derived.materialPopover,
   };
 }

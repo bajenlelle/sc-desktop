@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { COLOR_THEMES, THEME_TOKENS } from "../themes";
-import { deriveThemeColors, rgba } from "../theme-derived";
+import { deriveThemeColors, rgba, themeVarMap } from "../theme-derived";
 
 describe("rgba", () => {
   it("turns a hex colour and an alpha into an rgba() string", () => {
@@ -51,6 +51,68 @@ describe("deriveThemeColors", () => {
       const d = deriveThemeColors(t.id, t.mode);
       expect(d.selection).toBe(THEME_TOKENS[t.id].primary);
       expect(d.selectionForeground).toBe(THEME_TOKENS[t.id].primaryForeground);
+    }
+  });
+});
+
+describe("canvas", () => {
+  it("floors grouped screens with the muted tone when a light theme's cards equal its page", () => {
+    expect(deriveThemeColors("scoutable-light", "light").canvas).toBe(THEME_TOKENS["scoutable-light"].muted);
+  });
+
+  it("keeps the page colour where cards already stand out or the mode is dark", () => {
+    expect(deriveThemeColors("daylight", "light").canvas).toBe(THEME_TOKENS.daylight.background);
+    expect(deriveThemeColors("courtside", "light").canvas).toBe(THEME_TOKENS.courtside.background);
+    for (const t of COLOR_THEMES.filter((t) => t.mode === "dark")) {
+      expect(deriveThemeColors(t.id, "dark").canvas).toBe(THEME_TOKENS[t.id].background);
+    }
+  });
+});
+
+describe("eventDot", () => {
+  it("colours makes, misses and turnovers with the status colours and assists with the primary", () => {
+    const light = deriveThemeColors("courtside", "light").eventDot;
+    expect(light.make).toBe("#168b49");
+    expect(light.miss).toBe(THEME_TOKENS.courtside.destructive);
+    expect(light.turnover).toBe("#c46d00");
+    expect(light.assist).toBe(THEME_TOKENS.courtside.primary);
+    expect(light.neutral).toBe(THEME_TOKENS.courtside.mutedForeground);
+  });
+
+  it("uses fixed blue, violet and orange per mode for rebounds, steals and blocks, and fouls", () => {
+    const light = deriveThemeColors("scoutable-light", "light").eventDot;
+    expect([light.rebound, light.steal, light.block, light.foul]).toEqual(["#3b82f6", "#7c3aed", "#7c3aed", "#ea580c"]);
+    const dark = deriveThemeColors("nord", "dark").eventDot;
+    expect([dark.rebound, dark.steal, dark.block, dark.foul]).toEqual(["#60a5fa", "#a78bfa", "#a78bfa", "#fb923c"]);
+    expect(dark.make).toBe("#5bcc80");
+  });
+});
+
+describe("themeVarMap", () => {
+  const KEYS = [
+    "--color-background", "--color-foreground", "--color-card", "--color-canvas", "--color-primary",
+    "--color-primary-foreground", "--color-secondary", "--color-muted", "--color-muted-foreground",
+    "--color-accent", "--color-destructive", "--color-border", "--color-input", "--color-popover",
+    "--color-success", "--color-warning", "--color-fill-1", "--color-fill-2", "--color-fill-3",
+    "--color-fill-4", "--color-separator", "--color-separator-strong", "--color-material-toolbar",
+    "--color-material-popover",
+  ];
+
+  it("holds every variable the Tailwind config reads, for every theme", () => {
+    for (const t of COLOR_THEMES) {
+      const map = themeVarMap(THEME_TOKENS[t.id], deriveThemeColors(t.id, t.mode));
+      expect(Object.keys(map).sort()).toEqual([...KEYS].sort());
+    }
+  });
+
+  it("writes solid colours as RGB triplets and derived ones as rgba()", () => {
+    const map = themeVarMap(THEME_TOKENS["scoutable-light"], deriveThemeColors("scoutable-light", "light"));
+    expect(map["--color-background"]).toBe("252 252 252");
+    expect(map["--color-canvas"]).toBe("245 245 245");
+    expect(map["--color-success"]).toBe("22 139 73");
+    expect(map["--color-fill-2"]).toBe("rgba(2, 4, 5, 0.08)");
+    for (const [k, v] of Object.entries(map)) {
+      expect(v, k).toMatch(/^(\d{1,3} \d{1,3} \d{1,3}|rgba\(\d{1,3}, \d{1,3}, \d{1,3}, [\d.]+\))$/);
     }
   });
 });
