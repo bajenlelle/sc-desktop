@@ -7,6 +7,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseScoutingReport, type ScoutingReport } from "./scouting-report";
 import { formatCardDate } from "./stats-card";
+import type { ReportRow } from "./scouting-report-list";
 
 /** What the public page gets back: the report, or why there isn't one. */
 export type ScoutingReportPage =
@@ -249,6 +250,28 @@ export async function getMyScoutingReport(supabase: SupabaseClient, playlistId: 
     expiresAt: reportExpiry(r.expires_at),
     opens: r.open_count ?? 0,
   };
+}
+
+/**
+ * Every one of the caller's reports, stopped and expired ones included, without
+ * their content: the Reports list (lib/scouting-report-list.ts) merges them
+ * with the space's playlists. Throws when the read fails.
+ */
+export async function listMyScoutingReports(supabase: SupabaseClient): Promise<ReportRow[]> {
+  const { data, error } = await supabase
+    .from("scouting_reports")
+    .select("id, playlist_id, title, updated_at, expires_at, revoked_at, open_count");
+  if (error) throw new Error(`Failed to load reports: ${error.message}`);
+  type Row = { id: string; playlist_id: string | null; title: string; updated_at: string; expires_at: string; revoked_at: string | null; open_count?: number | null };
+  return ((data ?? []) as Row[]).map((r) => ({
+    id: r.id,
+    playlistId: r.playlist_id,
+    title: r.title,
+    updatedAt: r.updated_at,
+    expiresAt: reportExpiry(r.expires_at),
+    revokedAt: r.revoked_at,
+    opens: r.open_count ?? 0,
+  }));
 }
 
 /** The address a report opens at, under the web app's base ("https://app.scoutable.se"). */

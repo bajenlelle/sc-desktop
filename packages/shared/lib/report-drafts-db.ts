@@ -9,6 +9,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { currentUserId } from "./current-user";
 import { REPORT_DRAFT_MAX_BYTES, draftBytes, parseReportDraft, type ReportDraft } from "./report-draft";
 import { reportDbError } from "./report";
+import type { ReportDraftRow } from "./scouting-report-list";
 
 const TABLE = "scouting_report_drafts";
 
@@ -69,4 +70,24 @@ export async function listReportDraftPlaylistIds(supabase: SupabaseClient): Prom
     return new Set();
   }
   return new Set(((data ?? []) as { playlist_id: string }[]).map((r) => r.playlist_id));
+}
+
+/**
+ * Every one of the caller's drafts for the Reports list: its title and how
+ * many players it has, read from the content without the rest of it. Throws
+ * when the read fails.
+ */
+export async function listReportDrafts(supabase: SupabaseClient): Promise<ReportDraftRow[]> {
+  const { data, error } = await supabase.from(TABLE).select("playlist_id, updated_at, title:content->>title, sections:content->sections");
+  if (error) {
+    reportDbError("listReportDrafts", error);
+    throw new Error(`Failed to load report drafts: ${error.message}`);
+  }
+  type Row = { playlist_id: string; updated_at: string; title: string | null; sections: unknown };
+  return ((data ?? []) as Row[]).map((r) => ({
+    playlistId: r.playlist_id,
+    updatedAt: r.updated_at,
+    title: r.title || null,
+    players: Array.isArray(r.sections) ? r.sections.length : 0,
+  }));
 }

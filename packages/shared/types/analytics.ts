@@ -61,7 +61,8 @@ export type AnalyticsEvent =
   | "scouting_report_failed" // stage (ship | posters | publish), error
   | "scouting_report_cancelled" // stage
   | "scouting_report_link_copied" // method (button | qr)
-  | "scouting_report_revoked" // via (sheet | limit)
+  | "scouting_report_revoked" // via (sheet | limit | list)
+  | "scouting_report_list_action" // action (open | copy | browser | stop | share_again | show_clips), status (live | expired | stopped | draft): a row's action on the Reports page
   | "scouting_report_limit_reached" // source (check | publish): the share sheet showed the one-report limit
   | "scouting_report_page_viewed" // valid, reason (not_found | expired | revoked) — fired by the public page
   | "scouting_report_pdf_saved" // fired by the public page's Save as PDF

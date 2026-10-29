@@ -253,6 +253,26 @@ export async function listPlaylists(
   return rows.map((r) => rowToPlaylist(r));
 }
 
+/**
+ * The caller's playlists in the space, id and name only (no items): enough to
+ * name and scope the Reports list. Throws when the read fails.
+ */
+export async function listPlaylistNames(
+  supabase: SupabaseClient,
+  orgId?: string,
+  opts?: OrgScopeOpts,
+): Promise<{ id: string; name: string }[]> {
+  const uid = await currentUserId(supabase);
+  if (!uid) return [];
+  const query = supabase.from("playlists").select("id, name").eq("user_id", uid);
+  const { data, error } = await applyOrgScope(query, orgId, opts);
+  if (error) {
+    reportDbError("listPlaylistNames", error);
+    throw new Error(`Failed to load playlists: ${error.message}`);
+  }
+  return (data ?? []) as { id: string; name: string }[];
+}
+
 // ---------------------------------------------------------------------------
 // Create a new playlist (empty — items are added separately)
 // ---------------------------------------------------------------------------

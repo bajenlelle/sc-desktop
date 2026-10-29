@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { deleteReportDraft, getReportDraft, listReportDraftPlaylistIds, saveReportDraft } from "../report-drafts-db";
+import { deleteReportDraft, getReportDraft, listReportDraftPlaylistIds, listReportDrafts, saveReportDraft } from "../report-drafts-db";
 import { addSections, emptyDraft, setIntro, type ReportDraft } from "../report-draft";
 
 const ALVA = { id: "1", name: "Alva Berg", number: "7", teamId: null, teamName: "AIK" };
@@ -94,5 +94,26 @@ describe("listReportDraftPlaylistIds", () => {
 
   it("is empty when the read fails", async () => {
     expect(await listReportDraftPlaylistIds(tableClient({ error: { message: "x" } }).client)).toEqual(new Set());
+  });
+});
+
+describe("listReportDrafts", () => {
+  it("reads every draft's title and player count, not the whole draft", async () => {
+    const { client, calls } = tableClient({
+      data: [
+        { playlist_id: "pl1", updated_at: "2026-10-26T10:00:00Z", title: "AIK scouting", sections: [{}, {}, {}] },
+        { playlist_id: "pl2", updated_at: "2026-10-27T10:00:00Z", title: null, sections: null },
+      ],
+    });
+    expect(await listReportDrafts(client)).toEqual([
+      { playlistId: "pl1", updatedAt: "2026-10-26T10:00:00Z", title: "AIK scouting", players: 3 },
+      { playlistId: "pl2", updatedAt: "2026-10-27T10:00:00Z", title: null, players: 0 },
+    ]);
+    expect(calls.table).toBe("scouting_report_drafts");
+    expect(calls.select).toBe("playlist_id, updated_at, title:content->>title, sections:content->sections");
+  });
+
+  it("throws when the read fails, so an error never reads as no drafts", async () => {
+    await expect(listReportDrafts(tableClient({ error: { message: "x" } }).client)).rejects.toThrow("Failed to load report drafts");
   });
 });

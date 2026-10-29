@@ -11,6 +11,7 @@ const c = () => createClient();
 
 export const getMyTeamPlaylists = (teamIds?: string[]) => db.getMyTeamPlaylists(c(), teamIds);
 export const listPlaylists = (orgId?: string, opts?: db.OrgScopeOpts) => db.listPlaylists(c(), orgId, opts);
+export const listPlaylistNames = (orgId?: string, opts?: db.OrgScopeOpts) => db.listPlaylistNames(c(), orgId, opts);
 export const createPlaylist = (name: string, folderId?: string, orgId?: string) => db.createPlaylist(c(), name, folderId, orgId);
 export const updatePlaylist = (id: string, patch: { name?: string; folderId?: string | null }) => db.updatePlaylist(c(), id, patch);
 export const deletePlaylist = (id: string) => db.deletePlaylist(c(), id);

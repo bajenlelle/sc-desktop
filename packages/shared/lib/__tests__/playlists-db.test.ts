@@ -6,6 +6,7 @@ import {
   createPlaylist,
   getMySharedPlaylists,
   getMyTeamPlaylists,
+  listPlaylistNames,
   listPlaylists,
   reorderItems,
   rowToPlaylist,
@@ -346,14 +347,14 @@ describe("getMyTeamPlaylists", () => {
  *   from("playlists").select(…).eq("user_id", …)[.eq("org_id", …)|.or(…)].order(…)
  *   from("playlists").insert(…).select().single()
  */
-function mockOwnClient(rows: PlaylistRow[] = []) {
-  const calls: { eq: Array<[string, unknown]>; or: string[]; inserted?: Record<string, unknown> } = {
+function mockOwnClient(rows: unknown[] = [], error: { message: string } | null = null) {
+  const calls: { eq: Array<[string, unknown]>; or: string[]; select?: string; inserted?: Record<string, unknown> } = {
     eq: [],
     or: [],
   };
-  const listResult = { data: rows, error: null };
+  const listResult = { data: error ? null : rows, error };
   const b: Record<string, unknown> = {
-    select() { return b; },
+    select(cols?: string) { calls.select = cols; return b; },
     eq(col: string, val: unknown) { calls.eq.push([col, val]); return b; },
     or(filter: string) { calls.or.push(filter); return b; },
     order() { return b; },
@@ -401,6 +402,26 @@ describe("listPlaylists org scoping", () => {
     const { client } = mockOwnClient([plRow({ org_id: "orgA" })]);
     const [p] = await listPlaylists(client, "orgA");
     expect(p.orgId).toBe("orgA");
+  });
+});
+
+describe("listPlaylistNames", () => {
+  it("reads only the id and name of the caller's playlists in the space", async () => {
+    const { client, calls } = mockOwnClient([{ id: "p1", name: "AIK" }]);
+    expect(await listPlaylistNames(client, "orgA")).toEqual([{ id: "p1", name: "AIK" }]);
+    expect(calls.select).toBe("id, name");
+    expect(calls.eq).toEqual([["user_id", "owner"], ["org_id", "orgA"]]);
+  });
+
+  it("includes org_id NULL rows in the personal space", async () => {
+    const { client, calls } = mockOwnClient();
+    await listPlaylistNames(client, "orgP", { includeUnscoped: true });
+    expect(calls.or).toEqual(["org_id.eq.orgP,org_id.is.null"]);
+  });
+
+  it("throws when the read fails, so an error never reads as no playlists", async () => {
+    const { client } = mockOwnClient([], { message: "x" });
+    await expect(listPlaylistNames(client, "orgA")).rejects.toThrow("Failed to load playlists");
   });
 });
 

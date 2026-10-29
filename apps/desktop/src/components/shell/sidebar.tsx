@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { Link, useLocation } from "react-router-dom";
-import { BookOpen, Film, Home, ListVideo, Share2 } from "lucide-react";
+import { BookOpen, FileText, Film, Home, ListVideo, Share2 } from "lucide-react";
 import { UpdateCard } from "@/components/UpdateChecker";
 import { useAuth } from "@/lib/auth-context";
 import { useImportQuota } from "@/lib/use-import-quota";
@@ -114,6 +114,9 @@ export function Sidebar() {
                 active={pathname.startsWith("/playlists") && !pathname.startsWith("/my-playlists")}
                 onClickWhileActive={() => window.dispatchEvent(new CustomEvent("playlist-browser-toggle"))}
               />
+            )}
+            {isCoachOrAdmin && (
+              <NavItem to="/reports" icon={FileText} label="Reports" active={pathname.startsWith("/reports")} />
             )}
             {!activeOrgIsPersonal && (
               <NavItem

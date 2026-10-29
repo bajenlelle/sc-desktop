@@ -88,6 +88,9 @@ export interface ReportViewProps {
   postRoll: number;
   /** The game's video file when it is on this computer, else null. */
   localVideoPath: (matchId: string) => string | null;
+  /** Share again from the Reports page: open the share sheet once the draft is read, then call onAutoShared. */
+  autoOpenShare?: boolean;
+  onAutoShared?: () => void;
 }
 
 const STATS_CONCURRENCY = 3;
@@ -239,10 +242,10 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
 
   // A playlist whose report doesn't exist yet opens on the picker, once.
   useEffect(() => {
-    if (status !== "ready" || !draft || !isNew || draft.sections.length > 0 || autoOpened.has(playlist.id)) return;
+    if (status !== "ready" || !draft || !isNew || draft.sections.length > 0 || autoOpened.has(playlist.id) || props.autoOpenShare) return;
     autoOpened.add(playlist.id);
     openPicker();
-  }, [status, draft, isNew, playlist.id, openPicker]);
+  }, [status, draft, isNew, playlist.id, openPicker, props.autoOpenShare]);
 
   // Once per time the view opens (it is keyed by playlist).
   const openTracked = useRef(false);
@@ -528,6 +531,15 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
     const players = rows.filter((r) => r.id !== TEAM_SECTION);
     return { players: players.length, clips: rows.reduce((n, r) => n + r.clips, 0), empty: players.filter((r) => !r.note && r.clips === 0).length };
   }, [draft, items, eventByKey]);
+
+  const { autoOpenShare, onAutoShared, onRefreshReport, shareDisabledReason } = props;
+  useEffect(() => {
+    if (!autoOpenShare || status !== "ready" || !draft) return;
+    onAutoShared?.();
+    if (shareDisabledReason) return;
+    onRefreshReport();
+    setShareOpen(true);
+  }, [autoOpenShare, status, draft, onAutoShared, onRefreshReport, shareDisabledReason]);
 
   const run = useCallback((a: ScoutingReportRun) => (draft ? props.runReport(draft, a) : Promise.reject(new Error("No report"))), [draft, props]);
 

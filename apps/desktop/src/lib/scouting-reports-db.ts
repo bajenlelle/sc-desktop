@@ -16,3 +16,4 @@ export const publishScoutingReport = (args: { playlistId: string; title: string;
 export const revokeScoutingReport = (id: string) => db.revokeScoutingReport(c(), id);
 export const getMyScoutingReport = (playlistId: string) => db.getMyScoutingReport(c(), playlistId);
 export const getScoutingReportShareLimit = (playlistId: string) => db.getScoutingReportShareLimit(c(), playlistId);
+export const listMyScoutingReports = () => db.listMyScoutingReports(c());

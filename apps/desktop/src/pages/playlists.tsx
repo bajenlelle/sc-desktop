@@ -490,6 +490,10 @@ export function PlaylistsPage() {
   // the editor, the clip to reveal when coming back from it, and the playlist's live report.
   // The playlist whose report is open; another playlist selected means the editor again, in the same render.
   const [reportFor, setReportFor] = useState<string | null>(null);
+  /** The playlist the Reports page opened in its Report view, until it is selected. */
+  const pendingReportRef = useRef<string | null>(null);
+  /** The playlist whose share sheet opens with its Report view (Share again on the Reports page). */
+  const [shareOnOpen, setShareOnOpen] = useState<string | null>(null);
   const reportView = !!selected && reportFor === selected.id;
   const pendingRevealKeyRef = useRef<string | null>(null);
   // ⌘Z / ⇧⌘Z per playlist for this session (lib/playlist-history.ts), and each
@@ -581,8 +585,15 @@ export function PlaylistsPage() {
       highlight?: "add-clips" | "export" | "share";
       /** Set by the coach dashboard — upload this playlist's missing clips. */
       reship?: boolean;
+      /** Set by the Reports page — open the restored playlist in its Report view (`share`: with the share sheet open). */
+      view?: "report";
+      share?: boolean;
     } | null;
     const restore = state?.restore;
+    if (restore && state?.view === "report") {
+      pendingReportRef.current = restore.playlistId;
+      setShareOnOpen(state.share ? restore.playlistId : null);
+    }
     const createNew = state?.createNew;
     // One-shot flags: clear them from the history entry once read, or a
     // remount of this page would restore/reship/create all over again.
@@ -674,6 +685,9 @@ export function PlaylistsPage() {
             } else {
               setUncategorizedExpanded(true);
             }
+          } else {
+            pendingReportRef.current = null;
+            setShareOnOpen(null);
           }
         } else if (createNew) {
           const tempId = `temp-${Date.now()}`;
@@ -4166,10 +4180,20 @@ export function PlaylistsPage() {
   // The scouting report: its view, the playlist's live report, and what generating does
   // ---------------------------------------------------------------------------
 
-  // A different playlist: the report view was the last one's (coming back opens the editor).
+  // A different playlist: the report view was the last one's (coming back opens the editor),
+  // unless the Reports page asked for this playlist's report.
   useEffect(() => {
-    setReportFor(null);
+    const id = selected?.id ?? null;
+    if (id && pendingReportRef.current === id) {
+      pendingReportRef.current = null;
+      setReportFor(id);
+    } else {
+      setReportFor(null);
+      // Nothing selected yet (the page is still loading): a Share again on its way stays.
+      if (id) setShareOnOpen(null);
+    }
   }, [selected?.id]);
+  const clearShareOnOpen = useCallback(() => setShareOnOpen(null), []);
 
   /** Opens the playlist's report in place of the editor; nothing keeps playing behind it. */
   function openReport() {
@@ -5238,6 +5262,8 @@ export function PlaylistsPage() {
               preRoll={preRoll}
               postRoll={postRoll}
               localVideoPath={reportLocalVideoPath}
+              autoOpenShare={shareOnOpen === selected.id}
+              onAutoShared={clearShareOnOpen}
             />
           ) : (
           <div className="flex h-full flex-col gap-3 p-4">

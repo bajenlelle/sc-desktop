@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/empty-state";
 import { GettingStarted } from "@/components/getting-started";
 import { NextActionHero } from "@/components/home/next-action-hero";
 import { TeamEngagement } from "@/components/home/team-engagement";
+import { HomeReports } from "@/components/home/home-reports";
 import { listMatchesLight, listEventsForMatches, listFolders } from "@/lib/matches-db";
 import { listOwnPlaylistsAndShared } from "@/lib/playlists-db";
 import type { SharedPlaylist } from "@scoutable/shared/lib/playlists-db";
@@ -282,6 +283,8 @@ function CoachHomePage() {
           )}
 
           {isClubSpace && <TeamEngagement summary={summary} onInvite={invite} />}
+
+          {!loading && <HomeReports />}
 
           <section>
             <GroupHeader

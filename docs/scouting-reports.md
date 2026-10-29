@@ -148,6 +148,34 @@ players open from a link, and that "Save as PDF" prints.
     (true) is what a new report carries, and the page doesn't read it (see the
     page, below).
 
+## The Reports page (`apps/desktop/src/pages/reports.tsx`)
+
+- A sidebar item after Playlists: every report the coach has in the active
+  space, one row per playlist (`lib/scouting-report-list.ts`,
+  `mergeReportList`). A playlist shows its report that is not switched off,
+  else its latest stopped one, else its draft. Rows come from three reads
+  (`listPlaylistNames` for the space, `listMyScoutingReports`,
+  `listReportDrafts`, which reads only the draft's title and section count);
+  reports and drafts of playlists outside the space, or deleted, are left out.
+  Reports are owner-only, so a club space shows your own reports from the
+  club's playlists, never a colleague's.
+- Status: Shared (expires …, or never for a kept report), Expired, Stopped,
+  Draft. All / Shared / Drafts filter it (Shared includes ended ones), the
+  search matches title and playlist name, and the newest change (report or
+  draft) comes first. Shared rows show `openedLabel`, drafts their players.
+- A row opens the playlist in its Report view: the page navigates to
+  `/playlists` with `{ restore, view: "report" }`. Its menu (⋯ and
+  right-click) copies the link, opens it in the browser (`#app`, not
+  counted), shows the clips, or stops sharing (confirmed). An expired or
+  stopped report offers Share again, which adds `share: true` so the Report
+  view opens with the share sheet (`autoOpenShare`): an expired one keeps its
+  link (the publish updates its row), a stopped one gets a new one.
+- Home lists up to three live reports ("Shared reports", hidden when none),
+  and the share sheet's done step links to the page ("See all reports").
+- Analytics: `scouting_report_list_action` (action, status) for each row
+  action, `scouting_report_revoked` with `via: "list"`; the page view is
+  `page_viewed`.
+
 ## Publishing (`supabase/migrations/20261029100000_scouting_reports.sql`, `20261102100000_scouting_report_launch.sql`)
 
 - `scouting_reports`: the snapshot (`content`, ≤256 KB) behind an unguessable id
@@ -185,9 +213,12 @@ players open from a link, and that "Save as PDF" prints.
   (feat/cloud-game-videos), a live report counts as a reference to its clip
   files (`_media_key_referenced`), so it never deletes a file a published
   report still plays.
-- Deleting the playlist revokes its report; a cron sweep deletes rows a week
-  past their expiry or revocation. Deleting the playlist deletes its draft
-  (cascade).
+- Deleting the playlist revokes its report. A cron sweep empties rows a week
+  past their expiry or revocation (`20261104100000_scouting_report_history.sql`):
+  the content and clip keys go, the clip files are queued for the purge, and
+  the title, dates and `open_count` stay for the Reports list. A row whose
+  playlist is gone is deleted then instead. Deleting the playlist deletes its
+  draft (cascade).
 - A **kept** report (Scoutable's own sample, the one scoutable.se opens from
   "See an example"; `20261103100000_scouting_report_keep.sql`) never expires:
   `SELECT _keep_scouting_report('<id>', true);` in the SQL editor sets
@@ -195,7 +226,7 @@ players open from a link, and that "Save as PDF" prints.
   page and the sweep leave it alone (and so do the open counter and the
   one-free-report check of `20261102100000`, which compare against `now()`);
   `false` releases it to a fresh 30 days. Stop sharing still takes it down
-  at once (revoked, swept a week later). Postgres hands clients the expiry
+  at once (revoked, emptied a week later). Postgres hands clients the expiry
   as the string `"infinity"`; the shared client turns it into
   `expiresAt: null` (`PublishedReport`, `MyScoutingReport`), `isLiveReport`
   counts that as live, the share sheet says "It works until you stop
@@ -300,7 +331,8 @@ the draft's game stats and placement keys when a game is merged into the club.
 ## Checking it
 
 - `packages/shared`: `npm test` (`report-draft`, `scouting-report`,
-  `report-leaders`, `report-drafts-db`, `player-roster`, `stats-card-data`).
+  `report-leaders`, `report-drafts-db`, `player-roster`, `stats-card-data`,
+  `scouting-report-list`).
 - SQL: `SUPABASE_DB_URL=<staging session pooler> supabase/tests/scouting_report_drafts.sh`
   and `scouting_reports.sh` (rolled-back probes; `RLS_PREFLIGHT=<the migration>`
   applies it inside the transaction before it is pushed). `scouting_reports.sh`
@@ -311,7 +343,9 @@ the draft's game stats and placement keys when a game is merged into the club.
   (`record_scouting_report_open`: live reports only, not the owner's own, an
   update keeps the count and an open leaves `updated_at` alone) and the
   takedown (service role only; content wiped, clip files queued, a second call
-  says `already_off`, an unknown id `not_found`).
+  says `already_off`, an unknown id `not_found`), and the sweep (an ended row
+  is emptied a week later and kept, a playlist-less one deleted, an emptied
+  expired report shared again keeps its link).
 - Desktop and web against staging as in CLAUDE.md, with a Franchise test club
   for the paid path and a Free space for the gate: share one report, open its
   link in a browser and see the sheet say "Opened once"; try to share a second

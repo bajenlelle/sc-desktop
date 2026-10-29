@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import QRCode from "react-qr-code";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -117,6 +118,7 @@ export function ScoutingReportDialog({
   run: (args: ScoutingReportRun) => Promise<GenerateOutcome>;
 }) {
   const [phase, setPhase] = useState<Phase>({ kind: "review" });
+  const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   // What the plan allows for this playlist; null until it is read, or when the read failed (no line, no block).
   const [limit, setLimit] = useState<ShareLimit | null>(null);
@@ -536,7 +538,19 @@ export function ScoutingReportDialog({
             </>
           )}
           {(phase.kind === "done" || phase.kind === "confirm-stop") && (
-            <Button onClick={close}>Done</Button>
+            <>
+              <Button
+                variant="ghost"
+                className="mr-auto"
+                onClick={() => {
+                  close();
+                  navigate("/reports");
+                }}
+              >
+                See all reports
+              </Button>
+              <Button onClick={close}>Done</Button>
+            </>
           )}
         </DialogFooter>
       </DialogContent>

@@ -8,6 +8,7 @@ import {
   getScoutingReport,
   getScoutingReportShareLimit,
   isLiveReport,
+  listMyScoutingReports,
   openedLabel,
   publishScoutingReport,
   recordScoutingReportOpen,
@@ -340,5 +341,37 @@ describe("scoutingReportUrl", () => {
   it("joins the web base and the id", () => {
     expect(scoutingReportUrl("https://app.scoutable.se/", "abc")).toBe("https://app.scoutable.se/r/abc");
     expect(scoutingReportUrl("http://localhost:3000", "abc")).toBe("http://localhost:3000/r/abc");
+  });
+});
+
+describe("listMyScoutingReports", () => {
+  function listClient(result: { data: unknown; error: unknown }) {
+    const calls: { table?: string; select?: string } = {};
+    const b: Record<string, unknown> = {
+      select(cols: string) { calls.select = cols; return b; },
+      then(resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) { return Promise.resolve(result).then(resolve, reject); },
+    };
+    const client = { from(t: string) { calls.table = t; return b; } } as unknown as SupabaseClient;
+    return { client, calls };
+  }
+
+  it("reads every one of the owner's reports, stopped included, without content", async () => {
+    const { client, calls } = listClient({
+      data: [
+        { id: "r1", playlist_id: "pl1", title: "AIK", updated_at: "a", expires_at: "2026-12-01T00:00:00Z", revoked_at: null, open_count: 4 },
+        { id: "r2", playlist_id: null, title: "Old", updated_at: "b", expires_at: "infinity", revoked_at: "c", open_count: null },
+      ],
+      error: null,
+    });
+    expect(await listMyScoutingReports(client)).toEqual([
+      { id: "r1", playlistId: "pl1", title: "AIK", updatedAt: "a", expiresAt: "2026-12-01T00:00:00Z", revokedAt: null, opens: 4 },
+      { id: "r2", playlistId: null, title: "Old", updatedAt: "b", expiresAt: null, revokedAt: "c", opens: 0 },
+    ]);
+    expect(calls.table).toBe("scouting_reports");
+    expect(calls.select).toBe("id, playlist_id, title, updated_at, expires_at, revoked_at, open_count");
+  });
+
+  it("throws when the read fails, so an error never reads as no reports", async () => {
+    await expect(listMyScoutingReports(listClient({ data: null, error: { message: "x" } }).client)).rejects.toThrow("Failed to load reports");
   });
 });

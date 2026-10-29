@@ -16,8 +16,9 @@
 # found, and record_scouting_report_open, which counts a reader's open of a live
 # report (never of an ended one, nor the owner's own while signed in). Revoking wipes the content and queues the clip
 # files for the purge; the service role can take any report down the same way
-# (_take_down_scouting_report); deleting the playlist revokes; the sweep deletes
-# rows a week past their end. (Which files the purge may delete,
+# (_take_down_scouting_report); deleting the playlist revokes; the sweep empties
+# rows a week past their end (20261104100000: the Reports list keeps them) and
+# deletes them once their playlist is gone. (Which files the purge may delete,
 # _media_key_referenced, comes with the purge on feat/cloud-game-videos.)
 #
 # Every statement runs inside BEGIN … ROLLBACK, so nothing is committed.
@@ -267,9 +268,16 @@ ROLE=service_role run "…an unknown id says not found"              "ALLOWED ro
 
 echo "== a deleted playlist, and the sweep"
 run "deleting the playlist revokes its report"    "ALLOWED rows=1" "DELETE FROM playlists WHERE id = $(d $PL); RESET ROLE; SELECT count(*) AS n FROM scouting_reports WHERE id = $(d $R) AND revoked_at IS NOT NULL AND content = '{}'::jsonb AND playlist_id IS NULL" "$MAKE_PLAYLIST $LIVE"
-ROLE=service_role run "the sweep deletes a row a week past expiry" "ALLOWED rows=1" "SELECT (run_scouting_report_sweep() >= 1)::int AS n" "$MAKE_PLAYLIST $(report_row "now() - interval '8 days'" NULL)"
+ROLE=service_role run "the sweep empties a row a week past expiry" "ALLOWED rows=1" "SELECT (run_scouting_report_sweep() >= 1)::int AS n" "$MAKE_PLAYLIST $(report_row "now() - interval '8 days'" NULL)"
+ROLE=service_role run "…keeping its title, dates and open count"   "ALLOWED rows=1" "SELECT run_scouting_report_sweep(); SELECT count(*) AS n FROM scouting_reports WHERE id = $(d $R) AND content = '{}'::jsonb AND clip_keys = '{}' AND title = 'AIK scouting' AND open_count = 5 AND expires_at < now()" "$MAKE_PLAYLIST $(report_row "now() - interval '8 days'" NULL) UPDATE scouting_reports SET open_count = 5 WHERE id = $(d $R);"
 ROLE=service_role run "…and queues its clip file"                  "ALLOWED rows=1" "SELECT run_scouting_report_sweep(); SELECT count(*) AS n FROM media_deletions WHERE storage_key = $(d $CK1)" "$MAKE_PLAYLIST $(report_row "now() - interval '8 days'" NULL)"
-ROLE=service_role run "…but leaves a live one"                     "ALLOWED rows=1" "SELECT run_scouting_report_sweep(); SELECT count(*) AS n FROM scouting_reports WHERE id = $(d $R)" "$MAKE_PLAYLIST $LIVE"
+ROLE=service_role run "…empties a row a week past being stopped"   "ALLOWED rows=1" "SELECT run_scouting_report_sweep(); SELECT count(*) AS n FROM scouting_reports WHERE id = $(d $R) AND clip_keys = '{}'" "$MAKE_PLAYLIST $(report_row "now() + interval '10 days'" "now() - interval '8 days'")"
+ROLE=service_role run "…leaves a live one as it is"                "ALLOWED rows=1" "SELECT run_scouting_report_sweep(); SELECT count(*) AS n FROM scouting_reports WHERE id = $(d $R) AND content <> '{}'::jsonb AND clip_keys <> '{}'" "$MAKE_PLAYLIST $LIVE"
+ROLE=service_role run "…leaves one that ended this week as it is"  "ALLOWED rows=1" "SELECT run_scouting_report_sweep(); SELECT count(*) AS n FROM scouting_reports WHERE id = $(d $R) AND content <> '{}'::jsonb" "$MAKE_PLAYLIST $(report_row "now() - interval '2 days'" NULL)"
+ROLE=service_role run "…deletes one whose playlist is gone"        "ALLOWED rows=0" "SELECT run_scouting_report_sweep(); SELECT count(*) AS n FROM scouting_reports WHERE id = $(d $R)" "$MAKE_PLAYLIST $(report_row "now() - interval '8 days'" NULL) UPDATE scouting_reports SET playlist_id = NULL WHERE id = $(d $R);"
+ROLE=service_role run "…and counts what it swept and deleted"      "ALLOWED rows=1" "SELECT (run_scouting_report_sweep() >= 2)::int AS n" "$MAKE_PLAYLIST $(report_row "now() - interval '8 days'" NULL) INSERT INTO scouting_reports (id, user_id, playlist_id, title, content, content_key, expires_at) VALUES ($(d $R2), $(d $U), NULL, 'Gone', '{}'::jsonb, 'k', now() - interval '8 days');"
+ROLE=anon run "an emptied report's page says it expired"          "ALLOWED rows=1" "SELECT (get_scouting_report($(d $R))->>'reason' = 'expired')::int AS n" "$MAKE_PLAYLIST $(report_row "now() - interval '8 days'" NULL) SELECT run_scouting_report_sweep();"
+run "sharing an emptied, expired report again keeps its link"  "ALLOWED rows=1" "SELECT $(publish "$GOOD"); SELECT count(*) AS n FROM scouting_reports WHERE id = $(d $R) AND content <> '{}'::jsonb AND expires_at > now() + interval '29 days'" "$PRO $(report_row "now() - interval '8 days'" NULL) SELECT run_scouting_report_sweep();"
 run "the sweep isn't the user's to call"          "DENIED"         "SELECT run_scouting_report_sweep()" ""
 
 echo "== a kept report (the sample; 20261103100000)"
@@ -279,7 +287,7 @@ ROLE=service_role run "…and its expiry is infinity"                   "ALLOWED
 run "publishing the kept report again keeps infinity"                 "ALLOWED rows=1" "SELECT $(publish "$GOOD"); SELECT (expires_at = 'infinity')::int AS n FROM scouting_reports WHERE id = $(d $R)" "$PRO $LIVE $KEEP"
 ROLE=anon run "the page still opens a kept report"                    "ALLOWED rows=1" "$(page)" "$MAKE_PLAYLIST $LIVE $KEEP"
 ROLE=service_role run "the sweep leaves a kept report"                "ALLOWED rows=1" "SELECT run_scouting_report_sweep(); SELECT count(*) AS n FROM scouting_reports WHERE id = $(d $R)" "$MAKE_PLAYLIST $(report_row "now() - interval '8 days'" NULL) $KEEP"
-ROLE=service_role run "the sweep deletes a kept report a week after it was stopped" "ALLOWED rows=0" "SELECT run_scouting_report_sweep(); SELECT count(*) AS n FROM scouting_reports WHERE id = $(d $R)" "$MAKE_PLAYLIST $LIVE $KEEP UPDATE scouting_reports SET revoked_at = now() - interval '8 days' WHERE id = $(d $R);"
+ROLE=service_role run "the sweep empties a kept report a week after it was stopped" "ALLOWED rows=1" "SELECT run_scouting_report_sweep(); SELECT count(*) AS n FROM scouting_reports WHERE id = $(d $R) AND clip_keys = '{}'" "$MAKE_PLAYLIST $LIVE $KEEP UPDATE scouting_reports SET revoked_at = now() - interval '8 days' WHERE id = $(d $R);"
 ROLE=service_role run "releasing answers released"                    "ALLOWED rows=1" "SELECT (_keep_scouting_report($(d $R), false) = 'released')::int AS n" "$MAKE_PLAYLIST $LIVE $KEEP"
 ROLE=service_role run "…and sets a fresh 30 days"                     "ALLOWED rows=1" "SELECT _keep_scouting_report($(d $R), false); SELECT (expires_at BETWEEN now() + interval '29 days' AND now() + interval '31 days')::int AS n FROM scouting_reports WHERE id = $(d $R)" "$MAKE_PLAYLIST $LIVE $KEEP"
 ROLE=service_role run "keeping a stopped report answers already_off"  "ALLOWED rows=1" "SELECT (_keep_scouting_report($(d $R), true) = 'already_off')::int AS n" "$MAKE_PLAYLIST $(report_row "now() + interval '10 days'" 'now()')"
