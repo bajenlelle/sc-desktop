@@ -78,6 +78,7 @@ import {
 } from "@scoutable/shared/lib/playlist-matches";
 import { getOrgContext, getOrgContextForOrg, getOrgMembers, getTeamMemberIds } from "@/lib/profile-db";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
+import { openUpgradeFlow } from "@/lib/billing";
 import { PurchaseSheet } from "@/components/purchase-sheet";
 import { usePlayerAccess } from "@/lib/player-access";
 import { canExport } from "@scoutable/shared/lib/player-access";
@@ -241,7 +242,7 @@ function writeStatsHintDismissed(ids: ReadonlySet<string>): void {
 }
 
 export function PlaylistsPage() {
-  const { user, activeOrgId, activeOrgPlan, activeOrgRole, activeOrgIsPersonal, myOrgs, profile, profileLoading } = useAuth();
+  const { user, activeOrgId, activeOrgPlan, activeOrgRole, activeOrgIsPersonal, myOrgs, profile, profileLoading, expectPlanChange } = useAuth();
   // Export opens for paid plans, and for a Free space once anything is bought
   // (a single game; a Pro subscription only while it lasts).
   const { access: playerAccess, playerMode } = usePlayerAccess();
@@ -503,7 +504,17 @@ export function PlaylistsPage() {
   // The toolbar row the report view fills, so its toolbar sits where the clips toolbar does.
   const [reportToolbarSlot, setReportToolbarSlot] = useState<HTMLDivElement | null>(null);
   const [myReport, setMyReport] = useState<MyScoutingReport | null>(null);
-  const [upsellReport, setUpsellReport] = useState(false);
+  // Go Pro from the report's share limit goes straight to the plans.
+  const goProForReports = useCallback(async () => {
+    trackEvent("upgrade_gate_hit", { feature: "scouting_report_limit" });
+    trackEvent("upgrade_clicked", { source: "scouting_report_limit" });
+    const err = await openUpgradeFlow(user?.email);
+    if (err) {
+      toast.error(err);
+      return;
+    }
+    expectPlanChange();
+  }, [user?.email, expectPlanChange]);
 
   // Item selection (clips and text cards)
   const [selectedClipIds, setSelectedClipIds] = useState<Set<string>>(new Set()); // "matchId:eventId" or "text:uuid"
@@ -5254,7 +5265,7 @@ export function PlaylistsPage() {
               onRefreshReport={() => refreshMyReport()}
               onOtherReportStopped={(playlistId) => reportByPlaylistRef.current.delete(playlistId)}
               plan={activeOrgPlan}
-              onUpgrade={() => { setUpsellReport(true); setUpgradeDialogOpen(true); }}
+              onUpgrade={() => void goProForReports()}
               shareDisabledReason={reportShareDisabledReason}
               runReport={runReport}
               onBack={() => setReportFor(null)}
@@ -5333,7 +5344,7 @@ export function PlaylistsPage() {
               With player passes on, a Free personal space gets the purchase
               sheet instead, and a purchase carries on with the export. */}
           <PurchaseSheet
-            open={upgradeDialogOpen && playerMode && !upsellReport}
+            open={upgradeDialogOpen && playerMode}
             onClose={() => setUpgradeDialogOpen(false)}
             title={upsellContext?.action === "send" ? "Send your tape to your phone" : "Save your tape as an MP4"}
             surface={upsellContext?.action === "send" ? "send_to_phone" : "export_playlist"}
@@ -5345,25 +5356,12 @@ export function PlaylistsPage() {
             onPurchased={() => setResumeExport(upsellContext ?? { action: "save", format: "16:9" })}
           />
           <UpgradeDialog
-            open={upgradeDialogOpen && (!playerMode || upsellReport)}
-            onClose={() => { setUpgradeDialogOpen(false); setUpsellReport(false); }}
-            featureName={
-              upsellReport
-                ? "Share as many reports as you like"
-                : upsellContext?.action === "send"
-                  ? "Send your tape to your phone"
-                  : "Save your tape as an MP4"
-            }
-            description={
-              upsellReport
-                ? "Free plans share one scouting report at a time. Pro shares as many as you like and saves your playlists as MP4s. Cancel anytime."
-                : undefined
-            }
+            open={upgradeDialogOpen && !playerMode}
+            onClose={() => setUpgradeDialogOpen(false)}
+            featureName={upsellContext?.action === "send" ? "Send your tape to your phone" : "Save your tape as an MP4"}
             analyticsFeature={
-              upsellReport
-                ? "scouting_report_limit"
-                : (upsellContext?.action === "send" ? "send_to_phone" : "export_playlist") +
-                  (upsellContext?.format === "9:16" ? "_vertical" : "")
+              (upsellContext?.action === "send" ? "send_to_phone" : "export_playlist") +
+              (upsellContext?.format === "9:16" ? "_vertical" : "")
             }
           />
           {/* Send to phone — render + upload + QR */}
