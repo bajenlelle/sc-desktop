@@ -1,5 +1,5 @@
 import { Children, Fragment, isValidElement, type ReactNode } from "react";
-import { View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Tappable } from "@/components/ui/Tappable";
 import { Text } from "@/components/ui/Text";
@@ -8,18 +8,31 @@ import { useLargeText } from "@/lib/a11y";
 import { cn } from "@/lib/cn";
 
 /**
- * The web's grouped (inset) lists (apps/web/src/components/ui/group.tsx):
- * a rounded card with a 1 pt separator ring, rows divided by full-width
- * hairlines, a bold headline above and a quiet footnote below. In the light
- * theme the card is the page colour; the ring does the separating.
+ * The web's grouped (inset) lists (apps/web/src/components/ui/group.tsx), for
+ * settings: a rounded card on the grouped floor (`bg-canvas`) with a hairline
+ * ring, rows divided by hairlines inset to the text, a quiet heading above
+ * and a footnote below.
  */
-export function GroupedList({ children, className }: { children: ReactNode; className?: string }) {
+export function GroupedList({
+  children,
+  className,
+  inset = 16,
+}: {
+  children: ReactNode;
+  className?: string;
+  /** Where the dividers start: 16 under plain rows, 46 under rows with an icon. */
+  inset?: number;
+}) {
+  const colors = useThemeColors();
   const rows = Children.toArray(children).filter(Boolean);
   return (
-    <View className={cn("overflow-hidden rounded-window border border-separator bg-card", className)}>
+    <View
+      className={cn("overflow-hidden rounded-window bg-card", className)}
+      style={{ borderWidth: StyleSheet.hairlineWidth, borderColor: colors.separator }}
+    >
       {rows.map((row, i) => (
         <Fragment key={isValidElement(row) && row.key != null ? row.key : i}>
-          {i > 0 && <View className="h-px bg-separator" />}
+          {i > 0 && <View style={{ height: StyleSheet.hairlineWidth, marginLeft: inset, backgroundColor: colors.separator }} />}
           {row}
         </Fragment>
       ))}
@@ -27,10 +40,17 @@ export function GroupedList({ children, className }: { children: ReactNode; clas
   );
 }
 
+/** A settings group's heading: quiet, sentence case, aligned with the rows' text. */
 export function GroupHeader({ title, action, className }: { title: ReactNode; action?: ReactNode; className?: string }) {
   return (
-    <View className={cn("flex-row items-end justify-between gap-3 px-1 pb-2", className)}>
-      {typeof title === "string" ? <Text variant="headline">{title}</Text> : title}
+    <View className={cn("flex-row items-end justify-between gap-3 px-4 pb-1.5", className)}>
+      {typeof title === "string" ? (
+        <Text variant="subheadline" className="text-muted-foreground">
+          {title}
+        </Text>
+      ) : (
+        title
+      )}
       {action}
     </View>
   );
@@ -38,7 +58,7 @@ export function GroupHeader({ title, action, className }: { title: ReactNode; ac
 
 export function GroupFooter({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <Text variant="subheadline" className={cn("px-1 pt-2 text-muted-foreground", className)}>
+    <Text variant="footnote" className={cn("px-4 pt-1.5 text-muted-foreground", className)}>
       {children}
     </Text>
   );
@@ -92,7 +112,7 @@ export function GroupRow({
     <>
       {(leading || icon) && (
         <View className="shrink-0 items-center justify-center">
-          {leading ?? (icon ? <Icon name={icon} size={17} color={colors.mutedForeground} /> : null)}
+          {leading ?? (icon ? <Icon name={icon} size={18} color={colors.mutedForeground} /> : null)}
         </View>
       )}
       <View className="min-w-0 flex-1">
@@ -104,7 +124,7 @@ export function GroupRow({
           label
         )}
         {typeof description === "string" ? (
-          <Text variant="callout" className="text-muted-foreground">
+          <Text variant="subheadline" className="text-muted-foreground">
             {description}
           </Text>
         ) : (
@@ -114,7 +134,7 @@ export function GroupRow({
     </>
   );
   const chevronView = chevron ? (
-    <Icon name="chevronRight" size={14} weight="semibold" color={colors.mutedForeground} style={{ opacity: 0.6 }} />
+    <Icon name="chevronRight" size={16} strokeWidth={2} color={colors.mutedForeground} style={{ opacity: 0.5 }} />
   ) : null;
   const body =
     children ??
@@ -167,7 +187,7 @@ export function FormRow({
       <View className="w-32 shrink-0">
         <Text>{label}</Text>
         {description ? (
-          <Text variant="callout" className="text-muted-foreground">
+          <Text variant="subheadline" className="text-muted-foreground">
             {description}
           </Text>
         ) : null}

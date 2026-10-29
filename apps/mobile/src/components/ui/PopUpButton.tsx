@@ -1,9 +1,11 @@
-import { View } from "react-native";
-import { MenuView } from "@expo/ui/community/menu";
+import { useState } from "react";
+import { StyleSheet } from "react-native";
 import { Icon } from "@/components/ui/Icon";
+import { MenuSheet } from "@/components/ui/Sheet";
+import { Tappable } from "@/components/ui/Tappable";
 import { Text } from "@/components/ui/Text";
-import { selectionHaptic } from "@/lib/haptics";
-import { useAppTheme, useThemeColors } from "@/lib/theme-context";
+import { pressScale } from "@/lib/motion";
+import { useThemeColors } from "@/lib/theme-context";
 import { cn } from "@/lib/cn";
 
 export interface PopUpOption<T extends string> {
@@ -13,9 +15,8 @@ export interface PopUpOption<T extends string> {
 
 /**
  * The web's pop-up button: the current choice with up/down chevrons, opening
- * the platform's own menu (a SwiftUI menu on iOS, Material's dropdown on
- * Android) with the current choice checked. A 36 pt control with a 44 pt
- * touch target.
+ * a menu sheet with the current choice checked. A 36 pt control with a 44 pt
+ * touch target, the same on iOS and Android.
  */
 export function PopUpButton<T extends string>({
   value,
@@ -28,39 +29,46 @@ export function PopUpButton<T extends string>({
   value: T;
   onValueChange: (value: T) => void;
   options: PopUpOption<T>[];
-  /** The menu's heading (iOS). */
+  /** The menu's heading. */
   title?: string;
   className?: string;
   accessibilityLabel?: string;
 }) {
   const colors = useThemeColors();
-  const { resolvedMode } = useAppTheme();
+  const [open, setOpen] = useState(false);
   const current = options.find((o) => o.value === value);
   return (
-    <MenuView
-      title={title}
-      colorScheme={resolvedMode}
-      actions={options.map((o) => ({ id: o.value, title: o.label, state: o.value === value ? "on" : "off" }))}
-      onPressAction={({ nativeEvent }) => {
-        const next = nativeEvent.event as T;
-        if (next !== value) {
-          selectionHaptic();
-          onValueChange(next);
-        }
-      }}
-    >
-      <View
-        accessible
+    <>
+      <Tappable
+        scaleTo={pressScale.control}
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel ? `${accessibilityLabel}: ${current?.label ?? ""}` : current?.label}
         hitSlop={4}
-        className={cn("min-h-9 flex-row items-center gap-1.5 self-start rounded-lg border border-separator bg-card py-1 pl-3 pr-2", className)}
+        onPress={() => setOpen(true)}
+        className={({ pressed }) =>
+          cn(
+            "min-h-9 flex-row items-center gap-1.5 self-start rounded-control py-1 pl-3 pr-2",
+            pressed ? "bg-fill-2" : "bg-card",
+            className,
+          )
+        }
+        style={{ borderWidth: StyleSheet.hairlineWidth, borderColor: colors.separatorStrong }}
       >
-        <Text variant="callout" numberOfLines={1}>
+        <Text variant="subheadline" numberOfLines={1}>
           {current?.label ?? "Choose…"}
         </Text>
-        <Icon name="chevronUpDown" size={12} weight="semibold" color={colors.mutedForeground} />
-      </View>
-    </MenuView>
+        <Icon name="chevronUpDown" size={14} weight="semibold" color={colors.mutedForeground} />
+      </Tappable>
+      <MenuSheet
+        visible={open}
+        onClose={() => setOpen(false)}
+        title={title ?? accessibilityLabel}
+        options={options}
+        value={value}
+        onSelect={(next) => {
+          if (next !== value) onValueChange(next);
+        }}
+      />
+    </>
   );
 }

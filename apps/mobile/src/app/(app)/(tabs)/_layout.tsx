@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Platform, View } from "react-native";
-import { router } from "expo-router";
-import { NativeTabs } from "expo-router/unstable-native-tabs";
+import { ActivityIndicator, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Tabs, router } from "expo-router";
 import { feedCounts } from "@scoutable/shared/lib/playlist-feed";
 import { useAuth } from "@/lib/auth-context";
 import { usePlaylists } from "@/lib/playlists-store";
@@ -10,18 +10,20 @@ import { offerTeamStepOnce, useMyTeam } from "@/lib/my-team";
 import { trackEvent } from "@/lib/analytics";
 import { needsTeamStep, teamRoleIn } from "@scoutable/shared/lib/league-teams";
 import { useThemeColors } from "@/lib/theme-context";
+import { ShellProvider } from "@/components/shell/ShellContext";
+import { TabBar, type TabItem } from "@/components/shell/TabBar";
+import { TAB_BAR_H } from "@/lib/layout";
 
 /**
- * The system tab bar (UITabBar on iOS, Liquid Glass from iOS 26; Material's
- * navigation bar on Android), as the web's phone layout imitates it:
- * Playlists and Profile for everyone, My highlights (the personal space) for
- * player-only users. Each tab is its own native stack with a large title.
- * The watch screen (playlists/[id]), /team and the sheets live OUTSIDE this
- * group, so they cover the tab bar.
+ * The app's own tab bar (components/shell/TabBar), the same on iOS and
+ * Android, as the web's phone layout draws it: Playlists and Profile for
+ * everyone, My highlights (the personal space) for player-only users. Each
+ * tab is its own stack. The watch screen (playlists/[id]), /team and the
+ * sheets live OUTSIDE this group, so they cover the tab bar.
  *
- * Hiding a native tab remounts the whole navigator, so whether My highlights
- * shows is decided once, when the first profile has settled, and then kept:
- * a later reload (a staff club switch reloads the profile) never flips it.
+ * Whether My highlights shows is decided once, when the first profile has
+ * settled, and then kept: a later reload (a staff club switch reloads the
+ * profile) never flips the bar under the user's finger.
  */
 export default function TabsLayout() {
   const { isPlayerOnly, activeOrgRole, activeOrg, profile, profileLoading } = useAuth();
@@ -29,6 +31,7 @@ export default function TabsLayout() {
   const { feedItems, loading } = usePlaylists();
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
 
   const [playerOnlyLatch, setPlayerOnlyLatch] = useState<boolean | null>(null);
   useEffect(() => {
@@ -64,37 +67,26 @@ export default function TabsLayout() {
     );
   }
 
+  const items: TabItem[] = [
+    { name: "playlists", title: playlistsTitle, icon: isCoachOrAdmin ? "sharedPlaylists" : "playlists", badge: newCount },
+    ...(playerOnlyLatch ? [{ name: "highlights", title: "My highlights", icon: "highlights" } as TabItem] : []),
+    { name: "profile", title: "Profile", icon: "profile" },
+  ];
+
   return (
-    <NativeTabs
-      tintColor={colors.primary}
-      iconColor={Platform.OS === "android" ? { default: colors.mutedForeground, selected: colors.primary } : undefined}
-      labelStyle={Platform.OS === "android" ? { color: colors.mutedForeground } : undefined}
-      backgroundColor={Platform.OS === "android" ? colors.background : undefined}
-      indicatorColor={Platform.OS === "android" ? colors.fill3 : undefined}
-      badgeBackgroundColor={colors.destructive}
-    >
-      <NativeTabs.Trigger
-        name="playlists"
-        accessibilityLabel={newCount > 0 ? `${playlistsTitle}, ${newCount} new` : playlistsTitle}
+    <ShellProvider tabBarHeight={TAB_BAR_H + insets.bottom}>
+      <Tabs
+        tabBar={(props) => <TabBar {...props} items={items} />}
+        screenOptions={{
+          headerShown: false,
+          animation: "none",
+          sceneStyle: { backgroundColor: colors.background },
+        }}
       >
-        <NativeTabs.Trigger.Icon
-          sf={{ default: "play.rectangle.on.rectangle", selected: "play.rectangle.on.rectangle.fill" }}
-          md="video_library"
-        />
-        <NativeTabs.Trigger.Label>{playlistsTitle}</NativeTabs.Trigger.Label>
-        {newCount > 0 && <NativeTabs.Trigger.Badge>{String(newCount)}</NativeTabs.Trigger.Badge>}
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="highlights" hidden={!playerOnlyLatch}>
-        <NativeTabs.Trigger.Icon sf="sparkles" md="auto_awesome" />
-        <NativeTabs.Trigger.Label>My highlights</NativeTabs.Trigger.Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="profile">
-        <NativeTabs.Trigger.Icon
-          sf={{ default: "person.crop.circle", selected: "person.crop.circle.fill" }}
-          md="account_circle"
-        />
-        <NativeTabs.Trigger.Label>Profile</NativeTabs.Trigger.Label>
-      </NativeTabs.Trigger>
-    </NativeTabs>
+        <Tabs.Screen name="playlists" />
+        <Tabs.Screen name="highlights" />
+        <Tabs.Screen name="profile" />
+      </Tabs>
+    </ShellProvider>
   );
 }

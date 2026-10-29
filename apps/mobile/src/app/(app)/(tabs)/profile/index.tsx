@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Alert, ScrollView, View } from "react-native";
+import { Alert, View } from "react-native";
 import { router } from "expo-router";
 import Constants from "expo-constants";
 import { supabase } from "@/lib/supabase";
@@ -8,6 +8,7 @@ import { signOutAndCleanup } from "@/lib/notifications";
 import { usePlaylists } from "@/lib/playlists-store";
 import { useThemeColors } from "@/lib/theme-context";
 import { AppearanceSection } from "@/components/AppearanceSection";
+import { Screen } from "@/components/shell/Screen";
 import { Avatar } from "@/components/Avatar";
 import { DevicesSection } from "@/components/DevicesSection";
 import { LicenseNotice } from "@/components/LicenseNotice";
@@ -57,11 +58,7 @@ export default function ProfileScreen() {
   }
 
   return (
-    <ScrollView
-      contentInsetAdjustmentBehavior="automatic"
-      className="flex-1 bg-background"
-      contentContainerClassName="gap-7 px-4 pb-12 pt-2"
-    >
+    <Screen title="Profile" large grouped contentClassName="gap-7 px-4 pt-2">
       <LicenseNotice />
 
       {/* Who you are */}
@@ -197,6 +194,6 @@ export default function ProfileScreen() {
       <Text variant="footnote" nums className="text-center text-muted-foreground">
         Scoutable {Constants.expoConfig?.version ?? ""}
       </Text>
-    </ScrollView>
+    </Screen>
   );
 }

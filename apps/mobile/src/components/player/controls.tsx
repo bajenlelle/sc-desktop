@@ -3,16 +3,15 @@
  * a translucent dark material, the control button in its three sizes, the
  * speed menu and the full-screen button.
  */
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Platform, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import { BlurView } from "expo-blur";
-import { MenuView } from "@expo/ui/community/menu";
 import { PLAYBACK_SPEEDS } from "@/hooks/use-clip-queue";
 import { Icon, type IconName } from "@/components/ui/Icon";
+import { MenuSheet } from "@/components/ui/Sheet";
 import { Tappable } from "@/components/ui/Tappable";
 import { Text } from "@/components/ui/Text";
 import { useReduceTransparency } from "@/lib/a11y";
-import { selectionHaptic } from "@/lib/haptics";
 import { useThemeColors } from "@/lib/theme-context";
 import { cn } from "@/lib/cn";
 
@@ -99,27 +98,18 @@ export function FullscreenButton({ active, onToggle }: { active: boolean; onTogg
   );
 }
 
-/** The current rate, tinted when it isn't 1×, opening the platform's menu of rates. */
+/** The current rate, tinted when it isn't 1×, opening a dark menu sheet of rates. */
 export function SpeedMenu({ speed, onSpeedChange }: { speed: number; onSpeedChange: (speed: number) => void }) {
   const colors = useThemeColors();
+  const [open, setOpen] = useState(false);
   return (
-    <MenuView
-      title="Playback speed"
-      colorScheme="dark"
-      actions={PLAYBACK_SPEEDS.map((s) => ({ id: String(s), title: `${s}×`, state: s === speed ? "on" : "off" }))}
-      onPressAction={({ nativeEvent }) => {
-        const next = Number(nativeEvent.event);
-        if (next !== speed) {
-          selectionHaptic();
-          onSpeedChange(next);
-        }
-      }}
-    >
-      <View
-        accessible
+    <>
+      <Tappable
+        scaleTo={0.9}
         accessibilityRole="button"
         accessibilityLabel={`Playback speed, ${speed}×`}
-        className="h-11 min-w-11 items-center justify-center rounded-lg px-2"
+        onPress={() => setOpen(true)}
+        className="h-11 min-w-11 items-center justify-center rounded-control px-2"
       >
         <Text
           variant="footnote"
@@ -130,8 +120,20 @@ export function SpeedMenu({ speed, onSpeedChange }: { speed: number; onSpeedChan
         >
           {speed}×
         </Text>
-      </View>
-    </MenuView>
+      </Tappable>
+      <MenuSheet
+        visible={open}
+        onClose={() => setOpen(false)}
+        title="Playback speed"
+        appearance="dark"
+        options={PLAYBACK_SPEEDS.map((s) => ({ value: String(s), label: `${s}×` }))}
+        value={String(speed)}
+        onSelect={(next) => {
+          const rate = Number(next);
+          if (rate !== speed) onSpeedChange(rate);
+        }}
+      />
+    </>
   );
 }
 

@@ -1,9 +1,10 @@
 import { useState, type ReactNode } from "react";
 import { Pressable, type PressableProps, type StyleProp, type ViewStyle } from "react-native";
 import { cn } from "@/lib/cn";
+import type { pressScale } from "@/lib/motion";
 
 /** Press scales from the web: buttons 0.97, controls 0.98, tabs 0.95, player controls 0.9; 1 for rows. */
-export type PressScale = 1 | 0.97 | 0.98 | 0.95 | 0.9;
+export type PressScale = (typeof pressScale)[keyof typeof pressScale];
 
 export interface TappableProps extends Omit<PressableProps, "style" | "children" | "className"> {
   /** How far it shrinks while held; 1 for rows, which only fill. */

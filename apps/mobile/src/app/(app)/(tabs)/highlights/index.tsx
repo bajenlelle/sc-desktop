@@ -23,11 +23,12 @@
  * condition the 3.1.3(f) exemption rests on. (The web's eyebrow and download
  * button are left out for the same reason.)
  */
-import { ScrollView, View } from "react-native";
+import { View } from "react-native";
 import { Image } from "expo-image";
 import { useThemeColors } from "@/lib/theme-context";
 import { GroupedList } from "@/components/ui/Group";
 import { Icon, type IconName } from "@/components/ui/Icon";
+import { Screen } from "@/components/shell/Screen";
 import { Text } from "@/components/ui/Text";
 
 // The landing site's /players hero poster: the editor mid vertical-crop. A
@@ -56,11 +57,7 @@ const BULLETS: { icon: IconName; title: string; body: string }[] = [
 export default function HighlightsScreen() {
   const colors = useThemeColors();
   return (
-    <ScrollView
-      contentInsetAdjustmentBehavior="automatic"
-      className="flex-1 bg-background"
-      contentContainerClassName="gap-7 px-4 pb-12 pt-2"
-    >
+    <Screen title="My highlights" large contentClassName="gap-7 px-4 pt-2">
       <View className="items-center gap-2">
         <Text variant="title2" accessibilityRole="header" className="text-center">
           Build your own highlight tape
@@ -108,6 +105,6 @@ export default function HighlightsScreen() {
           free.
         </Text>
       </View>
-    </ScrollView>
+    </Screen>
   );
 }

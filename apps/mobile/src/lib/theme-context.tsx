@@ -73,6 +73,8 @@ interface AppThemeContextValue {
    * modes (the player's chrome, its speed menu): the web's forced-dark island.
    */
   darkVarsStyle: Record<string, string>;
+  /** The user's dark theme as plain colours, for JS props inside those surfaces. */
+  darkColors: MobileThemeTokens & DerivedThemeColors;
   setColorTheme: (id: string) => void;
   setModeSetting: (mode: ThemeModeSetting) => void;
   /** Sync adoption: apply + persist locally, nothing else. */
@@ -138,16 +140,14 @@ export function MobileThemeProvider({ children }: { children: ReactNode }) {
   const varsStyle = useMemo(() => vars(themeVarMap(colors, derived)), [colors, derived]);
 
   const darkThemeId = getTheme(slots.dark)?.mode === "dark" ? slots.dark : DEFAULT_THEME.dark;
-  const darkVarsStyle = useMemo(
-    () =>
-      vars(
-        themeVarMap(
-          THEME_TOKENS[darkThemeId] ?? THEME_TOKENS[DEFAULT_THEME.dark],
-          deriveThemeColors(darkThemeId, "dark", { increasedContrast }),
-        ),
-      ),
+  const darkColors = useMemo(
+    () => ({
+      ...(THEME_TOKENS[darkThemeId] ?? THEME_TOKENS[DEFAULT_THEME.dark]),
+      ...deriveThemeColors(darkThemeId, "dark", { increasedContrast }),
+    }),
     [darkThemeId, increasedContrast],
   );
+  const darkVarsStyle = useMemo(() => vars(themeVarMap(darkColors, darkColors)), [darkColors]);
 
   const setModeSetting = useCallback((mode: ThemeModeSetting) => {
     dirtyRef.current.mode = true;
@@ -201,6 +201,7 @@ export function MobileThemeProvider({ children }: { children: ReactNode }) {
       resolvedMode: resolved,
       varsStyle,
       darkVarsStyle,
+      darkColors,
       setColorTheme,
       setModeSetting,
       adoptColorThemes,
@@ -214,6 +215,7 @@ export function MobileThemeProvider({ children }: { children: ReactNode }) {
       resolved,
       varsStyle,
       darkVarsStyle,
+      darkColors,
       setColorTheme,
       setModeSetting,
       adoptColorThemes,

@@ -24,10 +24,19 @@ export const springs = {
   exit: spring(2131.4, 92.33),
 } as const;
 
-/** Press feedback, applied on press-in as on the web (`active:scale-*`). */
+/** Press feedback, applied on press-in as on the web (`active:scale-*`). Rows only fill. */
 export const pressScale = {
   button: 0.97,
   control: 0.98,
   tab: 0.95,
   playerControl: 0.9,
+  row: 1,
+} as const;
+
+/** Fades, in milliseconds (the web's scrim and fade variants). */
+export const timing = {
+  scrimIn: 180,
+  scrimOut: 150,
+  fadeIn: 150,
+  fadeOut: 120,
 } as const;
