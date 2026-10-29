@@ -1103,6 +1103,7 @@ pub fn run() {
             video_frames::grab_frames,
             device_identity::get_device_identity,
             menu::menu_set_enabled,
+            menu::menu_set_text,
             menu::menu_sync_theme
         ])
         .build(tauri::generate_context!())

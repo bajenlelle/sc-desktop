@@ -26,8 +26,9 @@ const CLICK_SLOP = 4;
  * well past the minimum) collapses it, and collapse/expand is one spring of
  * the width so the editor beside it reflows with the motion. The content
  * keeps its full width while the column animates, so nothing inside
- * re-wraps. Closed, a grip on the editor's left edge (Claude's sidebar
- * has one) pulls it back out 1:1, or opens it with a click.
+ * re-wraps. Closed, the editor's left edge pulls it back out 1:1, or opens
+ * it with a click; the toolbar's playlists button and ⌘B do both ways.
+ * Either edge lights up blue on hover or drag.
  */
 export function BrowserColumn({
   collapsed,
@@ -50,7 +51,7 @@ export function BrowserColumn({
   const reduced = useReducedMotionSafe();
   /** A drag on the open browser's edge, or a pull on the closed browser's grip. */
   const [dragMode, setDragMode] = React.useState<"resize" | "reveal" | null>(null);
-  /** The closed grip's "Show playlists" label. */
+  /** The closed edge's "Show playlists" label. */
   const [tipOpen, setTipOpen] = React.useState(false);
   /**
    * A drag keeps the label away until the pointer comes back onto the edge
@@ -194,12 +195,12 @@ export function BrowserColumn({
         </motion.div>
         <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-px bg-separator" />
       </div>
-      {/* The edge, open or closed, is one element with one pill, so the
-          pill never doubles up while the browser opens or closes under the
-          pointer. Open, it resizes from any height, straddling the divider,
-          and its pill shows on hover or drag instead of a highlight. Closed,
+      {/* The edge, open or closed, is one element, so its highlight never
+          doubles up while the browser opens or closes under the pointer.
+          Open, it resizes from any height, straddling the divider. Closed,
           it moves wholly onto the editor (the browser's edge may be the
-          window's), shows the pill, and pulls the browser back out 1:1. */}
+          window's) and pulls the browser back out 1:1. Hovered or dragged,
+          the divider lights up as a blue line. */}
       <Tooltip
         open={tipOpen && collapsed && !dragMode}
         onOpenChange={(open) => setTipOpen(open && !tipSuppressed.current)}
@@ -235,18 +236,15 @@ export function BrowserColumn({
               if (e.key === "ArrowRight") onWidthChange(clamp(width + 16, BROWSER_WIDTH.min, BROWSER_WIDTH.max));
             }}
             className={cn(
-              "group/edge absolute inset-y-0 -right-1.5 z-20 flex w-3 cursor-col-resize items-center justify-center outline-none transition-transform duration-200 motion-reduce:transition-none",
+              "group/edge absolute inset-y-0 -right-1.5 z-20 w-3 cursor-col-resize outline-none transition-transform duration-200 motion-reduce:transition-none",
               collapsed && "translate-x-1.5",
             )}
           >
             <div
               className={cn(
-                "h-9 rounded-full transition-[opacity,background-color,width] duration-150 motion-reduce:transition-none group-focus-visible/edge:bg-selection group-focus-visible/edge:opacity-100",
-                dragMode
-                  ? "w-[5px] bg-foreground/40 opacity-100"
-                  : collapsed
-                    ? "w-1 bg-foreground/20 opacity-100 group-hover/edge:w-[5px] group-hover/edge:bg-foreground/40"
-                    : "w-[5px] bg-foreground/40 opacity-0 group-hover/edge:opacity-100",
+                "absolute inset-y-0 w-0.5 bg-selection transition-opacity duration-150 motion-reduce:transition-none group-hover/edge:opacity-100 group-focus-visible/edge:opacity-100",
+                collapsed ? "left-0" : "left-1/2 -translate-x-1/2",
+                dragMode ? "opacity-100" : "opacity-0",
               )}
             />
           </div>

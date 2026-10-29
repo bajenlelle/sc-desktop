@@ -1,29 +1,80 @@
 import * as React from "react";
-import { PanelLeft } from "lucide-react";
+import { ListVideo, PanelLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { IS_MACOS } from "@/lib/platform";
 import { toggleSidebar, useSidebarCollapsed } from "@/lib/sidebar-store";
+import { toggleBrowser, useBrowserCollapsed, useBrowserPresent } from "@/lib/playlist-browser-store";
+import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePageScroll } from "./page";
 
-export function SidebarToggle() {
-  const collapsed = useSidebarCollapsed();
-  const label = collapsed ? "Show sidebar" : "Hide sidebar";
+/** A toolbar button that shows or hides one panel, with its label and shortcut in the tooltip. */
+function PanelToggle({
+  label,
+  shortcut,
+  shown,
+  onToggle,
+  children,
+}: {
+  label: string;
+  shortcut?: string;
+  shown: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
           type="button"
           aria-label={label}
-          aria-pressed={!collapsed}
-          onClick={toggleSidebar}
+          aria-pressed={shown}
+          onClick={onToggle}
           className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-[background-color,transform] duration-100 hover:bg-fill-1 hover:text-foreground active:scale-95 active:bg-fill-3 focus-visible:ring-2 focus-visible:ring-selection"
         >
-          <PanelLeft className="size-4" />
+          {children}
         </button>
       </TooltipTrigger>
-      <TooltipContent side="bottom">{label}</TooltipContent>
+      <TooltipContent side="bottom" className="flex items-center gap-1.5">
+        {label}
+        {shortcut && <Kbd>{shortcut}</Kbd>}
+      </TooltipContent>
     </Tooltip>
+  );
+}
+
+export function SidebarToggle() {
+  const collapsed = useSidebarCollapsed();
+  return (
+    <PanelToggle
+      label={collapsed ? "Show sidebar" : "Hide sidebar"}
+      shortcut={IS_MACOS ? "\u2303\u2318S" : undefined}
+      shown={!collapsed}
+      onToggle={toggleSidebar}
+    >
+      <PanelLeft className="size-4" />
+    </PanelToggle>
+  );
+}
+
+/**
+ * The Playlists page's second sidebar, the playlist browser, has its own
+ * button beside the app sidebar's, so a closed browser always has a visible
+ * way back. Only while that page is on screen.
+ */
+export function PlaylistBrowserToggle() {
+  const present = useBrowserPresent();
+  const collapsed = useBrowserCollapsed();
+  if (!present) return null;
+  return (
+    <PanelToggle
+      label={collapsed ? "Show playlists" : "Hide playlists"}
+      shortcut={IS_MACOS ? "\u2318B" : "Ctrl B"}
+      shown={!collapsed}
+      onToggle={toggleBrowser}
+    >
+      <ListVideo className="size-4" />
+    </PanelToggle>
   );
 }
 
@@ -81,6 +132,7 @@ export function Toolbar({
       }
     >
       <SidebarToggle />
+      <PlaylistBrowserToggle />
       {leading}
       <div data-tauri-drag-region className="flex min-w-0 items-baseline gap-2">
         <h1 data-tauri-drag-region className="truncate text-title-3 text-foreground">

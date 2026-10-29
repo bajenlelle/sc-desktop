@@ -79,6 +79,7 @@ import {
 import { getOrgContext, getOrgContextForOrg, getOrgMembers, getTeamMemberIds } from "@/lib/profile-db";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
 import { openUpgradeFlow } from "@/lib/billing";
+import { setBrowserCollapsed, useBrowserCollapsed, useRegisterBrowser } from "@/lib/playlist-browser-store";
 import { PurchaseSheet } from "@/components/purchase-sheet";
 import { usePlayerAccess } from "@/lib/player-access";
 import { canExport } from "@scoutable/shared/lib/player-access";
@@ -213,7 +214,6 @@ const revealVariants = {
 // The playlist browser column remembers its width and whether it is shown.
 // ---------------------------------------------------------------------------
 
-const BROWSER_COLLAPSED_KEY = "scoutable_playlist_browser_collapsed";
 const BROWSER_WIDTH_KEY = "scoutable_playlist_browser_width";
 
 // ---------------------------------------------------------------------------
@@ -462,14 +462,12 @@ export function PlaylistsPage() {
   useEffect(() => { uncategorizedExpandedRef.current = uncategorizedExpanded; }, [uncategorizedExpanded]);
   // The playlist browser column: its width and whether it is shown are the
   // coach's choices and survive restarts.
-  const [browserCollapsed, setBrowserCollapsed] = useState(
-    () => localStorage.getItem(BROWSER_COLLAPSED_KEY) === "1",
-  );
+  const browserCollapsed = useBrowserCollapsed();
+  useRegisterBrowser();
   const [browserWidth, setBrowserWidth] = useState(() => {
     const n = Number(localStorage.getItem(BROWSER_WIDTH_KEY));
     return Number.isFinite(n) && n >= BROWSER_WIDTH.min && n <= BROWSER_WIDTH.max ? n : BROWSER_WIDTH.default;
   });
-  useEffect(() => { localStorage.setItem(BROWSER_COLLAPSED_KEY, browserCollapsed ? "1" : "0"); }, [browserCollapsed]);
   useEffect(() => { localStorage.setItem(BROWSER_WIDTH_KEY, String(browserWidth)); }, [browserWidth]);
 
   // Text card playback
@@ -4394,16 +4392,6 @@ export function PlaylistsPage() {
     }
     return null;
   })();
-
-  // ---------------------------------------------------------------------------
-  // Browser panel toggle (dispatched by sidebar when already on /playlists)
-  // ---------------------------------------------------------------------------
-
-  useEffect(() => {
-    const handler = () => setBrowserCollapsed((v) => !v);
-    window.addEventListener("playlist-browser-toggle", handler);
-    return () => window.removeEventListener("playlist-browser-toggle", handler);
-  }, []);
 
   // ---------------------------------------------------------------------------
   // Native menu: File → Export Playlist… (⌘E). menu-handler.tsx dispatches the

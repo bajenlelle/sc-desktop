@@ -23,6 +23,8 @@ import { createClient } from "@/lib/supabase/client";
 import { interactiveUpdateCheck } from "@/lib/updates";
 import { IS_MACOS } from "@/lib/platform";
 import { menuAppearanceFor } from "@scoutable/shared/lib/appearance";
+import { toggleSidebar, useSidebarCollapsed } from "@/lib/sidebar-store";
+import { toggleBrowser, useBrowserCollapsed } from "@/lib/playlist-browser-store";
 
 const ZOOM_KEY = "scoutable_zoom";
 const ZOOM_MIN = 0.5;
@@ -49,6 +51,11 @@ function storedZoom(): number {
 function setEnabled(id: string, enabled: boolean) {
   enabledIds.set(id, enabled);
   invoke("menu_set_enabled", { id, enabled }).catch(() => {});
+}
+
+/** A Show/Hide item says what it will do, so its title follows the panel. */
+function setText(id: string, text: string) {
+  invoke("menu_set_text", { id, text }).catch(() => {});
 }
 
 export function MenuHandler() {
@@ -109,8 +116,11 @@ export function MenuHandler() {
         case "export-playlist":
           window.dispatchEvent(new CustomEvent("menu-export-playlist"));
           break;
+        case "toggle-sidebar":
+          toggleSidebar();
+          break;
         case "toggle-playlist-browser":
-          window.dispatchEvent(new CustomEvent("playlist-browser-toggle"));
+          toggleBrowser();
           break;
         case "fullscreen-player":
           window.dispatchEvent(new CustomEvent("player-fullscreen-toggle"));
@@ -205,6 +215,15 @@ export function MenuHandler() {
     if (pathname !== "/playlists") setEnabled("export-playlist", false);
     else enabledIds.delete("export-playlist");
   }, [pathname]);
+
+  const sidebarCollapsed = useSidebarCollapsed();
+  const browserCollapsed = useBrowserCollapsed();
+  useEffect(() => {
+    setText("toggle-sidebar", sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar");
+  }, [sidebarCollapsed]);
+  useEffect(() => {
+    setText("toggle-playlist-browser", browserCollapsed ? "Show Playlists" : "Hide Playlists");
+  }, [browserCollapsed]);
 
   useEffect(() => {
     invoke("menu_sync_theme", { theme: menuAppearanceFor(theme) }).catch(() => {});

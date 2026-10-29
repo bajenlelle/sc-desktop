@@ -7,6 +7,7 @@ import { useImportQuota } from "@/lib/use-import-quota";
 import { IS_MACOS } from "@/lib/platform";
 import { springs, useReducedMotionSafe } from "@/lib/motion";
 import { useSidebarCollapsed } from "@/lib/sidebar-store";
+import { toggleBrowser } from "@/lib/playlist-browser-store";
 import { cn } from "@/lib/utils";
 import { SpaceSwitcher } from "./space-switcher";
 import { UserMenu } from "./user-menu";
@@ -112,7 +113,7 @@ export function Sidebar() {
                 icon={ListVideo}
                 label="Playlists"
                 active={pathname.startsWith("/playlists") && !pathname.startsWith("/my-playlists")}
-                onClickWhileActive={() => window.dispatchEvent(new CustomEvent("playlist-browser-toggle"))}
+                onClickWhileActive={toggleBrowser}
               />
             )}
             {isCoachOrAdmin && (

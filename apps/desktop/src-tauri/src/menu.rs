@@ -108,7 +108,9 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         .item(&appearance["appearance-system"])
         .build()?;
 
-    let toggle_browser = item("toggle-playlist-browser", "Toggle Playlist Browser", Some("CmdOrCtrl+B"))?;
+    // Show/Hide titles: menu-handler.tsx swaps them as each panel opens or closes.
+    let toggle_sidebar = item("toggle-sidebar", "Hide Sidebar", Some("Ctrl+Cmd+S"))?;
+    let toggle_browser = item("toggle-playlist-browser", "Hide Playlists", Some("CmdOrCtrl+B"))?;
     // Player fullscreen (stage + clip controls) — distinct from the
     // predefined window fullscreen below, which just resizes the window.
     let fullscreen_player = item("fullscreen-player", "Fullscreen Player", Some("CmdOrCtrl+Shift+F"))?;
@@ -116,6 +118,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     let zoom_out = item("zoom-out", "Zoom Out", Some("CmdOrCtrl+-"))?;
     let zoom_reset = item("zoom-reset", "Actual Size", Some("CmdOrCtrl+0"))?;
     let view_menu = SubmenuBuilder::new(app, "View")
+        .item(&toggle_sidebar)
         .item(&toggle_browser)
         .item(&fullscreen_player)
         .separator()
@@ -202,6 +205,23 @@ pub fn menu_set_enabled(app: tauri::AppHandle, id: String, enabled: bool) {
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (app, id, enabled);
+    }
+}
+
+/// Retitle a menu item (Show/Hide Sidebar follows the panel it toggles).
+#[tauri::command]
+pub fn menu_set_text(app: tauri::AppHandle, id: String, text: String) {
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(handles) = app.try_state::<MenuHandles>() {
+            if let Some(i) = handles.items.get(id.as_str()) {
+                let _ = i.set_text(text);
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, id, text);
     }
 }
 
