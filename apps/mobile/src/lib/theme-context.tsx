@@ -29,7 +29,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { View } from "react-native";
+import { AccessibilityInfo, Platform, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colorScheme as nwColorScheme, useColorScheme, vars } from "nativewind";
 import {
@@ -41,6 +41,7 @@ import {
   type ThemeMode,
 } from "@scoutable/shared/lib/themes";
 import type { ThemeModeSetting } from "@scoutable/shared/lib/theme-sync";
+import { deriveThemeColors, type DerivedThemeColors } from "@scoutable/shared/lib/theme-derived";
 import { trackEvent } from "@/lib/analytics";
 
 const KEYS = {
@@ -58,6 +59,10 @@ interface AppThemeContextValue {
   modeSetting: ThemeModeSetting;
   /** Active palette as hexes, for JS-prop surfaces classes can't reach. */
   colors: MobileThemeTokens;
+  /** The web's derived colours for the active theme (fills, separators, status, materials). */
+  derived: DerivedThemeColors;
+  /** The scheme in effect after resolving "system". */
+  resolvedMode: ThemeMode;
   /** vars() style of the active palette — re-anchor inside <Modal> trees. */
   varsStyle: Record<string, string>;
   setColorTheme: (id: string) => void;
@@ -116,6 +121,11 @@ export function MobileThemeProvider({ children }: { children: ReactNode }) {
   const activeThemeId =
     getTheme(slots[resolved])?.mode === resolved ? slots[resolved] : DEFAULT_THEME[resolved];
   const colors = THEME_TOKENS[activeThemeId] ?? THEME_TOKENS[DEFAULT_THEME[resolved]];
+  const increasedContrast = useIncreasedContrast();
+  const derived = useMemo(
+    () => deriveThemeColors(activeThemeId, resolved, { increasedContrast }),
+    [activeThemeId, resolved, increasedContrast],
+  );
 
   const varsStyle = useMemo(
     () =>
@@ -132,8 +142,19 @@ export function MobileThemeProvider({ children }: { children: ReactNode }) {
         "--color-destructive": hexToRgbTriplet(colors.destructive),
         "--color-border": hexToRgbTriplet(colors.border),
         "--color-input": hexToRgbTriplet(colors.input),
+        "--color-popover": hexToRgbTriplet(derived.popover),
+        "--color-success": hexToRgbTriplet(derived.success),
+        "--color-warning": hexToRgbTriplet(derived.warning),
+        "--color-fill-1": derived.fill1,
+        "--color-fill-2": derived.fill2,
+        "--color-fill-3": derived.fill3,
+        "--color-fill-4": derived.fill4,
+        "--color-separator": derived.separator,
+        "--color-separator-strong": derived.separatorStrong,
+        "--color-material-toolbar": derived.materialToolbar,
+        "--color-material-popover": derived.materialPopover,
       }),
-    [colors],
+    [colors, derived],
   );
 
   const setModeSetting = useCallback((mode: ThemeModeSetting) => {
@@ -184,12 +205,14 @@ export function MobileThemeProvider({ children }: { children: ReactNode }) {
       slots,
       modeSetting,
       colors,
+      derived,
+      resolvedMode: resolved,
       varsStyle,
       setColorTheme,
       setModeSetting,
       adoptColorThemes,
     }),
-    [activeThemeId, slots, modeSetting, colors, varsStyle, setColorTheme, setModeSetting, adoptColorThemes],
+    [activeThemeId, slots, modeSetting, colors, derived, resolved, varsStyle, setColorTheme, setModeSetting, adoptColorThemes],
   );
 
   return (
@@ -206,10 +229,32 @@ export function useAppTheme(): AppThemeContextValue {
 }
 
 /**
- * Drop-in successor of lib/theme.ts' `themeColors(useColorScheme())`: the
- * active theme's palette for navigator chrome, StatusBar, ActivityIndicator,
- * placeholderTextColor and other JS-prop surfaces.
+ * The active theme's palette plus its derived colours, for navigator chrome,
+ * StatusBar, ActivityIndicator, placeholderTextColor, SVG strokes and other
+ * JS-prop surfaces classes can't reach.
  */
-export function useThemeColors(): MobileThemeTokens {
-  return useAppTheme().colors;
+export function useThemeColors(): MobileThemeTokens & DerivedThemeColors {
+  const { colors, derived } = useAppTheme();
+  return useMemo(() => ({ ...colors, ...derived }), [colors, derived]);
+}
+
+/**
+ * The system's Increase Contrast (iOS) or high-contrast text (Android)
+ * setting; separators strengthen under it, as on the web.
+ */
+function useIncreasedContrast(): boolean {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    const read =
+      Platform.OS === "ios"
+        ? AccessibilityInfo.isDarkerSystemColorsEnabled()
+        : AccessibilityInfo.isHighTextContrastEnabled();
+    read.then(setOn).catch(() => {});
+    const sub = AccessibilityInfo.addEventListener(
+      Platform.OS === "ios" ? "darkerSystemColorsChanged" : "highTextContrastChanged",
+      setOn,
+    );
+    return () => sub.remove();
+  }, []);
+  return on;
 }

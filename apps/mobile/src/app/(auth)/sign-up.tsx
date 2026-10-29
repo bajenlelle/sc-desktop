@@ -1,33 +1,46 @@
-import { useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  Text,
-  View,
-} from "react-native";
-import { Link } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useRef, useState } from "react";
+import { View, type TextInput } from "react-native";
+import { router } from "expo-router";
 import { supabase } from "@/lib/supabase";
-import { Button } from "@/components/Button";
-import { Input } from "@/components/Input";
+import { useThemeColors } from "@/lib/theme-context";
+import { AuthError, AuthFootnote, AuthHeading, AuthShell, FieldGroup, FieldRow, GroupField } from "@/components/auth/AuthFrame";
+import { Button } from "@/components/ui/Button";
+import { Icon } from "@/components/ui/Icon";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { Text } from "@/components/ui/Text";
 
 type DeclaredRole = "coach" | "player";
 
+/** Back to the sign-in screen this was opened from, or to a fresh one. */
+function backToSignIn() {
+  if (router.canGoBack()) router.back();
+  else router.replace("/sign-in");
+}
+
+const ROLE_HINT: Record<DeclaredRole, string> = {
+  coach: "Scout opponents, cut clips and share playlists with your team.",
+  player: "Study your games and build your own highlight tapes.",
+};
+
 export default function SignUp() {
+  const colors = useThemeColors();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  // Mobile is the player app — default the toggle to "player" (web has no default).
+  // Mobile is the player app: the choice starts on "I play" (the web has no default).
   const [role, setRole] = useState<DeclaredRole>("player");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+  const lastRef = useRef<TextInput>(null);
+  const emailRef = useRef<TextInput>(null);
+  const passwordRef = useRef<TextInput>(null);
+  const confirmRef = useRef<TextInput>(null);
 
   async function handleSignUp() {
+    if (!firstName.trim() || !email.trim() || !password || !confirm || submitting) return;
     setError(null);
     if (password.length < 6) {
       setError("Password must be at least 6 characters.");
@@ -58,125 +71,133 @@ export default function SignUp() {
 
   if (done) {
     return (
-      <SafeAreaView className="flex-1 items-center justify-center bg-background px-6">
-        <Text className="font-heading text-3xl text-foreground">
-          Check your email
-        </Text>
-        <Text className="mt-2 text-center text-base text-muted-foreground">
-          We sent a confirmation link to {email.trim()}. Confirm your address, then come back and
-          sign in.
-        </Text>
-        <Link href="/sign-in" asChild>
-          <Text className="mt-6 text-base font-semibold text-primary">
-            Back to sign in
+      <AuthShell>
+        <View className="items-center">
+          <View className="mb-4 h-12 w-12 items-center justify-center rounded-full bg-primary/[0.12]">
+            <Icon name="mail" size={24} color={colors.primary} />
+          </View>
+          <Text variant="title1" accessibilityRole="header" className="text-center">
+            Check your inbox
           </Text>
-        </Link>
-      </SafeAreaView>
+          <Text variant="callout" className="mt-1.5 text-center text-muted-foreground">
+            We sent a confirmation link to <Text variant="callout" className="font-medium">{email.trim()}</Text>. Open it to
+            activate your account.
+          </Text>
+        </View>
+        <AuthFootnote>
+          <Text variant="callout" className="text-muted-foreground">
+            Already confirmed?
+          </Text>
+          <Text variant="callout" accessibilityRole="link" onPress={backToSignIn} className="font-medium text-primary">
+            Sign in
+          </Text>
+        </AuthFootnote>
+      </AuthShell>
     );
   }
 
+  const mismatch = confirm !== "" && confirm !== password;
+
   return (
-    <SafeAreaView className="flex-1 bg-background">
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        className="flex-1"
-      >
-        <ScrollView
-          contentContainerClassName="flex-grow justify-center px-6 py-8"
-          keyboardShouldPersistTaps="handled"
-        >
-          <Text className="font-heading text-4xl text-foreground">
-            Create account
+    <AuthShell>
+      <AuthHeading title="Create your account" />
+      <View className="gap-3">
+        <View className="gap-1.5">
+          <SegmentedControl<DeclaredRole>
+            fullWidth
+            size="md"
+            accessibilityLabel="I'm a"
+            value={role}
+            onValueChange={setRole}
+            segments={[
+              { value: "coach", label: "I coach" },
+              { value: "player", label: "I play" },
+            ]}
+          />
+          <Text variant="callout" className="px-1 text-center text-muted-foreground">
+            {ROLE_HINT[role]}
           </Text>
-
-          <View className="mt-8 gap-4">
-            <View className="flex-row gap-3">
-              <View className="flex-1">
-                <Input label="First name" value={firstName} onChangeText={setFirstName} autoComplete="given-name" />
-              </View>
-              <View className="flex-1">
-                <Input label="Last name" value={lastName} onChangeText={setLastName} autoComplete="family-name" />
-              </View>
-            </View>
-
-            <View>
-              <Text className="mb-1.5 text-sm font-medium text-foreground">
-                I&apos;m a…
-              </Text>
-              <View className="flex-row gap-3">
-                {(["player", "coach"] as const).map((r) => (
-                  <Pressable
-                    key={r}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: role === r }}
-                    onPress={() => setRole(r)}
-                    className={`min-h-[48px] flex-1 items-center justify-center rounded-lg border ${
-                      role === r
-                        ? "border-primary bg-primary/10"
-                        : "border-border"
-                    }`}
-                  >
-                    <Text
-                      className={`text-base font-semibold ${
-                        role === r
-                          ? "text-primary"
-                          : "text-foreground"
-                      }`}
-                    >
-                      {r === "player" ? "Player" : "Coach"}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-
-            <Input
-              label="Email"
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              autoComplete="email"
-              keyboardType="email-address"
-              textContentType="emailAddress"
+        </View>
+        <FieldGroup>
+          <FieldRow>
+            <GroupField
+              accessibilityLabel="First name"
+              placeholder="First name"
+              value={firstName}
+              onChangeText={setFirstName}
+              autoComplete="given-name"
+              textContentType="givenName"
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => lastRef.current?.focus()}
             />
-            <Input
-              label="Password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoComplete="new-password"
-              textContentType="newPassword"
+            <GroupField
+              ref={lastRef}
+              accessibilityLabel="Last name"
+              placeholder="Last name"
+              value={lastName}
+              onChangeText={setLastName}
+              autoComplete="family-name"
+              textContentType="familyName"
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => emailRef.current?.focus()}
             />
-            <Input
-              label="Confirm password"
-              value={confirm}
-              onChangeText={setConfirm}
-              secureTextEntry
-              autoComplete="new-password"
-            />
-            {error ? (
-              <Text className="text-sm text-destructive">{error}</Text>
-            ) : null}
-            <Button
-              title="Create account"
-              onPress={handleSignUp}
-              loading={submitting}
-              disabled={!firstName.trim() || !email.trim() || !password || !confirm}
-            />
-          </View>
-
-          <View className="mt-8 flex-row justify-center gap-1">
-            <Text className="text-sm text-muted-foreground">
-              Already have an account?
-            </Text>
-            <Link href="/sign-in" asChild>
-              <Text className="text-sm font-semibold text-primary">
-                Sign in
-              </Text>
-            </Link>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+          </FieldRow>
+          <GroupField
+            ref={emailRef}
+            accessibilityLabel="Email"
+            placeholder="Email"
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            autoComplete="email"
+            keyboardType="email-address"
+            textContentType="emailAddress"
+            returnKeyType="next"
+            submitBehavior="submit"
+            onSubmitEditing={() => passwordRef.current?.focus()}
+          />
+          <GroupField
+            ref={passwordRef}
+            accessibilityLabel="Password"
+            placeholder="Password (at least 6 characters)"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            autoComplete="new-password"
+            textContentType="newPassword"
+            returnKeyType="next"
+            submitBehavior="submit"
+            onSubmitEditing={() => confirmRef.current?.focus()}
+          />
+          <GroupField
+            ref={confirmRef}
+            accessibilityLabel="Confirm password"
+            placeholder="Confirm password"
+            value={confirm}
+            onChangeText={setConfirm}
+            secureTextEntry
+            autoComplete="new-password"
+            textContentType="newPassword"
+            invalid={mismatch}
+            returnKeyType="go"
+            onSubmitEditing={handleSignUp}
+          />
+        </FieldGroup>
+        <AuthError message={error} />
+        <Button onPress={handleSignUp} loading={submitting} disabled={!firstName.trim() || !email.trim() || !password || !confirm}>
+          Create account
+        </Button>
+      </View>
+      <AuthFootnote>
+        <Text variant="callout" className="text-muted-foreground">
+          Already have an account?
+        </Text>
+        <Text variant="callout" accessibilityRole="link" onPress={backToSignIn} className="font-medium text-primary">
+          Sign in
+        </Text>
+      </AuthFootnote>
+    </AuthShell>
   );
 }

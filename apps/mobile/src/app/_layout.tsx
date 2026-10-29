@@ -1,25 +1,20 @@
+// Before anything that might create a client: dev-only read-only mode.
+import "@/lib/dev-read-only";
 import "../global.css";
 
-import { useEffect } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as Sentry from "@sentry/react-native";
 import { setDbErrorReporter } from "@scoutable/shared/lib/report";
-import { Stack, usePathname, type ErrorBoundaryProps } from "expo-router";
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider, usePathname, type ErrorBoundaryProps } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { Pressable, Text, View, useColorScheme } from "react-native";
+import { Platform, Pressable, Text, View, useColorScheme } from "react-native";
+import { SymbolView } from "expo-symbols";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import * as ScreenOrientation from "expo-screen-orientation";
 import { initAnalytics, trackEvent } from "@/lib/analytics";
-import {
-  useFonts,
-  DMSans_400Regular,
-  DMSans_500Medium,
-  DMSans_700Bold,
-} from "@expo-google-fonts/dm-sans";
-import {
-  BarlowCondensed_600SemiBold,
-  BarlowCondensed_700Bold,
-} from "@expo-google-fonts/barlow-condensed";
 import { AuthProvider } from "@/lib/auth-context";
-import { MobileThemeProvider, useThemeColors } from "@/lib/theme-context";
+import { MobileThemeProvider, useAppTheme, useThemeColors } from "@/lib/theme-context";
 import { ThemeSync } from "@/components/ThemeSync";
 import { themeColors } from "@/lib/theme";
 
@@ -57,6 +52,32 @@ setDbErrorReporter((fn, e) => {
  * it the app-wide render-error screen (replaces the dev-only red screen in
  * production builds).
  */
+/** The error screen's button, in plain styles (see ErrorBoundary). */
+function RetryButton({ onPress, background, color }: { onPress: () => void; background: string; color: string }) {
+  const [pressed, setPressed] = useState(false);
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
+      style={{
+        marginTop: 24,
+        width: "100%",
+        height: 44,
+        borderRadius: 4,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: background,
+        opacity: pressed ? 0.9 : 1,
+        transform: [{ scale: pressed ? 0.97 : 1 }],
+      }}
+    >
+      <Text style={{ fontSize: 17, fontWeight: "500", color }}>Try again</Text>
+    </Pressable>
+  );
+}
+
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   const scheme = useColorScheme();
   const colors = themeColors(scheme);
@@ -64,48 +85,57 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   // Render errors bypass Sentry's global handlers, so report explicitly.
   Sentry.captureException(error);
 
+  // The app's StatusScreen look, in plain styles: this renders in place of the
+  // root layout, outside the theme provider that NativeWind's tokens need.
   return (
-    <View
-      style={{
-        flex: 1,
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
-        backgroundColor: colors.background,
-      }}
-    >
-      <Text style={{ fontSize: 18, fontWeight: "600", color: colors.foreground, marginBottom: 8 }}>
-        Something went wrong
-      </Text>
-      <Text
-        style={{
-          fontSize: 14,
-          color: colors.mutedForeground,
-          textAlign: "center",
-          marginBottom: 20,
-        }}
-      >
-        The error has been reported automatically. Tap below to try again.
-      </Text>
-      <Pressable
-        onPress={retry}
-        style={{
-          backgroundColor: colors.primary,
-          borderRadius: 8,
-          paddingHorizontal: 20,
-          paddingVertical: 10,
-        }}
-      >
-        <Text style={{ color: colors.primaryForeground, fontWeight: "600" }}>Try again</Text>
-      </Pressable>
+    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, backgroundColor: colors.background }}>
+      <View style={{ width: "100%", maxWidth: 440, alignItems: "center" }}>
+        <View
+          style={{
+            width: 48,
+            height: 48,
+            borderRadius: 24,
+            alignItems: "center",
+            justifyContent: "center",
+            marginBottom: 16,
+            backgroundColor: scheme === "dark" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
+          }}
+        >
+          <SymbolView
+            name={{ ios: "exclamationmark.triangle", android: "warning" }}
+            size={24}
+            tintColor={colors.mutedForeground}
+            accessible={false}
+          />
+        </View>
+        <Text
+          accessibilityRole="header"
+          style={{ fontSize: 22, lineHeight: 28, fontWeight: "700", color: colors.foreground, textAlign: "center" }}
+        >
+          Something went wrong
+        </Text>
+        <Text style={{ marginTop: 6, fontSize: 17, lineHeight: 22, color: colors.mutedForeground, textAlign: "center" }}>
+          The error has been reported automatically. Tap below to try again.
+        </Text>
+        <RetryButton onPress={retry} background={colors.primary} color={colors.primaryForeground} />
+      </View>
     </View>
   );
 }
 
+/**
+ * Routes shown as sheets over another screen. They aren't page views, and
+ * closing one isn't a new view of the screen underneath.
+ */
+const SHEET_PATHS = new Set(["/feedback", "/delete-account"]);
+
 /** Mobile twin of web's PostHogProvider pageview effect. */
 function PageTracker() {
   const pathname = usePathname();
+  const lastRef = useRef<string | null>(null);
   useEffect(() => {
+    if (SHEET_PATHS.has(pathname) || pathname === lastRef.current) return;
+    lastRef.current = pathname;
     trackEvent("page_viewed", { path: pathname });
   }, [pathname]);
   return null;
@@ -118,9 +148,33 @@ function PageTracker() {
  */
 function ThemedShell() {
   const colors = useThemeColors();
+  const { resolvedMode } = useAppTheme();
+  // Native bars (headers, tabs, back buttons) take their colours from the
+  // navigation theme, so they follow the eight colour themes like the rest.
+  const navTheme = useMemo(() => {
+    const base = resolvedMode === "dark" ? DarkTheme : DefaultTheme;
+    return {
+      ...base,
+      dark: resolvedMode === "dark",
+      colors: {
+        ...base.colors,
+        primary: colors.primary,
+        background: colors.background,
+        card: colors.background,
+        text: colors.foreground,
+        border: colors.separator,
+        notification: colors.destructive,
+      },
+    };
+  }, [colors, resolvedMode]);
   return (
-    <>
+    <ThemeProvider value={navTheme}>
       <PageTracker />
+      {/* Android draws icons from a Material Symbols font; load it before the
+          first screen so icons never flash in blank. */}
+      {Platform.OS === "android" && (
+        <SymbolView name={{ android: "check" }} size={1} style={{ position: "absolute", opacity: 0 }} />
+      )}
       <Stack
         screenOptions={{
           headerShown: false,
@@ -128,33 +182,29 @@ function ThemedShell() {
         }}
       />
       <StatusBar style="auto" />
-    </>
+    </ThemeProvider>
   );
 }
 
 function RootLayout() {
   useEffect(() => {
     trackEvent("app_started");
+    // Portrait everywhere; the player's fullscreen unlocks rotation while it
+    // is open. (The iOS plugin sets the same lock before launch.)
+    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
   }, []);
 
-  // Fonts load async; rendering with system fallbacks until then beats a blank screen.
-  useFonts({
-    DMSans_400Regular,
-    DMSans_500Medium,
-    DMSans_700Bold,
-    BarlowCondensed_600SemiBold,
-    BarlowCondensed_700Bold,
-  });
-
   return (
-    <SafeAreaProvider>
-      <AuthProvider>
-        <MobileThemeProvider>
-          <ThemeSync />
-          <ThemedShell />
-        </MobileThemeProvider>
-      </AuthProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <AuthProvider>
+          <MobileThemeProvider>
+            <ThemeSync />
+            <ThemedShell />
+          </MobileThemeProvider>
+        </AuthProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 

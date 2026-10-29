@@ -1,11 +1,18 @@
 import { Redirect, Stack } from "expo-router";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, Platform, View } from "react-native";
 import { useAuth } from "@/lib/auth-context";
 import { PlaylistsProvider } from "@/lib/playlists-store";
 import { MyTeamProvider } from "@/lib/my-team";
 import { DeviceGateScreen } from "@/components/DeviceGateScreen";
 import { NotificationsBridge } from "@/components/NotificationsBridge";
 import { useThemeColors } from "@/lib/theme-context";
+
+const sheetOptions = {
+  presentation: "formSheet",
+  sheetAllowedDetents: "fitToContents",
+  sheetGrabberVisible: Platform.OS === "ios",
+  sheetCornerRadius: 14,
+} as const;
 
 export default function AppLayout() {
   const { user, loading, deviceBlocked } = useAuth();
@@ -24,7 +31,11 @@ export default function AppLayout() {
     <MyTeamProvider>
       <PlaylistsProvider>
         <NotificationsBridge />
-        <Stack screenOptions={{ headerShown: false }} />
+        <Stack screenOptions={{ headerShown: false, headerBackButtonDisplayMode: "minimal" }}>
+          {/* Short forms rise as native sheets over the screen they belong to. */}
+          <Stack.Screen name="feedback" options={sheetOptions} />
+          <Stack.Screen name="delete-account" options={sheetOptions} />
+        </Stack>
       </PlaylistsProvider>
     </MyTeamProvider>
   );

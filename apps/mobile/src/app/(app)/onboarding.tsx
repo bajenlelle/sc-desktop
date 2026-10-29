@@ -1,14 +1,14 @@
 import { useState } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from "react-native";
+import { View } from "react-native";
 import { router } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { joinByCode } from "@scoutable/shared/lib/profile-db";
 import { supabase } from "@/lib/supabase";
 import { trackEvent } from "@/lib/analytics";
 import { signOutAndCleanup } from "@/lib/notifications";
 import { useAuth } from "@/lib/auth-context";
-import { Button } from "@/components/Button";
-import { Input } from "@/components/Input";
+import { successHaptic } from "@/lib/haptics";
+import { AuthError, AuthHeading, AuthShell, FieldGroup, GroupField } from "@/components/auth/AuthFrame";
+import { Button } from "@/components/ui/Button";
 
 /** Accepts a raw code or a pasted /join/<code> URL (same regex as web). */
 function extractCode(input: string): string {
@@ -24,12 +24,14 @@ export default function Onboarding() {
   const [submitting, setSubmitting] = useState(false);
 
   async function handleJoin() {
+    if (!input.trim() || submitting) return;
     setError(null);
     setSubmitting(true);
     try {
       const code = extractCode(input);
       const result = await joinByCode(supabase, code);
       trackEvent("org_joined", { org_id: result.orgId });
+      successHaptic();
       // Order matters: persist the org choice before the reload resolves it.
       setActiveOrg(result.orgId);
       await reloadProfile();
@@ -41,44 +43,30 @@ export default function Onboarding() {
     }
   }
 
-  async function handleSignOut() {
-    await signOutAndCleanup();
-  }
-
   return (
-    <SafeAreaView className="flex-1 bg-background">
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        className="flex-1"
-      >
-        <ScrollView
-          contentContainerClassName="flex-grow justify-center px-6 py-8"
-          keyboardShouldPersistTaps="handled"
-        >
-          <Text className="font-heading text-4xl text-foreground">
-            Join your club
-          </Text>
-          <Text className="mt-2 text-base text-muted-foreground">
-            Enter the invite code from your coach, or paste the invite link.
-          </Text>
-
-          <View className="mt-8 gap-4">
-            <Input
-              value={input}
-              onChangeText={setInput}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              placeholder="ABC123 or invite link"
-              onSubmitEditing={handleJoin}
-            />
-            {error ? (
-              <Text className="text-sm text-destructive">{error}</Text>
-            ) : null}
-            <Button title="Join" onPress={handleJoin} loading={submitting} disabled={!input.trim()} />
-            <Button title="Sign out" variant="ghost" onPress={handleSignOut} />
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+    <AuthShell>
+      <AuthHeading title="Join your club" description="Enter the invite code from your coach, or paste the invite link." />
+      <View className="gap-3">
+        <FieldGroup>
+          <GroupField
+            accessibilityLabel="Invite code or link"
+            placeholder="ABC123 or invite link"
+            value={input}
+            onChangeText={setInput}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            returnKeyType="join"
+            onSubmitEditing={handleJoin}
+          />
+        </FieldGroup>
+        <AuthError message={error} />
+        <Button onPress={handleJoin} loading={submitting} disabled={!input.trim()}>
+          Join
+        </Button>
+        <Button variant="ghost" onPress={() => signOutAndCleanup()}>
+          Sign out
+        </Button>
+      </View>
+    </AuthShell>
   );
 }

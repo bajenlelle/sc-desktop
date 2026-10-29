@@ -4,17 +4,19 @@
  * /join/[code] page: preview → join → land in the feed.
  */
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
+import { ActivityIndicator, View } from "react-native";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { getInvitePreview, joinByCode } from "@scoutable/shared/lib/profile-db";
 import type { InviteInvalidReason } from "@scoutable/shared/types/org";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { trackEvent } from "@/lib/analytics";
+import { successHaptic } from "@/lib/haptics";
 import { setPendingJoinCode } from "@/lib/pending-join";
 import { useThemeColors } from "@/lib/theme-context";
-import { Button } from "@/components/Button";
+import { Button } from "@/components/ui/Button";
+import { StatusScreen } from "@/components/ui/EmptyState";
+import { Text } from "@/components/ui/Text";
 
 const INVALID_COPY: Record<InviteInvalidReason, string> = {
   not_found: "This invite link doesn't exist. Double-check the link or ask your coach for a new one.",
@@ -52,6 +54,7 @@ export default function JoinScreen() {
         const result = await joinByCode(supabase, normalized);
         if (cancelled) return;
         trackEvent("org_joined", { org_id: result.orgId });
+        successHaptic();
         setActiveOrg(result.orgId);
         await reloadProfile();
         router.replace("/playlists");
@@ -71,28 +74,23 @@ export default function JoinScreen() {
     return <Redirect href="/sign-in" />;
   }
 
+  if (error) {
+    return (
+      <StatusScreen
+        icon="warning"
+        title="Can't join"
+        body={error}
+        actions={<Button onPress={() => router.replace("/playlists")}>Go to my playlists</Button>}
+      />
+    );
+  }
+
   return (
-    <SafeAreaView className="flex-1 bg-background">
-      <View className="flex-1 items-center justify-center gap-4 px-6">
-        {error ? (
-          <>
-            <Text className="text-center font-heading text-3xl text-foreground">
-              Can&apos;t join
-            </Text>
-            <Text className="text-center text-base text-muted-foreground">
-              {error}
-            </Text>
-            <Button title="Go to my playlists" onPress={() => router.replace("/playlists")} />
-          </>
-        ) : (
-          <>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text className="text-base text-muted-foreground">
-              {orgName ? `Joining ${orgName}…` : "Checking your invite…"}
-            </Text>
-          </>
-        )}
-      </View>
-    </SafeAreaView>
+    <View className="flex-1 items-center justify-center gap-4 bg-background px-6">
+      <ActivityIndicator color={colors.mutedForeground} />
+      <Text variant="callout" className="text-muted-foreground">
+        {orgName ? `Joining ${orgName}…` : "Checking your invite…"}
+      </Text>
+    </View>
   );
 }
