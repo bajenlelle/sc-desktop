@@ -34,7 +34,6 @@ export function FeedFilterSheet({
       visible={visible}
       onClose={onClose}
       title="Filters"
-      scrollable
       trailing={active ? <TextButton label="Reset" size="body" onPress={() => onChange(NO_FEED_FILTERS)} /> : undefined}
     >
       <RadioGroup<WatchFilter>

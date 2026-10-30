@@ -24,8 +24,10 @@ import { useAppTheme, useThemeColors } from "@/lib/theme-context";
 /**
  * Sheets render here, above the stack and the tab bar, instead of inside the
  * screen that opens them: an in-tree host rather than RN's <Modal>, so they
- * keep the theme variables and every provider above the host. Mounted in
- * app/(app)/_layout.tsx.
+ * keep the theme variables. Mounted in the root layout inside the theme
+ * provider, so signed-out screens can open sheets too. A sheet's content
+ * sees the providers above the host (theme, auth, safe area), not the
+ * screen's: pass it what it needs as props.
  */
 const HostContext = createContext<{ mount: (id: string, node: ReactNode | null) => void } | null>(null);
 
@@ -61,8 +63,6 @@ export interface SheetProps {
   trailing?: ReactNode;
   /** Dark in both modes, in the user's dark theme (menus over the player). */
   appearance?: "dark";
-  /** Long content scrolls inside the sheet. */
-  scrollable?: boolean;
   accessibilityLabel?: string;
   children: ReactNode;
 }
@@ -81,6 +81,7 @@ export function Sheet(props: SheetProps) {
     if (props.visible) setMounted(true);
   }, [props.visible]);
   const panel = mounted ? <SheetPanel {...props} onExited={() => setMounted(false)} /> : null;
+  if (__DEV__ && !host) console.warn("Sheet rendered outside SheetHost: it can't open.");
   useLayoutEffect(() => {
     host?.mount(id, panel);
   });
@@ -95,7 +96,6 @@ function SheetPanel({
   title,
   trailing,
   appearance,
-  scrollable,
   accessibilityLabel,
   children,
 }: SheetProps & { onExited: () => void }) {
@@ -141,7 +141,6 @@ function SheetPanel({
 
   const panelStyle = useAnimatedStyle(() => ({ transform: [{ translateY: translateY.value }] }));
   const scrimStyle = useAnimatedStyle(() => ({ opacity: scrim.value }));
-  const Body = scrollable ? ScrollView : View;
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents={visible ? "auto" : "none"}>
@@ -181,7 +180,11 @@ function SheetPanel({
             ) : null}
           </View>
         </GestureDetector>
-        <Body>{children}</Body>
+        {/* Always able to scroll: content that fits doesn't move, and content
+            taller than the screen (a menu in landscape) stays reachable. */}
+        <ScrollView bounces={false} alwaysBounceVertical={false} showsVerticalScrollIndicator={false}>
+          {children}
+        </ScrollView>
       </Animated.View>
     </View>
   );
@@ -219,7 +222,7 @@ export function MenuSheet<T extends string>({
   const lightColors = useThemeColors();
   const colors = appearance === "dark" ? theme.darkColors : lightColors;
   return (
-    <Sheet visible={visible} onClose={onClose} title={title} appearance={appearance} scrollable={options.length > 8}>
+    <Sheet visible={visible} onClose={onClose} title={title} appearance={appearance}>
       <View className="pt-1">
         {options.map((o, i) => {
           const on = o.value === value;

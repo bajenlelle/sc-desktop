@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { router } from "expo-router";
 import { clipViewKey } from "@scoutable/shared/lib/clip-views-db";
@@ -48,6 +48,10 @@ export default function PlaylistsScreen() {
   const [filters, setFilters] = useState<FeedFilters>(NO_FEED_FILTERS);
   const [dashFilters, setDashFilters] = useState<DashboardFilters>(NO_DASHBOARD_FILTERS);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  /** The dashboard's shared playlists (null while it loads): no filter button without any. */
+  const [dashRows, setDashRows] = useState<number | null>(null);
+  // A sheet left open for one view never opens over the other.
+  useEffect(() => setFiltersOpen(false), [coachTab]);
   const clearFilters = useCallback(() => {
     setFilters(NO_FEED_FILTERS);
     setQuery("");
@@ -133,7 +137,7 @@ export default function PlaylistsScreen() {
       refreshing={refreshing}
       onRefresh={handleRefresh}
       trailing={
-        !loading && (showDashboard || feedItems.length > 0) ? (
+        !loading && (showDashboard ? (dashRows ?? 0) > 0 : feedItems.length > 0) ? (
           <FilterButton
             activeCount={showDashboard ? activeDashboardFilterCount(dashFilters) : activeFilters}
             onPress={() => setFiltersOpen(true)}
@@ -188,6 +192,7 @@ export default function PlaylistsScreen() {
             onClearFilters={clearDashFilters}
             sheetOpen={filtersOpen && showDashboard}
             onCloseSheet={() => setFiltersOpen(false)}
+            onRowCountChange={setDashRows}
           />
         ) : (
           <PlaylistFeed

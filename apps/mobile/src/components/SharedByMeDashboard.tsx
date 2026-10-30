@@ -76,6 +76,7 @@ export function SharedByMeDashboard({
   onClearFilters,
   sheetOpen,
   onCloseSheet,
+  onRowCountChange,
 }: {
   query: string;
   refreshNonce: number;
@@ -85,6 +86,8 @@ export function SharedByMeDashboard({
   onClearFilters: () => void;
   sheetOpen: boolean;
   onCloseSheet: () => void;
+  /** How many shared playlists there are (null while loading), so the parent shows its filter button only when there is something to filter. */
+  onRowCountChange?: (count: number | null) => void;
 }) {
   const colors = useThemeColors();
   const toast = useToast();
@@ -134,6 +137,9 @@ export function SharedByMeDashboard({
   const counts = useMemo(() => dashboardCounts(inTeam), [inTeam]);
   const visibleRows = useMemo(() => visibleDashboardRows(inTeam, filters.status, filters.sort), [inTeam, filters.status, filters.sort]);
   const uploadIssues = rows.filter((r) => r.uploadingCount > 0).length;
+  useEffect(() => {
+    onRowCountChange?.(shared === null ? null : rows.length);
+  }, [shared, rows.length, onRowCountChange]);
   const setStatus = (status: StatusFilter) => onFiltersChange({ ...filters, status });
 
   async function handleRemind(playlistId: string, recipient: RecipientRow) {
@@ -196,7 +202,6 @@ export function SharedByMeDashboard({
       visible={sheetOpen}
       onClose={onCloseSheet}
       title="Filters"
-      scrollable
       trailing={
         activeDashboardFilterCount(filters) > 0 || filters.sort !== "recent" ? (
           <TextButton label="Reset" size="body" onPress={() => onFiltersChange(NO_DASHBOARD_FILTERS)} />

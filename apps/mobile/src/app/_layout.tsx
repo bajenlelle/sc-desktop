@@ -16,6 +16,8 @@ import { AuthProvider } from "@/lib/auth-context";
 import { MobileThemeProvider, useAppTheme, useThemeColors } from "@/lib/theme-context";
 import { ThemeSync } from "@/components/ThemeSync";
 import { Icon } from "@/components/ui/Icon";
+import { SheetHost } from "@/components/ui/Sheet";
+import { ToastHost } from "@/components/ui/Toast";
 import { themeColors } from "@/lib/theme";
 
 // DSNs are public identifiers, not secrets. Dev builds stay offline unless
@@ -180,7 +182,13 @@ function RootLayout() {
         <AuthProvider>
           <MobileThemeProvider>
             <ThemeSync />
-            <ThemedShell />
+            {/* Sheets and toasts render above every screen, signed in or out
+                (the sign-up role picker opens a menu sheet under large text). */}
+            <ToastHost>
+              <SheetHost>
+                <ThemedShell />
+              </SheetHost>
+            </ToastHost>
           </MobileThemeProvider>
         </AuthProvider>
       </SafeAreaProvider>

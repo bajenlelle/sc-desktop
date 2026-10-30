@@ -6,8 +6,6 @@ import { MyTeamProvider } from "@/lib/my-team";
 import { DeviceGateScreen } from "@/components/DeviceGateScreen";
 import { NotificationsBridge } from "@/components/NotificationsBridge";
 import { useThemeColors } from "@/lib/theme-context";
-import { SheetHost } from "@/components/ui/Sheet";
-import { ToastHost } from "@/components/ui/Toast";
 
 const sheetOptions = {
   presentation: "formSheet",
@@ -33,15 +31,11 @@ export default function AppLayout() {
     <MyTeamProvider>
       <PlaylistsProvider>
         <NotificationsBridge />
-        <ToastHost>
-          <SheetHost>
-            <Stack screenOptions={{ headerShown: false, headerBackButtonDisplayMode: "minimal" }}>
-              {/* Short forms with a keyboard rise as native sheets over the screen they belong to. */}
-              <Stack.Screen name="feedback" options={sheetOptions} />
-              <Stack.Screen name="delete-account" options={sheetOptions} />
-            </Stack>
-          </SheetHost>
-        </ToastHost>
+        <Stack screenOptions={{ headerShown: false, headerBackButtonDisplayMode: "minimal" }}>
+          {/* Short forms with a keyboard rise as native sheets over the screen they belong to. */}
+          <Stack.Screen name="feedback" options={sheetOptions} />
+          <Stack.Screen name="delete-account" options={sheetOptions} />
+        </Stack>
       </PlaylistsProvider>
     </MyTeamProvider>
   );

@@ -121,7 +121,7 @@ function ThemeGrid({ heading, themes, chosen }: { heading: string; themes: Color
 function ThemeSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const { slots } = useAppTheme();
   return (
-    <Sheet visible={visible} onClose={onClose} title="Theme" scrollable trailing={<TextButton label="Done" size="body" onPress={onClose} />}>
+    <Sheet visible={visible} onClose={onClose} title="Theme" trailing={<TextButton label="Done" size="body" onPress={onClose} />}>
       <ThemeGrid heading="Light" themes={COLOR_THEMES.filter((t) => t.mode === "light")} chosen={slots.light} />
       <ThemeGrid heading="Dark" themes={COLOR_THEMES.filter((t) => t.mode === "dark")} chosen={slots.dark} />
       <Text variant="footnote" className="px-4 pb-2 pt-5 text-muted-foreground">
