@@ -22,6 +22,3 @@ export const CONTENT_TOP = 8;
 export const CONTENT_BOTTOM = 40;
 /** Button heights: xs, sm, default, lg. */
 export const BUTTON_H = { xs: 36, sm: 40, default: 44, lg: 48 } as const;
-/** A clip row's leading slot (ring, dot) and the gap after it. */
-export const LEADING_SLOT = 18;
-export const LEADING_GAP = 12;

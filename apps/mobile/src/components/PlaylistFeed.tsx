@@ -1,12 +1,15 @@
 /**
- * The player's feed, calmer than the web's phone layout it started from: an
- * Up next row instead of a tinted hero card, then New, In progress and
- * Watched as plain rows on the page with a ring or a dot in front; once the
- * feed mixes teams, each row names its team above the name. Filters
+ * What was shared with me: the player's feed (and a coach's Shared with me),
+ * one card per playlist on the grouped floor, as Shared by me. A card reads
+ * top to bottom as where it came from (the team, once the feed mixes
+ * teams), what it is (the name, with a dot and semibold while new) and who
+ * sent it when; a started playlist adds its progress and Resume. Up next
+ * leads as the one card with a filled button, then New, In progress and
+ * Watched; Watched shows its three latest until asked for the rest. Filters
  * and sort live behind the title bar's filter button (FeedFilterSheet); this
  * component only reads them. Renders inside the screen's scroll view.
  */
-import { useMemo } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { View } from "react-native";
 import {
   computeHero,
@@ -18,15 +21,22 @@ import {
   watchStateOf,
   byLastWatched,
   byNewest,
+  type FeedHero,
   type FeedPlaylist,
   type WatchFilter,
 } from "@scoutable/shared/lib/playlist-feed";
 import { relativeTime } from "@/lib/format";
+import { useLargeText } from "@/lib/a11y";
 import { useThemeColors } from "@/lib/theme-context";
+import { cn } from "@/lib/cn";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { ProgressRing } from "@/components/ui/ProgressRing";
-import { Dot, LEADING_INSET, PlainList, Row, SectionHeader, TextButton } from "@/components/ui/Row";
+import { Icon } from "@/components/ui/Icon";
+import { Dot, SectionHeader, TextButton } from "@/components/ui/Row";
+import { Tappable } from "@/components/ui/Tappable";
 import { Text } from "@/components/ui/Text";
+import { WatchBar } from "@/components/ui/WatchBar";
 
 export type { FeedPlaylist };
 
@@ -38,11 +48,48 @@ export interface FeedFilters {
 
 export const NO_FEED_FILTERS: FeedFilters = { watch: "all", source: "all", sharer: "all" };
 
+/** Watched playlists shown before "Show all": the latest few, the rest on request. */
+const WATCHED_PREVIEW = 3;
+
 function clipsLabel(n: number): string {
   return `${n} clip${n === 1 ? "" : "s"}`;
 }
 
-function FeedRow({
+/** "Karin Ahl · 12 clips · 2h ago": who sent it, how much, when. */
+function metaLine(p: FeedPlaylist): string {
+  return [p.sharerName ?? "A coach", clipsLabel(p.clipCount), relativeTime(p.sharedAt)].filter(Boolean).join(" · ");
+}
+
+/** The playlist's own progress: a bar and "2 of 6 watched". Decorative bar; the words carry it. */
+function Progress({ playlist, trailing }: { playlist: FeedPlaylist; trailing?: ReactNode }) {
+  const large = useLargeText();
+  const words = `${playlist.watchedCount} of ${playlist.clipCount} watched`;
+  const bar = <WatchBar done={playlist.watchedCount} started={playlist.watchedCount} total={playlist.clipCount} className={large ? undefined : "flex-1"} />;
+  if (large) {
+    return (
+      <View className="mt-3 gap-1.5">
+        {bar}
+        <View className="flex-row items-center justify-between gap-3">
+          <Text variant="footnote" nums className="text-muted-foreground">
+            {words}
+          </Text>
+          {trailing}
+        </View>
+      </View>
+    );
+  }
+  return (
+    <View className="mt-3 flex-row items-center gap-3">
+      {bar}
+      <Text variant="footnote" nums className="text-muted-foreground">
+        {words}
+      </Text>
+      {trailing}
+    </View>
+  );
+}
+
+function FeedCard({
   playlist,
   showSource,
   onOpen,
@@ -55,30 +102,109 @@ function FeedRow({
   onResume: () => void;
 }) {
   const colors = useThemeColors();
+  const large = useLargeText();
   const state = watchStateOf(playlist);
-  const progress = playlist.clipCount > 0 ? playlist.watchedCount / playlist.clipCount : 0;
-  const sharer = playlist.sharerName ?? "A coach";
-  const description =
-    state === "progress"
-      ? `${sharer} · ${playlist.watchedCount} of ${playlist.clipCount} watched`
-      : [sharer, clipsLabel(playlist.clipCount), relativeTime(playlist.sharedAt)].filter(Boolean).join(" · ");
   const source = showSource ? feedSourceLabel(playlist) : null;
+  const meta = metaLine(playlist);
+  const isNew = state === "new";
   return (
-    <Row
-      overline={source}
-      leading={state === "new" ? <Dot color={colors.primary} /> : <ProgressRing value={progress} />}
-      label={playlist.name}
-      emphasis={state === "new"}
-      description={description}
-      trailing={
-        state === "progress" ? (
-          <TextButton label="Resume" onPress={onResume} accessibilityLabel={`Resume ${playlist.name}`} />
-        ) : undefined
-      }
-      chevron={state !== "progress"}
-      onPress={onOpen}
-      accessibilityLabel={`${playlist.name}${state === "new" ? ", new" : ""}. ${source ? `${source}. ` : ""}${description}`}
-    />
+    <Card>
+      <Tappable
+        scaleTo={1}
+        accessibilityRole="button"
+        accessibilityLabel={[
+          `${playlist.name}${isNew ? ", new" : ""}`,
+          source,
+          meta,
+          state === "progress" ? `${playlist.watchedCount} of ${playlist.clipCount} watched` : state === "watched" ? "Watched" : null,
+        ]
+          .filter(Boolean)
+          .join(". ")}
+        onPress={onOpen}
+        className={({ pressed }) => cn("px-4 py-3", pressed && "bg-fill-1")}
+      >
+        <View className="flex-row items-start gap-3">
+          <View className="min-w-0 flex-1">
+            {source ? (
+              <Text variant="footnote" numberOfLines={large ? 2 : 1} className="text-muted-foreground">
+                {source}
+              </Text>
+            ) : null}
+            <View className="flex-row items-center gap-2">
+              {isNew ? <Dot color={colors.primary} /> : null}
+              <Text variant={isNew ? "headline" : "body"} numberOfLines={large ? 3 : 2} className="shrink">
+                {playlist.name}
+              </Text>
+            </View>
+            <Text variant="subheadline" nums numberOfLines={large ? undefined : 1} className="text-muted-foreground">
+              {meta}
+            </Text>
+          </View>
+          {state !== "progress" ? (
+            <Icon name="chevronRight" size={16} strokeWidth={2} color={colors.mutedForeground} style={{ opacity: 0.5, marginTop: source ? 20 : 3 }} />
+          ) : null}
+        </View>
+        {state === "progress" ? (
+          <Progress
+            playlist={playlist}
+            trailing={<TextButton label="Resume" onPress={onResume} accessibilityLabel={`Resume ${playlist.name}`} />}
+          />
+        ) : null}
+      </Tappable>
+    </Card>
+  );
+}
+
+/** The one thing to do next, as streaming apps lead with Continue watching: a card with a filled button. */
+function UpNextCard({
+  hero,
+  showSource,
+  onResume,
+}: {
+  hero: Exclude<FeedHero, { kind: "done" } | null>;
+  showSource: boolean;
+  onResume: (id: string) => void;
+}) {
+  const colors = useThemeColors();
+  const large = useLargeText();
+  const p = hero.playlist;
+  const source = showSource ? feedSourceLabel(p) : null;
+  const action = hero.kind === "continue" ? "Resume" : "Watch";
+  const meta = hero.kind === "continue" ? metaLine(p) : [hero.count === 1 ? "New" : `${hero.count} new`, metaLine(p)].join(" · ");
+  return (
+    <Card>
+      <Tappable
+        scaleTo={1}
+        accessibilityRole="button"
+        accessibilityLabel={[`${action} ${p.name}`, source, meta].filter(Boolean).join(". ")}
+        onPress={() => onResume(p.id)}
+        className={({ pressed }) => cn("px-4 pb-4 pt-3", pressed && "bg-fill-1")}
+      >
+        {source ? (
+          <Text variant="footnote" numberOfLines={large ? 2 : 1} className="text-muted-foreground">
+            {source}
+          </Text>
+        ) : null}
+        <View className="flex-row items-center gap-2">
+          {hero.kind === "start" ? <Dot color={colors.primary} /> : null}
+          <Text variant="title3" numberOfLines={large ? 4 : 2} className="shrink">
+            {p.name}
+          </Text>
+        </View>
+        <Text variant="subheadline" nums className="mt-0.5 text-muted-foreground">
+          {meta}
+        </Text>
+        {hero.kind === "continue" ? <Progress playlist={p} /> : null}
+        <Button
+          className="mt-4"
+          icon={<Icon name="play" size={16} color={colors.primaryForeground} />}
+          onPress={() => onResume(p.id)}
+          accessibilityLabel={`${action} ${p.name}`}
+        >
+          {action}
+        </Button>
+      </Tappable>
+    </Card>
   );
 }
 
@@ -88,22 +214,25 @@ function Section({
   showSource,
   onOpen,
   onResume,
+  footer,
 }: {
   title?: string;
   playlists: FeedPlaylist[];
   showSource: boolean;
   onOpen: (id: string) => void;
   onResume: (id: string) => void;
+  footer?: ReactNode;
 }) {
   if (playlists.length === 0) return null;
   return (
     <View>
       {title ? <SectionHeader title={title} count={playlists.length} /> : null}
-      <PlainList inset={LEADING_INSET}>
+      <View className="gap-2.5">
         {playlists.map((p) => (
-          <FeedRow key={p.id} playlist={p} showSource={showSource} onOpen={() => onOpen(p.id)} onResume={() => onResume(p.id)} />
+          <FeedCard key={p.id} playlist={p} showSource={showSource} onOpen={() => onOpen(p.id)} onResume={() => onResume(p.id)} />
         ))}
-      </PlainList>
+      </View>
+      {footer}
     </View>
   );
 }
@@ -128,8 +257,8 @@ export function PlaylistFeed({
   /** Overrides the no-playlists body copy (coaches get non-player phrasing). */
   emptyCopy?: string;
 }) {
-  const colors = useThemeColors();
   const { watch, source, sharer } = filters;
+  const [allWatched, setAllWatched] = useState(false);
   // Filtering, counts and the hero all live in @scoutable/shared/lib/playlist-feed (tested there).
   const inSource = useMemo(() => filterFeed(playlists, { query, sharer, source }), [playlists, source, sharer, query]);
   // Up next is over ALL playlists, not the filtered view: it's a call to action, not a result.
@@ -151,44 +280,16 @@ export function PlaylistFeed({
     );
   }
 
+  // Watched is the long tail: its latest few, the rest on request (a search shows every match).
+  const watchedShown = allWatched || searching ? sections.watched : sections.watched.slice(0, WATCHED_PREVIEW);
+  const watchedHidden = sections.watched.length - watchedShown.length;
+
   return (
     <View>
       {upNext && (
         <View>
           <SectionHeader title="Up next" />
-          <Row
-            leading={
-              upNext.kind === "continue" ? (
-                <ProgressRing
-                  value={upNext.playlist.clipCount > 0 ? upNext.playlist.watchedCount / upNext.playlist.clipCount : 0}
-                />
-              ) : (
-                <Dot color={colors.primary} />
-              )
-            }
-            label={upNext.playlist.name}
-            overline={showSource ? feedSourceLabel(upNext.playlist) : null}
-            emphasis
-            description={
-              upNext.kind === "continue"
-                ? `${upNext.playlist.watchedCount} of ${upNext.playlist.clipCount} watched · ${upNext.playlist.sharerName ?? "A coach"}`
-                : [
-                    upNext.count === 1 ? "New" : `${upNext.count} new`,
-                    upNext.playlist.sharerName ?? "A coach",
-                    relativeTime(upNext.playlist.sharedAt),
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")
-            }
-            trailing={
-              <TextButton
-                label={upNext.kind === "continue" ? "Resume" : "Watch"}
-                onPress={() => onResume(upNext.playlist.id)}
-                accessibilityLabel={`${upNext.kind === "continue" ? "Resume" : "Watch"} ${upNext.playlist.name}`}
-              />
-            }
-            onPress={() => onResume(upNext.playlist.id)}
-          />
+          <UpNextCard hero={upNext} showSource={showSource} onResume={onResume} />
         </View>
       )}
       {hero?.kind === "done" && !searching && (
@@ -208,11 +309,28 @@ export function PlaylistFeed({
         <View>
           <Section title="New" playlists={sections.new} showSource={showSource} onOpen={onOpen} onResume={onResume} />
           <Section title="In progress" playlists={sections.progress} showSource={showSource} onOpen={onOpen} onResume={onResume} />
-          <Section title="Watched" playlists={sections.watched} showSource={showSource} onOpen={onOpen} onResume={onResume} />
+          {sections.watched.length > 0 && (
+            <View>
+              <SectionHeader title="Watched" count={sections.watched.length} />
+              <View className="gap-2.5">
+                {watchedShown.map((p) => (
+                  <FeedCard key={p.id} playlist={p} showSource={showSource} onOpen={() => onOpen(p.id)} onResume={() => onResume(p.id)} />
+                ))}
+              </View>
+              {watchedHidden > 0 || (allWatched && sections.watched.length > WATCHED_PREVIEW && !searching) ? (
+                <View className="items-center pt-2">
+                  <TextButton
+                    label={watchedHidden > 0 ? `Show all ${sections.watched.length} watched` : "Show fewer"}
+                    onPress={() => setAllWatched(watchedHidden > 0)}
+                  />
+                </View>
+              ) : null}
+            </View>
+          )}
         </View>
       ) : (
         // With a filter on, a section title would only repeat it.
-        <View className="pt-2">
+        <View className="pt-3">
           <Section playlists={[...visible].sort(watch === "progress" ? byLastWatched : byNewest)} showSource={showSource} onOpen={onOpen} onResume={onResume} />
         </View>
       )}

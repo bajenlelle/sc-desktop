@@ -28,6 +28,7 @@ import { useThemeColors } from "@/lib/theme-context";
 import { useLargeText } from "@/lib/a11y";
 import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Icon } from "@/components/ui/Icon";
 import { RadioGroup } from "@/components/ui/RadioGroup";
@@ -394,10 +395,7 @@ function PlaylistCard({
   const hairline = { height: StyleSheet.hairlineWidth, backgroundColor: colors.separator };
 
   return (
-    <View
-      className="mx-4 overflow-hidden rounded-window bg-card"
-      style={{ borderWidth: StyleSheet.hairlineWidth, borderColor: colors.separator }}
-    >
+    <Card>
       <Tappable
         scaleTo={1}
         accessibilityRole="button"
@@ -529,6 +527,6 @@ function PlaylistCard({
           </View>
         </Animated.View>
       )}
-    </View>
+    </Card>
   );
 }
