@@ -16,7 +16,12 @@ import { NO_FEED_FILTERS, PlaylistFeed, type FeedFilters } from "@/components/Pl
 import { FeedFilterSheet } from "@/components/FeedFilterSheet";
 import { FilterButton } from "@/components/ui/FilterButton";
 import { Text } from "@/components/ui/Text";
-import { SharedByMeDashboard } from "@/components/SharedByMeDashboard";
+import {
+  activeDashboardFilterCount,
+  NO_DASHBOARD_FILTERS,
+  SharedByMeDashboard,
+  type DashboardFilters,
+} from "@/components/SharedByMeDashboard";
 import { LicenseNotice } from "@/components/LicenseNotice";
 import { NotificationPrimer } from "@/components/NotificationPrimer";
 import { Screen } from "@/components/shell/Screen";
@@ -40,12 +45,15 @@ export default function PlaylistsScreen() {
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [coachTab, setCoachTab] = useState<"by-me" | "with-me">("by-me");
   const [query, setQuery] = useState("");
-  /** Clear filters empties the search too. */
-  const clearQuery = useCallback(() => setQuery(""), []);
   const [filters, setFilters] = useState<FeedFilters>(NO_FEED_FILTERS);
+  const [dashFilters, setDashFilters] = useState<DashboardFilters>(NO_DASHBOARD_FILTERS);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const clearFilters = useCallback(() => {
     setFilters(NO_FEED_FILTERS);
+    setQuery("");
+  }, []);
+  const clearDashFilters = useCallback(() => {
+    setDashFilters((f) => ({ ...NO_DASHBOARD_FILTERS, sort: f.sort }));
     setQuery("");
   }, []);
 
@@ -125,9 +133,11 @@ export default function PlaylistsScreen() {
       refreshing={refreshing}
       onRefresh={handleRefresh}
       trailing={
-        // The dashboard keeps its own controls until mobile v2 M4.
-        !loading && !showDashboard && feedItems.length > 0 ? (
-          <FilterButton activeCount={activeFilters} onPress={() => setFiltersOpen(true)} />
+        !loading && (showDashboard || feedItems.length > 0) ? (
+          <FilterButton
+            activeCount={showDashboard ? activeDashboardFilterCount(dashFilters) : activeFilters}
+            onPress={() => setFiltersOpen(true)}
+          />
         ) : undefined
       }
       principal={
@@ -170,9 +180,15 @@ export default function PlaylistsScreen() {
             <ActivityIndicator color={colors.mutedForeground} />
           </View>
         ) : showDashboard ? (
-          <View className="gap-5 px-4 pt-2">
-            <SharedByMeDashboard query={query} onClearQuery={clearQuery} refreshNonce={refreshNonce} />
-          </View>
+          <SharedByMeDashboard
+            query={query}
+            refreshNonce={refreshNonce}
+            filters={dashFilters}
+            onFiltersChange={setDashFilters}
+            onClearFilters={clearDashFilters}
+            sheetOpen={filtersOpen && showDashboard}
+            onCloseSheet={() => setFiltersOpen(false)}
+          />
         ) : (
           <PlaylistFeed
             playlists={feedItems}
@@ -185,7 +201,7 @@ export default function PlaylistsScreen() {
           />
         )}
         <FeedFilterSheet
-          visible={filtersOpen}
+          visible={filtersOpen && !showDashboard}
           onClose={() => setFiltersOpen(false)}
           filters={filters}
           onChange={setFilters}
