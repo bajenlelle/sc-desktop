@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { View } from "react-native";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Tappable } from "@/components/ui/Tappable";
@@ -86,49 +86,6 @@ export function NoticeRow({
         ) : null}
       </View>
     </View>
-  );
-}
-
-/**
- * Figures as one line ("9 playlists shared · 14 players reached · 3 haven't
- * finished") instead of a row of stat cells: each figure in the text colour
- * and semibold, its words muted, so the numbers stand out when scanning. The
- * part that leads somewhere is a tinted text action.
- */
-export function StatLine({
-  parts,
-  action,
-  className,
-}: {
-  parts: { figure: number | string; label: string }[];
-  action?: { label: string; onPress: () => void };
-  className?: string;
-}) {
-  return (
-    <Text variant="subheadline" nums className={cn("px-4 text-muted-foreground", className)}>
-      {parts.map((p, i) => (
-        <Fragment key={i}>
-          {i > 0 ? " · " : ""}
-          <Text variant="subheadline" nums className="font-semibold text-foreground">
-            {String(p.figure)}
-          </Text>{" "}
-          {p.label}
-        </Fragment>
-      ))}
-      {action ? (
-        <>
-          {parts.length > 0 ? " · " : ""}
-          <Text
-            variant="subheadline"
-            accessibilityRole="button"
-            onPress={action.onPress}
-            className="font-semibold text-primary"
-          >
-            {action.label}
-          </Text>
-        </>
-      ) : null}
-    </Text>
   );
 }
 

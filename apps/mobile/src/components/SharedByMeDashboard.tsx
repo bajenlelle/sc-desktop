@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
-import { ActivityIndicator, Alert, StyleSheet, View } from "react-native";
-import Animated, { FadeIn, FadeOut, useAnimatedStyle, withSpring } from "react-native-reanimated";
-import { router } from "expo-router";
+import { ActivityIndicator, Alert, View } from "react-native";
 import { getMySharedPlaylists, type SharedPlaylist } from "@scoutable/shared/lib/playlists-db";
 import { getTeamMembers, type TeamMemberRef } from "@scoutable/shared/lib/teams-db";
 import { listPlaylistClipViews, type PlaylistClipView } from "@scoutable/shared/lib/clip-views-db";
 import { sendPlaylistReminder } from "@scoutable/shared/lib/reminders-db";
+import { shareTimeSections } from "@scoutable/shared/lib/share-time";
 import {
   buildDashboardRows,
-  summarizeDashboard,
   teamFilterOptions,
   filterByTeamAndQuery,
   dashboardCounts,
@@ -24,14 +22,13 @@ import { useAuth } from "@/lib/auth-context";
 import { usePlaylists } from "@/lib/playlists-store";
 import { relativeTime } from "@/lib/format";
 import { successHaptic } from "@/lib/haptics";
-import { springs } from "@/lib/motion";
 import { useThemeColors } from "@/lib/theme-context";
 import { useLargeText } from "@/lib/a11y";
-import { Avatar } from "@/components/Avatar";
+import { RecipientsSheet, progressLine } from "@/components/RecipientsSheet";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Icon } from "@/components/ui/Icon";
-import { NoticeRow, StatLine, TextButton } from "@/components/ui/Row";
+import { NoticeRow, TextButton } from "@/components/ui/Row";
 import { PopoverMenu } from "@/components/ui/PopoverMenu";
 import { Tappable } from "@/components/ui/Tappable";
 import { Text } from "@/components/ui/Text";
@@ -62,15 +59,14 @@ const STATUS_LABEL: Record<StatusFilter, string> = {
 };
 
 /**
- * The coach's side of sharing, calmer than the web's Shared by me it comes
- * from: the roll-up as one line with its figures picked out, then one card
- * per playlist on the grouped floor. A card reads top to bottom as where it
- * went (the team), what it is (the name, then when and how many clips) and
- * how it's going (the web's watch bar and "n of m finished"); it has one
- * control, itself, which opens it into its recipients. Reminders and "Watch
- * as a player" live in the opened card; status, team and sort live in the
- * filter sheet behind the title bar's button. Renders inside the screen's
- * scroll view, which owns the search.
+ * The coach's side of sharing, as Claude's Artifacts list: one card per
+ * shared playlist on the grouped floor, by week and month while sorted by
+ * Recently shared. A card's tile carries how many finished over the web's
+ * watch bar; beside it the name, where it went and when. Tapping a card
+ * opens its recipients in a sheet, with Remind, Remind all and Watch as a
+ * player. Status, team and sort live in the title bar's pop-up menu (its
+ * counts replace the old roll-up line). Renders inside the screen's scroll
+ * view; the search is the screen's floating capsule.
  */
 export function SharedByMeDashboard({
   query,
@@ -105,7 +101,9 @@ export function SharedByMeDashboard({
   const [shared, setShared] = useState<SharedPlaylist[] | null>(null);
   const [teamMembers, setTeamMembers] = useState<TeamMemberRef[]>([]);
   const [views, setViews] = useState<PlaylistClipView[]>([]);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  // The playlist whose recipients sheet is up (kept while it slides away).
+  const [sheetRowId, setSheetRowId] = useState<string | null>(null);
+  const [recipientsOpen, setRecipientsOpen] = useState(false);
   /** key = `${playlistId}:${userId}` — per-recipient nudge lifecycle. */
   const [remindState, setRemindState] = useState<Map<string, "sending" | "sent">>(new Map());
   const [remindingPlaylistId, setRemindingPlaylistId] = useState<string | null>(null);
@@ -138,7 +136,6 @@ export function SharedByMeDashboard({
     () => (shared ? buildDashboardRows({ shared, teamMembers, views, memberMap, teamMap, currentUserId }) : []),
     [shared, teamMembers, views, memberMap, teamMap, currentUserId],
   );
-  const summary = useMemo(() => summarizeDashboard(rows), [rows]);
   const teamOptions = useMemo(() => teamFilterOptions(rows, teamMap), [rows, teamMap]);
   const inTeam = useMemo(() => filterByTeamAndQuery(rows, filters.team, query), [rows, filters.team, query]);
   const counts = useMemo(() => dashboardCounts(inTeam), [inTeam]);
@@ -288,21 +285,15 @@ export function SharedByMeDashboard({
     filters.team !== "all" ? (teamOptions.find((o) => o.value === filters.team)?.label ?? "One team") : null,
   ].filter((x): x is string => !!x);
 
+  // Newest first by week and month, as the feed; other sorts are one list.
+  const sections =
+    filters.sort === "recent"
+      ? shareTimeSections(visibleRows, (r) => r.newestSharedAt)
+      : [{ key: "all", title: "", items: visibleRows }];
+  const sheetRow = rows.find((r) => r.playlist.id === sheetRowId) ?? null;
+
   return (
     <View>
-      <StatLine
-        className="pb-3 pt-1"
-        parts={[
-          { figure: summary.playlists, label: `${summary.playlists === 1 ? "playlist" : "playlists"} shared` },
-          { figure: summary.recipients, label: `${summary.recipients === 1 ? "player" : "players"} reached` },
-        ]}
-        action={
-          summary.behind > 0
-            ? { label: `${summary.behind} ${summary.behind === 1 ? "hasn't" : "haven't"} finished`, onPress: () => setStatus("attention") }
-            : undefined
-        }
-      />
-
       {activeLabels.length > 0 && (
         <Text variant="footnote" className="px-4 pb-2 text-muted-foreground">
           {activeLabels.join(" · ")} ·{" "}
@@ -337,203 +328,118 @@ export function SharedByMeDashboard({
           action={<TextButton label="Clear filters" onPress={onClearFilters} />}
         />
       ) : (
-        <View className="gap-3">
-            {visibleRows.map((row) => (
-              <PlaylistCard
-                key={row.playlist.id}
-                row={row}
-                expanded={expandedId === row.playlist.id}
-                onToggle={() => setExpandedId(expandedId === row.playlist.id ? null : row.playlist.id)}
-                onRemindPlaylist={() => handleRemindPlaylist(row)}
-                remindingPlaylist={remindingPlaylistId === row.playlist.id}
-                remindBusy={remindingPlaylistId !== null}
-                remindState={remindState}
-                onRemind={(r) => handleRemind(row.playlist.id, r)}
-              />
-            ))}
-        </View>
+        sections.map((sec, i) => (
+          <View key={sec.key}>
+            {sec.title ? (
+              <Text variant="subheadline" accessibilityRole="header" className={cn("px-4 pb-2 text-muted-foreground", i === 0 ? "pt-1" : "pt-6")}>
+                {sec.title}
+              </Text>
+            ) : null}
+            <View className="gap-3">
+              {sec.items.map((row) => (
+                <PlaylistCard
+                  key={row.playlist.id}
+                  row={row}
+                  onOpen={() => {
+                    setSheetRowId(row.playlist.id);
+                    setRecipientsOpen(true);
+                  }}
+                />
+              ))}
+            </View>
+          </View>
+        ))
       )}
       {sheet}
+      <RecipientsSheet
+        row={sheetRow}
+        visible={recipientsOpen}
+        onClose={() => setRecipientsOpen(false)}
+        remindState={remindState}
+        onRemind={(r) => sheetRow && handleRemind(sheetRow.playlist.id, r)}
+        onRemindPlaylist={() => sheetRow && handleRemindPlaylist(sheetRow)}
+        remindingPlaylist={!!sheetRow && remindingPlaylistId === sheetRow.playlist.id}
+        remindBusy={remindingPlaylistId !== null}
+      />
     </View>
   );
 }
 
-function PlaylistCard({
-  row,
-  expanded,
-  onToggle,
-  onRemindPlaylist,
-  remindingPlaylist,
-  remindBusy,
-  remindState,
-  onRemind,
-}: {
-  row: DashboardRow;
-  expanded: boolean;
-  onToggle: () => void;
-  /** Reminds everyone behind on this playlist. */
-  onRemindPlaylist: () => void;
-  remindingPlaylist: boolean;
-  remindBusy: boolean;
-  remindState: Map<string, "sending" | "sent">;
-  onRemind: (r: RecipientRow) => void;
-}) {
+const TILE_W = 112;
+const TILE_H = 76;
+
+/**
+ * One shared playlist as Claude's Artifacts card: a tile on the left with
+ * the one number that matters (how many finished, over the watch bar), then
+ * the name, where it went and when. Tapping opens the recipients sheet.
+ */
+function PlaylistCard({ row, onOpen }: { row: DashboardRow; onOpen: () => void }) {
   const colors = useThemeColors();
   const largeText = useLargeText();
-  const [showFinished, setShowFinished] = useState(false);
   const total = row.recipients.length;
-  const behind = behindRecipients(row);
   const reach = dashboardScopeLabel(row);
   const when = relativeTime(row.newestSharedAt ?? undefined);
   const meta = [when ? `Shared ${when}` : null, `${row.playableCount} clip${row.playableCount === 1 ? "" : "s"}`]
     .filter(Boolean)
     .join(" · ");
-  const watching = Math.max(0, row.startedCount - row.completedCount);
-  const progress =
-    total === 0
-      ? "Not shared with anyone yet"
-      : [`${row.completedCount} of ${total} finished`, watching > 0 ? `${watching} watching` : null].filter(Boolean).join(" · ");
-  const chevronStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: withSpring(expanded ? "180deg" : "0deg", springs.standard) }],
-  }));
-  const isDone = (r: RecipientRow) => row.playableCount > 0 && r.watched >= row.playableCount;
-  const finished = row.recipients.filter(isDone);
-  const shown = showFinished ? row.recipients : row.recipients.filter((r) => !isDone(r));
-  const hairline = { height: StyleSheet.hairlineWidth, backgroundColor: colors.separator };
+  const progress = progressLine(row);
 
   return (
     <Card>
       <Tappable
         scaleTo={1}
         accessibilityRole="button"
-        accessibilityState={{ expanded }}
         accessibilityLabel={`${row.playlist.name}. ${reach ? `${reach}. ` : ""}${meta}. ${progress}`}
-        accessibilityHint={expanded ? "Hides who it was shared with" : "Shows who it was shared with"}
-        onPress={onToggle}
-        className={({ pressed }) => cn("px-4 pb-3.5 pt-3", pressed && "bg-fill-1")}
+        accessibilityHint="Shows who it was shared with"
+        onPress={onOpen}
+        className={({ pressed }) => cn("flex-row items-center gap-3.5 p-3", pressed && "bg-fill-1")}
       >
-        <View className="flex-row items-start gap-3">
-          <View className="min-w-0 flex-1">
-            {reach ? (
-              <Text variant="footnote" numberOfLines={largeText ? 2 : 1} className="text-muted-foreground">
-                {reach}
+        <View
+          accessible={false}
+          className="items-center justify-center overflow-hidden rounded-window bg-fill-2"
+          style={{ width: TILE_W, height: TILE_H }}
+        >
+          {total > 0 ? (
+            <>
+              <Text variant="title3" nums maxFontSizeMultiplier={1.3} className="font-semibold">
+                {`${row.completedCount}/${total}`}
               </Text>
-            ) : null}
-            <Text variant="headline" numberOfLines={largeText ? 3 : 2}>
-              {row.playlist.name}
-            </Text>
-            <Text variant="subheadline" nums numberOfLines={largeText ? undefined : 1} className="text-muted-foreground">
-              {meta}
-            </Text>
-          </View>
-          <Animated.View style={[chevronStyle, { marginTop: 2 }]}>
-            <Icon name="chevronDown" size={16} strokeWidth={2} color={colors.mutedForeground} style={{ opacity: 0.5 }} />
-          </Animated.View>
-        </View>
-
-        {total > 0 ? (
-          <View className={cn("mt-3", largeText ? "gap-1.5" : "flex-row items-center gap-3")}>
-            <WatchBar done={row.completedCount} started={row.startedCount} total={total} className={largeText ? undefined : "flex-1"} />
-            <Text variant="footnote" nums className="text-muted-foreground">
-              {progress}
-            </Text>
-          </View>
-        ) : (
-          <Text variant="footnote" className="mt-2 text-muted-foreground">
-            {progress}
-          </Text>
-        )}
-
-        {row.uploadingCount > 0 && (
-          <View className="mt-2 flex-row items-start gap-1.5">
-            <Icon name="warning" size={14} color={colors.mutedForeground} style={{ marginTop: 2 }} />
-            <Text variant="footnote" className="shrink text-muted-foreground">
-              {row.uploadingCount === 1
-                ? "1 clip isn't uploaded, so recipients can't see it"
-                : `${row.uploadingCount} clips aren't uploaded, so recipients can't see them`}
-            </Text>
-          </View>
-        )}
-      </Tappable>
-
-      {expanded && (
-        <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(120)}>
-          <View style={hairline} />
-          {total === 0 ? (
-            <Text variant="subheadline" className="px-4 py-3 text-muted-foreground">
-              No recipients yet. Share this playlist with a team or a player.
-            </Text>
+              <Text variant="footnote" maxFontSizeMultiplier={1.3} className="mb-2.5 text-muted-foreground">
+                finished
+              </Text>
+              <View style={{ position: "absolute", left: 10, right: 10, bottom: 9 }}>
+                <WatchBar done={row.completedCount} started={row.startedCount} total={total} />
+              </View>
+            </>
           ) : (
-            <View className="pt-1">
-              {shown.map((r, i) => {
-                const done = isDone(r);
-                const active = relativeTime(r.lastActivity ?? undefined);
-                const state = remindState.get(`${row.playlist.id}:${r.userId}`);
-                return (
-                  <View key={r.userId}>
-                    {i > 0 && <View style={[hairline, { marginLeft: 56 }]} />}
-                    <View className="min-h-12 flex-row items-center gap-3 px-4 py-1.5">
-                      <Avatar name={r.name} url={r.avatarUrl ?? undefined} size={28} />
-                      <View className="min-w-0 flex-1">
-                        <Text variant="subheadline" numberOfLines={1}>
-                          {r.name}
-                        </Text>
-                        <Text variant="footnote" className="text-muted-foreground">
-                          {active ? `Active ${active}` : "No activity yet"}
-                        </Text>
-                      </View>
-                      <Text variant="subheadline" nums className="text-muted-foreground">
-                        {done ? "Finished" : r.watched > 0 ? `${r.watched} of ${row.playableCount}` : "Not started"}
-                      </Text>
-                      {done ? (
-                        <Icon name="check" size={16} strokeWidth={2} color={colors.mutedForeground} />
-                      ) : state === "sent" ? (
-                        <Text variant="subheadline" className="text-muted-foreground">
-                          Reminded
-                        </Text>
-                      ) : (
-                        <TextButton
-                          label="Remind"
-                          disabled={state === "sending"}
-                          accessibilityLabel={`Remind ${r.name}`}
-                          onPress={() => onRemind(r)}
-                        />
-                      )}
-                    </View>
-                  </View>
-                );
-              })}
-              {finished.length > 0 && !showFinished && (
-                <View className="px-4 pb-1 pt-2" style={{ paddingLeft: 56 }}>
-                  <TextButton
-                    size="footnote"
-                    muted
-                    label={finished.length === total ? `All ${total} have finished. Show them` : `${finished.length} ${finished.length === 1 ? "has" : "have"} finished. Show`}
-                    onPress={() => setShowFinished(true)}
-                  />
-                </View>
-              )}
+            <Icon name="send" size={22} color={colors.mutedForeground} />
+          )}
+        </View>
+        <View className="min-w-0 flex-1">
+          <Text variant="headline" numberOfLines={largeText ? 3 : 2}>
+            {row.playlist.name}
+          </Text>
+          <View className="mt-1 flex-row items-center gap-1.5">
+            <Icon name={row.teamNames.length > 0 || row.directCount === 0 ? "team" : "person"} size={14} color={colors.mutedForeground} />
+            <Text variant="subheadline" numberOfLines={largeText ? 2 : 1} className="shrink text-muted-foreground">
+              {reach || "No recipients"}
+            </Text>
+          </View>
+          <Text variant="subheadline" nums numberOfLines={largeText ? undefined : 1} className="text-muted-foreground">
+            {meta}
+          </Text>
+          {row.uploadingCount > 0 && (
+            <View className="mt-1 flex-row items-start gap-1.5">
+              <Icon name="warning" size={14} color={colors.mutedForeground} style={{ marginTop: 2 }} />
+              <Text variant="footnote" className="shrink text-muted-foreground">
+                {row.uploadingCount === 1
+                  ? "1 clip isn't uploaded, so recipients can't see it"
+                  : `${row.uploadingCount} clips aren't uploaded, so recipients can't see them`}
+              </Text>
             </View>
           )}
-          <View style={[hairline, { marginTop: 6 }]} />
-          <View className="flex-row items-center justify-between px-4 py-1">
-            {behind.length > 0 ? (
-              remindingPlaylist ? (
-                <ActivityIndicator size="small" color={colors.mutedForeground} />
-              ) : (
-                <TextButton label={`Remind all ${behind.length}`} disabled={remindBusy} onPress={onRemindPlaylist} />
-              )
-            ) : (
-              <View />
-            )}
-            <TextButton
-              label="Watch as a player"
-              accessibilityLabel={`Watch ${row.playlist.name} as a player`}
-              onPress={() => router.push(`/playlists/${row.playlist.id}`)}
-            />
-          </View>
-        </Animated.View>
-      )}
+        </View>
+      </Tappable>
     </Card>
   );
 }
