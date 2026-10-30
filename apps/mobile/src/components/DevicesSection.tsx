@@ -1,9 +1,10 @@
 /**
- * Profile › Devices (anti-account-sharing; the web's DevicesCard): the
- * account's registered devices split at the 30-day activity window (only
- * active ones hold a slot), each removable, and "Sign out everywhere else",
- * which keeps this device's push token and prunes the others (revoking
- * refresh tokens alone doesn't stop notifications).
+ * Profile › Devices (anti-account-sharing; the web's DevicesCard): one group
+ * of the account's registered devices, the ones idle for 30 days in muted
+ * text (only active ones hold a slot), each removable, and "Sign out
+ * everywhere else" as the group's last row, which keeps this device's push
+ * token and prunes the others (revoking refresh tokens alone doesn't stop
+ * notifications).
  */
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Alert, View } from "react-native";
@@ -13,9 +14,7 @@ import { getDeviceId } from "@/lib/device-registry";
 import { getCachedPushToken } from "@/lib/notifications";
 import { formatDate } from "@/lib/format";
 import { useThemeColors } from "@/lib/theme-context";
-import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
-import { GroupFooter, GroupHeader, GroupedList } from "@/components/ui/Group";
+import { GroupFooter, GroupHeader, GroupRow, GroupedList } from "@/components/ui/Group";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Tappable } from "@/components/ui/Tappable";
 import { Text } from "@/components/ui/Text";
@@ -97,17 +96,19 @@ export function DevicesSection() {
     const isThis = d.deviceId === ownDeviceId;
     return (
       <View key={d.deviceId} className="min-h-12 flex-row items-center gap-3 px-4 py-2">
-        <Icon name={APP_ICON[d.app] ?? "web"} size={17} color={colors.mutedForeground} />
+        <Icon name={APP_ICON[d.app] ?? "web"} size={18} color={colors.mutedForeground} />
         <View className="min-w-0 flex-1">
           <Text numberOfLines={1} className={muted ? "text-muted-foreground" : undefined}>
             {name}
           </Text>
-          <Text variant="callout" className="text-muted-foreground">
+          <Text variant="subheadline" className="text-muted-foreground">
             {appKindLabel(d.app)} · Last active {lastActive(d.lastSeen)}
           </Text>
         </View>
         {isThis ? (
-          <Badge variant="secondary">This device</Badge>
+          <Text variant="subheadline" className="text-muted-foreground">
+            This device
+          </Text>
         ) : removingId === d.deviceId ? (
           <ActivityIndicator color={colors.mutedForeground} />
         ) : (
@@ -128,34 +129,21 @@ export function DevicesSection() {
   };
 
   return (
-    <View className="gap-7">
-      <View>
-        <GroupHeader
-          title="Devices"
-          action={
-            devices.length > 1 ? (
-              <Button
-                variant="ghost"
-                size="xs"
-                textClassName="text-primary"
-                loading={signingOut}
-                onPress={handleSignOutOthers}
-                icon={<Icon name="signOut" size={14} color={colors.primary} />}
-              >
-                Sign out everywhere else
-              </Button>
-            ) : undefined
-          }
-        />
-        <GroupedList>{active.map((d) => renderRow(d, false))}</GroupedList>
-      </View>
-      {inactive.length > 0 && (
-        <View>
-          <GroupHeader title="Inactive devices" />
-          <GroupedList>{inactive.map((d) => renderRow(d, true))}</GroupedList>
-          <GroupFooter>Not used in the last 30 days, so they don&apos;t count toward your device limit.</GroupFooter>
-        </View>
-      )}
+    <View>
+      <GroupHeader title="Devices" />
+      <GroupedList inset={46}>
+        {active.map((d) => renderRow(d, false))}
+        {inactive.map((d) => renderRow(d, true))}
+        {devices.length > 1 ? (
+          <GroupRow
+            label={<Text className="text-primary">{signingOut ? "Signing out…" : "Sign out everywhere else"}</Text>}
+            disabled={signingOut}
+            onPress={handleSignOutOthers}
+            accessibilityLabel="Sign out everywhere else"
+          />
+        ) : null}
+      </GroupedList>
+      <GroupFooter>Devices not used in the last 30 days don&apos;t count toward your device limit.</GroupFooter>
     </View>
   );
 }

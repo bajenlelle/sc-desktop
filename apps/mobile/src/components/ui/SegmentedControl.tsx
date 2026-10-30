@@ -90,7 +90,7 @@ export function SegmentedControl<T extends string>({
     <View
       accessibilityRole="tablist"
       accessibilityLabel={accessibilityLabel}
-      className={cn("flex-row self-start rounded-lg bg-fill-2 p-0.5", fullWidth && "self-stretch", className)}
+      className={cn("flex-row self-start rounded-control bg-fill-2 p-0.5", fullWidth && "self-stretch", className)}
     >
       {frame && (
         <Animated.View
@@ -111,7 +111,7 @@ export function SegmentedControl<T extends string>({
               ...(dark
                 ? null
                 : Platform.OS === "ios"
-                  ? { shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 1, shadowOffset: { width: 0, height: 1 } }
+                  ? { shadowColor: "black", shadowOpacity: 0.12, shadowRadius: 1, shadowOffset: { width: 0, height: 1 } }
                   : { elevation: 1 }),
             },
             thumb,
@@ -134,17 +134,21 @@ export function SegmentedControl<T extends string>({
                 onValueChange(s.value);
               }
             }}
-            className={cn("h-8 flex-row items-center justify-center gap-1 rounded-md px-3.5", fullWidth && "flex-1")}
+            className={cn(
+              "flex-row items-center justify-center gap-1 rounded-inner",
+              size === "sm" ? "h-7 px-2.5" : "h-8 px-3.5",
+              fullWidth && "flex-1",
+            )}
           >
             <Text
-              variant={size === "sm" ? "footnote" : "body"}
+              variant={size === "sm" ? "footnote" : "subheadline"}
               numberOfLines={1}
-              className={cn("font-medium", selected ? "text-foreground" : "text-muted-foreground")}
+              className={selected ? "font-semibold text-foreground" : "font-medium text-muted-foreground"}
             >
               {s.label}
             </Text>
             {s.detail != null && (
-              <Text variant={size === "sm" ? "footnote" : "body"} nums className="text-muted-foreground/60">
+              <Text variant={size === "sm" ? "footnote" : "subheadline"} nums className="text-muted-foreground/60">
                 {String(s.detail)}
               </Text>
             )}
