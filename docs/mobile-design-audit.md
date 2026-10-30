@@ -1,96 +1,70 @@
-# Mobile design audit: the web redesign brought to the mobile app
+# Mobile design audit: the desktop and web feel on the phone (v2)
 
-Date: 2026-10-10. Branch: `design/apple-redesign-mobile`, cut from `main` (`df152a7`); local only, not merged.
-Tested on: the iOS 26 Simulator (iPhone 17, iPhone 17 Pro, iPhone 16e) running an EAS development build, and the Pixel 8 emulator (Android 17) running a local debug build. Both ran against production in a read-only dev mode (section 5). Screenshots are kept outside the repository (they show real club, player and customer names).
-
-This is the mobile counterpart of [web-design-audit.md](web-design-audit.md). The brief was for the app to look like the web app at phone width, and to work on Android too. The shell is native to each platform: iOS gets large titles and the system tab bar (Liquid Glass on iOS 26), and Android gets Material's top app bar and navigation bar. Everything inside the screens follows the web's phone layout.
+Date: 2026-10-30. Branch: `design/mobile-v2`, cut from `main` (1.6.0, `553cc0e`) with `design/apple-redesign-mobile` (v1) merged in; local, not merged.
+Tested on: the iOS 26 Simulator (iPhone 17) running the EAS development build, and the Pixel 8 emulator (Android 17) running a local debug build, both against production in read-only dev mode (section 5). Screenshots are kept outside the repository (they show real club, player and customer names). The approved mockups are a Design canvas (fake names) linked from `design-audit/mobile-v2/decisions.md`, also outside the repository.
 
 ## 1. Summary
 
-What `main` looked like before:
+**Before (`main`):** hand-built chrome, Barlow Condensed titles, twelve colour tokens, Unicode glyphs as icons, a portrait-only player, RN `<Modal>` sheets, never built for Android.
 
-1. **Hand-built chrome.** Every navigator hid its header and each screen drew its own title row. The tab bar was the JavaScript one, with a "Feedback" pill in the feed header and on the watch screen.
-2. **Barlow Condensed for every title**, DM Sans loaded but unused, no text component, and about a dozen uppercase tracked labels.
-3. **Twelve colour tokens and nothing else.** There were no fill, separator, success or warning colours, so screens used raw amber/emerald classes and hex values.
-4. **Unicode glyphs and emoji as icons** (▶ ⏮ ✓ 💬), which render differently on every device, plus Ionicons in a few places.
-5. **A portrait-only player** with glyph buttons under the video. It had no timeline or full screen, the speed reset on every visit, and a clip that wouldn't load was skipped silently. The watched guard lived in a ref mirrored from state, the race the web fixed with `recordOnce`.
-6. **RN `<Modal>` bottom sheets** for feedback, account deletion, speed and selects. Their insets are wrong under Android's edge-to-edge.
-7. **Never built for Android.**
+**v1 (2026-10-09/10, `design/apple-redesign-mobile`):** the web's phone layout inside native chrome per platform (NativeTabs, large titles, an iOS header search bar, Material on Android), SF Symbols and Material Symbols, the web's derived colours and text styles. The native shell worked; the screens did not. Next to desktop and web the founder found it unfinished and cluttered: everything a bordered card, feed rows with up to eight controls, filters stacked above the content, secondary text nearly the size of body text, primary tints at five strengths, nine Tailwind colour families on the clip list.
+
+**v2 (this branch):** the desktop's calm, the way the Claude and Notion apps read: the system font on the desktop/web scale, one accent used sparingly, content as plain rows on the page, settings as grouped lists, filters and sort behind one button, and the app's own chrome, the same on iOS and Android.
 
 ## 2. Decisions
 
-- **Ship path:** a new store build. Native modules were added (`expo-blur`, `expo-haptics`, `expo-screen-orientation`, `react-native-svg`), and `expo-symbols`, `expo-glass-effect` and `@expo/ui` became direct dependencies. All native changes went in at the start, so one EAS build covered the whole branch.
-- **Chrome per platform:** `NativeTabs` (`expo-router/unstable-native-tabs`) with a native stack per tab. Large titles and header search bars on iOS; Material on Android, where search is the web's field at the top of the content (the toolbar would hide it behind an icon). Watch, team, sheets and gates sit in the `(app)` stack above the tabs.
-- **Type:** the system font (SF Pro / Roboto) with the web's touch text styles as a `Text` component (large title 34/41 … footnote 13/18), tabular figures for counts and clocks, and Dynamic Type left on.
-- **Colour:** the theme tokens plus colours derived from them in `packages/shared/lib/theme-derived.ts` (tested): fills 1–4, separators, popover, success, warning, materials. They're injected through the same NativeWind `vars()`, and the eight themes and their sync are unchanged.
-- **Icons:** SF Symbols on iOS and Material Symbols on Android through `expo-symbols`, from one meaning-based map. The transport glyphs (play, pause, previous, next, stop) are drawn filled on Android, because the bundled Material font is outlined only.
-- **Motion and feedback:** the web's named springs in Reanimated (honouring Reduce Motion), feedback on press-in, and haptics only for selection changes and successes (reminding, joining, sending feedback).
+The founder's (2026-10-29/30):
 
-## 3. What the redesign does
+- **Type:** the system font (SF Pro / Roboto) on the web's touch scale, with its size-specific tracking. The large title and the headline are semibold (600).
+- **Chrome:** the app's own, identical on both platforms: a 49 pt tab bar with a red count of new playlists, and a title bar that starts large and hands over to a centred small title as the content scrolls under it. No NativeTabs, no native large titles, no header search bar.
+- **Density:** content first. Filters and sort behind one title-bar button that opens a sheet; stats as one sentence; the hero as one row; no filled "New" pills.
+- **Android bars** are solid (Material's idiom; expo-blur there re-renders a blur target every scroll frame). iOS blurs, except under Reduce Transparency.
+
+Made while building (each in the plan's ledger with its cost): icons are lucide (`lucide-react-native` at the web's version, JS only), the same glyphs and 1.75 stroke as desktop and web; menus, the filter sheets and the theme picker are the app's own `Sheet` rather than platform menus or native sheets (Feedback and Delete account keep native form sheets for the keyboard); settings screens sit on a grouped floor (`canvas`, the `muted` tone where a light theme's cards equal its page) while content screens stay on the page colour; hairlines are a device pixel; the Up next playlist isn't repeated in its section.
+
+## 3. What v2 does
 
 One commit per milestone.
 
 | Milestone | What changed | Where |
 |---|---|---|
-| M0 Testing setup | Read-only dev mode (`EXPO_PUBLIC_READ_ONLY=1` wraps the global `fetch`; reads pass, writes are refused with a 403 and logged). Native modules and config, `development-simulator` EAS profile, root gesture handler, portrait lock with landscape allowed | `src/lib/dev-read-only.ts`, `app.json`, `eas.json`, `package.json`, `src/app/_layout.tsx` |
-| M1 Foundations | Derived colours (+ tests), Tailwind colours and radii, the `Text` styles, springs, haptics, the icon map, the navigation theme; font packages removed | `packages/shared/lib/theme-derived.ts`, `src/lib/{theme-context,motion,haptics,cn}.ts*`, `tailwind.config.js` |
-| M2 Shell | NativeTabs with per-tab stacks, large titles, the New badge; the player-only tab latched on the first settled profile (changing `hidden` remounts the navigator) | `src/app/(app)/(tabs)/**`, `src/components/shell/stack-options.ts` |
-| M3 Primitives | Button, grouped lists, callouts, segmented control, pop-up button (`@expo/ui` `MenuView`), badge, empty and status screens, progress ring and bar, stat cells | `src/components/ui/*` |
-| M4 Feed and Shared by me | One scroll view under the large title, search in the bar, pull to refresh; the Continue hero, filters, sections with progress rings; the dashboard with stat cells, recipients that open in place and Remind | `src/app/(app)/(tabs)/playlists/index.tsx`, `src/components/{PlaylistFeed,SharedByMeDashboard}.tsx` |
-| M5 Player | The stage with controls that fade when idle (compact and wide layouts), a 1:1 timeline, a full-window full screen in landscape, a remembered speed menu, pausable text cards; "Now playing" with the coach's note; rows with a highlight that springs between them; the queue on the shared `WatchItem` model and `recordOnce` | `src/components/player/*`, `src/hooks/use-clip-queue.ts`, `src/app/(app)/playlists/[id].tsx`, `src/components/WatchClipRow.tsx` |
-| M6 Profile | Grouped lists (Your team, Club, Account, Appearance, Devices, Help, Delete account); Send feedback and Delete account as native form sheets | `src/app/(app)/(tabs)/profile/index.tsx`, `src/app/(app)/{feedback,delete-account}.tsx` |
-| M7 Signed out and gates | Sign in, sign up and reset in the web's auth frame; join, onboarding and no-org (copy unchanged); the team picker with native search; device gate, error screen, My highlights | `src/app/(auth)/*`, `src/components/auth/AuthFrame.tsx`, `src/app/(app)/{team,no-org,onboarding}.tsx`, `src/app/join/[code].tsx` |
-| M8 Android, accessibility, docs | Large-text adaptations, a lighter segmented thumb in dark themes, this document | see section 5 |
+| M1 Tokens, type, icons | `eventHue`, `canvas`, `eventDot`, `themeVarMap` (tested); the tracked type scale; radius aliases (`control` 6, `inner` 4, `window` 10, `sheet` 14); a bare `border` is a separator hairline; lucide behind the same icon map; `darkVarsStyle` for dark-only surfaces | `packages/shared/lib/{events,theme-derived}.ts`, `tailwind.config.js`, `src/lib/theme-context.tsx`, `src/components/ui/Icon.tsx` |
+| M2 Shell, primitives | `TabBar` on expo-router's `Tabs`; `Screen` (title bar, large title hand-off, material once content passes under, pull to refresh); `Material`; `BackButton`; `SheetHost`/`Sheet`/`MenuSheet` (drag to dismiss, Android back); `ToastHost`; `Row`, `PlainList`, `SectionHeader`, `Dot`, `NoticeRow`, `StatLine`, `FilterButton` | `src/components/shell/*`, `src/components/ui/{Sheet,Toast,Row,FilterButton}.tsx` |
+| M3 Feed | Up next row, New/In progress/Watched as plain rows (dot, ring), `FeedFilterSheet` (Show with counts, Team, From), active-filter line with Clear, search from eight playlists; notices as rows (`feedSections`, `activeFeedFilterCount` tested) | `src/components/{PlaylistFeed,FeedFilterSheet}.tsx`, `src/app/(app)/(tabs)/playlists/index.tsx` |
+| M4 Shared by me | Stat line; one control per row (it opens); unfinished recipients with Remind as text, finished folded into one line; Remind all and Watch as a player at the foot; status, team and sort in the filter sheet; bulk results as toasts | `src/components/SharedByMeDashboard.tsx` |
+| M5 Watch | The app's bar; one floating glass control bar in every layout (wide adds replay and stop); clip rows led by the player with a 6 pt hue dot, no strip or pill | `src/app/(app)/playlists/[id].tsx`, `src/components/player/*`, `src/components/WatchClipRow.tsx` |
+| M6 Profile | Team, Account, Devices, Help and a last group to sign out or delete; every action a disclosure row; the theme sheet | `src/app/(app)/(tabs)/profile/index.tsx`, `src/components/{AppearanceSection,DevicesSection,TeamSection}.tsx` |
+| M7 Signed out, gates, sheets | Title 2 headings, `AuthStatus`, the team picker on the app's bar with search in the list, calmer Feedback/Delete sheets, My highlights as plain rows, device gate and error screen on the status-screen metrics | `src/components/auth/AuthFrame.tsx`, `src/app/(auth)/*`, `src/app/(app)/{team,onboarding,no-org,feedback,delete-account}.tsx`, `src/components/DeviceGateScreen.tsx` |
+| M8 Android, accessibility, docs | Large-text fixes (search field and coach rows grow), unused primitives removed (Badge, ProgressBar, StatCells, Callout, FormRow, LeagueChip), this document | |
 
 ## 4. Behaviour changes
 
-Approved with the plan:
+All presentation; every `trackEvent` name and count matches `main` (checked at each milestone), and no route was added, so `page_viewed` is unchanged.
 
-- Feedback moved to Profile ("Send feedback…"). The feed's pill and the watch screen's button are gone.
-- Tab labels are sentence case: "Shared playlists" / "My playlists", "My highlights", "Profile".
-- Playback speed is remembered (`scoutable_watch_speed`, as on web).
-- The player gained a timeline, controls over the footage that fade when idle, and a landscape full screen where text cards and the queue keep working.
-- The coach's Shared by me / Shared with me pills and the feed chips are segmented controls; the From/Team filters and the speed picker are native menus.
-- Analytics: every `trackEvent` call matches `main` in name and count (checked at each milestone). `page_viewed` skips the two sheet routes, and closing a sheet doesn't count the screen underneath again.
-
-Added while building, all following the web:
-
-- **Play / Resume** in the player start at the first unwatched clip, as on web, rather than at clip 1.
-- **A clip that won't load** shows "Can't load this clip…" over the footage instead of skipping ahead, so a dropped connection no longer runs through the whole queue. Play retries it.
-- **The end of the queue** clears the active row (it used to stay highlighted).
-
-After review (2026-10-10), on mobile and on the web at phone width:
-
-- **Players can't drag the timeline.** A clip counts as watched near its end, so dragging there skipped it. Players get the times around a read-only progress line; the playlist's owner and its club's coaches and admins keep the scrubber (`canScrubPlaylist` in `packages/shared/lib/watch-queue.ts`). Previous/next, replay and speed are unchanged.
-- **No "now playing" block under the video.** It repeated the playing row and changed height between clips and text cards, so the list jumped. The playing row says what's playing, and rows show the coach's note in full.
-- **No "Remind all" on Shared by me.** Coaches remind per playlist ("Remind N") or per player, as on the web and desktop.
-- **Search:** a visible field on Android (see Chrome per platform); "Clear filters" also clears the search, the native iOS field included.
-- **Text cards can be paused.** While one shows, the phone layout's controls move to the bottom so the card's text isn't covered. The web's compact player covers it; worth carrying back.
-- **Watches** are claimed through `recordOnce` in the store, seeded from the loaded views and started over for a different account, which closes a double-record race.
-- **The team step at launch** has no back button; it's answered or skipped, as before.
-- **Sign-up's role** is a segmented control with the web's hints; it still starts on "I play" and still has no social sign-in.
-- **Copy** now follows the web: "Sign in to Scoutable", "Create your account", "Reset your password", "Check your inbox", the My highlights intro. The no-org screen's copy is unchanged word for word (App Review saw it).
-
-App Store constraints (see the 3.1.3(c) notes in the code) are unchanged: no outbound links (`openBrowserAsync`/`Linking.openURL` appear nowhere), nothing on screen reads the plan tier, no upgrade or renewal call to action, clubs only (personal spaces never appear in the switcher), native Sign in with Apple on iOS.
+- Filters and sort moved from segmented controls and pop-ups into one sheet per list; the filter button turns primary while any is on, and a footnote line names them with Clear.
+- The feed's hero is an Up next row (Resume or Watch as text); that playlist isn't repeated in its section. "n left" became "x of y watched" in the description.
+- Search is a field under the title on both platforms, shown from eight playlists (the coach's dashboard always).
+- Shared by me: the three stat cells became a sentence whose last part filters; rows open into their recipients; per-player and per-playlist reminders and "Watch as a player" live in the opened row; bulk reminder results are toasts (failures still alert).
+- The player's upright layout lost its three big centre buttons and corner buttons for the same glass bar the wide layout had; the clip list lost its progress bar.
+- Profile: inline Change…/Delete… buttons became rows; the theme swatches moved into a sheet; Sign out and Delete account form the last group.
+- Tab bar badge: the red count of new playlists stays (founder's call), drawn by the app.
 
 ## 5. Verification
 
-- **Each milestone:** `npm run typecheck` (mobile and shared), the shared tests (758), the analytics comparison with `main`, the outbound-link grep, and screenshots of both platforms in light and dark.
-- **Read-only mode:** Metro ran with `EXPO_PUBLIC_READ_ONLY=1` and empty PostHog and Sentry keys, so every write was refused in the app (watches, team choices, device touches, reminders) and logged. Nothing was submitted to production.
-- **Player, both platforms:** play, pause, auto-advance, scrubbing (grab, jump, past the ends), speed menu and remembered speed, full screen in landscape, Done and Android back, text card pause and resume, VoiceOver labels.
-- **Sheets:** native form sheets on iOS and Material bottom sheets on Android, both above the software keyboard.
-- **Accessibility:** iOS text size at accessibility-large and Android font scale 1.3; Increase Contrast. Large text found the layouts that couldn't take it, and they now adapt as iOS's own do (`useLargeText()` in `src/lib/a11y.ts`): segmented controls become a pop-up menu, rows put their trailing control under the text, stat cells stack, button pairs stack, and buttons grow with their labels. Icons are decorative to screen readers (the symbol's own system label was read in front of the button's), the coach's timeline is adjustable (a player's reads as a progress bar), and the list under the full-screen player is hidden from VoiceOver. Reduce Motion is honoured through `ReduceMotion.System` in every spring; Reduce Transparency makes the player's dark glass solid.
+- **Each milestone:** `npm run typecheck` (mobile, shared; web and desktop when shared changed), the shared tests (1352), the analytics comparison with `main`, the outbound-link grep, and runtime checks on both devices.
+- **Read-only mode:** Metro ran with `EXPO_PUBLIC_READ_ONLY=1` and empty PostHog and Sentry keys; every write was refused and logged (watches, reminders, device touches, theme sync).
+- **Runtime, both platforms:** the tab bar and its badge; the title bar's hand-off and material while scrolling, and after switching tabs; menu and filter sheets opened, applied, reset, dragged closed (iOS) and closed with Android back; the feed's rows and filters; the dashboard's rows, opened recipients and filter sheet; the watch view, playback with the glass bar and timeline, full screen in landscape and Done back to upright; Profile and the theme sheet (Courtside applied and set back); the team picker; an invalid invite's status screen; the feedback sheet over the keyboard; large text (iOS accessibility-medium, Android font scale 1.3).
+- **Grep gates:** no `expo-symbols`, `@expo/ui`, `expo-glass-effect` or `@expo/vector-icons` import; no radius outside the policy (the player bar's 12 pt is the one exception); no retired component.
 
-Not verified: playback in the iOS Simulator after the 2026-10-10 review changes (the Simulator's audio queue wouldn't start on this Mac, so AVPlayer stalled at 0:00 for every clip; the same code played on Android), Clear filters emptying the native iOS search field, a physical iPhone or Android phone (blur, haptics and rotation feel), iPad, push notifications end to end, a real join, reminder, feedback report or account deletion (all refused by read-only mode), and Sign in with Apple (native SIWA doesn't run in an unsigned Simulator build).
+Not verified: the signed-out screens, onboarding, no-org, the device gate and the error screen at runtime (signing out would end the test sessions; typecheck and reading only); Reduce Motion and Reduce Transparency at runtime (springs use `ReduceMotion.System`; `Material` and `PlayerMaterial` go solid); VoiceOver and TalkBack passes; a physical iPhone or Android phone; iPad; push end to end; a real join, reminder, feedback report or account deletion; Sign in with Apple.
 
 ## 6. Known gaps and next steps
 
-- **Text size changed while the app is open** can leave text clipped until the app is relaunched: React Native keeps the old text measurements. Launching at any size lays out correctly.
-- **Back to the web:** two things found here apply to the web as well. In dark themes the segmented control's thumb (the card colour) is darker than its track, so the choice reads as a hole; mobile now uses a lighter fill there. And the web's compact player covers a text card with its centre controls.
-- **The header search bar** starts pinned on iOS and is released once the screen has been shown, because UIKit otherwise starts a hide-when-scrolling search bar hidden. The workaround is in the Playlists screen.
-- **The iOS speed menu** follows the app's appearance (a light menu over the dark player in light mode); `MenuView` takes `colorScheme` on Android only.
-- **`@expo/vector-icons`** is no longer imported by the app. It stays in `package.json` until the next store build so this branch's fingerprint doesn't move twice.
-- **Merging:** the native changes need a new store build (App Review included). Publish the pending "Your team" OTA from `main` *before* merging: after the merge the runtime fingerprint changes, and `main` can no longer update the build that's in the store.
+- **Store build.** `expo-symbols`, `@expo/ui`, `expo-glass-effect`, `@expo/vector-icons` and `expo-font` are still in `package.json` so the installed dev clients keep matching (the native fingerprint is unchanged on this branch). Remove them, set the `expo-notifications` colour to the primary, align lucide across the three apps, then build. Publish `main`'s pending OTA before merging: after the merge the runtime fingerprint changes.
+- **iOS title bar edge:** RN has no mask-image, so the blur ends hard and a 10 pt gradient of the page colour stands in for the web's fade.
+- **iOS refresh spinner** shows through the clear bar while pulling and sits partly under the status bar text.
+- **Text size changed while the app is open** can leave text clipped until relaunch (RN keeps the old measurements).
+- **Maestro flows** live in `design-audit/mobile/flows` (outside the repository); `m6-profile.yaml` now taps "Send feedback" and "Delete account". Maestro takes whole-number percentages only.
 
 ### What a Google Play release would take
 

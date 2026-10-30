@@ -46,7 +46,7 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
           setFocused(false);
           onBlur?.(e);
         }}
-        className={cn("w-full rounded-lg bg-card text-foreground", multiline ? "min-h-28" : "h-11", className)}
+        className={cn("w-full rounded-control bg-card text-foreground", multiline ? "min-h-28" : "h-11", className)}
         style={[
           {
             fontSize: 17,

@@ -30,14 +30,3 @@ export function TeamCrest({ team, size = 32 }: { team: Pick<LeagueTeam, "name" |
     </View>
   );
 }
-
-/** The league chip that tells a team apart from a space of the same name. */
-export function LeagueChip({ name }: { name: string }) {
-  return (
-    <View className="rounded-full border border-separator px-2 py-px">
-      <Text variant="footnote" className="text-muted-foreground">
-        {name}
-      </Text>
-    </View>
-  );
-}

@@ -25,6 +25,7 @@ import { relativeTime } from "@/lib/format";
 import { successHaptic } from "@/lib/haptics";
 import { springs } from "@/lib/motion";
 import { useThemeColors } from "@/lib/theme-context";
+import { useLargeText } from "@/lib/a11y";
 import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -356,6 +357,7 @@ function PlaylistRow({
   onRemind: (r: RecipientRow) => void;
 }) {
   const colors = useThemeColors();
+  const largeText = useLargeText();
   const [showFinished, setShowFinished] = useState(false);
   const total = row.recipients.length;
   const behind = behindRecipients(row);
@@ -385,8 +387,8 @@ function PlaylistRow({
         className={({ pressed }) => cn("min-h-14 flex-row items-center gap-3 px-4 py-2", pressed && "bg-fill-1")}
       >
         <View className="min-w-0 flex-1">
-          <Text numberOfLines={1}>{row.playlist.name}</Text>
-          <Text variant="subheadline" nums numberOfLines={1} className="text-muted-foreground">
+          <Text numberOfLines={largeText ? 3 : 1}>{row.playlist.name}</Text>
+          <Text variant="subheadline" nums numberOfLines={largeText ? undefined : 1} className="text-muted-foreground">
             {meta}
           </Text>
           {row.uploadingCount > 0 && (

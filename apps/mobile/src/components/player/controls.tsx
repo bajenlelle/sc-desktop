@@ -67,7 +67,7 @@ export function ControlButton({
       className={({ pressed }) =>
         cn(
           "items-center justify-center",
-          size === "xl" ? "h-14 w-14 overflow-hidden rounded-full" : size === "lg" ? "h-12 w-12 rounded-lg" : "h-11 w-11 rounded-lg",
+          size === "xl" ? "h-14 w-14 overflow-hidden rounded-full" : size === "lg" ? "h-12 w-12 rounded-control" : "h-11 w-11 rounded-control",
           pressed && size !== "xl" && "bg-white/20",
           disabled && "opacity-30",
         )

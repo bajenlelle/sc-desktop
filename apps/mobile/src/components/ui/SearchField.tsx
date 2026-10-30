@@ -21,7 +21,7 @@ export function SearchField({
   const [focused, setFocused] = useState(false);
   return (
     <View
-      className={cn("h-9 flex-row items-center rounded-control", focused ? "bg-card" : "bg-fill-1", className)}
+      className={cn("min-h-9 flex-row items-center rounded-control py-1", focused ? "bg-card" : "bg-fill-1", className)}
       style={{ borderWidth: 2, borderColor: focused ? colors.primary : "transparent" }}
       hitSlop={{ top: 4, bottom: 4 }}
     >
@@ -37,7 +37,7 @@ export function SearchField({
         placeholderTextColor={colors.mutedForeground}
         selectionColor={colors.primary}
         cursorColor={colors.primary}
-        className="h-full flex-1 text-foreground"
+        className="flex-1 text-foreground"
         style={{ fontSize: 17, paddingVertical: 0 }}
         {...props}
         onFocus={(e) => {
