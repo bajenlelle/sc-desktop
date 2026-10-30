@@ -12,11 +12,11 @@ export const SECTION_GAP = 24;
 export const ROW_MIN_H = 44;
 /** A two-line row (label + description). */
 export const ROW_TWO_LINE_MIN_H = 56;
-/** The tab bar above the home indicator. */
-export const TAB_BAR_H = 49;
-/** The title bar's row under the status bar. */
+/** The title bar's row under the status bar (detail screens). */
 export const TOOLBAR_ROW_H = 44;
-/** Space under the large title block before the content starts. */
+/** A root screen's bar row: room for the 44 pt glass buttons (menu, filter). */
+export const ROOT_BAR_ROW_H = 56;
+/** Space under the title bar before the content starts. */
 export const CONTENT_TOP = 8;
 /** Space under the last row, above the tab bar or the home indicator. */
 export const CONTENT_BOTTOM = 40;

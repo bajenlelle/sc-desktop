@@ -47,6 +47,9 @@ import {
   Trash2,
   TriangleAlert,
   Type,
+  TextAlignStart,
+  Inbox,
+  Circle as CircleOutline,
   User,
   Users,
   WandSparkles,
@@ -113,6 +116,9 @@ export const ICONS = {
   wand: WandSparkles,
   share: Share,
   computer: Monitor,
+  menu: TextAlignStart,
+  inbox: Inbox,
+  circle: CircleOutline,
 } as const satisfies Record<string, LucideIcon | "basketball">;
 
 export type IconName = keyof typeof ICONS;

@@ -4,7 +4,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { FadeOutDown, LinearTransition, SlideInDown } from "react-native-reanimated";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Text } from "@/components/ui/Text";
-import { TAB_BAR_H } from "@/lib/layout";
 import { useThemeColors } from "@/lib/theme-context";
 
 type Tone = "success" | "neutral" | "warning";
@@ -55,7 +54,8 @@ export function ToastHost({ children }: { children: ReactNode }) {
             style={[
               styles.toast,
               {
-                marginBottom: insets.bottom + TAB_BAR_H + 12,
+                // Clears the floating search capsule on the lists.
+                marginBottom: insets.bottom + 72,
                 backgroundColor: colors.popover,
                 borderColor: colors.separator,
               },

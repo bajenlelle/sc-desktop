@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
-import { router } from "expo-router";
-import { clipViewKey } from "@scoutable/shared/lib/clip-views-db";
+import { useLocalSearchParams } from "expo-router";
 import {
   activeFeedFilterCount,
   feedCounts,
@@ -9,8 +8,8 @@ import {
   sharerFilterOptions,
 } from "@scoutable/shared/lib/playlist-feed";
 import { useAuth } from "@/lib/auth-context";
-import { trackEvent } from "@/lib/analytics";
-import { playableClips, usePlaylists } from "@/lib/playlists-store";
+import { usePlaylists } from "@/lib/playlists-store";
+import { usePlaylistOpener } from "@/lib/use-playlist-opener";
 import { useThemeColors } from "@/lib/theme-context";
 import { NO_FEED_FILTERS, PlaylistFeed, type FeedFilters } from "@/components/PlaylistFeed";
 import { FeedFilterSheet } from "@/components/FeedFilterSheet";
@@ -26,24 +25,26 @@ import { LicenseNotice } from "@/components/LicenseNotice";
 import { NotificationPrimer } from "@/components/NotificationPrimer";
 import { Screen } from "@/components/shell/Screen";
 import { SearchField } from "@/components/ui/SearchField";
-import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import type { RadioOption } from "@/components/ui/RadioGroup";
 
 /**
- * The Playlists tab, as the web's phone layout: one scroll view under the
- * large title (which hands over to the bar's small title as it scrolls), for
- * coaches a Shared by me / Shared with me switch under it, then search, the
- * same field on iOS and Android. Pull to refresh reloads both views.
+ * The playlists destination. Players see what was shared with them (My
+ * playlists). Coaches have two views of it, chosen in the sidebar and kept in
+ * the `view` param so the path stays /playlists: Shared by me (who watched
+ * what they shared) and Shared with me (what other coaches shared with
+ * them). Search sits at the top of the content; pull to refresh reloads both.
  */
 
 export default function PlaylistsScreen() {
   const { activeOrgRole } = useAuth();
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
-  const { loading, allPlaylists, feedItems, directPlaylistIds, teamMap, clipViews, refresh } = usePlaylists();
+  const { loading, allPlaylists, feedItems, directPlaylistIds, teamMap, refresh } = usePlaylists();
+  const { openPlaylist, resumePlaylist } = usePlaylistOpener();
+  const { view } = useLocalSearchParams<{ view?: string }>();
   const colors = useThemeColors();
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
-  const [coachTab, setCoachTab] = useState<"by-me" | "with-me">("by-me");
+  const coachTab: "by-me" | "with-me" = view === "with-me" ? "with-me" : "by-me";
   const [query, setQuery] = useState("");
   const [filters, setFilters] = useState<FeedFilters>(NO_FEED_FILTERS);
   const [dashFilters, setDashFilters] = useState<DashboardFilters>(NO_DASHBOARD_FILTERS);
@@ -75,28 +76,6 @@ export default function PlaylistsScreen() {
     }
     return opts;
   }, [directPlaylistIds, allPlaylists, teamMap]);
-
-  const openPlaylist = useCallback((id: string) => {
-    trackEvent("playlist_opened", { playlist_id: id, resumed: false });
-    router.push(`/playlists/${id}`);
-  }, []);
-
-  /** Opens a playlist starting from the first clip the player hasn't watched. */
-  const resumePlaylist = useCallback(
-    (id: string) => {
-      trackEvent("playlist_opened", { playlist_id: id, resumed: true });
-      const pl = allPlaylists.find((p) => p.id === id);
-      const firstUnwatched = pl
-        ? playableClips(pl).find((c) => !clipViews.has(clipViewKey(pl.id, c.matchId, c.eventId)))
-        : undefined;
-      if (firstUnwatched) {
-        router.push(`/playlists/${id}?resume=${encodeURIComponent(`${firstUnwatched.matchId}:${firstUnwatched.eventId}`)}`);
-      } else {
-        router.push(`/playlists/${id}`);
-      }
-    },
-    [allPlaylists, clipViews],
-  );
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -132,8 +111,8 @@ export default function PlaylistsScreen() {
 
   return (
     <Screen
-      title={isCoachOrAdmin ? "Shared playlists" : "My playlists"}
-      large
+      title={isCoachOrAdmin ? (coachTab === "by-me" ? "Shared by me" : "Shared with me") : "My playlists"}
+      menu
       // Both views are cards on the grouped floor (Shared by me and the feed).
       grouped
       refreshing={refreshing}
@@ -143,23 +122,6 @@ export default function PlaylistsScreen() {
           <FilterButton
             activeCount={showDashboard ? activeDashboardFilterCount(dashFilters) : activeFilters}
             onPress={() => setFiltersOpen(true)}
-          />
-        ) : undefined
-      }
-      principal={
-        // Coaches get two views: who watched what they shared, and the
-        // playlists others shared with them (same split as web).
-        isCoachOrAdmin ? (
-          <SegmentedControl
-            fullWidth
-            size="md"
-            accessibilityLabel="Show"
-            value={coachTab}
-            onValueChange={setCoachTab}
-            segments={[
-              { value: "by-me", label: "Shared by me" },
-              { value: "with-me", label: "Shared with me" },
-            ]}
           />
         ) : undefined
       }

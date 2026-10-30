@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Tabs, router } from "expo-router";
+import { ActivityIndicator, View, useWindowDimensions } from "react-native";
+import { router } from "expo-router";
+import { Drawer } from "expo-router/drawer";
 import { feedCounts } from "@scoutable/shared/lib/playlist-feed";
 import { useAuth } from "@/lib/auth-context";
 import { usePlaylists } from "@/lib/playlists-store";
@@ -9,29 +9,29 @@ import { syncAppBadge } from "@/lib/notifications";
 import { offerTeamStepOnce, useMyTeam } from "@/lib/my-team";
 import { trackEvent } from "@/lib/analytics";
 import { needsTeamStep, teamRoleIn } from "@scoutable/shared/lib/league-teams";
-import { useThemeColors } from "@/lib/theme-context";
-import { ShellProvider } from "@/components/shell/ShellContext";
-import { TabBar, type TabItem } from "@/components/shell/TabBar";
-import { TAB_BAR_H } from "@/lib/layout";
+import { useAppTheme, useThemeColors } from "@/lib/theme-context";
+import { Sidebar } from "@/components/shell/Sidebar";
 
 /**
- * The app's own tab bar (components/shell/TabBar), the same on iOS and
- * Android, as the web's phone layout draws it: Playlists and Profile for
- * everyone, My highlights (the personal space) for player-only users. Each
- * tab is its own stack. The watch screen (playlists/[id]), /team and the
- * sheets live OUTSIDE this group, so they cover the tab bar.
+ * The app's root destinations behind a sidebar, as Claude's app: the screen
+ * fills the window, a menu button (or a swipe from the left edge) slides the
+ * sidebar in beside it, and the screen slides along under a dimmed overlay.
+ * The same on iOS and Android. The routes are the tab routes they always
+ * were (playlists, highlights, profile), each its own stack, so every path,
+ * deep link and notification target is unchanged. The watch screen, /team
+ * and the sheets live OUTSIDE this group, so they cover the sidebar too.
  *
  * Whether My highlights shows is decided once, when the first profile has
  * settled, and then kept: a later reload (a staff club switch reloads the
- * profile) never flips the bar under the user's finger.
+ * profile) never changes the sidebar under the user's finger.
  */
 export default function TabsLayout() {
-  const { isPlayerOnly, activeOrgRole, activeOrg, profile, profileLoading } = useAuth();
+  const { isPlayerOnly, activeOrg, profile, profileLoading } = useAuth();
   const { choices, loaded: teamsLoaded } = useMyTeam();
   const { feedItems, loading } = usePlaylists();
-  const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
+  const { resolvedMode } = useAppTheme();
+  const { width } = useWindowDimensions();
 
   const [playerOnlyLatch, setPlayerOnlyLatch] = useState<boolean | null>(null);
   useEffect(() => {
@@ -41,9 +41,8 @@ export default function TabsLayout() {
   // Fully-unwatched playlists: same semantics as the feed's "New" filter
   // (both derive from the store's shared feedItems).
   const newCount = useMemo(() => feedCounts(feedItems).new, [feedItems]);
-  const playlistsTitle = isCoachOrAdmin ? "Shared playlists" : "My playlists";
 
-  // App-icon badge mirrors the tab badge. The !loading guard stops the
+  // App-icon badge mirrors the sidebar's count. The !loading guard stops the
   // initial fetch from flashing the icon count to 0.
   useEffect(() => {
     if (!loading) syncAppBadge(newCount);
@@ -67,26 +66,22 @@ export default function TabsLayout() {
     );
   }
 
-  const items: TabItem[] = [
-    { name: "playlists", title: playlistsTitle, icon: isCoachOrAdmin ? "sharedPlaylists" : "playlists", badge: newCount },
-    ...(playerOnlyLatch ? [{ name: "highlights", title: "My highlights", icon: "highlights" } as TabItem] : []),
-    { name: "profile", title: "Profile", icon: "profile" },
-  ];
-
   return (
-    <ShellProvider tabBarHeight={TAB_BAR_H + insets.bottom}>
-      <Tabs
-        tabBar={(props) => <TabBar {...props} items={items} />}
-        screenOptions={{
-          headerShown: false,
-          animation: "none",
-          sceneStyle: { backgroundColor: colors.background },
-        }}
-      >
-        <Tabs.Screen name="playlists" />
-        <Tabs.Screen name="highlights" />
-        <Tabs.Screen name="profile" />
-      </Tabs>
-    </ShellProvider>
+    <Drawer
+      drawerContent={(props) => <Sidebar {...props} playerOnly={playerOnlyLatch} />}
+      screenOptions={{
+        headerShown: false,
+        drawerType: "slide",
+        drawerStyle: { width: Math.min(Math.round(width * 0.82), 360), backgroundColor: colors.background },
+        overlayColor: resolvedMode === "dark" ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0.25)",
+        overlayAccessibilityLabel: "Close menu",
+        swipeEdgeWidth: 40,
+        sceneStyle: { backgroundColor: colors.background },
+      }}
+    >
+      <Drawer.Screen name="playlists" />
+      <Drawer.Screen name="highlights" />
+      <Drawer.Screen name="profile" />
+    </Drawer>
   );
 }

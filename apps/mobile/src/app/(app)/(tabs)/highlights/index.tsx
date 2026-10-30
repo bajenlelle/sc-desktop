@@ -56,7 +56,7 @@ const BULLETS: { icon: IconName; title: string; body: string }[] = [
 export default function HighlightsScreen() {
   const colors = useThemeColors();
   return (
-    <Screen title="My highlights" large contentClassName="gap-6 pt-1">
+    <Screen title="My highlights" menu contentClassName="gap-6 pt-2">
       <View className="gap-1 px-4">
         <Text variant="title2" accessibilityRole="header">
           Build your own highlight tape

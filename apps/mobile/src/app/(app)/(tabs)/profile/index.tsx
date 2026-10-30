@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { ActivityIndicator, Alert, View } from "react-native";
 import { router } from "expo-router";
 import Constants from "expo-constants";
@@ -14,7 +14,6 @@ import { DevicesSection } from "@/components/DevicesSection";
 import { LicenseNotice } from "@/components/LicenseNotice";
 import { TeamSection } from "@/components/TeamSection";
 import { GroupHeader, GroupRow, GroupedList } from "@/components/ui/Group";
-import { PopUpButton } from "@/components/ui/PopUpButton";
 import { Text } from "@/components/ui/Text";
 
 const ROLE_LABEL = { admin: "Admin", coach: "Coach", player: "Player" } as const;
@@ -29,17 +28,11 @@ const ROLE_LABEL = { admin: "Admin", coach: "Coach", player: "Player" } as const
  * anything that links out to the web.
  */
 export default function ProfileScreen() {
-  const { user, profile, myOrgs, activeOrg, activeOrgId, activeOrgRole, isPlayerOnly, setActiveOrg, reloadProfile } =
-    useAuth();
+  const { user, profile, activeOrg, activeOrgRole, isPlayerOnly } = useAuth();
   const { teamMap, clubTeams } = usePlaylists();
   const colors = useThemeColors();
   const [resetting, setResetting] = useState(false);
 
-  // Clubs only: a personal space is never selectable here (see resolveActiveOrg).
-  const clubOptions = useMemo(
-    () => myOrgs.filter((o) => !o.isPersonal).map((o) => ({ value: o.orgId, label: o.orgName })),
-    [myOrgs],
-  );
   const teamNames = [...teamMap.values()].map((t) => t.name);
   const role = activeOrgRole ? ROLE_LABEL[activeOrgRole] : null;
 
@@ -59,7 +52,7 @@ export default function ProfileScreen() {
   const clubName = !isPlayerOnly && activeOrg && !activeOrg.isPersonal ? activeOrg.orgName : null;
 
   return (
-    <Screen title="Profile" large grouped contentClassName="gap-6 px-4 pt-1">
+    <Screen title="Profile" menu grouped contentClassName="gap-6 px-4 pt-2">
       <View className="-mx-4">
         <LicenseNotice />
       </View>
@@ -102,27 +95,10 @@ export default function ProfileScreen() {
                     description={teamNames.length > 0 ? teamNames.join(" · ") : undefined}
                     trailing={role ?? undefined}
                   />,
-                  // No "Manage…": the web app reaches the pricing page, and App
-                  // Review rejected build 5 for exactly that path (3.1.1 /
-                  // 3.1.3(c)). Clubs are managed from the desktop or web app.
-                  clubOptions.length > 1 ? (
-                    <GroupRow
-                      key="switch"
-                      label="Switch club"
-                      trailing={
-                        <PopUpButton
-                          accessibilityLabel="Club"
-                          title="Club"
-                          value={activeOrgId ?? ""}
-                          options={clubOptions}
-                          onValueChange={async (orgId) => {
-                            setActiveOrg(orgId);
-                            await reloadProfile();
-                          }}
-                        />
-                      }
-                    />
-                  ) : null,
+                  // Switching clubs lives in the sidebar. No "Manage…": the web app
+                  // reaches the pricing page, and App Review rejected build 5 for
+                  // exactly that path (3.1.1 / 3.1.3(c)). Clubs are managed from the
+                  // desktop or web app.
                 ]
               : null}
         </TeamSection>

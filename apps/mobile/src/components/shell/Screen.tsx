@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Platform, RefreshControl, StyleSheet, View, type LayoutChangeEvent } from "react-native";
+import { Platform, RefreshControl, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
   Extrapolation,
@@ -10,9 +10,9 @@ import Animated, {
 } from "react-native-reanimated";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { Material, useSolidMaterial } from "@/components/shell/Material";
-import { useShell } from "@/components/shell/ShellContext";
+import { MenuButton } from "@/components/shell/MenuButton";
 import { Text } from "@/components/ui/Text";
-import { CONTENT_BOTTOM, TOOLBAR_ROW_H } from "@/lib/layout";
+import { CONTENT_BOTTOM, ROOT_BAR_ROW_H, TOOLBAR_ROW_H } from "@/lib/layout";
 import { cn } from "@/lib/cn";
 import { useThemeColors } from "@/lib/theme-context";
 
@@ -22,18 +22,15 @@ const EDGE_FADE = 10;
 export interface ScreenProps {
   title: string;
   /**
-   * A large title at the top of the content that hands over to the bar's
-   * small title as it scrolls under the bar (tab roots). Off, the small
-   * title shows from the start (detail screens).
+   * A root destination (the sidebar's): the bar opens the sidebar from its
+   * left end and is a little taller, for the glass buttons.
    */
-  large?: boolean;
-  /** Left of the bar: a BackButton on detail screens. */
+  menu?: boolean;
+  /** Left of the bar: a BackButton on detail screens (the menu button on roots). */
   leading?: ReactNode;
-  /** Right of the bar: icon actions (the filter button). */
+  /** Right of the bar: glass buttons (the filter button). */
   trailing?: ReactNode;
-  /** Under the large title: the screen's view switcher. */
-  principal?: ReactNode;
-  /** Under the switcher: a search field. */
+  /** At the top of the content: a search field. */
   search?: ReactNode;
   /** Settings-style screens sit on the grouped floor (`canvas`). */
   grouped?: boolean;
@@ -49,20 +46,18 @@ export interface ScreenProps {
 }
 
 /**
- * A screen in the app's own chrome, as the web's phone toolbar draws it: a
- * 44 pt bar under the status bar with a back button or actions, and a large
- * title at the top of the content that scrolls away while the bar's small
- * title fades in. The bar is clear at rest and takes the material once
- * content passes under it. The content pads for the bar, the tab bar and the
- * home indicator, so it scrolls under both.
+ * A screen in the app's own chrome, as Claude's app draws it: a bar under the
+ * status bar with a centred small title, the menu button (root screens) or a
+ * back button on the left and glass buttons on the right. The bar is clear
+ * at rest and takes the material once content passes under it. The content
+ * pads for the bar and the home indicator, so it scrolls under both.
  */
 export function Screen({
   title,
-  large = false,
+  menu = false,
   leading,
   trailing,
   search,
-  principal,
   grouped = false,
   scroll = true,
   barHidden = false,
@@ -72,20 +67,16 @@ export function Screen({
   children,
 }: ScreenProps) {
   const insets = useSafeAreaInsets();
-  const { tabBarHeight } = useShell();
   const colors = useThemeColors();
   const solid = useSolidMaterial();
-  const barHeight = barHidden ? 0 : insets.top + TOOLBAR_ROW_H;
+  const rowHeight = menu ? ROOT_BAR_ROW_H : TOOLBAR_ROW_H;
+  const barHeight = barHidden ? 0 : insets.top + rowHeight;
   // The content pads for the bar on both platforms (an iOS content inset gets
   // reset by UIKit when a tab's screen remounts in the background). The bar
   // is clear at rest and while pulling, so iOS's refresh spinner shows
   // through it; Android's is offset below it.
 
   const scrollY = useSharedValue(0);
-  // Where the large title ends, in scroll offset: the title block's place in
-  // the content plus the title's bottom inside the block, less the top padding.
-  const blockY = useSharedValue(0);
-  const titleBottom = useSharedValue(large ? 1e6 : 0);
   const onScroll = useAnimatedScrollHandler((e) => {
     scrollY.value = e.contentOffset.y;
   });
@@ -93,38 +84,11 @@ export function Screen({
   const materialStyle = useAnimatedStyle(() => ({
     opacity: scroll ? interpolate(scrollY.value, [0, 10], [0, 1], Extrapolation.CLAMP) : 1,
   }));
-  const smallTitleStyle = useAnimatedStyle(() => {
-    const end = blockY.value + titleBottom.value - barHeight;
-    return { opacity: large ? interpolate(scrollY.value, [end - 6, end + 6], [0, 1], Extrapolation.CLAMP) : 1 };
-  });
-
-  const onBlockLayout = (e: LayoutChangeEvent) => {
-    blockY.value = e.nativeEvent.layout.y;
-  };
-  const onTitleLayout = (e: LayoutChangeEvent) => {
-    const { y, height } = e.nativeEvent.layout;
-    titleBottom.value = y + height;
-  };
 
   const floor = grouped ? colors.canvas : colors.background;
-  const bottomPad = (tabBarHeight > 0 ? tabBarHeight : insets.bottom) + CONTENT_BOTTOM;
+  const bottomPad = insets.bottom + CONTENT_BOTTOM;
 
-  const titleBlock = large ? (
-    <View className="px-4 pb-2.5 pt-0.5" onLayout={onBlockLayout}>
-      <View onLayout={onTitleLayout}>
-        <Text variant="largeTitle" accessibilityRole="header" numberOfLines={2}>
-          {title}
-        </Text>
-      </View>
-      {principal ? <View className="mt-3">{principal}</View> : null}
-      {search ? <View className={principal ? "mt-2.5" : "mt-1.5"}>{search}</View> : null}
-    </View>
-  ) : search || principal ? (
-    <View className="gap-2.5 px-4 pb-2.5 pt-1">
-      {principal}
-      {search}
-    </View>
-  ) : null;
+  const titleBlock = search ? <View className="px-4 pb-2.5 pt-1">{search}</View> : null;
 
   return (
     <View style={{ flex: 1, backgroundColor: floor }}>
@@ -133,7 +97,7 @@ export function Screen({
           onScroll={onScroll}
           scrollEventThrottle={16}
           contentInsetAdjustmentBehavior="never"
-          scrollIndicatorInsets={{ top: barHeight, bottom: tabBarHeight }}
+          scrollIndicatorInsets={{ top: barHeight }}
           contentContainerStyle={{ paddingTop: barHeight, paddingBottom: bottomPad }}
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
@@ -183,15 +147,15 @@ export function Screen({
             <View style={[StyleSheet.absoluteFill, { backgroundColor: floor }]} />
           )}
         </Animated.View>
-        <View pointerEvents="box-none" style={[styles.row, { marginTop: insets.top }]}>
+        <View pointerEvents="box-none" style={[styles.row, { height: rowHeight, marginTop: insets.top }]}>
           <View pointerEvents="box-none" style={styles.side}>
-            {leading}
+            {leading ?? (menu ? <MenuButton /> : null)}
           </View>
-          <Animated.View pointerEvents="none" style={[styles.titleSlot, smallTitleStyle]}>
-            <Text variant="headline" numberOfLines={1} maxFontSizeMultiplier={1.3} accessible={!large}>
+          <View pointerEvents="none" style={styles.titleSlot}>
+            <Text variant="headline" accessibilityRole="header" numberOfLines={1} maxFontSizeMultiplier={1.3}>
               {title}
             </Text>
-          </Animated.View>
+          </View>
           <View pointerEvents="box-none" style={[styles.side, styles.trailing]}>
             {trailing}
           </View>
@@ -204,9 +168,9 @@ export function Screen({
 
 const styles = StyleSheet.create({
   bar: { position: "absolute", left: 0, right: 0, top: 0 },
-  row: { height: TOOLBAR_ROW_H, flexDirection: "row", alignItems: "center", paddingHorizontal: 16 },
+  row: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16 },
   side: { flex: 1, flexBasis: 0, flexDirection: "row", alignItems: "center" },
-  trailing: { justifyContent: "flex-end", gap: 4, marginRight: -10 },
+  trailing: { justifyContent: "flex-end", gap: 8 },
   titleSlot: { maxWidth: "55%", alignItems: "center" },
   hairline: { position: "absolute", left: 0, right: 0, bottom: 0, height: StyleSheet.hairlineWidth },
   fade: { position: "absolute", left: 0, right: 0, bottom: -EDGE_FADE },
