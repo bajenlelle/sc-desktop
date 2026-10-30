@@ -156,7 +156,10 @@ export function GroupRow({
           {main}
           {chevronView}
         </View>
-        <View className="self-start">{trailingView}</View>
+        {/* Under the label's text, not under its icon. */}
+        <View className="self-start" style={icon && !leading ? { marginLeft: (large ? 22 : 18) + 12 } : undefined}>
+          {trailingView}
+        </View>
       </>
     ) : (
       <>
