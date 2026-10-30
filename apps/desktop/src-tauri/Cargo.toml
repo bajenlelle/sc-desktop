@@ -14,8 +14,11 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 # `macos-private-api`: the transparent window behind the vibrancy sidebar is
-# compiled behind this feature; the CLI enables it from tauri.macos.conf.json,
-# naming it here keeps plain `cargo clippy`/`cargo test` on the same code.
+# compiled behind this feature. tauri-build checks it against `macOSPrivateApi`
+# in the config for the target platform, so that flag lives in tauri.conf.json
+# (not tauri.macos.conf.json): on Linux/Windows a plain `cargo clippy` would
+# otherwise fail, and `tauri build` would strip the feature. Both are no-ops
+# off macOS.
 tauri = { version = "2", features = ["protocol-asset", "macos-private-api"] }
 tauri-plugin-opener = "2"
 tauri-plugin-http = "2"
