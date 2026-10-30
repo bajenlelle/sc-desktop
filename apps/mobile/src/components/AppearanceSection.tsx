@@ -1,135 +1,196 @@
 /**
- * Profile-tab Appearance card: a System/Light/Dark mode row plus swatch grids
- * for the dark and light theme slots — the mobile counterpart of the desktop
- * Settings Appearance card (theme-picker.tsx). Selection applies instantly
- * and syncs to the user's other devices via ThemeSync; picking a theme from
- * the other group also switches the mode (setColorTheme handles that plus
- * analytics).
+ * Settings' appearance: Light, Dark or System as three preview tiles (as
+ * Claude's and iOS's own settings draw them), each painted in the theme the
+ * user picked for that mode, and the theme pickers for the Theme page
+ * (swatches for the light and the dark slot). A pick applies at once and
+ * follows the account to the other apps through ThemeSync; picking a theme
+ * from the other mode also switches the mode (setColorTheme handles that,
+ * and the analytics).
  */
-import { Pressable, Text, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { COLOR_THEMES, type ColorTheme } from "@scoutable/shared/lib/themes";
+import { useId } from "react";
+import { StyleSheet, View } from "react-native";
+import Svg, { Circle, ClipPath, Defs, G, Polygon, Rect } from "react-native-svg";
+import { DEFAULT_THEME, getTheme, type ColorTheme } from "@scoutable/shared/lib/themes";
 import type { ThemeModeSetting } from "@scoutable/shared/lib/theme-sync";
-import { useAppTheme } from "@/lib/theme-context";
+import { Tappable } from "@/components/ui/Tappable";
+import { Text } from "@/components/ui/Text";
+import { selectionHaptic } from "@/lib/haptics";
+import { useAppTheme, useThemeColors } from "@/lib/theme-context";
 
-const MODE_OPTIONS: Array<{ id: ThemeModeSetting; label: string }> = [
-  { id: "system", label: "System" },
-  { id: "light", label: "Light" },
-  { id: "dark", label: "Dark" },
-];
+const COLUMNS = 3;
+const TILE_W = 124;
+const TILE_H = 80;
 
-function ThemeSwatch({
-  theme,
-  active,
-  checkColor,
-  onPress,
-}: {
-  theme: ColorTheme;
-  active: boolean;
-  checkColor: string;
-  onPress: () => void;
-}) {
+type Swatch = ColorTheme["swatch"];
+
+/** A window in miniature: a card with two lines of text and the theme's accent dot. */
+function Miniature({ swatch, dark }: { swatch: Swatch; dark: boolean }) {
+  const line = dark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.2)";
   return (
-    <Pressable
-      accessibilityRole="radio"
-      accessibilityState={{ selected: active }}
-      accessibilityLabel={theme.label}
-      onPress={onPress}
-      className={`w-[30%] overflow-hidden rounded-lg border ${
-        active ? "border-primary" : "border-border"
-      }`}
-      style={active ? { borderWidth: 2 } : undefined}
-    >
-      <View style={{ backgroundColor: theme.swatch.bg, padding: 6, height: 44 }}>
-        <View
-          style={{
-            flex: 1,
-            backgroundColor: theme.swatch.surface,
-            borderRadius: 4,
-            paddingHorizontal: 5,
-            paddingVertical: 4,
-            justifyContent: "space-between",
-          }}
-        >
-          <View
-            style={{ height: 4, width: 22, borderRadius: 999, backgroundColor: theme.swatch.primary }}
-          />
-          <View
-            style={{ height: 4, width: 14, borderRadius: 999, backgroundColor: theme.swatch.accent }}
-          />
-        </View>
-      </View>
-      <View className="flex-row items-center justify-between border-t border-border px-1.5 py-1">
-        <Text numberOfLines={1} className="flex-1 text-[11px] text-foreground">
-          {theme.label}
-        </Text>
-        {active && <Ionicons name="checkmark" size={12} color={checkColor} />}
-      </View>
-    </Pressable>
+    <>
+      <Rect x={0} y={0} width={TILE_W} height={TILE_H} fill={swatch.bg} />
+      <Rect x={10} y={10} width={104} height={60} rx={8} fill={swatch.surface} />
+      <Rect x={20} y={22} width={46} height={4} rx={2} fill={line} />
+      <Rect x={20} y={31} width={30} height={4} rx={2} fill={line} />
+      <Circle cx={98} cy={56} r={7} fill={swatch.primary} />
+    </>
   );
 }
 
-export function AppearanceSection() {
-  const { activeThemeId, modeSetting, colors, setColorTheme, setModeSetting } = useAppTheme();
-  const darkThemes = COLOR_THEMES.filter((t) => t.mode === "dark");
-  const lightThemes = COLOR_THEMES.filter((t) => t.mode === "light");
-
+function AppearanceTile({
+  label,
+  light,
+  dark,
+  value,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  light: Swatch;
+  dark: Swatch;
+  value: ThemeModeSetting;
+  selected: boolean;
+  onSelect: (v: ThemeModeSetting) => void;
+}) {
+  const colors = useThemeColors();
+  const clipId = `split${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   return (
-    <View className="gap-3 rounded-xl border border-border p-4">
-      <Text className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-        Appearance
+    <Tappable
+      scaleTo={0.97}
+      accessibilityRole="radio"
+      accessibilityState={{ checked: selected }}
+      accessibilityLabel={label}
+      onPress={() => {
+        if (!selected) selectionHaptic();
+        onSelect(value);
+      }}
+      className="flex-1 items-center gap-2"
+    >
+      <View style={styles.tileBox}>
+        <View style={[styles.tile, { borderColor: colors.separator }]}>
+          <Svg width="100%" height="100%" viewBox={`0 0 ${TILE_W} ${TILE_H}`} preserveAspectRatio="none">
+            {value === "dark" ? <Miniature swatch={dark} dark /> : <Miniature swatch={light} dark={false} />}
+            {value === "system" ? (
+              <>
+                <Defs>
+                  <ClipPath id={clipId}>
+                    <Polygon points={`${TILE_W},0 ${TILE_W},${TILE_H} 0,${TILE_H}`} />
+                  </ClipPath>
+                </Defs>
+                <G clipPath={`url(#${clipId})`}>
+                  <Miniature swatch={dark} dark />
+                </G>
+              </>
+            ) : null}
+          </Svg>
+        </View>
+        {/* The ring sits outside the tile so choosing doesn't shift the row. */}
+        {selected ? <View pointerEvents="none" style={[styles.ring, { borderColor: colors.primary }]} /> : null}
+      </View>
+      <Text
+        variant="subheadline"
+        numberOfLines={2}
+        className={selected ? "text-center font-semibold text-primary" : "text-center text-muted-foreground"}
+      >
+        {label}
       </Text>
+    </Tappable>
+  );
+}
 
-      <View className="flex-row gap-2" accessibilityRole="radiogroup">
-        {MODE_OPTIONS.map((m) => {
-          const active = modeSetting === m.id;
-          return (
-            <Pressable
-              key={m.id}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: active }}
-              onPress={() => setModeSetting(m.id)}
-              className={`min-h-[32px] justify-center rounded-full px-3.5 ${
-                active ? "bg-primary" : "bg-muted"
-              }`}
-            >
-              <Text
-                className={`text-xs font-medium ${
-                  active ? "text-primary-foreground" : "text-muted-foreground"
-                }`}
-              >
-                {m.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
+/** Light, Dark or System, as three tiles in the theme picked for each mode. */
+export function AppearanceTiles() {
+  const { modeSetting, setModeSetting, slots } = useAppTheme();
+  const light = (getTheme(slots.light) ?? getTheme(DEFAULT_THEME.light))!.swatch;
+  const dark = (getTheme(slots.dark) ?? getTheme(DEFAULT_THEME.dark))!.swatch;
+  const tiles: { value: ThemeModeSetting; label: string }[] = [
+    { value: "light", label: "Light" },
+    { value: "dark", label: "Dark" },
+    { value: "system", label: "System" },
+  ];
+  return (
+    <View accessibilityRole="radiogroup" accessibilityLabel="Appearance" className="flex-row gap-3 px-4 pb-3 pt-4">
+      {tiles.map((t) => (
+        <AppearanceTile
+          key={t.value}
+          label={t.label}
+          value={t.value}
+          light={light}
+          dark={dark}
+          selected={modeSetting === t.value}
+          onSelect={setModeSetting}
+        />
+      ))}
+    </View>
+  );
+}
 
-      <Text className="text-xs font-medium text-muted-foreground">Dark theme</Text>
-      <View className="flex-row flex-wrap gap-2" accessibilityRole="radiogroup">
-        {darkThemes.map((t) => (
-          <ThemeSwatch
-            key={t.id}
-            theme={t}
-            active={t.id === activeThemeId}
-            checkColor={colors.primary}
-            onPress={() => setColorTheme(t.id)}
+function ThemeSwatch({ theme, active, onPress }: { theme: ColorTheme; active: boolean; onPress: () => void }) {
+  const colors = useThemeColors();
+  return (
+    <Tappable
+      scaleTo={0.98}
+      accessibilityRole="radio"
+      accessibilityState={{ checked: active }}
+      accessibilityLabel={theme.label}
+      onPress={onPress}
+      className="flex-1 gap-1.5"
+    >
+      <View>
+        <View
+          className="overflow-hidden rounded-window"
+          style={{ height: 56, backgroundColor: theme.swatch.bg, borderWidth: 0.5, borderColor: colors.separator }}
+        >
+          <View style={{ position: "absolute", left: 10, top: 10, width: 10, height: 10, borderRadius: 5, backgroundColor: theme.swatch.primary }} />
+          <View style={{ position: "absolute", left: 10, right: 10, bottom: 10, height: 14, borderRadius: 4, backgroundColor: theme.swatch.surface }} />
+        </View>
+        {/* The ring sits outside the tile so choosing doesn't shift the grid. */}
+        {active && (
+          <View
+            pointerEvents="none"
+            style={{ position: "absolute", left: -3, right: -3, top: -3, bottom: -3, borderRadius: 13, borderWidth: 2, borderColor: colors.primary }}
           />
-        ))}
+        )}
       </View>
+      <Text variant="footnote" numberOfLines={1} className={active ? "text-center font-semibold" : "text-center text-muted-foreground"}>
+        {theme.label}
+      </Text>
+    </Tappable>
+  );
+}
 
-      <Text className="text-xs font-medium text-muted-foreground">Light theme</Text>
-      <View className="flex-row flex-wrap gap-2" accessibilityRole="radiogroup">
-        {lightThemes.map((t) => (
-          <ThemeSwatch
-            key={t.id}
-            theme={t}
-            active={t.id === activeThemeId}
-            checkColor={colors.primary}
-            onPress={() => setColorTheme(t.id)}
-          />
+export function ThemeGrid({ heading, themes, chosen }: { heading: string; themes: ColorTheme[]; chosen: string }) {
+  const { setColorTheme } = useAppTheme();
+  const rows: (ColorTheme | null)[][] = [];
+  for (let i = 0; i < themes.length; i += COLUMNS) {
+    const row: (ColorTheme | null)[] = themes.slice(i, i + COLUMNS);
+    while (row.length < COLUMNS) row.push(null);
+    rows.push(row);
+  }
+  return (
+    <View>
+      <Text variant="subheadline" className="px-4 pb-2 pt-4 text-muted-foreground">
+        {heading}
+      </Text>
+      <View accessibilityRole="radiogroup" accessibilityLabel={`${heading} themes`} className="gap-3.5 px-4">
+        {rows.map((row, i) => (
+          <View key={i} className="flex-row gap-3">
+            {row.map((t, j) =>
+              t ? (
+                <ThemeSwatch key={t.id} theme={t} active={t.id === chosen} onPress={() => setColorTheme(t.id)} />
+              ) : (
+                <View key={`empty-${j}`} className="flex-1" />
+              ),
+            )}
+          </View>
         ))}
       </View>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  tileBox: { alignSelf: "stretch" },
+  tile: { aspectRatio: TILE_W / TILE_H, borderRadius: 12, overflow: "hidden", borderWidth: StyleSheet.hairlineWidth },
+  ring: { position: "absolute", left: -3, right: -3, top: -3, bottom: -3, borderRadius: 15, borderWidth: 2 },
+});

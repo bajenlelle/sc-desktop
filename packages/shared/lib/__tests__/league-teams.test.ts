@@ -14,6 +14,7 @@ import {
   teamRoleLine,
   teamSpaces,
   teamStepTitle,
+  teamSummaryLabel,
 } from "../league-teams";
 import type { LeagueTeam, TeamChoice } from "../../types/league-team";
 import type { OrgMembership } from "../../types/org";
@@ -194,5 +195,35 @@ describe("teamSpaces", () => {
   it("leaves out national-team spaces, which have no league team", () => {
     const nt = om({ orgId: "nt", orgName: "Sweden", isNtOrg: true });
     expect(teamSpaces([club, nt, personal]).map((o) => o.orgId)).toEqual(["club", "me"]);
+  });
+});
+
+describe("teamSummaryLabel", () => {
+  it("is null when there are no spaces to answer for", () => {
+    expect(teamSummaryLabel([])).toBeNull();
+  });
+
+  it("names the one team every space uses", () => {
+    expect(teamSummaryLabel(groupChoicesForProfile([club, personal], [choice("club", sollentuna), choice("me", sollentuna)]))).toBe(
+      "Sollentuna Basket",
+    );
+  });
+
+  it("names a team that isn't in a league we cover", () => {
+    expect(teamSummaryLabel(groupChoicesForProfile([club], [choice("club", null, "Sollentuna U16")]))).toBe("Sollentuna U16");
+  });
+
+  it("names the one answer even when another space has none yet", () => {
+    expect(teamSummaryLabel(groupChoicesForProfile([club, club2], [choice("club", umea)]))).toBe("Umeå Basket");
+  });
+
+  it("counts the answers once they differ", () => {
+    expect(
+      teamSummaryLabel(groupChoicesForProfile([club, club2, personal], [choice("club", sollentuna), choice("club2", umea)])),
+    ).toBe("2 teams");
+  });
+
+  it("says not set when no space has an answer", () => {
+    expect(teamSummaryLabel(groupChoicesForProfile([club, personal], []))).toBe("Not set");
   });
 });

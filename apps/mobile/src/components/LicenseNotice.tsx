@@ -4,9 +4,11 @@
  * the feed and profile screens so players hear about expiry somewhere other
  * than a failed join.
  */
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { getLicenseState, graceEndsAt } from "@scoutable/shared/lib/license-state";
 import { useAuth } from "@/lib/auth-context";
+import { formatDate } from "@/lib/format";
+import { NoticeRow } from "@/components/ui/Row";
 
 export function LicenseNotice({ className = "" }: { className?: string }) {
   const { myOrgs } = useAuth();
@@ -22,31 +24,19 @@ export function LicenseNotice({ className = "" }: { className?: string }) {
   if (affected.length === 0) return null;
 
   return (
-    <View className={`gap-2 ${className}`}>
+    <View className={className}>
       {affected.map((o) => {
         const state = getLicenseState(o.expiresAt);
-        const graceEnd = graceEndsAt(o.expiresAt)?.toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-        });
+        const graceEnd = graceEndsAt(o.expiresAt);
+        // Status only, no renewal call to action: App Store 3.1.3(f) keeps
+        // this app exempt from in-app purchase as long as it never points at
+        // a purchase outside it. Web and desktop still carry the renewal path.
         return (
-          <View
-            key={o.orgId}
-            className="rounded-xl border border-red-500/40 bg-red-500/5 px-3 py-2"
-          >
-            <Text className="text-sm font-semibold text-red-600 dark:text-red-400">
-              {o.orgName}&apos;s license has expired
-            </Text>
-            {/* Status only, no renewal call to action: App Store 3.1.3(f)
-                keeps this app exempt from in-app purchase as long as it
-                never points at a purchase outside it. Web and desktop still
-                carry the renewal path. */}
-            <Text className="text-xs text-muted-foreground">
-              {state === "grace"
-                ? `New shares pause on ${graceEnd}. Existing playlists stay watchable.`
-                : "New shares are paused. Existing playlists stay watchable."}
-            </Text>
-          </View>
+          <NoticeRow key={o.orgId} icon="error" tone="destructive">
+            {state === "grace" && graceEnd
+              ? `${o.orgName}'s license has expired. New shares pause on ${formatDate(graceEnd, "short")}; existing playlists stay watchable.`
+              : `${o.orgName}'s license has expired. New shares are paused; existing playlists stay watchable.`}
+          </NoticeRow>
         );
       })}
     </View>

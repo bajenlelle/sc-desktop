@@ -5,7 +5,7 @@
  * hoisted for mobile. Unlike those copies, every function here takes a
  * SupabaseClient as its first argument — desktop, web, and mobile pass their
  * own platform-specific client. Write/admin/invite-management functions stay
- * app-local for now.
+ * app-local for now, except the name, which mobile edits too.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -144,6 +144,15 @@ export async function getMyProfile(supabase: SupabaseClient, userId: string): Pr
     .single();
   if (error || !data) throw new Error(`Failed to load profile: ${error?.message}`);
   return rowToProfile(data as ProfileRow);
+}
+
+/**
+ * Saves the signed-in user's name (`full_name` is one of the profile columns
+ * clients may write). Normalize it first with normalizeFullName.
+ */
+export async function updateMyFullName(supabase: SupabaseClient, userId: string, fullName: string): Promise<void> {
+  const { error } = await supabase.from("profiles").update({ full_name: fullName }).eq("id", userId);
+  if (error) throw new Error(`Failed to save the name: ${error.message}`);
 }
 
 export async function getMyOrgs(supabase: SupabaseClient): Promise<OrgMembership[]> {

@@ -137,7 +137,8 @@ playlists, and share them with teams; players watch on web/mobile.
 - `docs/maintenance.md`: the bug pipeline, and every secret: where it lives
   and what reads it.
 - `docs/desktop-design-audit.md`, `docs/web-design-audit.md`: the redesign
-  of each app against Apple's interface principles.
+  of each app against Apple's interface principles. `docs/mobile-design-audit.md`:
+  the mobile app in the same calm (its own chrome on iOS and Android).
 - `docs/stripe-b2c-tier-integration.md`: the B2C tiers in Stripe.
 - `docs/invite-flow.md`: the invite and role design.
 - `docs/leagues.md`, `docs/play-by-play-data-inventory.md`: superseded by the

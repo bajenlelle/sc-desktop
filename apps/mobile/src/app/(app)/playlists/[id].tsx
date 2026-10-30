@@ -1,36 +1,56 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, Text, View } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { VideoView } from "expo-video";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
+import { Screen } from "@/components/shell/Screen";
+import { BackButton } from "@/components/shell/BackButton";
+import { useReducedMotion } from "react-native-reanimated";
+import { Stack, router, useLocalSearchParams } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import type { PlayByPlayEvent } from "@scoutable/shared/types/match";
+import {
+  buildWatchItems,
+  canScrubPlaylist,
+  clipKey,
+  firstUnwatchedKey,
+  isMultiGame,
+  watchProgress,
+} from "@scoutable/shared/lib/watch-queue";
 import { clipViewKey } from "@scoutable/shared/lib/clip-views-db";
 import { useAuth } from "@/lib/auth-context";
-import { playableClips, usePlaylists } from "@/lib/playlists-store";
-import {
-  itemKey,
-  useClipQueue,
-  type PlaybackItem,
-  isTextCard,
-} from "@/hooks/use-clip-queue";
-import { ClipRow } from "@/components/ClipRow";
-import { PlayerControls } from "@/components/PlayerControls";
-import { ReportProblemSheet } from "@/components/ReportProblemSheet";
-import { ProgressBar } from "@/components/ProgressBar";
-import { TextCardOverlay } from "@/components/TextCardOverlay";
+import { usePlaylists } from "@/lib/playlists-store";
+import { useThemeColors } from "@/lib/theme-context";
+import { useClipQueue } from "@/hooks/use-clip-queue";
+import { PlayerStage } from "@/components/player/PlayerStage";
+import { useStageFullscreen } from "@/components/player/use-stage-fullscreen";
+import { ActivePill, WatchClipRow, WatchTextCardRow, useActivePill } from "@/components/WatchClipRow";
+import { Button } from "@/components/ui/Button";
+import { StatusScreen } from "@/components/ui/EmptyState";
+import { Text } from "@/components/ui/Text";
 
+/**
+ * Watching a shared playlist (the web's watch-view.tsx at phone width): the
+ * player under the app's own title bar, and the clip list scrolling beneath it.
+ * The playing row says what's playing (it carries the highlight, and the
+ * coach's note shows in full in its row): a block between player and list
+ * would change height from clip to clip, or vanish for a text card, and move
+ * the list under the reader's finger. Full screen turns the phone to
+ * landscape.
+ */
 export default function WatchScreen() {
   const { id, resume } = useLocalSearchParams<{ id: string; resume?: string }>();
-  const { activeOrgRole } = useAuth();
+  const { activeOrgRole, user, myOrgs } = useAuth();
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   const { allPlaylists, loading, matchLookup, clipViews, recordWatched, refresh } = usePlaylists();
+  const colors = useThemeColors();
+  const reduceMotion = useReducedMotion();
+  const fullscreen = useStageFullscreen();
+  const [scrubbing, setScrubbing] = useState(false);
 
-  const playlist = useMemo(
-    () => allPlaylists.find((p) => p.id === id) ?? null,
-    [allPlaylists, id]
-  );
+  const playlist = useMemo(() => allPlaylists.find((p) => p.id === id) ?? null, [allPlaylists, id]);
+  // Players get a read-only progress line: dragging to the end would count a clip as watched.
+  const canScrub = !!playlist && canScrubPlaylist({ userId: user?.id, myOrgs }, playlist);
 
   // A push tap can land here for a share newer than the mounted store
-  // snapshot — one refetch before declaring the playlist unavailable.
+  // snapshot: one refetch before declaring the playlist unavailable.
   const retriedRef = useRef(false);
   const [retrying, setRetrying] = useState(false);
   useEffect(() => {
@@ -42,256 +62,230 @@ export default function WatchScreen() {
       .finally(() => setRetrying(false));
   }, [playlist, loading, refresh]);
 
-  // Build display items — clips without r2Url are invisible to recipients
-  // (a row they can never play only reads as broken), text cards pass through.
-  const displayItems = useMemo((): PlaybackItem[] => {
+  // The plays behind the playlist's clips; clips not uploaded yet, or whose
+  // play the game data no longer has, are left out (buildWatchItems).
+  const items = useMemo(() => {
     if (!playlist) return [];
-    const items: PlaybackItem[] = [];
+    const eventByKey = new Map<string, PlayByPlayEvent>();
     for (const item of playlist.items) {
-      if (item.type === "clip") {
-        if (!item.r2Url) continue;
-        const match = matchLookup.get(item.matchId);
-        const event = match?.events.find((e) => e.eventId === item.eventId);
-        if (event) {
-          items.push({
-            type: "clip",
-            event,
-            matchId: item.matchId,
-            r2Url: item.r2Url,
-            note: item.note,
-          });
-        }
-      } else {
-        items.push(item);
-      }
+      if (item.type !== "clip") continue;
+      const event = matchLookup.get(item.matchId)?.events.find((e) => e.eventId === item.eventId);
+      if (event) eventByKey.set(clipKey(item.matchId, item.eventId), event);
     }
-    return items;
+    return buildWatchItems(playlist, eventByKey);
   }, [playlist, matchLookup]);
 
-  // Every display item is playable (unshipped clips were dropped above).
-  const playableQueue = displayItems;
+  const multiGame = useMemo(() => isMultiGame(items), [items]);
+  const matchTitleFor = useCallback(
+    (matchId: string) => (multiGame ? matchLookup.get(matchId)?.title : undefined),
+    [multiGame, matchLookup],
+  );
+  const progress = useMemo(() => (playlist ? watchProgress(playlist, clipViews) : { watched: 0, total: 0 }), [playlist, clipViews]);
+  /** Where Play and Resume start: the first clip not yet watched. */
+  const startKey = useMemo(() => (playlist ? firstUnwatchedKey(playlist, clipViews) : null), [playlist, clipViews]);
 
-  const queue = useClipQueue({
-    playlistId: playlist?.id ?? null,
-    playableQueue,
-    recordWatched,
-  });
+  const playlistId = playlist?.id ?? null;
+  const onWatched = useCallback(
+    (matchId: string, eventId: number) => {
+      if (playlistId) recordWatched(playlistId, matchId, eventId);
+    },
+    [playlistId, recordWatched],
+  );
+  const queue = useClipQueue({ items, onWatched });
+  const activeClip = queue.activeItem?.kind === "clip" ? queue.activeItem : null;
+  const activeCard = queue.activeItem?.kind === "text" ? queue.activeItem.card : null;
 
-  // Keep the active row visible as the queue auto-advances — without this a
-  // long playlist plays on while the highlight drifts below the fold.
-  const listRef = useRef<FlatList<PlaybackItem>>(null);
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
-  useEffect(() => {
-    if (!queue.activeKey) return;
-    const index = displayItems.findIndex((i) => itemKey(i) === queue.activeKey);
-    if (index < 0) return;
-    try {
-      listRef.current?.scrollToIndex({ index, viewPosition: 0.3, animated: true });
-    } catch {
-      // Unmeasured rows can throw; onScrollToIndexFailed covers the retry.
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queue.activeKey]);
+  const { playFrom } = queue;
+  const playOrResume = useCallback(() => {
+    if (items.length > 0) playFrom(startKey ?? items[0].key);
+  }, [items, startKey, playFrom]);
 
-  // Resume (from the feed's Resume button, or a deep link) starts at the
-  // target clip once the queue is populated. Each distinct target is consumed
-  // once, so re-renders don't restart playback — but a new resume param on an
-  // already-mounted screen still works.
+  // Resume (the feed's Resume button, or a deep link) starts at its clip once
+  // the list is there. Each target is used once, so re-renders don't restart
+  // playback, but a new one on a mounted screen still works.
   const consumedResumeRef = useRef<string | null>(null);
   useEffect(() => {
     const target = typeof resume === "string" && resume.length > 0 ? resume : null;
-    if (!target || consumedResumeRef.current === target || playableQueue.length === 0) return;
+    if (!target || consumedResumeRef.current === target || items.length === 0) return;
     consumedResumeRef.current = target;
-    const idx = playableQueue.findIndex((i) => itemKey(i) === target);
-    queue.startQueue(playableQueue, idx >= 0 ? idx : 0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resume, playableQueue]);
+    playFrom(target);
+  }, [resume, items.length, playFrom]);
 
-  /** Watched/total for this playlist, shown under the controls. */
-  const progress = useMemo(() => {
-    if (!playlist) return { watched: 0, total: 0 };
-    const clips = playableClips(playlist);
-    return {
-      watched: clips.filter((c) => clipViews.has(clipViewKey(playlist.id, c.matchId, c.eventId)))
-        .length,
-      total: clips.length,
-    };
-  }, [playlist, clipViews]);
+  const onTogglePlay = () => {
+    if (!queue.isQueueActive) playOrResume();
+    else if (activeCard) queue.toggleCard();
+    else queue.togglePlayback();
+  };
+
+  // Keep the playing row in view as the queue advances.
+  const pill = useActivePill(queue.activeKey);
+  const scrollRef = useRef<ScrollView>(null);
+  const scroll = useRef({ y: 0, height: 0, rowsY: 0 });
+  const { frames } = pill;
+  useEffect(() => {
+    if (!queue.activeKey) return;
+    const f = frames.current.get(queue.activeKey);
+    if (!f) return;
+    const s = scroll.current;
+    const top = s.rowsY + f.y;
+    const bottom = top + f.height;
+    if (top < s.y) scrollRef.current?.scrollTo({ y: Math.max(0, top - 8), animated: !reduceMotion });
+    else if (bottom > s.y + s.height) scrollRef.current?.scrollTo({ y: bottom - s.height + 8, animated: !reduceMotion });
+  }, [queue.activeKey, frames, reduceMotion]);
 
   if (!playlist && (loading || retrying)) {
     return (
-      <SafeAreaView className="flex-1 items-center justify-center bg-background">
-        <ActivityIndicator size="large" />
-      </SafeAreaView>
+      <Screen title="" leading={<BackButton label="Playlists" />} scroll={false}>
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator color={colors.mutedForeground} />
+        </View>
+      </Screen>
     );
   }
 
   if (!playlist) {
     return (
-      <SafeAreaView className="flex-1 items-center justify-center bg-background px-6">
-        <Text className="text-base text-muted-foreground">
-          This playlist isn&apos;t available.
-        </Text>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.back()}
-          className="mt-4 min-h-[44px] justify-center"
-        >
-          <Text className="text-base font-semibold text-primary">
-            Back to playlists
-          </Text>
-        </Pressable>
-      </SafeAreaView>
+      <Screen title="" leading={<BackButton label="Playlists" />} scroll={false}>
+        <StatusScreen
+          icon="playlists"
+          title="This playlist isn't available"
+          body="It may have been removed, or shared with a different team."
+          actions={<Button onPress={() => router.back()}>Back to playlists</Button>}
+        />
+      </Screen>
     );
   }
 
+  const idleLabel =
+    items.length > 0 && !queue.isQueueActive ? (progress.watched > 0 && progress.watched < progress.total ? "Resume" : "Play") : null;
+
   return (
-    <SafeAreaView edges={["top"]} className="flex-1 bg-background">
-      {/* Header */}
-      <View className="flex-row items-center gap-2 px-2 pb-2 pt-1">
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Back"
-          onPress={() => router.back()}
-          className="min-h-[44px] min-w-[44px] items-center justify-center"
-        >
-          <Text className="text-2xl text-foreground">‹</Text>
-        </Pressable>
-        <Text
-          numberOfLines={1}
-          className="flex-1 text-base font-semibold text-foreground"
-        >
-          {playlist.name}
-        </Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Send feedback"
-          onPress={() => setFeedbackOpen(true)}
-          className="min-h-[44px] items-center justify-center rounded-full border border-border px-3"
-        >
-          <Text className="text-xs font-medium text-muted-foreground">
-            Feedback
-          </Text>
-        </Pressable>
-      </View>
+    <Screen
+      title={playlist.name}
+      leading={<BackButton label="Playlists" />}
+      scroll={false}
+      barHidden={fullscreen.active}
+    >
+      <Stack.Screen
+        options={{
+          // The back swipe only from the edge (iOS 26's full-width swipe would
+          // take the scrubber's drag), and not at all while scrubbing or in full screen.
+          fullScreenGestureEnabled: false,
+          gestureEnabled: !fullscreen.active && !scrubbing,
+          autoHideHomeIndicator: fullscreen.active,
+          navigationBarHidden: fullscreen.active,
+        }}
+      />
+      <StatusBar hidden={fullscreen.active} animated />
 
-      {/* Video area — 16:9, black; custom controls (no native seek UI). */}
-      <View className="aspect-video w-full bg-black">
-        <VideoView
+      {/* Upright, the player sits under the bar at 16:9; in full screen the
+          same view fills the window, so playback carries on untouched. */}
+      <View style={fullscreen.active ? [StyleSheet.absoluteFill, { zIndex: 10 }] : { width: "100%", aspectRatio: 16 / 9 }}>
+        <PlayerStage
           player={queue.player}
-          style={{ width: "100%", height: "100%" }}
-          contentFit="contain"
-          nativeControls={false}
-        />
-        {queue.activeTextCard ? <TextCardOverlay card={queue.activeTextCard} /> : null}
-        {!queue.isQueueActive && !queue.activeKey ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Play all"
-            onPress={queue.playAll}
-            className="absolute inset-0 items-center justify-center"
-          >
-            <View className="h-16 w-16 items-center justify-center rounded-full bg-white/20">
-              <Text className="pl-1 text-3xl text-white">▶</Text>
+          duration={activeClip ? queue.duration : null}
+          canScrub={canScrub}
+          paused={activeCard ? queue.cardPaused : !queue.isQueueActive || queue.paused}
+          onTogglePlay={onTogglePlay}
+          transport={{
+            isQueueActive: queue.isQueueActive,
+            canPrev: queue.canPrev,
+            canNext: queue.canNext,
+            onPrev: queue.prev,
+            onNext: queue.next,
+            onReplay: queue.replay,
+            onStop: queue.stop,
+          }}
+          speed={queue.speed}
+          onSpeedChange={queue.setSpeed}
+          fullscreen={fullscreen}
+          title={playlist.name}
+          position={queue.position >= 0 ? { index: queue.position, total: items.length } : null}
+          buffering={!!activeClip && queue.loading}
+          failed={!!activeClip && queue.failed}
+          idleLabel={idleLabel}
+          cardShowing={!!activeCard}
+          onScrubbingChange={setScrubbing}
+        >
+          {activeCard && (
+            <View className="absolute inset-0 items-center justify-center bg-black px-8">
+              <Text
+                className="text-center font-semibold text-white"
+                style={fullscreen.active ? { fontSize: 34, lineHeight: 41 } : { fontSize: 24, lineHeight: 32 }}
+              >
+                {activeCard.text}
+              </Text>
             </View>
-          </Pressable>
-        ) : null}
+          )}
+        </PlayerStage>
       </View>
 
-      <PlayerControls
-        isQueueActive={queue.isQueueActive}
-        isPaused={queue.isPaused}
-        canPrev={queue.canPrev}
-        canNext={queue.canNext}
-        speed={queue.speed}
-        onPlayPause={queue.togglePlayPause}
-        onPrev={queue.prev}
-        onNext={queue.next}
-        onReplay={queue.replay}
-        onStop={queue.stop}
-        onSpeedChange={queue.setSpeed}
-      />
-
-      {progress.total > 0 && (
-        <View className="flex-row items-center gap-2 px-4 pb-2">
-          <ProgressBar value={(progress.watched / progress.total) * 100} className="flex-1" />
-          <Text className="text-xs tabular-nums text-muted-foreground">
-            {progress.watched}/{progress.total}
-          </Text>
-        </View>
-      )}
-
-      {/* Clip list */}
-      <FlatList
-        ref={listRef}
-        data={displayItems}
-        keyExtractor={itemKey}
-        onScrollToIndexFailed={(info) => {
-          // Rows beyond the render window aren't measured yet — approximate,
-          // let it render, then retry the precise scroll.
-          listRef.current?.scrollToOffset({
-            offset: info.averageItemLength * info.index,
-            animated: true,
-          });
-          setTimeout(() => {
-            listRef.current?.scrollToIndex({
-              index: info.index,
-              viewPosition: 0.3,
-              animated: true,
-            });
-          }, 250);
+      <ScrollView
+        ref={scrollRef}
+        // Under the full-screen player, out of reach and out of VoiceOver's way.
+        accessibilityElementsHidden={fullscreen.active}
+        importantForAccessibility={fullscreen.active ? "no-hide-descendants" : "auto"}
+        className="flex-1"
+        contentContainerClassName="pb-10"
+        scrollEventThrottle={32}
+        onScroll={(e) => {
+          scroll.current.y = e.nativeEvent.contentOffset.y;
         }}
-        className="flex-1 border-t border-border"
-        ItemSeparatorComponent={() => (
-          <View className="h-px bg-border/60" />
-        )}
-        renderItem={({ item, index }) => {
-          if (isTextCard(item)) {
-            return (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => queue.playItem(item)}
-                className={`min-h-[48px] flex-row items-center gap-3 px-4 py-2.5 active:bg-muted ${
-                  queue.activeKey === itemKey(item) ? "bg-primary/10" : ""
-                }`}
-              >
-                <Text className="w-5 text-right text-xs tabular-nums text-muted-foreground">
-                  {index + 1}
-                </Text>
-                <Text
-                  numberOfLines={2}
-                  className="flex-1 text-sm italic text-muted-foreground"
-                >
-                  {item.text}
-                </Text>
-              </Pressable>
-            );
-          }
-          const match = matchLookup.get(item.matchId);
-          return (
-            <ClipRow
-              event={item.event}
-              matchTitle={match?.title}
-              matchDate={match?.date}
-              note={item.note}
-              watched={clipViews.has(clipViewKey(playlist.id, item.matchId, item.event.eventId))}
-              active={queue.activeKey === itemKey(item)}
-              onSelect={() => queue.playItem(item)}
-            />
-          );
+        onLayout={(e) => {
+          scroll.current.height = e.nativeEvent.layout.height;
         }}
-        ListEmptyComponent={
-          <View className="items-center px-6 py-16">
-            <Text className="text-center text-sm text-muted-foreground">
-              {isCoachOrAdmin
-                ? "No clips to watch yet."
-                : "No clips to watch yet. Your coach may still be uploading."}
+      >
+        <View className="flex-row items-baseline justify-between gap-3 px-4 pb-1.5 pt-4">
+          <Text variant="headline">Clips</Text>
+          {progress.total > 0 && (
+            <Text variant="subheadline" nums className="shrink-0 text-muted-foreground">
+              {progress.watched} of {progress.total} watched
             </Text>
-          </View>
-        }
-      />
+          )}
+        </View>
 
-      <ReportProblemSheet visible={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
-    </SafeAreaView>
+        {items.length === 0 ? (
+          <Text variant="subheadline" className="px-6 py-8 text-center text-muted-foreground">
+            {isCoachOrAdmin ? "No clips to watch yet." : "No clips to watch yet. Your coach may still be uploading."}
+          </Text>
+        ) : (
+          <View
+            onLayout={(e) => {
+              scroll.current.rowsY = e.nativeEvent.layout.y;
+            }}
+          >
+            <ActivePill style={pill.style} />
+            {items.map((item, i) => [
+              // Hairlines between rows, except where the playing row's pill sits.
+              i > 0 && queue.activeKey !== item.key && queue.activeKey !== items[i - 1].key ? (
+                <View key={`sep-${item.key}`} style={{ height: StyleSheet.hairlineWidth, marginLeft: 16, backgroundColor: colors.separator }} />
+              ) : i > 0 ? (
+                <View key={`sep-${item.key}`} style={{ height: StyleSheet.hairlineWidth }} />
+              ) : null,
+              item.kind === "text" ? (
+                <WatchTextCardRow
+                  key={item.key}
+                  card={item.card}
+                  active={queue.activeKey === item.key}
+                  onPlay={() => playFrom(item.key)}
+                  onLayout={pill.onRowLayout(item.key)}
+                />
+              ) : (
+                <WatchClipRow
+                  key={item.key}
+                  event={item.event}
+                  matchTitle={matchTitleFor(item.matchId)}
+                  note={item.note}
+                  watched={clipViews.has(clipViewKey(playlist.id, item.matchId, item.event.eventId))}
+                  active={queue.activeKey === item.key}
+                  onPlay={() => playFrom(item.key)}
+                  onLayout={pill.onRowLayout(item.key)}
+                />
+              ),
+            ])}
+          </View>
+        )}
+      </ScrollView>
+    </Screen>
   );
 }

@@ -19,9 +19,27 @@
       "autoIncrement": true,
       "environment": "production",
       "channel": "production"
+    },
+    "testflight": {
+      "extends": "production",
+      "channel": "testflight"
+    },
+    "development-simulator": {
+      "extends": "development",
+      "ios": {
+        "simulator": true
+      },
+      "env": {
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      }
     }
   },
   "submit": {
-    "production": {}
+    "production": {},
+    "testflight": {
+      "ios": {
+        "ascAppId": "6808941904"
+      }
+    }
   }
 }

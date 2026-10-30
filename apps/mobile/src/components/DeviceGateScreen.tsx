@@ -6,34 +6,26 @@
  * deviceBlocked in auth-context, which unmounts this screen.
  */
 import { useCallback, useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  ScrollView,
-  Text,
-  View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
+import { ActivityIndicator, Alert, ScrollView, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth-context";
 import { useThemeColors } from "@/lib/theme-context";
 import { signOutAndCleanup } from "@/lib/notifications";
-import { Button } from "@/components/Button";
+import { Button } from "@/components/ui/Button";
+import { GroupRow, GroupedList } from "@/components/ui/Group";
+import { Icon, type IconName } from "@/components/ui/Icon";
+import { Text } from "@/components/ui/Text";
 import { listMyDevices, removeDevice, type UserDevice } from "@scoutable/shared/lib/devices-db";
 import { appKindLabel, partitionDevicesByActivity } from "@scoutable/shared/lib/device-boot";
 
-const APP_ICON: Record<UserDevice["app"], keyof typeof Ionicons.glyphMap> = {
-  web: "globe-outline",
-  desktop: "desktop-outline",
-  mobile: "phone-portrait-outline",
-};
+const APP_ICON: Record<UserDevice["app"], IconName> = { web: "web", desktop: "laptop", mobile: "phone" };
 
 export function DeviceGateScreen() {
   const { retryDeviceGate } = useAuth();
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
   /** Active (slot-holding) devices only; null = still loading. */
   const [devices, setDevices] = useState<UserDevice[] | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -93,64 +85,70 @@ export function DeviceGateScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-background">
-      <ScrollView contentContainerClassName="flex-grow justify-center gap-6 px-6 py-8">
-        <View>
-          <Ionicons name="lock-closed-outline" size={32} color={colors.mutedForeground} />
-          <Text className="mt-3 font-heading text-4xl text-foreground">
-            Device limit reached
-          </Text>
-          <Text className="mt-2 text-base text-muted-foreground">
-            {devices
-              ? `Your account is using ${devices.length} ${devices.length === 1 ? "device" : "devices"}. Remove one you no longer use to continue on this device.`
-              : "Remove a device you no longer use to continue on this device."}
-          </Text>
+    <ScrollView
+      className="flex-1 bg-background"
+      contentContainerStyle={{ flexGrow: 1, justifyContent: "center", paddingHorizontal: 16, paddingTop: insets.top + 32, paddingBottom: insets.bottom + 32 }}
+    >
+      <View className="w-full items-center self-center" style={{ maxWidth: 440 }}>
+        <View className="mb-3">
+          <Icon name="lock" size={28} color={colors.mutedForeground} />
+        </View>
+        <Text variant="title2" accessibilityRole="header" className="text-center">
+          Device limit reached
+        </Text>
+        <Text variant="subheadline" className="mt-1.5 text-center text-muted-foreground">
+          {devices
+            ? `Your account is using ${devices.length} ${devices.length === 1 ? "device" : "devices"}. Remove one you no longer use to continue on this device.`
+            : "Remove a device you no longer use to continue on this device."}
+        </Text>
+
+        <View className="mt-6 w-full">
+          {devices === null ? (
+            <ActivityIndicator color={colors.mutedForeground} />
+          ) : (
+            devices.length > 0 && (
+              <GroupedList inset={46}>
+                {devices.map((d) => {
+                  const name = d.deviceName ?? d.platform ?? "Unknown device";
+                  return (
+                    <GroupRow
+                      key={d.deviceId}
+                      icon={APP_ICON[d.app] ?? "web"}
+                      label={name}
+                      description={appKindLabel(d.app)}
+                      trailing={
+                        removingId === d.deviceId ? (
+                          <ActivityIndicator color={colors.destructive} />
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            textClassName="text-destructive"
+                            disabled={removingId !== null}
+                            accessibilityLabel={`Remove ${name}`}
+                            onPress={() => confirmRemove(d)}
+                          >
+                            Remove
+                          </Button>
+                        )
+                      }
+                    />
+                  );
+                })}
+              </GroupedList>
+            )
+          )}
         </View>
 
-        {devices === null ? (
-          <ActivityIndicator color={colors.primary} />
-        ) : (
-          devices.length > 0 && (
-            <View className="gap-3 rounded-xl border border-border p-4">
-              {devices.map((d) => (
-                <View key={d.deviceId} className="flex-row items-center gap-3">
-                  <Ionicons name={APP_ICON[d.app]} size={20} color={colors.mutedForeground} />
-                  <View className="min-w-0 flex-1">
-                    <Text
-                      numberOfLines={1}
-                      className="text-base text-foreground"
-                    >
-                      {d.deviceName ?? d.platform ?? "Unknown device"}
-                    </Text>
-                    <Text className="text-sm text-muted-foreground">
-                      {appKindLabel(d.app)}
-                    </Text>
-                  </View>
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={removingId !== null}
-                    onPress={() => confirmRemove(d)}
-                    className="min-h-[32px] justify-center px-2 active:opacity-60"
-                  >
-                    {removingId === d.deviceId ? (
-                      <ActivityIndicator size="small" color={colors.destructive} />
-                    ) : (
-                      <Text className="text-sm font-medium text-destructive">
-                        Remove
-                      </Text>
-                    )}
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-          )
-        )}
-
-        <View className="gap-3">
-          <Button title="Try again" variant="outline" onPress={handleRetry} loading={retrying} />
-          <Button title="Sign out" variant="ghost" onPress={handleSignOut} />
+        <View className="mt-6 w-full gap-1">
+          <Button variant="secondary" onPress={handleRetry} loading={retrying}>
+            Try again
+          </Button>
+          <Button variant="link" size="sm" textClassName="font-medium text-muted-foreground" onPress={handleSignOut}>
+            Sign out
+          </Button>
         </View>
-      </ScrollView>
-    </SafeAreaView>
+      </View>
+    </ScrollView>
   );
 }

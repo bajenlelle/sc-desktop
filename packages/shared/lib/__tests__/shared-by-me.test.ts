@@ -7,6 +7,7 @@ import {
   behindRecipients,
   buildDashboardRows,
   dashboardCounts,
+  dashboardScopeLabel,
   filterByTeamAndQuery,
   latestBehindPlaylist,
   statusOf,
@@ -271,7 +272,7 @@ describe("summarizeDashboard", () => {
     expect(s.recipients).toBe(2);
   });
 
-  it("dedupes behind targets to one per player, keeping the newest share", () => {
+  it("counts a player behind on several playlists once", () => {
     const s = summarizeDashboard([
       row({
         playlist: pl({ id: "A", name: "A" }),
@@ -286,10 +287,7 @@ describe("summarizeDashboard", () => {
         recipients: [rec("u1", 1, "Anna")],
       }),
     ]);
-    expect(s.behind).toBe(1);
-    expect(s.behindTargets).toEqual([
-      { userId: "u1", name: "Anna", playlistId: "B", sharedAt: "2026-02-01T00:00:00Z" },
-    ]);
+    expect(s).toEqual({ playlists: 2, recipients: 1, behind: 1 });
   });
 
   it("omits fully-done players and rows with nothing playable", () => {
@@ -308,7 +306,6 @@ describe("summarizeDashboard", () => {
       }),
     ]);
     expect(s.behind).toBe(0);
-    expect(s.behindTargets).toEqual([]);
     expect(s.recipients).toBe(2);
   });
 });
@@ -556,5 +553,17 @@ describe("behindRecipients", () => {
   it("returns recipients with clips left", () => {
     const r = row({ playableCount: 2, recipients: [rec("u1", 2), rec("u2", 1)] });
     expect(behindRecipients(r).map((x) => x.userId)).toEqual(["u2"]);
+  });
+});
+
+describe("dashboardScopeLabel", () => {
+  it("names the teams, then the members it went to directly", () => {
+    expect(dashboardScopeLabel(row({ teamNames: ["Superettan Herr"], directCount: 0 }))).toBe("Superettan Herr");
+    expect(dashboardScopeLabel(row({ teamNames: ["Basketettan Dam", "Superettan Herr"], directCount: 0 }))).toBe(
+      "Basketettan Dam, Superettan Herr",
+    );
+    expect(dashboardScopeLabel(row({ teamNames: ["Superettan Herr"], directCount: 2 }))).toBe("Superettan Herr, 2 members");
+    expect(dashboardScopeLabel(row({ teamNames: [], directCount: 1 }))).toBe("1 member");
+    expect(dashboardScopeLabel(row({ teamNames: [], directCount: 0 }))).toBe("");
   });
 });

@@ -1,44 +1,79 @@
-import { useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import { router } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { clipViewKey } from "@scoutable/shared/lib/clip-views-db";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, View } from "react-native";
+import { useLocalSearchParams } from "expo-router";
+import {
+  activeFeedFilterCount,
+  computeHero,
+  feedCounts,
+  filterFeed,
+  sharerFilterOptions,
+} from "@scoutable/shared/lib/playlist-feed";
 import { useAuth } from "@/lib/auth-context";
-import { trackEvent } from "@/lib/analytics";
-import { playableClips, usePlaylists } from "@/lib/playlists-store";
+import { usePlaylists } from "@/lib/playlists-store";
+import { usePlaylistOpener } from "@/lib/use-playlist-opener";
 import { useThemeColors } from "@/lib/theme-context";
-import { Avatar } from "@/components/Avatar";
-import { PlaylistFeed } from "@/components/PlaylistFeed";
-import { ReportProblemSheet } from "@/components/ReportProblemSheet";
-import { SharedByMeDashboard } from "@/components/SharedByMeDashboard";
+import { NO_FEED_FILTERS, PlaylistFeed, type FeedFilters } from "@/components/PlaylistFeed";
+import { FilterButton } from "@/components/ui/FilterButton";
+import { Text } from "@/components/ui/Text";
+import {
+  activeDashboardFilterCount,
+  NO_DASHBOARD_FILTERS,
+  SharedByMeDashboard,
+  type DashboardFilters,
+} from "@/components/SharedByMeDashboard";
 import { LicenseNotice } from "@/components/LicenseNotice";
 import { NotificationPrimer } from "@/components/NotificationPrimer";
-import type { SelectOption } from "@/components/Select";
+import { Screen } from "@/components/shell/Screen";
+import { SearchCapsule } from "@/components/shell/SearchCapsule";
+import { ActionPill } from "@/components/shell/ActionPill";
+import { PopoverMenu, type PopoverGroup } from "@/components/ui/PopoverMenu";
+
+type Option = { value: string; label: string };
+
+/**
+ * The playlists destination. Players see what was shared with them (My
+ * playlists). Coaches have two views of it, chosen in the sidebar and kept in
+ * the `view` param so the path stays /playlists: Shared by me (who watched
+ * what they shared) and Shared with me (what other coaches shared with
+ * them). Search sits at the top of the content; pull to refresh reloads both.
+ */
 
 export default function PlaylistsScreen() {
-  const { profile, activeOrgRole } = useAuth();
+  const { activeOrgRole } = useAuth();
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
-  const {
-    loading,
-    allPlaylists,
-    feedItems,
-    directPlaylistIds,
-    teamMap,
-    clipViews,
-    refresh,
-  } = usePlaylists();
+  const { loading, allPlaylists, feedItems, directPlaylistIds, teamMap, refresh } = usePlaylists();
+  const { openPlaylist, resumePlaylist } = usePlaylistOpener();
+  const { view } = useLocalSearchParams<{ view?: string }>();
   const colors = useThemeColors();
   const [refreshing, setRefreshing] = useState(false);
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [coachTab, setCoachTab] = useState<"by-me" | "with-me">("by-me");
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const coachTab: "by-me" | "with-me" = view === "with-me" ? "with-me" : "by-me";
+  const [query, setQuery] = useState("");
+  const [filters, setFilters] = useState<FeedFilters>(NO_FEED_FILTERS);
+  const [dashFilters, setDashFilters] = useState<DashboardFilters>(NO_DASHBOARD_FILTERS);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filterAnchor = useRef<View>(null);
+  const [searchFocused, setSearchFocused] = useState(false);
+  /** The dashboard's shared playlists (null while it loads): no filter button without any. */
+  const [dashRows, setDashRows] = useState<number | null>(null);
+  // A sheet left open for one view never opens over the other.
+  useEffect(() => setFiltersOpen(false), [coachTab]);
+  const clearFilters = useCallback(() => {
+    setFilters(NO_FEED_FILTERS);
+    setQuery("");
+  }, []);
+  const clearDashFilters = useCallback(() => {
+    setDashFilters((f) => ({ ...NO_DASHBOARD_FILTERS, sort: f.sort }));
+    setQuery("");
+  }, []);
 
-  // The feed view-model lives in the store (shared toFeedPlaylists) — the
-  // tab/app-icon badges derive from the same array, so counts can't drift.
+  // The feed view-model lives in the store (shared toFeedPlaylists): the
+  // tab and app-icon badges derive from the same array, so counts can't drift.
 
   // Only teams that actually have playlists appear as filter options.
-  const sourceOptions = useMemo<SelectOption[]>(() => {
-    const opts: SelectOption[] = [{ value: "all", label: "All playlists" }];
-    if (directPlaylistIds.size > 0) opts.push({ value: "direct", label: "Shared with me" });
+  const sourceOptions = useMemo<Option[]>(() => {
+    const opts: Option[] = [{ value: "all", label: "All teams" }];
+    if (directPlaylistIds.size > 0) opts.push({ value: "direct", label: "Just for you" });
     for (const [teamId, team] of teamMap) {
       if (allPlaylists.some((p) => (p.teamIds ?? []).includes(teamId))) {
         opts.push({ value: `team:${teamId}`, label: team.name });
@@ -47,127 +82,169 @@ export default function PlaylistsScreen() {
     return opts;
   }, [directPlaylistIds, allPlaylists, teamMap]);
 
-  const openPlaylist = useCallback((id: string) => {
-    trackEvent("playlist_opened", { playlist_id: id, resumed: false });
-    router.push(`/playlists/${id}`);
-  }, []);
-
-  /** Opens a playlist starting from the first clip the player hasn't watched. */
-  const resumePlaylist = useCallback(
-    (id: string) => {
-      trackEvent("playlist_opened", { playlist_id: id, resumed: true });
-      const pl = allPlaylists.find((p) => p.id === id);
-      const firstUnwatched = pl
-        ? playableClips(pl).find((c) => !clipViews.has(clipViewKey(pl.id, c.matchId, c.eventId)))
-        : undefined;
-      if (firstUnwatched) {
-        router.push(
-          `/playlists/${id}?resume=${encodeURIComponent(
-            `${firstUnwatched.matchId}:${firstUnwatched.eventId}`
-          )}`
-        );
-      } else {
-        router.push(`/playlists/${id}`);
-      }
-    },
-    [allPlaylists, clipViews]
-  );
-
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
+      setRefreshNonce((n) => n + 1);
       await refresh();
     } finally {
       setRefreshing(false);
     }
   }, [refresh]);
 
+  const sharerOptions = useMemo<Option[]>(() => sharerFilterOptions(feedItems), [feedItems]);
+  // Counts in the sheet describe what's reachable under the current team,
+  // sharer and search, as the web's chips do (shared playlist-feed, tested).
+  const counts = useMemo(
+    () => feedCounts(filterFeed(feedItems, { query, sharer: filters.sharer, source: filters.source })),
+    [feedItems, query, filters.sharer, filters.source],
+  );
+  const activeFilters = activeFeedFilterCount(filters);
+  /** The active filters in words, for the line under the search field. */
+  const activeLabels = useMemo(() => {
+    const out: string[] = [];
+    if (filters.watch !== "all") out.push({ new: "New", progress: "In progress", watched: "Watched" }[filters.watch]);
+    if (filters.source !== "all") out.push(sourceOptions.find((o) => o.value === filters.source)?.label ?? "One team");
+    if (filters.sharer !== "all") out.push(`From ${sharerOptions.find((o) => o.value === filters.sharer)?.label ?? "one coach"}`);
+    return out;
+  }, [filters, sourceOptions, sharerOptions]);
+
+  // The feed's filter menu: what to show (with counts), which team, which coach.
+  const feedMenu = useMemo<PopoverGroup[]>(() => {
+    const setWatch = (watch: FeedFilters["watch"]) => () => setFilters((f) => ({ ...f, watch }));
+    const groups: PopoverGroup[] = [
+      {
+        key: "show",
+        items: [
+          { key: "all", label: "All", icon: "playlists", count: counts.all, checked: filters.watch === "all", onSelect: setWatch("all") },
+          { key: "new", label: "New", icon: "circle", count: counts.new, checked: filters.watch === "new", onSelect: setWatch("new") },
+          { key: "progress", label: "In progress", icon: "circleDashed", count: counts.progress, checked: filters.watch === "progress", onSelect: setWatch("progress") },
+          { key: "watched", label: "Watched", icon: "checkCircle", count: counts.watched, checked: filters.watch === "watched", onSelect: setWatch("watched") },
+        ],
+      },
+    ];
+    if (sourceOptions.length > 1) {
+      groups.push({
+        key: "team",
+        items: sourceOptions.map((o) => ({
+          key: o.value,
+          label: o.label,
+          icon: o.value === "direct" ? "person" : "team",
+          checked: filters.source === o.value,
+          onSelect: () => setFilters((f) => ({ ...f, source: o.value })),
+        })),
+      });
+    }
+    if (sharerOptions.length > 1) {
+      groups.push({
+        key: "from",
+        items: sharerOptions.map((o) => ({
+          key: o.value,
+          label: o.value === "all" ? "All coaches" : o.label,
+          icon: o.value === "all" ? "team" : "person",
+          checked: filters.sharer === o.value,
+          onSelect: () => setFilters((f) => ({ ...f, sharer: o.value })),
+        })),
+      });
+    }
+    return groups;
+  }, [counts, filters, sourceOptions, sharerOptions]);
+
+  const showDashboard = isCoachOrAdmin && coachTab === "by-me";
+  // A focused capsule that unmounts (switching to a view without search)
+  // never reports its blur; start the next view unfocused.
+  useEffect(() => setSearchFocused(false), [coachTab]);
+  // The one to watch next (Cowork's floating "New task" spot): the most
+  // recently touched started playlist, else the newest new one. Out of the
+  // way while searching, filtering or typing.
+  const hero = useMemo(() => computeHero(feedItems), [feedItems]);
+  const pill =
+    !showDashboard && !loading && hero && hero.kind !== "done" && query.length === 0 && activeFilters === 0 && !searchFocused
+      ? hero
+      : null;
+  // Search earns its place from eight playlists (or while a search is on);
+  // coaches keep it on the dashboard, whose rows load there.
+  const searchable = query.length > 0 || (isCoachOrAdmin && coachTab === "by-me") || feedItems.length >= 8;
+
   return (
-    <SafeAreaView edges={["top"]} className="flex-1 bg-background">
-      <View className="flex-row items-center justify-between px-4 pb-1 pt-3">
-        <Text className="font-heading text-2xl text-foreground">
-          {isCoachOrAdmin ? "Shared Playlists" : "My Playlists"}
-        </Text>
-        <View className="flex-row items-center gap-1">
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Send feedback"
-            onPress={() => setFeedbackOpen(true)}
-            className="min-h-[44px] items-center justify-center rounded-full border border-border px-3"
-          >
-            <Text className="text-xs font-medium text-muted-foreground">
-              Feedback
+    <Screen
+      title={isCoachOrAdmin ? (coachTab === "by-me" ? "Shared by me" : "Shared with me") : "My playlists"}
+      menu
+      // Shared by me is cards on the grouped floor; the feed is rows on the page.
+      grouped={showDashboard}
+      refreshing={refreshing}
+      onRefresh={handleRefresh}
+      trailing={
+        !loading && (showDashboard ? (dashRows ?? 0) > 0 : feedItems.length > 0) ? (
+          <FilterButton
+            anchorRef={filterAnchor}
+            activeCount={showDashboard ? activeDashboardFilterCount(dashFilters) : activeFilters}
+            onPress={() => setFiltersOpen(true)}
+          />
+        ) : undefined
+      }
+      bottom={
+        pill || searchable ? (
+          <>
+            {pill ? (
+              <ActionPill
+                icon="play"
+                label={pill.kind === "continue" ? "Resume" : "Watch new"}
+                accessibilityLabel={`${pill.kind === "continue" ? "Resume" : "Watch"} ${pill.playlist.name}`}
+                onPress={() => resumePlaylist(pill.playlist.id)}
+              />
+            ) : null}
+            {searchable ? <SearchCapsule value={query} onChangeText={setQuery} onFocusChange={setSearchFocused} /> : null}
+          </>
+        ) : undefined
+      }
+      contentClassName="pt-1"
+    >
+        {!showDashboard && activeFilters > 0 && (
+          <Text variant="footnote" className="px-4 pb-1 text-muted-foreground">
+            {activeLabels.join(" · ")} ·{" "}
+            <Text variant="footnote" accessibilityRole="button" onPress={clearFilters} className="font-semibold text-primary">
+              Clear
             </Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Profile"
-            onPress={() => router.navigate("/profile")}
-            className="min-h-[44px] min-w-[44px] items-center justify-center"
-          >
-            <Avatar name={profile?.fullName} url={profile?.avatarUrl} size={32} />
-          </Pressable>
-        </View>
-      </View>
+          </Text>
+        )}
+        <LicenseNotice />
+        {!loading && feedItems.length > 0 && <NotificationPrimer />}
 
-      {/* Coaches get two views: their outbound dashboard and the normal
-          inbound feed — same split as web/desktop. */}
-      {isCoachOrAdmin && (
-        <View className="flex-row gap-1 border-b border-border px-4 pb-2">
-          {(
-            [
-              ["by-me", "Shared by me"],
-              ["with-me", "Shared with me"],
-            ] as const
-          ).map(([key, label]) => (
-            <Pressable
-              key={key}
-              accessibilityRole="button"
-              onPress={() => setCoachTab(key)}
-              className={`min-h-[36px] justify-center rounded-md px-3 ${
-                coachTab === key ? "bg-primary/10" : ""
-              }`}
-            >
-              <Text
-                className={`text-sm font-medium ${
-                  coachTab === key
-                    ? "text-primary"
-                    : "text-muted-foreground"
-                }`}
-              >
-                {label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
-
-      <LicenseNotice className="mx-4 mb-2" />
-
-      {!loading && feedItems.length > 0 && <NotificationPrimer />}
-
-      {loading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
-      ) : isCoachOrAdmin && coachTab === "by-me" ? (
-        <SharedByMeDashboard />
-      ) : (
-        <PlaylistFeed
-          playlists={feedItems}
-          sourceOptions={sourceOptions}
-          onOpen={openPlaylist}
-          onResume={resumePlaylist}
-          refreshing={refreshing}
-          onRefresh={handleRefresh}
-          emptyCopy={
-            isCoachOrAdmin
-              ? "Playlists other coaches share with you show up here."
-              : undefined
-          }
+        {loading ? (
+          <View className="items-center justify-center py-20">
+            <ActivityIndicator color={colors.mutedForeground} />
+          </View>
+        ) : showDashboard ? (
+          <SharedByMeDashboard
+            query={query}
+            refreshNonce={refreshNonce}
+            filters={dashFilters}
+            onFiltersChange={setDashFilters}
+            onClearFilters={clearDashFilters}
+            sheetOpen={filtersOpen && showDashboard}
+            onCloseSheet={() => setFiltersOpen(false)}
+            menuAnchor={filterAnchor}
+            onRowCountChange={setDashRows}
+          />
+        ) : (
+          <PlaylistFeed
+            playlists={feedItems}
+            query={query}
+            filters={filters}
+            onClearFilters={clearFilters}
+            onOpen={openPlaylist}
+            onResume={resumePlaylist}
+            emptyCopy={isCoachOrAdmin ? "Playlists other coaches share with you show up here." : undefined}
+          />
+        )}
+        <PopoverMenu
+          visible={filtersOpen && !showDashboard}
+          onClose={() => setFiltersOpen(false)}
+          anchorRef={filterAnchor}
+          accessibilityLabel="Filters"
+          groups={feedMenu}
         />
-      )}
-      <ReportProblemSheet visible={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
-    </SafeAreaView>
+    </Screen>
   );
 }

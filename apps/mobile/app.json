@@ -2,9 +2,9 @@
   "expo": {
     "name": "Scoutable",
     "slug": "scoutable",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "scheme": "scoutable",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
@@ -43,7 +43,11 @@
         {
           "backgroundColor": "#ffffff",
           "image": "./assets/splash-icon.png",
-          "resizeMode": "contain"
+          "resizeMode": "contain",
+          "dark": {
+            "backgroundColor": "#09131a",
+            "image": "./assets/splash-icon.png"
+          }
         }
       ],
       [
@@ -51,6 +55,13 @@
         {
           "organization": "scoutable",
           "project": "scoutable-mobile"
+        }
+      ],
+      "expo-image",
+      [
+        "expo-screen-orientation",
+        {
+          "initialOrientation": "PORTRAIT_UP"
         }
       ]
     ],

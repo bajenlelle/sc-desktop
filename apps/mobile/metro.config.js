@@ -42,4 +42,6 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   return context.resolveRequest(context, moduleName, platform);
 };
 
-module.exports = withNativeWind(config, { input: "./src/global.css" });
+// rem = 16 (NativeWind's native default is 14) so `p-4`, `gap-3` and the
+// rest come out at the web app's pixel values.
+module.exports = withNativeWind(config, { input: "./src/global.css", inlineRem: 16 });

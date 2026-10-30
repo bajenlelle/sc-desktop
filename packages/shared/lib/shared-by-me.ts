@@ -3,7 +3,7 @@
  *
  * Joins the coach's shared playlists × team members × recipients' clip views
  * into per-playlist rows with watch progress, plus the cross-playlist summary
- * that powers "Remind all". Extracted from the web/desktop/mobile components
+ * the stat cells show. Extracted from the web/desktop/mobile components
  * (which were three hand-ported copies) so the numbers coaches act on are
  * derived — and tested — in exactly one place.
  */
@@ -55,8 +55,8 @@ export interface BehindTarget {
 export interface DashboardSummary {
   playlists: number;
   recipients: number;
+  /** Players who haven't finished at least one playlist, each counted once. */
   behind: number;
-  behindTargets: BehindTarget[];
 }
 
 export type DashboardStatus = "attention" | "done";
@@ -161,39 +161,21 @@ export function statusOf(r: DashboardRow): DashboardStatus | null {
 }
 
 /**
- * Cross-playlist roll-up. behindTargets dedupes per player (one entry each,
- * pointing at their most recently shared unfinished playlist). The strips
- * only display `behind` today — the global "Remind all" the targets once fed
- * was removed (nudging players about weeks-old playlists), and bulk reminding
- * is now playlist-scoped: see latestBehindPlaylist and the per-playlist
- * remind buttons.
+ * Cross-playlist roll-up, for display. There is no "remind everyone behind"
+ * any more, on any app: it nudged players about weeks-old playlists.
+ * Reminding is per playlist or per player (see latestBehindPlaylist and the
+ * dashboards' remind buttons).
  */
 export function summarizeDashboard(rows: DashboardRow[]): DashboardSummary {
   const allRecipients = new Set<string>();
-  const behindByPlayer = new Map<string, BehindTarget>();
+  const behind = new Set<string>();
   for (const r of rows) {
     for (const rec of r.recipients) {
       allRecipients.add(rec.userId);
-      if (r.playableCount > 0 && rec.watched < r.playableCount) {
-        const sharedAt = r.newestSharedAt ?? "";
-        const prev = behindByPlayer.get(rec.userId);
-        if (!prev || sharedAt > prev.sharedAt) {
-          behindByPlayer.set(rec.userId, {
-            userId: rec.userId,
-            name: rec.name,
-            playlistId: r.playlist.id,
-            sharedAt,
-          });
-        }
-      }
+      if (r.playableCount > 0 && rec.watched < r.playableCount) behind.add(rec.userId);
     }
   }
-  return {
-    playlists: rows.length,
-    recipients: allRecipients.size,
-    behind: behindByPlayer.size,
-    behindTargets: [...behindByPlayer.values()],
-  };
+  return { playlists: rows.length, recipients: allRecipients.size, behind: behind.size };
 }
 
 export interface LatestBehindPlaylist {
@@ -307,6 +289,13 @@ export function visibleDashboardRows(
     });
   }
   return filtered; // base rows are already newest-first
+}
+
+/** Where a shared playlist went: "Superettan Herr", "Basketettan Dam, Superettan Herr", "Superettan Herr, 2 members". */
+export function dashboardScopeLabel(row: Pick<DashboardRow, "teamNames" | "directCount">): string {
+  return [...row.teamNames, row.directCount > 0 ? `${row.directCount} member${row.directCount === 1 ? "" : "s"}` : null]
+    .filter(Boolean)
+    .join(", ");
 }
 
 /** Recipients on this row with clips left — per-playlist remind targets. */

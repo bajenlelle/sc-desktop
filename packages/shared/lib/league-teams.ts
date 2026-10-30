@@ -181,3 +181,16 @@ export function groupChoicesForProfile(orgs: OrgMembership[], choices: TeamChoic
   const all = [...rows.values()];
   return [...all.filter((r) => r.key !== 'none'), ...all.filter((r) => r.key === 'none')];
 }
+
+/**
+ * The Team row's value in Settings: the one team in use (a league team or
+ * the user's own words), "2 teams" once the answers differ, "Not set" when
+ * no space has one; null when there is no space to answer for.
+ */
+export function teamSummaryLabel(rows: ProfileTeamRow[]): string | null {
+  if (rows.length === 0) return null;
+  const answered = rows.filter((r) => r.key !== 'none');
+  if (answered.length === 0) return 'Not set';
+  if (answered.length === 1) return answered[0].team?.name ?? answered[0].unlistedTeam ?? 'Not set';
+  return `${answered.length} teams`;
+}

@@ -1,8 +1,9 @@
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { router } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { signOutAndCleanup } from "@/lib/notifications";
-import { Button } from "@/components/Button";
+import { AuthShell } from "@/components/auth/AuthFrame";
+import { Button } from "@/components/ui/Button";
+import { Text } from "@/components/ui/Text";
 
 /**
  * Where every account without a club lands. Every account has a personal
@@ -13,30 +14,33 @@ import { Button } from "@/components/Button";
  * screen that clearly says its Scoutable lives in the desktop app. It stays
  * the same for all of them. Branching on plan tier would unlock a screen on
  * the strength of a web purchase (3.1.1). No plan names, prices or links
- * either: anywhere on scoutable.se is two taps from the price list.
+ * either: anywhere on scoutable.se is two taps from the price list. The copy
+ * is exactly what App Review saw; restyle it, don't reword it.
  */
 export default function NoOrg() {
   return (
-    <SafeAreaView className="flex-1 bg-background">
-      <View className="flex-1 justify-center px-6">
-        <Text className="font-heading text-4xl text-foreground">
-          This app is for club members
-        </Text>
-        <Text className="mt-2 text-base text-muted-foreground">
+    <AuthShell>
+      <Text variant="title2" accessibilityRole="header" className="text-center">
+        This app is for club members
+      </Text>
+      <View className="mt-2 gap-3">
+        <Text variant="subheadline" className="text-center text-muted-foreground">
           It shows the playlists your club shares with you.
         </Text>
-        <Text className="mt-4 text-base text-muted-foreground">
-          Using Scoutable on your own? Your games, playlists and highlights are in the Scoutable
-          desktop app for Mac and Windows.
+        <Text variant="subheadline" className="text-center text-muted-foreground">
+          Using Scoutable on your own? Your games, playlists and highlights are in the Scoutable desktop app for Mac and
+          Windows.
         </Text>
-        <Text className="mt-4 text-base text-muted-foreground">
+        <Text variant="subheadline" className="text-center text-muted-foreground">
           Joining a club? Ask your coach for an invite code.
         </Text>
-        <View className="mt-8 gap-3">
-          <Button title="I have an invite code" onPress={() => router.push("/onboarding")} />
-          <Button title="Sign out" variant="ghost" onPress={() => signOutAndCleanup()} />
-        </View>
       </View>
-    </SafeAreaView>
+      <View className="mt-8 gap-1">
+        <Button onPress={() => router.push("/onboarding")}>I have an invite code</Button>
+        <Button variant="link" size="xs" textClassName="font-medium text-muted-foreground" onPress={() => signOutAndCleanup()}>
+          Sign out
+        </Button>
+      </View>
+    </AuthShell>
   );
 }

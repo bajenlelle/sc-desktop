@@ -1,295 +1,200 @@
 /**
- * Port of apps/web/src/components/playlist/PlaylistFeed.tsx: watch-state
- * chips + From/To filters + New / In progress / Watched sections.
+ * What was shared with me (the player's My playlists, a coach's Shared with
+ * me), as Claude's Cowork list: grouped by when it was shared (This week,
+ * Last week, then by month), newest first, so this week's scouting is what
+ * a player sees first. Each row: a status glyph in front (an empty ring for
+ * new, a part ring for started, a check for watched), the team above the
+ * name once the feed mixes teams, the name, one quiet line (who, how much,
+ * when), and a primary dot at the end while new. Rows sit on the page with
+ * no cards or dividers. A started playlist resumes where it stopped; the
+ * screen's floating pill does the same for the one to watch next. Filters
+ * and sort live in the title bar's pop-up menu; this component only reads
+ * them. Renders inside the screen's scroll view.
  */
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import { View } from "react-native";
+import Svg, { Circle } from "react-native-svg";
 import {
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
-import { useThemeColors } from "@/lib/theme-context";
-import { relativeTime } from "@/lib/format";
-import { Button } from "./Button";
-import { PlaylistCard, type PlaylistCardData } from "./PlaylistCard";
-import { Select, type SelectOption } from "./Select";
-import {
-  byLastWatched,
-  byNewest,
-  computeHero,
-  feedCounts,
+  feedHasSeveralSources,
+  feedSourceLabel,
   filterFeed,
-  sharerFilterOptions,
   visibleFeed,
   watchStateOf,
+  byNewest,
+  type FeedPlaylist,
   type WatchFilter,
+  type WatchState,
 } from "@scoutable/shared/lib/playlist-feed";
+import { shareTimeSections } from "@scoutable/shared/lib/share-time";
+import { relativeTime } from "@/lib/format";
+import { useLargeText } from "@/lib/a11y";
+import { useThemeColors } from "@/lib/theme-context";
+import { cn } from "@/lib/cn";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Icon } from "@/components/ui/Icon";
+import { Dot, TextButton } from "@/components/ui/Row";
+import { Tappable } from "@/components/ui/Tappable";
+import { Text } from "@/components/ui/Text";
 
-/** Search earns its place once the list stops fitting on one screen. */
-const SEARCH_THRESHOLD = 10;
+export type { FeedPlaylist };
 
-function Section({
-  title,
-  playlists,
+export interface FeedFilters {
+  watch: WatchFilter;
+  source: string;
+  sharer: string;
+}
+
+export const NO_FEED_FILTERS: FeedFilters = { watch: "all", source: "all", sharer: "all" };
+
+const GLYPH = 18;
+
+function clipsLabel(n: number): string {
+  return `${n} clip${n === 1 ? "" : "s"}`;
+}
+
+/** "New · Karin Ahl · 12 clips · 2d ago", "Karin Ahl · 2 of 6 watched", "Mats Ek · 9 clips · 21 Oct". */
+function metaLine(p: FeedPlaylist, state: WatchState): string {
+  const who = p.sharerName ?? "A coach";
+  if (state === "progress") return `${who} · ${p.watchedCount} of ${p.clipCount} watched`;
+  return [state === "new" ? "New" : null, who, clipsLabel(p.clipCount), relativeTime(p.sharedAt)].filter(Boolean).join(" · ");
+}
+
+/** The row's state at a glance: an empty ring, a ring filling up, a check. Decorative; the words say it too. */
+function StatusGlyph({ state, progress }: { state: WatchState; progress: number }) {
+  const colors = useThemeColors();
+  if (state === "watched") return <Icon name="checkCircle" size={GLYPH} color={colors.mutedForeground} />;
+  const r = (GLYPH - 2) / 2;
+  const c = 2 * Math.PI * r;
+  return (
+    <Svg width={GLYPH} height={GLYPH} style={{ transform: [{ rotate: "-90deg" }] }}>
+      <Circle cx={GLYPH / 2} cy={GLYPH / 2} r={r} stroke={state === "new" ? colors.mutedForeground : colors.fill3} strokeWidth={1.75} fill="none" />
+      {state === "progress" ? (
+        <Circle
+          cx={GLYPH / 2}
+          cy={GLYPH / 2}
+          r={r}
+          stroke={colors.primary}
+          strokeWidth={2}
+          fill="none"
+          strokeLinecap="round"
+          strokeDasharray={`${Math.max(0.06, progress) * c} ${c}`}
+        />
+      ) : null}
+    </Svg>
+  );
+}
+
+function FeedRow({
+  playlist,
+  showSource,
   onOpen,
   onResume,
 }: {
-  title?: string;
-  playlists: PlaylistCardData[];
-  onOpen: (id: string) => void;
-  onResume?: (id: string) => void;
+  playlist: FeedPlaylist;
+  /** The team above the name, once the feed mixes teams (feedHasSeveralSources). */
+  showSource: boolean;
+  onOpen: () => void;
+  onResume: () => void;
 }) {
-  if (playlists.length === 0) return null;
+  const colors = useThemeColors();
+  const large = useLargeText();
+  const state = watchStateOf(playlist);
+  const source = showSource ? feedSourceLabel(playlist) : null;
+  const meta = metaLine(playlist, state);
+  const progress = playlist.clipCount > 0 ? playlist.watchedCount / playlist.clipCount : 0;
   return (
-    <View className="gap-3">
-      {title && (
-        <Text className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          {title} <Text className="font-normal opacity-60">{playlists.length}</Text>
-        </Text>
-      )}
-      <View className="gap-3">
-        {playlists.map((p) => (
-          <PlaylistCard
-            key={p.id}
-            playlist={p}
-            onOpen={() => onOpen(p.id)}
-            onResume={onResume ? () => onResume(p.id) : undefined}
-          />
-        ))}
+    <Tappable
+      scaleTo={1}
+      accessibilityRole="button"
+      accessibilityLabel={[`${playlist.name}${state === "watched" ? ", watched" : ""}`, source, meta].filter(Boolean).join(". ")}
+      accessibilityHint={state === "progress" ? "Resumes where you stopped" : undefined}
+      // A started playlist goes on from where the player stopped.
+      onPress={state === "progress" ? onResume : onOpen}
+      className={({ pressed }) => cn("flex-row items-start gap-3.5 px-4 py-3", pressed && "bg-fill-1")}
+    >
+      <View style={{ marginTop: source ? 20 : 2 }}>
+        <StatusGlyph state={state} progress={progress} />
       </View>
-    </View>
+      <View className="min-w-0 flex-1">
+        {source ? (
+          <Text variant="footnote" numberOfLines={large ? 2 : 1} className="text-muted-foreground">
+            {source}
+          </Text>
+        ) : null}
+        <Text numberOfLines={large ? 3 : 2}>{playlist.name}</Text>
+        <Text variant="subheadline" nums numberOfLines={large ? undefined : 1} className="mt-0.5 text-muted-foreground">
+          {meta}
+        </Text>
+      </View>
+      {state === "new" ? (
+        <View style={{ marginTop: source ? 25 : 7 }}>
+          <Dot color={colors.primary} />
+        </View>
+      ) : null}
+    </Tappable>
   );
 }
 
 export function PlaylistFeed({
   playlists,
-  sourceOptions,
+  query,
+  filters,
+  onClearFilters,
   onOpen,
   onResume,
-  refreshing,
-  onRefresh,
   emptyCopy,
 }: {
-  playlists: PlaylistCardData[];
-  sourceOptions: SelectOption[];
+  playlists: FeedPlaylist[];
+  /** From the search capsule. */
+  query: string;
+  filters: FeedFilters;
+  /** Resets the filters and the search. */
+  onClearFilters: () => void;
   onOpen: (id: string) => void;
   onResume: (id: string) => void;
-  refreshing: boolean;
-  onRefresh: () => void;
   /** Overrides the no-playlists body copy (coaches get non-player phrasing). */
   emptyCopy?: string;
 }) {
-  const [watch, setWatch] = useState<WatchFilter>("all");
-  const [source, setSource] = useState("all");
-  const [sharer, setSharer] = useState("all");
-  const [query, setQuery] = useState("");
-  const colors = useThemeColors();
+  const { watch, source, sharer } = filters;
+  // Filtering and counts live in @scoutable/shared/lib/playlist-feed, the weeks in share-time (both tested).
+  const inSource = useMemo(() => filterFeed(playlists, { query, sharer, source }), [playlists, source, sharer, query]);
+  const visible = useMemo(() => [...visibleFeed(inSource, watch)].sort(byNewest), [inSource, watch]);
+  const sections = useMemo(() => shareTimeSections(visible, (p) => p.sharedAt), [visible]);
+  // Over every playlist, not the filtered view, so labels don't come and go with a filter.
+  const showSource = useMemo(() => feedHasSeveralSources(playlists), [playlists]);
 
-  // Filtering, counts, and the hero CTA all live in
-  // @scoutable/shared/lib/playlist-feed (tested there).
-  const sharerOptions = useMemo<SelectOption[]>(() => sharerFilterOptions(playlists), [playlists]);
+  if (playlists.length === 0) {
+    return (
+      <EmptyState
+        icon="playlists"
+        title="No playlists yet"
+        body={emptyCopy ?? "When your coach shares clips with you, they show up here."}
+      />
+    );
+  }
 
-  const inSource = useMemo(
-    () => filterFeed(playlists, { query, sharer, source }),
-    [playlists, source, sharer, query],
-  );
-
-  // Hero is computed over ALL playlists (not the filtered view) — it's a call
-  // to action, not a search result.
-  const hero = useMemo(() => computeHero(playlists), [playlists]);
-
-  const counts = useMemo(() => feedCounts(inSource), [inSource]);
-
-  const visible = useMemo(() => visibleFeed(inSource, watch), [inSource, watch]);
-
-  const chips: { key: WatchFilter; label: string }[] = [
-    { key: "all", label: "All" },
-    { key: "new", label: "New" },
-    { key: "progress", label: "In progress" },
-    { key: "watched", label: "Watched" },
-  ];
-
-  const hasAnything = playlists.length > 0;
+  if (visible.length === 0) {
+    return (
+      <EmptyState
+        title="Nothing matches"
+        body="No playlists match these filters."
+        action={<TextButton label="Clear filters" onPress={onClearFilters} />}
+      />
+    );
+  }
 
   return (
-    <View className="flex-1">
-      {hasAnything && (
-        <View className="border-b border-border">
-          {(sharerOptions.length > 0 || sourceOptions.length > 1) && (
-            <View className="flex-row items-center justify-end gap-2 px-4 pt-1 pb-2">
-              {sharerOptions.length > 0 && (
-                <Select prefix="From" options={sharerOptions} value={sharer} onChange={setSharer} />
-              )}
-              {sourceOptions.length > 1 && (
-                <Select prefix="Team" options={sourceOptions} value={source} onChange={setSource} />
-              )}
-            </View>
-          )}
-          {playlists.length > SEARCH_THRESHOLD && (
-            <View className="flex-row items-center gap-2 px-4 pb-2">
-              <TextInput
-                value={query}
-                onChangeText={setQuery}
-                placeholder="Search playlists…"
-                placeholderTextColor={colors.mutedForeground}
-                autoCorrect={false}
-                className="min-h-[40px] flex-1 rounded-lg border border-input bg-background dark:bg-card px-3 text-sm text-foreground"
-              />
-              {query.length > 0 && (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Clear search"
-                  onPress={() => setQuery("")}
-                  className="min-h-[40px] min-w-[40px] items-center justify-center"
-                >
-                  <Text className="text-base text-muted-foreground">
-                    ✕
-                  </Text>
-                </Pressable>
-              )}
-            </View>
-          )}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerClassName="gap-1.5 px-4 pb-3 pt-1"
-          >
-            {chips.map((c) => {
-              const active = watch === c.key;
-              return (
-                <Pressable
-                  key={c.key}
-                  accessibilityRole="button"
-                  onPress={() => setWatch(c.key)}
-                  className={`min-h-[36px] flex-row items-center gap-1.5 rounded-full px-3 ${
-                    active ? "bg-primary" : "bg-muted"
-                  }`}
-                >
-                  <Text
-                    className={`text-xs font-medium ${
-                      active
-                        ? "text-primary-foreground"
-                        : "text-muted-foreground"
-                    }`}
-                  >
-                    {c.label} {counts[c.key]}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+    <View>
+      {sections.map((s, i) => (
+        <View key={s.key}>
+          <Text variant="subheadline" accessibilityRole="header" className={cn("px-4 pb-1 text-muted-foreground", i === 0 ? "pt-2" : "pt-6")}>
+            {s.title}
+          </Text>
+          {s.items.map((p) => (
+            <FeedRow key={p.id} playlist={p} showSource={showSource} onOpen={() => onOpen(p.id)} onResume={() => onResume(p.id)} />
+          ))}
         </View>
-      )}
-
-      <ScrollView
-        className="flex-1"
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        contentContainerClassName="flex-grow"
-      >
-        {!hasAnything ? (
-          <View className="flex-1 items-center justify-center gap-3 px-6 py-16">
-            <Text className="text-sm font-medium text-foreground">
-              No playlists yet
-            </Text>
-            <Text className="max-w-xs text-center text-sm text-muted-foreground">
-              {emptyCopy ?? "When your coach shares clips with you, they'll show up here."}
-            </Text>
-          </View>
-        ) : visible.length === 0 ? (
-          <View className="items-center gap-2 px-6 py-16">
-            <Text className="text-sm text-muted-foreground">
-              Nothing here right now.
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                setWatch("all");
-                setSource("all");
-                setSharer("all");
-                setQuery("");
-              }}
-              className="min-h-[36px] justify-center"
-            >
-              <Text className="text-sm font-medium text-primary">
-                Clear filters
-              </Text>
-            </Pressable>
-          </View>
-        ) : watch === "all" ? (
-          // Unfiltered, the grouping is the point — it answers "what's new?" at a glance.
-          <View className="gap-8 px-4 py-5">
-            {/* Hero CTA — hidden while searching (the user is already navigating). */}
-            {hero && hero.kind !== "done" && query.trim().length === 0 && (
-              <View className="gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4">
-                <View>
-                  <Text className="text-xs font-semibold uppercase tracking-wider text-primary">
-                    {hero.kind === "continue"
-                      ? "Pick up where you left off"
-                      : hero.count === 1
-                        ? "You have a new playlist"
-                        : `You have ${hero.count} new playlists`}
-                  </Text>
-                  <Text
-                    numberOfLines={1}
-                    className="mt-1 text-base font-semibold text-foreground"
-                  >
-                    {hero.playlist.name}
-                    {hero.playlist.teamNames && hero.playlist.teamNames.length > 0 && (
-                      <Text className="text-xs font-normal text-muted-foreground">
-                        {" "}· {hero.playlist.teamNames.join(", ")}
-                      </Text>
-                    )}
-                  </Text>
-                  <Text className="mt-0.5 text-xs text-muted-foreground">
-                    {hero.kind === "continue"
-                      ? `${hero.playlist.watchedCount} of ${hero.playlist.clipCount} watched`
-                      : [hero.playlist.sharerName, relativeTime(hero.playlist.sharedAt)]
-                          .filter(Boolean)
-                          .join(" · ")}
-                  </Text>
-                </View>
-                <Button
-                  title={hero.kind === "continue" ? "▶ Continue watching" : "▶ Start watching"}
-                  onPress={() => onResume(hero.playlist.id)}
-                />
-              </View>
-            )}
-            {hero?.kind === "done" && query.trim().length === 0 && (
-              <Text className="text-sm text-muted-foreground">
-                ✓ All caught up — you&apos;ve watched everything.
-              </Text>
-            )}
-            <Section
-              title="New"
-              playlists={visible.filter((p) => watchStateOf(p) === "new").sort(byNewest)}
-              onOpen={onOpen}
-            />
-            <Section
-              title="In progress"
-              playlists={visible.filter((p) => watchStateOf(p) === "progress").sort(byLastWatched)}
-              onOpen={onOpen}
-              onResume={onResume}
-            />
-            <Section
-              title="Watched"
-              playlists={visible.filter((p) => watchStateOf(p) === "watched").sort(byNewest)}
-              onOpen={onOpen}
-            />
-          </View>
-        ) : (
-          // With a chip active the section header would just repeat it — flat list.
-          <View className="px-4 py-5">
-            <Section
-              playlists={[...visible].sort(watch === "progress" ? byLastWatched : byNewest)}
-              onOpen={onOpen}
-              onResume={watch === "progress" ? onResume : undefined}
-            />
-          </View>
-        )}
-      </ScrollView>
+      ))}
     </View>
   );
 }

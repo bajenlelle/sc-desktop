@@ -29,18 +29,22 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { View } from "react-native";
+import { AccessibilityInfo, Platform, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colorScheme as nwColorScheme, useColorScheme, vars } from "nativewind";
 import {
   DEFAULT_THEME,
   getTheme,
-  hexToRgbTriplet,
   THEME_TOKENS,
   type MobileThemeTokens,
   type ThemeMode,
 } from "@scoutable/shared/lib/themes";
 import type { ThemeModeSetting } from "@scoutable/shared/lib/theme-sync";
+import {
+  deriveThemeColors,
+  themeVarMap,
+  type DerivedThemeColors,
+} from "@scoutable/shared/lib/theme-derived";
 import { trackEvent } from "@/lib/analytics";
 
 const KEYS = {
@@ -58,8 +62,19 @@ interface AppThemeContextValue {
   modeSetting: ThemeModeSetting;
   /** Active palette as hexes, for JS-prop surfaces classes can't reach. */
   colors: MobileThemeTokens;
+  /** The web's derived colours for the active theme (fills, separators, status, materials). */
+  derived: DerivedThemeColors;
+  /** The scheme in effect after resolving "system". */
+  resolvedMode: ThemeMode;
   /** vars() style of the active palette — re-anchor inside <Modal> trees. */
   varsStyle: Record<string, string>;
+  /**
+   * vars() style of the user's dark theme, for surfaces that are dark in both
+   * modes (the player's chrome, its speed menu): the web's forced-dark island.
+   */
+  darkVarsStyle: Record<string, string>;
+  /** The user's dark theme as plain colours, for JS props inside those surfaces. */
+  darkColors: MobileThemeTokens & DerivedThemeColors;
   setColorTheme: (id: string) => void;
   setModeSetting: (mode: ThemeModeSetting) => void;
   /** Sync adoption: apply + persist locally, nothing else. */
@@ -116,25 +131,23 @@ export function MobileThemeProvider({ children }: { children: ReactNode }) {
   const activeThemeId =
     getTheme(slots[resolved])?.mode === resolved ? slots[resolved] : DEFAULT_THEME[resolved];
   const colors = THEME_TOKENS[activeThemeId] ?? THEME_TOKENS[DEFAULT_THEME[resolved]];
-
-  const varsStyle = useMemo(
-    () =>
-      vars({
-        "--color-background": hexToRgbTriplet(colors.background),
-        "--color-foreground": hexToRgbTriplet(colors.foreground),
-        "--color-card": hexToRgbTriplet(colors.card),
-        "--color-primary": hexToRgbTriplet(colors.primary),
-        "--color-primary-foreground": hexToRgbTriplet(colors.primaryForeground),
-        "--color-secondary": hexToRgbTriplet(colors.secondary),
-        "--color-muted": hexToRgbTriplet(colors.muted),
-        "--color-muted-foreground": hexToRgbTriplet(colors.mutedForeground),
-        "--color-accent": hexToRgbTriplet(colors.accent),
-        "--color-destructive": hexToRgbTriplet(colors.destructive),
-        "--color-border": hexToRgbTriplet(colors.border),
-        "--color-input": hexToRgbTriplet(colors.input),
-      }),
-    [colors],
+  const increasedContrast = useIncreasedContrast();
+  const derived = useMemo(
+    () => deriveThemeColors(activeThemeId, resolved, { increasedContrast }),
+    [activeThemeId, resolved, increasedContrast],
   );
+
+  const varsStyle = useMemo(() => vars(themeVarMap(colors, derived)), [colors, derived]);
+
+  const darkThemeId = getTheme(slots.dark)?.mode === "dark" ? slots.dark : DEFAULT_THEME.dark;
+  const darkColors = useMemo(
+    () => ({
+      ...(THEME_TOKENS[darkThemeId] ?? THEME_TOKENS[DEFAULT_THEME.dark]),
+      ...deriveThemeColors(darkThemeId, "dark", { increasedContrast }),
+    }),
+    [darkThemeId, increasedContrast],
+  );
+  const darkVarsStyle = useMemo(() => vars(themeVarMap(darkColors, darkColors)), [darkColors]);
 
   const setModeSetting = useCallback((mode: ThemeModeSetting) => {
     dirtyRef.current.mode = true;
@@ -184,12 +197,29 @@ export function MobileThemeProvider({ children }: { children: ReactNode }) {
       slots,
       modeSetting,
       colors,
+      derived,
+      resolvedMode: resolved,
       varsStyle,
+      darkVarsStyle,
+      darkColors,
       setColorTheme,
       setModeSetting,
       adoptColorThemes,
     }),
-    [activeThemeId, slots, modeSetting, colors, varsStyle, setColorTheme, setModeSetting, adoptColorThemes],
+    [
+      activeThemeId,
+      slots,
+      modeSetting,
+      colors,
+      derived,
+      resolved,
+      varsStyle,
+      darkVarsStyle,
+      darkColors,
+      setColorTheme,
+      setModeSetting,
+      adoptColorThemes,
+    ],
   );
 
   return (
@@ -206,10 +236,32 @@ export function useAppTheme(): AppThemeContextValue {
 }
 
 /**
- * Drop-in successor of lib/theme.ts' `themeColors(useColorScheme())`: the
- * active theme's palette for navigator chrome, StatusBar, ActivityIndicator,
- * placeholderTextColor and other JS-prop surfaces.
+ * The active theme's palette plus its derived colours, for navigator chrome,
+ * StatusBar, ActivityIndicator, placeholderTextColor, SVG strokes and other
+ * JS-prop surfaces classes can't reach.
  */
-export function useThemeColors(): MobileThemeTokens {
-  return useAppTheme().colors;
+export function useThemeColors(): MobileThemeTokens & DerivedThemeColors {
+  const { colors, derived } = useAppTheme();
+  return useMemo(() => ({ ...colors, ...derived }), [colors, derived]);
+}
+
+/**
+ * The system's Increase Contrast (iOS) or high-contrast text (Android)
+ * setting; separators strengthen under it, as on the web.
+ */
+function useIncreasedContrast(): boolean {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    const read =
+      Platform.OS === "ios"
+        ? AccessibilityInfo.isDarkerSystemColorsEnabled()
+        : AccessibilityInfo.isHighTextContrastEnabled();
+    read.then(setOn).catch(() => {});
+    const sub = AccessibilityInfo.addEventListener(
+      Platform.OS === "ios" ? "darkerSystemColorsChanged" : "highTextContrastChanged",
+      setOn,
+    );
+    return () => sub.remove();
+  }, []);
+  return on;
 }

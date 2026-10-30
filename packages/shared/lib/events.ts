@@ -108,6 +108,41 @@ export function eventColors(e: PlayByPlayEvent): { strip: string; badge: string 
   return { strip: "bg-slate-300", badge: "bg-muted text-muted-foreground" };
 }
 
+/**
+ * The one colour family an event belongs to, for apps that mark a clip with a
+ * single dot instead of `eventColors`' strip and pill (the mobile app). Shot
+ * value no longer deepens the colour: a dot is too small to carry it.
+ */
+export type EventHue =
+  | "make"
+  | "miss"
+  | "rebound"
+  | "assist"
+  | "steal"
+  | "block"
+  | "turnover"
+  | "foul"
+  | "neutral";
+
+export function eventHue(e: PlayByPlayEvent): EventHue {
+  switch (e.type) {
+    case "freethrow":
+    case "2pt":
+    case "3pt":
+      return e.isSuccessful ? "make" : "miss";
+    case "rebound":
+    case "assist":
+    case "steal":
+    case "block":
+    case "turnover":
+      return e.type;
+    case "foul":
+    case "foulon":
+      return "foul";
+  }
+  return "neutral";
+}
+
 /** Trims the API's "MM:SS:CS" countdown to the "MM:SS" people actually read. */
 export function formatGameClock(raw: string): string {
   if (!raw) return "—";

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { PlayByPlayEvent } from "../../types/match";
 import {
   eventColors,
+  eventHue,
   eventLabel,
   formatGameClock,
   isBookkeepingEvent,
@@ -92,6 +93,34 @@ describe("eventColors", () => {
       strip: "bg-slate-300",
       badge: "bg-muted text-muted-foreground",
     });
+  });
+});
+
+describe("eventHue", () => {
+  it("names shots by outcome, whatever their value", () => {
+    for (const type of ["freethrow", "2pt", "3pt"]) {
+      expect(eventHue(ev({ type, isSuccessful: 1 }))).toBe("make");
+      expect(eventHue(ev({ type, isSuccessful: 0 }))).toBe("miss");
+    }
+  });
+
+  it("gives each other kind of play its own hue", () => {
+    expect(eventHue(ev({ type: "rebound", subType: "offensive" }))).toBe("rebound");
+    expect(eventHue(ev({ type: "rebound", subType: "defensive" }))).toBe("rebound");
+    expect(eventHue(ev({ type: "assist" }))).toBe("assist");
+    expect(eventHue(ev({ type: "steal" }))).toBe("steal");
+    expect(eventHue(ev({ type: "block" }))).toBe("block");
+    expect(eventHue(ev({ type: "turnover", subType: "badpass" }))).toBe("turnover");
+  });
+
+  it("gives fouls committed and drawn the same hue", () => {
+    expect(eventHue(ev({ type: "foul" }))).toBe("foul");
+    expect(eventHue(ev({ type: "foulon" }))).toBe("foul");
+  });
+
+  it("falls back to neutral for anything else", () => {
+    expect(eventHue(ev({ type: "jumpball" }))).toBe("neutral");
+    expect(eventHue(ev({ type: "timeout" }))).toBe("neutral");
   });
 });
 

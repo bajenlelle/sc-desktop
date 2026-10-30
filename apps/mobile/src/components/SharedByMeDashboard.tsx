@@ -1,92 +1,99 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
-import { router } from "expo-router";
+import { useEffect, useMemo, useState, type RefObject } from "react";
+import { ActivityIndicator, Alert, View } from "react-native";
 import { getMySharedPlaylists, type SharedPlaylist } from "@scoutable/shared/lib/playlists-db";
 import { getTeamMembers, type TeamMemberRef } from "@scoutable/shared/lib/teams-db";
 import { listPlaylistClipViews, type PlaylistClipView } from "@scoutable/shared/lib/clip-views-db";
 import { sendPlaylistReminder } from "@scoutable/shared/lib/reminders-db";
+import { shareTimeSections } from "@scoutable/shared/lib/share-time";
 import {
   buildDashboardRows,
-  summarizeDashboard,
   teamFilterOptions,
   filterByTeamAndQuery,
   dashboardCounts,
   visibleDashboardRows,
   behindRecipients,
+  dashboardScopeLabel,
   type DashboardRow,
+  type DashboardSort,
   type RecipientRow,
 } from "@scoutable/shared/lib/shared-by-me";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { usePlaylists } from "@/lib/playlists-store";
 import { relativeTime } from "@/lib/format";
+import { successHaptic } from "@/lib/haptics";
 import { useThemeColors } from "@/lib/theme-context";
-import { Avatar } from "@/components/Avatar";
-import { ProgressBar } from "@/components/ProgressBar";
-import { Select } from "@/components/Select";
+import { useLargeText } from "@/lib/a11y";
+import { RecipientsSheet, progressLine } from "@/components/RecipientsSheet";
+import { Card } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Icon } from "@/components/ui/Icon";
+import { NoticeRow, TextButton } from "@/components/ui/Row";
+import { PopoverMenu } from "@/components/ui/PopoverMenu";
+import { Tappable } from "@/components/ui/Tappable";
+import { Text } from "@/components/ui/Text";
+import { useToast } from "@/components/ui/Toast";
+import { WatchBar } from "@/components/ui/WatchBar";
+import { cn } from "@/lib/cn";
 
-/** Search earns its place once the list stops fitting on one screen. */
-const SEARCH_THRESHOLD = 10;
+export type StatusFilter = "all" | "attention" | "done" | "issues";
+
+export interface DashboardFilters {
+  status: StatusFilter;
+  team: string;
+  sort: DashboardSort;
+}
+
+export const NO_DASHBOARD_FILTERS: DashboardFilters = { status: "all", team: "all", sort: "recent" };
+
+/** How many of the dashboard's filters narrow it (sort only orders). */
+export function activeDashboardFilterCount(f: DashboardFilters): number {
+  return (f.status !== "all" ? 1 : 0) + (f.team !== "all" ? 1 : 0);
+}
+
+const STATUS_LABEL: Record<StatusFilter, string> = {
+  all: "All",
+  attention: "Not finished",
+  done: "Finished",
+  issues: "Upload issues",
+};
 
 /**
- * Done / in progress / not started at a glance — the same tri-state bar the
- * web/desktop dashboards use.
+ * The coach's side of sharing, as Claude's Artifacts list: one card per
+ * shared playlist on the grouped floor, by week and month while sorted by
+ * Recently shared. A card's tile carries how many finished over the web's
+ * watch bar; beside it the name, where it went and when. Tapping a card
+ * opens its recipients in a sheet, with Remind, Remind all and Watch as a
+ * player. Status, team and sort live in the title bar's pop-up menu (its
+ * counts replace the old roll-up line). Renders inside the screen's scroll
+ * view; the search is the screen's floating capsule.
  */
-function SegmentedProgress({
-  done,
-  started,
-  total,
-  className = "",
+export function SharedByMeDashboard({
+  query,
+  refreshNonce,
+  filters,
+  onFiltersChange,
+  onClearFilters,
+  sheetOpen,
+  onCloseSheet,
+  menuAnchor,
+  onRowCountChange,
 }: {
-  done: number;
-  started: number;
-  total: number;
-  className?: string;
+  query: string;
+  refreshNonce: number;
+  filters: DashboardFilters;
+  onFiltersChange: (next: DashboardFilters) => void;
+  /** Resets the filters and the search. */
+  onClearFilters: () => void;
+  sheetOpen: boolean;
+  onCloseSheet: () => void;
+  /** The filter button the menu opens from. */
+  menuAnchor: RefObject<View | null>;
+  /** How many shared playlists there are (null while loading), so the parent shows its filter button only when there is something to filter. */
+  onRowCountChange?: (count: number | null) => void;
 }) {
-  const inProgress = Math.max(0, started - done);
-  const donePct = total > 0 ? (done / total) * 100 : 0;
-  const progressPct = total > 0 ? (inProgress / total) * 100 : 0;
-  return (
-    <View
-      className={`h-1.5 flex-row overflow-hidden rounded-full bg-muted ${className}`}
-    >
-      <View className="h-full bg-primary" style={{ width: `${donePct}%` }} />
-      <View
-        className="h-full bg-primary/40"
-        style={{ width: `${progressPct}%` }}
-      />
-    </View>
-  );
-}
-
-function StatusPill({ done, started }: { done: boolean; started: boolean }) {
-  const cls = done
-    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-    : started
-      ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
-      : "bg-muted text-muted-foreground";
-  return (
-    <Text className={`rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>
-      {done ? "Done" : started ? "In progress" : "Not started"}
-    </Text>
-  );
-}
-
-/**
- * The coach's side of sharing — mobile port of the web dashboard's phone
- * layout: summary strip, per-playlist progress cards with expandable
- * recipient rows, and reminder nudges.
- */
-export function SharedByMeDashboard() {
   const colors = useThemeColors();
+  const toast = useToast();
   const { teamMap, memberMap } = usePlaylists();
   const { user, activeOrg, activeOrgId } = useAuth();
   const currentUserId = user?.id ?? null;
@@ -94,13 +101,11 @@ export function SharedByMeDashboard() {
   const [shared, setShared] = useState<SharedPlaylist[] | null>(null);
   const [teamMembers, setTeamMembers] = useState<TeamMemberRef[]>([]);
   const [views, setViews] = useState<PlaylistClipView[]>([]);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<"all" | "attention" | "done">("all");
-  const [teamFilter, setTeamFilter] = useState("all");
-  const [query, setQuery] = useState("");
+  // The playlist whose recipients sheet is up (kept while it slides away).
+  const [sheetRowId, setSheetRowId] = useState<string | null>(null);
+  const [recipientsOpen, setRecipientsOpen] = useState(false);
   /** key = `${playlistId}:${userId}` — per-recipient nudge lifecycle. */
   const [remindState, setRemindState] = useState<Map<string, "sending" | "sent">>(new Map());
-  const [remindingAll, setRemindingAll] = useState(false);
   const [remindingPlaylistId, setRemindingPlaylistId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -123,36 +128,23 @@ export function SharedByMeDashboard() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeOrgId]);
+  }, [activeOrgId, refreshNonce]);
 
   // All derivation lives in @scoutable/shared/lib/shared-by-me (tested there);
   // this component only wires state to it and renders.
   const rows = useMemo<DashboardRow[]>(
-    () =>
-      shared
-        ? buildDashboardRows({ shared, teamMembers, views, memberMap, teamMap, currentUserId })
-        : [],
+    () => (shared ? buildDashboardRows({ shared, teamMembers, views, memberMap, teamMap, currentUserId }) : []),
     [shared, teamMembers, views, memberMap, teamMap, currentUserId],
   );
-
-  const summary = useMemo(() => summarizeDashboard(rows), [rows]);
-
   const teamOptions = useMemo(() => teamFilterOptions(rows, teamMap), [rows, teamMap]);
-
-  const inTeam = useMemo(
-    () => filterByTeamAndQuery(rows, teamFilter, query),
-    [rows, teamFilter, query],
-  );
-
-  // Mobile has no "issues" chip — dashboardCounts still returns it, unused.
+  const inTeam = useMemo(() => filterByTeamAndQuery(rows, filters.team, query), [rows, filters.team, query]);
   const counts = useMemo(() => dashboardCounts(inTeam), [inTeam]);
-
-  // "recent" sort is the newest-first passthrough (mobile has no sort menu).
-  const visibleRows = useMemo(
-    () => visibleDashboardRows(inTeam, statusFilter, "recent"),
-    [inTeam, statusFilter],
-  );
+  const visibleRows = useMemo(() => visibleDashboardRows(inTeam, filters.status, filters.sort), [inTeam, filters.status, filters.sort]);
+  const uploadIssues = rows.filter((r) => r.uploadingCount > 0).length;
+  useEffect(() => {
+    onRowCountChange?.(shared === null ? null : rows.length);
+  }, [shared, rows.length, onRowCountChange]);
+  const setStatus = (status: StatusFilter) => onFiltersChange({ ...filters, status });
 
   async function handleRemind(playlistId: string, recipient: RecipientRow) {
     const key = `${playlistId}:${recipient.userId}`;
@@ -160,6 +152,7 @@ export function SharedByMeDashboard() {
     try {
       await sendPlaylistReminder(supabase, playlistId, recipient.userId);
       setRemindState((prev) => new Map(prev).set(key, "sent"));
+      successHaptic();
     } catch (e) {
       setRemindState((prev) => {
         const next = new Map(prev);
@@ -170,7 +163,7 @@ export function SharedByMeDashboard() {
     }
   }
 
-  /** Shared by the strip's global Remind all and the per-playlist button. */
+  /** Everyone behind on one playlist (its "Remind all" action). */
   async function bulkRemind(targets: { playlistId: string; userId: string }[]) {
     let sent = 0;
     let failed = 0;
@@ -184,33 +177,21 @@ export function SharedByMeDashboard() {
         if (!(e as Error).message.includes("24 hours")) failed++;
       }
     }
+    if (sent > 0) successHaptic();
     if (sent > 0 && failed === 0) {
-      Alert.alert("Reminders sent", `Reminded ${sent} player${sent === 1 ? "" : "s"}`);
+      toast.show(`Reminded ${sent} player${sent === 1 ? "" : "s"}.`);
     } else if (sent > 0) {
-      Alert.alert("Partially sent", `Reminded ${sent}, ${failed} failed`);
+      toast.show(`Reminded ${sent}; ${failed} couldn't be sent.`, { tone: "warning" });
     } else if (failed === 0) {
-      Alert.alert("Already reminded", "Everyone was already reminded recently");
+      toast.show("Everyone was already reminded in the last 24 hours.", { tone: "neutral" });
     } else {
-      Alert.alert("Couldn't send reminders", "Try again in a moment");
-    }
-  }
-
-  async function handleRemindAll() {
-    if (remindingAll || summary.behindTargets.length === 0) return;
-    setRemindingAll(true);
-    try {
-      await bulkRemind(summary.behindTargets);
-    } finally {
-      setRemindingAll(false);
+      Alert.alert("Couldn't send reminders", "Try again in a moment.");
     }
   }
 
   async function handleRemindPlaylist(row: DashboardRow) {
     if (remindingPlaylistId) return;
-    const targets = behindRecipients(row).map((r) => ({
-      playlistId: row.playlist.id,
-      userId: r.userId,
-    }));
+    const targets = behindRecipients(row).map((r) => ({ playlistId: row.playlist.id, userId: r.userId }));
     if (targets.length === 0) return;
     setRemindingPlaylistId(row.playlist.id);
     try {
@@ -220,346 +201,245 @@ export function SharedByMeDashboard() {
     }
   }
 
-  function RemindButton({ playlistId, recipient }: { playlistId: string; recipient: RecipientRow }) {
-    const state = remindState.get(`${playlistId}:${recipient.userId}`);
-    if (state === "sent") {
-      return (
-        <Text className="text-xs text-muted-foreground">
-          Reminded ✓
-        </Text>
-      );
-    }
-    return (
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => handleRemind(playlistId, recipient)}
-        disabled={state === "sending"}
-        className="min-h-[32px] flex-row items-center justify-center rounded-md border border-border px-2.5 active:bg-muted"
-      >
-        {state === "sending" ? (
-          <ActivityIndicator size="small" color={colors.mutedForeground} />
-        ) : (
-          <Text className="text-xs font-medium text-muted-foreground">
-            Remind
-          </Text>
-        )}
-      </Pressable>
-    );
-  }
+  // The filter button's pop-up menu: what to show, which team, how to sort.
+  const sheet = (
+    <PopoverMenu
+      visible={sheetOpen}
+      onClose={onCloseSheet}
+      anchorRef={menuAnchor}
+      accessibilityLabel="Filters"
+      groups={[
+        {
+          key: "show",
+          items: [
+            { key: "all", label: "All", icon: "send", count: counts.all, checked: filters.status === "all", onSelect: () => setStatus("all") },
+            { key: "attention", label: "Not finished", icon: "circleDashed", count: counts.attention, checked: filters.status === "attention", onSelect: () => setStatus("attention") },
+            { key: "done", label: "Finished", icon: "checkCircle", count: counts.done, checked: filters.status === "done", onSelect: () => setStatus("done") },
+            ...(uploadIssues > 0
+              ? [{ key: "issues", label: "Upload issues", icon: "warning" as const, count: uploadIssues, checked: filters.status === "issues", onSelect: () => setStatus("issues") }]
+              : []),
+          ],
+        },
+        ...(teamOptions.length > 2
+          ? [
+              {
+                key: "team",
+                items: teamOptions.map((o) => ({
+                  key: o.value,
+                  label: o.label,
+                  icon: "team" as const,
+                  checked: filters.team === o.value,
+                  onSelect: () => onFiltersChange({ ...filters, team: o.value }),
+                })),
+              },
+            ]
+          : []),
+        {
+          key: "sort",
+          items: (
+            [
+              { value: "recent", label: "Recently shared", icon: "clock" },
+              { value: "least", label: "Least watched first", icon: "sortLeast" },
+              { value: "name", label: "Name", icon: "sortName" },
+            ] as const
+          ).map((o) => ({
+            key: o.value,
+            label: o.label,
+            icon: o.icon,
+            checked: filters.sort === o.value,
+            onSelect: () => onFiltersChange({ ...filters, sort: o.value as DashboardSort }),
+          })),
+        },
+      ]}
+    />
+  );
 
   if (shared === null) {
     return (
-      <View className="flex-1 items-center justify-center">
-        <ActivityIndicator size="large" color={colors.primary} />
+      <View className="items-center justify-center py-20">
+        <ActivityIndicator color={colors.mutedForeground} />
       </View>
     );
   }
 
   if (rows.length === 0) {
-    // Staff of a club org get pointed at org setup — a brand-new admin's
-    // first job is teams and invites (web-only), not sharing playlists.
-    const canManageOrg =
-      !!activeOrg && !activeOrg.isPersonal && (activeOrg.role === "coach" || activeOrg.role === "admin");
+    // Staff of a club get pointed at club setup: a new admin's first job is
+    // teams and invites, which happen on the web (named in plain text: no
+    // link, App Review rejected build 5 over a path to the pricing page).
+    const canManageOrg = !!activeOrg && !activeOrg.isPersonal && (activeOrg.role === "coach" || activeOrg.role === "admin");
     return (
-      <View className="flex-1 items-center justify-center gap-3 px-6 py-16">
-        <Text className="text-sm font-medium text-foreground">
-          You haven&apos;t shared any playlists yet
-        </Text>
-        <Text className="max-w-xs text-center text-sm text-muted-foreground">
-          Share one from the desktop playlist editor and you&apos;ll see here who has watched
-          what.
-        </Text>
-        {canManageOrg && (
-          // Plain text, no link: the web app reaches the pricing page, which
-          // App Review rejected build 5 over (3.1.1 / 3.1.3(c)).
-          <Text className="max-w-xs text-center text-sm text-muted-foreground">
-            New club? Create teams and invite coaches and players from the web.
-          </Text>
-        )}
-      </View>
+      <EmptyState
+        icon="send"
+        title="Nothing shared yet"
+        body={
+          canManageOrg
+            ? "Share a playlist from the desktop editor and you'll see here who has watched what. New club? Create teams and invite coaches and players from the web."
+            : "Share a playlist from the desktop editor and you'll see here who has watched what."
+        }
+      />
     );
   }
 
-  const chips = [
-    { key: "all" as const, label: "All" },
-    { key: "attention" as const, label: "Not fully watched" },
-    { key: "done" as const, label: "Fully watched" },
-  ];
+  const activeLabels = [
+    filters.status !== "all" ? STATUS_LABEL[filters.status] : null,
+    filters.team !== "all" ? (teamOptions.find((o) => o.value === filters.team)?.label ?? "One team") : null,
+  ].filter((x): x is string => !!x);
+
+  // Newest first by week and month, as the feed; other sorts are one list.
+  const sections =
+    filters.sort === "recent"
+      ? shareTimeSections(visibleRows, (r) => r.newestSharedAt)
+      : [{ key: "all", title: "", items: visibleRows }];
+  const sheetRow = rows.find((r) => r.playlist.id === sheetRowId) ?? null;
 
   return (
-    <ScrollView className="flex-1" contentContainerClassName="gap-3 px-4 py-3">
-      {/* Roll-up strip — "who's behind?" answered before any expanding.
-          The behind tile doubles as a filter. */}
-      <View className="flex-row items-stretch gap-2">
-        <View className="flex-1 justify-center rounded-lg border border-border px-3 py-2">
-          <Text className="text-lg font-semibold tabular-nums text-foreground">
-            {summary.playlists}
+    <View>
+      {activeLabels.length > 0 && (
+        <Text variant="footnote" className="px-4 pb-2 text-muted-foreground">
+          {activeLabels.join(" · ")} ·{" "}
+          <Text variant="footnote" accessibilityRole="button" onPress={onClearFilters} className="font-semibold text-primary">
+            Clear
           </Text>
-          <Text className="text-xs text-muted-foreground">
-            playlists shared
-          </Text>
-        </View>
-        <View className="flex-1 justify-center rounded-lg border border-border px-3 py-2">
-          <Text className="text-lg font-semibold tabular-nums text-foreground">
-            {summary.recipients}
-          </Text>
-          <Text className="text-xs text-muted-foreground">
-            players reached
-          </Text>
-        </View>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => setStatusFilter("attention")}
-          className={`flex-1 justify-center rounded-lg border px-3 py-2 ${
-            summary.behind > 0
-              ? "border-amber-500/40 bg-amber-500/5"
-              : "border-border"
-          }`}
+        </Text>
+      )}
+
+      {uploadIssues > 0 && (
+        <NoticeRow
+          icon="warning"
+          className="pb-3"
+          actions={[
+            {
+              label: filters.status === "issues" ? "Show all" : "Show",
+              onPress: () => setStatus(filters.status === "issues" ? "all" : "issues"),
+              primary: true,
+            },
+          ]}
         >
-          <Text
-            className={`text-lg font-semibold tabular-nums ${
-              summary.behind > 0
-                ? "text-amber-600 dark:text-amber-400"
-                : "text-foreground"
-            }`}
-          >
-            {summary.behind}
-          </Text>
-          <Text className="text-xs text-muted-foreground">
-            {summary.behind === 1 ? "player hasn't finished" : "players haven't finished"}
-          </Text>
-        </Pressable>
-      </View>
-
-      {summary.behind > 0 && (
-        <Pressable
-          accessibilityRole="button"
-          onPress={handleRemindAll}
-          disabled={remindingAll}
-          className="min-h-[40px] flex-row items-center justify-center gap-2 rounded-md bg-amber-500/15 px-3 active:bg-amber-500/25"
-        >
-          {remindingAll ? (
-            <ActivityIndicator size="small" color="#d97706" />
-          ) : (
-            <Text className="text-sm font-medium text-amber-700 dark:text-amber-400">
-              Remind all {summary.behind} player{summary.behind === 1 ? "" : "s"}
-            </Text>
-          )}
-        </Pressable>
+          {uploadIssues === 1
+            ? "1 playlist has clips recipients can't see yet. Upload them from the desktop app."
+            : `${uploadIssues} playlists have clips recipients can't see yet. Upload them from the desktop app.`}
+        </NoticeRow>
       )}
 
-      {rows.length > SEARCH_THRESHOLD && (
-        <View className="flex-row items-center gap-2">
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search playlists…"
-            placeholderTextColor={colors.mutedForeground}
-            className="min-h-[36px] flex-1 rounded-md border border-border px-3 text-sm text-foreground"
-          />
-          {query.length > 0 && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Clear search"
-              onPress={() => setQuery("")}
-              className="min-h-[36px] min-w-[36px] items-center justify-center"
-            >
-              <Text className="text-base text-muted-foreground">
-                ✕
+      {visibleRows.length === 0 ? (
+        <EmptyState
+          title="Nothing matches"
+          body="No shared playlists match these filters."
+          action={<TextButton label="Clear filters" onPress={onClearFilters} />}
+        />
+      ) : (
+        sections.map((sec, i) => (
+          <View key={sec.key}>
+            {sec.title ? (
+              <Text variant="subheadline" accessibilityRole="header" className={cn("px-4 pb-2 text-muted-foreground", i === 0 ? "pt-1" : "pt-6")}>
+                {sec.title}
               </Text>
-            </Pressable>
-          )}
-        </View>
-      )}
-
-      {/* Filter bar — same visual language as the player feed's chip bar. */}
-      <View className="flex-row flex-wrap items-center gap-1.5">
-        {chips.map((c) => {
-          const active = statusFilter === c.key;
-          return (
-            <Pressable
-              key={c.key}
-              accessibilityRole="button"
-              onPress={() => setStatusFilter(c.key)}
-              className={`min-h-[32px] flex-row items-center gap-1.5 rounded-full px-3 ${
-                active ? "bg-primary" : "bg-muted"
-              }`}
-            >
-              <Text
-                className={`text-xs font-medium ${
-                  active
-                    ? "text-primary-foreground"
-                    : "text-muted-foreground"
-                }`}
-              >
-                {c.label} {counts[c.key]}
-              </Text>
-            </Pressable>
-          );
-        })}
-        {teamOptions.length > 2 && (
-          <View className="ml-auto">
-            <Select options={teamOptions} value={teamFilter} onChange={setTeamFilter} />
-          </View>
-        )}
-      </View>
-
-      {visibleRows.length === 0 && (
-        <View className="items-center gap-2 px-6 py-16">
-          <Text className="text-sm text-muted-foreground">
-            Nothing matches these filters.
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              setStatusFilter("all");
-              setTeamFilter("all");
-              setQuery("");
-            }}
-            className="min-h-[36px] justify-center"
-          >
-            <Text className="text-sm font-medium text-primary">
-              Clear filters
-            </Text>
-          </Pressable>
-        </View>
-      )}
-
-      {visibleRows.map((row) => {
-        const expanded = expandedId === row.playlist.id;
-        const total = row.recipients.length;
-        // Who on THIS playlist still has clips left — powers the per-playlist nudge.
-        const behindCount = behindRecipients(row).length;
-        const reach = [
-          ...row.teamNames,
-          row.directCount > 0 ? `${row.directCount} member${row.directCount === 1 ? "" : "s"}` : null,
-        ]
-          .filter(Boolean)
-          .join(", ");
-        const when = relativeTime(row.newestSharedAt ?? undefined);
-
-        return (
-          <View
-            key={row.playlist.id}
-            className="rounded-xl border border-border"
-          >
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setExpandedId(expanded ? null : row.playlist.id)}
-              className="gap-3 p-4"
-            >
-              <View className="flex-row items-start gap-2">
-                <Text className="mt-0.5 w-4 text-xs text-muted-foreground">
-                  {expanded ? "▾" : "▸"}
-                </Text>
-                <View className="min-w-0 flex-1">
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => router.push(`/playlists/${row.playlist.id}`)}
-                  >
-                    <Text
-                      numberOfLines={2}
-                      className="text-sm font-semibold text-foreground"
-                    >
-                      {row.playlist.name}
-                    </Text>
-                  </Pressable>
-                  <Text
-                    numberOfLines={1}
-                    className="mt-0.5 text-xs text-muted-foreground"
-                  >
-                    {reach || "No recipients"}
-                    {when ? ` · shared ${when}` : ""}
-                    {` · ${row.playableCount} clip${row.playableCount === 1 ? "" : "s"}`}
-                  </Text>
-                  {row.uploadingCount > 0 && (
-                    <Text className="mt-0.5 text-xs text-amber-600 dark:text-amber-400">
-                      {row.uploadingCount} clip{row.uploadingCount === 1 ? "" : "s"} not uploaded —
-                      upload from the desktop app.
-                    </Text>
-                  )}
-                </View>
-              </View>
-
-              <View className="flex-row items-center gap-2 pl-6">
-                <SegmentedProgress
-                  done={row.completedCount}
-                  started={row.startedCount}
-                  total={total}
-                  className="flex-1"
+            ) : null}
+            <View className="gap-3">
+              {sec.items.map((row) => (
+                <PlaylistCard
+                  key={row.playlist.id}
+                  row={row}
+                  onOpen={() => {
+                    setSheetRowId(row.playlist.id);
+                    setRecipientsOpen(true);
+                  }}
                 />
-                <Text className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                  {total > 0 ? `${row.completedCount} done of ${total}` : "No recipients"}
-                </Text>
-                {behindCount > 0 && (
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => handleRemindPlaylist(row)}
-                    disabled={remindingPlaylistId !== null}
-                    className="min-h-[32px] flex-row items-center justify-center rounded-md bg-amber-500/15 px-2.5 active:bg-amber-500/25"
-                  >
-                    {remindingPlaylistId === row.playlist.id ? (
-                      <ActivityIndicator size="small" color="#d97706" />
-                    ) : (
-                      <Text className="text-xs font-medium text-amber-700 dark:text-amber-400">
-                        Remind {behindCount}
-                      </Text>
-                    )}
-                  </Pressable>
-                )}
-              </View>
-            </Pressable>
-
-            {expanded && (
-              <View className="border-t border-border">
-                {row.recipients.map((r) => {
-                  const done = row.playableCount > 0 && r.watched >= row.playableCount;
-                  const started = r.watched > 0;
-                  const rpct =
-                    row.playableCount > 0 ? (r.watched / row.playableCount) * 100 : 0;
-                  const active = relativeTime(r.lastActivity ?? undefined);
-                  return (
-                    <View
-                      key={r.userId}
-                      className="gap-2 border-b border-border/60 px-4 py-3"
-                    >
-                      <View className="flex-row items-center justify-between gap-2">
-                        <View className="min-w-0 flex-1 flex-row items-center gap-2">
-                          <Avatar name={r.name} url={r.avatarUrl ?? undefined} size={24} />
-                          <Text
-                            numberOfLines={1}
-                            className="flex-1 text-sm text-foreground"
-                          >
-                            {r.name}
-                          </Text>
-                        </View>
-                        <StatusPill done={done} started={started} />
-                      </View>
-                      <View className="flex-row items-center gap-2">
-                        <ProgressBar value={rpct} className="flex-1" />
-                        <Text className="text-xs tabular-nums text-muted-foreground">
-                          {r.watched}/{row.playableCount}
-                        </Text>
-                      </View>
-                      <View className="flex-row items-center justify-between gap-2">
-                        <Text className="text-xs text-muted-foreground">
-                          {active ? `Active ${active}` : "No activity"}
-                        </Text>
-                        {!done && <RemindButton playlistId={row.playlist.id} recipient={r} />}
-                      </View>
-                    </View>
-                  );
-                })}
-                {row.recipients.length === 0 && (
-                  <Text className="px-4 py-4 text-center text-sm text-muted-foreground">
-                    No recipients yet — share this playlist with a team or player.
-                  </Text>
-                )}
-              </View>
-            )}
+              ))}
+            </View>
           </View>
-        );
-      })}
-    </ScrollView>
+        ))
+      )}
+      {sheet}
+      <RecipientsSheet
+        row={sheetRow}
+        visible={recipientsOpen}
+        onClose={() => setRecipientsOpen(false)}
+        remindState={remindState}
+        onRemind={(r) => sheetRow && handleRemind(sheetRow.playlist.id, r)}
+        onRemindPlaylist={() => sheetRow && handleRemindPlaylist(sheetRow)}
+        remindingPlaylist={!!sheetRow && remindingPlaylistId === sheetRow.playlist.id}
+        remindBusy={remindingPlaylistId !== null}
+      />
+    </View>
+  );
+}
+
+const TILE_W = 112;
+const TILE_H = 76;
+
+/**
+ * One shared playlist as Claude's Artifacts card: a tile on the left with
+ * the one number that matters (how many finished, over the watch bar), then
+ * the name, where it went and when. Tapping opens the recipients sheet.
+ */
+function PlaylistCard({ row, onOpen }: { row: DashboardRow; onOpen: () => void }) {
+  const colors = useThemeColors();
+  const largeText = useLargeText();
+  const total = row.recipients.length;
+  const reach = dashboardScopeLabel(row);
+  const when = relativeTime(row.newestSharedAt ?? undefined);
+  const meta = [when ? `Shared ${when}` : null, `${row.playableCount} clip${row.playableCount === 1 ? "" : "s"}`]
+    .filter(Boolean)
+    .join(" · ");
+  const progress = progressLine(row);
+
+  return (
+    <Card>
+      <Tappable
+        scaleTo={1}
+        accessibilityRole="button"
+        accessibilityLabel={`${row.playlist.name}. ${reach ? `${reach}. ` : ""}${meta}. ${progress}`}
+        accessibilityHint="Shows who it was shared with"
+        onPress={onOpen}
+        className={({ pressed }) => cn("flex-row items-center gap-3.5 p-3", pressed && "bg-fill-1")}
+      >
+        <View
+          accessible={false}
+          className="items-center justify-center overflow-hidden rounded-window bg-fill-2"
+          style={{ width: TILE_W, height: TILE_H }}
+        >
+          {total > 0 ? (
+            <>
+              <Text variant="title3" nums maxFontSizeMultiplier={1.3} className="font-semibold">
+                {`${row.completedCount}/${total}`}
+              </Text>
+              <Text variant="footnote" maxFontSizeMultiplier={1.3} className="mb-2.5 text-muted-foreground">
+                finished
+              </Text>
+              <View style={{ position: "absolute", left: 10, right: 10, bottom: 9 }}>
+                <WatchBar done={row.completedCount} started={row.startedCount} total={total} />
+              </View>
+            </>
+          ) : (
+            <Icon name="send" size={22} color={colors.mutedForeground} />
+          )}
+        </View>
+        <View className="min-w-0 flex-1">
+          <Text variant="headline" numberOfLines={largeText ? 3 : 2}>
+            {row.playlist.name}
+          </Text>
+          <View className="mt-1 flex-row items-center gap-1.5">
+            <Icon name={row.teamNames.length > 0 || row.directCount === 0 ? "team" : "person"} size={14} color={colors.mutedForeground} />
+            <Text variant="subheadline" numberOfLines={largeText ? 2 : 1} className="shrink text-muted-foreground">
+              {reach || "No recipients"}
+            </Text>
+          </View>
+          <Text variant="subheadline" nums numberOfLines={largeText ? undefined : 1} className="text-muted-foreground">
+            {meta}
+          </Text>
+          {row.uploadingCount > 0 && (
+            <View className="mt-1 flex-row items-start gap-1.5">
+              <Icon name="warning" size={14} color={colors.mutedForeground} style={{ marginTop: 2 }} />
+              <Text variant="footnote" className="shrink text-muted-foreground">
+                {row.uploadingCount === 1
+                  ? "1 clip isn't uploaded, so recipients can't see it"
+                  : `${row.uploadingCount} clips aren't uploaded, so recipients can't see them`}
+              </Text>
+            </View>
+          )}
+        </View>
+      </Tappable>
+    </Card>
   );
 }
