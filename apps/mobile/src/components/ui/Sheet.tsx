@@ -14,15 +14,12 @@ import { BackHandler, Pressable, ScrollView, StyleSheet, View, useWindowDimensio
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
-import { Icon } from "@/components/ui/Icon";
-import { Tappable } from "@/components/ui/Tappable";
 import { Text } from "@/components/ui/Text";
-import { selectionHaptic } from "@/lib/haptics";
 import { springs, timing } from "@/lib/motion";
 import { useAppTheme, useThemeColors } from "@/lib/theme-context";
 
 /**
- * Sheets render here, above the stack and the tab bar, instead of inside the
+ * Sheets render here, above the stack and the sidebar, instead of inside the
  * screen that opens them: an in-tree host rather than RN's <Modal>, so they
  * keep the theme variables. Mounted in the root layout inside the theme
  * provider, so signed-out screens can open sheets too. A sheet's content
@@ -53,6 +50,11 @@ export function SheetHost({ children }: { children: ReactNode }) {
       ))}
     </HostContext.Provider>
   );
+}
+
+/** The host's mount API, for other overlays that render above everything (the pop-up menu). */
+export function usePortal() {
+  return useContext(HostContext);
 }
 
 export interface SheetProps {
@@ -187,73 +189,6 @@ function SheetPanel({
         </ScrollView>
       </Animated.View>
     </View>
-  );
-}
-
-export interface MenuOption<T extends string> {
-  value: T;
-  label: string;
-  destructive?: boolean;
-}
-
-/**
- * A menu as a sheet: a list of choices with the current one checked. The
- * same on iOS and Android (it replaces the platform menus, which ignored the
- * theme on iOS and drew a light menu over the dark player).
- */
-export function MenuSheet<T extends string>({
-  visible,
-  onClose,
-  title,
-  options,
-  value,
-  onSelect,
-  appearance,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  title?: string;
-  options: MenuOption<T>[];
-  value?: T;
-  onSelect: (value: T) => void;
-  appearance?: "dark";
-}) {
-  const theme = useAppTheme();
-  const lightColors = useThemeColors();
-  const colors = appearance === "dark" ? theme.darkColors : lightColors;
-  return (
-    <Sheet visible={visible} onClose={onClose} title={title} appearance={appearance}>
-      <View className="pt-1">
-        {options.map((o, i) => {
-          const on = o.value === value;
-          return (
-            <View key={o.value}>
-              {i > 0 && <View style={{ height: StyleSheet.hairlineWidth, marginLeft: 16, backgroundColor: colors.separator }} />}
-              <Tappable
-                scaleTo={1}
-                accessibilityRole="button"
-                accessibilityState={{ selected: on }}
-                onPress={() => {
-                  if (!on) selectionHaptic();
-                  onSelect(o.value);
-                  onClose();
-                }}
-                className={({ pressed }) => (pressed ? "min-h-11 flex-row items-center gap-3 bg-fill-2 px-4" : "min-h-11 flex-row items-center gap-3 px-4")}
-              >
-                <Text
-                  numberOfLines={1}
-                  className="flex-1"
-                  style={{ color: o.destructive ? colors.destructive : colors.foreground }}
-                >
-                  {o.label}
-                </Text>
-                {on && <Icon name="check" size={18} strokeWidth={2.5} color={colors.primary} />}
-              </Tappable>
-            </View>
-          );
-        })}
-      </View>
-    </Sheet>
   );
 }
 

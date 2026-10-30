@@ -3,12 +3,12 @@
  * a translucent dark material, the control button in its three sizes, the
  * speed menu and the full-screen button.
  */
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Platform, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import { BlurView } from "expo-blur";
 import { PLAYBACK_SPEEDS } from "@/hooks/use-clip-queue";
 import { Icon, type IconName } from "@/components/ui/Icon";
-import { MenuSheet } from "@/components/ui/Sheet";
+import { PopoverMenu } from "@/components/ui/PopoverMenu";
 import { Tappable } from "@/components/ui/Tappable";
 import { Text } from "@/components/ui/Text";
 import { useReduceTransparency } from "@/lib/a11y";
@@ -98,12 +98,13 @@ export function FullscreenButton({ active, onToggle }: { active: boolean; onTogg
   );
 }
 
-/** The current rate, tinted when it isn't 1×, opening a dark menu sheet of rates. */
+/** The current rate, tinted when it isn't 1×, opening a dark pop-up menu of rates from the button. */
 export function SpeedMenu({ speed, onSpeedChange }: { speed: number; onSpeedChange: (speed: number) => void }) {
   const colors = useThemeColors();
   const [open, setOpen] = useState(false);
+  const anchor = useRef<View>(null);
   return (
-    <>
+    <View ref={anchor} collapsable={false}>
       <Tappable
         scaleTo={0.9}
         accessibilityRole="button"
@@ -121,19 +122,27 @@ export function SpeedMenu({ speed, onSpeedChange }: { speed: number; onSpeedChan
           {speed}×
         </Text>
       </Tappable>
-      <MenuSheet
+      <PopoverMenu
         visible={open}
         onClose={() => setOpen(false)}
-        title="Playback speed"
+        anchorRef={anchor}
         appearance="dark"
-        options={PLAYBACK_SPEEDS.map((s) => ({ value: String(s), label: `${s}×` }))}
-        value={String(speed)}
-        onSelect={(next) => {
-          const rate = Number(next);
-          if (rate !== speed) onSpeedChange(rate);
-        }}
+        accessibilityLabel="Playback speed"
+        groups={[
+          {
+            key: "speed",
+            items: PLAYBACK_SPEEDS.map((s) => ({
+              key: String(s),
+              label: `${s}×`,
+              checked: s === speed,
+              onSelect: () => {
+                if (s !== speed) onSpeedChange(s);
+              },
+            })),
+          },
+        ]}
       />
-    </>
+    </View>
   );
 }
 

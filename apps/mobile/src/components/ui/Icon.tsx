@@ -49,6 +49,10 @@ import {
   Type,
   TextAlignStart,
   Inbox,
+  CircleDashed,
+  Clock,
+  ArrowDownAZ,
+  ArrowUpNarrowWide,
   Circle as CircleOutline,
   User,
   Users,
@@ -119,6 +123,10 @@ export const ICONS = {
   menu: TextAlignStart,
   inbox: Inbox,
   circle: CircleOutline,
+  circleDashed: CircleDashed,
+  clock: Clock,
+  sortName: ArrowDownAZ,
+  sortLeast: ArrowUpNarrowWide,
 } as const satisfies Record<string, LucideIcon | "basketball">;
 
 export type IconName = keyof typeof ICONS;

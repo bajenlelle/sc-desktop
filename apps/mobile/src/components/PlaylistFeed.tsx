@@ -6,7 +6,7 @@
  * sent it when; a started playlist adds its progress and Resume. Up next
  * leads as the one card with a filled button, then New, In progress and
  * Watched; Watched shows its three latest until asked for the rest. Filters
- * and sort live behind the title bar's filter button (FeedFilterSheet); this
+ * and sort live behind the title bar's filter button (its pop-up menu); this
  * component only reads them. Renders inside the screen's scroll view.
  */
 import { useMemo, useState, type ReactNode } from "react";

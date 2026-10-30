@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import {
@@ -12,7 +12,6 @@ import { usePlaylists } from "@/lib/playlists-store";
 import { usePlaylistOpener } from "@/lib/use-playlist-opener";
 import { useThemeColors } from "@/lib/theme-context";
 import { NO_FEED_FILTERS, PlaylistFeed, type FeedFilters } from "@/components/PlaylistFeed";
-import { FeedFilterSheet } from "@/components/FeedFilterSheet";
 import { FilterButton } from "@/components/ui/FilterButton";
 import { Text } from "@/components/ui/Text";
 import {
@@ -25,7 +24,9 @@ import { LicenseNotice } from "@/components/LicenseNotice";
 import { NotificationPrimer } from "@/components/NotificationPrimer";
 import { Screen } from "@/components/shell/Screen";
 import { SearchField } from "@/components/ui/SearchField";
-import type { RadioOption } from "@/components/ui/RadioGroup";
+import { PopoverMenu, type PopoverGroup } from "@/components/ui/PopoverMenu";
+
+type Option = { value: string; label: string };
 
 /**
  * The playlists destination. Players see what was shared with them (My
@@ -49,6 +50,7 @@ export default function PlaylistsScreen() {
   const [filters, setFilters] = useState<FeedFilters>(NO_FEED_FILTERS);
   const [dashFilters, setDashFilters] = useState<DashboardFilters>(NO_DASHBOARD_FILTERS);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const filterAnchor = useRef<View>(null);
   /** The dashboard's shared playlists (null while it loads): no filter button without any. */
   const [dashRows, setDashRows] = useState<number | null>(null);
   // A sheet left open for one view never opens over the other.
@@ -66,9 +68,9 @@ export default function PlaylistsScreen() {
   // tab and app-icon badges derive from the same array, so counts can't drift.
 
   // Only teams that actually have playlists appear as filter options.
-  const sourceOptions = useMemo<RadioOption<string>[]>(() => {
-    const opts: RadioOption<string>[] = [{ value: "all", label: "All teams" }];
-    if (directPlaylistIds.size > 0) opts.push({ value: "direct", label: "Shared with me" });
+  const sourceOptions = useMemo<Option[]>(() => {
+    const opts: Option[] = [{ value: "all", label: "All teams" }];
+    if (directPlaylistIds.size > 0) opts.push({ value: "direct", label: "Just for you" });
     for (const [teamId, team] of teamMap) {
       if (allPlaylists.some((p) => (p.teamIds ?? []).includes(teamId))) {
         opts.push({ value: `team:${teamId}`, label: team.name });
@@ -87,7 +89,7 @@ export default function PlaylistsScreen() {
     }
   }, [refresh]);
 
-  const sharerOptions = useMemo<RadioOption<string>[]>(() => sharerFilterOptions(feedItems), [feedItems]);
+  const sharerOptions = useMemo<Option[]>(() => sharerFilterOptions(feedItems), [feedItems]);
   // Counts in the sheet describe what's reachable under the current team,
   // sharer and search, as the web's chips do (shared playlist-feed, tested).
   const counts = useMemo(
@@ -103,6 +105,47 @@ export default function PlaylistsScreen() {
     if (filters.sharer !== "all") out.push(`From ${sharerOptions.find((o) => o.value === filters.sharer)?.label ?? "one coach"}`);
     return out;
   }, [filters, sourceOptions, sharerOptions]);
+
+  // The feed's filter menu: what to show (with counts), which team, which coach.
+  const feedMenu = useMemo<PopoverGroup[]>(() => {
+    const setWatch = (watch: FeedFilters["watch"]) => () => setFilters((f) => ({ ...f, watch }));
+    const groups: PopoverGroup[] = [
+      {
+        key: "show",
+        items: [
+          { key: "all", label: "All", icon: "playlists", count: counts.all, checked: filters.watch === "all", onSelect: setWatch("all") },
+          { key: "new", label: "New", icon: "circle", count: counts.new, checked: filters.watch === "new", onSelect: setWatch("new") },
+          { key: "progress", label: "In progress", icon: "circleDashed", count: counts.progress, checked: filters.watch === "progress", onSelect: setWatch("progress") },
+          { key: "watched", label: "Watched", icon: "checkCircle", count: counts.watched, checked: filters.watch === "watched", onSelect: setWatch("watched") },
+        ],
+      },
+    ];
+    if (sourceOptions.length > 1) {
+      groups.push({
+        key: "team",
+        items: sourceOptions.map((o) => ({
+          key: o.value,
+          label: o.label,
+          icon: o.value === "direct" ? "person" : "team",
+          checked: filters.source === o.value,
+          onSelect: () => setFilters((f) => ({ ...f, source: o.value })),
+        })),
+      });
+    }
+    if (sharerOptions.length > 1) {
+      groups.push({
+        key: "from",
+        items: sharerOptions.map((o) => ({
+          key: o.value,
+          label: o.value === "all" ? "All coaches" : o.label,
+          icon: o.value === "all" ? "team" : "person",
+          checked: filters.sharer === o.value,
+          onSelect: () => setFilters((f) => ({ ...f, sharer: o.value })),
+        })),
+      });
+    }
+    return groups;
+  }, [counts, filters, sourceOptions, sharerOptions]);
 
   const showDashboard = isCoachOrAdmin && coachTab === "by-me";
   // Search earns its place from eight playlists (or while a search is on);
@@ -120,6 +163,7 @@ export default function PlaylistsScreen() {
       trailing={
         !loading && (showDashboard ? (dashRows ?? 0) > 0 : feedItems.length > 0) ? (
           <FilterButton
+            anchorRef={filterAnchor}
             activeCount={showDashboard ? activeDashboardFilterCount(dashFilters) : activeFilters}
             onPress={() => setFiltersOpen(true)}
           />
@@ -156,6 +200,7 @@ export default function PlaylistsScreen() {
             onClearFilters={clearDashFilters}
             sheetOpen={filtersOpen && showDashboard}
             onCloseSheet={() => setFiltersOpen(false)}
+            menuAnchor={filterAnchor}
             onRowCountChange={setDashRows}
           />
         ) : (
@@ -169,14 +214,12 @@ export default function PlaylistsScreen() {
             emptyCopy={isCoachOrAdmin ? "Playlists other coaches share with you show up here." : undefined}
           />
         )}
-        <FeedFilterSheet
+        <PopoverMenu
           visible={filtersOpen && !showDashboard}
           onClose={() => setFiltersOpen(false)}
-          filters={filters}
-          onChange={setFilters}
-          counts={counts}
-          sourceOptions={sourceOptions}
-          sharerOptions={sharerOptions}
+          anchorRef={filterAnchor}
+          accessibilityLabel="Filters"
+          groups={feedMenu}
         />
     </Screen>
   );

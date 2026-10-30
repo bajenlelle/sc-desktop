@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type RefObject } from "react";
 import { ActivityIndicator, Alert, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, FadeOut, useAnimatedStyle, withSpring } from "react-native-reanimated";
 import { router } from "expo-router";
@@ -28,13 +28,11 @@ import { springs } from "@/lib/motion";
 import { useThemeColors } from "@/lib/theme-context";
 import { useLargeText } from "@/lib/a11y";
 import { Avatar } from "@/components/Avatar";
-import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Icon } from "@/components/ui/Icon";
-import { RadioGroup } from "@/components/ui/RadioGroup";
 import { NoticeRow, StatLine, TextButton } from "@/components/ui/Row";
-import { Sheet } from "@/components/ui/Sheet";
+import { PopoverMenu } from "@/components/ui/PopoverMenu";
 import { Tappable } from "@/components/ui/Tappable";
 import { Text } from "@/components/ui/Text";
 import { useToast } from "@/components/ui/Toast";
@@ -82,6 +80,7 @@ export function SharedByMeDashboard({
   onClearFilters,
   sheetOpen,
   onCloseSheet,
+  menuAnchor,
   onRowCountChange,
 }: {
   query: string;
@@ -92,6 +91,8 @@ export function SharedByMeDashboard({
   onClearFilters: () => void;
   sheetOpen: boolean;
   onCloseSheet: () => void;
+  /** The filter button the menu opens from. */
+  menuAnchor: RefObject<View | null>;
   /** How many shared playlists there are (null while loading), so the parent shows its filter button only when there is something to filter. */
   onRowCountChange?: (count: number | null) => void;
 }) {
@@ -203,45 +204,57 @@ export function SharedByMeDashboard({
     }
   }
 
+  // The filter button's pop-up menu: what to show, which team, how to sort.
   const sheet = (
-    <Sheet
+    <PopoverMenu
       visible={sheetOpen}
       onClose={onCloseSheet}
-      title="Filters"
-      trailing={
-        activeDashboardFilterCount(filters) > 0 || filters.sort !== "recent" ? (
-          <TextButton label="Reset" size="body" onPress={() => onFiltersChange(NO_DASHBOARD_FILTERS)} />
-        ) : undefined
-      }
-    >
-      <RadioGroup<StatusFilter>
-        title="Show"
-        value={filters.status}
-        onSelect={setStatus}
-        options={[
-          { value: "all", label: "All", count: counts.all },
-          { value: "attention", label: "Not finished", count: counts.attention },
-          { value: "done", label: "Finished", count: counts.done },
-          ...(uploadIssues > 0 ? [{ value: "issues" as const, label: "Upload issues", count: uploadIssues }] : []),
-        ]}
-      />
-      {teamOptions.length > 2 && (
-        <RadioGroup title="Team" value={filters.team} onSelect={(team) => onFiltersChange({ ...filters, team })} options={teamOptions} />
-      )}
-      <RadioGroup<DashboardSort>
-        title="Sort"
-        value={filters.sort}
-        onSelect={(sort) => onFiltersChange({ ...filters, sort })}
-        options={[
-          { value: "recent", label: "Recently shared" },
-          { value: "least", label: "Least watched first" },
-          { value: "name", label: "Name" },
-        ]}
-      />
-      <View className="px-4 pt-5">
-        <Button onPress={onCloseSheet}>Done</Button>
-      </View>
-    </Sheet>
+      anchorRef={menuAnchor}
+      accessibilityLabel="Filters"
+      groups={[
+        {
+          key: "show",
+          items: [
+            { key: "all", label: "All", icon: "send", count: counts.all, checked: filters.status === "all", onSelect: () => setStatus("all") },
+            { key: "attention", label: "Not finished", icon: "circleDashed", count: counts.attention, checked: filters.status === "attention", onSelect: () => setStatus("attention") },
+            { key: "done", label: "Finished", icon: "checkCircle", count: counts.done, checked: filters.status === "done", onSelect: () => setStatus("done") },
+            ...(uploadIssues > 0
+              ? [{ key: "issues", label: "Upload issues", icon: "warning" as const, count: uploadIssues, checked: filters.status === "issues", onSelect: () => setStatus("issues") }]
+              : []),
+          ],
+        },
+        ...(teamOptions.length > 2
+          ? [
+              {
+                key: "team",
+                items: teamOptions.map((o) => ({
+                  key: o.value,
+                  label: o.label,
+                  icon: "team" as const,
+                  checked: filters.team === o.value,
+                  onSelect: () => onFiltersChange({ ...filters, team: o.value }),
+                })),
+              },
+            ]
+          : []),
+        {
+          key: "sort",
+          items: (
+            [
+              { value: "recent", label: "Recently shared", icon: "clock" },
+              { value: "least", label: "Least watched first", icon: "sortLeast" },
+              { value: "name", label: "Name", icon: "sortName" },
+            ] as const
+          ).map((o) => ({
+            key: o.value,
+            label: o.label,
+            icon: o.icon,
+            checked: filters.sort === o.value,
+            onSelect: () => onFiltersChange({ ...filters, sort: o.value as DashboardSort }),
+          })),
+        },
+      ]}
+    />
   );
 
   if (shared === null) {

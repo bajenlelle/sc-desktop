@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ScrollView, View } from "react-native";
 import { router, useGlobalSearchParams, usePathname } from "expo-router";
 import type { DrawerContentComponentProps } from "expo-router/drawer";
@@ -11,12 +11,16 @@ import { useThemeColors } from "@/lib/theme-context";
 import { cn } from "@/lib/cn";
 import { Avatar } from "@/components/Avatar";
 import { Icon, type IconName } from "@/components/ui/Icon";
-import { MenuSheet } from "@/components/ui/Sheet";
+import { PopoverMenu } from "@/components/ui/PopoverMenu";
 import { Tappable } from "@/components/ui/Tappable";
 import { Text } from "@/components/ui/Text";
 import { Wordmark } from "@/components/ui/Wordmark";
 
-const ROLE_LABEL = { admin: "Admin", coach: "Coach", player: "Player" } as const;
+const ROLE_LABEL = {
+  admin: "Admin",
+  coach: "Coach",
+  player: "Player",
+} as const;
 const RECENT_COUNT = 6;
 
 type CoachView = "by-me" | "with-me";
@@ -42,12 +46,14 @@ interface Destination {
 export function Sidebar({ navigation, playerOnly }: DrawerContentComponentProps & { playerOnly: boolean }) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
-  const { profile, myOrgs, activeOrg, activeOrgId, activeOrgRole, isPlayerOnly, setActiveOrg, reloadProfile } = useAuth();
+  const { profile, myOrgs, activeOrg, activeOrgId, activeOrgRole, isPlayerOnly, setActiveOrg, reloadProfile } =
+    useAuth();
   const { feedItems } = usePlaylists();
   const { resumePlaylist } = usePlaylistOpener();
   const pathname = usePathname();
   const { view } = useGlobalSearchParams<{ view?: string }>();
   const [clubsOpen, setClubsOpen] = useState(false);
+  const clubAnchor = useRef<View>(null);
 
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
   const newCount = useMemo(() => feedCounts(feedItems).new, [feedItems]);
@@ -60,17 +66,47 @@ export function Sidebar({ navigation, playerOnly }: DrawerContentComponentProps 
 
   const destinations: Destination[] = isCoachOrAdmin
     ? [
-        { key: "by-me", label: "Shared by me", icon: "send", pathname: "/playlists", view: "by-me" },
-        { key: "with-me", label: "Shared with me", icon: "inbox", pathname: "/playlists", view: "with-me", count: newCount },
+        {
+          key: "by-me",
+          label: "Shared by me",
+          icon: "send",
+          pathname: "/playlists",
+          view: "by-me",
+        },
+        {
+          key: "with-me",
+          label: "Shared with me",
+          icon: "inbox",
+          pathname: "/playlists",
+          view: "with-me",
+          count: newCount,
+        },
       ]
     : [
-        { key: "playlists", label: "My playlists", icon: "playlists", pathname: "/playlists", count: newCount },
-        ...(playerOnly ? [{ key: "highlights", label: "My highlights", icon: "highlights", pathname: "/highlights" } as Destination] : []),
+        {
+          key: "playlists",
+          label: "My playlists",
+          icon: "playlists",
+          pathname: "/playlists",
+          count: newCount,
+        },
+        ...(playerOnly
+          ? [
+              {
+                key: "highlights",
+                label: "My highlights",
+                icon: "highlights",
+                pathname: "/highlights",
+              } as Destination,
+            ]
+          : []),
       ];
 
   const currentView: CoachView = view === "with-me" ? "with-me" : "by-me";
   const isActive = (d: Destination) =>
-    d.pathname === "/playlists" ? pathname === "/playlists" && (!d.view || d.view === currentView) : pathname === d.pathname;
+    d.pathname === "/playlists"
+      ? pathname === "/playlists" && (!d.view || d.view === currentView)
+      : pathname === d.pathname;
 
   const go = (d: Destination) => {
     navigation.closeDrawer();
@@ -84,30 +120,42 @@ export function Sidebar({ navigation, playerOnly }: DrawerContentComponentProps 
 
   const role = activeOrgRole ? ROLE_LABEL[activeOrgRole] : null;
   const name = profile?.fullName ?? profile?.email ?? "Account";
-  const subtitle = [role, !isPlayerOnly && activeOrg && !activeOrg.isPersonal ? activeOrg.orgName : null].filter(Boolean).join(" · ");
+  const subtitle = [role, !isPlayerOnly && activeOrg && !activeOrg.isPersonal ? activeOrg.orgName : null]
+    .filter(Boolean)
+    .join(" · ");
   const onProfile = pathname === "/profile";
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: insets.top }}>
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: colors.background,
+        paddingTop: insets.top,
+      }}
+    >
       <ScrollView contentContainerStyle={{ paddingBottom: 16 }} showsVerticalScrollIndicator={false}>
         <View className="px-5 pb-4 pt-5">
           <Wordmark height={24} />
         </View>
 
         {!isPlayerOnly && clubOptions.length > 1 && activeOrg ? (
-          <Tappable
-            scaleTo={1}
-            accessibilityRole="button"
-            accessibilityLabel={`Club: ${activeOrg.orgName}. Switch club`}
-            onPress={() => setClubsOpen(true)}
-            className={({ pressed }) => cn("mx-2 mb-2 min-h-11 flex-row items-center gap-3 rounded-window px-3", pressed && "bg-fill-1")}
-          >
-            <Icon name="club" size={20} color={colors.mutedForeground} />
-            <Text numberOfLines={1} className="min-w-0 flex-1 text-muted-foreground">
-              {activeOrg.orgName}
-            </Text>
-            <Icon name="chevronUpDown" size={16} color={colors.mutedForeground} />
-          </Tappable>
+          <View ref={clubAnchor} collapsable={false}>
+            <Tappable
+              scaleTo={1}
+              accessibilityRole="button"
+              accessibilityLabel={`Club: ${activeOrg.orgName}. Switch club`}
+              onPress={() => setClubsOpen(true)}
+              className={({ pressed }) =>
+                cn("mx-2 mb-2 min-h-11 flex-row items-center gap-3 rounded-window px-3", pressed && "bg-fill-1")
+              }
+            >
+              <Icon name="club" size={20} color={colors.mutedForeground} />
+              <Text numberOfLines={1} className="min-w-0 flex-1 text-muted-foreground">
+                {activeOrg.orgName}
+              </Text>
+              <Icon name="chevronUpDown" size={16} color={colors.mutedForeground} />
+            </Tappable>
+          </View>
         ) : null}
 
         <View className="gap-0.5">
@@ -122,7 +170,10 @@ export function Sidebar({ navigation, playerOnly }: DrawerContentComponentProps 
                 accessibilityLabel={d.count ? `${d.label}, ${d.count} new` : d.label}
                 onPress={() => go(d)}
                 className={({ pressed }) =>
-                  cn("mx-2 min-h-12 flex-row items-center gap-3.5 rounded-window px-3", active ? "bg-fill-2" : pressed && "bg-fill-1")
+                  cn(
+                    "mx-2 min-h-12 flex-row items-center gap-3.5 rounded-window px-3",
+                    active ? "bg-fill-2" : pressed && "bg-fill-1",
+                  )
                 }
               >
                 <Icon name={d.icon} size={22} color={colors.foreground} />
@@ -154,7 +205,9 @@ export function Sidebar({ navigation, playerOnly }: DrawerContentComponentProps 
                   navigation.closeDrawer();
                   resumePlaylist(p.id);
                 }}
-                className={({ pressed }) => cn("mx-2 min-h-11 flex-row items-center gap-3.5 rounded-window px-3", pressed && "bg-fill-1")}
+                className={({ pressed }) =>
+                  cn("mx-2 min-h-11 flex-row items-center gap-3.5 rounded-window px-3", pressed && "bg-fill-1")
+                }
               >
                 <Icon name="listVideo" size={20} color={colors.mutedForeground} />
                 <Text numberOfLines={1} className="min-w-0 flex-1">
@@ -177,7 +230,10 @@ export function Sidebar({ navigation, playerOnly }: DrawerContentComponentProps 
             if (!onProfile) router.navigate("/profile");
           }}
           className={({ pressed }) =>
-            cn("min-h-14 flex-row items-center gap-3 rounded-window px-3 py-2", onProfile ? "bg-fill-2" : pressed && "bg-fill-1")
+            cn(
+              "min-h-14 flex-row items-center gap-3 rounded-window px-3 py-2",
+              onProfile ? "bg-fill-2" : pressed && "bg-fill-1",
+            )
           }
         >
           <Avatar name={name} url={profile?.avatarUrl} size={36} />
@@ -194,17 +250,27 @@ export function Sidebar({ navigation, playerOnly }: DrawerContentComponentProps 
         </Tappable>
       </View>
 
-      {/* The club picker; moves onto the pop-up menu with N3. */}
-      <MenuSheet
+      <PopoverMenu
         visible={clubsOpen}
         onClose={() => setClubsOpen(false)}
-        title="Club"
-        options={clubOptions}
-        value={activeOrgId ?? ""}
-        onSelect={async (orgId) => {
-          setActiveOrg(orgId);
-          await reloadProfile();
-        }}
+        anchorRef={clubAnchor}
+        accessibilityLabel="Club"
+        groups={[
+          {
+            key: "clubs",
+            items: clubOptions.map((o) => ({
+              key: o.value,
+              label: o.label,
+              icon: "club" as const,
+              checked: o.value === activeOrgId,
+              onSelect: () => {
+                if (o.value === activeOrgId) return;
+                setActiveOrg(o.value);
+                void reloadProfile();
+              },
+            })),
+          },
+        ]}
       />
     </View>
   );
