@@ -31,11 +31,12 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Icon } from "@/components/ui/Icon";
 import { RadioGroup } from "@/components/ui/RadioGroup";
-import { NoticeRow, PlainList, StatLine, TextButton } from "@/components/ui/Row";
+import { NoticeRow, StatLine, TextButton } from "@/components/ui/Row";
 import { Sheet } from "@/components/ui/Sheet";
 import { Tappable } from "@/components/ui/Tappable";
 import { Text } from "@/components/ui/Text";
 import { useToast } from "@/components/ui/Toast";
+import { WatchBar } from "@/components/ui/WatchBar";
 import { cn } from "@/lib/cn";
 
 export type StatusFilter = "all" | "attention" | "done" | "issues";
@@ -62,11 +63,14 @@ const STATUS_LABEL: Record<StatusFilter, string> = {
 
 /**
  * The coach's side of sharing, calmer than the web's Shared by me it comes
- * from: the roll-up as one sentence, then plain rows that each have one
- * control (the row opens into its recipients). Reminders and "Watch as a
- * player" live in the opened row; status, team and sort live in the filter
- * sheet behind the title bar's button. Renders inside the screen's scroll
- * view, which owns the search.
+ * from: the roll-up as one line with its figures picked out, then one card
+ * per playlist on the grouped floor. A card reads top to bottom as where it
+ * went (the team), what it is (the name, then when and how many clips) and
+ * how it's going (the web's watch bar and "n of m finished"); it has one
+ * control, itself, which opens it into its recipients. Reminders and "Watch
+ * as a player" live in the opened card; status, team and sort live in the
+ * filter sheet behind the title bar's button. Renders inside the screen's
+ * scroll view, which owns the search.
  */
 export function SharedByMeDashboard({
   query,
@@ -274,8 +278,8 @@ export function SharedByMeDashboard({
       <StatLine
         className="pb-3 pt-1"
         parts={[
-          `${summary.playlists} ${summary.playlists === 1 ? "playlist" : "playlists"} shared`,
-          `${summary.recipients} ${summary.recipients === 1 ? "player" : "players"} reached`,
+          { figure: summary.playlists, label: `${summary.playlists === 1 ? "playlist" : "playlists"} shared` },
+          { figure: summary.recipients, label: `${summary.recipients === 1 ? "player" : "players"} reached` },
         ]}
         action={
           summary.behind > 0
@@ -318,10 +322,9 @@ export function SharedByMeDashboard({
           action={<TextButton label="Clear filters" onPress={onClearFilters} />}
         />
       ) : (
-        <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.separator }}>
-          <PlainList>
+        <View className="gap-3">
             {visibleRows.map((row) => (
-              <PlaylistRow
+              <PlaylistCard
                 key={row.playlist.id}
                 row={row}
                 expanded={expandedId === row.playlist.id}
@@ -333,7 +336,6 @@ export function SharedByMeDashboard({
                 onRemind={(r) => handleRemind(row.playlist.id, r)}
               />
             ))}
-          </PlainList>
         </View>
       )}
       {sheet}
@@ -341,7 +343,14 @@ export function SharedByMeDashboard({
   );
 }
 
-function PlaylistRow({
+/** "Superettan Herr", "Basketettan Dam, Superettan Herr", "Superettan Herr, 2 members". */
+function reachLabel(row: DashboardRow): string {
+  return [...row.teamNames, row.directCount > 0 ? `${row.directCount} member${row.directCount === 1 ? "" : "s"}` : null]
+    .filter(Boolean)
+    .join(", ");
+}
+
+function PlaylistCard({
   row,
   expanded,
   onToggle,
@@ -366,58 +375,85 @@ function PlaylistRow({
   const [showFinished, setShowFinished] = useState(false);
   const total = row.recipients.length;
   const behind = behindRecipients(row);
-  const reach = [...row.teamNames, row.directCount > 0 ? `${row.directCount} member${row.directCount === 1 ? "" : "s"}` : null]
-    .filter(Boolean)
-    .join(", ");
+  const reach = reachLabel(row);
   const when = relativeTime(row.newestSharedAt ?? undefined);
-  const meta = [reach || "No recipients", when ? `shared ${when}` : null, total > 0 ? `${row.completedCount} of ${total} finished` : null]
+  const meta = [when ? `Shared ${when}` : null, `${row.playableCount} clip${row.playableCount === 1 ? "" : "s"}`]
     .filter(Boolean)
     .join(" · ");
+  const watching = Math.max(0, row.startedCount - row.completedCount);
+  const progress =
+    total === 0
+      ? "Not shared with anyone yet"
+      : [`${row.completedCount} of ${total} finished`, watching > 0 ? `${watching} watching` : null].filter(Boolean).join(" · ");
   const chevronStyle = useAnimatedStyle(() => ({
     transform: [{ rotate: withSpring(expanded ? "180deg" : "0deg", springs.standard) }],
   }));
   const isDone = (r: RecipientRow) => row.playableCount > 0 && r.watched >= row.playableCount;
   const finished = row.recipients.filter(isDone);
   const shown = showFinished ? row.recipients : row.recipients.filter((r) => !isDone(r));
+  const hairline = { height: StyleSheet.hairlineWidth, backgroundColor: colors.separator };
 
   return (
-    <View>
+    <View
+      className="mx-4 overflow-hidden rounded-window bg-card"
+      style={{ borderWidth: StyleSheet.hairlineWidth, borderColor: colors.separator }}
+    >
       <Tappable
         scaleTo={1}
         accessibilityRole="button"
         accessibilityState={{ expanded }}
-        accessibilityLabel={`${row.playlist.name}. ${meta}`}
+        accessibilityLabel={`${row.playlist.name}. ${reach ? `${reach}. ` : ""}${meta}. ${progress}`}
         accessibilityHint={expanded ? "Hides who it was shared with" : "Shows who it was shared with"}
         onPress={onToggle}
-        className={({ pressed }) => cn("min-h-14 flex-row items-center gap-3 px-4 py-2", pressed && "bg-fill-1")}
+        className={({ pressed }) => cn("px-4 pb-3.5 pt-3", pressed && "bg-fill-1")}
       >
-        <View className="min-w-0 flex-1">
-          <Text numberOfLines={largeText ? 3 : 1}>{row.playlist.name}</Text>
-          <Text variant="subheadline" nums numberOfLines={largeText ? undefined : 1} className="text-muted-foreground">
-            {meta}
-          </Text>
-          {row.uploadingCount > 0 && (
-            <View className="mt-0.5 flex-row items-center gap-1.5">
-              <Icon name="warning" size={14} color={colors.mutedForeground} />
-              <Text variant="footnote" className="shrink text-muted-foreground">
-                {row.uploadingCount === 1
-                  ? "1 clip isn't uploaded, so recipients can't see it"
-                  : `${row.uploadingCount} clips aren't uploaded, so recipients can't see them`}
+        <View className="flex-row items-start gap-3">
+          <View className="min-w-0 flex-1">
+            {reach ? (
+              <Text variant="footnote" numberOfLines={largeText ? 2 : 1} className="text-muted-foreground">
+                {reach}
               </Text>
-            </View>
-          )}
+            ) : null}
+            <Text variant="headline" numberOfLines={largeText ? 3 : 2}>
+              {row.playlist.name}
+            </Text>
+            <Text variant="subheadline" nums numberOfLines={largeText ? undefined : 1} className="text-muted-foreground">
+              {meta}
+            </Text>
+          </View>
+          <Animated.View style={[chevronStyle, { marginTop: 2 }]}>
+            <Icon name="chevronDown" size={16} strokeWidth={2} color={colors.mutedForeground} style={{ opacity: 0.5 }} />
+          </Animated.View>
         </View>
-        <Animated.View style={chevronStyle}>
-          <Icon name="chevronDown" size={16} strokeWidth={2} color={colors.mutedForeground} style={{ opacity: 0.5 }} />
-        </Animated.View>
+
+        {total > 0 ? (
+          <View className={cn("mt-3", largeText ? "gap-1.5" : "flex-row items-center gap-3")}>
+            <WatchBar done={row.completedCount} started={row.startedCount} total={total} className={largeText ? undefined : "flex-1"} />
+            <Text variant="footnote" nums className="text-muted-foreground">
+              {progress}
+            </Text>
+          </View>
+        ) : (
+          <Text variant="footnote" className="mt-2 text-muted-foreground">
+            {progress}
+          </Text>
+        )}
+
+        {row.uploadingCount > 0 && (
+          <View className="mt-2 flex-row items-start gap-1.5">
+            <Icon name="warning" size={14} color={colors.mutedForeground} style={{ marginTop: 2 }} />
+            <Text variant="footnote" className="shrink text-muted-foreground">
+              {row.uploadingCount === 1
+                ? "1 clip isn't uploaded, so recipients can't see it"
+                : `${row.uploadingCount} clips aren't uploaded, so recipients can't see them`}
+            </Text>
+          </View>
+        )}
       </Tappable>
 
       {expanded && (
-        <Animated.View
-          entering={FadeIn.duration(180)}
-          exiting={FadeOut.duration(120)}
-          style={{ backgroundColor: colors.fill1, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator }}
-        >
+        <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(120)}>
+          <View style={hairline} />
           {total === 0 ? (
             <Text variant="subheadline" className="px-4 py-3 text-muted-foreground">
               No recipients yet. Share this playlist with a team or a player.
@@ -430,7 +466,7 @@ function PlaylistRow({
                 const state = remindState.get(`${row.playlist.id}:${r.userId}`);
                 return (
                   <View key={r.userId}>
-                    {i > 0 && <View style={{ height: StyleSheet.hairlineWidth, marginLeft: 56, backgroundColor: colors.separator }} />}
+                    {i > 0 && <View style={[hairline, { marginLeft: 56 }]} />}
                     <View className="min-h-12 flex-row items-center gap-3 px-4 py-1.5">
                       <Avatar name={r.name} url={r.avatarUrl ?? undefined} size={28} />
                       <View className="min-w-0 flex-1">
@@ -474,7 +510,8 @@ function PlaylistRow({
               )}
             </View>
           )}
-          <View className="flex-row items-center justify-between px-4 pb-2 pt-1.5">
+          <View style={[hairline, { marginTop: 6 }]} />
+          <View className="flex-row items-center justify-between px-4 py-1">
             {behind.length > 0 ? (
               remindingPlaylist ? (
                 <ActivityIndicator size="small" color={colors.mutedForeground} />

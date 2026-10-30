@@ -201,26 +201,34 @@ export function NoticeRow({
 }
 
 /**
- * Figures as one quiet sentence ("9 playlists shared · 14 players reached ·
- * 3 haven't finished") instead of a row of stat cells; the part that leads
- * somewhere is a tinted text action.
+ * Figures as one line ("9 playlists shared · 14 players reached · 3 haven't
+ * finished") instead of a row of stat cells: each figure in the text colour
+ * and semibold, its words muted, so the numbers stand out when scanning. The
+ * part that leads somewhere is a tinted text action.
  */
 export function StatLine({
   parts,
   action,
   className,
 }: {
-  parts: string[];
+  parts: { figure: number | string; label: string }[];
   action?: { label: string; onPress: () => void };
   className?: string;
 }) {
-  const text = parts.join(" · ");
   return (
     <Text variant="subheadline" nums className={cn("px-4 text-muted-foreground", className)}>
-      {text}
+      {parts.map((p, i) => (
+        <Fragment key={i}>
+          {i > 0 ? " · " : ""}
+          <Text variant="subheadline" nums className="font-semibold text-foreground">
+            {String(p.figure)}
+          </Text>{" "}
+          {p.label}
+        </Fragment>
+      ))}
       {action ? (
         <>
-          {text ? " · " : ""}
+          {parts.length > 0 ? " · " : ""}
           <Text
             variant="subheadline"
             accessibilityRole="button"

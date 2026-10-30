@@ -134,6 +134,8 @@ export default function PlaylistsScreen() {
     <Screen
       title={isCoachOrAdmin ? "Shared playlists" : "My playlists"}
       large
+      // The coach's dashboard is cards on the grouped floor; the feed is rows on the page.
+      grouped={showDashboard}
       refreshing={refreshing}
       onRefresh={handleRefresh}
       trailing={
