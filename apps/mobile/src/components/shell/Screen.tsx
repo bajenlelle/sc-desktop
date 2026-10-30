@@ -122,6 +122,9 @@ export function Screen({
           contentContainerStyle={{ paddingTop: barHeight, paddingBottom: bottomPad }}
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
+          // The sheet's forms (Send feedback, Delete account) scroll their
+          // button above the keyboard on iOS; Android resizes the window.
+          automaticallyAdjustKeyboardInsets={sheet}
           refreshControl={
             onRefresh ? (
               <RefreshControl

@@ -21,6 +21,7 @@ export function GlassButton({
   accessibilityLabel,
   badge = false,
   disabled = false,
+  busy = false,
   children,
 }: {
   onPress: () => void;
@@ -28,6 +29,8 @@ export function GlassButton({
   badge?: boolean;
   /** Dimmed and inert (a save button with nothing to save). */
   disabled?: boolean;
+  /** Working (a save in flight), for screen readers. */
+  busy?: boolean;
   children: ReactNode;
 }) {
   const colors = useThemeColors();
@@ -38,11 +41,11 @@ export function GlassButton({
       scaleTo={pressScale.control}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
-      accessibilityState={{ disabled }}
+      accessibilityState={{ disabled, busy }}
       disabled={disabled}
       onPress={onPress}
       hitSlop={4}
-      style={{ width: GLASS_BUTTON, height: GLASS_BUTTON, opacity: disabled ? 0.45 : 1 }}
+      style={{ width: GLASS_BUTTON, height: GLASS_BUTTON }}
     >
       <View
         style={[
@@ -52,7 +55,8 @@ export function GlassButton({
       >
         {solid ? null : <BlurView intensity={30} tint={resolvedMode} style={StyleSheet.absoluteFill} />}
         <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.fill2 }]} />
-        {children}
+        {/* Disabled dims the glyph only: opacity over a blur view breaks it on iOS. */}
+        <View style={disabled ? styles.dimmed : undefined}>{children}</View>
       </View>
       {badge ? (
         <View
@@ -101,5 +105,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  dimmed: { opacity: 0.35 },
   badge: { position: "absolute", top: 1, right: 1, width: 11, height: 11, borderRadius: 6, borderWidth: 2 },
 });

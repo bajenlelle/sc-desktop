@@ -8,7 +8,7 @@
  * across remounts.
  */
 import { useEffect, useRef } from "react";
-import { router } from "expo-router";
+import { router, usePathname } from "expo-router";
 import * as Notifications from "expo-notifications";
 import { usePlaylists } from "@/lib/playlists-store";
 import { trackEvent } from "@/lib/analytics";
@@ -22,6 +22,11 @@ export function NotificationsBridge() {
   useEffect(() => {
     refreshRef.current = refresh;
   }, [refresh]);
+  const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  useEffect(() => {
+    pathnameRef.current = pathname;
+  }, [pathname]);
 
   useEffect(() => {
     configureNotificationHandler();
@@ -36,6 +41,9 @@ export function NotificationsBridge() {
       trackEvent("notification_opened", { type: data?.type ?? "unknown" });
       // The tapped content may be newer than the mounted store snapshot.
       refreshRef.current().catch(() => {});
+      // The settings sheet goes first: on iOS anything pushed over it would
+      // open as a second sheet, the player confined inside it.
+      if (pathnameRef.current.startsWith("/profile")) router.dismissTo("/playlists");
       if (typeof data?.playlistId === "string") {
         router.push(`/playlists/${data.playlistId}`);
       } else {

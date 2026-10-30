@@ -37,7 +37,7 @@ export function AccountCard() {
     <Tappable
       scaleTo={1}
       accessibilityRole="button"
-      accessibilityLabel={`Profile, ${name}`}
+      accessibilityLabel={["Profile", name, user?.email, roleLine].filter(Boolean).join(", ")}
       onPress={() => router.push("/profile/details")}
       className={({ pressed }) => cn("flex-row items-center gap-3.5 px-4 py-3.5", pressed && "bg-fill-2")}
     >

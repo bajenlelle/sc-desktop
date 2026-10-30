@@ -53,7 +53,7 @@ export function TeamSection({ children }: { children?: ReactNode }) {
               description={[row.team?.leagueName, lead, used].filter(Boolean).join(" · ")}
               chevron
               accessibilityLabel={row.team || row.unlistedTeam ? `Change team, ${row.team?.name ?? row.unlistedTeam}` : "Choose your team"}
-              onPress={() => router.push({ pathname: "/team", params: { mode: "change", orgId: row.orgs[0].orgId } })}
+              onPress={() => router.push({ pathname: "/profile/choose-team", params: { mode: "change", orgId: row.orgs[0].orgId } })}
             />
           );
         })}

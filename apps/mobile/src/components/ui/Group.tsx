@@ -111,7 +111,13 @@ export function GroupRow({
   const stacked = useLargeText() && trailing != null && !children;
   const trailingView =
     trailing == null ? null : typeof trailing === "string" ? (
-      <Text className={cn("text-muted-foreground", !stacked && "shrink-0")} numberOfLines={stacked ? undefined : 1}>
+      // A long value (a team in the user's own words, an email) gives way
+      // with an ellipsis; the label always keeps a third of the row.
+      <Text
+        className={cn("text-muted-foreground", !stacked && "shrink text-right")}
+        style={stacked ? undefined : { maxWidth: "65%" }}
+        numberOfLines={stacked ? undefined : 1}
+      >
         {trailing}
       </Text>
     ) : (

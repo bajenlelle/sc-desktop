@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { Alert } from "react-native";
 import { supabase } from "@/lib/supabase";
 import { trackEvent } from "@/lib/analytics";
@@ -8,13 +8,14 @@ import { listMyDevices, pruneOtherPushTokens, removeDevice, type UserDevice } fr
 
 /**
  * The account's registered devices (anti-account-sharing; the web's
- * DevicesCard), for the Devices page and the count beside its row in
- * Settings: the list (null while loading), this device's id, and the two
- * actions. Removing asks first; "Sign out everywhere else" keeps this
- * device's push token and prunes the others (revoking refresh tokens alone
- * doesn't stop notifications).
+ * DevicesCard), shared by the settings sheet's pages (the provider wraps its
+ * stack), so the count beside the Devices row and the Devices page are the
+ * same list: the list (null while loading), this device's id, and the two
+ * actions. Both ask first; "Sign out everywhere else" keeps this device's
+ * push token and prunes the others (revoking refresh tokens alone doesn't
+ * stop notifications).
  */
-export function useMyDevices() {
+function useDevicesState() {
   const [devices, setDevices] = useState<UserDevice[] | null>(null);
   const [ownDeviceId, setOwnDeviceId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -54,6 +55,13 @@ export function useMyDevices() {
     ]);
   }
 
+  function confirmSignOutOthers() {
+    Alert.alert("Sign out everywhere else?", "Your other devices will need to sign in again. This one stays signed in.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Sign out", style: "destructive", onPress: () => void signOutOthers() },
+    ]);
+  }
+
   async function signOutOthers() {
     setSigningOut(true);
     try {
@@ -68,5 +76,19 @@ export function useMyDevices() {
     }
   }
 
-  return { devices, ownDeviceId, removingId, signingOut, confirmRemove, signOutOthers };
+  return { devices, ownDeviceId, removingId, signingOut, confirmRemove, confirmSignOutOthers };
+}
+
+type MyDevices = ReturnType<typeof useDevicesState>;
+
+const MyDevicesContext = createContext<MyDevices | null>(null);
+
+export function MyDevicesProvider({ children }: { children: ReactNode }) {
+  return <MyDevicesContext.Provider value={useDevicesState()}>{children}</MyDevicesContext.Provider>;
+}
+
+export function useMyDevices(): MyDevices {
+  const value = useContext(MyDevicesContext);
+  if (!value) throw new Error("useMyDevices outside MyDevicesProvider (the settings sheet's layout)");
+  return value;
 }

@@ -48,6 +48,11 @@ interface AuthContextValue {
   retryDeviceGate: () => Promise<void>;
   setActiveOrg: (orgId: string) => void;
   reloadProfile: () => Promise<void>;
+  /**
+   * Applies a change this device just saved to the loaded profile, without a
+   * reload (a full reload flips profileLoading and refetches the feed).
+   */
+  patchProfile: (patch: Partial<UserProfile>) => void;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -67,6 +72,7 @@ const AuthContext = createContext<AuthContextValue>({
   retryDeviceGate: async () => {},
   setActiveOrg: () => {},
   reloadProfile: async () => {},
+  patchProfile: () => {},
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -104,6 +110,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setDeviceBlocked(false);
       trackEvent("device_gate_resolved");
     }
+  }, []);
+
+  const patchProfile = useCallback((patch: Partial<UserProfile>) => {
+    setProfile((p) => (p ? { ...p, ...patch } : p));
   }, []);
 
   const setActiveOrg = useCallback((orgId: string) => {
@@ -233,6 +243,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         reloadProfile: async () => {
           if (userRef.current) await loadProfile(userRef.current.id);
         },
+        patchProfile,
       }}
     >
       {children}

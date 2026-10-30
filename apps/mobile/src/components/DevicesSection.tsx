@@ -29,7 +29,7 @@ function lastActive(iso: string): string {
 
 export function DevicesSection() {
   const colors = useThemeColors();
-  const { devices, ownDeviceId, removingId, signingOut, confirmRemove, signOutOthers } = useMyDevices();
+  const { devices, ownDeviceId, removingId, signingOut, confirmRemove, confirmSignOutOthers } = useMyDevices();
 
   if (devices === null) return <ActivityIndicator className="py-6" color={colors.mutedForeground} />;
   if (devices.length === 0) return null;
@@ -82,7 +82,7 @@ export function DevicesSection() {
           <GroupRow
             label={<Text className="text-primary">{signingOut ? "Signing out…" : "Sign out everywhere else"}</Text>}
             disabled={signingOut}
-            onPress={signOutOthers}
+            onPress={confirmSignOutOthers}
             accessibilityLabel="Sign out everywhere else"
           />
         ) : null}

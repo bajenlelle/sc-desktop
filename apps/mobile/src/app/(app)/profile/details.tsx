@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Keyboard, StyleSheet, TextInput, View } from "react-native";
 import { router, useNavigation } from "expo-router";
 import { usePreventRemove } from "expo-router/react-navigation";
@@ -21,31 +21,31 @@ import { Text } from "@/components/ui/Text";
  * Settings › Profile, as Claude's: the picture large, then your name (edited
  * in place, saved with the check in the bar) and email, the password, and
  * Delete account last, apart and in red. Leaving with an unsaved name asks
- * first, and the sheet can't be swiped away meanwhile. The photo is changed
+ * first, by Back or by swiping the sheet down (iOS holds the sheet and the
+ * same question comes up, as the HIG asks). The photo is changed
  * from the web or desktop app for now (a picker is a native module, so it
  * waits for a store build).
  */
 export default function ProfilePage() {
-  const { user, profile, reloadProfile } = useAuth();
+  const { user, profile, patchProfile } = useAuth();
   const colors = useThemeColors();
   const navigation = useNavigation();
   const roleLine = useRoleLine();
   const [resetting, setResetting] = useState(false);
 
   const savedName = profile?.fullName ?? "";
-  const [name, setName] = useState(savedName);
+  // The field follows the loaded name until the user types in it, so a
+  // profile that arrives late fills it rather than reading as an edit.
+  const [draft, setDraft] = useState<string | null>(null);
+  const name = draft ?? savedName;
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+  const leftRef = useRef(false);
   const next = normalizeFullName(name);
   const dirty = (next ?? "") !== (normalizeFullName(savedName) ?? "");
   const canSave = dirty && next !== null && !saving;
 
-  // An unsaved name holds the sheet: no swipe down while it's there.
-  useEffect(() => {
-    navigation.getParent()?.setOptions({ gestureEnabled: !dirty });
-    return () => navigation.getParent()?.setOptions({ gestureEnabled: true });
-  }, [dirty, navigation]);
-
+  // An unsaved name: Back, Android back and a swipe on the sheet ask first.
   usePreventRemove(dirty && !saving, ({ data }) => {
     Keyboard.dismiss();
     Alert.alert("Discard changes?", "Your new name hasn't been saved.", [
@@ -54,10 +54,14 @@ export default function ProfilePage() {
     ]);
   });
 
-  // Back to Settings once the saved name has come back with the profile.
+  // Back to Settings once, after the save, when the field matches the
+  // profile again (so the guard above is off). Not if another page was
+  // pushed over this one meanwhile.
   useEffect(() => {
-    if (saved && !dirty) router.back();
-  }, [saved, dirty]);
+    if (!justSaved || dirty || leftRef.current || !navigation.isFocused()) return;
+    leftRef.current = true;
+    navigation.goBack();
+  }, [justSaved, dirty, navigation]);
 
   async function handleSave() {
     if (!canSave || !user || next === null) return;
@@ -65,15 +69,18 @@ export default function ProfilePage() {
     setSaving(true);
     try {
       await updateMyFullName(supabase, user.id, next);
-      await reloadProfile();
-      successHaptic();
-      setName(next);
-      setSaved(true);
     } catch {
-      Alert.alert("Couldn't save your name", "Check your connection and try again.");
-    } finally {
       setSaving(false);
+      Alert.alert("Couldn't save your name", "Check your connection and try again.");
+      return;
     }
+    // The saved value goes straight into the loaded profile: no reload,
+    // which would refetch the feed behind the sheet.
+    patchProfile({ fullName: next });
+    setDraft(null);
+    setSaving(false);
+    successHaptic();
+    setJustSaved(true);
   }
 
   async function handleChangePassword() {
@@ -95,7 +102,7 @@ export default function ProfilePage() {
       sheet
       leading={<SheetBackButton />}
       trailing={
-        <GlassButton accessibilityLabel="Save" disabled={!canSave} onPress={handleSave}>
+        <GlassButton accessibilityLabel="Save" disabled={!canSave} busy={saving} onPress={handleSave}>
           {saving ? (
             <ActivityIndicator size="small" color={colors.foreground} />
           ) : (
@@ -118,10 +125,13 @@ export default function ProfilePage() {
       <View>
         <GroupedList large>
           <View className="min-h-[52px] flex-row items-center gap-3 px-4">
-            <Text>Name</Text>
+            {/* The field carries the same label for screen readers. */}
+            <Text accessibilityElementsHidden importantForAccessibility="no">
+              Name
+            </Text>
             <TextInput
               value={name}
-              onChangeText={setName}
+              onChangeText={setDraft}
               placeholder="Your name"
               placeholderTextColor={colors.mutedForeground}
               maxLength={FULL_NAME_MAX}

@@ -53,6 +53,9 @@ export function Sidebar({ navigation, playerOnly }: DrawerContentComponentProps 
   const pathname = usePathname();
   const { view } = useGlobalSearchParams<{ view?: string }>();
   const [clubsOpen, setClubsOpen] = useState(false);
+  // When the settings sheet last opened from here: a second tap while it
+  // rises (the row is still under the finger) would stack another sheet.
+  const settingsOpenedAt = useRef(0);
   const clubAnchor = useRef<View>(null);
 
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
@@ -226,6 +229,9 @@ export function Sidebar({ navigation, playerOnly }: DrawerContentComponentProps 
           onPress={() => {
             // Settings rise as a sheet over the screen the sidebar slides back to.
             navigation.closeDrawer();
+            const now = Date.now();
+            if (now - settingsOpenedAt.current < 1000) return;
+            settingsOpenedAt.current = now;
             router.push("/profile");
           }}
           className={({ pressed }) =>

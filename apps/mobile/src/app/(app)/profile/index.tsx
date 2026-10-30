@@ -38,7 +38,10 @@ export default function SettingsScreen() {
   const spaces = sortOrgsClubFirst(teamSpaces(myOrgs));
   const teamValue = teamSummaryLabel(loaded && spaces.length > 0 ? groupChoicesForProfile(spaces, choices) : []);
   const hasClubs = isPlayerOnly ? clubTeams.length > 0 : !!activeOrg && !activeOrg.isPersonal;
-  const showTeam = teamValue != null || hasClubs;
+  // Both rows hold their place while their data loads, so nothing below
+  // them jumps when it arrives; each goes only once it's known to be empty.
+  const showTeam = !loaded || teamValue != null || hasClubs;
+  const showDevices = devices === null || devices.length > 0;
   const activeDevices = devices && devices.length > 0 ? partitionDevicesByActivity(devices).active.length : null;
 
   function confirmSignOut() {
@@ -57,7 +60,7 @@ export default function SettingsScreen() {
         </View>
       </View>
 
-      {showTeam || activeDevices != null ? (
+      {showTeam || showDevices ? (
         <View>
           <GroupHeader title="Account" />
           <GroupedList large inset={50}>
@@ -71,13 +74,13 @@ export default function SettingsScreen() {
                 onPress={() => router.push("/profile/team")}
               />
             ) : null}
-            {activeDevices != null ? (
+            {showDevices ? (
               <GroupRow
                 large
                 icon="devices"
                 label="Devices"
-                trailing={String(activeDevices)}
-                accessibilityLabel={`Devices, ${activeDevices} active`}
+                trailing={activeDevices != null ? String(activeDevices) : undefined}
+                accessibilityLabel={activeDevices != null ? `Devices, ${activeDevices} active` : "Devices"}
                 chevron
                 onPress={() => router.push("/profile/devices")}
               />

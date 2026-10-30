@@ -87,7 +87,11 @@ function AppearanceTile({
         {/* The ring sits outside the tile so choosing doesn't shift the row. */}
         {selected ? <View pointerEvents="none" style={[styles.ring, { borderColor: colors.primary }]} /> : null}
       </View>
-      <Text variant="subheadline" numberOfLines={1} className={selected ? "font-semibold text-primary" : "text-muted-foreground"}>
+      <Text
+        variant="subheadline"
+        numberOfLines={2}
+        className={selected ? "text-center font-semibold text-primary" : "text-center text-muted-foreground"}
+      >
         {label}
       </Text>
     </Tappable>
