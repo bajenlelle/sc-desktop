@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Platform, View } from "react-native";
+import { Alert, Platform } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import Constants from "expo-constants";
 import * as Sentry from "@sentry/react-native";
@@ -7,16 +7,18 @@ import { submitFeedbackReport } from "@scoutable/shared/lib/feedback";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { successHaptic } from "@/lib/haptics";
+import { SheetBackButton } from "@/components/shell/GlassButton";
+import { Screen } from "@/components/shell/Screen";
 import { Button } from "@/components/ui/Button";
 import { Text } from "@/components/ui/Text";
 import { TextField } from "@/components/ui/TextField";
 
 /**
- * Send feedback, as a form sheet over the screen it was opened from (the
- * web's ReportProblemDialog): a description, with the app version, OS and
- * that screen's route attached.
+ * Send feedback, a page of the settings sheet (the web's
+ * ReportProblemDialog): a description, with the app version, OS and the
+ * route it was opened from attached. Back leaves it unsent.
  */
-export default function FeedbackSheet() {
+export default function FeedbackPage() {
   const { from } = useLocalSearchParams<{ from?: string }>();
   const { activeOrgId } = useAuth();
   const [description, setDescription] = useState("");
@@ -50,16 +52,11 @@ export default function FeedbackSheet() {
   }
 
   return (
-    <View className="gap-4 bg-background px-4 pb-8 pt-5">
-      <View className="gap-1">
-        <Text variant="title3" accessibilityRole="header">
-          Send feedback
-        </Text>
-        <Text variant="subheadline" className="text-muted-foreground">
-          Found a bug, got an idea, or something confusing? Tell us. Your app version and current screen are attached
-          automatically.
-        </Text>
-      </View>
+    <Screen title="Send feedback" sheet leading={<SheetBackButton />} contentClassName="gap-4 px-4 pt-2">
+      <Text variant="subheadline" className="text-muted-foreground">
+        Found a bug, got an idea, or something confusing? Tell us. Your app version and current screen are attached
+        automatically.
+      </Text>
       <TextField
         value={description}
         onChangeText={setDescription}
@@ -69,14 +66,9 @@ export default function FeedbackSheet() {
         accessibilityLabel="What happened"
         autoFocus
       />
-      <View className="gap-1">
-        <Button onPress={handleSubmit} loading={submitting} disabled={!description.trim()}>
-          {submitting ? "Sending…" : "Send feedback"}
-        </Button>
-        <Button variant="link" size="sm" textClassName="font-medium text-muted-foreground" onPress={() => router.back()} disabled={submitting}>
-          Cancel
-        </Button>
-      </View>
-    </View>
+      <Button onPress={handleSubmit} loading={submitting} disabled={!description.trim()}>
+        {submitting ? "Sending…" : "Send feedback"}
+      </Button>
+    </Screen>
   );
 }

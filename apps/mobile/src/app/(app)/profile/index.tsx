@@ -8,6 +8,7 @@ import { signOutAndCleanup } from "@/lib/notifications";
 import { usePlaylists } from "@/lib/playlists-store";
 import { useThemeColors } from "@/lib/theme-context";
 import { AppearanceRow, ThemeRow } from "@/components/AppearanceSection";
+import { CloseButton } from "@/components/shell/GlassButton";
 import { Screen } from "@/components/shell/Screen";
 import { Avatar } from "@/components/Avatar";
 import { DevicesSection } from "@/components/DevicesSection";
@@ -52,7 +53,7 @@ export default function ProfileScreen() {
   const clubName = !isPlayerOnly && activeOrg && !activeOrg.isPersonal ? activeOrg.orgName : null;
 
   return (
-    <Screen title="Profile" menu grouped contentClassName="gap-6 px-4 pt-2">
+    <Screen title="Settings" sheet leading={<CloseButton />} grouped contentClassName="gap-6 px-4 pt-2">
       <View className="-mx-4">
         <LicenseNotice />
       </View>
@@ -129,7 +130,7 @@ export default function ProfileScreen() {
             icon="feedback"
             label="Send feedback"
             chevron
-            onPress={() => router.push({ pathname: "/feedback", params: { from: "/profile" } })}
+            onPress={() => router.push({ pathname: "/profile/feedback", params: { from: "/profile" } })}
           />
         </GroupedList>
       </View>
@@ -140,7 +141,7 @@ export default function ProfileScreen() {
           accessibilityLabel={`Sign out of ${user?.email ?? "Scoutable"}`}
           onPress={() => signOutAndCleanup()}
         />
-        <GroupRow label="Delete account" destructive chevron onPress={() => router.push("/delete-account")} />
+        <GroupRow label="Delete account" destructive chevron onPress={() => router.push("/profile/delete-account")} />
       </GroupedList>
 
       <Text variant="footnote" nums className="text-center text-muted-foreground">

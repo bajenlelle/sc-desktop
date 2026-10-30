@@ -117,18 +117,12 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   );
 }
 
-/**
- * Routes shown as sheets over another screen. They aren't page views, and
- * closing one isn't a new view of the screen underneath.
- */
-const SHEET_PATHS = new Set(["/feedback", "/delete-account"]);
-
 /** Mobile twin of web's PostHogProvider pageview effect. */
 function PageTracker() {
   const pathname = usePathname();
   const lastRef = useRef<string | null>(null);
   useEffect(() => {
-    if (SHEET_PATHS.has(pathname) || pathname === lastRef.current) return;
+    if (pathname === lastRef.current) return;
     lastRef.current = pathname;
     trackEvent("page_viewed", { path: pathname });
   }, [pathname]);

@@ -1,19 +1,21 @@
 import { useState } from "react";
 import { View } from "react-native";
-import { router } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { deleteAccount, mapDeleteAccountError } from "@/lib/account";
+import { SheetBackButton } from "@/components/shell/GlassButton";
+import { Screen } from "@/components/shell/Screen";
 import { Button } from "@/components/ui/Button";
 import { Text } from "@/components/ui/Text";
 import { TextField } from "@/components/ui/TextField";
 
 /**
- * Account erasure, as a form sheet with a typed confirmation: a double alert
- * is one reflexive tap away from irreversible; typing DELETE is deliberate.
- * The same confirm word as the web and desktop dialogs.
+ * Account erasure, a page of the settings sheet with a typed confirmation: a
+ * double alert is one reflexive tap away from irreversible; typing DELETE is
+ * deliberate. The same confirm word as the web and desktop dialogs. Back
+ * leaves without deleting.
  */
-export default function DeleteAccountSheet() {
+export default function DeleteAccountPage() {
   const { user } = useAuth();
   const [confirmText, setConfirmText] = useState("");
   const [deleting, setDeleting] = useState(false);
@@ -38,7 +40,7 @@ export default function DeleteAccountSheet() {
   }
 
   return (
-    <View className="gap-4 bg-background px-4 pb-8 pt-5">
+    <Screen title="Delete account" sheet leading={<SheetBackButton />} contentClassName="gap-4 px-4 pt-2">
       <View className="gap-1">
         <Text variant="title3" accessibilityRole="header">
           Delete account?
@@ -58,14 +60,9 @@ export default function DeleteAccountSheet() {
         autoCorrect={false}
         error={error}
       />
-      <View className="gap-1">
-        <Button variant="destructive" loading={deleting} disabled={confirmText !== "DELETE"} onPress={handleDelete}>
-          Delete account
-        </Button>
-        <Button variant="link" size="sm" textClassName="font-medium text-muted-foreground" onPress={() => router.back()} disabled={deleting}>
-          Cancel
-        </Button>
-      </View>
-    </View>
+      <Button variant="destructive" loading={deleting} disabled={confirmText !== "DELETE"} onPress={handleDelete}>
+        Delete account
+      </Button>
+    </Screen>
   );
 }

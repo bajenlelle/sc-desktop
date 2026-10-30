@@ -19,6 +19,8 @@ import { useThemeColors } from "@/lib/theme-context";
 
 /** The bar's fade below its material, standing in for the web's mask-image edge. */
 const EDGE_FADE = 10;
+/** Air between a sheet's top edge and its bar row. */
+const SHEET_TOP_AIR = 8;
 
 export interface ScreenProps {
   title: string;
@@ -27,6 +29,11 @@ export interface ScreenProps {
    * left end and is a little taller, for the glass buttons.
    */
   menu?: boolean;
+  /**
+   * A page of the settings sheet: the glass buttons' taller row with a little
+   * air above it (the sheet's top edge sits right over it), no menu button.
+   */
+  sheet?: boolean;
   /** Left of the bar: a BackButton on detail screens (the menu button on roots). */
   leading?: ReactNode;
   /** Right of the bar: glass buttons (the filter button). */
@@ -61,6 +68,7 @@ export interface ScreenProps {
 export function Screen({
   title,
   menu = false,
+  sheet = false,
   leading,
   trailing,
   search,
@@ -76,8 +84,9 @@ export function Screen({
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const solid = useSolidMaterial();
-  const rowHeight = menu ? ROOT_BAR_ROW_H : TOOLBAR_ROW_H;
-  const barHeight = barHidden ? 0 : insets.top + rowHeight;
+  const rowHeight = menu || sheet ? ROOT_BAR_ROW_H : TOOLBAR_ROW_H;
+  const topAir = sheet ? SHEET_TOP_AIR : 0;
+  const barHeight = barHidden ? 0 : insets.top + topAir + rowHeight;
   // The content pads for the bar on both platforms (an iOS content inset gets
   // reset by UIKit when a tab's screen remounts in the background). The bar
   // is clear at rest and while pulling, so iOS's refresh spinner shows
@@ -169,7 +178,7 @@ export function Screen({
             <View style={[StyleSheet.absoluteFill, { backgroundColor: floor }]} />
           )}
         </Animated.View>
-        <View pointerEvents="box-none" style={[styles.row, { height: rowHeight, marginTop: insets.top }]}>
+        <View pointerEvents="box-none" style={[styles.row, { height: rowHeight, marginTop: insets.top + topAir }]}>
           <View pointerEvents="box-none" style={styles.side}>
             {leading ?? (menu ? <MenuButton /> : null)}
           </View>

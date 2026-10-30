@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
+import { router } from "expo-router";
 import { BlurView } from "expo-blur";
 import { useSolidMaterial } from "@/components/shell/Material";
+import { Icon } from "@/components/ui/Icon";
 import { Tappable } from "@/components/ui/Tappable";
 import { pressScale } from "@/lib/motion";
 import { useAppTheme, useThemeColors } from "@/lib/theme-context";
@@ -18,11 +20,14 @@ export function GlassButton({
   onPress,
   accessibilityLabel,
   badge = false,
+  disabled = false,
   children,
 }: {
   onPress: () => void;
   accessibilityLabel: string;
   badge?: boolean;
+  /** Dimmed and inert (a save button with nothing to save). */
+  disabled?: boolean;
   children: ReactNode;
 }) {
   const colors = useThemeColors();
@@ -33,9 +38,11 @@ export function GlassButton({
       scaleTo={pressScale.control}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       onPress={onPress}
       hitSlop={4}
-      style={{ width: GLASS_BUTTON, height: GLASS_BUTTON }}
+      style={{ width: GLASS_BUTTON, height: GLASS_BUTTON, opacity: disabled ? 0.45 : 1 }}
     >
       <View
         style={[
@@ -54,6 +61,33 @@ export function GlassButton({
         />
       ) : null}
     </Tappable>
+  );
+}
+
+/**
+ * Puts the settings sheet away (its root page's leading button, as Claude's
+ * and iOS's own sheets draw it). A cold deep link opens the sheet as the
+ * stack's only screen; then it goes to the playlists instead.
+ */
+export function CloseButton() {
+  const colors = useThemeColors();
+  return (
+    <GlassButton
+      accessibilityLabel="Close"
+      onPress={() => (router.canGoBack() ? router.back() : router.replace("/playlists"))}
+    >
+      <Icon name="close" size={20} color={colors.foreground} />
+    </GlassButton>
+  );
+}
+
+/** Back to the previous page inside the sheet; it never closes the sheet. */
+export function SheetBackButton() {
+  const colors = useThemeColors();
+  return (
+    <GlassButton accessibilityLabel="Back" onPress={() => router.back()}>
+      <Icon name="chevronLeft" size={22} color={colors.foreground} />
+    </GlassButton>
   );
 }
 

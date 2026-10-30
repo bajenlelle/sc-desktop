@@ -7,11 +7,15 @@ import { DeviceGateScreen } from "@/components/DeviceGateScreen";
 import { NotificationsBridge } from "@/components/NotificationsBridge";
 import { useThemeColors } from "@/lib/theme-context";
 
-const sheetOptions = {
-  presentation: "formSheet",
-  sheetAllowedDetents: "fitToContents",
-  sheetGrabberVisible: Platform.OS === "ios",
-  sheetCornerRadius: 14,
+/**
+ * Settings rise as a sheet that covers almost the whole screen, as Claude's
+ * do: on iOS the native page sheet (the app scales back behind it, a swipe
+ * down puts it away); on Android a full-screen page sliding up, Material's
+ * full-screen dialog. Its pages push inside it.
+ */
+const settingsOptions = {
+  presentation: "modal",
+  animation: Platform.OS === "android" ? "slide_from_bottom" : "default",
 } as const;
 
 export default function AppLayout() {
@@ -32,9 +36,7 @@ export default function AppLayout() {
       <PlaylistsProvider>
         <NotificationsBridge />
         <Stack screenOptions={{ headerShown: false, headerBackButtonDisplayMode: "minimal" }}>
-          {/* Short forms with a keyboard rise as native sheets over the screen they belong to. */}
-          <Stack.Screen name="feedback" options={sheetOptions} />
-          <Stack.Screen name="delete-account" options={sheetOptions} />
+          <Stack.Screen name="profile" options={settingsOptions} />
         </Stack>
       </PlaylistsProvider>
     </MyTeamProvider>

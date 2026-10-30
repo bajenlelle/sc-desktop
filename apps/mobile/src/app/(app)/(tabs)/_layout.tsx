@@ -17,9 +17,10 @@ import { Sidebar } from "@/components/shell/Sidebar";
  * fills the window, a menu button (or a swipe from the left edge) slides the
  * sidebar in beside it, and the screen slides along under a dimmed overlay.
  * The same on iOS and Android. The routes are the tab routes they always
- * were (playlists, highlights, profile), each its own stack, so every path,
- * deep link and notification target is unchanged. The watch screen, /team
- * and the sheets live OUTSIDE this group, so they cover the sidebar too.
+ * were (playlists, highlights), each its own stack, so every path, deep link
+ * and notification target is unchanged. The watch screen, /team and the
+ * settings sheet (/profile) live OUTSIDE this group, so they cover the
+ * sidebar too.
  *
  * Whether My highlights shows is decided once, when the first profile has
  * settled, and then kept: a later reload (a staff club switch reloads the
@@ -81,7 +82,6 @@ export default function TabsLayout() {
     >
       <Drawer.Screen name="playlists" />
       <Drawer.Screen name="highlights" />
-      <Drawer.Screen name="profile" />
     </Drawer>
   );
 }

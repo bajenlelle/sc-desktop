@@ -40,7 +40,7 @@ interface Destination {
  * are several), the destinations (players: My playlists and My highlights;
  * coaches: Shared by me and Shared with me, two views of one route), the
  * playlists watched most recently, and the account at the foot, which opens
- * Profile. Replaces the tab bar. The drawer navigator draws it beside the
+ * the settings sheet. Replaces the tab bar. The drawer navigator draws it beside the
  * current screen and closes it on Android back.
  */
 export function Sidebar({ navigation, playerOnly }: DrawerContentComponentProps & { playerOnly: boolean }) {
@@ -123,7 +123,6 @@ export function Sidebar({ navigation, playerOnly }: DrawerContentComponentProps 
   const subtitle = [role, !isPlayerOnly && activeOrg && !activeOrg.isPersonal ? activeOrg.orgName : null]
     .filter(Boolean)
     .join(" · ");
-  const onProfile = pathname === "/profile";
 
   return (
     <View
@@ -223,17 +222,14 @@ export function Sidebar({ navigation, playerOnly }: DrawerContentComponentProps 
         <Tappable
           scaleTo={1}
           accessibilityRole="button"
-          accessibilityState={{ selected: onProfile }}
-          accessibilityLabel={`Profile, ${name}`}
+          accessibilityLabel={`Settings, ${name}`}
           onPress={() => {
+            // Settings rise as a sheet over the screen the sidebar slides back to.
             navigation.closeDrawer();
-            if (!onProfile) router.navigate("/profile");
+            router.push("/profile");
           }}
           className={({ pressed }) =>
-            cn(
-              "min-h-14 flex-row items-center gap-3 rounded-window px-3 py-2",
-              onProfile ? "bg-fill-2" : pressed && "bg-fill-1",
-            )
+            cn("min-h-14 flex-row items-center gap-3 rounded-window px-3 py-2", pressed && "bg-fill-1")
           }
         >
           <Avatar name={name} url={profile?.avatarUrl} size={36} />
