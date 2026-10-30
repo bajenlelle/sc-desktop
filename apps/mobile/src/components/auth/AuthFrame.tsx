@@ -5,9 +5,10 @@
  * Fields sit in one rounded box with hairlines between them.
  */
 import { Children, cloneElement, forwardRef, isValidElement, useState, type ReactElement, type ReactNode } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View, type TextInputProps } from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TextInput, View, type TextInputProps } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle, G, Path, Rect } from "react-native-svg";
+import { Icon, type IconName } from "@/components/ui/Icon";
 import { Text } from "@/components/ui/Text";
 import { useAppTheme, useThemeColors } from "@/lib/theme-context";
 import { cn } from "@/lib/cn";
@@ -23,13 +24,8 @@ export function LogoMark({ size = 56 }: { size?: number }) {
         height: size,
         borderRadius: size * 0.23,
         overflow: "hidden",
-        borderWidth: 1,
-        borderColor: "rgba(0,0,0,0.05)",
-        shadowColor: "#000",
-        shadowOpacity: 0.08,
-        shadowRadius: 2,
-        shadowOffset: { width: 0, height: 1 },
-        elevation: 1,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: "rgba(0,0,0,0.08)",
       }}
     >
       <Svg width={size} height={size} viewBox="0 0 1500 1500">
@@ -64,8 +60,8 @@ export function AuthShell({ children }: { children: ReactNode }) {
         }}
       >
         <View className="w-full items-stretch" style={{ maxWidth: 340 }}>
-          <View className="mb-5 items-center">
-            <LogoMark />
+          <View className="mb-6 items-center">
+            <LogoMark size={48} />
           </View>
           {children}
         </View>
@@ -77,12 +73,12 @@ export function AuthShell({ children }: { children: ReactNode }) {
 export function AuthHeading({ title, description }: { title: string; description?: ReactNode }) {
   return (
     <View className="mb-6 items-center">
-      <Text variant="title1" accessibilityRole="header" className="text-center">
+      <Text variant="title2" accessibilityRole="header" className="text-center">
         {title}
       </Text>
       {description ? (
         typeof description === "string" ? (
-          <Text variant="callout" className="mt-1.5 text-center text-muted-foreground">
+          <Text variant="subheadline" className="mt-1 text-center text-muted-foreground">
             {description}
           </Text>
         ) : (
@@ -97,12 +93,16 @@ type Edge = "only" | "first" | "middle" | "last";
 
 /** Fields stacked in one rounded box with hairlines between them. */
 export function FieldGroup({ children }: { children: ReactNode }) {
+  const colors = useThemeColors();
   const rows = Children.toArray(children).filter(isValidElement) as ReactElement<{ edge?: Edge }>[];
   return (
-    <View className="overflow-hidden rounded-window border border-separator bg-card">
+    <View
+      className="overflow-hidden rounded-window bg-card"
+      style={{ borderWidth: StyleSheet.hairlineWidth, borderColor: colors.separatorStrong }}
+    >
       {rows.map((row, i) => (
         <View key={row.key ?? i}>
-          {i > 0 && <View className="h-px bg-separator" />}
+          {i > 0 && <View style={{ height: StyleSheet.hairlineWidth, marginLeft: 12, backgroundColor: colors.separator }} />}
           {cloneElement(row, {
             edge: rows.length === 1 ? "only" : i === 0 ? "first" : i === rows.length - 1 ? "last" : "middle",
           })}
@@ -119,7 +119,7 @@ export function FieldRow({ children, edge }: { children: ReactNode; edge?: Edge 
     <View className="flex-row">
       {items.map((item, i) => (
         <View key={item.key ?? i} className="flex-1 flex-row">
-          {i > 0 && <View className="w-px bg-separator" />}
+          {i > 0 && <View className="bg-separator" style={{ width: StyleSheet.hairlineWidth }} />}
           <View className="flex-1">{cloneElement(item, { edge })}</View>
         </View>
       ))}
@@ -177,11 +177,32 @@ export const GroupField = forwardRef<TextInput, TextInputProps & { edge?: Edge; 
   );
 });
 
+/**
+ * "Check your inbox" and its kind: a quiet icon, the title, one paragraph
+ * (with the address in semibold), the way back under it. No tinted circle.
+ */
+export function AuthStatus({ icon = "mail", title, children }: { icon?: IconName; title: string; children: ReactNode }) {
+  const colors = useThemeColors();
+  return (
+    <View className="items-center">
+      <View className="mb-3">
+        <Icon name={icon} size={28} color={colors.mutedForeground} />
+      </View>
+      <Text variant="title2" accessibilityRole="header" className="text-center">
+        {title}
+      </Text>
+      <Text variant="subheadline" className="mt-1 text-center text-muted-foreground">
+        {children}
+      </Text>
+    </View>
+  );
+}
+
 /** An inline error under a form: announced, never a box. */
 export function AuthError({ message }: { message: string | null }) {
   if (!message) return null;
   return (
-    <Text variant="callout" accessibilityRole="alert" accessibilityLiveRegion="polite" className="px-1 text-destructive">
+    <Text variant="footnote" accessibilityRole="alert" accessibilityLiveRegion="polite" className="px-1 text-destructive">
       {message}
     </Text>
   );
@@ -190,11 +211,11 @@ export function AuthError({ message }: { message: string | null }) {
 export function AuthDivider() {
   return (
     <View className="my-5 flex-row items-center gap-3" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <View className="h-px flex-1 bg-separator" />
-      <Text variant="subheadline" className="text-muted-foreground">
+      <View className="flex-1 bg-separator" style={{ height: StyleSheet.hairlineWidth }} />
+      <Text variant="footnote" className="text-muted-foreground">
         or
       </Text>
-      <View className="h-px flex-1 bg-separator" />
+      <View className="flex-1 bg-separator" style={{ height: StyleSheet.hairlineWidth }} />
     </View>
   );
 }

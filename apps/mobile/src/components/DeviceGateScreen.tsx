@@ -90,13 +90,13 @@ export function DeviceGateScreen() {
       contentContainerStyle={{ flexGrow: 1, justifyContent: "center", paddingHorizontal: 16, paddingTop: insets.top + 32, paddingBottom: insets.bottom + 32 }}
     >
       <View className="w-full items-center self-center" style={{ maxWidth: 440 }}>
-        <View className="mb-4 h-12 w-12 items-center justify-center rounded-full bg-fill-1">
-          <Icon name="lock" size={24} color={colors.mutedForeground} />
+        <View className="mb-3">
+          <Icon name="lock" size={28} color={colors.mutedForeground} />
         </View>
         <Text variant="title2" accessibilityRole="header" className="text-center">
           Device limit reached
         </Text>
-        <Text className="mt-1.5 text-center text-muted-foreground">
+        <Text variant="subheadline" className="mt-1.5 text-center text-muted-foreground">
           {devices
             ? `Your account is using ${devices.length} ${devices.length === 1 ? "device" : "devices"}. Remove one you no longer use to continue on this device.`
             : "Remove a device you no longer use to continue on this device."}
@@ -107,7 +107,7 @@ export function DeviceGateScreen() {
             <ActivityIndicator color={colors.mutedForeground} />
           ) : (
             devices.length > 0 && (
-              <GroupedList>
+              <GroupedList inset={46}>
                 {devices.map((d) => {
                   const name = d.deviceName ?? d.platform ?? "Unknown device";
                   return (
@@ -140,11 +140,11 @@ export function DeviceGateScreen() {
           )}
         </View>
 
-        <View className="mt-6 w-full gap-2">
-          <Button variant="outline" onPress={handleRetry} loading={retrying}>
+        <View className="mt-6 w-full gap-1">
+          <Button variant="secondary" onPress={handleRetry} loading={retrying}>
             Try again
           </Button>
-          <Button variant="ghost" onPress={handleSignOut}>
+          <Button variant="link" size="sm" textClassName="font-medium text-muted-foreground" onPress={handleSignOut}>
             Sign out
           </Button>
         </View>

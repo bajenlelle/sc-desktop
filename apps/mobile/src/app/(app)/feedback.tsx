@@ -38,23 +38,25 @@ export default function FeedbackSheet() {
     if (result.ok) {
       successHaptic();
       router.back();
-      Alert.alert("Thanks!", "Your report is in — we'll take a look.");
+      Alert.alert("Thanks!", "Your report is in. We'll take a look.");
     } else {
       Alert.alert(
         "Couldn't send the report",
         result.error === "too_many_reports"
-          ? "You've sent a few reports recently — please wait a bit before sending another."
+          ? "You've sent a few reports recently. Please wait a bit before sending another."
           : "Please try again in a moment.",
       );
     }
   }
 
   return (
-    <View className="gap-4 bg-background px-5 pb-8 pt-6">
-      <View className="gap-1.5">
-        <Text variant="title3">Send feedback</Text>
-        <Text variant="callout" className="text-muted-foreground">
-          Found a bug, got an idea, or something confusing? Tell us — your app version and current screen are attached
+    <View className="gap-4 bg-background px-4 pb-8 pt-5">
+      <View className="gap-1">
+        <Text variant="title3" accessibilityRole="header">
+          Send feedback
+        </Text>
+        <Text variant="subheadline" className="text-muted-foreground">
+          Found a bug, got an idea, or something confusing? Tell us. Your app version and current screen are attached
           automatically.
         </Text>
       </View>
@@ -67,11 +69,11 @@ export default function FeedbackSheet() {
         accessibilityLabel="What happened"
         autoFocus
       />
-      <View className="gap-2">
+      <View className="gap-1">
         <Button onPress={handleSubmit} loading={submitting} disabled={!description.trim()}>
           {submitting ? "Sending…" : "Send feedback"}
         </Button>
-        <Button variant="ghost" onPress={() => router.back()} disabled={submitting}>
+        <Button variant="link" size="sm" textClassName="font-medium text-muted-foreground" onPress={() => router.back()} disabled={submitting}>
           Cancel
         </Button>
       </View>

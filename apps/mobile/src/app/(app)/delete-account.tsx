@@ -38,12 +38,14 @@ export default function DeleteAccountSheet() {
   }
 
   return (
-    <View className="gap-4 bg-background px-5 pb-8 pt-6">
-      <View className="gap-1.5">
-        <Text variant="title3">Delete account?</Text>
-        <Text variant="callout" className="text-muted-foreground">
-          This permanently deletes the account <Text variant="callout" className="font-semibold">{user?.email ?? ""}</Text> —
-          including your games, playlists, shared links and watch history. Any active subscription is canceled. This
+    <View className="gap-4 bg-background px-4 pb-8 pt-5">
+      <View className="gap-1">
+        <Text variant="title3" accessibilityRole="header">
+          Delete account?
+        </Text>
+        <Text variant="subheadline" className="text-muted-foreground">
+          This permanently deletes the account <Text variant="subheadline" className="font-semibold text-foreground">{user?.email ?? ""}</Text>,
+          including your games, playlists, shared links and watch history. Any active subscription is cancelled. This
           can&apos;t be undone.
         </Text>
       </View>
@@ -56,11 +58,11 @@ export default function DeleteAccountSheet() {
         autoCorrect={false}
         error={error}
       />
-      <View className="gap-2">
+      <View className="gap-1">
         <Button variant="destructive" loading={deleting} disabled={confirmText !== "DELETE"} onPress={handleDelete}>
           Delete account
         </Button>
-        <Button variant="ghost" onPress={() => router.back()} disabled={deleting}>
+        <Button variant="link" size="sm" textClassName="font-medium text-muted-foreground" onPress={() => router.back()} disabled={deleting}>
           Cancel
         </Button>
       </View>

@@ -2,10 +2,8 @@ import { useRef, useState } from "react";
 import { View, type TextInput } from "react-native";
 import { router } from "expo-router";
 import { supabase } from "@/lib/supabase";
-import { useThemeColors } from "@/lib/theme-context";
-import { AuthError, AuthFootnote, AuthHeading, AuthShell, FieldGroup, FieldRow, GroupField } from "@/components/auth/AuthFrame";
+import { AuthError, AuthFootnote, AuthHeading, AuthShell, AuthStatus, FieldGroup, FieldRow, GroupField } from "@/components/auth/AuthFrame";
 import { Button } from "@/components/ui/Button";
-import { Icon } from "@/components/ui/Icon";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Text } from "@/components/ui/Text";
 
@@ -23,7 +21,6 @@ const ROLE_HINT: Record<DeclaredRole, string> = {
 };
 
 export default function SignUp() {
-  const colors = useThemeColors();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -72,23 +69,15 @@ export default function SignUp() {
   if (done) {
     return (
       <AuthShell>
-        <View className="items-center">
-          <View className="mb-4 h-12 w-12 items-center justify-center rounded-full bg-primary/[0.12]">
-            <Icon name="mail" size={24} color={colors.primary} />
-          </View>
-          <Text variant="title1" accessibilityRole="header" className="text-center">
-            Check your inbox
-          </Text>
-          <Text variant="callout" className="mt-1.5 text-center text-muted-foreground">
-            We sent a confirmation link to <Text variant="callout" className="font-medium">{email.trim()}</Text>. Open it to
+        <AuthStatus title="Check your inbox">
+            We sent a confirmation link to <Text variant="subheadline" className="font-semibold text-foreground">{email.trim()}</Text>. Open it to
             activate your account.
-          </Text>
-        </View>
+        </AuthStatus>
         <AuthFootnote>
-          <Text variant="callout" className="text-muted-foreground">
+          <Text variant="subheadline" className="text-muted-foreground">
             Already confirmed?
           </Text>
-          <Text variant="callout" accessibilityRole="link" onPress={backToSignIn} className="font-medium text-primary">
+          <Text variant="subheadline" accessibilityRole="link" onPress={backToSignIn} className="font-semibold text-primary">
             Sign in
           </Text>
         </AuthFootnote>
@@ -114,7 +103,7 @@ export default function SignUp() {
               { value: "player", label: "I play" },
             ]}
           />
-          <Text variant="callout" className="px-1 text-center text-muted-foreground">
+          <Text variant="subheadline" className="px-1 text-center text-muted-foreground">
             {ROLE_HINT[role]}
           </Text>
         </View>
@@ -191,10 +180,10 @@ export default function SignUp() {
         </Button>
       </View>
       <AuthFootnote>
-        <Text variant="callout" className="text-muted-foreground">
+        <Text variant="subheadline" className="text-muted-foreground">
           Already have an account?
         </Text>
-        <Text variant="callout" accessibilityRole="link" onPress={backToSignIn} className="font-medium text-primary">
+        <Text variant="subheadline" accessibilityRole="link" onPress={backToSignIn} className="font-semibold text-primary">
           Sign in
         </Text>
       </AuthFootnote>

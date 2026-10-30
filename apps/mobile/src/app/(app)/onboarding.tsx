@@ -63,7 +63,7 @@ export default function Onboarding() {
         <Button onPress={handleJoin} loading={submitting} disabled={!input.trim()}>
           Join
         </Button>
-        <Button variant="ghost" onPress={() => signOutAndCleanup()}>
+        <Button variant="link" size="xs" textClassName="font-medium text-muted-foreground" onPress={() => signOutAndCleanup()}>
           Sign out
         </Button>
       </View>

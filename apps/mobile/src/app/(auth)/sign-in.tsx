@@ -110,7 +110,7 @@ export default function SignIn() {
         <Button onPress={handleSignIn} loading={submitting} disabled={!email.trim() || !password}>
           Sign in
         </Button>
-        <Button variant="link" size="sm" onPress={() => router.push("/forgot-password")}>
+        <Button variant="link" size="xs" onPress={() => router.push("/forgot-password")}>
           Forgot your password?
         </Button>
       </View>
@@ -134,7 +134,7 @@ export default function SignIn() {
             onPress={() => handleOAuth("apple")}
             disabled={oauthLoading !== null}
             scaleTo={0.98}
-            className="h-11 flex-row items-center justify-center gap-2 rounded-lg"
+            className="h-11 flex-row items-center justify-center gap-2 rounded-control"
             style={{ backgroundColor: dark ? "#ffffff" : "#000000" }}
           >
             {oauthLoading === "apple" ? (
@@ -142,13 +142,13 @@ export default function SignIn() {
             ) : (
               <AppleLogo color={dark ? "#000000" : "#ffffff"} />
             )}
-            <Text className="font-medium" style={{ color: dark ? "#000000" : "#ffffff" }}>
+            <Text className="font-semibold" style={{ color: dark ? "#000000" : "#ffffff" }}>
               Continue with Apple
             </Text>
           </Tappable>
         )}
         <Button
-          variant="outline"
+          variant="secondary"
           onPress={() => handleOAuth("google")}
           loading={oauthLoading === "google"}
           icon={<GoogleLogo />}
@@ -158,10 +158,10 @@ export default function SignIn() {
       </View>
 
       <AuthFootnote>
-        <Text variant="callout" className="text-muted-foreground">
+        <Text variant="subheadline" className="text-muted-foreground">
           New to Scoutable?
         </Text>
-        <Text variant="callout" accessibilityRole="link" onPress={() => router.push("/sign-up")} className="font-medium text-primary">
+        <Text variant="subheadline" accessibilityRole="link" onPress={() => router.push("/sign-up")} className="font-semibold text-primary">
           Create an account
         </Text>
       </AuthFootnote>

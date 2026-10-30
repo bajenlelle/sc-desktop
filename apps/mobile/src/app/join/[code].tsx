@@ -27,7 +27,7 @@ const INVALID_COPY: Record<InviteInvalidReason, string> = {
   expired_license:
     "This organization's license has expired. Ask your coach to get in touch with us.",
   seat_limit_reached:
-    "This organization has used all its seats for this role. The organization admin has been notified — ask them to free a seat or add more.",
+    "This organization has used all its seats for this role. The organization admin has been notified. Ask them to free a seat or add more.",
 };
 
 export default function JoinScreen() {
@@ -77,7 +77,7 @@ export default function JoinScreen() {
   if (error) {
     return (
       <StatusScreen
-        icon="warning"
+        icon="error"
         title="Can't join"
         body={error}
         actions={<Button onPress={() => router.replace("/playlists")}>Go to my playlists</Button>}
@@ -88,7 +88,7 @@ export default function JoinScreen() {
   return (
     <View className="flex-1 items-center justify-center gap-4 bg-background px-6">
       <ActivityIndicator color={colors.mutedForeground} />
-      <Text variant="callout" className="text-muted-foreground">
+      <Text variant="subheadline" className="text-muted-foreground">
         {orgName ? `Joining ${orgName}…` : "Checking your invite…"}
       </Text>
     </View>

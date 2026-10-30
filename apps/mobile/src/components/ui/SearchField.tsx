@@ -21,11 +21,12 @@ export function SearchField({
   const [focused, setFocused] = useState(false);
   return (
     <View
-      className={cn("h-11 flex-row items-center rounded-lg", focused ? "bg-card" : "bg-fill-1", className)}
+      className={cn("h-9 flex-row items-center rounded-control", focused ? "bg-card" : "bg-fill-1", className)}
       style={{ borderWidth: 2, borderColor: focused ? colors.primary : "transparent" }}
+      hitSlop={{ top: 4, bottom: 4 }}
     >
       <View className="pl-2.5 pr-1.5">
-        <Icon name="search" size={18} color={colors.mutedForeground} />
+        <Icon name="search" size={16} color={colors.mutedForeground} />
       </View>
       <TextInput
         value={value}
@@ -56,8 +57,8 @@ export function SearchField({
           onPress={() => onChangeText("")}
           className="h-full items-center justify-center px-2.5"
         >
-          <View className="h-5 w-5 items-center justify-center rounded-full bg-muted-foreground/60">
-            <Icon name="close" size={12} color={colors.background} />
+          <View className="h-[18px] w-[18px] items-center justify-center rounded-full bg-muted-foreground/50">
+            <Icon name="close" size={11} strokeWidth={2.5} color={colors.background} />
           </View>
         </Tappable>
       )}

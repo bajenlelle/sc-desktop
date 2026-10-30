@@ -65,7 +65,7 @@ function RetryButton({ onPress, background, color }: { onPress: () => void; back
         marginTop: 24,
         width: "100%",
         height: 44,
-        borderRadius: 4,
+        borderRadius: 6,
         alignItems: "center",
         justifyContent: "center",
         backgroundColor: background,
@@ -73,7 +73,7 @@ function RetryButton({ onPress, background, color }: { onPress: () => void; back
         transform: [{ scale: pressed ? 0.97 : 1 }],
       }}
     >
-      <Text style={{ fontSize: 17, fontWeight: "500", color }}>Try again</Text>
+      <Text style={{ fontSize: 17, fontWeight: "600", color }}>Try again</Text>
     </Pressable>
   );
 }
@@ -90,18 +90,8 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return (
     <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, backgroundColor: colors.background }}>
       <View style={{ width: "100%", maxWidth: 440, alignItems: "center" }}>
-        <View
-          style={{
-            width: 48,
-            height: 48,
-            borderRadius: 24,
-            alignItems: "center",
-            justifyContent: "center",
-            marginBottom: 16,
-            backgroundColor: scheme === "dark" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
-          }}
-        >
-          <Icon name="warning" size={24} color={colors.mutedForeground} />
+        <View style={{ marginBottom: 12 }}>
+          <Icon name="error" size={28} color={colors.mutedForeground} />
         </View>
         <Text
           accessibilityRole="header"
@@ -109,7 +99,7 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
         >
           Something went wrong
         </Text>
-        <Text style={{ marginTop: 6, fontSize: 17, lineHeight: 22, color: colors.mutedForeground, textAlign: "center" }}>
+        <Text style={{ marginTop: 6, fontSize: 15, lineHeight: 20, color: colors.mutedForeground, textAlign: "center" }}>
           The error has been reported automatically. Tap below to try again.
         </Text>
         <RetryButton onPress={retry} background={colors.primary} color={colors.primaryForeground} />

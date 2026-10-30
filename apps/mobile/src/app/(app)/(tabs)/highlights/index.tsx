@@ -26,7 +26,6 @@
 import { View } from "react-native";
 import { Image } from "expo-image";
 import { useThemeColors } from "@/lib/theme-context";
-import { GroupedList } from "@/components/ui/Group";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Screen } from "@/components/shell/Screen";
 import { Text } from "@/components/ui/Text";
@@ -40,7 +39,7 @@ const BULLETS: { icon: IconName; title: string; body: string }[] = [
   {
     icon: "wand",
     title: "Every clip, cut for you",
-    body: "Import your own games and Scoutable auto-generates a named clip for every shot, rebound and steal — no scrubbing.",
+    body: "Import your own games and Scoutable auto-generates a named clip for every shot, rebound and steal. No scrubbing.",
   },
   {
     icon: "film",
@@ -50,25 +49,25 @@ const BULLETS: { icon: IconName; title: string; body: string }[] = [
   {
     icon: "share",
     title: "Straight to your phone",
-    body: "Scan a QR code and your tape is on your phone — ready for Instagram, TikTok or a recruiting DM.",
+    body: "Scan a QR code and your tape is on your phone, ready for Instagram, TikTok or a recruiting DM.",
   },
 ];
 
 export default function HighlightsScreen() {
   const colors = useThemeColors();
   return (
-    <Screen title="My highlights" large contentClassName="gap-7 px-4 pt-2">
-      <View className="items-center gap-2">
-        <Text variant="title2" accessibilityRole="header" className="text-center">
+    <Screen title="My highlights" large contentClassName="gap-6 pt-1">
+      <View className="gap-1 px-4">
+        <Text variant="title2" accessibilityRole="header">
           Build your own highlight tape
         </Text>
-        <Text variant="callout" className="text-center text-muted-foreground">
+        <Text variant="subheadline" className="text-muted-foreground">
           This is your space, separate from your club. Import your own games and turn them into tapes that are yours to
           keep and share.
         </Text>
       </View>
 
-      <View className="overflow-hidden rounded-window border border-separator bg-black">
+      <View className="mx-4 overflow-hidden rounded-window bg-black">
         <Image
           source={{ uri: SCREENSHOT_URL }}
           contentFit="cover"
@@ -77,32 +76,31 @@ export default function HighlightsScreen() {
         />
       </View>
 
-      <GroupedList>
+      <View>
         {BULLETS.map((b) => (
-          <View key={b.title} className="flex-row items-start gap-3 px-4 py-3">
+          <View key={b.title} className="flex-row items-start gap-3 px-4 py-2.5">
             <View className="mt-0.5">
-              <Icon name={b.icon} size={17} color={colors.primary} />
+              <Icon name={b.icon} size={18} color={colors.mutedForeground} />
             </View>
             <View className="min-w-0 flex-1">
-              <Text className="font-medium">{b.title}</Text>
-              <Text variant="callout" className="text-muted-foreground">
+              <Text>{b.title}</Text>
+              <Text variant="subheadline" className="text-muted-foreground">
                 {b.body}
               </Text>
             </View>
           </View>
         ))}
-      </GroupedList>
+      </View>
 
-      <View className="items-center gap-1.5 px-2">
-        <View className="mb-1 h-11 w-11 items-center justify-center rounded-full bg-primary/[0.12]">
-          <Icon name="computer" size={20} color={colors.primary} />
+      <View className="items-center gap-1 px-6 pt-2">
+        <View className="mb-1.5">
+          <Icon name="computer" size={24} color={colors.mutedForeground} />
         </View>
         <Text variant="headline" className="text-center">
           Get it on your computer
         </Text>
-        <Text variant="callout" className="max-w-[320px] text-center text-muted-foreground">
-          The Scoutable editor runs on Mac and Windows. Open scoutable.se on your computer to download it — it&apos;s
-          free.
+        <Text variant="subheadline" className="max-w-[320px] text-center text-muted-foreground">
+          The Scoutable editor runs on Mac and Windows. Open scoutable.se on your computer to download it. It&apos;s free.
         </Text>
       </View>
     </Screen>

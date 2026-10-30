@@ -1,13 +1,16 @@
 import { useMemo, useState } from "react";
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, SectionList, View } from "react-native";
-import { Redirect, Stack, router, useLocalSearchParams } from "expo-router";
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, SectionList, StyleSheet, View } from "react-native";
+import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/lib/auth-context";
 import { useMyTeam, useSpaceSuggestions, useTeamCatalog } from "@/lib/my-team";
 import { trackEvent } from "@/lib/analytics";
 import { useThemeColors } from "@/lib/theme-context";
 import { useLargeText } from "@/lib/a11y";
-import { LeagueChip, TeamCrest } from "@/components/TeamCrest";
+import { TeamCrest } from "@/components/TeamCrest";
+import { Screen } from "@/components/shell/Screen";
+import { BackButton } from "@/components/shell/BackButton";
+import { SearchField } from "@/components/ui/SearchField";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { Tappable } from "@/components/ui/Tappable";
@@ -151,14 +154,14 @@ export default function TeamScreen() {
   }
 
   const intro = (
-    <View className="gap-1 px-1 pb-2 pt-2">
+    <View className="gap-1 px-4 pb-2 pt-2">
       <Text variant="footnote" className="text-muted-foreground">
         In <Text variant="footnote">{spaceLabel(org)}</Text>
       </Text>
       <Text variant="title2" accessibilityRole="header">
         {teamStepTitle(role)}
       </Text>
-      <Text variant="callout" className="text-muted-foreground">
+      <Text variant="subheadline" className="text-muted-foreground">
         {mode === "step" ? TEAM_STEP_SUBTITLE : "We'll use it to find your games when you import."}
       </Text>
     </View>
@@ -169,81 +172,46 @@ export default function TeamScreen() {
     const first = index === 0;
     const last = index === section.data.length - 1;
     return (
-      <View
-        className={cn(
-          "overflow-hidden border-x border-separator bg-card",
-          first && "rounded-t-window border-t",
-          last && "rounded-b-window border-b",
-        )}
-      >
-        {!first && <View className="h-px bg-separator" />}
+      <View>
+        {index > 0 && <View style={{ height: StyleSheet.hairlineWidth, marginLeft: 60, backgroundColor: colors.separator }} />}
         <Tappable
           scaleTo={1}
           accessibilityRole="radio"
           accessibilityState={{ checked: selected }}
           accessibilityLabel={[item.name, item.leagueName, item.clubName !== item.name ? item.clubName : null].filter(Boolean).join(", ")}
           onPress={() => setSelectedId(item.id)}
-          className={({ pressed }) =>
-            cn("min-h-14 flex-row items-center gap-3 px-4 py-2", selected ? "bg-primary/[0.08]" : pressed && "bg-fill-2")
-          }
+          className={({ pressed }) => cn("min-h-14 flex-row items-center gap-3 px-4 py-2", pressed && "bg-fill-1")}
         >
           <TeamCrest team={item} size={32} />
           <View className="min-w-0 flex-1">
-            <View className="flex-row flex-wrap items-center gap-x-2 gap-y-1">
-              <Text numberOfLines={1} className="shrink font-medium">
-                {item.name}
-              </Text>
-              <LeagueChip name={item.leagueName} />
-            </View>
+            <Text numberOfLines={largeText ? 3 : 1}>
+              {item.name}
+              {item.leagueName ? <Text className="text-muted-foreground">{` · ${item.leagueName}`}</Text> : null}
+            </Text>
             {item.clubName && item.clubName !== item.name ? (
               <Text variant="subheadline" numberOfLines={1} className="text-muted-foreground">
                 {item.clubName}
               </Text>
             ) : null}
           </View>
-          {selected ? <Icon name="check" size={16} weight="semibold" color={colors.primary} /> : null}
+          {selected ? <Icon name="check" size={18} strokeWidth={2.5} color={colors.primary} /> : null}
         </Tappable>
       </View>
     );
   };
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} className="flex-1 bg-background">
-      <Stack.Screen
-        options={{
-          headerShown: true,
-          title: mode === "step" ? "Your team" : "Change team",
-          headerTransparent: false,
-          headerShadowVisible: false,
-          headerStyle: { backgroundColor: colors.background },
-          headerTintColor: colors.foreground,
-          headerTitleStyle: { color: colors.foreground },
-          // The step at launch is answered or skipped, not backed out of.
-          headerBackVisible: mode === "change",
-          headerSearchBarOptions: noteMode
-            ? undefined
-            : {
-                placeholder: "Search teams or clubs",
-                autoCapitalize: "none",
-                hideWhenScrolling: false,
-                // Under the title on iOS 26 too, not down in a toolbar: the
-                // screen's own buttons live at the bottom.
-                placement: "stacked",
-                // An opaque bar leaves iOS drawing the field light in dark mode.
-                barTintColor: colors.fill2,
-                tintColor: colors.primary,
-                textColor: colors.foreground,
-                hintTextColor: colors.mutedForeground,
-                headerIconColor: colors.foreground,
-                onChangeText: (e) => setQuery(e.nativeEvent.text ?? ""),
-                onCancelButtonPress: () => setQuery(""),
-              },
-        }}
-      />
-
+    <Screen
+      title={mode === "step" ? "Your team" : "Change team"}
+      // The step at launch is answered or skipped, not backed out of.
+      leading={mode === "change" ? <BackButton label="Profile" onPress={leave} /> : undefined}
+      scroll={false}
+    >
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} className="flex-1">
       {noteMode ? (
-        <View className="flex-1 gap-4 px-4 pt-2">
+        <View className="flex-1 gap-4 pt-2">
           {intro}
+          <View className="px-4">
           <TextField
             label="Team and league"
             value={note}
@@ -254,53 +222,63 @@ export default function TeamScreen() {
             returnKeyType="send"
             onSubmitEditing={handleSave}
           />
-          <Text variant="subheadline" className="text-muted-foreground">
+          </View>
+          <Text variant="subheadline" className="px-4 text-muted-foreground">
             We only cover a few leagues so far. Telling us yours helps us decide which to add next.
           </Text>
         </View>
       ) : failed ? (
-        <View className="flex-1 px-4 pt-2">
+        <View className="flex-1 pt-2">
           {intro}
           <View className="items-center gap-3 py-10">
-            <Text variant="callout" className="text-muted-foreground">
+            <Text variant="subheadline" className="text-muted-foreground">
               Couldn&apos;t load the teams.
             </Text>
-            <Button variant="outline" size="sm" onPress={retry}>
+            <Button variant="secondary" size="sm" onPress={retry}>
               Try again
             </Button>
           </View>
         </View>
       ) : teams === null ? (
-        <View className="flex-1 px-4 pt-2">
+        <View className="flex-1 pt-2">
           {intro}
           <ActivityIndicator className="py-10" color={colors.mutedForeground} />
         </View>
       ) : (
         <SectionList
           className="flex-1"
-          contentInsetAdjustmentBehavior="automatic"
-          contentContainerClassName="px-4 pb-6"
+          contentContainerClassName="pb-6"
           sections={sections}
           keyExtractor={(t) => t.id}
           renderItem={renderTeam}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           stickySectionHeadersEnabled={false}
-          ListHeaderComponent={intro}
+          ListHeaderComponent={
+            <View>
+              {intro}
+              <View className="px-4 pb-1 pt-2">
+                <SearchField value={query} onChangeText={setQuery} placeholder="Search teams or clubs" accessibilityLabel="Search teams or clubs" />
+              </View>
+            </View>
+          }
           renderSectionHeader={({ section }) => (
-            <Text variant="headline" className="px-1 pb-2 pt-5">
+            <Text variant="headline" accessibilityRole="header" className="px-4 pb-1.5 pt-6">
               {section.title}
             </Text>
           )}
           ListEmptyComponent={
-            <Text variant="callout" className="px-3 py-8 text-center text-muted-foreground">
+            <Text variant="subheadline" className="px-6 py-8 text-center text-muted-foreground">
               No teams match “{query.trim()}”. Try the club name, or tell us your team isn&apos;t listed.
             </Text>
           }
         />
       )}
 
-      <View className="gap-3 border-t border-separator bg-background px-4 pt-3" style={{ paddingBottom: Math.max(insets.bottom, 12) }}>
+      <View
+        className="gap-3 bg-background px-4 pt-3"
+        style={{ paddingBottom: Math.max(insets.bottom, 12), borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator }}
+      >
         {setup.others.map((o) => {
           const on = checked.has(o.orgId);
           return (
@@ -332,5 +310,6 @@ export default function TeamScreen() {
         </View>
       </View>
     </KeyboardAvoidingView>
+    </Screen>
   );
 }

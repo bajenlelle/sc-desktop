@@ -20,24 +20,24 @@ import { Text } from "@/components/ui/Text";
 export default function NoOrg() {
   return (
     <AuthShell>
-      <Text variant="title1" accessibilityRole="header" className="text-center">
+      <Text variant="title2" accessibilityRole="header" className="text-center">
         This app is for club members
       </Text>
       <View className="mt-2 gap-3">
-        <Text variant="callout" className="text-center text-muted-foreground">
+        <Text variant="subheadline" className="text-center text-muted-foreground">
           It shows the playlists your club shares with you.
         </Text>
-        <Text variant="callout" className="text-center text-muted-foreground">
+        <Text variant="subheadline" className="text-center text-muted-foreground">
           Using Scoutable on your own? Your games, playlists and highlights are in the Scoutable desktop app for Mac and
           Windows.
         </Text>
-        <Text variant="callout" className="text-center text-muted-foreground">
+        <Text variant="subheadline" className="text-center text-muted-foreground">
           Joining a club? Ask your coach for an invite code.
         </Text>
       </View>
-      <View className="mt-7 gap-2">
+      <View className="mt-8 gap-1">
         <Button onPress={() => router.push("/onboarding")}>I have an invite code</Button>
-        <Button variant="ghost" onPress={() => signOutAndCleanup()}>
+        <Button variant="link" size="xs" textClassName="font-medium text-muted-foreground" onPress={() => signOutAndCleanup()}>
           Sign out
         </Button>
       </View>

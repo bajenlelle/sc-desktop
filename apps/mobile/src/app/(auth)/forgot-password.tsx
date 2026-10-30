@@ -2,10 +2,8 @@ import { useState } from "react";
 import { View } from "react-native";
 import { router } from "expo-router";
 import { supabase } from "@/lib/supabase";
-import { useThemeColors } from "@/lib/theme-context";
-import { AuthError, AuthFootnote, AuthHeading, AuthShell, FieldGroup, GroupField } from "@/components/auth/AuthFrame";
+import { AuthError, AuthFootnote, AuthHeading, AuthShell, AuthStatus, FieldGroup, GroupField } from "@/components/auth/AuthFrame";
 import { Button } from "@/components/ui/Button";
-import { Icon } from "@/components/ui/Icon";
 import { Text } from "@/components/ui/Text";
 
 function backToSignIn() {
@@ -14,7 +12,6 @@ function backToSignIn() {
 }
 
 export default function ForgotPassword() {
-  const colors = useThemeColors();
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -37,20 +34,12 @@ export default function ForgotPassword() {
   if (sent) {
     return (
       <AuthShell>
-        <View className="items-center">
-          <View className="mb-4 h-12 w-12 items-center justify-center rounded-full bg-primary/[0.12]">
-            <Icon name="mail" size={24} color={colors.primary} />
-          </View>
-          <Text variant="title1" accessibilityRole="header" className="text-center">
-            Check your inbox
-          </Text>
-          <Text variant="callout" className="mt-1.5 text-center text-muted-foreground">
-            If an account exists for <Text variant="callout" className="font-medium">{email.trim()}</Text>, a reset link is
+        <AuthStatus title="Check your inbox">
+            If an account exists for <Text variant="subheadline" className="font-semibold text-foreground">{email.trim()}</Text>, a reset link is
             on its way. Open it to set a new password, then sign in here.
-          </Text>
-        </View>
+        </AuthStatus>
         <AuthFootnote>
-          <Text variant="callout" accessibilityRole="link" onPress={backToSignIn} className="font-medium text-primary">
+          <Text variant="subheadline" accessibilityRole="link" onPress={backToSignIn} className="font-semibold text-primary">
             Back to sign in
           </Text>
         </AuthFootnote>
@@ -82,7 +71,7 @@ export default function ForgotPassword() {
         </Button>
       </View>
       <AuthFootnote>
-        <Text variant="callout" accessibilityRole="link" onPress={backToSignIn} className="font-medium text-primary">
+        <Text variant="subheadline" accessibilityRole="link" onPress={backToSignIn} className="font-semibold text-primary">
           Back to sign in
         </Text>
       </AuthFootnote>
