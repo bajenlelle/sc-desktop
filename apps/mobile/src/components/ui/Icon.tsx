@@ -29,6 +29,8 @@ import {
   MessageSquare,
   Minimize2,
   Monitor,
+  MonitorSmartphone,
+  Palette,
   Pause,
   Play,
   Plus,
@@ -127,6 +129,8 @@ export const ICONS = {
   clock: Clock,
   sortName: ArrowDownAZ,
   sortLeast: ArrowUpNarrowWide,
+  palette: Palette,
+  devices: MonitorSmartphone,
 } as const satisfies Record<string, LucideIcon | "basketball">;
 
 export type IconName = keyof typeof ICONS;

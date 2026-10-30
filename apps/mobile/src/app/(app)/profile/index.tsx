@@ -1,132 +1,111 @@
-import { useState } from "react";
-import { ActivityIndicator, Alert, View } from "react-native";
+import { Alert, View } from "react-native";
 import { router } from "expo-router";
 import Constants from "expo-constants";
-import { supabase } from "@/lib/supabase";
+import { getTheme } from "@scoutable/shared/lib/themes";
+import { groupChoicesForProfile, teamSpaces, teamSummaryLabel } from "@scoutable/shared/lib/league-teams";
+import { sortOrgsClubFirst } from "@scoutable/shared/lib/orgs";
+import { partitionDevicesByActivity } from "@scoutable/shared/lib/device-boot";
 import { useAuth } from "@/lib/auth-context";
+import { useMyTeam } from "@/lib/my-team";
+import { useMyDevices } from "@/lib/use-my-devices";
 import { signOutAndCleanup } from "@/lib/notifications";
 import { usePlaylists } from "@/lib/playlists-store";
-import { useThemeColors } from "@/lib/theme-context";
-import { AppearanceRow, ThemeRow } from "@/components/AppearanceSection";
+import { useAppTheme } from "@/lib/theme-context";
+import { AppearanceTiles } from "@/components/AppearanceSection";
 import { CloseButton } from "@/components/shell/GlassButton";
 import { Screen } from "@/components/shell/Screen";
-import { Avatar } from "@/components/Avatar";
-import { DevicesSection } from "@/components/DevicesSection";
+import { AccountCard } from "@/components/settings/AccountCard";
 import { LicenseNotice } from "@/components/LicenseNotice";
-import { TeamSection } from "@/components/TeamSection";
 import { GroupHeader, GroupRow, GroupedList } from "@/components/ui/Group";
 import { Text } from "@/components/ui/Text";
 
-const ROLE_LABEL = { admin: "Admin", coach: "Coach", player: "Player" } as const;
-
 /**
- * Profile in four groups on the grouped floor: who you are, then Team (your
- * team and your club), Account (email, password, appearance, theme),
- * Devices and Help, and a last group to sign out or delete the account,
- * every action a disclosure row rather than a button in a row. Left out
- * on purpose (App Store 3.1.3(c), and no new features): the plan and usage,
- * name and photo editing, the marketing switch, managing the club, and
+ * Settings, the sheet's first page, as Claude's and iOS's own: who you are
+ * at the top (the card opens Profile), then short groups whose rows show
+ * their current value and open a page of their own (Team, Devices, Theme,
+ * Send feedback), the appearance tiles in place, and Sign out last, apart
+ * and asking first. Left out on purpose (App Store 3.1.3(c), and no new
+ * features): the plan and usage, managing the club, notifications, and
  * anything that links out to the web.
  */
-export default function ProfileScreen() {
-  const { user, profile, activeOrg, activeOrgRole, isPlayerOnly } = useAuth();
-  const { teamMap, clubTeams } = usePlaylists();
-  const colors = useThemeColors();
-  const [resetting, setResetting] = useState(false);
+export default function SettingsScreen() {
+  const { user, myOrgs, activeOrg, isPlayerOnly } = useAuth();
+  const { choices, loaded } = useMyTeam();
+  const { clubTeams } = usePlaylists();
+  const { devices } = useMyDevices();
+  const { activeThemeId } = useAppTheme();
 
-  const teamNames = [...teamMap.values()].map((t) => t.name);
-  const role = activeOrgRole ? ROLE_LABEL[activeOrgRole] : null;
+  const spaces = sortOrgsClubFirst(teamSpaces(myOrgs));
+  const teamValue = teamSummaryLabel(loaded && spaces.length > 0 ? groupChoicesForProfile(spaces, choices) : []);
+  const hasClubs = isPlayerOnly ? clubTeams.length > 0 : !!activeOrg && !activeOrg.isPersonal;
+  const showTeam = teamValue != null || hasClubs;
+  const activeDevices = devices && devices.length > 0 ? partitionDevicesByActivity(devices).active.length : null;
 
-  async function handleChangePassword() {
-    if (!user?.email || resetting) return;
-    setResetting(true);
-    try {
-      // As on web: the reset link completes on the web app.
-      const { error } = await supabase.auth.resetPasswordForEmail(user.email);
-      if (error) Alert.alert("Something went wrong", error.message);
-      else Alert.alert("Check your email", "We sent a link to set a new password.");
-    } finally {
-      setResetting(false);
-    }
+  function confirmSignOut() {
+    Alert.alert("Sign out?", user?.email ? `You're signed in as ${user.email}.` : undefined, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Sign out", style: "destructive", onPress: () => void signOutAndCleanup() },
+    ]);
   }
-
-  const clubName = !isPlayerOnly && activeOrg && !activeOrg.isPersonal ? activeOrg.orgName : null;
 
   return (
     <Screen title="Settings" sheet leading={<CloseButton />} grouped contentClassName="gap-6 px-4 pt-2">
-      <View className="-mx-4">
-        <LicenseNotice />
-      </View>
-
-      {/* Who you are */}
-      <View className="flex-row items-center gap-3.5">
-        <Avatar name={profile?.fullName} url={profile?.avatarUrl} size={56} />
-        <View className="min-w-0 flex-1">
-          <Text variant="title2" numberOfLines={2}>
-            {profile?.fullName || user?.email?.split("@")[0] || "Your profile"}
-          </Text>
-          {(role || clubName) && (
-            <Text variant="subheadline" numberOfLines={1} className="text-muted-foreground">
-              {[role, clubName].filter(Boolean).join(" · ")}
-            </Text>
-          )}
+      <View className="gap-3">
+        <AccountCard />
+        <View className="-mx-4">
+          <LicenseNotice />
         </View>
       </View>
 
-      <View>
-        <TeamSection>
-          {isPlayerOnly
-            ? // Players have no active space: their feed gathers every club. The
-              // clubs are listed read-only, with their own team names (the feed's
-              // team names carry club prefixes when there are several).
-              clubTeams.map((c) => (
-                <GroupRow
-                  key={c.orgId}
-                  icon="club"
-                  label={c.orgName}
-                  description={c.teamNames.length > 0 ? c.teamNames.join(" · ") : undefined}
-                />
-              ))
-            : activeOrg && !activeOrg.isPersonal
-              ? [
-                  <GroupRow
-                    key="club"
-                    icon="club"
-                    label={activeOrg.orgName}
-                    description={teamNames.length > 0 ? teamNames.join(" · ") : undefined}
-                    trailing={role ?? undefined}
-                  />,
-                  // Switching clubs lives in the sidebar. No "Manage…": the web app
-                  // reaches the pricing page, and App Review rejected build 5 for
-                  // exactly that path (3.1.1 / 3.1.3(c)). Clubs are managed from the
-                  // desktop or web app.
-                ]
-              : null}
-        </TeamSection>
-      </View>
+      {showTeam || activeDevices != null ? (
+        <View>
+          <GroupHeader title="Account" />
+          <GroupedList large inset={50}>
+            {showTeam ? (
+              <GroupRow
+                large
+                icon="team"
+                label="Team"
+                trailing={teamValue ?? undefined}
+                chevron
+                onPress={() => router.push("/profile/team")}
+              />
+            ) : null}
+            {activeDevices != null ? (
+              <GroupRow
+                large
+                icon="devices"
+                label="Devices"
+                trailing={String(activeDevices)}
+                accessibilityLabel={`Devices, ${activeDevices} active`}
+                chevron
+                onPress={() => router.push("/profile/devices")}
+              />
+            ) : null}
+          </GroupedList>
+        </View>
+      ) : null}
 
       <View>
-        <GroupHeader title="Account" />
-        <GroupedList>
-          <GroupRow label="Email" trailing={user?.email ?? ""} />
+        <GroupHeader title="Appearance" />
+        <GroupedList large>
+          <AppearanceTiles />
           <GroupRow
-            label="Change password"
-            accessibilityLabel="Change password. We'll email you a reset link."
-            chevron={!resetting}
-            trailing={resetting ? <ActivityIndicator size="small" color={colors.mutedForeground} /> : undefined}
-            onPress={handleChangePassword}
+            large
+            icon="palette"
+            label="Theme"
+            trailing={getTheme(activeThemeId)?.label ?? ""}
+            chevron
+            onPress={() => router.push("/profile/theme")}
           />
-          <AppearanceRow />
-          <ThemeRow />
         </GroupedList>
       </View>
 
-      <DevicesSection />
-
       <View>
         <GroupHeader title="Help" />
-        <GroupedList inset={46}>
+        <GroupedList large inset={50}>
           <GroupRow
+            large
             icon="feedback"
             label="Send feedback"
             chevron
@@ -135,13 +114,15 @@ export default function ProfileScreen() {
         </GroupedList>
       </View>
 
-      <GroupedList>
+      <GroupedList large>
         <GroupRow
+          large
+          icon="signOut"
           label="Sign out"
+          destructive
           accessibilityLabel={`Sign out of ${user?.email ?? "Scoutable"}`}
-          onPress={() => signOutAndCleanup()}
+          onPress={confirmSignOut}
         />
-        <GroupRow label="Delete account" destructive chevron onPress={() => router.push("/profile/delete-account")} />
       </GroupedList>
 
       <Text variant="footnote" nums className="text-center text-muted-foreground">

@@ -1,55 +1,123 @@
 /**
- * Profile › Account's appearance rows: Light, Dark or System as a small
- * segmented control, and the theme as a disclosure row that opens the theme
- * sheet (swatches for the light and the dark slot). A pick applies at once
- * and follows the account to the other apps through ThemeSync; picking a
- * theme from the other mode also switches the mode (setColorTheme handles
- * that, and the analytics).
+ * Settings' appearance: Light, Dark or System as three preview tiles (as
+ * Claude's and iOS's own settings draw them), each painted in the theme the
+ * user picked for that mode, and the theme pickers for the Theme page
+ * (swatches for the light and the dark slot). A pick applies at once and
+ * follows the account to the other apps through ThemeSync; picking a theme
+ * from the other mode also switches the mode (setColorTheme handles that,
+ * and the analytics).
  */
-import { useState } from "react";
-import { View } from "react-native";
-import { COLOR_THEMES, getTheme, type ColorTheme } from "@scoutable/shared/lib/themes";
+import { useId } from "react";
+import { StyleSheet, View } from "react-native";
+import Svg, { Circle, ClipPath, Defs, G, Polygon, Rect } from "react-native-svg";
+import { DEFAULT_THEME, getTheme, type ColorTheme } from "@scoutable/shared/lib/themes";
 import type { ThemeModeSetting } from "@scoutable/shared/lib/theme-sync";
-import { GroupRow } from "@/components/ui/Group";
-import { SegmentedControl } from "@/components/ui/SegmentedControl";
-import { Sheet } from "@/components/ui/Sheet";
 import { Tappable } from "@/components/ui/Tappable";
 import { Text } from "@/components/ui/Text";
-import { TextButton } from "@/components/ui/Row";
+import { selectionHaptic } from "@/lib/haptics";
 import { useAppTheme, useThemeColors } from "@/lib/theme-context";
 
 const COLUMNS = 3;
+const TILE_W = 124;
+const TILE_H = 80;
 
-export function AppearanceRow() {
-  const { modeSetting, setModeSetting } = useAppTheme();
+type Swatch = ColorTheme["swatch"];
+
+/** A window in miniature: a card with two lines of text and the theme's accent dot. */
+function Miniature({ swatch, dark }: { swatch: Swatch; dark: boolean }) {
+  const line = dark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.2)";
   return (
-    <GroupRow
-      label="Appearance"
-      trailing={
-        <SegmentedControl<ThemeModeSetting>
-          size="sm"
-          accessibilityLabel="Appearance"
-          value={modeSetting}
-          onValueChange={setModeSetting}
-          segments={[
-            { value: "system", label: "System" },
-            { value: "light", label: "Light" },
-            { value: "dark", label: "Dark" },
-          ]}
-        />
-      }
-    />
+    <>
+      <Rect x={0} y={0} width={TILE_W} height={TILE_H} fill={swatch.bg} />
+      <Rect x={10} y={10} width={104} height={60} rx={8} fill={swatch.surface} />
+      <Rect x={20} y={22} width={46} height={4} rx={2} fill={line} />
+      <Rect x={20} y={31} width={30} height={4} rx={2} fill={line} />
+      <Circle cx={98} cy={56} r={7} fill={swatch.primary} />
+    </>
   );
 }
 
-export function ThemeRow() {
-  const { activeThemeId } = useAppTheme();
-  const [open, setOpen] = useState(false);
+function AppearanceTile({
+  label,
+  light,
+  dark,
+  value,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  light: Swatch;
+  dark: Swatch;
+  value: ThemeModeSetting;
+  selected: boolean;
+  onSelect: (v: ThemeModeSetting) => void;
+}) {
+  const colors = useThemeColors();
+  const clipId = `split${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   return (
-    <>
-      <GroupRow label="Theme" trailing={getTheme(activeThemeId)?.label ?? ""} chevron onPress={() => setOpen(true)} />
-      <ThemeSheet visible={open} onClose={() => setOpen(false)} />
-    </>
+    <Tappable
+      scaleTo={0.97}
+      accessibilityRole="radio"
+      accessibilityState={{ checked: selected }}
+      accessibilityLabel={label}
+      onPress={() => {
+        if (!selected) selectionHaptic();
+        onSelect(value);
+      }}
+      className="flex-1 items-center gap-2"
+    >
+      <View style={styles.tileBox}>
+        <View style={[styles.tile, { borderColor: colors.separator }]}>
+          <Svg width="100%" height="100%" viewBox={`0 0 ${TILE_W} ${TILE_H}`} preserveAspectRatio="none">
+            {value === "dark" ? <Miniature swatch={dark} dark /> : <Miniature swatch={light} dark={false} />}
+            {value === "system" ? (
+              <>
+                <Defs>
+                  <ClipPath id={clipId}>
+                    <Polygon points={`${TILE_W},0 ${TILE_W},${TILE_H} 0,${TILE_H}`} />
+                  </ClipPath>
+                </Defs>
+                <G clipPath={`url(#${clipId})`}>
+                  <Miniature swatch={dark} dark />
+                </G>
+              </>
+            ) : null}
+          </Svg>
+        </View>
+        {/* The ring sits outside the tile so choosing doesn't shift the row. */}
+        {selected ? <View pointerEvents="none" style={[styles.ring, { borderColor: colors.primary }]} /> : null}
+      </View>
+      <Text variant="subheadline" numberOfLines={1} className={selected ? "font-semibold text-primary" : "text-muted-foreground"}>
+        {label}
+      </Text>
+    </Tappable>
+  );
+}
+
+/** Light, Dark or System, as three tiles in the theme picked for each mode. */
+export function AppearanceTiles() {
+  const { modeSetting, setModeSetting, slots } = useAppTheme();
+  const light = (getTheme(slots.light) ?? getTheme(DEFAULT_THEME.light))!.swatch;
+  const dark = (getTheme(slots.dark) ?? getTheme(DEFAULT_THEME.dark))!.swatch;
+  const tiles: { value: ThemeModeSetting; label: string }[] = [
+    { value: "light", label: "Light" },
+    { value: "dark", label: "Dark" },
+    { value: "system", label: "System" },
+  ];
+  return (
+    <View accessibilityRole="radiogroup" accessibilityLabel="Appearance" className="flex-row gap-3 px-4 pb-3 pt-4">
+      {tiles.map((t) => (
+        <AppearanceTile
+          key={t.value}
+          label={t.label}
+          value={t.value}
+          light={light}
+          dark={dark}
+          selected={modeSetting === t.value}
+          onSelect={setModeSetting}
+        />
+      ))}
+    </View>
   );
 }
 
@@ -87,7 +155,7 @@ function ThemeSwatch({ theme, active, onPress }: { theme: ColorTheme; active: bo
   );
 }
 
-function ThemeGrid({ heading, themes, chosen }: { heading: string; themes: ColorTheme[]; chosen: string }) {
+export function ThemeGrid({ heading, themes, chosen }: { heading: string; themes: ColorTheme[]; chosen: string }) {
   const { setColorTheme } = useAppTheme();
   const rows: (ColorTheme | null)[][] = [];
   for (let i = 0; i < themes.length; i += COLUMNS) {
@@ -117,16 +185,8 @@ function ThemeGrid({ heading, themes, chosen }: { heading: string; themes: Color
   );
 }
 
-/** One theme for light mode and one for dark, as swatches. */
-function ThemeSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
-  const { slots } = useAppTheme();
-  return (
-    <Sheet visible={visible} onClose={onClose} title="Theme" trailing={<TextButton label="Done" size="body" onPress={onClose} />}>
-      <ThemeGrid heading="Light" themes={COLOR_THEMES.filter((t) => t.mode === "light")} chosen={slots.light} />
-      <ThemeGrid heading="Dark" themes={COLOR_THEMES.filter((t) => t.mode === "dark")} chosen={slots.dark} />
-      <Text variant="footnote" className="px-4 pb-2 pt-5 text-muted-foreground">
-        One theme for light mode and one for dark. Your picks follow you to the desktop app and the web.
-      </Text>
-    </Sheet>
-  );
-}
+const styles = StyleSheet.create({
+  tileBox: { alignSelf: "stretch" },
+  tile: { aspectRatio: TILE_W / TILE_H, borderRadius: 12, overflow: "hidden", borderWidth: StyleSheet.hairlineWidth },
+  ring: { position: "absolute", left: -3, right: -3, top: -3, bottom: -3, borderRadius: 15, borderWidth: 2 },
+});

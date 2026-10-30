@@ -3,7 +3,7 @@ import { router } from "expo-router";
 import { useAuth } from "@/lib/auth-context";
 import { useMyTeam } from "@/lib/my-team";
 import { TeamCrest } from "@/components/TeamCrest";
-import { GroupFooter, GroupHeader, GroupRow, GroupedList } from "@/components/ui/Group";
+import { GroupFooter, GroupRow, GroupedList } from "@/components/ui/Group";
 import { Text } from "@/components/ui/Text";
 import {
   groupChoicesForProfile,
@@ -15,10 +15,11 @@ import {
 import { sortOrgsClubFirst } from "@scoutable/shared/lib/orgs";
 
 /**
- * Profile › Team (the web's MyTeamCard): your team, one row while every
+ * Settings › Team (the web's MyTeamCard): your team, one row while every
  * space uses the same one and one per answer once they differ, each a
  * disclosure row that opens the team screen for that space; then the club
- * rows the profile passes in.
+ * rows the page passes in. The page's title names the group, so it has no
+ * heading of its own.
  */
 export function TeamSection({ children }: { children?: ReactNode }) {
   const { myOrgs, profile } = useAuth();
@@ -31,8 +32,7 @@ export function TeamSection({ children }: { children?: ReactNode }) {
 
   return (
     <>
-      <GroupHeader title="Team" />
-      <GroupedList inset={56}>
+      <GroupedList large inset={56}>
         {rows.map((row) => {
           const roleLine = teamRoleLine(teamRoleIn(row.orgs[0], profile?.declaredRole));
           const used = `${single ? "Used in" : "In"} ${spaceListLabel(row.orgs)}`;

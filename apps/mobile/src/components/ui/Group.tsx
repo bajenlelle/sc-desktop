@@ -7,27 +7,33 @@ import { useThemeColors } from "@/lib/theme-context";
 import { useLargeText } from "@/lib/a11y";
 import { cn } from "@/lib/cn";
 
+/** The settings sheet's rounder cards, as the iOS 26 Settings and Claude's settings draw them. */
+const LARGE_RADIUS = "rounded-[22px]";
+
 /**
  * The web's grouped (inset) lists (apps/web/src/components/ui/group.tsx), for
  * settings: a rounded card on the grouped floor (`bg-canvas`) with a hairline
  * ring, rows divided by hairlines inset to the text, a quiet heading above
- * and a footnote below.
+ * and a footnote below. `large` is the settings sheet's: rounder, for its
+ * taller rows.
  */
 export function GroupedList({
   children,
   className,
   inset = 16,
+  large = false,
 }: {
   children: ReactNode;
   className?: string;
-  /** Where the dividers start: 16 under plain rows, 46 under rows with an icon. */
+  /** Where the dividers start: 16 under plain rows, 46 under rows with an icon, 50 under large ones. */
   inset?: number;
+  large?: boolean;
 }) {
   const colors = useThemeColors();
   const rows = Children.toArray(children).filter(Boolean);
   return (
     <View
-      className={cn("overflow-hidden rounded-window bg-card", className)}
+      className={cn("overflow-hidden bg-card", large ? LARGE_RADIUS : "rounded-window", className)}
       style={{ borderWidth: StyleSheet.hairlineWidth, borderColor: colors.separator }}
     >
       {rows.map((row, i) => (
@@ -74,14 +80,16 @@ export interface GroupRowProps {
   chevron?: boolean;
   onPress?: () => void;
   disabled?: boolean;
-  /** A red label, for actions that delete. */
+  /** A red label (and icon), for actions that delete or sign out. */
   destructive?: boolean;
+  /** The settings sheet's row: 52 pt, a 22 pt icon. */
+  large?: boolean;
   accessibilityLabel?: string;
   className?: string;
   children?: ReactNode;
 }
 
-/** A 44 pt row: icon, label over description, trailing value, chevron; fills while pressed if tappable. */
+/** A 44 pt row (52 when large): icon, label over description, trailing value, chevron; fills while pressed if tappable. */
 export function GroupRow({
   label,
   description,
@@ -92,6 +100,7 @@ export function GroupRow({
   onPress,
   disabled,
   destructive,
+  large = false,
   accessibilityLabel,
   className,
   children,
@@ -112,7 +121,10 @@ export function GroupRow({
     <>
       {(leading || icon) && (
         <View className="shrink-0 items-center justify-center">
-          {leading ?? (icon ? <Icon name={icon} size={18} color={colors.mutedForeground} /> : null)}
+          {leading ??
+            (icon ? (
+              <Icon name={icon} size={large ? 22 : 18} color={destructive ? colors.destructive : colors.mutedForeground} />
+            ) : null)}
         </View>
       )}
       <View className="min-w-0 flex-1">
@@ -153,7 +165,8 @@ export function GroupRow({
         {chevronView}
       </>
     ));
-  const box = stacked ? "min-h-11 gap-2 px-4 py-2.5" : "min-h-11 flex-row items-center gap-3 px-4 py-2";
+  const minH = large ? "min-h-[52px]" : "min-h-11";
+  const box = stacked ? cn(minH, "gap-2 px-4 py-2.5") : cn(minH, "flex-row items-center gap-3 px-4 py-2");
   if (!onPress) return <View className={cn(box, className)}>{body}</View>;
   return (
     <Tappable

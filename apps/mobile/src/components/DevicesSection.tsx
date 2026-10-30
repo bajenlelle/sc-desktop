@@ -1,24 +1,19 @@
 /**
- * Profile › Devices (anti-account-sharing; the web's DevicesCard): one group
+ * Settings › Devices (anti-account-sharing; the web's DevicesCard): one group
  * of the account's registered devices, the ones idle for 30 days in muted
  * text (only active ones hold a slot), each removable, and "Sign out
- * everywhere else" as the group's last row, which keeps this device's push
- * token and prunes the others (revoking refresh tokens alone doesn't stop
- * notifications).
+ * everywhere else" as the group's last row. The data and actions live in
+ * useMyDevices.
  */
-import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, View } from "react-native";
-import { supabase } from "@/lib/supabase";
-import { trackEvent } from "@/lib/analytics";
-import { getDeviceId } from "@/lib/device-registry";
-import { getCachedPushToken } from "@/lib/notifications";
+import { ActivityIndicator, View } from "react-native";
 import { formatDate } from "@/lib/format";
+import { useMyDevices } from "@/lib/use-my-devices";
 import { useThemeColors } from "@/lib/theme-context";
-import { GroupFooter, GroupHeader, GroupRow, GroupedList } from "@/components/ui/Group";
+import { GroupFooter, GroupRow, GroupedList } from "@/components/ui/Group";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Tappable } from "@/components/ui/Tappable";
 import { Text } from "@/components/ui/Text";
-import { listMyDevices, pruneOtherPushTokens, removeDevice, type UserDevice } from "@scoutable/shared/lib/devices-db";
+import type { UserDevice } from "@scoutable/shared/lib/devices-db";
 import { appKindLabel, partitionDevicesByActivity } from "@scoutable/shared/lib/device-boot";
 
 const APP_ICON: Record<string, IconName> = { desktop: "laptop", mobile: "phone", web: "web" };
@@ -34,60 +29,10 @@ function lastActive(iso: string): string {
 
 export function DevicesSection() {
   const colors = useThemeColors();
-  const [devices, setDevices] = useState<UserDevice[] | null>(null);
-  const [ownDeviceId, setOwnDeviceId] = useState<string | null>(null);
-  const [removingId, setRemovingId] = useState<string | null>(null);
-  const [signingOut, setSigningOut] = useState(false);
+  const { devices, ownDeviceId, removingId, signingOut, confirmRemove, signOutOthers } = useMyDevices();
 
-  const load = useCallback(async () => {
-    try {
-      setDevices(await listMyDevices(supabase));
-    } catch {
-      setDevices([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-    getDeviceId().then(setOwnDeviceId);
-  }, [load]);
-
-  async function handleRemove(d: UserDevice) {
-    setRemovingId(d.deviceId);
-    try {
-      await removeDevice(supabase, d.deviceId);
-      trackEvent("device_removed", { source: "profile", target_app: d.app });
-      await load();
-    } catch {
-      Alert.alert("Couldn't remove the device", "Try again.");
-    } finally {
-      setRemovingId(null);
-    }
-  }
-
-  function confirmRemove(d: UserDevice) {
-    const name = d.deviceName ?? d.platform ?? "Unknown device";
-    Alert.alert("Remove this device?", `${name} will lose access the next time it opens Scoutable.`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Remove", style: "destructive", onPress: () => void handleRemove(d) },
-    ]);
-  }
-
-  async function handleSignOutOthers() {
-    setSigningOut(true);
-    try {
-      await pruneOtherPushTokens(supabase, getCachedPushToken());
-      const { error } = await supabase.auth.signOut({ scope: "others" });
-      if (error) throw error;
-      Alert.alert("Signed out everywhere else", "Other devices will be logged out the next time they're used.");
-    } catch {
-      Alert.alert("Something went wrong", "Couldn't sign out other devices. Try again.");
-    } finally {
-      setSigningOut(false);
-    }
-  }
-
-  if (devices === null || devices.length === 0) return null;
+  if (devices === null) return <ActivityIndicator className="py-6" color={colors.mutedForeground} />;
+  if (devices.length === 0) return null;
 
   const { active, inactive } = partitionDevicesByActivity(devices);
 
@@ -130,15 +75,14 @@ export function DevicesSection() {
 
   return (
     <View>
-      <GroupHeader title="Devices" />
-      <GroupedList inset={46}>
+      <GroupedList large inset={46}>
         {active.map((d) => renderRow(d, false))}
         {inactive.map((d) => renderRow(d, true))}
         {devices.length > 1 ? (
           <GroupRow
             label={<Text className="text-primary">{signingOut ? "Signing out…" : "Sign out everywhere else"}</Text>}
             disabled={signingOut}
-            onPress={handleSignOutOthers}
+            onPress={signOutOthers}
             accessibilityLabel="Sign out everywhere else"
           />
         ) : null}
