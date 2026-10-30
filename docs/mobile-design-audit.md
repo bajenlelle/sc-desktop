@@ -15,7 +15,8 @@ Tested on: the iOS 26 Simulator (iPhone 17) running the EAS development build, a
 
 The founder's (2026-10-29/30):
 
-- **Type:** the system font (SF Pro / Roboto) on the web's touch scale, with its size-specific tracking. The large title and the headline are semibold (600).
+- **Type:** Inter (2026-10-30, chosen over the system font after a side-by-side on the mockup canvas: the Notion feel), on the web's touch scale with Inter's own size-specific tracking. The large title, title 2 and the headline are semibold (600). Inter is free (SIL Open Font License), bundled from `@expo-google-fonts/inter` and loaded by the root layout; each weight is its own font file, so `Text` picks the file from the weight (`src/lib/fonts.ts`). Claude's own faces (Anthropic Sans and Serif) can't be licensed.
+- **Where a playlist comes from:** once a player's feed mixes teams (or a team and personal shares), each row names its team, or "Just for you", in a footnote line above the name (`feedSourceLabel`, `feedHasSeveralSources`, tested).
 - **Chrome:** the app's own, identical on both platforms: a 49 pt tab bar with a red count of new playlists, and a title bar that starts large and hands over to a centred small title as the content scrolls under it. No NativeTabs, no native large titles, no header search bar.
 - **Density:** content first. Filters and sort behind one title-bar button that opens a sheet; stats as one sentence; the hero as one row; no filled "New" pills.
 - **Android bars** are solid (Material's idiom; expo-blur there re-renders a blur target every scroll frame). iOS blurs, except under Reduce Transparency.
@@ -60,7 +61,7 @@ Not verified: the signed-out screens, onboarding, no-org, the device gate and th
 
 ## 6. Known gaps and next steps
 
-- **Store build.** `expo-symbols`, `@expo/ui`, `expo-glass-effect`, `@expo/vector-icons` and `expo-font` are still in `package.json` so the installed dev clients keep matching (the native fingerprint is unchanged on this branch). Remove them, set the `expo-notifications` colour to the primary, align lucide across the three apps, then build. Publish `main`'s pending OTA before merging: after the merge the runtime fingerprint changes.
+- **Store build.** `expo-symbols`, `@expo/ui`, `expo-glass-effect` and `@expo/vector-icons` are still in `package.json` so the installed dev clients keep matching (the native fingerprint is unchanged on this branch). Remove them (keep `expo-font`: it loads Inter), set the `expo-notifications` colour to the primary, align lucide across the three apps, then build. Publish `main`'s pending OTA before merging: after the merge the runtime fingerprint changes.
 - **iOS title bar edge:** RN has no mask-image, so the blur ends hard and a 10 pt gradient of the page colour stands in for the web's fade.
 - **iOS refresh spinner** shows through the clear bar while pulling and sits partly under the status bar text.
 - **Text size changed while the app is open** can leave text clipped until relaunch (RN keeps the old measurements).

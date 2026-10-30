@@ -5,7 +5,9 @@ import {
   byNewest,
   computeHero,
   feedCounts,
+  feedHasSeveralSources,
   feedSections,
+  feedSourceLabel,
   filterFeed,
   initials,
   matchesSource,
@@ -460,5 +462,44 @@ describe("activeFeedFilterCount", () => {
     expect(activeFeedFilterCount({ watch: "all", source: "all", sharer: "all" })).toBe(0);
     expect(activeFeedFilterCount({ watch: "new", source: "all", sharer: "all" })).toBe(1);
     expect(activeFeedFilterCount({ watch: "watched", source: "team:t1", sharer: "u1" })).toBe(3);
+  });
+});
+
+describe("feedSourceLabel", () => {
+  it("names the player's teams the playlist reached them through", () => {
+    expect(feedSourceLabel(fp({ teamNames: ["Herrar U19"] }))).toBe("Herrar U19");
+    expect(feedSourceLabel(fp({ teamNames: ["Herrar A", "Herrar U19"] }))).toBe("Herrar A, Herrar U19");
+  });
+  it("says a personal share is just for them", () => {
+    expect(feedSourceLabel(fp({ isDirect: true, teamNames: [] }))).toBe("Just for you");
+  });
+  it("prefers the team when a playlist came both ways", () => {
+    expect(feedSourceLabel(fp({ isDirect: true, teamNames: ["Herrar A"] }))).toBe("Herrar A");
+  });
+  it("has nothing to say without a team or a personal share", () => {
+    expect(feedSourceLabel(fp({}))).toBeNull();
+    expect(feedSourceLabel(fp({ teamIds: ["t-other"], teamNames: [] }))).toBeNull();
+  });
+});
+
+describe("feedHasSeveralSources", () => {
+  it("is false for a player in one team", () => {
+    expect(feedHasSeveralSources([fp({ teamNames: ["U16"] }), fp({ id: "b", teamNames: ["U16"] })])).toBe(false);
+  });
+  it("is true once two teams have playlists", () => {
+    expect(feedHasSeveralSources([fp({ teamNames: ["U16"] }), fp({ id: "b", teamNames: ["Herrar A"] })])).toBe(true);
+  });
+  it("counts personal shares as a source of their own", () => {
+    expect(feedHasSeveralSources([fp({ teamNames: ["U16"] }), fp({ id: "b", isDirect: true })])).toBe(true);
+    expect(feedHasSeveralSources([fp({ isDirect: true }), fp({ id: "b", isDirect: true })])).toBe(false);
+  });
+  it("counts a playlist shared to the team and personally as its team only, as its label does", () => {
+    expect(feedHasSeveralSources([fp({ teamNames: ["U16"], isDirect: true }), fp({ id: "b", teamNames: ["U16"] })])).toBe(false);
+  });
+  it("ignores teams the player isn't in (no resolved name)", () => {
+    expect(feedHasSeveralSources([fp({ teamIds: ["t1"], teamNames: ["U16"] }), fp({ id: "b", teamIds: ["t9"], teamNames: [] })])).toBe(false);
+  });
+  it("is false for an empty feed", () => {
+    expect(feedHasSeveralSources([])).toBe(false);
   });
 });

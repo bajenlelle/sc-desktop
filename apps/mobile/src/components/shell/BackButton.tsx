@@ -4,6 +4,7 @@ import { Icon } from "@/components/ui/Icon";
 import { Tappable } from "@/components/ui/Tappable";
 import { pressScale } from "@/lib/motion";
 import { useThemeColors } from "@/lib/theme-context";
+import { interStyle } from "@/lib/fonts";
 
 /**
  * The title bar's back button, as iOS draws it: a chevron and the previous
@@ -22,7 +23,7 @@ export function BackButton({ label, onPress }: { label?: string; onPress?: () =>
     >
       <Icon name="chevronLeft" size={26} strokeWidth={2} color={colors.primary} />
       {label ? (
-        <RNText maxFontSizeMultiplier={1.3} numberOfLines={1} style={{ fontSize: 17, lineHeight: 22, color: colors.primary }}>
+        <RNText maxFontSizeMultiplier={1.3} numberOfLines={1} style={[{ fontSize: 17, lineHeight: 22, letterSpacing: -0.2, color: colors.primary }, interStyle(400)]}>
           {label}
         </RNText>
       ) : null}

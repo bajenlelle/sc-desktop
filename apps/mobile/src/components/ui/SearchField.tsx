@@ -4,6 +4,7 @@ import { Icon } from "@/components/ui/Icon";
 import { Tappable } from "@/components/ui/Tappable";
 import { useThemeColors } from "@/lib/theme-context";
 import { cn } from "@/lib/cn";
+import { interStyle } from "@/lib/fonts";
 
 /**
  * The web's search field at touch size, for screens without a native one
@@ -38,7 +39,7 @@ export function SearchField({
         selectionColor={colors.primary}
         cursorColor={colors.primary}
         className="flex-1 text-foreground"
-        style={{ fontSize: 17, paddingVertical: 0 }}
+        style={[{ fontSize: 17, letterSpacing: -0.2, paddingVertical: 0 }, interStyle(400)]}
         {...props}
         onFocus={(e) => {
           setFocused(true);

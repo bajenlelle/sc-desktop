@@ -35,6 +35,8 @@ export interface RowProps {
   /** An 18 pt slot before the text: a progress ring, a dot. */
   leading?: ReactNode;
   label: string;
+  /** A muted line above the label: where the row comes from (a playlist's team). */
+  overline?: string | null;
   /** Semibold for something new, regular otherwise. */
   emphasis?: boolean;
   description?: ReactNode;
@@ -54,6 +56,7 @@ export interface RowProps {
 export function Row({
   leading,
   label,
+  overline,
   emphasis,
   description,
   trailing,
@@ -68,6 +71,11 @@ export function Row({
   const stacked = large && trailing != null;
   const text = (
     <View className="min-w-0 flex-1">
+      {overline ? (
+        <Text variant="footnote" numberOfLines={large ? 2 : 1} className="text-muted-foreground">
+          {overline}
+        </Text>
+      ) : null}
       <Text numberOfLines={large ? 3 : 1} className={emphasis ? "font-semibold" : undefined}>
         {label}
       </Text>

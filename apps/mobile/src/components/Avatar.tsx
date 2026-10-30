@@ -1,6 +1,7 @@
 import { Text, View } from "react-native";
 import { Image } from "expo-image";
 import { initials } from "@/lib/format";
+import { interStyle } from "@/lib/fonts";
 
 /** A person: their photo, or their initials on a neutral fill (colour is kept for actions). */
 export function Avatar({
@@ -27,7 +28,7 @@ export function Avatar({
       className="items-center justify-center bg-fill-2"
     >
       <Text
-        style={{ fontSize: Math.max(8, size * 0.4) }}
+        style={[interStyle(600), { fontSize: Math.max(8, size * 0.4) }]}
         className="font-semibold text-muted-foreground"
         maxFontSizeMultiplier={1.2}
       >

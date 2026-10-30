@@ -8,6 +8,7 @@ import { Material } from "@/components/shell/Material";
 import { TAB_BAR_H } from "@/lib/layout";
 import { pressScale } from "@/lib/motion";
 import { useThemeColors } from "@/lib/theme-context";
+import { interStyle } from "@/lib/fonts";
 
 type TabBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>["tabBar"]>>[0];
 
@@ -63,13 +64,13 @@ export function TabBar({ state, navigation, items }: TabBarProps & { items: TabI
                 <Icon name={item.icon} size={24} color={tint} />
                 {badge && (
                   <View style={[styles.badge, { backgroundColor: colors.destructive }]}>
-                    <RNText maxFontSizeMultiplier={1.2} style={styles.badgeText}>
+                    <RNText maxFontSizeMultiplier={1.2} style={[styles.badgeText, interStyle(600)]}>
                       {badge}
                     </RNText>
                   </View>
                 )}
               </View>
-              <RNText maxFontSizeMultiplier={1.3} numberOfLines={1} style={[styles.label, { color: tint }]}>
+              <RNText maxFontSizeMultiplier={1.3} numberOfLines={1} style={[styles.label, interStyle(500), { color: tint }]}>
                 {item.title}
               </RNText>
             </Tappable>

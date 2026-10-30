@@ -4,6 +4,7 @@ import { rgba } from "@scoutable/shared/lib/theme-derived";
 import { Text } from "@/components/ui/Text";
 import { useThemeColors } from "@/lib/theme-context";
 import { cn } from "@/lib/cn";
+import { interStyle } from "@/lib/fonts";
 
 export interface TextFieldProps extends TextInputProps {
   label?: string;
@@ -48,8 +49,10 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
         }}
         className={cn("w-full rounded-control bg-card text-foreground", multiline ? "min-h-28" : "h-11", className)}
         style={[
+          interStyle(400),
           {
             fontSize: 17,
+            letterSpacing: -0.2,
             borderWidth: thick ? 2 : 1,
             borderColor: ring,
             // The thicker ring doesn't move the text.

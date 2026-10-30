@@ -60,6 +60,35 @@ export const byNewest = (a: FeedPlaylist, b: FeedPlaylist): number =>
 export const byLastWatched = (a: FeedPlaylist, b: FeedPlaylist): number =>
   (b.lastWatchedAt ?? b.sharedAt ?? "").localeCompare(a.lastWatchedAt ?? a.sharedAt ?? "");
 
+/**
+ * Where a playlist reached the player, shown above its name once the feed
+ * mixes sources: the player's own teams it was shared to, or "Just for you"
+ * for a personal share. Teams win when it came both ways; null when neither
+ * is known (a team the player isn't in has no resolved name).
+ */
+export function feedSourceLabel(p: FeedPlaylist): string | null {
+  const teams = p.teamNames ?? [];
+  if (teams.length > 0) return teams.join(", ");
+  return p.isDirect ? "Just for you" : null;
+}
+
+/**
+ * Source labels earn their place once playlists come from two or more
+ * places: two of the player's teams (across clubs too), or a team and
+ * personal shares. A player in one team never sees them.
+ */
+export function feedHasSeveralSources(playlists: FeedPlaylist[]): boolean {
+  const sources = new Set<string>();
+  for (const p of playlists) {
+    // The same rule as the label: a playlist that came both ways is its teams.
+    const teams = p.teamNames ?? [];
+    for (const name of teams) sources.add(`team:${name}`);
+    if (teams.length === 0 && p.isDirect) sources.add("direct");
+    if (sources.size > 1) return true;
+  }
+  return false;
+}
+
 /** A "Shared by" filter only earns its place with 2+ distinct sharers. */
 export function sharerFilterOptions(
   playlists: FeedPlaylist[],

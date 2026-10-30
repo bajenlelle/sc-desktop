@@ -61,22 +61,24 @@ module.exports = {
         window: "10px",
         sheet: "14px",
       },
-      // The web app's text styles at touch sizes, with its size-specific
-      // tracking (tight above 20px, zero at body, slightly open below), so
-      // titles read as they do on desktop and the web. Two weights differ from
-      // the web: the large title and the headline are semibold (600), the
-      // calmer weight chosen for mobile v2. Used through components/ui/Text.
+      // The web app's text styles at touch sizes (same names, sizes and
+      // leading), set in Inter (src/lib/fonts.ts) with Inter's own
+      // size-specific tracking (rsms's dynamic metrics: tighter as text grows,
+      // near zero at 13 px). Weights: the large title, title 2 and the
+      // headline are semibold (600), the calmer weights chosen for mobile v2.
+      // Used through components/ui/Text, which also maps each weight to its
+      // Inter file.
       fontSize: {
-        "large-title": ["34px", { lineHeight: "41px", letterSpacing: "-0.02em", fontWeight: "600" }],
-        "title-1": ["28px", { lineHeight: "34px", letterSpacing: "-0.016em", fontWeight: "400" }],
-        "title-2": ["22px", { lineHeight: "28px", letterSpacing: "-0.01em", fontWeight: "700" }],
-        "title-3": ["20px", { lineHeight: "25px", letterSpacing: "-0.006em", fontWeight: "600" }],
-        headline: ["17px", { lineHeight: "22px", letterSpacing: "0px", fontWeight: "600" }],
-        body: ["17px", { lineHeight: "22px", letterSpacing: "0px" }],
-        callout: ["16px", { lineHeight: "21px", letterSpacing: "0.004em" }],
-        subheadline: ["15px", { lineHeight: "20px", letterSpacing: "0.006em" }],
-        footnote: ["13px", { lineHeight: "18px", letterSpacing: "0.01em" }],
-        caption: ["13px", { lineHeight: "18px", letterSpacing: "0.01em", fontWeight: "500" }],
+        "large-title": ["34px", { lineHeight: "41px", letterSpacing: "-0.022em", fontWeight: "600" }],
+        "title-1": ["28px", { lineHeight: "34px", letterSpacing: "-0.021em", fontWeight: "400" }],
+        "title-2": ["22px", { lineHeight: "28px", letterSpacing: "-0.018em", fontWeight: "600" }],
+        "title-3": ["20px", { lineHeight: "25px", letterSpacing: "-0.017em", fontWeight: "600" }],
+        headline: ["17px", { lineHeight: "22px", letterSpacing: "-0.013em", fontWeight: "600" }],
+        body: ["17px", { lineHeight: "22px", letterSpacing: "-0.013em" }],
+        callout: ["16px", { lineHeight: "21px", letterSpacing: "-0.011em" }],
+        subheadline: ["15px", { lineHeight: "20px", letterSpacing: "-0.009em" }],
+        footnote: ["13px", { lineHeight: "18px", letterSpacing: "-0.003em" }],
+        caption: ["13px", { lineHeight: "18px", letterSpacing: "-0.003em", fontWeight: "500" }],
       },
     },
   },

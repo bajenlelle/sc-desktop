@@ -1,7 +1,8 @@
 /**
  * The player's feed, calmer than the web's phone layout it started from: an
  * Up next row instead of a tinted hero card, then New, In progress and
- * Watched as plain rows on the page with a ring or a dot in front. Filters
+ * Watched as plain rows on the page with a ring or a dot in front; once the
+ * feed mixes teams, each row names its team above the name. Filters
  * and sort live behind the title bar's filter button (FeedFilterSheet); this
  * component only reads them. Renders inside the screen's scroll view.
  */
@@ -9,7 +10,9 @@ import { useMemo } from "react";
 import { View } from "react-native";
 import {
   computeHero,
+  feedHasSeveralSources,
   feedSections,
+  feedSourceLabel,
   filterFeed,
   visibleFeed,
   watchStateOf,
@@ -39,7 +42,18 @@ function clipsLabel(n: number): string {
   return `${n} clip${n === 1 ? "" : "s"}`;
 }
 
-function FeedRow({ playlist, onOpen, onResume }: { playlist: FeedPlaylist; onOpen: () => void; onResume: () => void }) {
+function FeedRow({
+  playlist,
+  showSource,
+  onOpen,
+  onResume,
+}: {
+  playlist: FeedPlaylist;
+  /** The team above the name, once the feed mixes teams (feedHasSeveralSources). */
+  showSource: boolean;
+  onOpen: () => void;
+  onResume: () => void;
+}) {
   const colors = useThemeColors();
   const state = watchStateOf(playlist);
   const progress = playlist.clipCount > 0 ? playlist.watchedCount / playlist.clipCount : 0;
@@ -48,8 +62,10 @@ function FeedRow({ playlist, onOpen, onResume }: { playlist: FeedPlaylist; onOpe
     state === "progress"
       ? `${sharer} · ${playlist.watchedCount} of ${playlist.clipCount} watched`
       : [sharer, clipsLabel(playlist.clipCount), relativeTime(playlist.sharedAt)].filter(Boolean).join(" · ");
+  const source = showSource ? feedSourceLabel(playlist) : null;
   return (
     <Row
+      overline={source}
       leading={state === "new" ? <Dot color={colors.primary} /> : <ProgressRing value={progress} />}
       label={playlist.name}
       emphasis={state === "new"}
@@ -61,7 +77,7 @@ function FeedRow({ playlist, onOpen, onResume }: { playlist: FeedPlaylist; onOpe
       }
       chevron={state !== "progress"}
       onPress={onOpen}
-      accessibilityLabel={`${playlist.name}${state === "new" ? ", new" : ""}. ${description}`}
+      accessibilityLabel={`${playlist.name}${state === "new" ? ", new" : ""}. ${source ? `${source}. ` : ""}${description}`}
     />
   );
 }
@@ -69,11 +85,13 @@ function FeedRow({ playlist, onOpen, onResume }: { playlist: FeedPlaylist; onOpe
 function Section({
   title,
   playlists,
+  showSource,
   onOpen,
   onResume,
 }: {
   title?: string;
   playlists: FeedPlaylist[];
+  showSource: boolean;
   onOpen: (id: string) => void;
   onResume: (id: string) => void;
 }) {
@@ -83,7 +101,7 @@ function Section({
       {title ? <SectionHeader title={title} count={playlists.length} /> : null}
       <PlainList inset={LEADING_INSET}>
         {playlists.map((p) => (
-          <FeedRow key={p.id} playlist={p} onOpen={() => onOpen(p.id)} onResume={() => onResume(p.id)} />
+          <FeedRow key={p.id} playlist={p} showSource={showSource} onOpen={() => onOpen(p.id)} onResume={() => onResume(p.id)} />
         ))}
       </PlainList>
     </View>
@@ -120,6 +138,8 @@ export function PlaylistFeed({
   const searching = query.trim().length > 0;
   const upNext = hero && hero.kind !== "done" && !searching && watch === "all" ? hero : null;
   const sections = useMemo(() => feedSections(visible, upNext?.playlist.id), [visible, upNext]);
+  // Over every playlist, not the filtered view, so labels don't come and go with a filter.
+  const showSource = useMemo(() => feedHasSeveralSources(playlists), [playlists]);
 
   if (playlists.length === 0) {
     return (
@@ -147,6 +167,7 @@ export function PlaylistFeed({
               )
             }
             label={upNext.playlist.name}
+            overline={showSource ? feedSourceLabel(upNext.playlist) : null}
             emphasis
             description={
               upNext.kind === "continue"
@@ -185,14 +206,14 @@ export function PlaylistFeed({
       ) : watch === "all" ? (
         // Unfiltered, the grouping is the point: it answers "what's new?" at a glance.
         <View>
-          <Section title="New" playlists={sections.new} onOpen={onOpen} onResume={onResume} />
-          <Section title="In progress" playlists={sections.progress} onOpen={onOpen} onResume={onResume} />
-          <Section title="Watched" playlists={sections.watched} onOpen={onOpen} onResume={onResume} />
+          <Section title="New" playlists={sections.new} showSource={showSource} onOpen={onOpen} onResume={onResume} />
+          <Section title="In progress" playlists={sections.progress} showSource={showSource} onOpen={onOpen} onResume={onResume} />
+          <Section title="Watched" playlists={sections.watched} showSource={showSource} onOpen={onOpen} onResume={onResume} />
         </View>
       ) : (
         // With a filter on, a section title would only repeat it.
         <View className="pt-2">
-          <Section playlists={[...visible].sort(watch === "progress" ? byLastWatched : byNewest)} onOpen={onOpen} onResume={onResume} />
+          <Section playlists={[...visible].sort(watch === "progress" ? byLastWatched : byNewest)} showSource={showSource} onOpen={onOpen} onResume={onResume} />
         </View>
       )}
     </View>

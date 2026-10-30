@@ -11,7 +11,10 @@ import { Pressable, Text, View, useColorScheme } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import * as ScreenOrientation from "expo-screen-orientation";
+import * as SplashScreen from "expo-splash-screen";
+import { useFonts } from "expo-font";
 import { initAnalytics, trackEvent } from "@/lib/analytics";
+import { INTER_FONTS, interStyle, setInterLoaded } from "@/lib/fonts";
 import { AuthProvider } from "@/lib/auth-context";
 import { MobileThemeProvider, useAppTheme, useThemeColors } from "@/lib/theme-context";
 import { ThemeSync } from "@/components/ThemeSync";
@@ -39,6 +42,10 @@ Sentry.init({
 });
 
 initAnalytics();
+
+// The splash stays up until Inter is loaded, so no screen draws in the system
+// font first and then jumps.
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 // Surface the shared DB helpers' gracefully-swallowed failures. captureMessage
 // with a db_fn tag so Sentry groups per function, not one mega-issue.
@@ -75,7 +82,7 @@ function RetryButton({ onPress, background, color }: { onPress: () => void; back
         transform: [{ scale: pressed ? 0.97 : 1 }],
       }}
     >
-      <Text style={{ fontSize: 17, fontWeight: "600", color }}>Try again</Text>
+      <Text style={[{ fontSize: 17, fontWeight: "600", letterSpacing: -0.2, color }, interStyle(600)]}>Try again</Text>
     </Pressable>
   );
 }
@@ -97,11 +104,11 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
         </View>
         <Text
           accessibilityRole="header"
-          style={{ fontSize: 22, lineHeight: 28, fontWeight: "700", color: colors.foreground, textAlign: "center" }}
+          style={[{ fontSize: 22, lineHeight: 28, fontWeight: "600", letterSpacing: -0.4, color: colors.foreground, textAlign: "center" }, interStyle(600)]}
         >
           Something went wrong
         </Text>
-        <Text style={{ marginTop: 6, fontSize: 15, lineHeight: 20, color: colors.mutedForeground, textAlign: "center" }}>
+        <Text style={[{ marginTop: 6, fontSize: 15, lineHeight: 20, letterSpacing: -0.1, color: colors.mutedForeground, textAlign: "center" }, interStyle(400)]}>
           The error has been reported automatically. Tap below to try again.
         </Text>
         <RetryButton onPress={retry} background={colors.primary} color={colors.primaryForeground} />
@@ -169,12 +176,25 @@ function ThemedShell() {
 }
 
 function RootLayout() {
+  const [fontsLoaded, fontError] = useFonts(INTER_FONTS);
+  const fontsSettled = fontsLoaded || fontError != null;
+  // Set before the first screen renders; without the files the app keeps the
+  // system font rather than not starting.
+  if (fontsSettled) setInterLoaded(fontsLoaded);
+  useEffect(() => {
+    if (!fontsSettled) return;
+    if (fontError) Sentry.captureException(fontError);
+    SplashScreen.hideAsync().catch(() => {});
+  }, [fontsSettled, fontError]);
+
   useEffect(() => {
     trackEvent("app_started");
     // Portrait everywhere; the player's fullscreen unlocks rotation while it
     // is open. (The iOS plugin sets the same lock before launch.)
     ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
   }, []);
+
+  if (!fontsSettled) return null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

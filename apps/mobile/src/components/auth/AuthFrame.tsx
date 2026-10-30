@@ -12,6 +12,7 @@ import { Icon, type IconName } from "@/components/ui/Icon";
 import { Text } from "@/components/ui/Text";
 import { useAppTheme, useThemeColors } from "@/lib/theme-context";
 import { cn } from "@/lib/cn";
+import { interStyle } from "@/lib/fonts";
 
 /** The app's mark: the S on its tile, inverted in dark mode, the cyan dot always. */
 export function LogoMark({ size = 56 }: { size?: number }) {
@@ -154,7 +155,7 @@ export const GroupField = forwardRef<TextInput, TextInputProps & { edge?: Edge; 
           onBlur?.(e);
         }}
         className={cn("h-11 w-full px-3 text-foreground", className)}
-        style={[{ fontSize: 17 }, style]}
+        style={[{ fontSize: 17, letterSpacing: -0.2 }, interStyle(400), style]}
         {...props}
       />
       {(focused || invalid) && (
