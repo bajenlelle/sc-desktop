@@ -20,6 +20,10 @@
       "environment": "production",
       "channel": "production"
     },
+    "testflight": {
+      "extends": "production",
+      "channel": "testflight"
+    },
     "development-simulator": {
       "extends": "development",
       "ios": {
@@ -31,6 +35,11 @@
     }
   },
   "submit": {
-    "production": {}
+    "production": {},
+    "testflight": {
+      "ios": {
+        "ascAppId": "6808941904"
+      }
+    }
   }
 }

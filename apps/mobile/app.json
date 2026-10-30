@@ -2,7 +2,7 @@
   "expo": {
     "name": "Scoutable",
     "slug": "scoutable",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "scheme": "scoutable",
     "orientation": "default",
     "icon": "./assets/icon.png",
