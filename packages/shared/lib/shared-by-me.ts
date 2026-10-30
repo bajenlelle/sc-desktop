@@ -291,6 +291,13 @@ export function visibleDashboardRows(
   return filtered; // base rows are already newest-first
 }
 
+/** Where a shared playlist went: "Superettan Herr", "Basketettan Dam, Superettan Herr", "Superettan Herr, 2 members". */
+export function dashboardScopeLabel(row: Pick<DashboardRow, "teamNames" | "directCount">): string {
+  return [...row.teamNames, row.directCount > 0 ? `${row.directCount} member${row.directCount === 1 ? "" : "s"}` : null]
+    .filter(Boolean)
+    .join(", ");
+}
+
 /** Recipients on this row with clips left — per-playlist remind targets. */
 export function behindRecipients(row: DashboardRow): RecipientRow[] {
   if (row.playableCount === 0) return [];

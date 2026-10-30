@@ -12,6 +12,7 @@ import {
   initials,
   matchesSource,
   playableClips,
+  recentPlaylists,
   relativeTimeShort,
   sharerFilterOptions,
   toFeedPlaylists,
@@ -501,5 +502,19 @@ describe("feedHasSeveralSources", () => {
   });
   it("is false for an empty feed", () => {
     expect(feedHasSeveralSources([])).toBe(false);
+  });
+});
+
+describe("recentPlaylists", () => {
+  it("lists the most recently watched first and leaves out the never watched", () => {
+    const feed = [
+      fp({ id: "a", lastWatchedAt: "2026-10-01T10:00:00Z" }),
+      fp({ id: "b" }),
+      fp({ id: "c", lastWatchedAt: "2026-10-20T10:00:00Z" }),
+      fp({ id: "d", lastWatchedAt: "2026-10-10T10:00:00Z" }),
+    ];
+    expect(recentPlaylists(feed, 2).map((p) => p.id)).toEqual(["c", "d"]);
+    expect(recentPlaylists(feed, 10).map((p) => p.id)).toEqual(["c", "d", "a"]);
+    expect(recentPlaylists([], 5)).toEqual([]);
   });
 });

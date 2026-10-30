@@ -14,6 +14,7 @@ import {
   dashboardCounts,
   visibleDashboardRows,
   behindRecipients,
+  dashboardScopeLabel,
   type DashboardRow,
   type DashboardSort,
   type RecipientRow,
@@ -344,13 +345,6 @@ export function SharedByMeDashboard({
   );
 }
 
-/** "Superettan Herr", "Basketettan Dam, Superettan Herr", "Superettan Herr, 2 members". */
-function reachLabel(row: DashboardRow): string {
-  return [...row.teamNames, row.directCount > 0 ? `${row.directCount} member${row.directCount === 1 ? "" : "s"}` : null]
-    .filter(Boolean)
-    .join(", ");
-}
-
 function PlaylistCard({
   row,
   expanded,
@@ -376,7 +370,7 @@ function PlaylistCard({
   const [showFinished, setShowFinished] = useState(false);
   const total = row.recipients.length;
   const behind = behindRecipients(row);
-  const reach = reachLabel(row);
+  const reach = dashboardScopeLabel(row);
   const when = relativeTime(row.newestSharedAt ?? undefined);
   const meta = [when ? `Shared ${when}` : null, `${row.playableCount} clip${row.playableCount === 1 ? "" : "s"}`]
     .filter(Boolean)

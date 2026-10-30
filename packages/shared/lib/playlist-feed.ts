@@ -89,6 +89,14 @@ export function feedHasSeveralSources(playlists: FeedPlaylist[]): boolean {
   return false;
 }
 
+/** The playlists watched most recently, newest first (the sidebar's Recent). Never-watched ones are left out. */
+export function recentPlaylists(feed: FeedPlaylist[], n: number): FeedPlaylist[] {
+  return feed
+    .filter((p) => !!p.lastWatchedAt)
+    .sort((a, b) => (b.lastWatchedAt ?? "").localeCompare(a.lastWatchedAt ?? ""))
+    .slice(0, n);
+}
+
 /** A "Shared by" filter only earns its place with 2+ distinct sharers. */
 export function sharerFilterOptions(
   playlists: FeedPlaylist[],

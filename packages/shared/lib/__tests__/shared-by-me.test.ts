@@ -7,6 +7,7 @@ import {
   behindRecipients,
   buildDashboardRows,
   dashboardCounts,
+  dashboardScopeLabel,
   filterByTeamAndQuery,
   latestBehindPlaylist,
   statusOf,
@@ -552,5 +553,17 @@ describe("behindRecipients", () => {
   it("returns recipients with clips left", () => {
     const r = row({ playableCount: 2, recipients: [rec("u1", 2), rec("u2", 1)] });
     expect(behindRecipients(r).map((x) => x.userId)).toEqual(["u2"]);
+  });
+});
+
+describe("dashboardScopeLabel", () => {
+  it("names the teams, then the members it went to directly", () => {
+    expect(dashboardScopeLabel(row({ teamNames: ["Superettan Herr"], directCount: 0 }))).toBe("Superettan Herr");
+    expect(dashboardScopeLabel(row({ teamNames: ["Basketettan Dam", "Superettan Herr"], directCount: 0 }))).toBe(
+      "Basketettan Dam, Superettan Herr",
+    );
+    expect(dashboardScopeLabel(row({ teamNames: ["Superettan Herr"], directCount: 2 }))).toBe("Superettan Herr, 2 members");
+    expect(dashboardScopeLabel(row({ teamNames: [], directCount: 1 }))).toBe("1 member");
+    expect(dashboardScopeLabel(row({ teamNames: [], directCount: 0 }))).toBe("");
   });
 });
