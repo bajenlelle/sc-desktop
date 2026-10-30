@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Platform, RefreshControl, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
@@ -13,6 +13,7 @@ import { Material, useSolidMaterial } from "@/components/shell/Material";
 import { MenuButton } from "@/components/shell/MenuButton";
 import { Text } from "@/components/ui/Text";
 import { CONTENT_BOTTOM, ROOT_BAR_ROW_H, TOOLBAR_ROW_H } from "@/lib/layout";
+import { useKeyboardLift } from "@/lib/use-keyboard-lift";
 import { cn } from "@/lib/cn";
 import { useThemeColors } from "@/lib/theme-context";
 
@@ -32,6 +33,11 @@ export interface ScreenProps {
   trailing?: ReactNode;
   /** At the top of the content: a search field. */
   search?: ReactNode;
+  /**
+   * Floating at the foot of the screen, over the content and lifted with the
+   * keyboard: the search capsule and the action pill.
+   */
+  bottom?: ReactNode;
   /** Settings-style screens sit on the grouped floor (`canvas`). */
   grouped?: boolean;
   /** false for fixed layouts (the watch view): no scroll view, a solid bar. */
@@ -58,6 +64,7 @@ export function Screen({
   leading,
   trailing,
   search,
+  bottom,
   grouped = false,
   scroll = true,
   barHidden = false,
@@ -81,12 +88,17 @@ export function Screen({
     scrollY.value = e.contentOffset.y;
   });
 
+  const [bottomHeight, setBottomHeight] = useState(0);
+  const lift = useKeyboardLift();
+  const bottomStyle = useAnimatedStyle(() => ({ transform: [{ translateY: -lift.value }] }));
+
   const materialStyle = useAnimatedStyle(() => ({
     opacity: scroll ? interpolate(scrollY.value, [0, 10], [0, 1], Extrapolation.CLAMP) : 1,
   }));
 
   const floor = grouped ? colors.canvas : colors.background;
-  const bottomPad = insets.bottom + CONTENT_BOTTOM;
+  // Content clears the floating bottom slot (or the home indicator) and ends with air.
+  const bottomPad = (bottom ? bottomHeight : insets.bottom) + CONTENT_BOTTOM;
 
   const titleBlock = search ? <View className="px-4 pb-2.5 pt-1">{search}</View> : null;
 
@@ -121,6 +133,16 @@ export function Screen({
           {children}
         </View>
       )}
+
+      {bottom ? (
+        <Animated.View
+          pointerEvents="box-none"
+          onLayout={(e) => setBottomHeight(e.nativeEvent.layout.height)}
+          style={[styles.bottom, { paddingBottom: insets.bottom + 8 }, bottomStyle]}
+        >
+          {bottom}
+        </Animated.View>
+      ) : null}
 
       {/* The bar floats over the content. */}
       {barHidden ? null : (
@@ -168,6 +190,7 @@ export function Screen({
 
 const styles = StyleSheet.create({
   bar: { position: "absolute", left: 0, right: 0, top: 0 },
+  bottom: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 16, gap: 10 },
   row: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16 },
   side: { flex: 1, flexBasis: 0, flexDirection: "row", alignItems: "center" },
   trailing: { justifyContent: "flex-end", gap: 8 },

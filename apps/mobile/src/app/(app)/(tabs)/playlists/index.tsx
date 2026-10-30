@@ -23,7 +23,7 @@ import {
 import { LicenseNotice } from "@/components/LicenseNotice";
 import { NotificationPrimer } from "@/components/NotificationPrimer";
 import { Screen } from "@/components/shell/Screen";
-import { SearchField } from "@/components/ui/SearchField";
+import { SearchCapsule } from "@/components/shell/SearchCapsule";
 import { PopoverMenu, type PopoverGroup } from "@/components/ui/PopoverMenu";
 
 type Option = { value: string; label: string };
@@ -169,11 +169,7 @@ export default function PlaylistsScreen() {
           />
         ) : undefined
       }
-      search={
-        searchable ? (
-          <SearchField value={query} onChangeText={setQuery} placeholder="Search" accessibilityLabel="Search playlists" />
-        ) : undefined
-      }
+      bottom={searchable ? <SearchCapsule value={query} onChangeText={setQuery} /> : undefined}
       contentClassName="pt-1"
     >
         {!showDashboard && activeFilters > 0 && (
