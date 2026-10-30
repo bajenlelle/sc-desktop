@@ -141,9 +141,13 @@ export function PlaylistsProvider({ children }: { children: React.ReactNode }) {
     const activeTeamIds = orgCtxs.flatMap((c) => c.myTeams.map((t) => t.id));
     const [pls, directPls, sharedOut] = await Promise.all([
       getMyTeamPlaylists(supabase, activeTeamIds).catch(() => [] as Playlist[]),
-      // Aggregated mode drops the team scoping for direct shares — every
-      // person-to-person share RLS permits shows, team-bound or not.
-      getMyDirectPlaylists(supabase, aggregated ? undefined : activeTeamIds).catch(
+      // Aggregated mode drops the scoping for direct shares — every
+      // person-to-person share RLS permits shows; otherwise the active
+      // space's, by the playlist's org (not its legacy team_id).
+      getMyDirectPlaylists(
+        supabase,
+        aggregated || !activeOrgId ? undefined : { orgId: activeOrgId, teamIds: activeTeamIds },
+      ).catch(
         () => [] as Playlist[],
       ),
       // Coaches only: their own shared-out playlists, so the watch screen can

@@ -26,7 +26,7 @@ export const clearShippedClip = (playlistId: string, matchId: string, eventId: n
 export const assignPlaylistToTeam = (playlistId: string, teamId: string | null) => db.assignPlaylistToTeam(c(), playlistId, teamId);
 export const setPlaylistTeams = (playlistId: string, teamIds: string[]) => db.setPlaylistTeams(c(), playlistId, teamIds);
 export const setPlaylistUsers = (playlistId: string, userIds: string[]) => db.setPlaylistUsers(c(), playlistId, userIds);
-export const getMyDirectPlaylists = (teamIds?: string[]) => db.getMyDirectPlaylists(c(), teamIds);
+export const getMyDirectPlaylists = (scope?: db.DirectShareScope) => db.getMyDirectPlaylists(c(), scope);
 export const getMySharedOutPlaylists = (teamIds?: string[]) => db.getMySharedOutPlaylists(c(), teamIds);
 export const getMySharedPlaylists = (orgId?: string, opts?: db.OrgScopeOpts) => db.getMySharedPlaylists(c(), orgId, opts);
 export const listOwnPlaylistsAndShared = (orgId?: string, opts?: db.OrgScopeOpts) => db.listOwnPlaylistsAndShared(c(), orgId, opts);

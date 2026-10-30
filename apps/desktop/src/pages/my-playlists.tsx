@@ -4,6 +4,7 @@ import { ChevronLeft, Clapperboard, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { playableClips, toFeedPlaylists, sharerFilterOptions } from "@scoutable/shared/lib/playlist-feed";
 import { collectReferencedMatchIds, mergeEventsIntoMatches } from "@scoutable/shared/lib/playlist-matches";
+import { isPlayerOnly } from "@scoutable/shared/lib/orgs";
 import { EMPTY_FEED_FILTERS, PlaylistFeed, type FeedFilters } from "@/components/playlist/PlaylistFeed";
 import { SharedByMe } from "@/components/playlist/SharedByMe";
 import { ShareRecipients } from "@/components/playlist/share-recipients";
@@ -174,7 +175,11 @@ export function MyPlaylistsPage() {
         const activeTeamIds = orgCtx?.myTeams.map((t) => t.id) ?? [];
         const [pls, directPls, sharedOutPls] = await Promise.all([
           getMyTeamPlaylists(activeTeamIds).catch(() => [] as Playlist[]),
-          getMyDirectPlaylists(activeTeamIds).catch(() => [] as Playlist[]),
+          // Players see every direct share, from any club (as on web and
+          // mobile); staff see the active space's, by the playlist's org.
+          getMyDirectPlaylists(
+            isPlayerOnly(myOrgs) || !activeOrgId ? undefined : { orgId: activeOrgId, teamIds: activeTeamIds },
+          ).catch(() => [] as Playlist[]),
           // Owner-based: a coach's team-only shares must be openable too.
           getMySharedPlaylists(activeOrgId ?? undefined).catch(() => [] as SharedPlaylist[]),
         ]);

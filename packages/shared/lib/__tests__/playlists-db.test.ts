@@ -4,6 +4,7 @@ import {
   addClips,
   clearShippedClip,
   createPlaylist,
+  getMyDirectPlaylists,
   getMySharedPlaylists,
   getMyTeamPlaylists,
   listPlaylistNames,
@@ -374,6 +375,77 @@ function mockOwnClient(rows: unknown[] = [], error: { message: string } | null =
   } as unknown as SupabaseClient;
   return { client, calls };
 }
+
+/**
+ * Supabase double for getMyDirectPlaylists' two chains:
+ *   from("playlist_user_shares").select("playlist_id").eq("user_id", uid)
+ *   from("playlists").select(…).in("id", …).order(…)[.or(…) | .eq(…) | .in(…)]
+ */
+function mockDirectClient(shares: Array<{ playlist_id: string }>, playlists: PlaylistRow[]) {
+  const calls: { tables: string[]; eq: Array<[string, unknown]>; in: Array<[string, unknown]>; or: string[] } = {
+    tables: [],
+    eq: [],
+    in: [],
+    or: [],
+  };
+  const client = {
+    auth: {
+      getSession: async () => ({ data: { session: { user: { id: "player" } } }, error: null }),
+      getUser: async () => ({ data: { user: { id: "player" } }, error: null }),
+    },
+    from(table: string) {
+      calls.tables.push(table);
+      const result = table === "playlist_user_shares" ? { data: shares, error: null } : { data: playlists, error: null };
+      const b: Record<string, unknown> = {
+        select() { return b; },
+        eq(col: string, val: unknown) { calls.eq.push([col, val]); return b; },
+        in(col: string, val: unknown) { calls.in.push([col, val]); return b; },
+        or(filter: string) { calls.or.push(filter); return b; },
+        order() { return b; },
+        then: (r: (x: typeof result) => unknown) => Promise.resolve(result).then(r),
+      };
+      return b;
+    },
+  } as unknown as SupabaseClient;
+  return { client, calls };
+}
+
+describe("getMyDirectPlaylists", () => {
+  it("returns every direct share RLS permits when unscoped (the player feed)", async () => {
+    const { client, calls } = mockDirectClient([{ playlist_id: "p1" }], [plRow({ id: "p1", team_id: null })]);
+    const out = await getMyDirectPlaylists(client);
+    expect(calls.eq).toContainEqual(["user_id", "player"]);
+    expect(calls.in).toEqual([["id", ["p1"]]]);
+    expect(calls.or).toEqual([]);
+    expect(out.map((p) => [p.id, p.directShare])).toEqual([["p1", true]]);
+  });
+
+  // The bug: unsharing a playlist from its team nulls the legacy
+  // playlists.team_id (setPlaylistTeams keeps it as teamIds[0] ?? null), so a
+  // playlist shared only directly vanished wherever the scope filtered on it
+  // (the desktop's My playlists, the coach views on web and mobile).
+  it("scopes to the space by the playlist's org, not by the legacy team_id", async () => {
+    const { client, calls } = mockDirectClient([{ playlist_id: "p1" }], [plRow({ id: "p1", team_id: null, org_id: "orgA" })]);
+    const out = await getMyDirectPlaylists(client, { orgId: "orgA", teamIds: ["t1", "t2"] });
+    expect(calls.in.map(([col]) => col)).not.toContain("team_id");
+    expect(calls.or).toEqual(["org_id.eq.orgA,and(org_id.is.null,team_id.in.(t1,t2))"]);
+    expect(out.map((p) => p.id)).toEqual(["p1"]);
+  });
+
+  it("still looks in the space when the caller has no team there", async () => {
+    const { client, calls } = mockDirectClient([{ playlist_id: "p1" }], [plRow({ id: "p1", org_id: "orgA" })]);
+    const out = await getMyDirectPlaylists(client, { orgId: "orgA", teamIds: [] });
+    expect(calls.tables).toEqual(["playlist_user_shares", "playlists"]);
+    expect(calls.eq).toContainEqual(["org_id", "orgA"]);
+    expect(out).toHaveLength(1);
+  });
+
+  it("stops after the share lookup when nothing was shared directly", async () => {
+    const { client, calls } = mockDirectClient([], []);
+    await expect(getMyDirectPlaylists(client, { orgId: "orgA", teamIds: ["t1"] })).resolves.toEqual([]);
+    expect(calls.tables).toEqual(["playlist_user_shares"]);
+  });
+});
 
 describe("listPlaylists org scoping", () => {
   it("filters by org_id when an orgId is given", async () => {

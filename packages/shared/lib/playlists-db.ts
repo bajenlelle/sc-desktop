@@ -689,13 +689,33 @@ export async function setPlaylistUsers(
 // Get playlists directly shared with the current user (receiver view)
 // ---------------------------------------------------------------------------
 
+/** One space's view of direct shares (a coach's or staff member's feed). */
+export interface DirectShareScope {
+  /** The active space: its playlists carry this org_id. */
+  orgId: string;
+  /** The caller's teams there: playlists from before spaces (no org_id) still match through their legacy team_id. */
+  teamIds: string[];
+}
+
+/**
+ * Playlists shared straight to the current user. With a scope, only the
+ * active space's (a coach's view); without one, every direct share RLS
+ * permits (the player's feed across clubs).
+ *
+ * The scope goes by the playlist's org_id. It used to go by the legacy
+ * `playlists.team_id`, which setPlaylistTeams keeps as `teamIds[0] ?? null`:
+ * unsharing a playlist from its team and sharing it directly to a player
+ * nulled the column, and the playlist vanished from every scoped view (the
+ * desktop's My playlists, the coach views on web and mobile) while the
+ * player's feeds still showed it. Same flaw getMyTeamPlaylists was rewritten
+ * for, above.
+ */
 export async function getMyDirectPlaylists(
   supabase: SupabaseClient,
-  teamIds?: string[],
+  scope?: DirectShareScope,
 ): Promise<Playlist[]> {
   const uid = await currentUserId(supabase);
   if (!uid) return [];
-  if (teamIds && teamIds.length === 0) return [];
 
   // 1. Get playlist IDs shared with current user (recipient rows only)
   const { data: shareRows, error: shareError } = await supabase
@@ -707,17 +727,18 @@ export async function getMyDirectPlaylists(
 
   const playlistIds = shareRows.map((r: { playlist_id: string }) => r.playlist_id);
 
-  // 2. Fetch those playlists, optionally scoped to the active org's teams.
-  // Two modes: with teamIds (coach view) shares are strictly org-scoped —
-  // only playlists bound to a team in the active org, no-team playlists
-  // excluded. Without teamIds (player aggregated feed) every direct share
-  // RLS permits is returned, team-bound or not.
+  // 2. Fetch those playlists, in the scoped space when there is one.
   let query = supabase
     .from("playlists")
     .select(PLAYLIST_SELECT)
     .in("id", playlistIds)
     .order("created_at", { ascending: false });
-  if (teamIds) query = query.in("team_id", teamIds);
+  if (scope) {
+    query =
+      scope.teamIds.length > 0
+        ? query.or(`org_id.eq.${scope.orgId},and(org_id.is.null,team_id.in.(${scope.teamIds.join(",")}))`)
+        : query.eq("org_id", scope.orgId);
+  }
   const { data, error } = await query;
   if (error) { reportDbError("getMyDirectPlaylists playlists", error); return []; }
   if (!data) return [];
