@@ -106,6 +106,27 @@ export function visibleFeed(inSource: FeedPlaylist[], watch: WatchFilter): FeedP
 }
 
 /**
+ * The feed's sections when no watch filter is on: New (newest first), In
+ * progress (last watched first), Watched (newest first). The Up next
+ * playlist, already shown above them, is left out so it doesn't appear twice.
+ */
+export function feedSections(
+  visible: FeedPlaylist[],
+  upNextId?: string,
+): Record<WatchState, FeedPlaylist[]> {
+  const rest = upNextId ? visible.filter((p) => p.id !== upNextId) : visible;
+  return {
+    new: rest.filter((p) => watchStateOf(p) === "new").sort(byNewest),
+    progress: rest.filter((p) => watchStateOf(p) === "progress").sort(byLastWatched),
+    watched: rest.filter((p) => watchStateOf(p) === "watched").sort(byNewest),
+  };
+}
+
+/** How many of the feed's filters are narrowing it (for the filter button's state). */
+export function activeFeedFilterCount(f: { watch: WatchFilter; source: string; sharer: string }): number {
+  return (f.watch !== "all" ? 1 : 0) + (f.source !== "all" ? 1 : 0) + (f.sharer !== "all" ? 1 : 0);
+}
+/**
  * The one thing to do next: resume the most recently touched in-progress
  * playlist, else start the newest unwatched one. Callers must pass ALL
  * playlists (not the filtered view) — the hero is a call to action, not a

@@ -73,26 +73,25 @@ export function Screen({
   const colors = useThemeColors();
   const solid = useSolidMaterial();
   const barHeight = insets.top + TOOLBAR_ROW_H;
-  // iOS insets the scroll view so the pull-to-refresh spinner shows under
-  // the bar; Android pads the content instead. scrollY is the same on both:
-  // 0 with the content at rest under the bar.
-  const iosInset = Platform.OS === "ios" ? barHeight : 0;
+  // The content pads for the bar on both platforms (an iOS content inset gets
+  // reset by UIKit when a tab's screen remounts in the background). The bar
+  // is clear at rest and while pulling, so iOS's refresh spinner shows
+  // through it; Android's is offset below it.
 
   const scrollY = useSharedValue(0);
   // Where the large title ends, in scroll offset: the title block's place in
-  // the content plus the title's bottom inside the block, less Android's
-  // top padding (iOS insets instead).
+  // the content plus the title's bottom inside the block, less the top padding.
   const blockY = useSharedValue(0);
   const titleBottom = useSharedValue(large ? 1e6 : 0);
   const onScroll = useAnimatedScrollHandler((e) => {
-    scrollY.value = e.contentOffset.y + iosInset;
+    scrollY.value = e.contentOffset.y;
   });
 
   const materialStyle = useAnimatedStyle(() => ({
     opacity: scroll ? interpolate(scrollY.value, [0, 10], [0, 1], Extrapolation.CLAMP) : 1,
   }));
   const smallTitleStyle = useAnimatedStyle(() => {
-    const end = blockY.value + titleBottom.value - (Platform.OS === "ios" ? 0 : barHeight);
+    const end = blockY.value + titleBottom.value - barHeight;
     return { opacity: large ? interpolate(scrollY.value, [end - 6, end + 6], [0, 1], Extrapolation.CLAMP) : 1 };
   });
 
@@ -131,10 +130,8 @@ export function Screen({
           onScroll={onScroll}
           scrollEventThrottle={16}
           contentInsetAdjustmentBehavior="never"
-          contentInset={Platform.OS === "ios" ? { top: barHeight } : undefined}
-          contentOffset={Platform.OS === "ios" ? { x: 0, y: -barHeight } : undefined}
-          scrollIndicatorInsets={Platform.OS === "ios" ? { top: barHeight, bottom: tabBarHeight } : undefined}
-          contentContainerStyle={{ paddingTop: Platform.OS === "ios" ? 0 : barHeight, paddingBottom: bottomPad }}
+          scrollIndicatorInsets={{ top: barHeight, bottom: tabBarHeight }}
+          contentContainerStyle={{ paddingTop: barHeight, paddingBottom: bottomPad }}
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           refreshControl={

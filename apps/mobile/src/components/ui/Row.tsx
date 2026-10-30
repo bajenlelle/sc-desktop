@@ -226,3 +226,41 @@ export function StatLine({
     </Text>
   );
 }
+
+/**
+ * A text action inside a row or a line of text (Resume, Remind, Clear): the
+ * label in the primary colour, no box, a 44 pt touch area through hitSlop.
+ */
+export function TextButton({
+  label,
+  onPress,
+  accessibilityLabel,
+  muted,
+  size = "subheadline",
+  disabled,
+}: {
+  label: string;
+  onPress: () => void;
+  accessibilityLabel?: string;
+  /** The quiet one of a pair (Not now). */
+  muted?: boolean;
+  size?: "subheadline" | "footnote" | "body";
+  disabled?: boolean;
+}) {
+  return (
+    <Tappable
+      scaleTo={0.97}
+      hitSlop={10}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled: !!disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      className={disabled ? "opacity-50" : undefined}
+    >
+      <Text variant={size} className={muted ? "text-muted-foreground" : "font-semibold text-primary"}>
+        {label}
+      </Text>
+    </Tappable>
+  );
+}

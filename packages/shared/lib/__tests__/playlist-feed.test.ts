@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  activeFeedFilterCount,
   byLastWatched,
   byNewest,
   computeHero,
   feedCounts,
+  feedSections,
   filterFeed,
   initials,
   matchesSource,
@@ -425,5 +427,38 @@ describe("initials", () => {
     expect(initials(null)).toBe("?");
     expect(initials(undefined)).toBe("?");
     expect(initials("")).toBe("?");
+  });
+});
+
+describe("feedSections", () => {
+  const fresh1 = fp({ id: "n1", clipCount: 4, watchedCount: 0, sharedAt: "2026-10-20T10:00:00Z" });
+  const fresh2 = fp({ id: "n2", clipCount: 4, watchedCount: 0, sharedAt: "2026-10-22T10:00:00Z" });
+  const prog1 = fp({ id: "p1", clipCount: 6, watchedCount: 2, lastWatchedAt: "2026-10-21T10:00:00Z" });
+  const prog2 = fp({ id: "p2", clipCount: 6, watchedCount: 3, lastWatchedAt: "2026-10-23T10:00:00Z" });
+  const done = fp({ id: "w1", clipCount: 3, watchedCount: 3, sharedAt: "2026-10-01T10:00:00Z" });
+
+  it("splits by watch state, newest first, in progress by last watched", () => {
+    const s = feedSections([fresh1, prog1, done, fresh2, prog2]);
+    expect(s.new.map((p) => p.id)).toEqual(["n2", "n1"]);
+    expect(s.progress.map((p) => p.id)).toEqual(["p2", "p1"]);
+    expect(s.watched.map((p) => p.id)).toEqual(["w1"]);
+  });
+
+  it("leaves out the Up next playlist so it isn't shown twice", () => {
+    const s = feedSections([fresh1, prog1, done, prog2], "p2");
+    expect(s.progress.map((p) => p.id)).toEqual(["p1"]);
+    expect(s.new.map((p) => p.id)).toEqual(["n1"]);
+  });
+
+  it("leaves a section empty when Up next was its only playlist", () => {
+    expect(feedSections([prog1, done], "p1").progress).toEqual([]);
+  });
+});
+
+describe("activeFeedFilterCount", () => {
+  it("counts each filter that isn't All", () => {
+    expect(activeFeedFilterCount({ watch: "all", source: "all", sharer: "all" })).toBe(0);
+    expect(activeFeedFilterCount({ watch: "new", source: "all", sharer: "all" })).toBe(1);
+    expect(activeFeedFilterCount({ watch: "watched", source: "team:t1", sharer: "u1" })).toBe(3);
   });
 });

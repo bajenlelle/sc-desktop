@@ -58,9 +58,10 @@ export interface ButtonProps extends Omit<TappableProps, "children" | "className
 }
 
 /**
- * The web's Button at touch sizes: 44 pt by default, label weight 500,
- * radius 4. Disabled buttons fade to half but still receive taps, so an
- * accessibility hint can say why.
+ * The web's Button at touch sizes: 44 pt by default, radius 6 (the app's
+ * control radius), a semibold label on filled buttons and a medium one on the
+ * quiet ones. `link` is a text button. Disabled buttons fade to half but
+ * still receive taps, so an accessibility hint can say why.
  */
 export function Button({
   variant = "default",
@@ -76,7 +77,7 @@ export function Button({
   const colors = useThemeColors();
   const s = SIZE[size];
   const off = disabled || loading;
-  const spinnerColor = variant === "default" ? colors.primaryForeground : variant === "destructive" ? "#ffffff" : colors.mutedForeground;
+  const spinnerColor = variant === "default" ? colors.primaryForeground : variant === "destructive" ? "white" : colors.mutedForeground;
   return (
     <Tappable
       accessibilityRole="button"
@@ -84,13 +85,17 @@ export function Button({
       scaleTo={variant === "link" || off ? 1 : 0.97}
       disabled={off}
       className={({ pressed }) =>
-        cn("flex-row items-center justify-center rounded-md", s.box, variantBox(variant, pressed && !off), off && "opacity-50", className)
+        cn("flex-row items-center justify-center rounded-control", s.box, variantBox(variant, pressed && !off), off && "opacity-50", className)
       }
       {...props}
     >
       {loading ? <ActivityIndicator size="small" color={spinnerColor} /> : icon}
       {children ? (
-        <Text variant={s.text} className={cn("font-medium", TEXT_COLOR[variant], textClassName)} numberOfLines={1}>
+        <Text
+          variant={s.text}
+          className={cn(variant === "default" || variant === "destructive" || variant === "link" ? "font-semibold" : "font-medium", TEXT_COLOR[variant], textClassName)}
+          numberOfLines={1}
+        >
           {children}
         </Text>
       ) : !icon && !loading ? (

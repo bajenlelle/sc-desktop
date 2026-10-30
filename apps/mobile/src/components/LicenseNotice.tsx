@@ -8,8 +8,7 @@ import { View } from "react-native";
 import { getLicenseState, graceEndsAt } from "@scoutable/shared/lib/license-state";
 import { useAuth } from "@/lib/auth-context";
 import { formatDate } from "@/lib/format";
-import { Callout } from "@/components/ui/Group";
-import { Text } from "@/components/ui/Text";
+import { NoticeRow } from "@/components/ui/Row";
 
 export function LicenseNotice({ className = "" }: { className?: string }) {
   const { myOrgs } = useAuth();
@@ -25,25 +24,19 @@ export function LicenseNotice({ className = "" }: { className?: string }) {
   if (affected.length === 0) return null;
 
   return (
-    <View className={`gap-2 ${className}`}>
+    <View className={className}>
       {affected.map((o) => {
         const state = getLicenseState(o.expiresAt);
         const graceEnd = graceEndsAt(o.expiresAt);
+        // Status only, no renewal call to action: App Store 3.1.3(f) keeps
+        // this app exempt from in-app purchase as long as it never points at
+        // a purchase outside it. Web and desktop still carry the renewal path.
         return (
-          <Callout key={o.orgId} tone="destructive" icon="error">
-            <Text variant="callout" className="font-semibold">
-              {o.orgName}&apos;s license has expired
-            </Text>
-            {/* Status only, no renewal call to action: App Store 3.1.3(f)
-                keeps this app exempt from in-app purchase as long as it
-                never points at a purchase outside it. Web and desktop still
-                carry the renewal path. */}
-            <Text variant="callout" className="text-muted-foreground">
-              {state === "grace" && graceEnd
-                ? `New shares pause on ${formatDate(graceEnd, "short")}. Existing playlists stay watchable.`
-                : "New shares are paused. Existing playlists stay watchable."}
-            </Text>
-          </Callout>
+          <NoticeRow key={o.orgId} icon="error" tone="destructive">
+            {state === "grace" && graceEnd
+              ? `${o.orgName}'s license has expired. New shares pause on ${formatDate(graceEnd, "short")}; existing playlists stay watchable.`
+              : `${o.orgName}'s license has expired. New shares are paused; existing playlists stay watchable.`}
+          </NoticeRow>
         );
       })}
     </View>

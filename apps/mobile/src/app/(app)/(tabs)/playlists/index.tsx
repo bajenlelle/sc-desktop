@@ -2,18 +2,27 @@ import { useCallback, useMemo, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { router } from "expo-router";
 import { clipViewKey } from "@scoutable/shared/lib/clip-views-db";
+import {
+  activeFeedFilterCount,
+  feedCounts,
+  filterFeed,
+  sharerFilterOptions,
+} from "@scoutable/shared/lib/playlist-feed";
 import { useAuth } from "@/lib/auth-context";
 import { trackEvent } from "@/lib/analytics";
 import { playableClips, usePlaylists } from "@/lib/playlists-store";
 import { useThemeColors } from "@/lib/theme-context";
-import { PlaylistFeed } from "@/components/PlaylistFeed";
+import { NO_FEED_FILTERS, PlaylistFeed, type FeedFilters } from "@/components/PlaylistFeed";
+import { FeedFilterSheet } from "@/components/FeedFilterSheet";
+import { FilterButton } from "@/components/ui/FilterButton";
+import { Text } from "@/components/ui/Text";
 import { SharedByMeDashboard } from "@/components/SharedByMeDashboard";
 import { LicenseNotice } from "@/components/LicenseNotice";
 import { NotificationPrimer } from "@/components/NotificationPrimer";
 import { Screen } from "@/components/shell/Screen";
 import { SearchField } from "@/components/ui/SearchField";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
-import type { PopUpOption } from "@/components/ui/PopUpButton";
+import type { RadioOption } from "@/components/ui/RadioGroup";
 
 /**
  * The Playlists tab, as the web's phone layout: one scroll view under the
@@ -33,13 +42,19 @@ export default function PlaylistsScreen() {
   const [query, setQuery] = useState("");
   /** Clear filters empties the search too. */
   const clearQuery = useCallback(() => setQuery(""), []);
+  const [filters, setFilters] = useState<FeedFilters>(NO_FEED_FILTERS);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const clearFilters = useCallback(() => {
+    setFilters(NO_FEED_FILTERS);
+    setQuery("");
+  }, []);
 
   // The feed view-model lives in the store (shared toFeedPlaylists): the
   // tab and app-icon badges derive from the same array, so counts can't drift.
 
   // Only teams that actually have playlists appear as filter options.
-  const sourceOptions = useMemo<PopUpOption<string>[]>(() => {
-    const opts: PopUpOption<string>[] = [{ value: "all", label: "All teams" }];
+  const sourceOptions = useMemo<RadioOption<string>[]>(() => {
+    const opts: RadioOption<string>[] = [{ value: "all", label: "All teams" }];
     if (directPlaylistIds.size > 0) opts.push({ value: "direct", label: "Shared with me" });
     for (const [teamId, team] of teamMap) {
       if (allPlaylists.some((p) => (p.teamIds ?? []).includes(teamId))) {
@@ -81,9 +96,27 @@ export default function PlaylistsScreen() {
     }
   }, [refresh]);
 
+  const sharerOptions = useMemo<RadioOption<string>[]>(() => sharerFilterOptions(feedItems), [feedItems]);
+  // Counts in the sheet describe what's reachable under the current team,
+  // sharer and search, as the web's chips do (shared playlist-feed, tested).
+  const counts = useMemo(
+    () => feedCounts(filterFeed(feedItems, { query, sharer: filters.sharer, source: filters.source })),
+    [feedItems, query, filters.sharer, filters.source],
+  );
+  const activeFilters = activeFeedFilterCount(filters);
+  /** The active filters in words, for the line under the search field. */
+  const activeLabels = useMemo(() => {
+    const out: string[] = [];
+    if (filters.watch !== "all") out.push({ new: "New", progress: "In progress", watched: "Watched" }[filters.watch]);
+    if (filters.source !== "all") out.push(sourceOptions.find((o) => o.value === filters.source)?.label ?? "One team");
+    if (filters.sharer !== "all") out.push(`From ${sharerOptions.find((o) => o.value === filters.sharer)?.label ?? "one coach"}`);
+    return out;
+  }, [filters, sourceOptions, sharerOptions]);
+
   const showDashboard = isCoachOrAdmin && coachTab === "by-me";
-  // Only a player with nothing to search loses the field.
-  const searchable = loading || isCoachOrAdmin || feedItems.length > 0;
+  // Search earns its place from eight playlists (or while a search is on);
+  // coaches keep it on the dashboard, whose rows load there.
+  const searchable = query.length > 0 || (isCoachOrAdmin && coachTab === "by-me") || feedItems.length >= 8;
 
   return (
     <Screen
@@ -91,6 +124,12 @@ export default function PlaylistsScreen() {
       large
       refreshing={refreshing}
       onRefresh={handleRefresh}
+      trailing={
+        // The dashboard keeps its own controls until mobile v2 M4.
+        !loading && !showDashboard && feedItems.length > 0 ? (
+          <FilterButton activeCount={activeFilters} onPress={() => setFiltersOpen(true)} />
+        ) : undefined
+      }
       principal={
         // Coaches get two views: who watched what they shared, and the
         // playlists others shared with them (same split as web).
@@ -113,8 +152,16 @@ export default function PlaylistsScreen() {
           <SearchField value={query} onChangeText={setQuery} placeholder="Search" accessibilityLabel="Search playlists" />
         ) : undefined
       }
-      contentClassName="gap-5 px-4 pt-2"
+      contentClassName="pt-1"
     >
+        {!showDashboard && activeFilters > 0 && (
+          <Text variant="footnote" className="px-4 pb-1 text-muted-foreground">
+            {activeLabels.join(" · ")} ·{" "}
+            <Text variant="footnote" accessibilityRole="button" onPress={clearFilters} className="font-semibold text-primary">
+              Clear
+            </Text>
+          </Text>
+        )}
         <LicenseNotice />
         {!loading && feedItems.length > 0 && <NotificationPrimer />}
 
@@ -123,18 +170,29 @@ export default function PlaylistsScreen() {
             <ActivityIndicator color={colors.mutedForeground} />
           </View>
         ) : showDashboard ? (
-          <SharedByMeDashboard query={query} onClearQuery={clearQuery} refreshNonce={refreshNonce} />
+          <View className="gap-5 px-4 pt-2">
+            <SharedByMeDashboard query={query} onClearQuery={clearQuery} refreshNonce={refreshNonce} />
+          </View>
         ) : (
           <PlaylistFeed
             playlists={feedItems}
-            sourceOptions={sourceOptions}
             query={query}
-            onClearQuery={clearQuery}
+            filters={filters}
+            onClearFilters={clearFilters}
             onOpen={openPlaylist}
             onResume={resumePlaylist}
             emptyCopy={isCoachOrAdmin ? "Playlists other coaches share with you show up here." : undefined}
           />
         )}
+        <FeedFilterSheet
+          visible={filtersOpen}
+          onClose={() => setFiltersOpen(false)}
+          filters={filters}
+          onChange={setFilters}
+          counts={counts}
+          sourceOptions={sourceOptions}
+          sharerOptions={sharerOptions}
+        />
     </Screen>
   );
 }

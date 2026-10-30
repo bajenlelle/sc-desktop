@@ -2,14 +2,11 @@
  * Permission priming for push notifications: the OS prompt is one-shot, so
  * it's never fired at launch — only from here, after the user has a feed
  * with real content (they know what a notification would be FOR).
- * Standard priming pattern; dismissal is permanent (AsyncStorage) and the
- * card never returns once permission is decided either way.
+ * Standard priming pattern, as one quiet notice row; dismissal is permanent
+ * (AsyncStorage) and it never returns once permission is decided either way.
  */
 import { useCallback, useEffect, useState } from "react";
-import { View } from "react-native";
-import { Button } from "@/components/ui/Button";
-import { Callout } from "@/components/ui/Group";
-import { Text } from "@/components/ui/Text";
+import { NoticeRow } from "@/components/ui/Row";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Device from "expo-device";
 import { trackEvent } from "@/lib/analytics";
@@ -67,23 +64,16 @@ export function NotificationPrimer() {
   if (!visible) return null;
 
   return (
-    <Callout icon="bell">
-      <Text variant="callout" className="font-semibold">
-        Know when new clips land
-      </Text>
-      <Text variant="callout" className="text-muted-foreground">
-        {isCoachOrAdmin
-          ? "Get a notification when someone shares a playlist with you."
-          : "Get a notification when your coach shares a playlist with you."}
-      </Text>
-      <View className="mt-2.5 flex-row items-center gap-2">
-        <Button size="sm" onPress={enable}>
-          Turn on notifications
-        </Button>
-        <Button size="sm" variant="ghost" onPress={dismiss}>
-          Not now
-        </Button>
-      </View>
-    </Callout>
+    <NoticeRow
+      icon="bell"
+      actions={[
+        { label: "Turn on", onPress: enable, primary: true },
+        { label: "Not now", onPress: dismiss },
+      ]}
+    >
+      {isCoachOrAdmin
+        ? "Get a notification when someone shares a playlist with you."
+        : "Get a notification when your coach shares a playlist."}
+    </NoticeRow>
   );
 }
