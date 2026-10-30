@@ -3,6 +3,7 @@ import { ActivityIndicator, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import {
   activeFeedFilterCount,
+  computeHero,
   feedCounts,
   filterFeed,
   sharerFilterOptions,
@@ -24,6 +25,7 @@ import { LicenseNotice } from "@/components/LicenseNotice";
 import { NotificationPrimer } from "@/components/NotificationPrimer";
 import { Screen } from "@/components/shell/Screen";
 import { SearchCapsule } from "@/components/shell/SearchCapsule";
+import { ActionPill } from "@/components/shell/ActionPill";
 import { PopoverMenu, type PopoverGroup } from "@/components/ui/PopoverMenu";
 
 type Option = { value: string; label: string };
@@ -51,6 +53,7 @@ export default function PlaylistsScreen() {
   const [dashFilters, setDashFilters] = useState<DashboardFilters>(NO_DASHBOARD_FILTERS);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filterAnchor = useRef<View>(null);
+  const [searchFocused, setSearchFocused] = useState(false);
   /** The dashboard's shared playlists (null while it loads): no filter button without any. */
   const [dashRows, setDashRows] = useState<number | null>(null);
   // A sheet left open for one view never opens over the other.
@@ -148,6 +151,14 @@ export default function PlaylistsScreen() {
   }, [counts, filters, sourceOptions, sharerOptions]);
 
   const showDashboard = isCoachOrAdmin && coachTab === "by-me";
+  // The one to watch next (Cowork's floating "New task" spot): the most
+  // recently touched started playlist, else the newest new one. Out of the
+  // way while searching, filtering or typing.
+  const hero = useMemo(() => computeHero(feedItems), [feedItems]);
+  const pill =
+    !showDashboard && !loading && hero && hero.kind !== "done" && query.length === 0 && activeFilters === 0 && !searchFocused
+      ? hero
+      : null;
   // Search earns its place from eight playlists (or while a search is on);
   // coaches keep it on the dashboard, whose rows load there.
   const searchable = query.length > 0 || (isCoachOrAdmin && coachTab === "by-me") || feedItems.length >= 8;
@@ -156,8 +167,8 @@ export default function PlaylistsScreen() {
     <Screen
       title={isCoachOrAdmin ? (coachTab === "by-me" ? "Shared by me" : "Shared with me") : "My playlists"}
       menu
-      // Both views are cards on the grouped floor (Shared by me and the feed).
-      grouped
+      // Shared by me is cards on the grouped floor; the feed is rows on the page.
+      grouped={showDashboard}
       refreshing={refreshing}
       onRefresh={handleRefresh}
       trailing={
@@ -169,7 +180,21 @@ export default function PlaylistsScreen() {
           />
         ) : undefined
       }
-      bottom={searchable ? <SearchCapsule value={query} onChangeText={setQuery} /> : undefined}
+      bottom={
+        pill || searchable ? (
+          <>
+            {pill ? (
+              <ActionPill
+                icon="play"
+                label={pill.kind === "continue" ? "Resume" : "Watch new"}
+                accessibilityLabel={`${pill.kind === "continue" ? "Resume" : "Watch"} ${pill.playlist.name}`}
+                onPress={() => resumePlaylist(pill.playlist.id)}
+              />
+            ) : null}
+            {searchable ? <SearchCapsule value={query} onChangeText={setQuery} onFocusChange={setSearchFocused} /> : null}
+          </>
+        ) : undefined
+      }
       contentClassName="pt-1"
     >
         {!showDashboard && activeFilters > 0 && (
