@@ -1,27 +1,80 @@
-import { useState } from "react";
-import { ActivityIndicator, Alert, View } from "react-native";
-import { router } from "expo-router";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, Alert, Keyboard, StyleSheet, TextInput, View } from "react-native";
+import { router, useNavigation } from "expo-router";
+import { usePreventRemove } from "expo-router/react-navigation";
+import { updateMyFullName } from "@scoutable/shared/lib/profile-db";
+import { FULL_NAME_MAX, normalizeFullName } from "@scoutable/shared/lib/profile-name";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
+import { interStyle } from "@/lib/fonts";
+import { successHaptic } from "@/lib/haptics";
 import { useThemeColors } from "@/lib/theme-context";
 import { Avatar } from "@/components/Avatar";
-import { SheetBackButton } from "@/components/shell/GlassButton";
+import { GlassButton, SheetBackButton } from "@/components/shell/GlassButton";
+import { Icon } from "@/components/ui/Icon";
 import { Screen } from "@/components/shell/Screen";
 import { useRoleLine } from "@/components/settings/AccountCard";
 import { GroupFooter, GroupRow, GroupedList } from "@/components/ui/Group";
 import { Text } from "@/components/ui/Text";
 
 /**
- * Settings › Profile, as Claude's: the picture large, then your name and
- * email, the password, and Delete account last, apart and in red. The photo
- * is changed from the web or desktop app for now (a picker is a native
- * module, so it waits for a store build).
+ * Settings › Profile, as Claude's: the picture large, then your name (edited
+ * in place, saved with the check in the bar) and email, the password, and
+ * Delete account last, apart and in red. Leaving with an unsaved name asks
+ * first, and the sheet can't be swiped away meanwhile. The photo is changed
+ * from the web or desktop app for now (a picker is a native module, so it
+ * waits for a store build).
  */
 export default function ProfilePage() {
-  const { user, profile } = useAuth();
+  const { user, profile, reloadProfile } = useAuth();
   const colors = useThemeColors();
+  const navigation = useNavigation();
   const roleLine = useRoleLine();
   const [resetting, setResetting] = useState(false);
+
+  const savedName = profile?.fullName ?? "";
+  const [name, setName] = useState(savedName);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const next = normalizeFullName(name);
+  const dirty = (next ?? "") !== (normalizeFullName(savedName) ?? "");
+  const canSave = dirty && next !== null && !saving;
+
+  // An unsaved name holds the sheet: no swipe down while it's there.
+  useEffect(() => {
+    navigation.getParent()?.setOptions({ gestureEnabled: !dirty });
+    return () => navigation.getParent()?.setOptions({ gestureEnabled: true });
+  }, [dirty, navigation]);
+
+  usePreventRemove(dirty && !saving, ({ data }) => {
+    Keyboard.dismiss();
+    Alert.alert("Discard changes?", "Your new name hasn't been saved.", [
+      { text: "Keep editing", style: "cancel" },
+      { text: "Discard", style: "destructive", onPress: () => navigation.dispatch(data.action) },
+    ]);
+  });
+
+  // Back to Settings once the saved name has come back with the profile.
+  useEffect(() => {
+    if (saved && !dirty) router.back();
+  }, [saved, dirty]);
+
+  async function handleSave() {
+    if (!canSave || !user || next === null) return;
+    Keyboard.dismiss();
+    setSaving(true);
+    try {
+      await updateMyFullName(supabase, user.id, next);
+      await reloadProfile();
+      successHaptic();
+      setName(next);
+      setSaved(true);
+    } catch {
+      Alert.alert("Couldn't save your name", "Check your connection and try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function handleChangePassword() {
     if (!user?.email || resetting) return;
@@ -37,7 +90,22 @@ export default function ProfilePage() {
   }
 
   return (
-    <Screen title="Profile" sheet leading={<SheetBackButton />} grouped contentClassName="gap-6 px-4 pt-2">
+    <Screen
+      title="Profile"
+      sheet
+      leading={<SheetBackButton />}
+      trailing={
+        <GlassButton accessibilityLabel="Save" disabled={!canSave} onPress={handleSave}>
+          {saving ? (
+            <ActivityIndicator size="small" color={colors.foreground} />
+          ) : (
+            <Icon name="check" size={20} strokeWidth={2.25} color={colors.foreground} />
+          )}
+        </GlassButton>
+      }
+      grouped
+      contentClassName="gap-6 px-4 pt-2"
+    >
       <View className="items-center gap-2">
         <Avatar name={profile?.fullName} url={profile?.avatarUrl} size={96} />
         {roleLine ? (
@@ -49,7 +117,25 @@ export default function ProfilePage() {
 
       <View>
         <GroupedList large>
-          <GroupRow large label="Name" trailing={profile?.fullName || "Not set"} />
+          <View className="min-h-[52px] flex-row items-center gap-3 px-4">
+            <Text>Name</Text>
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              placeholder="Your name"
+              placeholderTextColor={colors.mutedForeground}
+              maxLength={FULL_NAME_MAX}
+              autoCapitalize="words"
+              autoComplete="name"
+              textContentType="name"
+              autoCorrect={false}
+              returnKeyType="done"
+              onSubmitEditing={handleSave}
+              editable={!saving}
+              accessibilityLabel="Name"
+              style={[styles.input, { color: colors.foreground }, interStyle(400)]}
+            />
+          </View>
           <GroupRow large label="Email" trailing={user?.email ?? ""} />
         </GroupedList>
         <GroupFooter>Your name shows on the playlists you share and in your club.</GroupFooter>
@@ -82,3 +168,8 @@ export default function ProfilePage() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  // Body text, ending at the row's right edge like the other rows' values.
+  input: { flex: 1, minWidth: 0, fontSize: 17, lineHeight: 22, letterSpacing: -0.2, textAlign: "right", paddingVertical: 14 },
+});
