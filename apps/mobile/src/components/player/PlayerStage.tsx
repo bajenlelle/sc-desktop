@@ -1,18 +1,20 @@
 /**
- * The footage with its controls over it (the web's player-stage.tsx). On a
- * phone held upright it is iOS's inline player: a tap shows or hides the
- * controls (it never pauses), previous, play and next sit large in the
- * middle, speed and full screen in the top corner, and the timeline runs
- * along the bottom. Wider (full screen, landscape) the controls gather in a
- * floating bar. Either way they stay while paused and fade after a moment
- * of stillness during playback. A spinner shows while the decoder is behind,
- * and what went wrong when nothing can play.
+ * The footage with its controls over it (the web's player-stage.tsx). The
+ * controls are one floating glass bar at the bottom of the footage, upright
+ * and in full screen alike: the timeline over previous, play and next, the
+ * clip's place in the queue, speed and full screen (the wider stage adds
+ * replay and stop). A text card has no timeline, so the bar shrinks to its
+ * buttons and leaves the words clear. A tap shows or hides the bar (it never
+ * pauses); it stays while paused and fades after a moment of stillness
+ * during playback. A spinner shows while the decoder is behind, and what
+ * went wrong when nothing can play.
  */
 import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import Animated, { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
+import { useLargeText } from "@/lib/a11y";
 import { VideoView, type VideoPlayer } from "expo-video";
 import { Icon } from "@/components/ui/Icon";
 import { Tappable } from "@/components/ui/Tappable";
@@ -21,7 +23,7 @@ import { ClipProgress, ClipScrubber } from "./ClipScrubber";
 import { ControlButton, ControlRow, FullscreenButton, PlayPauseButton, PlayerMaterial, SpeedMenu } from "./controls";
 
 const IDLE_MS = 2500;
-/** Narrower than this, the controls take the phone layout. */
+/** Narrower than this, the bar leaves out replay and stop. */
 const COMPACT_WIDTH = 560;
 
 const fadeIn = FadeIn.duration(200).reduceMotion(ReduceMotion.Never);
@@ -75,13 +77,14 @@ export function PlayerStage({
   failed: boolean;
   /** Nothing playing yet: the wide layout's centre button ("Play", "Resume"). */
   idleLabel?: string | null;
-  /** A text card is up: the phone layout keeps its centre clear for the words. */
+  /** A text card is up (it has no timeline, so the bar is only its buttons). */
   cardShowing?: boolean;
   onScrubbingChange?: (scrubbing: boolean) => void;
   /** Overlays on the footage (a text card). Taps pass through them. */
   children?: ReactNode;
 }) {
   const insets = useSafeAreaInsets();
+  const largeText = useLargeText();
   const [width, setWidth] = useState(0);
   const compact = width > 0 && width < COMPACT_WIDTH;
   const [awake, setAwake] = useState(true);
@@ -185,97 +188,63 @@ export function PlayerStage({
       />
 
       {chromeVisible && width > 0 && (
-        <Animated.View key={compact ? "compact" : "wide"} entering={fadeIn} exiting={fadeOut} pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-          {compact ? (
-            <>
-              {/* A wash so white controls read over bright footage. */}
-              {!cardShowing && <View pointerEvents="none" className="absolute inset-0 bg-black/25" />}
-              {cardShowing ? (
-                // A card has no timeline: its controls take the bottom strip,
-                // so pausing it to read doesn't cover what it says.
-                <View
-                  pointerEvents="box-none"
-                  style={{ position: "absolute", left: 0, right: 0, bottom: 0, paddingTop: 16, paddingBottom: edge.bottom + 2 }}
-                >
-                  <BottomShade />
-                  <View pointerEvents="box-none" className="flex-row items-center justify-center gap-8">
-                    <ControlButton label="Previous clip" icon="previous" onPress={act(transport.onPrev)} disabled={!transport.canPrev} />
-                    <PlayPauseButton paused={paused} onPress={act(onTogglePlay)} size="lg" />
-                    <ControlButton label="Next clip" icon="next" onPress={act(transport.onNext)} disabled={!transport.canNext} />
-                  </View>
-                </View>
-              ) : (
-                <View pointerEvents="box-none" className="absolute inset-0 flex-row items-center justify-center gap-8">
-                  <ControlButton label="Previous clip" icon="previous" iconSize={24} onPress={act(transport.onPrev)} disabled={!transport.canPrev} />
-                  <PlayPauseButton paused={paused} onPress={act(onTogglePlay)} size="xl" />
-                  <ControlButton label="Next clip" icon="next" iconSize={24} onPress={act(transport.onNext)} disabled={!transport.canNext} />
-                </View>
-              )}
-              {/* Speed and full screen in the top corner, as iOS's player keeps
-                  them, so the timeline gets the whole width. */}
-              <View
-                pointerEvents="box-none"
-                style={{ position: "absolute", top: edge.top + 2, right: edge.right + 4 }}
+        <Animated.View entering={fadeIn} exiting={fadeOut} pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+          {idleLabel && !transport.isQueueActive && (
+            <View pointerEvents="box-none" className="absolute inset-0 items-center justify-center">
+              <Tappable
+                accessibilityRole="button"
+                onPress={act(onTogglePlay)}
+                className="h-11 flex-row items-center gap-2 overflow-hidden rounded-full px-5"
+                style={{ borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.18)" }}
               >
-                <ControlRow>
+                <PlayerMaterial />
+                <Icon name="play" size={15} color="white" />
+                <Text variant="subheadline" className="font-semibold text-white">
+                  {idleLabel}
+                </Text>
+              </Tappable>
+            </View>
+          )}
+          <View
+            pointerEvents="box-none"
+            style={{
+              position: "absolute",
+              left: edge.left + (compact ? 10 : 12),
+              right: edge.right + (compact ? 10 : 12),
+              bottom: edge.bottom + (compact ? 10 : 12),
+              alignItems: "center",
+            }}
+          >
+            <View
+              className="w-full max-w-3xl overflow-hidden rounded-[12px] pb-0.5 pl-3 pr-1.5 pt-1.5"
+              style={{ borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.14)" }}
+            >
+              <PlayerMaterial />
+              {scrubber ? <View className="pr-1.5">{scrubber}</View> : null}
+              <ControlRow>
+                <View className="-ml-2.5">
+                  <ControlButton label="Previous clip" icon="previous" onPress={act(transport.onPrev)} disabled={!transport.canPrev} />
+                </View>
+                {!compact && (
+                  <ControlButton label="Replay clip" icon="replay" onPress={act(transport.onReplay)} disabled={!transport.isQueueActive} />
+                )}
+                <PlayPauseButton paused={paused} onPress={act(onTogglePlay)} size="lg" />
+                <ControlButton label="Next clip" icon="next" onPress={act(transport.onNext)} disabled={!transport.canNext} />
+                {!compact && (
+                  <ControlButton label="Stop" icon="stop" iconSize={16} onPress={act(transport.onStop)} disabled={!transport.isQueueActive} />
+                )}
+                {readout && !largeText && (
+                  <Text variant="footnote" nums numberOfLines={1} maxFontSizeMultiplier={1.3} className="ml-1.5 shrink" style={{ color: "rgba(255,255,255,0.7)" }}>
+                    {readout}
+                  </Text>
+                )}
+                <View className="ml-auto flex-row items-center">
                   <SpeedMenu speed={speed} onSpeedChange={(s) => { wake(); onSpeedChange(s); }} />
                   <FullscreenButton active={fullscreen.active} onToggle={act(fullscreen.toggle)} />
-                </ControlRow>
-              </View>
-              {scrubber && (
-                <View
-                  pointerEvents="box-none"
-                  style={{ position: "absolute", left: 0, right: 0, bottom: 0, paddingTop: 24, paddingBottom: edge.bottom + 2, paddingLeft: edge.left + 10, paddingRight: edge.right + 10 }}
-                >
-                  <BottomShade />
-                  {scrubber}
                 </View>
-              )}
-            </>
-          ) : (
-            <>
-              {idleLabel && !transport.isQueueActive && (
-                <View pointerEvents="box-none" className="absolute inset-0 items-center justify-center">
-                  <Tappable
-                    accessibilityRole="button"
-                    onPress={act(onTogglePlay)}
-                    className="h-12 flex-row items-center gap-2 overflow-hidden rounded-full border border-white/15 px-6"
-                  >
-                    <PlayerMaterial />
-                    <Icon name="play" size={16} color="#ffffff" />
-                    <Text variant="subheadline" className="font-medium text-white">
-                      {idleLabel}
-                    </Text>
-                  </Tappable>
-                </View>
-              )}
-              <View
-                pointerEvents="box-none"
-                style={{ position: "absolute", left: edge.left + 12, right: edge.right + 12, bottom: edge.bottom + 12, alignItems: "center" }}
-              >
-                <View className="w-full max-w-3xl gap-1 overflow-hidden rounded-[10px] border border-white/10 px-3 pb-1.5 pt-2">
-                  <PlayerMaterial />
-                  {scrubber}
-                  <ControlRow>
-                    <ControlButton label="Previous clip" icon="previous" onPress={act(transport.onPrev)} disabled={!transport.canPrev} />
-                    <ControlButton label="Replay clip" icon="replay" onPress={act(transport.onReplay)} disabled={!transport.isQueueActive} />
-                    <PlayPauseButton paused={paused} onPress={act(onTogglePlay)} size="lg" />
-                    <ControlButton label="Next clip" icon="next" onPress={act(transport.onNext)} disabled={!transport.canNext} />
-                    <ControlButton label="Stop" icon="stop" iconSize={16} onPress={act(transport.onStop)} disabled={!transport.isQueueActive} />
-                    {readout && (
-                      <Text variant="footnote" nums numberOfLines={1} className="ml-2 shrink" style={{ color: "rgba(255,255,255,0.8)" }}>
-                        {readout}
-                      </Text>
-                    )}
-                    <View className="ml-auto flex-row items-center gap-0.5">
-                      <SpeedMenu speed={speed} onSpeedChange={(s) => { wake(); onSpeedChange(s); }} />
-                      <FullscreenButton active={fullscreen.active} onToggle={act(fullscreen.toggle)} />
-                    </View>
-                  </ControlRow>
-                </View>
-              </View>
-            </>
-          )}
+              </ControlRow>
+            </View>
+          </View>
 
           {fullscreen.active && (
             <View
@@ -288,8 +257,7 @@ export function PlayerStage({
                 paddingTop: edge.top + 10,
                 paddingBottom: 36,
                 paddingLeft: edge.left + 16,
-                // Room for the phone layout's speed and full-screen buttons.
-                paddingRight: edge.right + (compact ? 112 : 16),
+                paddingRight: edge.right + 16,
               }}
             >
               <TopShade />
@@ -298,12 +266,12 @@ export function PlayerStage({
                 <Tappable
                   accessibilityRole="button"
                   onPress={fullscreen.exit}
-                  className={({ pressed }) =>
-                    `h-9 flex-row items-center gap-1.5 rounded-md border border-white/25 px-3 ${pressed ? "bg-black/60" : "bg-black/40"}`
-                  }
+                  className="h-9 flex-row items-center gap-1.5 overflow-hidden rounded-full px-3.5"
+                  style={{ borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.18)" }}
                 >
-                  <Icon name="close" size={14} weight="semibold" color="#ffffff" />
-                  <Text variant="subheadline" className="font-medium text-white">
+                  <PlayerMaterial />
+                  <Icon name="close" size={14} weight="semibold" color="white" />
+                  <Text variant="subheadline" className="font-semibold text-white">
                     Done
                   </Text>
                 </Tappable>
@@ -324,11 +292,6 @@ export function PlayerStage({
       )}
     </View>
   );
-}
-
-/** Black rising from the bottom edge, under the timeline. */
-function BottomShade() {
-  return <Shade from={0} to={0.6} />;
 }
 
 /** Black falling from the top edge, under the full-screen bar. */

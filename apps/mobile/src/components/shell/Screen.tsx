@@ -39,6 +39,8 @@ export interface ScreenProps {
   grouped?: boolean;
   /** false for fixed layouts (the watch view): no scroll view, a solid bar. */
   scroll?: boolean;
+  /** No bar at all (the watch view's full-screen player covers the window). */
+  barHidden?: boolean;
   refreshing?: boolean;
   onRefresh?: () => void;
   /** Classes for the content under the title block. */
@@ -63,6 +65,7 @@ export function Screen({
   principal,
   grouped = false,
   scroll = true,
+  barHidden = false,
   refreshing,
   onRefresh,
   contentClassName,
@@ -72,7 +75,7 @@ export function Screen({
   const { tabBarHeight } = useShell();
   const colors = useThemeColors();
   const solid = useSolidMaterial();
-  const barHeight = insets.top + TOOLBAR_ROW_H;
+  const barHeight = barHidden ? 0 : insets.top + TOOLBAR_ROW_H;
   // The content pads for the bar on both platforms (an iOS content inset gets
   // reset by UIKit when a tab's screen remounts in the background). The bar
   // is clear at rest and while pulling, so iOS's refresh spinner shows
@@ -156,6 +159,7 @@ export function Screen({
       )}
 
       {/* The bar floats over the content. */}
+      {barHidden ? null : (
       <View pointerEvents="box-none" style={[styles.bar, { height: barHeight }]}>
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, materialStyle]}>
           {scroll ? (
@@ -193,6 +197,7 @@ export function Screen({
           </View>
         </View>
       </View>
+      )}
     </View>
   );
 }

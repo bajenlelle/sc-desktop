@@ -2,9 +2,6 @@
 module.exports = {
   content: [
     "./src/**/*.{ts,tsx}",
-    // eventColors() in shared returns Tailwind class strings — keep them from
-    // being purged until the clip rows switch to eventHue() dots (mobile v2 M5).
-    "../../packages/shared/lib/events.ts",
   ],
   presets: [require("nativewind/preset")],
   darkMode: "media",

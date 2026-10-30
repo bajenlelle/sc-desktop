@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
+import { Screen } from "@/components/shell/Screen";
+import { BackButton } from "@/components/shell/BackButton";
 import { useReducedMotion } from "react-native-reanimated";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -22,12 +24,11 @@ import { useStageFullscreen } from "@/components/player/use-stage-fullscreen";
 import { ActivePill, WatchClipRow, WatchTextCardRow, useActivePill } from "@/components/WatchClipRow";
 import { Button } from "@/components/ui/Button";
 import { StatusScreen } from "@/components/ui/EmptyState";
-import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Text } from "@/components/ui/Text";
 
 /**
  * Watching a shared playlist (the web's watch-view.tsx at phone width): the
- * player under the navigation bar, and the clip list scrolling beneath it.
+ * player under the app's own title bar, and the clip list scrolling beneath it.
  * The playing row says what's playing (it carries the highlight, and the
  * coach's note shows in full in its row): a block between player and list
  * would change height from clip to clip, or vanish for a text card, and move
@@ -134,24 +135,24 @@ export default function WatchScreen() {
 
   if (!playlist && (loading || retrying)) {
     return (
-      <View className="flex-1 items-center justify-center bg-background">
-        <Stack.Screen options={{ headerShown: true, title: "" }} />
-        <ActivityIndicator color={colors.mutedForeground} />
-      </View>
+      <Screen title="" leading={<BackButton label="Playlists" />} scroll={false}>
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator color={colors.mutedForeground} />
+        </View>
+      </Screen>
     );
   }
 
   if (!playlist) {
     return (
-      <>
-        <Stack.Screen options={{ headerShown: true, title: "" }} />
+      <Screen title="" leading={<BackButton label="Playlists" />} scroll={false}>
         <StatusScreen
           icon="playlists"
           title="This playlist isn't available"
           body="It may have been removed, or shared with a different team."
           actions={<Button onPress={() => router.back()}>Back to playlists</Button>}
         />
-      </>
+      </Screen>
     );
   }
 
@@ -159,16 +160,14 @@ export default function WatchScreen() {
     items.length > 0 && !queue.isQueueActive ? (progress.watched > 0 && progress.watched < progress.total ? "Resume" : "Play") : null;
 
   return (
-    <View className="flex-1 bg-background">
+    <Screen
+      title={playlist.name}
+      leading={<BackButton label="Playlists" />}
+      scroll={false}
+      barHidden={fullscreen.active}
+    >
       <Stack.Screen
         options={{
-          headerShown: !fullscreen.active,
-          title: playlist.name,
-          headerTransparent: false,
-          headerShadowVisible: false,
-          headerStyle: { backgroundColor: colors.background },
-          headerTintColor: colors.foreground,
-          headerTitleStyle: { color: colors.foreground },
           // The back swipe only from the edge (iOS 26's full-width swipe would
           // take the scrubber's drag), and not at all while scrubbing or in full screen.
           fullScreenGestureEnabled: false,
@@ -236,20 +235,17 @@ export default function WatchScreen() {
           scroll.current.height = e.nativeEvent.layout.height;
         }}
       >
-        <View className="flex-row items-center gap-3 px-4 pb-2 pt-4">
+        <View className="flex-row items-baseline justify-between gap-3 px-4 pb-1.5 pt-4">
           <Text variant="headline">Clips</Text>
           {progress.total > 0 && (
-            <>
-              <ProgressBar value={progress.watched / progress.total} height={4} className="flex-1" />
-              <Text variant="subheadline" nums className="shrink-0 text-muted-foreground">
-                {progress.watched} of {progress.total} watched
-              </Text>
-            </>
+            <Text variant="subheadline" nums className="shrink-0 text-muted-foreground">
+              {progress.watched} of {progress.total} watched
+            </Text>
           )}
         </View>
 
         {items.length === 0 ? (
-          <Text variant="callout" className="px-6 py-8 text-center text-muted-foreground">
+          <Text variant="subheadline" className="px-6 py-8 text-center text-muted-foreground">
             {isCoachOrAdmin ? "No clips to watch yet." : "No clips to watch yet. Your coach may still be uploading."}
           </Text>
         ) : (
@@ -259,7 +255,13 @@ export default function WatchScreen() {
             }}
           >
             <ActivePill style={pill.style} />
-            {items.map((item) =>
+            {items.map((item, i) => [
+              // Hairlines between rows, except where the playing row's pill sits.
+              i > 0 && queue.activeKey !== item.key && queue.activeKey !== items[i - 1].key ? (
+                <View key={`sep-${item.key}`} style={{ height: StyleSheet.hairlineWidth, marginLeft: 16, backgroundColor: colors.separator }} />
+              ) : i > 0 ? (
+                <View key={`sep-${item.key}`} style={{ height: StyleSheet.hairlineWidth }} />
+              ) : null,
               item.kind === "text" ? (
                 <WatchTextCardRow
                   key={item.key}
@@ -280,10 +282,10 @@ export default function WatchScreen() {
                   onLayout={pill.onRowLayout(item.key)}
                 />
               ),
-            )}
+            ])}
           </View>
         )}
       </ScrollView>
-    </View>
+    </Screen>
   );
 }

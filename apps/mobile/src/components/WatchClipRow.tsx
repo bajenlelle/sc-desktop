@@ -1,55 +1,44 @@
 /**
- * The watch screen's list rows (the web's playlist/ClipRow.tsx): a clip's
- * event and player, then period, clock, team and (in multi-game playlists)
- * the game; whether it has been watched, and the coach's note in full (the
- * rows are what say what's playing; nothing repeats them under the player).
- * A 3 pt strip in the event's colour makes a long list scannable. The
- * playing row's highlight is one pill that springs from row to row
- * (ActivePill), not a fill that appears and vanishes.
+ * The watch screen's list rows: who made the play, then what it was and
+ * where it sits in the game (period, clock, team and, in multi-game
+ * playlists, the game), the coach's note in full, and whether it has been
+ * watched. One 6 pt dot in the event's colour family (eventHue) keeps a long
+ * list scannable without painting every row. The playing row's highlight is
+ * one pill that springs from row to row (ActivePill).
  */
 import { useCallback, useEffect, useRef } from "react";
 import { View, type LayoutChangeEvent } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
-import { eventColors, eventLabel, formatGameClock, playerName } from "@scoutable/shared/lib/events";
+import { eventHue, eventLabel, formatGameClock, playerName } from "@scoutable/shared/lib/events";
 import { rgba } from "@scoutable/shared/lib/theme-derived";
 import type { PlayByPlayEvent, PlaylistTextCard } from "@scoutable/shared/types/match";
 import { Icon } from "@/components/ui/Icon";
+import { Dot } from "@/components/ui/Row";
 import { Tappable } from "@/components/ui/Tappable";
 import { Text } from "@/components/ui/Text";
 import { springs } from "@/lib/motion";
 import { useThemeColors } from "@/lib/theme-context";
 import { cn } from "@/lib/cn";
 
-/**
- * eventColors().badge mixes bg-* and text-* utilities meant for one web
- * element; RN doesn't cascade text colour from a View, so they're split
- * between the pill and its label.
- */
-function splitBadgeClasses(badge: string): { bg: string; text: string } {
-  const parts = badge.split(" ");
-  return {
-    bg: parts.filter((c) => c.startsWith("bg-") || c.startsWith("dark:bg-")).join(" "),
-    text: parts.filter((c) => c.startsWith("text-") || c.startsWith("dark:text-")).join(" "),
-  };
-}
-
-/** The event's pill: "Made 3PT", "Turnover"… */
-function EventBadge({ event }: { event: PlayByPlayEvent }) {
-  const badge = splitBadgeClasses(eventColors(event).badge);
-  return (
-    <View className={cn("shrink-0 rounded-full px-2 py-px", badge.bg)}>
-      <Text variant="footnote" className={cn("font-medium", badge.text)}>
-        {eventLabel(event)}
-      </Text>
-    </View>
-  );
-}
-
-/** "Q2 · 07:41 · Fryshuset · vs Viby", the clip's place in its game. */
-function clipMeta(event: PlayByPlayEvent, matchTitle?: string): string {
-  return [`Q${event.period}`, formatGameClock(event.gameClockTime), event.eventTeam?.teamName, matchTitle]
+/** "Made 3PT · Q2 · 07:41 · Fryshuset · vs Viby": what the play was and where. */
+function clipMeta(event: PlayByPlayEvent, withLabel: boolean, matchTitle?: string): string {
+  return [withLabel ? eventLabel(event) : null, `Q${event.period}`, formatGameClock(event.gameClockTime), event.eventTeam?.teamName, matchTitle]
     .filter(Boolean)
     .join(" · ");
+}
+
+/** The trailing mark: playing, watched, or room for one. */
+function RowMark({ active, watched }: { active: boolean; watched?: boolean }) {
+  const colors = useThemeColors();
+  return (
+    <View className="h-[22px] w-4 shrink-0 items-center justify-center">
+      {active ? (
+        <Icon name="play" size={14} color={colors.primary} />
+      ) : watched ? (
+        <Icon name="check" size={16} strokeWidth={2} color={colors.mutedForeground} />
+      ) : null}
+    </View>
+  );
 }
 
 export function WatchClipRow({
@@ -71,48 +60,42 @@ export function WatchClipRow({
   onLayout?: (e: LayoutChangeEvent) => void;
 }) {
   const colors = useThemeColors();
-  const meta = clipMeta(event, matchTitle);
+  const player = event.player ? playerName(event) : "";
+  // A play without a player (a shot clock violation) is named by the event.
+  const title = player || eventLabel(event);
+  const meta = clipMeta(event, !!player, matchTitle);
   return (
     <Tappable
       scaleTo={1}
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
-      accessibilityLabel={[eventLabel(event), playerName(event), meta, note ? `note from your coach: ${note}` : null, watched ? "watched" : null]
+      accessibilityLabel={[eventLabel(event), player, clipMeta(event, false, matchTitle), note ? `note from your coach: ${note}` : null, watched ? "watched" : null]
         .filter(Boolean)
         .join(", ")}
       onPress={onPlay}
       onLayout={onLayout}
-      className={({ pressed }) => cn("min-h-14 flex-row items-stretch gap-2 pr-4", pressed && !active && "bg-fill-2")}
+      className={({ pressed }) => cn("min-h-14 flex-row items-start gap-3 px-4 py-2", pressed && !active && "bg-fill-1")}
     >
-      <View className={cn("w-[3px] shrink-0", eventColors(event).strip)} />
-      <View className="min-w-0 flex-1 justify-center gap-0.5 py-2 pl-1">
+      <View className="min-w-0 flex-1">
+        <Text numberOfLines={1} className={active ? "font-semibold" : undefined}>
+          {title}
+        </Text>
         <View className="min-w-0 flex-row items-center gap-1.5">
-          <EventBadge event={event} />
-          <Text variant="subheadline" numberOfLines={1} className="shrink font-medium">
-            {playerName(event)}
+          <Dot size={6} color={colors.eventDot[eventHue(event)]} />
+          <Text variant="subheadline" nums numberOfLines={1} className="shrink text-muted-foreground">
+            {meta}
           </Text>
         </View>
-        <Text variant="subheadline" nums numberOfLines={1} className="text-muted-foreground">
-          {meta}
-        </Text>
         {note ? (
           <View className="mt-1 min-w-0 flex-row items-start gap-1.5">
-            <Icon name="note" size={14} color={colors.primary} style={{ opacity: 0.7, marginTop: 3 }} />
+            <Icon name="note" size={14} color={colors.mutedForeground} style={{ marginTop: 3 }} />
             <Text variant="subheadline" className="shrink text-foreground/80">
               {note}
             </Text>
           </View>
         ) : null}
       </View>
-      <View className="shrink-0 flex-row items-center">
-        {active ? (
-          <Icon name="play" size={14} color={colors.primary} />
-        ) : watched ? (
-          <Icon name="check" size={14} weight="semibold" color={colors.mutedForeground} />
-        ) : (
-          <View style={{ width: 14 }} />
-        )}
-      </View>
+      <RowMark active={active} watched={watched} />
     </Tappable>
   );
 }
@@ -137,20 +120,15 @@ export function WatchTextCardRow({
       accessibilityLabel={`Text card: ${card.text || "Text card"}`}
       onPress={onPlay}
       onLayout={onLayout}
-      className={({ pressed }) => cn("min-h-14 flex-row items-stretch gap-2 pr-4", pressed && !active && "bg-fill-2")}
+      className={({ pressed }) => cn("min-h-11 flex-row items-center gap-3 px-4 py-2", pressed && !active && "bg-fill-1")}
     >
-      <View className="w-[3px] shrink-0 bg-fill-3" />
-      <View className="min-w-0 flex-1 flex-row items-center gap-2 py-2 pl-1">
-        <Icon name="textCard" size={14} color={colors.mutedForeground} />
+      <View className="min-w-0 flex-1 flex-row items-center gap-2">
+        <Icon name="textCard" size={15} color={colors.mutedForeground} />
         <Text variant="subheadline" numberOfLines={2} className="shrink italic text-muted-foreground">
           {card.text || "Text card"}
         </Text>
       </View>
-      {active && (
-        <View className="shrink-0 justify-center">
-          <Icon name="play" size={14} color={colors.primary} />
-        </View>
-      )}
+      <RowMark active={active} />
     </Tappable>
   );
 }
@@ -213,7 +191,7 @@ export function ActivePill({ style }: { style: ReturnType<typeof useActivePill>[
     <Animated.View
       pointerEvents="none"
       style={[
-        { position: "absolute", left: 4, right: 4, top: 0, borderRadius: 6, backgroundColor: rgba(colors.primary, 0.12) },
+        { position: "absolute", left: 8, right: 8, top: 0, borderRadius: 8, backgroundColor: rgba(colors.primary, 0.12) },
         style,
       ]}
     />
