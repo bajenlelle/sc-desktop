@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { Extrapolation, interpolate, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
 import { BlurView } from "expo-blur";
 import { useSolidMaterial } from "@/components/shell/Material";
+import { useLargeText } from "@/lib/a11y";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { usePortal } from "@/components/ui/Sheet";
 import { Tappable } from "@/components/ui/Tappable";
@@ -131,6 +132,10 @@ function PopoverPanel({
   const solid = useSolidMaterial();
   const insets = useSafeAreaInsets();
   const { width: W, height: H } = useWindowDimensions();
+  // At large text sizes the panel takes its full width: labels wrap instead
+  // of being measured on one line and clipped (Android).
+  const large = useLargeText();
+  const maxWidth = Math.min(340, W - 24);
 
   // Under the button when there's room, else above it; on the button's side.
   const spaceBelow = H - (frame.y + frame.height) - insets.bottom - 12;
@@ -180,7 +185,7 @@ function PopoverPanel({
         style={[
           styles.panel,
           place,
-          { transformOrigin: origin, maxWidth: Math.min(340, W - 24), shadowOpacity: dark || theme.resolvedMode === "dark" ? 0.5 : 0.16 },
+          { transformOrigin: origin, maxWidth, ...(large ? { width: maxWidth } : null), shadowOpacity: dark || theme.resolvedMode === "dark" ? 0.5 : 0.16 },
           dark ? theme.darkVarsStyle : null,
           panelStyle,
         ]}
@@ -219,9 +224,11 @@ function PopoverPanel({
                       {item.icon ? (
                         <Icon name={item.icon} size={18} color={item.destructive ? colors.destructive : colors.foreground} />
                       ) : null}
-                      <Text numberOfLines={2} className="flex-1" style={{ color: item.destructive ? colors.destructive : colors.foreground }}>
+                      {/* The panel takes its rows' width (up to its max), so a label only wraps when it must. */}
+                      <Text numberOfLines={2} style={{ flexShrink: 1, color: item.destructive ? colors.destructive : colors.foreground }}>
                         {item.label}
                       </Text>
+                      <View style={styles.spacer} />
                       {item.count != null ? (
                         <Text variant="subheadline" nums style={{ color: colors.mutedForeground }}>
                           {String(item.count)}
@@ -252,4 +259,5 @@ const styles = StyleSheet.create({
   surface: { borderRadius: RADIUS, overflow: "hidden", borderWidth: StyleSheet.hairlineWidth },
   divider: { height: StyleSheet.hairlineWidth, marginVertical: 4 },
   check: { width: 18, alignItems: "center" },
+  spacer: { flex: 1, minWidth: 12 },
 });
