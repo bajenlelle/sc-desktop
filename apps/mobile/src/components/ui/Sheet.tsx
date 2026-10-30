@@ -10,7 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { BackHandler, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import { BackHandler, Keyboard, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
@@ -80,7 +80,11 @@ export function Sheet(props: SheetProps) {
   const id = useId();
   const [mounted, setMounted] = useState(props.visible);
   useEffect(() => {
-    if (props.visible) setMounted(true);
+    if (!props.visible) return;
+    setMounted(true);
+    // A sheet opened from a list while searching would rise under the
+    // keyboard: put the keyboard away first (no sheet here takes text).
+    Keyboard.dismiss();
   }, [props.visible]);
   const panel = mounted ? <SheetPanel {...props} onExited={() => setMounted(false)} /> : null;
   if (__DEV__ && !host) console.warn("Sheet rendered outside SheetHost: it can't open.");

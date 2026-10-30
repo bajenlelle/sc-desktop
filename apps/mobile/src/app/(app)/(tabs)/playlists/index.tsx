@@ -151,6 +151,9 @@ export default function PlaylistsScreen() {
   }, [counts, filters, sourceOptions, sharerOptions]);
 
   const showDashboard = isCoachOrAdmin && coachTab === "by-me";
+  // A focused capsule that unmounts (switching to a view without search)
+  // never reports its blur; start the next view unfocused.
+  useEffect(() => setSearchFocused(false), [coachTab]);
   // The one to watch next (Cowork's floating "New task" spot): the most
   // recently touched started playlist, else the newest new one. Out of the
   // way while searching, filtering or typing.

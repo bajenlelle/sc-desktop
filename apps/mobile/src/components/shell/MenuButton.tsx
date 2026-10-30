@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { Keyboard } from "react-native";
 import { useNavigation } from "expo-router";
 import { feedCounts } from "@scoutable/shared/lib/playlist-feed";
 import { GlassButton } from "@/components/shell/GlassButton";
@@ -18,8 +19,13 @@ export function MenuButton() {
   const newCount = useMemo(() => feedCounts(feedItems).new, [feedItems]);
   return (
     <GlassButton
-      // The drawer navigator above the tab stacks handles this action.
-      onPress={() => navigation.dispatch({ type: "OPEN_DRAWER" })}
+      // The drawer navigator above the tab stacks handles this action. The
+      // drawer only dismisses the keyboard when dragged open, so the button
+      // does it (else the keyboard covers the sidebar after a search).
+      onPress={() => {
+        Keyboard.dismiss();
+        navigation.dispatch({ type: "OPEN_DRAWER" });
+      }}
       accessibilityLabel={newCount > 0 ? `Open menu, ${newCount} new` : "Open menu"}
       badge={newCount > 0}
     >

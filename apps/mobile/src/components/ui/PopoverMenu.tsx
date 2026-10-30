@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useState, type RefObject } from "react";
-import { BackHandler, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import { BackHandler, Keyboard, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { Extrapolation, interpolate, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
 import { BlurView } from "expo-blur";
@@ -75,6 +75,8 @@ export function PopoverMenu({
 
   useEffect(() => {
     if (!visible) return;
+    // The menu is a choice, not typing: the keyboard goes before it opens.
+    Keyboard.dismiss();
     const node = anchorRef.current;
     if (!node) {
       onClose();
