@@ -33,6 +33,23 @@ export function isPlayerOnly(orgs: OrgMembership[]): boolean {
 }
 
 /**
+ * The space to switch to so a playlist named by a link or a notification
+ * opens: the club it belongs to, when that isn't the open one. A staff
+ * member's feed holds only the open space, so a share from another club is
+ * otherwise "not available". Null means stay: player-only users already see
+ * every club, and a space the user isn't in, or a personal one, is never
+ * opened this way.
+ */
+export function spaceForPlaylist(
+  playlistOrgId: string | null,
+  ctx: { activeOrgId: string | null; myOrgs: OrgMembership[]; playerOnly: boolean },
+): string | null {
+  if (!playlistOrgId || ctx.playerOnly || playlistOrgId === ctx.activeOrgId) return null;
+  const org = ctx.myOrgs.find((o) => o.orgId === playlistOrgId);
+  return org && !org.isPersonal ? org.orgId : null;
+}
+
+/**
  * What the desktop shell should render for the current auth snapshot.
  * - `loading`        — session or first profile load in flight
  * - `login`          — no session

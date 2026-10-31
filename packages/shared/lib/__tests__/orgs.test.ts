@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isPlayerOnly, isStaffRole, parseInviteInput, resolveGateState, sortOrgsClubFirst } from "../orgs";
+import { isPlayerOnly, isStaffRole, parseInviteInput, resolveGateState, sortOrgsClubFirst, spaceForPlaylist } from "../orgs";
 import type { GateSnapshot } from "../orgs";
 import type { OrgMembership } from "../../types/org";
 
@@ -210,5 +210,36 @@ describe("parseInviteInput", () => {
 
   it("does not mistake a longer path segment for a code", () => {
     expect(parseInviteInput("https://app.scoutable.se/join/ABC123EXTRA")).toBeNull();
+  });
+});
+
+describe("spaceForPlaylist", () => {
+  const club = om({ orgId: "club", orgName: "Norrvik", role: "player" });
+  const own = om({ orgId: "own", orgName: "Vasa", role: "coach" });
+  const personal = om({ orgId: "me", orgName: "Me", isPersonal: true });
+  const ctx = { activeOrgId: "own", myOrgs: [own, club, personal], playerOnly: false };
+
+  it("switches to the club the playlist belongs to", () => {
+    expect(spaceForPlaylist("club", ctx)).toBe("club");
+  });
+
+  it("stays put when the playlist is in the open space", () => {
+    expect(spaceForPlaylist("own", ctx)).toBeNull();
+  });
+
+  it("stays put when the playlist's space is unknown", () => {
+    expect(spaceForPlaylist(null, ctx)).toBeNull();
+  });
+
+  it("stays put for a player-only user: their feed already covers every club", () => {
+    expect(spaceForPlaylist("club", { ...ctx, playerOnly: true })).toBeNull();
+  });
+
+  it("never switches to a space the user isn't a member of", () => {
+    expect(spaceForPlaylist("elsewhere", ctx)).toBeNull();
+  });
+
+  it("never switches to a personal space", () => {
+    expect(spaceForPlaylist("me", ctx)).toBeNull();
   });
 });

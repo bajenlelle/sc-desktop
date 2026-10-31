@@ -15,8 +15,11 @@ import {
   watchProgress,
 } from "@scoutable/shared/lib/watch-queue";
 import { clipViewKey } from "@scoutable/shared/lib/clip-views-db";
+import { spaceForPlaylist } from "@scoutable/shared/lib/orgs";
+import { getPlaylistOrgId } from "@scoutable/shared/lib/playlists-db";
 import { useAuth } from "@/lib/auth-context";
 import { usePlaylists } from "@/lib/playlists-store";
+import { supabase } from "@/lib/supabase";
 import { useThemeColors } from "@/lib/theme-context";
 import { useClipQueue } from "@/hooks/use-clip-queue";
 import { PlayerStage } from "@/components/player/PlayerStage";
@@ -37,9 +40,9 @@ import { Text } from "@/components/ui/Text";
  */
 export default function WatchScreen() {
   const { id, resume } = useLocalSearchParams<{ id: string; resume?: string }>();
-  const { activeOrgRole, user, myOrgs } = useAuth();
+  const { activeOrgId, activeOrgRole, user, myOrgs, isPlayerOnly, setActiveOrg } = useAuth();
   const isCoachOrAdmin = activeOrgRole === "coach" || activeOrgRole === "admin";
-  const { allPlaylists, loading, matchLookup, clipViews, recordWatched, refresh } = usePlaylists();
+  const { allPlaylists, loading, loadedOrgId, matchLookup, clipViews, recordWatched, refresh } = usePlaylists();
   const colors = useThemeColors();
   const reduceMotion = useReducedMotion();
   const fullscreen = useStageFullscreen();
@@ -49,18 +52,29 @@ export default function WatchScreen() {
   // Players get a read-only progress line: dragging to the end would count a clip as watched.
   const canScrub = !!playlist && canScrubPlaylist({ userId: user?.id, myOrgs }, playlist);
 
-  // A push tap can land here for a share newer than the mounted store
-  // snapshot: one refetch before declaring the playlist unavailable.
-  const retriedRef = useRef(false);
-  const [retrying, setRetrying] = useState(false);
+  // A push tap or a link can name a playlist the mounted store doesn't
+  // hold: one shared in another club than the open one (a staff member's
+  // feed holds only the open space), or a share newer than the snapshot.
+  // Once, before declaring it unavailable: switch to its club, else refetch.
+  const resolvedRef = useRef(false);
+  const [resolving, setResolving] = useState(false);
+  const [spaceTarget, setSpaceTarget] = useState<string | null>(null);
   useEffect(() => {
-    if (playlist || loading || retriedRef.current) return;
-    retriedRef.current = true;
-    setRetrying(true);
-    refresh()
+    if (playlist || loading || resolvedRef.current || !id) return;
+    resolvedRef.current = true;
+    setResolving(true);
+    getPlaylistOrgId(supabase, id)
+      .then((orgId) => {
+        const target = spaceForPlaylist(orgId, { activeOrgId, myOrgs, playerOnly: isPlayerOnly });
+        if (!target) return refresh();
+        setSpaceTarget(target);
+        setActiveOrg(target);
+      })
       .catch(() => {})
-      .finally(() => setRetrying(false));
-  }, [playlist, loading, refresh]);
+      .finally(() => setResolving(false));
+  }, [playlist, loading, id, activeOrgId, myOrgs, isPlayerOnly, refresh, setActiveOrg]);
+  // After a switch, until the store holds that club's playlists.
+  const switching = spaceTarget !== null && loadedOrgId !== spaceTarget;
 
   // The plays behind the playlist's clips; clips not uploaded yet, or whose
   // play the game data no longer has, are left out (buildWatchItems).
@@ -133,7 +147,7 @@ export default function WatchScreen() {
     else if (bottom > s.y + s.height) scrollRef.current?.scrollTo({ y: bottom - s.height + 8, animated: !reduceMotion });
   }, [queue.activeKey, frames, reduceMotion]);
 
-  if (!playlist && (loading || retrying)) {
+  if (!playlist && (loading || resolving || switching)) {
     return (
       <Screen title="" leading={<BackButton label="Playlists" />} scroll={false}>
         <View className="flex-1 items-center justify-center">

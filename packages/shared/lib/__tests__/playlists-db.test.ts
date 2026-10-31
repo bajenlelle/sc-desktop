@@ -7,6 +7,7 @@ import {
   getMyDirectPlaylists,
   getMySharedPlaylists,
   getMyTeamPlaylists,
+  getPlaylistOrgId,
   listPlaylistNames,
   listPlaylists,
   reorderItems,
@@ -686,5 +687,40 @@ describe("rowToPlaylist: unknown item types", () => {
     ];
     const p = rowToPlaylist(plRow({ playlist_clips: rows }));
     expect(p.items.map((i) => (i.type === "clip" ? i.eventId : i.id))).toEqual([1, 2]);
+  });
+});
+
+describe("getPlaylistOrgId", () => {
+  /** from("playlists").select("org_id").eq("id", …).maybeSingle() */
+  function orgClient(result: { data: { org_id: string | null } | null; error: { message: string } | null }) {
+    const calls: { table?: string; select?: string; eq?: [string, unknown] } = {};
+    const client = {
+      from(table: string) {
+        calls.table = table;
+        const b = {
+          select(cols: string) { calls.select = cols; return b; },
+          eq(col: string, value: unknown) { calls.eq = [col, value]; return b; },
+          maybeSingle: () => Promise.resolve(result),
+        };
+        return b;
+      },
+    } as unknown as SupabaseClient;
+    return { client, calls };
+  }
+
+  it("reads the space of one playlist by id", async () => {
+    const { client, calls } = orgClient({ data: { org_id: "club" }, error: null });
+    expect(await getPlaylistOrgId(client, "p1")).toBe("club");
+    expect(calls).toEqual({ table: "playlists", select: "org_id", eq: ["id", "p1"] });
+  });
+
+  it("returns null for a playlist the caller can't read (or that is gone)", async () => {
+    const { client } = orgClient({ data: null, error: null });
+    expect(await getPlaylistOrgId(client, "p1")).toBeNull();
+  });
+
+  it("returns null when the read fails", async () => {
+    const { client } = orgClient({ data: null, error: { message: "x" } });
+    expect(await getPlaylistOrgId(client, "p1")).toBeNull();
   });
 });

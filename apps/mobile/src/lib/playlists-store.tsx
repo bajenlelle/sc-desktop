@@ -65,6 +65,11 @@ interface PlaylistsData {
   clipViews: Set<string>;
   /** Newest watch per playlist — orders "In progress" as continue-watching. */
   lastWatched: Map<string, string>;
+  /**
+   * The space the loaded playlists belong to (null for the aggregated
+   * feed): the watch screen waits on it after switching spaces for a link.
+   */
+  loadedOrgId: string | null;
   refresh: () => Promise<void>;
   /**
    * Fire-and-forget watched write with in-memory dedup (mirrors web's
@@ -96,6 +101,7 @@ export function PlaylistsProvider({ children }: { children: React.ReactNode }) {
   const [clubTeams, setClubTeams] = useState<PlaylistsData["clubTeams"]>([]);
   const [clipViews, setClipViews] = useState<Set<string>>(new Set());
   const [lastWatched, setLastWatched] = useState<Map<string, string>>(new Map());
+  const [loadedOrgId, setLoadedOrgId] = useState<string | null>(null);
 
   // Every watch recorded (or loaded) this session, claimed synchronously:
   // timeUpdate ticks past the watched point arrive faster than state
@@ -103,9 +109,17 @@ export function PlaylistsProvider({ children }: { children: React.ReactNode }) {
   // Starts over for a different account on the same device.
   const recordedRef = useRef<Set<string>>(new Set());
   const recordedForRef = useRef<string | null>(null);
+  // The space the newest load is for. A load for a space since left stops
+  // writing: a push tap refetches the open space, the watch screen then
+  // switches to the playlist's, and the first could land last and put the
+  // old space's playlists back.
+  const loadingForRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     if (!aggregated && !activeOrgId) return;
+    const scope = aggregated ? null : activeOrgId;
+    loadingForRef.current = scope;
+    const stale = () => loadingForRef.current !== scope;
     const orgIds = aggregated ? clubOrgs.map((o) => o.orgId) : [activeOrgId!];
     const [shells, orgCtxRaw] = await Promise.all([
       // Light shells only — events arrive below, scoped to the matches the
@@ -118,6 +132,7 @@ export function PlaylistsProvider({ children }: { children: React.ReactNode }) {
       ),
       Promise.all(orgIds.map((id) => getOrgContextForOrg(supabase, id).catch(() => null))),
     ]);
+    if (stale()) return;
     const multiClub = aggregated && clubOrgs.length > 1;
     // Zip org names before filtering nulls so a club whose context failed to
     // load doesn't shift the org↔teams pairing.
@@ -161,6 +176,7 @@ export function PlaylistsProvider({ children }: { children: React.ReactNode }) {
         ? getMySharedPlaylists(supabase, aggregated ? undefined : activeOrgId ?? undefined).catch(() => [] as Playlist[])
         : Promise.resolve([] as Playlist[]),
     ]);
+    if (stale()) return;
     // Events only for matches the loaded playlists can play, merged into the
     // shells and published in ONE setMatches — the watch screen drops clips
     // whose event lookup misses, so light-shells-first would flash every
@@ -170,13 +186,16 @@ export function PlaylistsProvider({ children }: { children: React.ReactNode }) {
     const eventsByMatch = await listEventsForMatches(supabase, referencedIds).catch(
       () => ({}) as Record<string, PlayByPlayEvent[]>,
     );
+    if (stale()) return;
     setMatches(mergeEventsIntoMatches(shells, eventsByMatch));
     setTeamPlaylists(pls);
     setDirectPlaylists(directPls);
     setSharedOutPlaylists(sharedOut);
+    setLoadedOrgId(scope);
 
     // Watch history drives the feed's NEW badges and progress bars.
     const views = await listMyClipViews(supabase).catch(() => []);
+    if (stale()) return;
     const viewKeys = views.map((v) => clipViewKey(v.playlistId, v.matchId, v.eventId));
     if (recordedForRef.current !== userId) {
       recordedForRef.current = userId;
@@ -285,6 +304,7 @@ export function PlaylistsProvider({ children }: { children: React.ReactNode }) {
     clubTeams,
     clipViews,
     lastWatched,
+    loadedOrgId,
     refresh: load,
     recordWatched,
   };

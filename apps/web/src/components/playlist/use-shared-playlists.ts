@@ -14,6 +14,7 @@ import {
   getMyTeamPlaylists,
   getMyDirectPlaylists,
   getMySharedPlaylists,
+  getPlaylistOrgId,
   setPlaylistTeams,
   setPlaylistUsers,
   type SharedPlaylist,
@@ -25,6 +26,7 @@ import {
   mergeEventsIntoMatches,
 } from "@scoutable/shared/lib/playlist-matches";
 import { toFeedPlaylists, type FeedPlaylist } from "@scoutable/shared/lib/playlist-feed";
+import { spaceForPlaylist } from "@scoutable/shared/lib/orgs";
 import { buildWatchItems, firstUnwatchedKey, recordOnce, watchProgress } from "@scoutable/shared/lib/watch-queue";
 import { getOrgContext, getOrgContextForOrg } from "@/lib/profile-db";
 import { useAuth } from "@/components/auth-context";
@@ -35,7 +37,7 @@ import type { Playlist, PlayByPlayEvent, StoredMatch } from "@scoutable/shared/t
 import type { OrgTeam, UserProfile } from "@scoutable/shared/types/org";
 
 export function useSharedPlaylists() {
-  const { activeOrgId, activeOrgIsPersonal, isPlayerOnly, myOrgs, profileLoading } = useAuth();
+  const { activeOrgId, activeOrgIsPersonal, isPlayerOnly, myOrgs, profileLoading, setActiveOrg } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -188,6 +190,24 @@ export function useSharedPlaylists() {
     // aggregated path ignores activeOrgId on purpose.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeOrgId, isPlayerOnly, clubOrgIdsKey, profileLoading]);
+
+  // A link (the share email's ?p=) can name a playlist from another club
+  // than the open one: a staff member's feed holds only the open space.
+  // Once per link, switch to the playlist's club; the load above reruns on
+  // activeOrgId and the watch view opens.
+  const resolvedForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (loading || !selectedId || selected || resolvedForRef.current === selectedId) return;
+    resolvedForRef.current = selectedId;
+    getPlaylistOrgId(createClient(), selectedId)
+      .then((orgId) => {
+        const target = spaceForPlaylist(orgId, { activeOrgId, myOrgs, playerOnly: isPlayerOnly });
+        if (!target) return;
+        setLoading(true);
+        setActiveOrg(target);
+      })
+      .catch(() => {});
+  }, [loading, selectedId, selected, activeOrgId, myOrgs, isPlayerOnly, setActiveOrg]);
 
   const matchLookup = useMemo(() => new Map(matches.map((m) => [m.id, m])), [matches]);
 

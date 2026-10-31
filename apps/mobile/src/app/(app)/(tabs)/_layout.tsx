@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, View, useWindowDimensions } from "react-native";
-import { router } from "expo-router";
+import { router, useIsFocused } from "expo-router";
 import { Drawer } from "expo-router/drawer";
 import { feedCounts } from "@scoutable/shared/lib/playlist-feed";
 import { useAuth } from "@/lib/auth-context";
@@ -50,14 +50,18 @@ export default function TabsLayout() {
   }, [newCount, loading]);
 
   // "Which team do you play for?" once per club space: shown over the tabs
-  // until answered (skip counts), at most once per launch.
+  // until answered (skip counts), at most once per launch. Only while the
+  // tabs are on screen: a notification or link that opens a playlist from
+  // another club switches to that club, and the question waits until the
+  // player comes back rather than covering the playlist they tapped.
   const declaredRole = profile?.declaredRole;
+  const focused = useIsFocused();
   useEffect(() => {
-    if (!activeOrg || activeOrg.isNtOrg || !teamsLoaded) return;
+    if (!focused || !activeOrg || activeOrg.isNtOrg || !teamsLoaded) return;
     if (!needsTeamStep(choices, activeOrg.orgId) || !offerTeamStepOnce(activeOrg.orgId)) return;
     trackEvent("team_step_shown", { role: teamRoleIn(activeOrg, declaredRole) });
     router.push({ pathname: "/team", params: { mode: "step", orgId: activeOrg.orgId } });
-  }, [activeOrg, teamsLoaded, choices, declaredRole]);
+  }, [focused, activeOrg, teamsLoaded, choices, declaredRole]);
 
   if (playerOnlyLatch === null) {
     return (

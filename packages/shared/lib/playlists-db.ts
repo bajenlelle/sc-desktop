@@ -689,6 +689,17 @@ export async function setPlaylistUsers(
 // Get playlists directly shared with the current user (receiver view)
 // ---------------------------------------------------------------------------
 
+/**
+ * The space a playlist belongs to, for opening one from a link or a
+ * notification while another space is open. Null when the caller can't read
+ * it (RLS), it is gone, or the read failed.
+ */
+export async function getPlaylistOrgId(supabase: SupabaseClient, playlistId: string): Promise<string | null> {
+  const { data, error } = await supabase.from("playlists").select("org_id").eq("id", playlistId).maybeSingle();
+  if (error) { reportDbError("getPlaylistOrgId", error); return null; }
+  return (data as { org_id: string | null } | null)?.org_id ?? null;
+}
+
 /** One space's view of direct shares (a coach's or staff member's feed). */
 export interface DirectShareScope {
   /** The active space: its playlists carry this org_id. */
