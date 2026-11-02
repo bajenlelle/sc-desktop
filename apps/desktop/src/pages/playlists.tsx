@@ -1140,6 +1140,17 @@ export function PlaylistsPage() {
    * whose play-by-play runs past it with no quarter syncs: the video
    * probably skips the breaks between quarters. One hint at a time.
    */
+  const looksCutByMatch = useMemo(() => {
+    const out = new Map<string, boolean>();
+    for (const m of matches) {
+      if (!m.syncPoint || !m.videoUrl || m.syncPoint.periods || m.events.length === 0) continue;
+      const duration = videoDurations[m.videoUrl];
+      if (!duration) continue;
+      out.set(m.id, videoLooksCut({ durationSeconds: duration, events: m.events, sync: m.syncPoint }).cut);
+    }
+    return out;
+  }, [matches, videoDurations]);
+
   const syncHint = useMemo(() => {
     if (!selected) return null;
     const pair = { pre: preRoll, post: postRoll };
@@ -1156,16 +1167,13 @@ export function PlaylistsPage() {
         const t = event ? computeVideoTime(event, m.syncPoint) : null;
         if (t !== null && clipBounds(t, pair.pre, pair.post, c.preRollOffset, c.postRollOffset).start >= duration - 0.25) pastEnd++;
       }
-      const looksCut =
-        !m.syncPoint.periods &&
-        m.events.length > 0 &&
-        videoLooksCut({ durationSeconds: duration, events: m.events, sync: m.syncPoint }).cut;
+      const looksCut = looksCutByMatch.get(matchId) ?? false;
       if (pastEnd > 0 || looksCut) {
         return { matchId, title: m.title, pastEnd, reason: pastEnd > 0 ? "past_end" : "looks_cut" };
       }
     }
     return null;
-  }, [selected, matchLookup, eventByKey, videoDurations, hintDismissed, preRoll, postRoll]);
+  }, [selected, matchLookup, eventByKey, videoDurations, hintDismissed, preRoll, postRoll, looksCutByMatch]);
   useEffect(() => {
     if (!syncHint || hintShownRef.current.has(syncHint.matchId)) return;
     hintShownRef.current.add(syncHint.matchId);
