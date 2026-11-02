@@ -619,6 +619,31 @@ export async function listOwnClipsForMatch(supabase: SupabaseClient, matchId: st
 }
 
 /**
+ * Swap a clip's shipped URL for a re-cut, only while it still holds the URL
+ * being replaced: a trim (which clears it) or another upload made meanwhile
+ * wins. Returns whether the swap happened.
+ */
+export async function replaceClipR2Url(
+  supabase: SupabaseClient,
+  playlistId: string,
+  matchId: string,
+  eventId: number,
+  r2Url: string,
+  previousUrl: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("playlist_clips")
+    .update({ r2_url: r2Url })
+    .eq("playlist_id", playlistId)
+    .eq("match_id", matchId)
+    .eq("event_id", eventId)
+    .eq("r2_url", previousUrl)
+    .select("id");
+  if (error) throw new Error(`Failed to save R2 URL: ${error.message}`);
+  return (data?.length ?? 0) > 0;
+}
+
+/**
  * After a sync change, null the shipped URLs of a match's clips whose key
  * can't say where they were cut (minted before clipShipKey's `_s` segment):
  * nothing can tell whether they moved, so they stop being served until the

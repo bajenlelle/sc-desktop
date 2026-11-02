@@ -97,3 +97,26 @@ describe("planSyncRecut", () => {
     expect(planSyncRecut([orphan], events, sync, true)).toEqual({ recut: [], hide: [] });
   });
 });
+
+describe("movedClipRolls on trimmed clips (review fix)", () => {
+  const sync: SyncPoint = { syncVideoTime: 42, syncRealWorldTime: "2026-09-20T17:30:00Z" };
+  // The play sits at 100.0 s; trims are stored in hundredths, keys in tenths.
+  const event = { realWorldTime: "2026-09-20T17:30:58Z", period: 1 };
+
+  it("doesn't call a clip moved when only the key's rounding differs", () => {
+    // Rolls 10/3, trimmed by -0.25: cut from 90.25, key says pre9.8 and s90.3.
+    const trimmed = { r2Url: url(9.75, 3, 90.25), preRollOffset: -0.25 };
+    expect(trimmed.r2Url).toContain("_pre9.8_post3.0_s90.3.mp4");
+    expect(movedClipRolls(trimmed, event, sync)).toBeNull();
+  });
+
+  it("still sees a real move of a third of a second", () => {
+    const trimmed = { r2Url: url(9.75, 3, 90.25), preRollOffset: -0.25 };
+    expect(movedClipRolls(trimmed, event, { ...sync, syncVideoTime: 42.3 })).not.toBeNull();
+  });
+
+  it("rounds the rolls it hands back to hundredths", () => {
+    const trimmed = { r2Url: url(9.75, 3, 90.25), preRollOffset: -0.25 };
+    expect(movedClipRolls(trimmed, event, { ...sync, syncVideoTime: 50 })).toEqual({ pre: 10.05, post: 3 });
+  });
+});

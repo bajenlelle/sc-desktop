@@ -50,6 +50,11 @@ export interface SyncPointPickerProps {
   /** The recording's length, once known. */
   onDuration?: (seconds: number) => void;
   /**
+   * Which moment `confirmedSeconds` belongs to (a quarter): a new one shows
+   * its own state even when both are unset.
+   */
+  momentKey?: string | number;
+  /**
    * The surface the picker's keys belong to, when it sits in a dialog (the
    * Fix sync sheet): without one, its keys yield to any open dialog, its own
    * included. Keys from inside the container reach the picker.
@@ -116,6 +121,7 @@ export function SyncPointPicker({
   confirmedSeconds,
   onDuration,
   keyContainer,
+  momentKey,
 }: SyncPointPickerProps) {
   const copy = { ...TIPOFF_COPY, ...copyOverride };
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -128,7 +134,7 @@ export function SyncPointPicker({
   const [confirmedTime, setConfirmedTime] = useState<number | null>(confirmedSeconds ?? initialSeconds ?? null);
   useEffect(() => {
     if (confirmedSeconds !== undefined) setConfirmedTime(confirmedSeconds);
-  }, [confirmedSeconds]);
+  }, [confirmedSeconds, momentKey]);
   const onDurationRef = useRef(onDuration);
   onDurationRef.current = onDuration;
   const [frameSeconds, setFrameSeconds] = useState(FALLBACK_FRAME);

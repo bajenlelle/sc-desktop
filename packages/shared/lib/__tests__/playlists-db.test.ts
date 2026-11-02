@@ -11,6 +11,7 @@ import {
   listPlaylistNames,
   listPlaylists,
   reorderItems,
+  replaceClipR2Url,
   rowToPlaylist,
   type PlaylistClipRow,
   type PlaylistRow,
@@ -722,5 +723,55 @@ describe("getPlaylistOrgId", () => {
   it("returns null when the read fails", async () => {
     const { client } = orgClient({ data: null, error: { message: "x" } });
     expect(await getPlaylistOrgId(client, "p1")).toBeNull();
+  });
+});
+
+describe("replaceClipR2Url", () => {
+  function mockReplaceClient(updated: number, error: { message: string } | null = null) {
+    const calls: { table?: string; patch?: unknown; filters: Array<[string, unknown]>; select?: string } = { filters: [] };
+    const builder = {
+      eq(col: string, value: unknown) {
+        calls.filters.push([col, value]);
+        return builder;
+      },
+      select(cols: string) {
+        calls.select = cols;
+        return Promise.resolve({ data: error ? null : Array.from({ length: updated }, (_, i) => ({ id: `c${i}` })), error });
+      },
+    };
+    const client = {
+      from(table: string) {
+        calls.table = table;
+        return {
+          update(patch: unknown) {
+            calls.patch = patch;
+            return builder;
+          },
+        };
+      },
+    } as unknown as SupabaseClient;
+    return { client, calls };
+  }
+
+  it("swaps the URL only while the clip still has the one being replaced", async () => {
+    const { client, calls } = mockReplaceClient(1);
+    expect(await replaceClipR2Url(client, "pl1", "m1", 7, "https://cdn/new.mp4", "https://cdn/old.mp4")).toBe(true);
+    expect(calls.patch).toEqual({ r2_url: "https://cdn/new.mp4" });
+    expect(calls.filters).toEqual([
+      ["playlist_id", "pl1"],
+      ["match_id", "m1"],
+      ["event_id", 7],
+      ["r2_url", "https://cdn/old.mp4"],
+    ]);
+  });
+
+  it("reports false when the clip changed meanwhile (a trim cleared it)", async () => {
+    const { client } = mockReplaceClient(0);
+    expect(await replaceClipR2Url(client, "pl1", "m1", 7, "https://cdn/new.mp4", "https://cdn/old.mp4")).toBe(false);
+  });
+
+  it("throws on a database error", async () => {
+    const { client } = mockReplaceClient(0, { message: "boom" });
+    await expect(replaceClipR2Url(client, "pl1", "m1", 7, "a", "b")).rejects.toThrow(/boom/);
   });
 });

@@ -86,7 +86,12 @@ export function syncFromPlayOn(
 ): SyncPoint {
   const from = new Date(timeOf(event.realWorldTime) - leadSeconds * 1000).toISOString();
   const cut: SyncCut = { period: event.period, syncRealWorldTime: from, syncVideoTime: videoTime - leadSeconds };
-  const others = (sync.cuts ?? []).filter((c) => Math.abs(timeOf(c.syncRealWorldTime) - timeOf(from)) >= 500);
+  // A cut at the same moment, or between the new one and the play, would
+  // still place the play: this fix replaces it.
+  const others = (sync.cuts ?? []).filter((c) => {
+    const t = timeOf(c.syncRealWorldTime);
+    return Math.abs(t - timeOf(from)) >= 500 && !(t > timeOf(from) && t <= timeOf(event.realWorldTime));
+  });
   return withCuts(sync, [...others, cut]);
 }
 
@@ -429,7 +434,10 @@ function movePeriodSync(sync: SyncPoint, events: PeriodEvent[], period: number, 
   }
   const anchor = marksFor(sync, events)[String(period)]?.anchor;
   if (anchor) {
-    const at = computeVideoTime({ realWorldTime: anchor.realWorldTime, period }, sync);
+    // Where the quarter starts now, without a cut inside the quarter itself
+    // (that cut places only the plays after it, and moves with them below).
+    const own = (sync.cuts ?? []).filter((c) => c.period !== period);
+    const at = computeVideoTime({ realWorldTime: anchor.realWorldTime, period }, withCuts(sync, own));
     if (at !== null) return setPeriodSync(sync, period, at + deltaSeconds, anchor);
   }
   let base: { syncVideoTime: number; syncRealWorldTime: string } = sync;
@@ -451,6 +459,23 @@ function movePeriodSync(sync: SyncPoint, events: PeriodEvent[], period: number, 
       [String(period)]: { syncVideoTime: base.syncVideoTime + deltaSeconds, syncRealWorldTime: base.syncRealWorldTime },
     },
   };
+}
+
+/**
+ * A re-import's new sync, keeping what the coach already fixed on the same
+ * video: each quarter's own sync (one set again during the re-import wins,
+ * and none when the coach now says the video holds the whole game), the
+ * cuts, and the cut answer. Another video starts over.
+ */
+export function carrySyncOver(previous: SyncPoint | undefined, next: SyncPoint, sameVideo: boolean): SyncPoint {
+  if (!previous || !sameVideo) return next;
+  const out: SyncPoint = { ...next };
+  // "The video holds the whole game" drops the quarters on purpose.
+  const periods = next.breaksCut === false ? {} : { ...(previous.periods ?? {}), ...(next.periods ?? {}) };
+  if (Object.keys(periods).length > 0) out.periods = periods;
+  if (!next.cuts && previous.cuts?.length) out.cuts = previous.cuts;
+  if (next.breaksCut === undefined && previous.breaksCut !== undefined) out.breaksCut = previous.breaksCut;
+  return out;
 }
 
 /**

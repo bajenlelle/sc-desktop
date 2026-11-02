@@ -64,7 +64,7 @@ export function ImportSuccessDialog({
       : needs === "sync"
         ? `${title} — ${clips} ready. Set a sync point so clips line up with the video.`
         : needs === "quarters"
-          ? `${title} — ${clips} ready. The video looks cut between quarters: set where each quarter starts so later clips line up.`
+          ? `${title}: ${clips} ready. The video looks cut between quarters, so set where each quarter starts and later clips line up.`
         : `${title} — ${clips} ready to scout.`;
 
   /** Leave the same way the dialog came, then go. */

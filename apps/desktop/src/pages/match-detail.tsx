@@ -10,6 +10,7 @@ import { formatMSSd, SyncPointPicker, type SeekRequest } from "@/components/sync
 import { formatSpan, QuarterSyncPanel, quarterCopy } from "@/components/quarter-sync";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { trackEvent } from "@/lib/analytics";
+import { newestRequest } from "@scoutable/shared/lib/latest";
 import { formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import {
   clearAllPeriodSyncs,
@@ -54,7 +55,7 @@ interface RosterEntry {
  */
 function notifyClearedShippedClips(count: number) {
   if (count === 0) return;
-  toast.info(`${count} older shared clip${count === 1 ? "" : "s"} from this game are hidden until uploaded again`, {
+  toast.info(`${count} older shared clip${count === 1 ? " from this game is" : "s from this game are"} hidden until uploaded again`, {
     description: "They were shared before clips recorded where they're cut. In Shared playlists, use Upload missing clips.",
     duration: 10000,
   });
@@ -672,10 +673,11 @@ export function MatchDetailPage() {
                         initialSeconds={storedMatch.syncPoint?.syncVideoTime}
                         copy={activeRow ? quarterCopy(activeRow) : undefined}
                         note={activeRow?.anchor ? `Look for ${activeRow.anchor.label}.` : undefined}
+                        momentKey={activeRow?.period ?? 1}
                         confirmedSeconds={
                           activeRow ? (activeRow.set ? activeRow.videoTime : null) : (storedMatch.syncPoint?.syncVideoTime ?? null)
                         }
-                        seekRequest={activeRow || quarterSeek ? quarterSeek : tipoffSuggestion.seekRequest}
+                        seekRequest={activeRow ? quarterSeek : newestRequest(quarterSeek, tipoffSuggestion.seekRequest)}
                         onUserAction={activeRow ? undefined : tipoffSuggestion.noteUserAction}
                         hasPendingSuggestion={!activeRow && isSuggestionPending(tipoffSuggestion.state)}
                         suggestionSlot={

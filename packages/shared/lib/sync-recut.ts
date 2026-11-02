@@ -8,6 +8,9 @@
 import type { SyncPoint } from "../types/match";
 import { clipBounds, computeVideoTime, shippedStart, shippedTotals } from "./clip-timing";
 
+/** Two roundings to tenths (the totals and the start) differ by at most 0.1 s. */
+const MOVE_TOLERANCE = 0.15;
+
 type ShippedClip = { r2Url?: string; preRollOffset?: number; postRollOffset?: number };
 type TimedEvent = { realWorldTime?: string | null; period?: number | null };
 
@@ -15,7 +18,9 @@ type TimedEvent = { realWorldTime?: string | null; period?: number | null };
  * The playlist rolls to re-cut a shipped clip with after a sync change (its
  * key's totals minus the clip's own offsets), or null when its cut didn't
  * move or can't be compared: not shipped, a key without a start, or a play
- * the sync can't place. Compared in the key's tenths.
+ * the sync can't place. The key holds totals and start in tenths while trims
+ * are kept in hundredths, so a move under MOVE_TOLERANCE is rounding, not a
+ * move.
  */
 export function movedClipRolls(
   clip: ShippedClip,
@@ -29,7 +34,7 @@ export function movedClipRolls(
   const t = computeVideoTime(event, sync);
   if (t === null) return null;
   const expected = clipBounds(t, totals.pre, totals.post).start;
-  if (expected.toFixed(1) === start.toFixed(1)) return null;
+  if (Math.abs(expected - start) < MOVE_TOLERANCE) return null;
   return { pre: totals.pre - (clip.preRollOffset ?? 0), post: totals.post - (clip.postRollOffset ?? 0) };
 }
 

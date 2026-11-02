@@ -17,6 +17,7 @@ import { probeVideoPath } from "@/lib/video-probe";
 import { clearShippedClip, listOwnClipsForMatch, updateClip } from "@/lib/playlists-db";
 import { computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { shiftKeyframes, type CropKeyframe } from "@scoutable/shared/lib/crop-path";
+import { createLatestRuns } from "@scoutable/shared/lib/latest";
 import { planSyncRecut } from "@scoutable/shared/lib/sync-recut";
 import type { OwnMatchClip } from "@scoutable/shared/lib/playlists-db";
 import type { ExportSegment } from "@/lib/export";
@@ -39,8 +40,13 @@ function announcePatches(patches: ClipPatch[]) {
   if (patches.length > 0) window.dispatchEvent(new CustomEvent(CLIPS_PATCHED_EVENT, { detail: { patches } }));
 }
 
-/** Games whose shared clips are being re-cut now: a newer change for the same game stops the older run. */
-const running = new Map<string, AbortController>();
+/** One run per game: a newer change for the same game stops the older run at once. */
+const runs = createLatestRuns();
+
+/** Whether a game's clips are following a sync change right now. */
+export function isSyncRefreshRunning(matchId: string): boolean {
+  return runs.isRunning(matchId);
+}
 
 type SyncedGame = Pick<StoredMatch, "id" | "title" | "videoUrl" | "events" | "syncPoint">;
 
@@ -70,6 +76,15 @@ async function hideClips(rows: OwnMatchClip[]): Promise<ClipPatch[]> {
 export async function afterSyncChange(match: SyncedGame, before: SyncPoint | undefined): Promise<void> {
   const after = match.syncPoint;
   if (!after) return;
+  const signal = runs.start(match.id);
+  try {
+    await followSync(match, after, before, signal);
+  } finally {
+    runs.finish(match.id, signal);
+  }
+}
+
+async function followSync(match: SyncedGame, after: SyncPoint, before: SyncPoint | undefined, signal: AbortSignal) {
   let rows: OwnMatchClip[];
   try {
     rows = await listOwnClipsForMatch(match.id);
@@ -77,7 +92,7 @@ export async function afterSyncChange(match: SyncedGame, before: SyncPoint | und
     Sentry.captureException(e);
     return;
   }
-  if (rows.length === 0) return;
+  if (rows.length === 0 || signal.aborted) return;
   const eventById = new Map(match.events.map((e) => [e.eventId, e]));
 
   // Pans: keyframes are absolute video seconds, so they move with the cut.
@@ -107,6 +122,7 @@ export async function afterSyncChange(match: SyncedGame, before: SyncPoint | und
   // Shared clips whose cut moved.
   const videoPath = match.videoUrl && isLocalPath(match.videoUrl) ? match.videoUrl : null;
   const canCut = !!videoPath && (await probeVideoPath(videoPath).then((p) => p.status === "ok", () => false));
+  if (signal.aborted) return;
   const plan = planSyncRecut(rows, eventById, after, canCut);
   const toastId = `sync-clips-${match.id}`;
   if (plan.hide.length > 0) {
@@ -119,10 +135,6 @@ export async function afterSyncChange(match: SyncedGame, before: SyncPoint | und
     return;
   }
   if (plan.recut.length === 0) return;
-
-  running.get(match.id)?.abort();
-  const controller = new AbortController();
-  running.set(match.id, controller);
   // One clipAndShip call per playlist and roll pair: a clip keeps the length it was cut at.
   const groups = new Map<string, typeof plan.recut>();
   for (const item of plan.recut) {
@@ -140,7 +152,7 @@ export async function afterSyncChange(match: SyncedGame, before: SyncPoint | und
   });
   try {
     for (const group of groups.values()) {
-      if (controller.signal.aborted) break;
+      if (signal.aborted) break;
       const { row: first, rolls } = group[0];
       const segments: ExportSegment[] = group.flatMap(({ row }) => {
         const event = eventById.get(row.clip.eventId);
@@ -165,7 +177,7 @@ export async function afterSyncChange(match: SyncedGame, before: SyncPoint | und
           rolls.post,
           {
             replace: true,
-            signal: controller.signal,
+            signal,
             onProgress: (n) => toast.loading(`Updating shared clips · ${before + n} of ${total}`, { id: toastId }),
           },
         );
@@ -185,7 +197,7 @@ export async function afterSyncChange(match: SyncedGame, before: SyncPoint | und
       );
       if (result.aborted) break;
     }
-    if (controller.signal.aborted) {
+    if (signal.aborted) {
       toast.dismiss(toastId);
       return;
     }
@@ -214,7 +226,5 @@ export async function afterSyncChange(match: SyncedGame, before: SyncPoint | und
       id: toastId,
       description: e instanceof Error ? e.message : String(e),
     });
-  } finally {
-    if (running.get(match.id) === controller) running.delete(match.id);
   }
 }

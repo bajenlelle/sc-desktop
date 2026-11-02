@@ -22,6 +22,7 @@ export const removeClips = (playlistId: string, clipKeys: Array<{ matchId: strin
 export const reorderItems = (playlistId: string, items: PlaylistItem[]) => db.reorderItems(c(), playlistId, items);
 export const updateClip = (playlistId: string, matchId: string, eventId: number, patch: { preRollOffset?: number; postRollOffset?: number; note?: string | null; cropKeyframes?: import("@scoutable/shared/lib/crop-path").CropKeyframe[] | null }) => db.updateClip(c(), playlistId, matchId, eventId, patch);
 export const updateClipR2Url = (playlistId: string, matchId: string, eventId: number, r2Url: string) => db.updateClipR2Url(c(), playlistId, matchId, eventId, r2Url);
+export const replaceClipR2Url = (playlistId: string, matchId: string, eventId: number, r2Url: string, previousUrl: string) => db.replaceClipR2Url(c(), playlistId, matchId, eventId, r2Url, previousUrl);
 export const clearShippedClip = (playlistId: string, matchId: string, eventId: number, onlyIfUrl?: string) => db.clearShippedClip(c(), playlistId, matchId, eventId, onlyIfUrl);
 export const listOwnClipsForMatch = (matchId: string) => db.listOwnClipsForMatch(c(), matchId);
 export const clearLegacyShippedClipsForMatch = (matchId: string) => db.clearLegacyShippedClipsForMatch(c(), matchId);

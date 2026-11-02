@@ -5,7 +5,8 @@ import { Check, ChevronRight, Film, Loader2, X } from "lucide-react";
 import { GeneratingSession, type SavePhase } from "@/components/generating-session";
 import { SyncPointPicker, type SeekRequest } from "@/components/sync-point-picker";
 import { followsSummary, QuarterSyncPanel, quarterCopy } from "@/components/quarter-sync";
-import { describePeriodSyncs, videoLooksCut } from "@scoutable/shared/lib/period-sync";
+import { carrySyncOver, describePeriodSyncs, videoLooksCut } from "@scoutable/shared/lib/period-sync";
+import { newestRequest } from "@scoutable/shared/lib/latest";
 import { isSuggestionPending, TipoffSuggestionStrip } from "@/components/tipoff-suggestion-strip";
 import { AutoHeight } from "@/components/ui/auto-height";
 import { SearchField } from "@/components/ui/search-field";
@@ -380,7 +381,7 @@ export function UploadZone({
   const [fetchError, setFetchError] = useState<string | null>(null);
   // The same fixture already imported into this space — re-importing updates
   // that row in place instead of creating an identically-named duplicate.
-  const [existingMatch, setExistingMatch] = useState<{ id: string; title: string; syncPoint?: SyncPoint } | null>(null);
+  const [existingMatch, setExistingMatch] = useState<{ id: string; title: string; syncPoint?: SyncPoint; videoUrl?: string } | null>(null);
 
   // Match data state
   const [matchTitle, setMatchTitle] = useState("");
@@ -477,7 +478,7 @@ export function UploadZone({
     let cancelled = false;
     findMatchBySourceGame(uuid, activeOrgId ?? undefined)
       .then((m) => {
-        if (!cancelled) setExistingMatch(m ? { id: m.id, title: m.title, syncPoint: m.syncPoint } : null);
+        if (!cancelled) setExistingMatch(m ? { id: m.id, title: m.title, syncPoint: m.syncPoint, videoUrl: m.videoUrl } : null);
       })
       .catch(() => {
         if (!cancelled) setExistingMatch(null);
@@ -692,6 +693,8 @@ export function UploadZone({
             ? { breaksCut: false }
             : {}),
       };
+      // A re-import onto the same video keeps the quarters and cuts already fixed.
+      syncPoint = carrySyncOver(existingMatch?.syncPoint, syncPoint, !!videoPath && existingMatch?.videoUrl === videoPath);
     }
 
     // Re-imports keep the existing row id — saveMatch upserts, so the game
@@ -812,6 +815,14 @@ export function UploadZone({
     navigatedRef.current = false;
     cutReportedRef.current = false;
   }, [videoPath, selectedGame?.uuid]);
+
+  // Re-importing onto the same video: the quarters already set start out set.
+  useEffect(() => {
+    const prev = existingMatch?.syncPoint;
+    if (!prev || !videoPath || existingMatch?.videoUrl !== videoPath) return;
+    if (prev.periods) setPeriodSyncs(prev.periods);
+    if (prev.breaksCut !== undefined) setBreaksCutChoice(prev.breaksCut);
+  }, [existingMatch, videoPath]);
 
   const draftSync = useMemo<SyncPoint | null>(
     () =>
@@ -1255,8 +1266,10 @@ export function UploadZone({
                       : undefined
                   }
                   confirmedSeconds={activeRow ? (activeRow.set ? activeRow.videoTime : null) : syncSeconds}
+                  momentKey={activeRow?.period ?? 1}
                   onConfirm={(secs) => (activeRow ? confirmPeriod(activeRow.period, secs) : confirmQ1(secs))}
-                  seekRequest={activeRow || navigatedRef.current ? quarterSeek : tipoffSuggestion.seekRequest}
+                  // Q1: whichever came last, a quarter step back to the tip-off or the suggestion's "Use".
+                  seekRequest={activeRow ? quarterSeek : newestRequest(quarterSeek, tipoffSuggestion.seekRequest)}
                   onUserAction={activeRow ? undefined : tipoffSuggestion.noteUserAction}
                   hasPendingSuggestion={!activeRow && isSuggestionPending(tipoffSuggestion.state)}
                   suggestionSlot={

@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { isLocalPath } from "@/lib/stream";
 import { probeVideoPath, videoBasename } from "@/lib/video-probe";
 import { uploadToR2 } from "@/lib/r2-upload";
-import { updateClipR2Url } from "@/lib/playlists-db";
+import { replaceClipR2Url, updateClipR2Url } from "@/lib/playlists-db";
 import { clipBounds, clipShipKey, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import type { ClipShipFailure, ClipShipResult } from "@scoutable/shared/lib/ship-result";
 import { isExportCancelled } from "@scoutable/shared/lib/export-progress";
@@ -32,7 +32,8 @@ type ClipSegment = Extract<ExportSegment, { kind: "clip" }>;
  * clearShippedClip). Each upload reports the offsets it was cut at, so a
  * caller can tell a clip that was trimmed while it uploaded. With
  * opts.replace a clip is cut again even when it has an r2Url (a sync change
- * moved its cut); the new URL replaces the old only once it is uploaded.
+ * moved its cut); the new URL replaces the old only once it is uploaded, and
+ * only while the clip still holds the old one (a trim made meanwhile wins).
  * Aborting via opts.signal stops the clip being
  * cut (cancel_export kills its ffmpeg) or uploaded, and reports aborted:
  * never a failure.
@@ -124,7 +125,15 @@ export async function clipAndShip(
 
       // Persist the URL BEFORE deleting the temp file: a failed delete must
       // never leave an uploaded clip invisible (URL unrecorded).
-      await updateClipR2Url(playlist.id, seg.matchId, event.eventId, r2Url);
+      const previousUrl = existingClip?.type === "clip" ? existingClip.r2Url : undefined;
+      if (opts?.replace && previousUrl) {
+        if (!(await replaceClipR2Url(playlist.id, seg.matchId, event.eventId, r2Url, previousUrl))) {
+          result.skipped++; // trimmed or re-uploaded meanwhile: that newer state stands
+          return null;
+        }
+      } else {
+        await updateClipR2Url(playlist.id, seg.matchId, event.eventId, r2Url);
+      }
       uploadedKeys.add(itemKey);
       result.shipped++;
       result.uploaded.push({

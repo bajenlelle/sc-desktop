@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SyncPoint } from "../../types/match";
 import { computeVideoTime } from "../clip-timing";
 import {
+  carrySyncOver,
   clearAllPeriodSyncs,
   clearSyncCut,
   firstPlayOfCut,
@@ -173,5 +174,55 @@ describe("firstPlayOfCut", () => {
     ];
     expect(firstPlayOfCut(cutQ2.cuts![0], events)?.eventId).toBe(2);
     expect(firstPlayOfCut({ period: 4, syncRealWorldTime: T(60), syncVideoTime: 0 }, events)).toBeNull();
+  });
+});
+
+describe("review fixes for cuts", () => {
+  it("From this play on moves the play even with an earlier fix just before it", () => {
+    // A fix 3 s before this play already exists; this one starts 10 s before the play.
+    const once = syncFromPlayOn(base, at(2, 18), 980, 0);
+    const near = syncFromPlayOn(once, at(2, 18, 3), 990, 10);
+    expect(computeVideoTime(at(2, 18, 3), near)).toBe(990);
+  });
+
+  it("This quarter measures the quarter's start without a cut inside that quarter", () => {
+    // Q2 has no sync of its own; the league marks its first basket at 17:43.
+    // A cut 30 s into Q2 (before that basket) moved later plays 40 s earlier.
+    const sync: SyncPoint = {
+      syncVideoTime: 42,
+      syncRealWorldTime: T(0),
+      marks: { "2": { anchor: { realWorldTime: T(13), kind: "first_basket", label: "first basket" } } },
+      cuts: [{ period: 2, syncRealWorldTime: T(12, 30), syncVideoTime: 752 }],
+    };
+    const beforeCut = at(2, 12, 10);
+    const afterCut = at(2, 14);
+    expect(computeVideoTime(beforeCut, sync)).toBe(772);
+    expect(computeVideoTime(afterCut, sync)).toBe(842);
+    const moved = shiftPeriod(sync, [], 2, 5);
+    expect(computeVideoTime(beforeCut, moved)).toBe(777);
+    expect(computeVideoTime(afterCut, moved)).toBe(847);
+  });
+});
+
+describe("carrySyncOver (re-import)", () => {
+  const previous: SyncPoint = { ...cutQ2, breaksCut: true };
+  const fresh: SyncPoint = { syncVideoTime: 44, syncRealWorldTime: T(0) };
+
+  it("keeps the quarter syncs and cuts made on the same video", () => {
+    expect(carrySyncOver(previous, fresh, true)).toEqual({ ...fresh, periods: previous.periods, cuts: previous.cuts, breaksCut: true });
+  });
+
+  it("lets a quarter set again during the re-import win", () => {
+    const withQ2 = { ...fresh, periods: { "2": { syncVideoTime: 650, syncRealWorldTime: T(12) } } };
+    expect(carrySyncOver(previous, withQ2, true).periods).toEqual(withQ2.periods);
+  });
+
+  it("doesn't bring the quarters back once the coach says the video holds the whole game", () => {
+    const whole = { ...fresh, breaksCut: false };
+    expect(carrySyncOver(previous, whole, true)).toEqual({ ...whole, cuts: previous.cuts });
+  });
+
+  it("starts over on another video", () => {
+    expect(carrySyncOver(previous, fresh, false)).toEqual(fresh);
   });
 });

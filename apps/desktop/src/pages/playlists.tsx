@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAuth } from "@/lib/auth-context";
 import { trackEvent } from "@/lib/analytics";
-import { afterSyncChange, CLIPS_PATCHED_EVENT, type ClipPatch } from "@/lib/sync-change";
+import { afterSyncChange, CLIPS_PATCHED_EVENT, isSyncRefreshRunning, type ClipPatch } from "@/lib/sync-change";
 import { describeShift, quartersMoved, SyncFixPanel, type SyncFixScope } from "@/components/editor/sync-fix-sheet";
 import { videoLooksCut } from "@scoutable/shared/lib/period-sync";
 import { Sentry } from "@/lib/sentry";
@@ -1115,6 +1115,23 @@ export function PlaylistsPage() {
     return map;
   }, [clipMatches]);
 
+  // Shared clips cut with an older sync than their game's (a re-cut cut short
+  // by quitting, or a sync changed on another computer) are put right when
+  // their playlist opens: re-cut here, or hidden when the video isn't on this
+  // computer. Once per game per session; only the owner can rewrite clips.
+  const reconciledRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!selected || !user || selected.createdBy !== user.id) return;
+    for (const c of selected.items.filter(isClipItem)) {
+      if (!c.r2Url || reconciledRef.current.has(c.matchId)) continue;
+      const m = matchLookup.get(c.matchId);
+      if (!m?.syncPoint || !eventByKey.has(`${c.matchId}:${c.eventId}`)) continue;
+      reconciledRef.current.add(c.matchId);
+      // A change made this session is being followed already.
+      if (!isSyncRefreshRunning(c.matchId)) void afterSyncChange(m, undefined);
+    }
+  }, [selected, user, matchLookup, eventByKey]);
+
   // Each linked recording's length, for the "skips the breaks" hint and Fix sync.
   useEffect(() => {
     if (!selected) return;
@@ -2127,7 +2144,10 @@ export function PlaylistsPage() {
         toast.error("Couldn't save the sync", { description: e instanceof Error ? e.message : String(e) });
         return;
       }
-      setMatches((prev) => prev.map((m) => (m.id === match.id ? { ...m, syncPoint: next } : m)));
+      const withNext = (m: StoredMatch) => (m.id === match.id ? { ...m, syncPoint: next } : m);
+      setMatches((prev) => prev.map(withNext));
+      // A game from another space shows here too: its copy must follow, or a second fix starts from the old sync.
+      setOutsideMatches((prev) => prev.map(withNext));
       const moved = scope === "quarter" && before ? quartersMoved(before, match.events, event.period) : null;
       toast.success(
         moved
@@ -4868,7 +4888,7 @@ export function PlaylistsPage() {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <span className="min-w-0 flex-1">
               {syncHint.pastEnd > 0
-                ? `${syncHint.pastEnd} clip${syncHint.pastEnd === 1 ? "" : "s"} from ${syncHint.title} start after the video ends.`
+                ? `${syncHint.pastEnd} clip${syncHint.pastEnd === 1 ? "" : "s"} from ${syncHint.title} ${syncHint.pastEnd === 1 ? "starts" : "start"} after the video ends.`
                 : `The play-by-play of ${syncHint.title} runs past the end of its video.`}{" "}
               The video probably skips the breaks between quarters.
             </span>
