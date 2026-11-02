@@ -27,10 +27,13 @@ type ClipSegment = Extract<ExportSegment, { kind: "clip" }>;
  *
  * Idempotent: clips that already have r2Url on their PlaylistClipItem are
  * skipped — safe because anything that invalidates an upload's CONTENT clears
- * the r2Url first (a sync-point save nulls it for the whole match via
- * clearShippedClipsForMatch; a trim nulls it for the clip via
+ * the r2Url first (a sync change re-cuts moved clips with opts.replace, see
+ * lib/sync-change.ts, and hides those it can't; a trim nulls it for the clip via
  * clearShippedClip). Each upload reports the offsets it was cut at, so a
- * caller can tell a clip that was trimmed while it uploaded. Aborting via opts.signal stops the clip being
+ * caller can tell a clip that was trimmed while it uploaded. With
+ * opts.replace a clip is cut again even when it has an r2Url (a sync change
+ * moved its cut); the new URL replaces the old only once it is uploaded.
+ * Aborting via opts.signal stops the clip being
  * cut (cancel_export kills its ffmpeg) or uploaded, and reports aborted:
  * never a failure.
  */
@@ -39,7 +42,7 @@ export async function clipAndShip(
   segments: ExportSegment[],
   preRoll: number,
   postRoll: number,
-  opts?: { onProgress?: (done: number, total: number) => void; signal?: AbortSignal },
+  opts?: { onProgress?: (done: number, total: number) => void; signal?: AbortSignal; replace?: boolean },
 ): Promise<ClipShipResult> {
   const clipSegments = segments.filter((s): s is ClipSegment => s.kind === "clip");
 
@@ -87,7 +90,7 @@ export async function clipAndShip(
         item.matchId === seg.matchId &&
         item.eventId === event.eventId
     );
-    if ((existingClip?.type === "clip" && existingClip.r2Url) || uploadedKeys.has(itemKey)) {
+    if ((!opts?.replace && existingClip?.type === "clip" && existingClip.r2Url) || uploadedKeys.has(itemKey)) {
       result.skipped++;
       return null;
     }

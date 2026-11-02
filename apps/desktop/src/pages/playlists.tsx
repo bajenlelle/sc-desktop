@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAuth } from "@/lib/auth-context";
 import { trackEvent } from "@/lib/analytics";
+import { CLIPS_PATCHED_EVENT, type ClipPatch } from "@/lib/sync-change";
 import { Sentry } from "@/lib/sentry";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -560,6 +561,31 @@ export function PlaylistsPage() {
   useEffect(() => { postRollRef.current = postRoll; }, [postRoll]);
   useEffect(() => { activeMatchIdRef.current = activeMatchId; }, [activeMatchId]);
   useEffect(() => { selectedRef.current = selected; }, [selected]);
+
+  // A sync change re-cut shared clips or moved pans in the background
+  // (lib/sync-change.ts): keep this copy of those playlists in step.
+  useEffect(() => {
+    const onPatched = (e: Event) => {
+      const { patches } = (e as CustomEvent<{ patches: ClipPatch[] }>).detail;
+      const patch = (pl: Playlist): Playlist => {
+        const mine = new Map(patches.filter((x) => x.playlistId === pl.id).map((x) => [`${x.matchId}:${x.eventId}`, x]));
+        if (mine.size === 0) return pl;
+        return {
+          ...pl,
+          items: pl.items.map((item) => {
+            const x = item.type === "clip" ? mine.get(`${item.matchId}:${item.eventId}`) : undefined;
+            if (!x || item.type !== "clip") return item;
+            return { ...item, ...(x.r2Url !== undefined ? { r2Url: x.r2Url ?? undefined } : {}), ...(x.cropKeyframes ? { cropKeyframes: x.cropKeyframes } : {}) };
+          }),
+        };
+      };
+      if (selectedRef.current) selectedRef.current = patch(selectedRef.current);
+      setSelected((prev) => (prev ? patch(prev) : prev));
+      setPlaylists((prev) => prev.map(patch));
+    };
+    window.addEventListener(CLIPS_PATCHED_EVENT, onPatched);
+    return () => window.removeEventListener(CLIPS_PATCHED_EVENT, onPatched);
+  }, []);
   useEffect(() => { playlistsRef.current = playlists; }, [playlists]);
   useEffect(() => { sessionStorage.setItem("expandedFolders", JSON.stringify([...expandedFolders])); }, [expandedFolders]);
   useEffect(() => { sessionStorage.setItem("uncategorizedExpanded", String(uncategorizedExpanded)); }, [uncategorizedExpanded]);

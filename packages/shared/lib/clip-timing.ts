@@ -92,6 +92,21 @@ export function clipShipKey(
   return `clips/${matchId}/${eventId}_pre${pre.toFixed(1)}_post${post.toFixed(1)}_s${start.toFixed(1)}.mp4`;
 }
 
+/** The pre/post totals a shipped clip was cut with, read back from its key. */
+export function shippedTotals(r2Url: string): { pre: number; post: number } | null {
+  const m = /\/\d+_pre(-?\d+(?:\.\d+)?)_post(-?\d+(?:\.\d+)?)(?:_s\d+(?:\.\d+)?)?\.mp4$/.exec(r2Url);
+  return m ? { pre: Number(m[1]), post: Number(m[2]) } : null;
+}
+
+/**
+ * The in-video start a shipped clip was cut from, read back from its key
+ * (clipShipKey's `_s` segment). Null for keys minted before that segment.
+ */
+export function shippedStart(r2Url: string): number | null {
+  const m = /_s(\d+(?:\.\d+)?)\.mp4$/.exec(r2Url);
+  return m ? Number(m[1]) : null;
+}
+
 /** Post-roll padding baked into shipped clips (desktop authoring default). */
 export const CLIP_POST_ROLL_SECONDS = 3;
 

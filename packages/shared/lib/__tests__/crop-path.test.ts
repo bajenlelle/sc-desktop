@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CropKeyframe } from "../crop-path";
-import { clampCx, cropWidthFrac, cxAt, DEFAULT_CX, toSegmentKeyframes } from "../crop-path";
+import { clampCx, cropWidthFrac, cxAt, DEFAULT_CX, shiftKeyframes, toSegmentKeyframes } from "../crop-path";
 
 const kf = (t: number, cx: number): CropKeyframe => ({ t, cx });
 
@@ -160,3 +160,11 @@ describe("toSegmentKeyframes", () => {
     expect(toSegmentKeyframes([kf(5, 0.25)], 10, 10)).toEqual([{ t: 0, cx: 0.25 }]);
   });
 });
+
+describe("shiftKeyframes", () => {
+  it("moves every keyframe with the clip's cut and keeps the pan", () => {
+    const kfs: CropKeyframe[] = [{ t: 754.2, cx: 0.3 }, { t: 757.75, cx: 0.62 }];
+    expect(shiftKeyframes(kfs, -661.05)).toEqual([{ t: 93.15, cx: 0.3 }, { t: 96.7, cx: 0.62 }]);
+  });
+});
+

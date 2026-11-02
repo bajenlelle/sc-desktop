@@ -26,6 +26,7 @@ export type AnalyticsEvent =
   | "game_synced" // …, picked_from (latest_card | team_list | all_list), team_game
   | "game_sync_failed"
   | "sync_point_skipped"
+  | "shared_clips_recut" // game_id, clips, failed, hidden, playlists: a sync change re-cut (or hid) moved shared clips
   | "import_view_changed" // view (team | all)
   | "demo_game_seeded"
   // Automatic tip-off detection (desktop import). Props in comments.
