@@ -39,12 +39,8 @@ function announcePatches(patches: ClipPatch[]) {
   if (patches.length > 0) window.dispatchEvent(new CustomEvent(CLIPS_PATCHED_EVENT, { detail: { patches } }));
 }
 
-/** Games whose shared clips are being re-cut now. */
+/** Games whose shared clips are being re-cut now: a newer change for the same game stops the older run. */
 const running = new Map<string, AbortController>();
-
-export function isSyncRefreshRunning(matchId: string): boolean {
-  return running.has(matchId);
-}
 
 type SyncedGame = Pick<StoredMatch, "id" | "title" | "videoUrl" | "events" | "syncPoint">;
 

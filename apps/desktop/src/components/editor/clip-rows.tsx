@@ -182,6 +182,7 @@ export function ClipRow({
   onInsertTextCardAbove,
   onInsertStatsCardAbove,
   onTrim,
+  onFixSync,
   onRemove,
   removeCount = 1,
   labelControls,
@@ -216,6 +217,8 @@ export function ClipRow({
   /** Absent when this clip has no player, or filters are on. */
   /** Opens the clip for trimming; absent when it can't play (no sync point). */
   onTrim?: () => void;
+  /** Find where the play really happens and move the game's sync (or this clip) to it. */
+  onFixSync?: () => void;
   onRemove: () => void;
   /** What Remove takes: more than 1 when the row is one of several selected items, which all go. */
   removeCount?: number;
@@ -353,6 +356,7 @@ export function ClipRow({
       </ContextMenuTrigger>
       <ContextMenuContent>
         {onTrim && <ContextMenuItem onSelect={onTrim}>Trim clip…</ContextMenuItem>}
+        {onFixSync && <ContextMenuItem onSelect={onFixSync}>Fix sync…</ContextMenuItem>}
         {onInsertTextCardAbove && <ContextMenuItem onSelect={onInsertTextCardAbove}>Insert text card above</ContextMenuItem>}
         {onInsertStatsCardAbove && <ContextMenuItem onSelect={onInsertStatsCardAbove}>Insert stats card above</ContextMenuItem>}
         {canGroupSelection && isSelected && onGroupSelected && (
