@@ -2,12 +2,13 @@
  * Per-quarter sync, for game videos that skip the breaks between quarters.
  * Each cut moves every later play, so a quarter can carry its own sync
  * (SyncPoint.periods); a quarter without one follows the nearest earlier
- * quarter that has one (see syncForPeriod in clip-timing.ts).
+ * quarter that has one (see syncForPeriod in clip-timing.ts). A cut inside a
+ * quarter (SyncPoint.cuts, "From this play on") places the plays after it.
  */
 
 import { computeVideoTime } from "./clip-timing";
 import { periodLabel } from "./events";
-import type { PeriodMark, PeriodSync, PlayByPlayEvent, SyncAnchorKind, SyncPoint } from "../types/match";
+import type { PeriodMark, PeriodSync, PlayByPlayEvent, SyncAnchorKind, SyncCut, SyncPoint } from "../types/match";
 
 const isTime = (s: unknown): s is string => typeof s === "string" && !Number.isNaN(new Date(s).getTime());
 const isSeconds = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
@@ -47,7 +48,106 @@ export function normalizeSyncPoint(raw: SyncPoint): SyncPoint {
   }
 
   if ("breaksCut" in raw && typeof raw.breaksCut !== "boolean") delete out.breaksCut;
+
+  if ("cuts" in raw) {
+    const cuts = (Array.isArray(raw.cuts) ? raw.cuts : []).filter(
+      (c): c is SyncCut =>
+        !!c && Number.isInteger(c.period) && c.period >= 1 && isSeconds(c.syncVideoTime) && isTime(c.syncRealWorldTime),
+    );
+    if (cuts.length > 0) out.cuts = sortCuts(cuts.map((c) => ({ period: c.period, syncRealWorldTime: c.syncRealWorldTime, syncVideoTime: c.syncVideoTime })));
+    else delete out.cuts;
+  }
   return out;
+}
+
+const timeOf = (iso: string) => new Date(iso).getTime();
+const sortCuts = (cuts: SyncCut[]) => [...cuts].sort((a, b) => timeOf(a.syncRealWorldTime) - timeOf(b.syncRealWorldTime));
+
+/** The sync with `cuts` in place of its own (none = the field goes). */
+function withCuts(sync: SyncPoint, cuts: SyncCut[]): SyncPoint {
+  const next: SyncPoint = { ...sync };
+  if (cuts.length > 0) next.cuts = sortCuts(cuts);
+  else delete next.cuts;
+  return next;
+}
+
+/**
+ * "From this play on": the play `event` is at `videoTime` in the video, and
+ * so is every later play, up to the next quarter with its own sync or the
+ * next cut. The cut starts `leadSeconds` before the play (the clip's
+ * pre-roll), so the play's own clip moves too; a cut already at that moment
+ * is replaced.
+ */
+export function syncFromPlayOn(
+  sync: SyncPoint,
+  event: { realWorldTime: string; period: number },
+  videoTime: number,
+  leadSeconds: number,
+): SyncPoint {
+  const from = new Date(timeOf(event.realWorldTime) - leadSeconds * 1000).toISOString();
+  const cut: SyncCut = { period: event.period, syncRealWorldTime: from, syncVideoTime: videoTime - leadSeconds };
+  const others = (sync.cuts ?? []).filter((c) => Math.abs(timeOf(c.syncRealWorldTime) - timeOf(from)) >= 500);
+  return withCuts(sync, [...others, cut]);
+}
+
+/** The first play at or after a cut, which names it on the game page ("From Q2 5:12"). */
+export function firstPlayOfCut<E extends { realWorldTime?: string | null }>(cut: SyncCut, events: E[]): E | null {
+  const from = timeOf(cut.syncRealWorldTime);
+  let best: E | null = null;
+  let bestAt = Infinity;
+  for (const e of events) {
+    const t = e.realWorldTime ? timeOf(e.realWorldTime) : NaN;
+    if (!Number.isNaN(t) && t >= from && t < bestAt) {
+      best = e;
+      bestAt = t;
+    }
+  }
+  return best;
+}
+
+/** Removes the cut that starts at `realWorldTime`. */
+export function clearSyncCut(sync: SyncPoint, realWorldTime: string): SyncPoint {
+  return withCuts(sync, (sync.cuts ?? []).filter((c) => c.syncRealWorldTime !== realWorldTime));
+}
+
+/**
+ * The next point after a play that already has its own placement, which a
+ * "From this play on" change stops at: a cut later in the game, or a later
+ * quarter with its own sync. Null when nothing follows.
+ */
+export function nextFixAfter(
+  sync: SyncPoint,
+  event: { realWorldTime: string; period: number },
+): { kind: "cut"; realWorldTime: string } | { kind: "period"; period: number } | null {
+  const at = timeOf(event.realWorldTime);
+  const cut = (sync.cuts ?? []).find((c) => timeOf(c.syncRealWorldTime) > at);
+  const periods = Object.keys(sync.periods ?? {})
+    .map(Number)
+    .filter((p) => Number.isInteger(p) && p > event.period)
+    .sort((a, b) => a - b);
+  const period = periods[0];
+  // A quarter's own sync starts that quarter, so it comes before any cut inside it or later.
+  if (period !== undefined && (!cut || cut.period >= period)) return { kind: "period", period };
+  return cut ? { kind: "cut", realWorldTime: cut.syncRealWorldTime } : null;
+}
+
+/** Periods `from` … up to (not including) the next period with its own sync: what a shift of `from` moves. */
+function followingRange(sync: SyncPoint, from: number): (p: number) => boolean {
+  const next = Object.keys(sync.periods ?? {})
+    .map(Number)
+    .filter((p) => Number.isInteger(p) && p > from)
+    .sort((a, b) => a - b)[0];
+  return (p) => p >= from && (next === undefined || p < next);
+}
+
+/** Moves the cuts in the periods that follow `from` by `deltaSeconds`. */
+function shiftCuts(sync: SyncPoint, from: number, deltaSeconds: number): SyncPoint {
+  if (!sync.cuts?.length) return sync;
+  const moves = followingRange(sync, from);
+  return withCuts(
+    sync,
+    sync.cuts.map((c) => (moves(c.period) ? { ...c, syncVideoTime: c.syncVideoTime + deltaSeconds } : c)),
+  );
 }
 
 /** The fields of a play the period math reads. */
@@ -309,11 +409,16 @@ export function clearAllPeriodSyncs(sync: SyncPoint): SyncPoint {
 }
 
 /**
- * Moves a period (and every later period that follows it) by `deltaSeconds`.
- * A period without its own sync gets one, on its mark's anchor when there
- * is one, so the game page can show where that quarter is set.
+ * Moves a period (and every later period that follows it) by `deltaSeconds`,
+ * with the cuts inside those periods. A period without its own sync gets
+ * one, on its mark's anchor when there is one, so the game page can show
+ * where that quarter is set.
  */
 export function shiftPeriod(sync: SyncPoint, events: PeriodEvent[], period: number, deltaSeconds: number): SyncPoint {
+  return shiftCuts(movePeriodSync(sync, events, period, deltaSeconds), Math.max(1, period), deltaSeconds);
+}
+
+function movePeriodSync(sync: SyncPoint, events: PeriodEvent[], period: number, deltaSeconds: number): SyncPoint {
   if (period <= 1) return { ...sync, syncVideoTime: sync.syncVideoTime + deltaSeconds };
   const own = sync.periods?.[String(period)];
   if (own) {
@@ -336,6 +441,9 @@ export function shiftPeriod(sync: SyncPoint, events: PeriodEvent[], period: numb
       baseP = q;
     }
   }
+  // A cut in the quarters before this one, after that base, is what places it now.
+  const lastCut = (sync.cuts ?? []).filter((c) => c.period >= baseP && c.period < period).at(-1);
+  if (lastCut) base = lastCut;
   return {
     ...sync,
     periods: {
@@ -361,6 +469,7 @@ export function shiftWholeGame(sync: SyncPoint, deltaSeconds: number): SyncPoint
       Object.entries(sync.periods).map(([k, ps]) => [k, { ...ps, syncVideoTime: ps.syncVideoTime + deltaSeconds }]),
     );
   }
+  if (sync.cuts) next.cuts = sync.cuts.map((c) => ({ ...c, syncVideoTime: c.syncVideoTime + deltaSeconds }));
   return next;
 }
 

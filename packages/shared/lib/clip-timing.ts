@@ -7,18 +7,13 @@
 
 import type { SyncPoint } from "../types/match";
 
-/**
- * The sync a period's plays are placed with: the period's own (a video that
- * skips the breaks syncs each quarter), else the nearest earlier period's,
- * else the game's Q1 sync point.
- */
-export function syncForPeriod(
-  sync: SyncPoint,
-  period?: number | null,
-): { syncVideoTime: number; syncRealWorldTime: string } {
-  if (!sync.periods || period == null || !Number.isFinite(period)) return sync;
-  let chosen: { syncVideoTime: number; syncRealWorldTime: string } = sync;
+type Sync = { syncVideoTime: number; syncRealWorldTime: string };
+
+/** A period's sync and the period it belongs to (1 = the game's Q1 sync point). */
+function periodSync(sync: SyncPoint, period?: number | null): { sync: Sync; period: number } {
+  let chosen: Sync = sync;
   let chosenPeriod = 1;
+  if (!sync.periods || period == null || !Number.isFinite(period)) return { sync: chosen, period: chosenPeriod };
   for (const [key, ps] of Object.entries(sync.periods)) {
     const p = Number(key);
     if (Number.isInteger(p) && p > chosenPeriod && p <= period) {
@@ -26,19 +21,54 @@ export function syncForPeriod(
       chosenPeriod = p;
     }
   }
+  return { sync: chosen, period: chosenPeriod };
+}
+
+/**
+ * The sync a period's plays are placed with: the period's own (a video that
+ * skips the breaks syncs each quarter), else the nearest earlier period's,
+ * else the game's Q1 sync point.
+ */
+export function syncForPeriod(sync: SyncPoint, period?: number | null): Sync {
+  return periodSync(sync, period).sync;
+}
+
+/**
+ * The sync a play is placed with: its period's (syncForPeriod), unless a cut
+ * in the video (SyncPoint.cuts) lies at or before the play and in that
+ * period or later; the latest such cut places it then.
+ */
+export function syncForEvent(
+  sync: SyncPoint,
+  event: { realWorldTime?: string | null; period?: number | null },
+): Sync {
+  const base = periodSync(sync, event.period);
+  if (!sync.cuts?.length || !event.realWorldTime) return base.sync;
+  const at = new Date(event.realWorldTime).getTime();
+  if (isNaN(at)) return base.sync;
+  let chosen = base.sync;
+  let chosenAt = -Infinity;
+  for (const cut of sync.cuts) {
+    if (cut.period < base.period) continue;
+    const t = new Date(cut.syncRealWorldTime).getTime();
+    if (isNaN(t) || t > at || t < chosenAt) continue;
+    chosen = cut;
+    chosenAt = t;
+  }
   return chosen;
 }
 
 /**
  * Seconds into the video for an event, derived from the match's realtime
- * sync point (its period's own, when the video skips the breaks). Null when
+ * sync point (its period's own when the video skips the breaks, or a cut's
+ * inside a quarter: syncForEvent). Null when
  * either timestamp is missing or unparseable.
  */
 export function computeVideoTime(
   event: { realWorldTime?: string | null; period?: number | null },
   sync: SyncPoint,
 ): number | null {
-  const s = syncForPeriod(sync, event.period);
+  const s = syncForEvent(sync, event);
   if (!event.realWorldTime || !s.syncRealWorldTime) return null;
   const eventMs = new Date(event.realWorldTime).getTime();
   const syncMs = new Date(s.syncRealWorldTime).getTime();

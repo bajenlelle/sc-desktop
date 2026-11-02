@@ -177,6 +177,18 @@ export interface PeriodMark {
   anchor: { realWorldTime: string; kind: SyncAnchorKind; label: string };
 }
 
+/**
+ * A cut inside the video that isn't at a quarter break ("From this play on"
+ * in Fix sync): from `syncRealWorldTime` on, plays are placed from this
+ * moment instead, up to the next quarter that has its own sync. `period` is
+ * the quarter the cut is in.
+ */
+export interface SyncCut {
+  period: number;
+  syncVideoTime: number;
+  syncRealWorldTime: string;
+}
+
 export interface SyncPoint {
   syncVideoTime: number;    // seconds into the video
   syncRealWorldTime: string; // ISO UTC of the reference event (Q1 tip-off)
@@ -191,6 +203,8 @@ export interface SyncPoint {
   marks?: Record<string, PeriodMark>;
   /** The coach's answer to "does the video skip the breaks?"; undefined = never asked. */
   breaksCut?: boolean;
+  /** Cuts inside quarters, in time order (see SyncCut). */
+  cuts?: SyncCut[];
 }
 
 export interface PlaylistClipItem {

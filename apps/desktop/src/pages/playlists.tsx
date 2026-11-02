@@ -2129,7 +2129,13 @@ export function PlaylistsPage() {
       }
       setMatches((prev) => prev.map((m) => (m.id === match.id ? { ...m, syncPoint: next } : m)));
       const moved = scope === "quarter" && before ? quartersMoved(before, match.events, event.period) : null;
-      toast.success(moved ? `${moved.join(", ")} moved ${describeShift(delta)}` : `The whole game moved ${describeShift(delta)}`);
+      toast.success(
+        moved
+          ? `${moved.join(", ")} moved ${describeShift(delta)}`
+          : scope === "play"
+            ? `This play and later ones moved ${describeShift(delta)}`
+            : `The whole game moved ${describeShift(delta)}`,
+      );
       void afterSyncChange({ ...match, syncPoint: next }, before);
     }
     trackEvent("sync_fix_applied", { scope, period: event.period, delta_s: Math.round(delta * 10) / 10 });
@@ -5508,6 +5514,7 @@ export function PlaylistsPage() {
                     match={match}
                     event={event}
                     videoDuration={videoDurations[match.videoUrl] ?? null}
+                    leadSeconds={Math.max(0, preRoll + getClipOffsets(syncFix!.matchId, syncFix!.eventId).pre)}
                     onApply={applySyncFix}
                     onCancel={() => setSyncFix(null)}
                   />

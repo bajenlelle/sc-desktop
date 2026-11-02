@@ -2,13 +2,22 @@
  * Fix sync from a clip, where the coach notices the drift: find where the
  * play really happens, then choose how far the move reaches. "This quarter"
  * moves the clip's quarter and every later quarter that follows it (a video
- * that skips the breaks drifts quarter by quarter); "Whole game" moves every
- * quarter; "Just this clip" moves this clip alone, as its own offsets.
+ * that skips the breaks drifts quarter by quarter); "From this play on" moves
+ * this play and every later one up to the next quarter with its own sync (a
+ * cut inside a quarter); "Whole game" moves every quarter; "Just this clip"
+ * moves this clip alone, as its own offsets.
  */
 import * as React from "react";
 import { computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { eventLabel, formatGameClock, periodLabel, playerName } from "@scoutable/shared/lib/events";
-import { describePeriodSyncs, projectedSync, shiftPeriod, shiftWholeGame } from "@scoutable/shared/lib/period-sync";
+import {
+  describePeriodSyncs,
+  nextFixAfter,
+  projectedSync,
+  shiftPeriod,
+  shiftWholeGame,
+  syncFromPlayOn,
+} from "@scoutable/shared/lib/period-sync";
 import { formatSpan } from "@/components/quarter-sync";
 import { SyncPointPicker, type SeekRequest } from "@/components/sync-point-picker";
 import { Button } from "@/components/ui/button";
@@ -16,7 +25,7 @@ import { SegmentedControl } from "@/components/ui/segmented-control";
 import { SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import type { PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 
-export type SyncFixScope = "quarter" | "game" | "clip";
+export type SyncFixScope = "quarter" | "play" | "game" | "clip";
 
 /** "Q3", "Q3 and Q4", "Q2, Q3 and Q4". */
 function joinNames(names: string[]): string {
@@ -54,12 +63,15 @@ export function SyncFixPanel({
   match,
   event,
   videoDuration,
+  leadSeconds,
   onApply,
   onCancel,
 }: {
   match: StoredMatch;
   event: PlayByPlayEvent;
   videoDuration: number | null;
+  /** How long before the play the clip starts: "From this play on" moves from there. */
+  leadSeconds: number;
   /** `next` is the game's new sync, or null for "Just this clip". */
   onApply: (scope: SyncFixScope, next: SyncPoint | null, deltaSeconds: number) => Promise<void>;
   onCancel: () => void;
@@ -89,6 +101,8 @@ export function SyncFixPanel({
   const delta = found !== null && mapped !== null ? found - mapped : null;
   const moves = delta !== null && Math.abs(delta) >= 0.05;
   const quarters = quartersMoved(sync, match.events, event.period);
+  const stopsAt = event.realWorldTime ? nextFixAfter(sync, { realWorldTime: event.realWorldTime, period: event.period }) : null;
+  const upTo = stopsAt?.kind === "period" ? `, up to ${periodLabel(stopsAt.period)}` : stopsAt?.kind === "cut" ? ", up to the next fix" : "";
 
   const explanation = !moves
     ? found === null
@@ -96,20 +110,31 @@ export function SyncFixPanel({
       : "That's where the play already is: nothing moves."
     : scope === "quarter"
       ? `${joinNames(quarters)} ${quarters.length === 1 ? "moves" : "move"} ${describeShift(delta!)}.`
-      : scope === "game"
-        ? `Every quarter moves ${describeShift(delta!)}.`
-        : `This clip moves ${describeShift(delta!)}. The rest of the game stays.`;
+      : scope === "play"
+        ? `This play and every later play move ${describeShift(delta!)}${upTo}. Earlier plays stay.`
+        : scope === "game"
+          ? `Every quarter moves ${describeShift(delta!)}.`
+          : `This clip moves ${describeShift(delta!)}. The rest of the game stays.`;
 
-  const applyLabel = scope === "quarter" ? `Move ${joinNames(quarters)}` : scope === "game" ? "Move the whole game" : "Move this clip";
+  const applyLabel =
+    scope === "quarter"
+      ? `Move ${joinNames(quarters)}`
+      : scope === "play"
+        ? "Move from this play on"
+        : scope === "game"
+          ? "Move the whole game"
+          : "Move this clip";
 
   async function apply() {
     if (!moves || delta === null) return;
     const next =
       scope === "quarter"
         ? { ...shiftPeriod(sync, match.events, event.period, delta), ...(event.period >= 2 ? { breaksCut: true } : {}) }
-        : scope === "game"
+        : scope === "play" && event.realWorldTime && found !== null
+          ? syncFromPlayOn(sync, { realWorldTime: event.realWorldTime, period: event.period }, found, leadSeconds)
+          : scope === "game"
           ? shiftWholeGame(sync, delta)
-          : null;
+            : null;
     setSaving(true);
     try {
       await onApply(scope, next, delta);
@@ -148,6 +173,7 @@ export function SyncFixPanel({
             onValueChange={setScope}
             options={[
               { value: "quarter", label: "This quarter" },
+              { value: "play", label: "From this play on" },
               { value: "game", label: "Whole game" },
               { value: "clip", label: "Just this clip" },
             ]}

@@ -10,8 +10,11 @@ import { formatMSSd, SyncPointPicker, type SeekRequest } from "@/components/sync
 import { formatSpan, QuarterSyncPanel, quarterCopy } from "@/components/quarter-sync";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { trackEvent } from "@/lib/analytics";
+import { formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import {
   clearAllPeriodSyncs,
+  clearSyncCut,
+  firstPlayOfCut,
   describePeriodSyncs,
   setPeriodSync,
   videoLooksCut,
@@ -469,6 +472,20 @@ export function MatchDetailPage() {
     }
   }
 
+  /** Removes one "From this play on" fix: the plays after it follow the quarter's sync again. */
+  async function removeCut(realWorldTime: string) {
+    if (!sync) return;
+    if (await saveSync(clearSyncCut(sync, realWorldTime))) trackEvent("sync_cut_removed", { surface: "game_page" });
+  }
+
+  /** "From Q2 5:12": a cut, named by the first play it moves. */
+  function cutLabel(cut: NonNullable<SyncPoint["cuts"]>[number]): string {
+    const play = firstPlayOfCut(cut, storedMatch!.events);
+    if (!play) return `From ${periodLabel(cut.period)}`;
+    const clock = play.gameClockTime ? formatGameClock(play.gameClockTime) : "";
+    return `From ${periodLabel(play.period)}${clock ? ` ${clock}` : ""}`;
+  }
+
   async function clearQuarters() {
     setConfirmClearOpen(false);
     if (!sync) return;
@@ -782,6 +799,26 @@ export function MatchDetailPage() {
                 </div>
               )}
             </>
+          )}
+          {sync?.cuts && sync.cuts.length > 0 && (
+            <div className="pt-4">
+              <GroupedList>
+                {sync.cuts.map((cut) => (
+                  <FormRow
+                    key={cut.syncRealWorldTime}
+                    label={cutLabel(cut)}
+                    description={`At ${formatMMSS(cut.syncVideoTime)} in the video`}
+                  >
+                    <Button variant="ghost" size="sm" onClick={() => void removeCut(cut.syncRealWorldTime)}>
+                      Remove
+                    </Button>
+                  </FormRow>
+                ))}
+              </GroupedList>
+              <GroupFooter>
+                Set with Fix sync in the editor: each moves the plays after it, up to the next quarter with its own sync.
+              </GroupFooter>
+            </div>
           )}
           <Dialog open={confirmClearOpen} onOpenChange={setConfirmClearOpen}>
             <DialogContent>

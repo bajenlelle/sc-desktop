@@ -48,7 +48,8 @@ export type AnalyticsEvent =
   | "period_sync_skipped" // surface, period
   | "period_sync_cleared" // surface, period (all = every quarter)
   | "sync_fix_opened" // entry (clip_menu | this_clip | hint)
-  | "sync_fix_applied" // scope (quarter | game | clip), period, delta_s
+  | "sync_fix_applied" // scope (quarter | play | game | clip), period, delta_s
+  | "sync_cut_removed" // surface: a "From this play on" fix removed
   | "sync_hint_shown" // reason (past_end | looks_cut), clips
   | "sync_hint_dismissed" // reason
   // Playlist production (desktop)
