@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { computeVideoTime } from "../clip-timing";
 import {
+  withTipoff,
   clearAllPeriodSyncs,
   clearPeriodSync,
   describePeriodSyncs,
@@ -210,5 +211,23 @@ describe("periodMarksFromEvents", () => {
   it("falls back to the first play when nobody scored, and says OT", () => {
     const m = periodMarksFromEvents([play(5, "19:15:00"), play(5, "19:16:00")]);
     expect(m["5"].anchor).toEqual({ realWorldTime: T("19:15:00"), kind: "play", label: "The first play of OT1" });
+  });
+});
+
+describe("withTipoff", () => {
+  const sync: SyncPoint = {
+    syncVideoTime: 42,
+    syncRealWorldTime: "2026-09-20T17:30:00Z",
+    periods: { "2": { syncVideoTime: 642, syncRealWorldTime: "2026-09-20T17:42:00Z" } },
+    marks: { "2": { anchor: { realWorldTime: "2026-09-20T17:42:00Z", kind: "period_start", label: "Start of Q2" } } },
+    breaksCut: true,
+  };
+
+  it("moves only the tip-off: the quarters' own syncs, marks and the cut answer stay", () => {
+    expect(withTipoff(sync, 50)).toEqual({ ...sync, syncVideoTime: 50 });
+  });
+
+  it("starts a sync for a game without one, with no wall-clock time yet", () => {
+    expect(withTipoff(undefined, 50)).toEqual({ syncVideoTime: 50, syncRealWorldTime: "" });
   });
 });

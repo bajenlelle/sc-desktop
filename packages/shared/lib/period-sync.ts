@@ -345,6 +345,14 @@ export function shiftPeriod(sync: SyncPoint, events: PeriodEvent[], period: numb
   };
 }
 
+/**
+ * The game's sync with the tip-off (Q1) at `videoTime`; every quarter that
+ * has its own sync, the league marks and the cut answer stay as they are.
+ */
+export function withTipoff(sync: SyncPoint | undefined, videoTime: number): SyncPoint {
+  return { ...sync, syncVideoTime: videoTime, syncRealWorldTime: sync?.syncRealWorldTime ?? "" };
+}
+
 /** Moves every period of the game by `deltaSeconds`. */
 export function shiftWholeGame(sync: SyncPoint, deltaSeconds: number): SyncPoint {
   const next: SyncPoint = { ...sync, syncVideoTime: sync.syncVideoTime + deltaSeconds };
