@@ -27,6 +27,8 @@ export interface ImportSummary {
   clipCount: number;
   hasVideo: boolean;
   hasSyncPoint: boolean;
+  /** The video looks like it skips the breaks, and its quarters aren't synced yet. */
+  needsQuarters?: boolean;
   /** Re-import of a game that already existed. */
   isUpdate: boolean;
 }
@@ -47,13 +49,13 @@ export function ImportSuccessDialog({
 
   if (!summary) return null;
 
-  const { matchId, title, clipCount, hasVideo, hasSyncPoint, isUpdate } = summary;
+  const { matchId, title, clipCount, hasVideo, hasSyncPoint, needsQuarters, isUpdate } = summary;
   const clips = `${clipCount} clip${clipCount === 1 ? "" : "s"}`;
 
   // What's missing decides the primary action: without a video (or a sync
   // point) clips can't be watched or exported, so fixing that beats
   // building a playlist.
-  const needs = !hasVideo ? "video" : !hasSyncPoint ? "sync" : null;
+  const needs = !hasVideo ? "video" : !hasSyncPoint ? "sync" : needsQuarters ? "quarters" : null;
 
   const description = isUpdate
     ? `${title} — clips refreshed. Playlists using this game keep working.`
@@ -61,6 +63,8 @@ export function ImportSuccessDialog({
       ? `${title} — ${clips} ready. Add the game video to watch clips and export them.`
       : needs === "sync"
         ? `${title} — ${clips} ready. Set a sync point so clips line up with the video.`
+        : needs === "quarters"
+          ? `${title} — ${clips} ready. The video looks cut between quarters: set where each quarter starts so later clips line up.`
         : `${title} — ${clips} ready to scout.`;
 
   /** Leave the same way the dialog came, then go. */
@@ -101,7 +105,9 @@ export function ImportSuccessDialog({
               <Button variant="outline" onClick={goPlaylists}>
                 Build a playlist
               </Button>
-              <Button onClick={goGame}>{needs === "video" ? "Add video" : "Set sync point"}</Button>
+              <Button onClick={goGame}>
+                {needs === "video" ? "Add video" : needs === "quarters" ? "Set quarters" : "Set sync point"}
+              </Button>
             </>
           ) : (
             <>

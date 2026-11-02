@@ -37,7 +37,33 @@ export interface SyncPointPickerProps {
   onUserAction?: (kind: "seek" | "confirm") => void;
   /** A suggestion is on offer above: its "Use" is the primary action, so this one steps back. */
   hasPendingSuggestion?: boolean;
+  /** Words for another moment than the anchor kind's (a quarter in a video that skips the breaks). */
+  copy?: Partial<AnchorCopy>;
+  /** Replaces the anchor kind's note under the instructions; null for none. */
+  note?: string | null;
+  /**
+   * The moment already set, when the parent decides it: one picker can step
+   * through several moments (the quarters), each with its own. Undefined =
+   * the picker keeps its own.
+   */
+  confirmedSeconds?: number | null;
+  /** The recording's length, once known. */
+  onDuration?: (seconds: number) => void;
 }
+
+export interface AnchorCopy {
+  title: string;
+  instruction: string;
+  button: string;
+  confirmed: string;
+}
+
+const TIPOFF_COPY: AnchorCopy = {
+  title: "Set the tip-off",
+  instruction: "Find the frame where the ball goes up, then set it.",
+  button: "Set tip-off here",
+  confirmed: "Tip-off set at",
+};
 
 /** m:ss.d; negative values (a recording that starts after the tip-off) keep their sign. */
 export function formatMSSd(secs: number): string {
@@ -79,7 +105,12 @@ export function SyncPointPicker({
   suggestionSlot,
   onUserAction,
   hasPendingSuggestion = false,
+  copy: copyOverride,
+  note,
+  confirmedSeconds,
+  onDuration,
 }: SyncPointPickerProps) {
+  const copy = { ...TIPOFF_COPY, ...copyOverride };
   const videoRef = useRef<HTMLVideoElement>(null);
   const readoutRef = useRef<HTMLSpanElement>(null);
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
@@ -87,7 +118,12 @@ export function SyncPointPicker({
   const [currentTime, setCurrentTime] = useState(initialSeconds ?? 0);
   const [duration, setDuration] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [confirmedTime, setConfirmedTime] = useState<number | null>(initialSeconds ?? null);
+  const [confirmedTime, setConfirmedTime] = useState<number | null>(confirmedSeconds ?? initialSeconds ?? null);
+  useEffect(() => {
+    if (confirmedSeconds !== undefined) setConfirmedTime(confirmedSeconds);
+  }, [confirmedSeconds]);
+  const onDurationRef = useRef(onDuration);
+  onDurationRef.current = onDuration;
   const [frameSeconds, setFrameSeconds] = useState(FALLBACK_FRAME);
   // Reported by VideoPlayer, which also shows the user why. Confirming on a
   // dead element would silently persist 0:00 over a possibly-correct sync
@@ -133,6 +169,7 @@ export function SyncPointPicker({
     function onLoadedMetadata() {
       if (!video) return;
       setDuration(video.duration);
+      if (Number.isFinite(video.duration) && video.duration > 0) onDurationRef.current?.(video.duration);
       if (initialSeconds != null && initialSeconds > 0) {
         video.currentTime = initialSeconds;
         setCurrentTime(initialSeconds);
@@ -286,9 +323,9 @@ export function SyncPointPicker({
   return (
     <div>
       <div className="mb-3">
-        <p className="text-headline text-foreground">Set the tip-off</p>
+        <p className="text-headline text-foreground">{copy.title}</p>
         <p className="mt-0.5 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-callout text-muted-foreground">
-          Find the frame where the ball goes up, then set it.
+          {copy.instruction}
           <span className="inline-flex items-center gap-0.5">
             <Kbd>←</Kbd>
             <Kbd>→</Kbd>
@@ -300,6 +337,7 @@ export function SyncPointPicker({
           </span>
           a frame.
         </p>
+        {note && <p className="mt-1 text-callout text-muted-foreground">{note}</p>}
       </div>
 
       {suggestionSlot}
@@ -375,7 +413,7 @@ export function SyncPointPicker({
               >
                 <Check className="size-3" strokeWidth={3} />
               </motion.span>
-              Tip-off set at <span className="nums">{formatMSSd(confirmedTime!)}</span>
+              {copy.confirmed} <span className="nums">{formatMSSd(confirmedTime!)}</span>
             </motion.span>
           ) : (
             <motion.span key="unset" variants={fadeVariants} initial="hidden" animate="visible" exit="exit" className="flex items-center gap-3">
@@ -385,7 +423,7 @@ export function SyncPointPicker({
                 title={failureMessage}
                 onClick={confirmHere}
               >
-                Set tip-off here
+                {copy.button}
               </Button>
               {confirmedTime !== null && (
                 <span className="text-callout text-muted-foreground">
