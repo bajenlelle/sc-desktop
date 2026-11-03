@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 import { DeleteMatchDialog } from "@/components/delete-match-dialog";
 import { EmptyState } from "@/components/empty-state";
+import { SyncHelpPopover } from "@/components/sync-help-popover";
 import { formatMSSd, SyncPointPicker, type SeekRequest } from "@/components/sync-point-picker";
 import { formatSpan, QuarterSyncPanel, quarterCopy } from "@/components/quarter-sync";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -668,7 +669,7 @@ export function MatchDetailPage() {
         </section>
 
         <section>
-          <GroupHeader title="Sync" />
+          <GroupHeader title="Sync" action={<SyncHelpPopover />} />
           <GroupFooter className="pt-0 pb-3">Clips are cut from the video by the game clock, counted from the tip-off.</GroupFooter>
           {canPick ? (
             <>

@@ -17,6 +17,7 @@ import { nextFixAfter, projectedSync, shiftPeriod, shiftWholeGame, syncFromPlayO
 import { joinNames, pickPeekPlays, quartersMoved, syncReach, type SyncFixScope } from "@scoutable/shared/lib/sync-reach";
 import { SyncReachStrip } from "@/components/editor/sync-reach-strip";
 import { formatSpan } from "@/components/quarter-sync";
+import { SyncHelpPopover } from "@/components/sync-help-popover";
 import { SyncPointPicker, type SeekRequest } from "@/components/sync-point-picker";
 import { Button } from "@/components/ui/button";
 import { RadioGroup } from "@/components/ui/radio-group";
@@ -158,6 +159,7 @@ export function SyncFixPanel({
           <SheetTitle>Fix sync</SheetTitle>
           <SheetDescription className="truncate">{match.title}</SheetDescription>
         </div>
+        <SyncHelpPopover />
         <SheetClose
           aria-label="Close"
           className="ml-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-fill-2 text-muted-foreground outline-none transition-[background-color,transform] duration-150 hover:bg-fill-3 hover:text-foreground active:scale-95 active:bg-fill-4 focus-visible:ring-2 focus-visible:ring-selection"
