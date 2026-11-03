@@ -23,6 +23,8 @@ export interface SeekRequest {
   seconds: number;
   nonce: number;
   confirm?: boolean;
+  /** true plays from there, false pauses there; unset leaves playback as it is. */
+  play?: boolean;
 }
 
 export interface SyncPointPickerProps {
@@ -73,8 +75,8 @@ export interface SyncPointPickerProps {
   noteExtra?: React.ReactNode;
   /** Why the set button can't be pressed right now, as its tooltip; undefined = it can. */
   confirmDisabledReason?: string;
-  /** The user moved the playhead themselves (scrubber, steps or keys), as opposed to playing. */
-  onScrub?: () => void;
+  /** The user moved the playhead themselves (scrubber, steps or keys) to `seconds`, as opposed to playing. */
+  onScrub?: (seconds: number) => void;
 }
 
 export interface AnchorCopy {
@@ -262,7 +264,11 @@ export function SyncPointPicker({
     const target = Math.max(0, seekRequest.seconds);
     const apply = () => {
       seekNonceRef.current = seekRequest.nonce;
-      if (video) video.currentTime = target;
+      if (video) {
+        video.currentTime = target;
+        if (seekRequest.play === true) video.play().catch(() => {});
+        else if (seekRequest.play === false) video.pause();
+      }
       setCurrentTime(seekRequest.seconds);
       if (seekRequest.confirm) {
         setConfirmedTime(seekRequest.seconds);
@@ -295,7 +301,7 @@ export function SyncPointPicker({
     video.currentTime = next;
     setCurrentTime(next);
     onUserActionRef.current?.("seek");
-    onScrubRef.current?.();
+    onScrubRef.current?.(next);
   }, []);
 
   const seekBy = useCallback(

@@ -101,7 +101,7 @@ export function syncReach(
  * starts. In quarter order; plays without a time don't count.
  */
 export function pickPeekPlays<E extends { period: number; realWorldTime?: string | null; eventId: number }>(
-  play: E,
+  play: { period: number; realWorldTime?: string | null },
   others: E[],
 ): E[] {
   const at = play.realWorldTime ? new Date(play.realWorldTime).getTime() : Number.NaN;

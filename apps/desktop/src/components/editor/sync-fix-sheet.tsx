@@ -52,8 +52,12 @@ export function SyncFixPanel({
   initialScope?: SyncFixScope;
   /** Why that choice was made, shown under the heading. */
   reason?: string;
-  /** The playlist's other plays of this game: the coach can look at one per quarter to see where the drift starts. */
-  otherPlays?: PlayByPlayEvent[];
+  /**
+   * The playlist's other plays of this game, each with how long before the
+   * play its clip starts: the coach can watch one per quarter, as a player
+   * would, to see where the drift starts.
+   */
+  otherPlays?: Array<PlayByPlayEvent & { leadSeconds: number }>;
   /** `next` is the game's new sync, or null for "Only this clip". */
   onApply: (scope: SyncFixScope, next: SyncPoint | null, deltaSeconds: number) => Promise<void>;
   onCancel: () => void;
@@ -70,8 +74,8 @@ export function SyncFixPanel({
     start !== null ? { seconds: Math.max(0, start), nonce: Date.now() } : null,
   );
   const [found, setFound] = React.useState<number | null>(null);
-  /** The other quarter's play the footage is showing, while the coach checks it. */
-  const [peek, setPeek] = React.useState<{ label: string } | null>(null);
+  /** The other quarter's play the footage is showing, while the coach checks it: its clock, its words, its quarter and where its clip starts. */
+  const [peek, setPeek] = React.useState<{ label: string; cue: string; name: string; at: number } | null>(null);
   const peekPlays = React.useMemo(() => pickPeekPlays(event, otherPlays ?? []), [event, otherPlays]);
   const [scope, setScope] = React.useState<SyncFixScope | null>(initialScope ?? null);
   const [saving, setSaving] = React.useState(false);
@@ -119,25 +123,31 @@ export function SyncFixPanel({
             ? "Move this clip"
             : "Move";
 
-  // Looking at another quarter's play moves the footage only: the play being
-  // fixed stays the one this sheet opened on, and it can't be set from there.
-  // Scrubbing away ends the look (the coach is finding the play again), and
-  // the focus goes back to the sheet so the keys keep working after a button
-  // that just went away (WebView2 focuses a clicked button; WebKit doesn't).
+  // Looking at another quarter's play plays its clip from where it starts,
+  // as a player would see it: the question is whether the play comes within
+  // it. The play being fixed stays the one this sheet opened on, and it
+  // can't be set from there. Scrubbing well away ends the look (the coach is
+  // finding the play again); stepping around the clip keeps it. The focus
+  // goes back to the sheet so the keys keep working after a button that just
+  // went away (WebView2 focuses a clicked button; WebKit doesn't).
   const refocus = () => rootRef.current?.focus({ preventScroll: true });
-  function peekAt(play: PlayByPlayEvent) {
+  function peekAt(play: PlayByPlayEvent & { leadSeconds: number }) {
     const t = computeVideoTime(play, sync);
     if (t === null) return;
-    setSeek({ seconds: Math.max(0, t), nonce: Date.now() });
-    setPeek({ label: playClock(play) });
+    const at = Math.max(0, t - play.leadSeconds);
+    setSeek({ seconds: at, nonce: Date.now(), play: true });
+    setPeek({ label: playClock(play), cue: describePlay(play), name: periodLabel(play.period), at });
     trackEvent("sync_fix_peeked", { period: play.period });
     refocus();
   }
   function backToPlay() {
     const to = found ?? start;
-    if (to !== null) setSeek({ seconds: Math.max(0, to), nonce: Date.now() });
+    if (to !== null) setSeek({ seconds: Math.max(0, to), nonce: Date.now(), play: false });
     setPeek(null);
     refocus();
+  }
+  function scrubbedTo(seconds: number) {
+    if (peek && Math.abs(seconds - peek.at) > 30) setPeek(null);
   }
   function confirm(seconds: number) {
     setFound(seconds);
@@ -183,24 +193,31 @@ export function SyncFixPanel({
           videoPath={match.videoUrl!}
           copy={{
             title: "Find the play",
-            instruction: "Scrub to the moment it happens, then set it. The video opens where the clip is now.",
+            instruction: "Scrub to the moment it happens, then set it. The video starts where Scoutable has this play now.",
             button: "This is the play",
             confirmed: "Play at",
           }}
-          note={`Look for ${playClock(event)} on the game clock: ${describePlay(event)}.`}
+          note={
+            peek
+              ? `Looking at ${peek.label} on the game clock: ${peek.cue}.`
+              : `Look for ${playClock(event)} on the game clock: ${describePlay(event)}.`
+          }
           noteExtra={
             peekPlays.length > 0 ? (
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-muted-foreground">
                 {peek ? (
                   <>
-                    <span>Looking at {peek.label}.</span>
+                    <p>
+                      Playing from where that clip starts. If the play comes within a few seconds, {peek.name} is fine and
+                      the problem starts later. If it's nowhere near, {peek.name} is off too.
+                    </p>
                     <Button size="xs" variant="outline" onClick={backToPlay}>
                       Back to this play
                     </Button>
                   </>
                 ) : (
                   <>
-                    <span>Check another play:</span>
+                    <span>Not sure which? Watch a play from another quarter:</span>
                     {peekPlays.map((p) => {
                       const placed = computeVideoTime(p, sync) !== null;
                       return (
@@ -222,7 +239,7 @@ export function SyncFixPanel({
             ) : undefined
           }
           confirmDisabledReason={peek ? "Go back to this play before setting it" : undefined}
-          onScrub={() => setPeek(null)}
+          onScrub={scrubbedTo}
           confirmedSeconds={found}
           seekRequest={seek}
           onConfirm={confirm}

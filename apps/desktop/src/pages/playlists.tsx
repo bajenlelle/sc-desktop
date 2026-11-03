@@ -5719,11 +5719,15 @@ export function PlaylistsPage() {
                 const match = syncFix ? matchLookup.get(syncFix.matchId) : undefined;
                 const event = syncFix ? eventByKey.get(`${syncFix.matchId}:${syncFix.eventId}`) : undefined;
                 if (!match?.syncPoint || !match.videoUrl || !event) return null;
-                // The playlist's other plays of this game, for "Check another play".
+                // The playlist's other plays of this game, with where each
+                // clip starts, for watching one from another quarter.
                 const otherPlays = (selected?.items ?? [])
                   .filter(isClipItem)
                   .filter((c) => c.matchId === syncFix!.matchId && c.eventId !== syncFix!.eventId)
-                  .flatMap((c) => eventByKey.get(`${c.matchId}:${c.eventId}`) ?? []);
+                  .flatMap((c) => {
+                    const e = eventByKey.get(`${c.matchId}:${c.eventId}`);
+                    return e ? [{ ...e, leadSeconds: Math.max(0, preRoll + (c.preRollOffset ?? 0)) }] : [];
+                  });
                 return (
                   <SyncFixPanel
                     match={match}
