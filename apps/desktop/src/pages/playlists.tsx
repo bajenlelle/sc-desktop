@@ -5,7 +5,7 @@ import { trackEvent } from "@/lib/analytics";
 import { afterSyncChange, CLIPS_PATCHED_EVENT, isSyncRefreshRunning, type ClipPatch } from "@/lib/sync-change";
 import { describeShift, SyncFixPanel } from "@/components/editor/sync-fix-sheet";
 import { joinNames, quartersMoved, type SyncFixScope } from "@scoutable/shared/lib/sync-reach";
-import { videoLooksCut } from "@scoutable/shared/lib/period-sync";
+import { sameSyncPoint, videoLooksCut } from "@scoutable/shared/lib/period-sync";
 import { Sentry } from "@/lib/sentry";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -195,6 +195,8 @@ function findRow(container: HTMLElement | null, key: string): HTMLElement | null
  */
 /** One toast for changes to the rows and their undo: a new one replaces the last. */
 const EDIT_TOAST = "playlist-edit";
+/** One toast per Fix sync: the next fix, or its Undo, replaces it. */
+const SYNC_FIX_TOAST = "sync-fix";
 /** The modifier the edit shortcuts use, as the toasts name it. */
 const MOD = IS_MACOS ? "⌘" : "Ctrl+";
 /**
@@ -1498,11 +1500,12 @@ export function PlaylistsPage() {
    * An upload recipients already have was cut at the old length, so it is
    * cleared and, in a shared playlist, made again with the new cut.
    */
-  async function commitClipOffsets(matchId: string, eventId: number, pre: number, post: number) {
+  /** Saves a clip's own offsets; true once they are saved (the shared upload may still be catching up). */
+  async function commitClipOffsets(matchId: string, eventId: number, pre: number, post: number): Promise<boolean> {
     const before = selectedRef.current;
-    if (!before) return;
+    if (!before) return false;
     const clip = before.items.filter(isClipItem).find((c) => c.matchId === matchId && c.eventId === eventId);
-    if (!clip) return;
+    if (!clip) return false;
     const shippedUrl = clip.r2Url;
     const isThisClip = (c: PlaylistItem): c is PlaylistClipItem =>
       isClipItem(c) && c.matchId === matchId && c.eventId === eventId;
@@ -1524,14 +1527,14 @@ export function PlaylistsPage() {
       );
       Sentry.captureException(err);
       toast.error("Couldn't save the clip's length");
-      return;
+      return false;
     }
     const reship = () => queuePendingShip({ ...before, items: before.items.map((c) => (isThisClip(c) ? { ...c, r2Url: undefined } : c)) });
     if (!shippedUrl) {
       // Nothing was uploaded, or an upload is still running: the ship sorts
       // out what is missing or stale (see applyR2Urls).
       reship();
-      return;
+      return true;
     }
     const clearUpload = async () => {
       try {
@@ -1553,6 +1556,7 @@ export function PlaylistsPage() {
       }
     };
     await clearUpload();
+    return true;
   }
 
   function saveClipNote(note: string) {
@@ -1910,6 +1914,16 @@ export function PlaylistsPage() {
   const _handleReplayRef = useRef(handleReplay);
   _handleReplayRef.current = handleReplay;
 
+  /**
+   * Plays a clip from its new window after a sync fix (or its undo), so the
+   * coach sees the result at once: in place when it is the active clip, else
+   * as a row click, which makes it the active clip.
+   */
+  function replayFixedClip(item: QueueItem) {
+    if (_activeKeyRef.current === itemKey(item)) seekToItem(item);
+    else handleRowClick(item);
+  }
+
   const listPosition = useMemo(
     () => (activeKey === null ? -1 : playableKeys.indexOf(activeKey)),
     [activeKey, playableKeys],
@@ -2126,16 +2140,68 @@ export function PlaylistsPage() {
     setSyncFix({ matchId: item.matchId, eventId: item.event.eventId });
   }
 
+  /**
+   * A game's new sync, everywhere the editor reads it, at once: the next
+   * replay must not wait for the state to render (itemWindow reads the ref),
+   * and a game from another space shows here too, so its copy must follow,
+   * or a second fix starts from the old sync. The `matches-changed` reload
+   * then confirms it from the database.
+   */
+  function applySyncLocally(matchId: string, sync: SyncPoint) {
+    const withSync = (m: StoredMatch) => (m.id === matchId ? { ...m, syncPoint: sync } : m);
+    setMatches((prev) => prev.map(withSync));
+    setOutsideMatches((prev) => prev.map(withSync));
+    const current = matchLookupRef.current.get(matchId);
+    if (current) matchLookupRef.current = new Map(matchLookupRef.current).set(matchId, { ...current, syncPoint: sync });
+  }
+
+  /** The latest Fix sync per game: its toast's Undo works only while nothing newer has happened. */
+  const lastSyncFixRef = useRef(new Map<string, object>());
+  // A toast's Undo must not outlive this page: its closure would act on a
+  // playlist that is no longer open.
+  useEffect(
+    () => () => {
+      toast.dismiss(SYNC_FIX_TOAST);
+    },
+    [],
+  );
+
   async function applySyncFix(scope: SyncFixScope, next: SyncPoint | null, delta: number) {
     const fix = syncFix;
     const match = fix ? matchLookup.get(fix.matchId) : undefined;
     const event = fix ? eventByKey.get(`${fix.matchId}:${fix.eventId}`) : undefined;
     if (!fix || !match || !event) return;
+    const item: QueueItem = { event, matchId: fix.matchId };
     const hundredths = (n: number) => Math.round(n * 100) / 100;
+    const token = {};
+    lastSyncFixRef.current.set(fix.matchId, token);
+    const isLatest = () => lastSyncFixRef.current.get(fix.matchId) === token;
+    const changedSince = (what: string) => toast(`The ${what} changed since, so nothing was undone`, { id: SYNC_FIX_TOAST });
+
     if (scope === "clip" || !next) {
-      const { pre, post } = getClipOffsets(fix.matchId, fix.eventId);
-      await commitClipOffsets(fix.matchId, fix.eventId, hundredths(pre - delta), hundredths(post + delta));
-      toast.success(`This clip moved ${describeShift(delta)}`);
+      const was = getClipOffsets(fix.matchId, fix.eventId);
+      const fixed = { pre: hundredths(was.pre - delta), post: hundredths(was.post + delta) };
+      if (!(await commitClipOffsets(fix.matchId, fix.eventId, fixed.pre, fixed.post))) {
+        setSyncFix(null);
+        return;
+      }
+      toast.success(`This clip moved ${describeShift(delta)}`, {
+        id: SYNC_FIX_TOAST,
+        action: {
+          label: "Undo",
+          onClick: () => {
+            const now = getClipOffsets(fix.matchId, fix.eventId);
+            if (!isLatest() || now.pre !== fixed.pre || now.post !== fixed.post) return changedSince("clip");
+            lastSyncFixRef.current.delete(fix.matchId);
+            void commitClipOffsets(fix.matchId, fix.eventId, was.pre, was.post).then((undone) => {
+              if (!undone) return;
+              toast.success("This clip moved back", { id: SYNC_FIX_TOAST });
+              trackEvent("sync_fix_undone", { scope });
+              replayFixedClip(item);
+            });
+          },
+        },
+      });
     } else {
       const before = match.syncPoint;
       try {
@@ -2145,22 +2211,40 @@ export function PlaylistsPage() {
         toast.error("Couldn't save the sync", { description: e instanceof Error ? e.message : String(e) });
         return;
       }
-      const withNext = (m: StoredMatch) => (m.id === match.id ? { ...m, syncPoint: next } : m);
-      setMatches((prev) => prev.map(withNext));
-      // A game from another space shows here too: its copy must follow, or a second fix starts from the old sync.
-      setOutsideMatches((prev) => prev.map(withNext));
+      applySyncLocally(match.id, next);
       const moved = scope === "quarter" && before ? quartersMoved(before, match.events, event.period) : null;
-      toast.success(
-        moved
-          ? `${joinNames(moved)} moved ${describeShift(delta)}`
-          : scope === "play"
-            ? `This play and later ones moved ${describeShift(delta)}`
-            : `The whole game moved ${describeShift(delta)}`,
-      );
+      const what = moved ? joinNames(moved) : scope === "play" ? "This play and later ones" : "The whole game";
+      toast.success(`${what} moved ${describeShift(delta)}`, {
+        id: SYNC_FIX_TOAST,
+        action: {
+          label: "Undo",
+          onClick: () => {
+            const current = matchLookupRef.current.get(match.id);
+            if (!before || !current || !isLatest() || !sameSyncPoint(current.syncPoint, next)) return changedSince("sync");
+            lastSyncFixRef.current.delete(match.id);
+            void (async () => {
+              try {
+                await updateSyncPoint(match.id, before);
+              } catch (e) {
+                Sentry.captureException(e);
+                toast.error("Couldn't put the sync back", { id: SYNC_FIX_TOAST, description: e instanceof Error ? e.message : String(e) });
+                return;
+              }
+              applySyncLocally(match.id, before);
+              toast.success(`${what} moved back`, { id: SYNC_FIX_TOAST });
+              // Shared clips cut for the fix are cut back; a re-cut still running toward it is abandoned.
+              void afterSyncChange({ ...current, syncPoint: before }, next);
+              trackEvent("sync_fix_undone", { scope });
+              replayFixedClip(item);
+            })();
+          },
+        },
+      });
       void afterSyncChange({ ...match, syncPoint: next }, before);
     }
     trackEvent("sync_fix_applied", { scope, period: event.period, delta_s: Math.round(delta * 10) / 10 });
     setSyncFix(null);
+    replayFixedClip(item);
   }
 
   function dismissSyncHint(matchId: string, reason: string) {
