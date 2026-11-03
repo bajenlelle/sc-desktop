@@ -14,7 +14,8 @@ import { X } from "lucide-react";
 import { computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { describePlay, periodLabel, playClock } from "@scoutable/shared/lib/events";
 import { nextFixAfter, projectedSync, shiftPeriod, shiftWholeGame, syncFromPlayOn } from "@scoutable/shared/lib/period-sync";
-import { joinNames, quartersMoved, type SyncFixScope } from "@scoutable/shared/lib/sync-reach";
+import { joinNames, quartersMoved, syncReach, type SyncFixScope } from "@scoutable/shared/lib/sync-reach";
+import { SyncReachStrip } from "@/components/editor/sync-reach-strip";
 import { formatSpan } from "@/components/quarter-sync";
 import { SyncPointPicker, type SeekRequest } from "@/components/sync-point-picker";
 import { Button } from "@/components/ui/button";
@@ -82,6 +83,7 @@ export function SyncFixPanel({
   const upTo = stopsAt?.kind === "period" ? `, up to ${periodLabel(stopsAt.period)}` : stopsAt?.kind === "cut" ? ", up to the next fix" : "";
   // "From this quarter on" on Q2 or later also answers "does the video skip the breaks?".
   const marksBreaksCut = event.period >= 2 && sync.breaksCut !== true;
+  const reach = React.useMemo(() => syncReach(sync, match.events, event, scope), [sync, match.events, event, scope]);
   const scopeHeadingId = React.useId();
 
   const explanation = !moves
@@ -176,9 +178,7 @@ export function SyncFixPanel({
                     { value: "game", label: "The whole game", detail: "the tip-off is off" },
                   ]}
                 />
-                <p className="text-callout text-muted-foreground" aria-live="polite">
-                  {explanation}
-                </p>
+                <SyncReachStrip reach={reach} tick={scope === "clip" ? "clip" : "play"} caption={explanation} className="pt-1" />
               </div>
               <div className="flex shrink-0 justify-end gap-2 pt-3">
                 <Button variant="outline" onClick={onCancel}>
