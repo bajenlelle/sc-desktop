@@ -69,6 +69,10 @@ export interface SyncPointPickerProps {
   layout?: "stacked" | "split";
   /** The split layout's column below the set row; it fills what is left. */
   aside?: React.ReactNode;
+  /** A second line inside the note box (the plays a coach can look at). */
+  noteExtra?: React.ReactNode;
+  /** Why the set button can't be pressed right now, as its tooltip; undefined = it can. */
+  confirmDisabledReason?: string;
 }
 
 export interface AnchorCopy {
@@ -133,6 +137,8 @@ export function SyncPointPicker({
   momentKey,
   layout = "stacked",
   aside,
+  noteExtra,
+  confirmDisabledReason,
 }: SyncPointPickerProps) {
   const copy = { ...TIPOFF_COPY, ...copyOverride };
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -373,7 +379,10 @@ export function SyncPointPicker({
       {note &&
         (split ? (
           // Beside the footage, what to look for is the cue the coach keeps checking.
-          <p className="mt-3 rounded-md bg-fill-1 px-3 py-2 text-callout text-balance text-foreground">{note}</p>
+          <div className="mt-3 rounded-md bg-fill-1 px-3 py-2 text-callout text-foreground">
+            <p className="text-balance">{note}</p>
+            {noteExtra}
+          </div>
         ) : (
           <p className="mt-1 text-callout text-muted-foreground">{note}</p>
         ))}
@@ -460,8 +469,8 @@ export function SyncPointPicker({
           <motion.span key="unset" variants={fadeVariants} initial="hidden" animate="visible" exit="exit" className="flex items-center gap-3">
             <Button
               variant={hasPendingSuggestion ? "outline" : "default"}
-              disabled={videoFailed}
-              title={failureMessage}
+              disabled={videoFailed || !!confirmDisabledReason}
+              title={failureMessage ?? confirmDisabledReason}
               onClick={confirmHere}
             >
               {copy.button}

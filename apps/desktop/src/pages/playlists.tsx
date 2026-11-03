@@ -5536,10 +5536,16 @@ export function PlaylistsPage() {
                 const match = syncFix ? matchLookup.get(syncFix.matchId) : undefined;
                 const event = syncFix ? eventByKey.get(`${syncFix.matchId}:${syncFix.eventId}`) : undefined;
                 if (!match?.syncPoint || !match.videoUrl || !event) return null;
+                // The playlist's other plays of this game, for "Check another play".
+                const otherPlays = (selected?.items ?? [])
+                  .filter(isClipItem)
+                  .filter((c) => c.matchId === syncFix!.matchId && c.eventId !== syncFix!.eventId)
+                  .flatMap((c) => eventByKey.get(`${c.matchId}:${c.eventId}`) ?? []);
                 return (
                   <SyncFixPanel
                     match={match}
                     event={event}
+                    otherPlays={otherPlays}
                     videoDuration={videoDurations[match.videoUrl] ?? null}
                     leadSeconds={Math.max(0, preRoll + getClipOffsets(syncFix!.matchId, syncFix!.eventId).pre)}
                     onApply={applySyncFix}

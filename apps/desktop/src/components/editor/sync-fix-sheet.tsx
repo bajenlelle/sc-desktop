@@ -14,13 +14,14 @@ import { X } from "lucide-react";
 import { computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { describePlay, periodLabel, playClock } from "@scoutable/shared/lib/events";
 import { nextFixAfter, projectedSync, shiftPeriod, shiftWholeGame, syncFromPlayOn } from "@scoutable/shared/lib/period-sync";
-import { joinNames, quartersMoved, syncReach, type SyncFixScope } from "@scoutable/shared/lib/sync-reach";
+import { joinNames, pickPeekPlays, quartersMoved, syncReach, type SyncFixScope } from "@scoutable/shared/lib/sync-reach";
 import { SyncReachStrip } from "@/components/editor/sync-reach-strip";
 import { formatSpan } from "@/components/quarter-sync";
 import { SyncPointPicker, type SeekRequest } from "@/components/sync-point-picker";
 import { Button } from "@/components/ui/button";
 import { RadioGroup } from "@/components/ui/radio-group";
 import { SheetClose, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { trackEvent } from "@/lib/analytics";
 import type { PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 
 /** "4 s later", "11:02 earlier". */
@@ -37,6 +38,7 @@ export function SyncFixPanel({
   leadSeconds,
   initialScope,
   reason,
+  otherPlays,
   onApply,
   onCancel,
 }: {
@@ -49,6 +51,8 @@ export function SyncFixPanel({
   initialScope?: SyncFixScope;
   /** Why that choice was made, shown under the heading. */
   reason?: string;
+  /** The playlist's other plays of this game: the coach can look at one per quarter to see where the drift starts. */
+  otherPlays?: PlayByPlayEvent[];
   /** `next` is the game's new sync, or null for "Only this clip". */
   onApply: (scope: SyncFixScope, next: SyncPoint | null, deltaSeconds: number) => Promise<void>;
   onCancel: () => void;
@@ -61,10 +65,13 @@ export function SyncFixPanel({
   // should be instead.
   const inVideo = mapped !== null && mapped >= 0 && (videoDuration === null || mapped < videoDuration);
   const start = inVideo ? mapped : (computeVideoTime(event, projectedSync(sync, match.events)) ?? mapped);
-  const [seek] = React.useState<SeekRequest | null>(() =>
+  const [seek, setSeek] = React.useState<SeekRequest | null>(() =>
     start !== null ? { seconds: Math.max(0, start), nonce: Date.now() } : null,
   );
   const [found, setFound] = React.useState<number | null>(null);
+  /** The other quarter's play the footage is showing, while the coach checks it. */
+  const [peek, setPeek] = React.useState<{ label: string } | null>(null);
+  const peekPlays = React.useMemo(() => pickPeekPlays(event, otherPlays ?? []), [event, otherPlays]);
   const [scope, setScope] = React.useState<SyncFixScope | null>(initialScope ?? null);
   const [saving, setSaving] = React.useState(false);
   /** The sheet is a dialog: the picker's keys (Space, ←/→, ,/.) belong to all of it. */
@@ -111,6 +118,21 @@ export function SyncFixPanel({
             ? "Move this clip"
             : "Move";
 
+  // Looking at another quarter's play moves the footage only: the play being
+  // fixed stays the one this sheet opened on, and it can't be set from there.
+  function peekAt(play: PlayByPlayEvent) {
+    const t = computeVideoTime(play, sync);
+    if (t === null) return;
+    setSeek({ seconds: Math.max(0, t), nonce: Date.now() });
+    setPeek({ label: playClock(play) });
+    trackEvent("sync_fix_peeked", { period: play.period });
+  }
+  function backToPlay() {
+    const to = found ?? start;
+    if (to !== null) setSeek({ seconds: Math.max(0, to), nonce: Date.now() });
+    setPeek(null);
+  }
+
   async function apply() {
     if (!moves || delta === null || scope === null) return;
     const next =
@@ -154,6 +176,40 @@ export function SyncFixPanel({
             confirmed: "Play at",
           }}
           note={`Look for ${playClock(event)} on the game clock: ${describePlay(event)}.`}
+          noteExtra={
+            peekPlays.length > 0 ? (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-muted-foreground">
+                {peek ? (
+                  <>
+                    <span>Looking at {peek.label}.</span>
+                    <Button size="xs" variant="outline" onClick={backToPlay}>
+                      Back to this play
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <span>Check another play:</span>
+                    {peekPlays.map((p) => {
+                      const placed = computeVideoTime(p, sync) !== null;
+                      return (
+                        <Button
+                          key={p.eventId}
+                          size="xs"
+                          variant="outline"
+                          disabled={!placed}
+                          title={placed ? undefined : "This play can't be placed"}
+                          onClick={() => peekAt(p)}
+                        >
+                          {playClock(p)}
+                        </Button>
+                      );
+                    })}
+                  </>
+                )}
+              </div>
+            ) : undefined
+          }
+          confirmDisabledReason={peek ? "Go back to this play before setting it" : undefined}
           confirmedSeconds={found}
           seekRequest={seek}
           onConfirm={setFound}
