@@ -8,6 +8,7 @@ import {
   firstPlayOfCut,
   nextFixAfter,
   normalizeSyncPoint,
+  sameSyncPoint,
   shiftPeriod,
   shiftWholeGame,
   syncFromPlayOn,
@@ -224,5 +225,51 @@ describe("carrySyncOver (re-import)", () => {
 
   it("starts over on another video", () => {
     expect(carrySyncOver(previous, fresh, false)).toEqual(fresh);
+  });
+});
+
+describe("a cut remembers the play it was fixed from", () => {
+  const withId: SyncPoint = { ...base, cuts: [{ period: 2, syncRealWorldTime: T(17), syncVideoTime: 922, eventId: 7 }] };
+
+  it("records the play's eventId, and places the play as before", () => {
+    const next = syncFromPlayOn(base, { ...at(2, 18), eventId: 42 }, 980, 10);
+    expect(next.cuts?.[0]).toMatchObject({ eventId: 42 });
+    expect(computeVideoTime(at(2, 18), next)).toBe(980);
+  });
+
+  it("keeps the eventId through normalize and the shifts", () => {
+    expect(normalizeSyncPoint(withId).cuts).toEqual(withId.cuts);
+    expect(shiftPeriod(withId, [], 2, 5).cuts?.[0]?.eventId).toBe(7);
+    expect(shiftWholeGame(withId, 5).cuts?.[0]?.eventId).toBe(7);
+  });
+
+  it("drops an eventId that isn't a whole number, and leaves older cuts without one alone", () => {
+    const bad = { ...base, cuts: [{ period: 2, syncRealWorldTime: T(17), syncVideoTime: 922, eventId: 7.5 }] } as SyncPoint;
+    expect(normalizeSyncPoint(bad).cuts).toEqual([{ period: 2, syncRealWorldTime: T(17), syncVideoTime: 922 }]);
+    expect(normalizeSyncPoint(cutQ2).cuts).toEqual(cutQ2.cuts);
+  });
+});
+
+describe("sameSyncPoint", () => {
+  it("is true for the same content in another key order", () => {
+    const a: SyncPoint = { ...cutQ2, breaksCut: true };
+    const b = { cuts: cutQ2.cuts, breaksCut: true, periods: base.periods, syncRealWorldTime: T(0), syncVideoTime: 42 };
+    expect(sameSyncPoint(a, b)).toBe(true);
+  });
+
+  it("treats absent and empty cuts and periods alike", () => {
+    const plain: SyncPoint = { syncVideoTime: 42, syncRealWorldTime: T(0) };
+    expect(sameSyncPoint(plain, { ...plain, cuts: [], periods: {} })).toBe(true);
+  });
+
+  it("is false when the tip-off, a quarter or a cut differs", () => {
+    expect(sameSyncPoint(cutQ2, { ...cutQ2, syncVideoTime: 43 })).toBe(false);
+    expect(sameSyncPoint(cutQ2, { ...cutQ2, periods: { "2": { syncVideoTime: 650, syncRealWorldTime: T(12) } } })).toBe(false);
+    expect(sameSyncPoint(cutQ2, base)).toBe(false);
+  });
+
+  it("takes a missing sync as a sync without anything", () => {
+    expect(sameSyncPoint(undefined, undefined)).toBe(true);
+    expect(sameSyncPoint(undefined, base)).toBe(false);
   });
 });

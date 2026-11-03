@@ -47,11 +47,15 @@ export type AnalyticsEvent =
   | "period_sync_set" // surface, period, anchor_kind, predicted_delta_s
   | "period_sync_skipped" // surface, period
   | "period_sync_cleared" // surface, period (all = every quarter)
-  | "sync_fix_opened" // entry (clip_menu | this_clip | hint)
+  | "sync_fix_opened" // entry (clip_menu | this_clip | banner)
   | "sync_fix_applied" // scope (quarter | play | game | clip), period, delta_s
+  | "sync_fix_undone" // scope: the toast's Undo put the sync back
+  | "sync_fix_peeked" // period: another quarter's play looked at inside Fix sync
   | "sync_cut_removed" // surface: a "From this play on" fix removed
   | "sync_hint_shown" // reason (past_end | looks_cut), clips
   | "sync_hint_dismissed" // reason
+  | "sync_tip_shown" // the editor's one-time "Play a clip to check the timing" callout
+  | "sync_tip_dismissed" // how (got_it | fix_sync)
   // Playlist production (desktop)
   | "playlist_created"
   | "clip_added_to_playlist"

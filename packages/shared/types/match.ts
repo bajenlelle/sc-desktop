@@ -187,6 +187,8 @@ export interface SyncCut {
   period: number;
   syncVideoTime: number;
   syncRealWorldTime: string;
+  /** The play the fix was made from, which names the cut on the game page. Absent on older cuts. */
+  eventId?: number;
 }
 
 export interface SyncPoint {

@@ -135,7 +135,7 @@ export function SyncFixPanel({
       scope === "quarter"
         ? { ...shiftPeriod(sync, match.events, event.period, delta), ...(event.period >= 2 ? { breaksCut: true } : {}) }
         : scope === "play" && event.realWorldTime && found !== null
-          ? syncFromPlayOn(sync, { realWorldTime: event.realWorldTime, period: event.period }, found, leadSeconds)
+          ? syncFromPlayOn(sync, { realWorldTime: event.realWorldTime, period: event.period, eventId: event.eventId }, found, leadSeconds)
           : scope === "game"
           ? shiftWholeGame(sync, delta)
             : null;

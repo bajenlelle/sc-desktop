@@ -54,10 +54,38 @@ export function normalizeSyncPoint(raw: SyncPoint): SyncPoint {
       (c): c is SyncCut =>
         !!c && Number.isInteger(c.period) && c.period >= 1 && isSeconds(c.syncVideoTime) && isTime(c.syncRealWorldTime),
     );
-    if (cuts.length > 0) out.cuts = sortCuts(cuts.map((c) => ({ period: c.period, syncRealWorldTime: c.syncRealWorldTime, syncVideoTime: c.syncVideoTime })));
-    else delete out.cuts;
+    if (cuts.length > 0) {
+      out.cuts = sortCuts(
+        cuts.map((c) => ({
+          period: c.period,
+          syncRealWorldTime: c.syncRealWorldTime,
+          syncVideoTime: c.syncVideoTime,
+          ...(Number.isInteger(c.eventId) ? { eventId: c.eventId } : {}),
+        })),
+      );
+    } else delete out.cuts;
   }
   return out;
+}
+
+/** The parts of a sync a coach edits, in a fixed order, so two syncs can be compared. */
+function editedParts(sync: SyncPoint | undefined): unknown {
+  if (!sync) return null;
+  const n = normalizeSyncPoint(sync);
+  const periods = Object.entries(n.periods ?? {})
+    .sort(([a], [b]) => Number(a) - Number(b))
+    .map(([k, ps]) => [k, ps.syncVideoTime, ps.syncRealWorldTime]);
+  const cuts = (n.cuts ?? []).map((c) => [c.period, c.syncVideoTime, c.syncRealWorldTime, c.eventId ?? null]);
+  return [n.syncVideoTime, n.syncRealWorldTime, n.breaksCut ?? null, periods, cuts];
+}
+
+/**
+ * Whether two syncs place every play the same way and carry the same cut
+ * answer: the tip-off, each quarter's own sync, the cuts and `breaksCut`.
+ * The league marks don't count. A missing sync equals another missing one.
+ */
+export function sameSyncPoint(a: SyncPoint | undefined, b: SyncPoint | undefined): boolean {
+  return JSON.stringify(editedParts(a)) === JSON.stringify(editedParts(b));
 }
 
 const timeOf = (iso: string) => new Date(iso).getTime();
@@ -80,12 +108,17 @@ function withCuts(sync: SyncPoint, cuts: SyncCut[]): SyncPoint {
  */
 export function syncFromPlayOn(
   sync: SyncPoint,
-  event: { realWorldTime: string; period: number },
+  event: { realWorldTime: string; period: number; eventId?: number },
   videoTime: number,
   leadSeconds: number,
 ): SyncPoint {
   const from = new Date(timeOf(event.realWorldTime) - leadSeconds * 1000).toISOString();
-  const cut: SyncCut = { period: event.period, syncRealWorldTime: from, syncVideoTime: videoTime - leadSeconds };
+  const cut: SyncCut = {
+    period: event.period,
+    syncRealWorldTime: from,
+    syncVideoTime: videoTime - leadSeconds,
+    ...(Number.isInteger(event.eventId) ? { eventId: event.eventId } : {}),
+  };
   // A cut at the same moment, or between the new one and the play, would
   // still place the play: this fix replaces it.
   const others = (sync.cuts ?? []).filter((c) => {
@@ -242,6 +275,21 @@ function periodBounds(
     ? msOf(mark?.endRealWorldTime)
     : msOf(list[list.length - 1]?.realWorldTime);
   return { start, end };
+}
+
+/**
+ * Each period's wall-clock span in ms, in order: the league's times, else
+ * the period's first and last plays. A period with neither is left out.
+ */
+export function periodSpans(sync: SyncPoint, events: PeriodEvent[]): Array<{ period: number; start: number; end: number }> {
+  const marks = marksFor(sync, events);
+  const plays = playsByPeriod(events);
+  const out: Array<{ period: number; start: number; end: number }> = [];
+  for (const period of gamePeriods(events, marks)) {
+    const { start, end } = periodBounds(period, marks, plays);
+    if (Number.isFinite(start) && Number.isFinite(end)) out.push({ period, start, end });
+  }
+  return out;
 }
 
 /** Seconds of wall clock between each period and the one before it (keyed by the later period). */

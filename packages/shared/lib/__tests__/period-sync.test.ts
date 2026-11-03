@@ -7,6 +7,7 @@ import {
   describePeriodSyncs,
   normalizeSyncPoint,
   periodMarksFromEvents,
+  periodSpans,
   predictPeriodAnchor,
   setPeriodSync,
   shiftPeriod,
@@ -229,5 +230,28 @@ describe("withTipoff", () => {
 
   it("starts a sync for a game without one, with no wall-clock time yet", () => {
     expect(withTipoff(undefined, 50)).toEqual({ syncVideoTime: 50, syncRealWorldTime: "" });
+  });
+});
+
+describe("periodSpans", () => {
+  const ms = (hms: string) => new Date(T(hms)).getTime();
+
+  it("gives each period's wall-clock span from the league marks", () => {
+    expect(periodSpans(q1, events)).toEqual([
+      { period: 1, start: ms("17:30:00"), end: ms("17:52:00") },
+      { period: 2, start: ms("17:54:00"), end: ms("18:16:00") },
+      { period: 3, start: ms("18:26:00"), end: ms("18:46:00") },
+      { period: 4, start: ms("18:48:00"), end: ms("19:08:00") },
+    ]);
+  });
+
+  it("falls back to a period's first and last plays when the league gave no times", () => {
+    const { "2": _q2, ...rest } = marks!;
+    expect(periodSpans({ ...q1, marks: rest }, events)[1]).toEqual({ period: 2, start: ms("17:54:30"), end: ms("18:15:55") });
+  });
+
+  it("skips a period with neither times nor plays", () => {
+    const ot: SyncPoint["marks"] = { ...marks, "5": { anchor: { realWorldTime: T("19:12:00"), kind: "period_start", label: "Start of OT1" } } };
+    expect(periodSpans({ ...q1, marks: ot }, events).map((s) => s.period)).toEqual([1, 2, 3, 4]);
   });
 });
