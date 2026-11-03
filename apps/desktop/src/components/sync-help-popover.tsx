@@ -54,18 +54,15 @@ export function SyncHelpPopover({ align = "end" }: { align?: "start" | "center" 
             Scoutable where one play really is, and how far the correction reaches:
           </p>
         </div>
-        <div className="space-y-2.5">
+        <div className="space-y-3">
           {EXAMPLES.map((e) => (
-            <SyncReachStrip
-              key={e.scope}
-              reach={e.reach}
-              tick={e.scope === "clip" ? "clip" : "play"}
-              caption={
-                <>
-                  <span className="text-foreground">{e.name}:</span> {e.cause}
-                </>
-              }
-            />
+            // The words first, then their picture: each pair reads as one.
+            <div key={e.scope} className="space-y-1">
+              <p className="text-callout text-muted-foreground">
+                <span className="text-foreground">{e.name}:</span> {e.cause}
+              </p>
+              <SyncReachStrip reach={e.reach} tick={e.scope === "clip" ? "clip" : "play"} />
+            </div>
           ))}
         </div>
         <p className="text-callout text-muted-foreground">
