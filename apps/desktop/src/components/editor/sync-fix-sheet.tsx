@@ -247,7 +247,8 @@ export function SyncFixPanel({
           keyContainer={rootRef}
           aside={
             <>
-              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto border-t border-separator pt-3">
+              {/* The rows' hover highlight bleeds past the column; a scroll box must not offer that as a scroll. */}
+              <div className="min-h-0 flex-1 space-y-2 overflow-x-hidden overflow-y-auto border-t border-separator pt-3">
                 <div>
                   <p id={scopeHeadingId} className="text-headline text-foreground">
                     Which clips are off?
