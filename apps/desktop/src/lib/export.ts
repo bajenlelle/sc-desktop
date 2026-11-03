@@ -217,7 +217,7 @@ async function assertClipsWithinVideos(rustSegments: RustSegment[]): Promise<voi
         `Clip ${i + 1} of ${clips.length} starts at ${formatSeconds(clip.start)}, but ` +
           `"${videoBasename(clip.video_path)}" is only ${formatSeconds(duration)} long. ` +
           `The video linked to this game may be the wrong file — open it in the Library ` +
-          `and locate the right one, or re-set the sync point.`,
+          `and locate the right one, or set the tip-off again.`,
       );
     }
   }
@@ -306,7 +306,7 @@ export async function exportPlaylist(
   if (!kept.some((s) => s.kind === "clip")) {
     throw new Error(
       "None of the selected clips fall inside the linked video — it may be the wrong " +
-        "file, or its sync point may be off. Open the game in the Library to relink or re-sync.",
+        "file, or its tip-off may be off. Open the game in the Library to relink it or set the tip-off again.",
     );
   }
   if (skipped > 0 && note) toast.warning(note, { duration: 8000 });

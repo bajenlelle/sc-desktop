@@ -1262,7 +1262,7 @@ export function UploadZone({
                   copy={activeRow ? quarterCopy(activeRow) : undefined}
                   note={
                     activeRow?.anchor
-                      ? `Look for ${activeRow.anchor.label}${localClock(activeRow.anchor.realWorldTime) ? `, ${localClock(activeRow.anchor.realWorldTime)}` : ""}.`
+                      ? `Look for ${activeRow.anchor.label}${localClock(activeRow.anchor.realWorldTime) ? `, around ${localClock(activeRow.anchor.realWorldTime)} on the wall clock` : ""}.`
                       : undefined
                   }
                   confirmedSeconds={activeRow ? (activeRow.set ? activeRow.videoTime : null) : syncSeconds}

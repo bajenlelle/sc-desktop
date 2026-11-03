@@ -122,7 +122,7 @@ export function RelinkVideosDialog({
       `Linked ${linked} video${linked !== 1 ? "s" : ""}`,
       {
         description:
-          "Check a clip from each game. If the timing looks off, set the tip-off again.",
+          "Check a clip from each game. If a play is at the wrong moment, use Fix sync on it.",
       },
     );
     onRelinked();

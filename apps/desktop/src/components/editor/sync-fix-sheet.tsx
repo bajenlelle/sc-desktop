@@ -134,7 +134,7 @@ export function SyncFixPanel({
           videoPath={match.videoUrl!}
           copy={{
             title: "Find the play",
-            instruction: "Scrub to the moment it happens, then set it.",
+            instruction: "Scrub to the moment it happens, then set it. It opens where the clip is now.",
             button: "This is the play",
             confirmed: "Play at",
           }}

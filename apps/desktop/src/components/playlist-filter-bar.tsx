@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { MultiSelectDropdown } from "@/components/ui/multi-select-dropdown";
+import { periodLabel } from "@scoutable/shared/lib/events";
 import type { Label } from "@scoutable/shared/types/labels";
 
 export interface QueueFilters {
@@ -85,7 +86,7 @@ export function PlaylistFilterBar({
       {options.periods.length > 1 && (
         <MultiSelectDropdown
           placeholder="Period"
-          options={options.periods.map((p) => ({ value: p, label: `Period ${p}` }))}
+          options={options.periods.map((p) => ({ value: p, label: periodLabel(Number(p)) }))}
           selected={filters.periods}
           onChange={(s) => set("periods", s)}
         />

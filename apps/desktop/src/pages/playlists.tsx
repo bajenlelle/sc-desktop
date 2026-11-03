@@ -2152,7 +2152,7 @@ export function PlaylistsPage() {
       const moved = scope === "quarter" && before ? quartersMoved(before, match.events, event.period) : null;
       toast.success(
         moved
-          ? `${moved.join(", ")} moved ${describeShift(delta)}`
+          ? `${joinNames(moved)} moved ${describeShift(delta)}`
           : scope === "play"
             ? `This play and later ones moved ${describeShift(delta)}`
             : `The whole game moved ${describeShift(delta)}`,
@@ -4526,7 +4526,7 @@ export function PlaylistsPage() {
       setLocalVideoUrl(streamFileSrc(result));
       setVideoStatusByMatch((prev) => new Map(prev).set(mId, "ok"));
       toast.success("Video linked", {
-        description: "Check a clip — if the timing looks off, redo the sync point in the game.",
+        description: "Check a clip. If a play is at the wrong moment, use Fix sync on it.",
       });
     } catch (e) {
       toast.error("Couldn't save the video link", {
@@ -4569,7 +4569,7 @@ export function PlaylistsPage() {
       if (videoStatusByMatch.get(mId) === "missing" || videoStatusByMatch.get(mId) === "unreadable")
         return "A game's video file can't be found — open the game in the Library to locate it";
       if (!m.syncPoint)
-        return "All games need a sync point for export";
+        return "Every game needs its tip-off set to export";
     }
     return null;
   })();
@@ -4789,14 +4789,14 @@ export function PlaylistsPage() {
                         Fix sync…
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>Clips of this game off? Move its sync, or one quarter</TooltipContent>
+                    <TooltipContent>Play at the wrong moment? Move this clip, or every clip of the game</TooltipContent>
                   </Tooltip>
                   {(activeClipOffsets.pre !== 0 || activeClipOffsets.post !== 0) && !trim && (
                     <Button
                       variant="ghost"
                       size="xs"
                       onClick={() => adjustActiveClip(-activeClipOffsets.pre, -activeClipOffsets.post)}
-                      title={`Back to the playlist's ${preRoll} s before and ${postRoll} s after`}
+                      title={`Back to the playlist's ${preRoll} s before and ${postRoll} s after. Also undoes a Fix sync made for this clip alone.`}
                     >
                       Reset
                     </Button>
@@ -4881,7 +4881,7 @@ export function PlaylistsPage() {
       )}
       {noSync && selected.items.filter(isClipItem).length > 0 && (
         <Callout tone="warning" className="mb-3 shrink-0">
-          No sync point. Set one in the game to play these clips.
+          No tip-off set. Set it in the game to play these clips.
         </Callout>
       )}
       {syncHint && (

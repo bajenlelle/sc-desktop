@@ -62,7 +62,7 @@ export function ImportSuccessDialog({
     : needs === "video"
       ? `${title} — ${clips} ready. Add the game video to watch clips and export them.`
       : needs === "sync"
-        ? `${title} — ${clips} ready. Set a sync point so clips line up with the video.`
+        ? `${title} — ${clips} ready. Set the tip-off so clips line up with the video.`
         : needs === "quarters"
           ? `${title}: ${clips} ready. The video looks cut between quarters, so set where each quarter starts and later clips line up.`
         : `${title} — ${clips} ready to scout.`;
@@ -106,7 +106,7 @@ export function ImportSuccessDialog({
                 Build a playlist
               </Button>
               <Button onClick={goGame}>
-                {needs === "video" ? "Add video" : needs === "quarters" ? "Set quarters" : "Set sync point"}
+                {needs === "video" ? "Add video" : needs === "quarters" ? "Set quarters" : "Set tip-off"}
               </Button>
             </>
           ) : (

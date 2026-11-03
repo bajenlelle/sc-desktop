@@ -99,7 +99,9 @@ export function QuarterSyncPanel({
     breaksCut && rows.length > 0,
   );
 
-  const caption = detection?.cut
+  const caption = detection?.cut && !breaksCut
+    ? "Keep it off if the video holds the whole game, breaks included."
+    : detection?.cut
     ? `The play-by-play runs ${formatSpan(detection.overrunSeconds)} past the end of this video, so the breaks look cut out. Each quarter gets its own sync.`
     : breaksCut
       ? "Each quarter gets its own sync. A quarter you skip follows the one before it."
