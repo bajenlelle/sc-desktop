@@ -212,7 +212,7 @@ export function SyncFixPanel({
                       the problem starts later. If it's nowhere near, {peek.name} is off too.
                     </p>
                     <Button size="xs" variant="outline" onClick={backToPlay}>
-                      Back to this play
+                      Back to {playClock(event)}
                     </Button>
                   </>
                 ) : (
@@ -238,7 +238,7 @@ export function SyncFixPanel({
               </div>
             ) : undefined
           }
-          confirmDisabledReason={peek ? "Go back to this play before setting it" : undefined}
+          confirmDisabledReason={peek ? `Go back to ${playClock(event)} before setting it` : undefined}
           onScrub={scrubbedTo}
           confirmedSeconds={found}
           seekRequest={seek}
