@@ -58,14 +58,14 @@ export function ImportSuccessDialog({
   const needs = !hasVideo ? "video" : !hasSyncPoint ? "sync" : needsQuarters ? "quarters" : null;
 
   const description = isUpdate
-    ? `${title} — clips refreshed. Playlists using this game keep working.`
+    ? `${title}: clips refreshed. Playlists using this game keep working.`
     : needs === "video"
-      ? `${title} — ${clips} ready. Add the game video to watch clips and export them.`
+      ? `${title}: ${clips} ready. Add the game video to watch clips and export them.`
       : needs === "sync"
-        ? `${title} — ${clips} ready. Set the tip-off so clips line up with the video.`
+        ? `${title}: ${clips} ready. Set the tip-off so clips line up with the video.`
         : needs === "quarters"
           ? `${title}: ${clips} ready. The video looks cut between quarters, so set where each quarter starts and later clips line up.`
-        : `${title} — ${clips} ready to scout.`;
+          : `${title}: ${clips} ready to scout. Play a clip to check the timing. If a play is at the wrong moment, Fix sync moves it.`;
 
   /** Leave the same way the dialog came, then go. */
   function closeThen(go: () => void) {

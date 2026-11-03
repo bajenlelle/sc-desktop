@@ -16,6 +16,7 @@ import {
   FolderPlus,
   Share2,
   Users,
+  Info,
   ListFilter,
   ListPlus,
   ListVideo,
@@ -115,7 +116,7 @@ import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { exportPlaylist, notifyExportSuccess, type ExportSegment } from "@/lib/export";
 import { isExportCancelled, type ExportProgress } from "@scoutable/shared/lib/export-progress";
 import { ProgressBar } from "@/components/ui/progress-bar";
-import { getExportWatermarkDisabled, setHasExported } from "@/lib/prefs";
+import { getExportWatermarkDisabled, getSyncTipSeen, setHasExported, setSyncTipSeen } from "@/lib/prefs";
 import { clipAndShip } from "@/lib/clip-and-ship";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { Playlist, PlaylistFolder, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
@@ -376,6 +377,12 @@ export function PlaylistsPage() {
     }
   });
   const hintShownRef = useRef<Set<string>>(new Set());
+  /** The one-time "Play a clip to check the timing" tip; seen per user on this device. */
+  const [syncTipSeen, setSyncTipSeenState] = useState(() => getSyncTipSeen(user?.id));
+  useEffect(() => {
+    setSyncTipSeenState(getSyncTipSeen(user?.id));
+  }, [user?.id]);
+  const syncTipShownRef = useRef(false);
   // Getting Started checklist arrival: which button to pulse until clicked
   // or a few seconds pass.
   const [onboardingHighlight, setOnboardingHighlight] = useState<"add-clips" | "export" | "share" | null>(null);
@@ -2164,6 +2171,7 @@ export function PlaylistsPage() {
   ) {
     videoRef.current?.pause();
     trackEvent("sync_fix_opened", { entry });
+    markSyncTipSeen("fix_sync");
     setSyncFix({ matchId: item.matchId, eventId: item.event.eventId, preset });
   }
 
@@ -4661,6 +4669,31 @@ export function PlaylistsPage() {
   const noVideo =
     selected !== null && hasAnyClips && queueClipMatchIds.some((id) => !matchLookup.get(id)?.videoUrl);
 
+  // The one-time tip, the first time a playlist holds clips from the coach's
+  // own game (not the sample) that can play: that Fix sync exists, and when
+  // to reach for it. The no-tip-off notice and the breaks banner come first.
+  const showSyncTip =
+    !syncTipSeen &&
+    selected !== null &&
+    !noSync &&
+    !syncHint &&
+    queueClipMatchIds.some((id) => {
+      const m = matches.find((x) => x.id === id);
+      return !!m && !m.isDemo && !!m.videoUrl && !!m.syncPoint;
+    });
+  useEffect(() => {
+    if (!showSyncTip || syncTipShownRef.current) return;
+    syncTipShownRef.current = true;
+    trackEvent("sync_tip_shown");
+  }, [showSyncTip]);
+  /** "Got it", or opening Fix sync: the tip has done its job. */
+  function markSyncTipSeen(how: "got_it" | "fix_sync") {
+    if (syncTipSeen) return;
+    if (showSyncTip) trackEvent("sync_tip_dismissed", { how });
+    setSyncTipSeen(user?.id);
+    setSyncTipSeenState(true);
+  }
+
   // Free users must stay able to CLICK export — the click is what opens the
   // UpgradeDialog. Mechanical blockers (demo game, missing video/sync) only
   // disable the button for paid users, who could otherwise actually export.
@@ -5027,6 +5060,22 @@ export function PlaylistsPage() {
               )}
             </span>
           </div>
+        </Callout>
+      )}
+      {showSyncTip && (
+        <Callout
+          icon={<Info />}
+          className="mb-3 shrink-0"
+          action={
+            <Button size="xs" variant="outline" onClick={() => markSyncTipSeen("got_it")}>
+              Got it
+            </Button>
+          }
+        >
+          <p className="font-medium">Play a clip to check the timing</p>
+          <p className="text-muted-foreground">
+            If a play is at the wrong moment, use Fix sync in the This clip bar or the clip's menu to move it.
+          </p>
         </Callout>
       )}
 

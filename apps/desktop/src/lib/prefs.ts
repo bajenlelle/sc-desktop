@@ -71,6 +71,18 @@ export function setHasExported(userId: string | undefined): void {
 }
 
 /**
+ * Whether this user has seen the editor's one-time "Play a clip to check the
+ * timing" tip on this device. Per user, like the export flag above.
+ */
+export function getSyncTipSeen(userId: string | undefined): boolean {
+  return !!userId && localStorage.getItem(`scoutable_sync_tip_seen:${userId}`) === "1";
+}
+
+export function setSyncTipSeen(userId: string | undefined): void {
+  if (userId) localStorage.setItem(`scoutable_sync_tip_seen:${userId}`, "1");
+}
+
+/**
  * Where the Add clips sheet was last left for a playlist: the game and the
  * teams picked in it, so the next round starts there. This computer only;
  * a missing or unreadable value is null.
