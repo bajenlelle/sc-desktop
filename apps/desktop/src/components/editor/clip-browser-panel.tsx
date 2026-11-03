@@ -278,10 +278,13 @@ export function ClipBrowserPanel({
   onNeedEvents,
   onNeedLabels,
   videoStatusByMatch,
+  preferredMatchId = null,
 }: {
   matches: StoredMatch[];
   matchLookup: Map<string, StoredMatch>;
   playlist: Playlist;
+  /** The game to start on when the coach came here from it ("Build a playlist" on a game page). */
+  preferredMatchId?: string | null;
   onAddClips: (clips: PlaylistClipItem[]) => void;
   activeOrgId: string | null;
   labels: Label[];
@@ -298,7 +301,7 @@ export function ClipBrowserPanel({
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [start] = useState(() => {
     const scope = getAddClipsScope(playlist.id);
-    const s = startGame(matches, playlist.items, scope?.gameId ?? null);
+    const s = startGame(matches, playlist.items, scope?.gameId ?? null, preferredMatchId);
     return { ...s, teams: s.source === "remembered" ? (scope?.teams ?? []) : [] };
   });
   const [filterMatchId, setFilterMatchId] = useState<string | null>(start.id);

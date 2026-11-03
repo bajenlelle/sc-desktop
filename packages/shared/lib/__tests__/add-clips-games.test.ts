@@ -28,6 +28,11 @@ describe("startGame", () => {
     expect(startGame(matches, [clip("aik", 1)], "ume")).toEqual({ id: "ume", source: "remembered" });
   });
 
+  it("starts on the game the coach came from, ahead of the remembered one, while it exists", () => {
+    expect(startGame(matches, [clip("aik", 1)], "ume", "bor")).toEqual({ id: "bor", source: "preferred" });
+    expect(startGame(matches, [clip("aik", 1)], "ume", "deleted")).toEqual({ id: "ume", source: "remembered" });
+  });
+
   it("falls back to the game with the most clips in the playlist when the remembered one is gone", () => {
     const items = [clip("aik", 1), text("t"), clip("ume", 5), clip("ume", 6)];
     expect(startGame(matches, items, "deleted")).toEqual({ id: "ume", source: "most_clips" });

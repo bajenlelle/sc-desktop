@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { CalendarIcon, Check, ChevronLeft, ChevronsUpDown, Film, Loader2, MinusCircle, Plus, VideoOff } from "lucide-react";
+import { CalendarIcon, Check, ChevronLeft, ChevronsUpDown, Film, ListPlus, Loader2, MinusCircle, Plus, VideoOff } from "lucide-react";
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 import { DeleteMatchDialog } from "@/components/delete-match-dialog";
@@ -558,6 +558,15 @@ export function MatchDetailPage() {
                 {saveState === "saved" ? "Saved" : "Couldn't save"}
               </motion.span>
             )}
+            {/* The way on from here: this page sets the game up, the editor is where its clips are watched. */}
+            <Button
+              key="build"
+              size="sm"
+              onClick={() => navigate("/playlists", { state: { createNew: true, addClipsFrom: matchId, highlight: "add-clips" } })}
+            >
+              <ListPlus />
+              Build a playlist
+            </Button>
           </AnimatePresence>
         }
       />

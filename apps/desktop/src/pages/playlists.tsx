@@ -386,6 +386,8 @@ export function PlaylistsPage() {
   // Getting Started checklist arrival: which button to pulse until clicked
   // or a few seconds pass.
   const [onboardingHighlight, setOnboardingHighlight] = useState<"add-clips" | "export" | "share" | null>(null);
+  /** The game a "Build a playlist" came from: the next Add clips starts on it, once. */
+  const [addClipsFrom, setAddClipsFrom] = useState<string | null>(null);
   const [sendToPhoneOpen, setSendToPhoneOpen] = useState(false);
   const [sendToPhoneSegments, setSendToPhoneSegments] = useState<ExportSegment[]>([]);
   const [sendToPhoneVertical, setSendToPhoneVertical] = useState(false);
@@ -653,6 +655,8 @@ export function PlaylistsPage() {
       /** Set by the Reports page — open the restored playlist in its Report view (`share`: with the share sheet open). */
       view?: "report";
       share?: boolean;
+      /** Set by a game page's "Build a playlist": the next Add clips starts on this game. */
+      addClipsFrom?: string;
     } | null;
     const restore = state?.restore;
     if (restore && state?.view === "report") {
@@ -664,6 +668,7 @@ export function PlaylistsPage() {
     // remount of this page would restore/reship/create all over again.
     if (state) navigate(location.pathname, { replace: true, state: null });
     if (state?.reship && restore) pendingShipRef.current.add(restore.playlistId);
+    if (state?.addClipsFrom) setAddClipsFrom(state.addClipsFrom);
     let highlightTimer: number | undefined;
     if (state?.highlight) {
       setOnboardingHighlight(state.highlight);
@@ -5744,12 +5749,19 @@ export function PlaylistsPage() {
               })()}
             </SheetContent>
           </Sheet>
-          <Sheet open={showClipBrowser} onOpenChange={setShowClipBrowser}>
+          <Sheet
+            open={showClipBrowser}
+            onOpenChange={(open) => {
+              setShowClipBrowser(open);
+              if (!open) setAddClipsFrom(null);
+            }}
+          >
             <SheetContent>
               <ClipBrowserPanel
                 matches={matches}
                 matchLookup={matchLookup}
                 playlist={selected}
+                preferredMatchId={addClipsFrom}
                 onAddClips={handleAddClips}
                 activeOrgId={activeOrgId}
                 labels={labels}

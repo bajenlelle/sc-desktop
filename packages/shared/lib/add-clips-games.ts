@@ -15,7 +15,7 @@ export type BrowserGame = Pick<StoredMatch, "id" | "title" | "date" | "homeTeam"
 /** The most games the "In this playlist" group lists: a split menu helps only while it stays short. */
 export const IN_PLAYLIST_MAX = 4;
 
-export type StartSource = "remembered" | "most_clips" | "newest";
+export type StartSource = "preferred" | "remembered" | "most_clips" | "newest";
 
 /** Clips per game in the playlist. */
 function clipsPerGame(items: readonly PlaylistItem[]): Map<string, number> {
@@ -28,11 +28,18 @@ function clipsPerGame(items: readonly PlaylistItem[]): Map<string, number> {
 const byDateDesc = (a: BrowserGame, b: BrowserGame) => b.date.localeCompare(a.date) || a.title.localeCompare(b.title);
 
 /**
- * The game to start on: the one last browsed for this playlist while it
- * exists, else the one with the most clips in the playlist (the later game on
- * a tie), else the latest game played.
+ * The game to start on: the one the coach came here from (a game page's
+ * "Build a playlist") while it exists, else the one last browsed for this
+ * playlist, else the one with the most clips in the playlist (the later game
+ * on a tie), else the latest game played.
  */
-export function startGame(matches: readonly BrowserGame[], items: readonly PlaylistItem[], remembered: string | null): { id: string | null; source: StartSource } {
+export function startGame(
+  matches: readonly BrowserGame[],
+  items: readonly PlaylistItem[],
+  remembered: string | null,
+  preferred: string | null = null,
+): { id: string | null; source: StartSource } {
+  if (preferred !== null && matches.some((m) => m.id === preferred)) return { id: preferred, source: "preferred" };
   if (remembered !== null && matches.some((m) => m.id === remembered)) return { id: remembered, source: "remembered" };
   const counts = clipsPerGame(items);
   const sorted = [...matches].sort(byDateDesc);
