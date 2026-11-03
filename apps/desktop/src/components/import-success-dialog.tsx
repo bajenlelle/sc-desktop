@@ -74,7 +74,8 @@ export function ImportSuccessDialog({
   }
 
   const goPlaylists = () => closeThen(() => navigate("/playlists", { state: { createNew: true } }));
-  const goGame = () => closeThen(() => navigate(`/matches/${matchId}`));
+  // "Set quarters" lands with the picker already open on the first unset quarter.
+  const goGame = () => closeThen(() => navigate(`/matches/${matchId}`, needs === "quarters" ? { state: { openQuarters: true } } : undefined));
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) closeThen(() => navigate("/playlists")); }}>

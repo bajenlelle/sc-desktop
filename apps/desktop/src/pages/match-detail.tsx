@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { CalendarIcon, Check, ChevronLeft, ChevronsUpDown, Film, Loader2, MinusCircle, Plus, VideoOff } from "lucide-react";
 import { toast } from "sonner";
@@ -211,6 +211,7 @@ export function MatchDetailPage() {
   const { id } = useParams<{ id: string }>();
   const matchId = id!;
   const navigate = useNavigate();
+  const location = useLocation();
   const { activeOrgId, activeOrgIsPersonal } = useAuth();
 
   const [storedMatch, setStoredMatch] = useState<StoredMatch | null>(null);
@@ -274,6 +275,23 @@ export function MatchDetailPage() {
 
   // Is the referenced local file actually on this machine?
   const [videoStatus, setVideoStatus] = useState<VideoFileStatus | null>(null);
+
+  // "Set quarters" from the import dialog or the editor's banner: the page
+  // opens with the picker on the first unset quarter, once the video is known
+  // to play here. The request is cleared so a reload doesn't repeat it.
+  const openQuartersRequested = !!(location.state as { openQuarters?: boolean } | null)?.openQuarters;
+  useEffect(() => {
+    const s = storedMatch?.syncPoint;
+    if (!openQuartersRequested || !storedMatch || !s) return;
+    const url = storedMatch.videoUrl;
+    if (url && isLocalPath(url) && videoStatus === null) return; // the file probe hasn't answered yet
+    navigate(location.pathname, { replace: true, state: null });
+    const pickable = !!url && (!isLocalPath(url) || videoStatus === "ok");
+    if (!pickable) return;
+    if (s.breaksCut !== true) void toggleBreaksCut(true);
+    else openPeriod(nextUnset(1, s) ?? 2, s);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openQuartersRequested, storedMatch?.id, storedMatch?.syncPoint, videoStatus]);
   // Shared hints for the linked recording; the detector only runs while the game has no tip-off.
   const tipoffSuggestion = useTipoffSuggestion(
     storedMatch?.videoUrl && isLocalPath(storedMatch.videoUrl) && videoStatus === "ok" ? storedMatch.videoUrl : null,

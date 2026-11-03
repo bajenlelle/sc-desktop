@@ -359,7 +359,12 @@ export function PlaylistsPage() {
   // Clip browser panel
   const [showClipBrowser, setShowClipBrowser] = useState(false);
   /** The clip whose game is being re-synced from the editor ("Fix sync…"). */
-  const [syncFix, setSyncFix] = useState<{ matchId: string; eventId: number } | null>(null);
+  const [syncFix, setSyncFix] = useState<{
+    matchId: string;
+    eventId: number;
+    /** A choice made for the coach, with its reason, when the sheet opens on evidence (the banner). */
+    preset?: { scope: SyncFixScope; reason: string };
+  } | null>(null);
   /** Each linked recording's length, by path: shows when clips land past a video's end. */
   const [videoDurations, setVideoDurations] = useState<Record<string, number>>({});
   /** Games whose "skips the breaks" hint the coach dismissed (kept per game). */
@@ -1182,14 +1187,32 @@ export function PlaylistsPage() {
       const duration = videoDurations[m.videoUrl];
       if (!duration) continue;
       let pastEnd = 0;
+      // The clip Fix sync opens on from the banner: the first past the end,
+      // else the first from Q2 on (the quarters that drift), else any.
+      let firstPastEnd: QueueItem | null = null;
+      let firstLater: QueueItem | null = null;
+      let firstAny: QueueItem | null = null;
       for (const c of clips) {
         const event = eventByKey.get(`${matchId}:${c.eventId}`);
         const t = event ? computeVideoTime(event, m.syncPoint) : null;
-        if (t !== null && clipBounds(t, pair.pre, pair.post, c.preRollOffset, c.postRollOffset).start >= duration - 0.25) pastEnd++;
+        if (!event) continue;
+        const item = { event, matchId };
+        firstAny ??= item;
+        if (event.period >= 2) firstLater ??= item;
+        if (t !== null && clipBounds(t, pair.pre, pair.post, c.preRollOffset, c.postRollOffset).start >= duration - 0.25) {
+          pastEnd++;
+          firstPastEnd ??= item;
+        }
       }
       const looksCut = looksCutByMatch.get(matchId) ?? false;
       if (pastEnd > 0 || looksCut) {
-        return { matchId, title: m.title, pastEnd, reason: pastEnd > 0 ? "past_end" : "looks_cut" };
+        return {
+          matchId,
+          title: m.title,
+          pastEnd,
+          reason: pastEnd > 0 ? "past_end" : "looks_cut",
+          firstClip: firstPastEnd ?? firstLater ?? firstAny,
+        };
       }
     }
     return null;
@@ -2134,10 +2157,14 @@ export function PlaylistsPage() {
   }
 
   /** "Fix sync…": find where the play really happens and move the game's sync to it. */
-  function openSyncFix(item: QueueItem, entry: "clip_menu" | "this_clip") {
+  function openSyncFix(
+    item: QueueItem,
+    entry: "clip_menu" | "this_clip" | "banner",
+    preset?: { scope: SyncFixScope; reason: string },
+  ) {
     videoRef.current?.pause();
     trackEvent("sync_fix_opened", { entry });
-    setSyncFix({ matchId: item.matchId, eventId: item.event.eventId });
+    setSyncFix({ matchId: item.matchId, eventId: item.event.eventId, preset });
   }
 
   /**
@@ -4981,9 +5008,23 @@ export function PlaylistsPage() {
               <Button size="xs" variant="ghost" onClick={() => dismissSyncHint(syncHint.matchId, syncHint.reason)}>
                 Dismiss
               </Button>
-              <Button size="xs" variant="outline" onClick={() => navigate(`/matches/${syncHint.matchId}`)}>
+              <Button size="xs" variant="ghost" onClick={() => navigate(`/matches/${syncHint.matchId}`, { state: { openQuarters: true } })}>
                 Set quarters…
               </Button>
+              {syncHint.firstClip && (
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() =>
+                    openSyncFix(syncHint.firstClip!, "banner", {
+                      scope: "quarter",
+                      reason: "The video looks cut between quarters.",
+                    })
+                  }
+                >
+                  Fix sync…
+                </Button>
+              )}
             </span>
           </div>
         </Callout>
@@ -5630,6 +5671,8 @@ export function PlaylistsPage() {
                     match={match}
                     event={event}
                     otherPlays={otherPlays}
+                    initialScope={syncFix?.preset?.scope}
+                    reason={syncFix?.preset?.reason}
                     videoDuration={videoDurations[match.videoUrl] ?? null}
                     leadSeconds={Math.max(0, preRoll + getClipOffsets(syncFix!.matchId, syncFix!.eventId).pre)}
                     onApply={applySyncFix}
