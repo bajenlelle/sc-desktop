@@ -494,7 +494,7 @@ export function SyncPointPicker({
       <div className="flex items-start gap-5">
         <div className="min-w-0 flex-1">{stage}</div>
         {/* Out of the flow, so the footage alone sets the height. */}
-        <div className="relative w-72 shrink-0 self-stretch">
+        <div className="relative w-80 shrink-0 self-stretch">
           <div className="absolute inset-0 flex flex-col gap-3">
             {prompt}
             {suggestionSlot}

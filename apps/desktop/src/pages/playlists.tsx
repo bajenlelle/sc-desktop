@@ -5527,10 +5527,10 @@ export function PlaylistsPage() {
             {/* No first-button focus: the panel focuses itself, so Space plays.
                 Sized to the task, not the window: the footage takes the height
                 left after the sheet's header and transport (13rem with the
-                sheet's own margins) at 16:9, plus the 22rem column beside it. */}
+                sheet's own margins) at 16:9, plus the 24rem column beside it. */}
             <SheetContent
               onOpenAutoFocus={(e) => e.preventDefault()}
-              className="h-auto max-h-full max-w-none w-[min(100%,80rem,calc((100dvh_-_var(--titlebar-inset)_-_13rem)_*_16_/_9_+_22rem))]"
+              className="h-auto max-h-full max-w-none w-[min(100%,80rem,calc((100dvh_-_var(--titlebar-inset)_-_13rem)_*_16_/_9_+_24rem))]"
             >
               {(() => {
                 const match = syncFix ? matchLookup.get(syncFix.matchId) : undefined;

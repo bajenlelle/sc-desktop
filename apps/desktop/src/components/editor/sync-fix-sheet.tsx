@@ -1,11 +1,13 @@
 /**
  * Fix sync from a clip, where the coach notices the drift: find where the
- * play really happens, then choose how far the move reaches. "This quarter"
- * moves the clip's quarter and every later quarter that follows it (a video
- * that skips the breaks drifts quarter by quarter); "From this play on" moves
- * this play and every later one up to the next quarter with its own sync (a
- * cut inside a quarter); "Whole game" moves every quarter; "Just this clip"
- * moves this clip alone, as its own offsets.
+ * play really happens, then say which clips are off. That answer is how far
+ * the move reaches. "Only this clip" moves this clip alone, as its own
+ * offsets; "From this play on" moves this play and every later one up to the
+ * next quarter with its own sync (a jump in the video); "From this quarter
+ * on" moves the clip's quarter and every later quarter that follows it (a
+ * video that skips the breaks drifts quarter by quarter); "The whole game"
+ * moves every quarter (the tip-off is off). Nothing is chosen for the coach,
+ * unless the sheet was opened with evidence (the skips-the-breaks banner).
  */
 import * as React from "react";
 import { X } from "lucide-react";
@@ -32,6 +34,8 @@ export function SyncFixPanel({
   event,
   videoDuration,
   leadSeconds,
+  initialScope,
+  reason,
   onApply,
   onCancel,
 }: {
@@ -40,7 +44,11 @@ export function SyncFixPanel({
   videoDuration: number | null;
   /** How long before the play the clip starts: "From this play on" moves from there. */
   leadSeconds: number;
-  /** `next` is the game's new sync, or null for "Just this clip". */
+  /** A choice made for the coach, only when something points to it (the banner). */
+  initialScope?: SyncFixScope;
+  /** Why that choice was made, shown under the heading. */
+  reason?: string;
+  /** `next` is the game's new sync, or null for "Only this clip". */
   onApply: (scope: SyncFixScope, next: SyncPoint | null, deltaSeconds: number) => Promise<void>;
   onCancel: () => void;
 }) {
@@ -56,7 +64,7 @@ export function SyncFixPanel({
     start !== null ? { seconds: Math.max(0, start), nonce: Date.now() } : null,
   );
   const [found, setFound] = React.useState<number | null>(null);
-  const [scope, setScope] = React.useState<SyncFixScope>("quarter");
+  const [scope, setScope] = React.useState<SyncFixScope | null>(initialScope ?? null);
   const [saving, setSaving] = React.useState(false);
   /** The sheet is a dialog: the picker's keys (Space, ←/→, ,/.) belong to all of it. */
   const rootRef = React.useRef<HTMLDivElement>(null);
@@ -71,21 +79,24 @@ export function SyncFixPanel({
   const quarters = quartersMoved(sync, match.events, event.period);
   const stopsAt = event.realWorldTime ? nextFixAfter(sync, { realWorldTime: event.realWorldTime, period: event.period }) : null;
   /** Where a move from this play stops: the next quarter with its own sync, or the next fix. */
-  const playDetail = stopsAt?.kind === "period" ? `up to ${periodLabel(stopsAt.period)}` : stopsAt?.kind === "cut" ? "up to the next fix" : undefined;
-  const upTo = playDetail ? `, ${playDetail}` : "";
+  const upTo = stopsAt?.kind === "period" ? `, up to ${periodLabel(stopsAt.period)}` : stopsAt?.kind === "cut" ? ", up to the next fix" : "";
+  // "From this quarter on" on Q2 or later also answers "does the video skip the breaks?".
+  const marksBreaksCut = event.period >= 2 && sync.breaksCut !== true;
   const scopeHeadingId = React.useId();
 
   const explanation = !moves
     ? found === null
       ? "Set where the play happens to see what moves."
       : "That's where the play already is: nothing moves."
-    : scope === "quarter"
-      ? `${joinNames(quarters)} ${quarters.length === 1 ? "moves" : "move"} ${describeShift(delta!)}.`
-      : scope === "play"
-        ? `This play and every later play move ${describeShift(delta!)}${upTo}. Earlier plays stay.`
-        : scope === "game"
-          ? `Every quarter moves ${describeShift(delta!)}.`
-          : `This clip moves ${describeShift(delta!)}. The rest of the game stays.`;
+    : scope === null
+      ? "Choose which clips are off."
+      : scope === "quarter"
+        ? `${joinNames(quarters)} ${quarters.length === 1 ? "moves" : "move"} ${describeShift(delta!)}.${marksBreaksCut ? " The game is marked as skipping the breaks." : ""}`
+        : scope === "play"
+          ? `This play and every later play move ${describeShift(delta!)}${upTo}. Earlier plays stay.`
+          : scope === "game"
+            ? `Every quarter moves ${describeShift(delta!)}.`
+            : `This clip moves ${describeShift(delta!)}. The rest of the game stays.`;
 
   const applyLabel =
     scope === "quarter"
@@ -94,17 +105,19 @@ export function SyncFixPanel({
         ? "Move from this play on"
         : scope === "game"
           ? "Move the whole game"
-          : "Move this clip";
+          : scope === "clip"
+            ? "Move this clip"
+            : "Move";
 
   async function apply() {
-    if (!moves || delta === null) return;
+    if (!moves || delta === null || scope === null) return;
     const next =
       scope === "quarter"
         ? { ...shiftPeriod(sync, match.events, event.period, delta), ...(event.period >= 2 ? { breaksCut: true } : {}) }
         : scope === "play" && event.realWorldTime && found !== null
           ? syncFromPlayOn(sync, { realWorldTime: event.realWorldTime, period: event.period, eventId: event.eventId }, found, leadSeconds)
           : scope === "game"
-          ? shiftWholeGame(sync, delta)
+            ? shiftWholeGame(sync, delta)
             : null;
     setSaving(true);
     try {
@@ -146,18 +159,21 @@ export function SyncFixPanel({
           aside={
             <>
               <div className="min-h-0 flex-1 space-y-2 overflow-y-auto border-t border-separator pt-3">
-                <p id={scopeHeadingId} className="text-headline text-foreground">
-                  Apply to
-                </p>
+                <div>
+                  <p id={scopeHeadingId} className="text-headline text-foreground">
+                    Which clips are off?
+                  </p>
+                  {reason && <p className="mt-0.5 text-callout text-muted-foreground">{reason}</p>}
+                </div>
                 <RadioGroup<SyncFixScope>
                   aria-labelledby={scopeHeadingId}
                   value={scope}
                   onValueChange={setScope}
                   options={[
-                    { value: "quarter", label: "This quarter", detail: joinNames(quarters) },
-                    { value: "play", label: "From this play on", detail: playDetail },
-                    { value: "game", label: "Whole game" },
-                    { value: "clip", label: "Just this clip" },
+                    { value: "clip", label: "Only this clip", detail: "the rest of the game is fine" },
+                    { value: "play", label: "From this play on", detail: "the video jumps here" },
+                    { value: "quarter", label: "From this quarter on", detail: `${joinNames(quarters)} · the video skips the breaks` },
+                    { value: "game", label: "The whole game", detail: "the tip-off is off" },
                   ]}
                 />
                 <p className="text-callout text-muted-foreground" aria-live="polite">
@@ -168,7 +184,7 @@ export function SyncFixPanel({
                 <Button variant="outline" onClick={onCancel}>
                   Cancel
                 </Button>
-                <Button disabled={!moves || saving} onClick={() => void apply()}>
+                <Button disabled={!moves || scope === null || saving} onClick={() => void apply()}>
                   {applyLabel}
                 </Button>
               </div>
