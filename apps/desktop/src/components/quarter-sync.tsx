@@ -2,6 +2,7 @@ import { Check } from "lucide-react";
 import { clamp } from "@scoutable/shared/lib/motion-math";
 import { periodLabel } from "@scoutable/shared/lib/events";
 import type { PeriodRow } from "@scoutable/shared/lib/period-sync";
+import { joinNames } from "@scoutable/shared/lib/sync-reach";
 import { formatMSSd, type AnchorCopy } from "@/components/sync-point-picker";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -52,8 +53,7 @@ export function followsSummary(rows: PeriodRow[]): string | null {
   const groups = new Map<number, string[]>();
   for (const r of unset) groups.set(r.follows, [...(groups.get(r.follows) ?? []), r.name]);
   const parts = [...groups].map(([follows, names]) => {
-    const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-    return `${list} follow${names.length === 1 ? "s" : ""} ${periodLabel(follows)}`;
+    return `${joinNames(names)} follow${names.length === 1 ? "s" : ""} ${periodLabel(follows)}`;
   });
   return `${parts.join("; ")}.`;
 }

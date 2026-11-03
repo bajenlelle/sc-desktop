@@ -167,3 +167,15 @@ export function playerName(e: PlayByPlayEvent): string {
   if (!e.player) return "—";
   return `${e.player.firstName} ${e.player.familyName}`.trim();
 }
+
+/** The play's place on the scoreboard clock: "Q3 07:42", or just "Q3" when the feed has no clock. */
+export function playClock(e: PlayByPlayEvent): string {
+  const clock = e.gameClockTime ? formatGameClock(e.gameClockTime) : "";
+  return `${periodLabel(e.period)}${clock ? ` ${clock}` : ""}`;
+}
+
+/** The play in words a coach can spot in the footage: "#7 Ida Andersson, 3PT Made"; the team when no player is on it. */
+export function describePlay(e: PlayByPlayEvent): string {
+  const who = e.player ? `${e.player.pno ? `#${e.player.pno} ` : ""}${playerName(e)}` : (e.eventTeam?.teamName ?? "");
+  return [who, eventLabel(e)].filter(Boolean).join(", ");
+}

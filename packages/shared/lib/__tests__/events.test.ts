@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PlayByPlayEvent } from "../../types/match";
 import {
+  describePlay,
   eventColors,
   eventHue,
   eventLabel,
@@ -8,8 +9,37 @@ import {
   isBookkeepingEvent,
   parseGameClock,
   periodLabel,
+  playClock,
   playerName,
 } from "../events";
+
+describe("playClock and describePlay", () => {
+  const ev = (over: Partial<PlayByPlayEvent>): PlayByPlayEvent => ({
+    eventId: 1,
+    type: "3pt",
+    subType: "jumpshot",
+    period: 3,
+    gameClockTime: "07:42:00",
+    realWorldTime: "2026-09-20T18:33:00Z",
+    isSuccessful: 1,
+    player: { playerId: 1, pno: 7, firstName: "Ida", familyName: "Andersson", teamNumber: 1 },
+    eventTeam: { teamCode: "LID", teamName: "Lidingö", teamNumber: 1 },
+    qualifiers: [],
+    ...over,
+  });
+
+  it("reads the clock the way the scoreboard shows it", () => {
+    expect(playClock(ev({}))).toBe("Q3 07:42");
+    expect(playClock(ev({ gameClockTime: "" }))).toBe("Q3");
+    expect(playClock(ev({ period: 5 }))).toBe("OT1 07:42");
+  });
+
+  it("names the player and the play, or the team when no player is on it", () => {
+    expect(describePlay(ev({}))).toBe("#7 Ida Andersson, 3PT Made");
+    expect(describePlay(ev({ player: { playerId: 1, pno: 0, firstName: "Ida", familyName: "Andersson", teamNumber: 1 } }))).toBe("Ida Andersson, 3PT Made");
+    expect(describePlay(ev({ player: null, type: "2pt", isSuccessful: 0 }))).toBe("Lidingö, 2PT Miss");
+  });
+});
 
 function ev(partial: Partial<PlayByPlayEvent>): PlayByPlayEvent {
   return partial as PlayByPlayEvent;

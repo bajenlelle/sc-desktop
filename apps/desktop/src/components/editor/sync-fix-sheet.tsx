@@ -10,15 +10,9 @@
 import * as React from "react";
 import { X } from "lucide-react";
 import { computeVideoTime } from "@scoutable/shared/lib/clip-timing";
-import { eventLabel, formatGameClock, periodLabel, playerName } from "@scoutable/shared/lib/events";
-import {
-  describePeriodSyncs,
-  nextFixAfter,
-  projectedSync,
-  shiftPeriod,
-  shiftWholeGame,
-  syncFromPlayOn,
-} from "@scoutable/shared/lib/period-sync";
+import { describePlay, periodLabel, playClock } from "@scoutable/shared/lib/events";
+import { nextFixAfter, projectedSync, shiftPeriod, shiftWholeGame, syncFromPlayOn } from "@scoutable/shared/lib/period-sync";
+import { joinNames, quartersMoved, type SyncFixScope } from "@scoutable/shared/lib/sync-reach";
 import { formatSpan } from "@/components/quarter-sync";
 import { SyncPointPicker, type SeekRequest } from "@/components/sync-point-picker";
 import { Button } from "@/components/ui/button";
@@ -26,38 +20,11 @@ import { RadioGroup } from "@/components/ui/radio-group";
 import { SheetClose, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import type { PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 
-export type SyncFixScope = "quarter" | "play" | "game" | "clip";
-
-/** "Q3", "Q3 and Q4", "Q2, Q3 and Q4". */
-function joinNames(names: string[]): string {
-  return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-}
-
 /** "4 s later", "11:02 earlier". */
 export function describeShift(deltaSeconds: number): string {
   const a = Math.abs(deltaSeconds);
   const amount = a < 60 ? `${Math.round(a * 10) / 10} s` : formatSpan(a);
   return `${amount} ${deltaSeconds < 0 ? "earlier" : "later"}`;
-}
-
-/** The play in words a coach can spot: "#7 Ida Andersson · 3PT Made · Q3 7:42". */
-export function describePlay(event: PlayByPlayEvent): string {
-  const who = event.player
-    ? `${event.player.pno ? `#${event.player.pno} ` : ""}${playerName(event)}`
-    : (event.eventTeam?.teamName ?? "");
-  const clock = event.gameClockTime ? formatGameClock(event.gameClockTime) : "";
-  return [who, eventLabel(event), `${periodLabel(event.period)}${clock ? ` ${clock}` : ""}`].filter(Boolean).join(" · ");
-}
-
-/** The quarters "This quarter" moves: the play's, and every later one that follows it. */
-export function quartersMoved(sync: SyncPoint, events: PlayByPlayEvent[], period: number): string[] {
-  const names = [periodLabel(period)];
-  for (const row of describePeriodSyncs(sync, events)) {
-    if (row.period <= period) continue;
-    if (row.set) break;
-    names.push(row.name);
-  }
-  return names;
 }
 
 export function SyncFixPanel({
@@ -171,8 +138,7 @@ export function SyncFixPanel({
             button: "This is the play",
             confirmed: "Play at",
           }}
-          // Each "·" sticks to the word before it, so a line never starts with one.
-          note={`Look for ${describePlay(event).replaceAll(" · ", " · ")}.`}
+          note={`Look for ${playClock(event)} on the game clock: ${describePlay(event)}.`}
           confirmedSeconds={found}
           seekRequest={seek}
           onConfirm={setFound}
