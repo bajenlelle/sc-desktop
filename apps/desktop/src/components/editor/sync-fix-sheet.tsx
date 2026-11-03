@@ -3,9 +3,10 @@
  * play really happens, then say which clips are off. That answer is how far
  * the move reaches. "Only this clip" moves this clip alone, as its own
  * offsets; "From this play on" moves this play and every later one up to the
- * next quarter with its own sync (a jump in the video); "From this quarter
- * on" moves the clip's quarter and every later quarter that follows it (a
- * video that skips the breaks drifts quarter by quarter); "The whole game"
+ * next quarter with its own sync (a jump in the video); "This quarter"
+ * moves the clip's quarter and every later quarter that follows it, i.e.
+ * has no start of its own (a video that skips the breaks drifts quarter by
+ * quarter); "The whole game"
  * moves every quarter (the tip-off is off). Nothing is chosen for the coach,
  * unless the sheet was opened with evidence (the skips-the-breaks banner).
  */
@@ -93,7 +94,7 @@ export function SyncFixPanel({
   const stopsAt = event.realWorldTime ? nextFixAfter(sync, { realWorldTime: event.realWorldTime, period: event.period }) : null;
   /** Where a move from this play stops: the next quarter with its own sync, or the next fix. */
   const upTo = stopsAt?.kind === "period" ? `, up to ${periodLabel(stopsAt.period)}` : stopsAt?.kind === "cut" ? ", up to the next fix" : "";
-  // "From this quarter on" on Q2 or later also answers "does the video skip the breaks?".
+  // "This quarter" on Q2 or later also answers "does the video skip the breaks?".
   const marksBreaksCut = event.period >= 2 && sync.breaksCut !== true;
   const reach = React.useMemo(() => syncReach(sync, match.events, event, scope), [sync, match.events, event, scope]);
   const scopeHeadingId = React.useId();
@@ -262,7 +263,7 @@ export function SyncFixPanel({
                     { value: "play", label: "From this play on", detail: "the video jumps here" },
                     // Cut breaks can't put a Q1 play off: for Q1 the quarter-wide move is the whole game.
                     ...(event.period >= 2
-                      ? [{ value: "quarter" as const, label: "From this quarter on", detail: `${joinNames(quarters)} · the video skips the breaks` }]
+                      ? [{ value: "quarter" as const, label: "This quarter", detail: `${joinNames(quarters)} · the video skips the breaks` }]
                       : []),
                     { value: "game", label: "The whole game", detail: "the tip-off is off" },
                   ]}

@@ -28,7 +28,11 @@ const EXAMPLE_PLAY = { period: 3, realWorldTime: T(64) };
 const CHOICES: Array<{ scope: SyncFixScope; name: string; cause: string }> = [
   { scope: "clip", name: "Only this clip", cause: "one play was logged early or late." },
   { scope: "play", name: "From this play on", cause: "the recording jumps here." },
-  { scope: "quarter", name: "From this quarter on", cause: "the breaks between quarters were cut out." },
+  {
+    scope: "quarter",
+    name: "This quarter",
+    cause: "the breaks between quarters were cut out. A later quarter moves with it unless it has a start of its own.",
+  },
   { scope: "game", name: "The whole game", cause: "the tip-off is a few seconds off." },
 ];
 const EXAMPLES = CHOICES.map((c) => ({ ...c, reach: syncReach(EXAMPLE_GAME, [], EXAMPLE_PLAY, c.scope) }));
