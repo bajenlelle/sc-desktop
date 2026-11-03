@@ -101,7 +101,7 @@ export function SyncFixPanel({
     : scope === null
       ? "Choose which clips are off."
       : scope === "quarter"
-        ? `${joinNames(quarters)} ${quarters.length === 1 ? "moves" : "move"} ${describeShift(delta!)}.${marksBreaksCut ? " The game is marked as skipping the breaks." : ""}`
+        ? `${joinNames(quarters)} ${quarters.length === 1 ? "moves" : "move"} ${describeShift(delta!)}.${marksBreaksCut ? " This also marks the video as skipping the breaks." : ""}`
         : scope === "play"
           ? `This play and every later play move ${describeShift(delta!)}${upTo}. Earlier plays stay.`
           : scope === "game"
@@ -121,17 +121,27 @@ export function SyncFixPanel({
 
   // Looking at another quarter's play moves the footage only: the play being
   // fixed stays the one this sheet opened on, and it can't be set from there.
+  // Scrubbing away ends the look (the coach is finding the play again), and
+  // the focus goes back to the sheet so the keys keep working after a button
+  // that just went away (WebView2 focuses a clicked button; WebKit doesn't).
+  const refocus = () => rootRef.current?.focus({ preventScroll: true });
   function peekAt(play: PlayByPlayEvent) {
     const t = computeVideoTime(play, sync);
     if (t === null) return;
     setSeek({ seconds: Math.max(0, t), nonce: Date.now() });
     setPeek({ label: playClock(play) });
     trackEvent("sync_fix_peeked", { period: play.period });
+    refocus();
   }
   function backToPlay() {
     const to = found ?? start;
     if (to !== null) setSeek({ seconds: Math.max(0, to), nonce: Date.now() });
     setPeek(null);
+    refocus();
+  }
+  function confirm(seconds: number) {
+    setFound(seconds);
+    refocus();
   }
 
   async function apply() {
@@ -173,7 +183,7 @@ export function SyncFixPanel({
           videoPath={match.videoUrl!}
           copy={{
             title: "Find the play",
-            instruction: "Scrub to the moment it happens, then set it. It opens where the clip is now.",
+            instruction: "Scrub to the moment it happens, then set it. The video opens where the clip is now.",
             button: "This is the play",
             confirmed: "Play at",
           }}
@@ -212,9 +222,10 @@ export function SyncFixPanel({
             ) : undefined
           }
           confirmDisabledReason={peek ? "Go back to this play before setting it" : undefined}
+          onScrub={() => setPeek(null)}
           confirmedSeconds={found}
           seekRequest={seek}
-          onConfirm={setFound}
+          onConfirm={confirm}
           keyContainer={rootRef}
           aside={
             <>
@@ -232,7 +243,10 @@ export function SyncFixPanel({
                   options={[
                     { value: "clip", label: "Only this clip", detail: "the rest of the game is fine" },
                     { value: "play", label: "From this play on", detail: "the video jumps here" },
-                    { value: "quarter", label: "From this quarter on", detail: `${joinNames(quarters)} · the video skips the breaks` },
+                    // Cut breaks can't put a Q1 play off: for Q1 the quarter-wide move is the whole game.
+                    ...(event.period >= 2
+                      ? [{ value: "quarter" as const, label: "From this quarter on", detail: `${joinNames(quarters)} · the video skips the breaks` }]
+                      : []),
                     { value: "game", label: "The whole game", detail: "the tip-off is off" },
                   ]}
                 />

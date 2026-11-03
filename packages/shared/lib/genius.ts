@@ -230,7 +230,7 @@ export function findGeniusPeriodMarks(actions: GeniusAction[]): Record<string, P
   }
   const marks: Record<string, PeriodMark> = {};
   for (const [period, start] of starts) {
-    const clock = /^\d+:\d{2}$/.test(start.clock) ? ` (clock ${start.clock})` : "";
+    const clock = /^\d+:\d{2}$/.test(start.clock) ? ` (game clock ${start.clock})` : "";
     const end = ends.get(period);
     marks[String(period)] = {
       startRealWorldTime: start.at,

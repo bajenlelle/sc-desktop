@@ -73,6 +73,8 @@ export interface SyncPointPickerProps {
   noteExtra?: React.ReactNode;
   /** Why the set button can't be pressed right now, as its tooltip; undefined = it can. */
   confirmDisabledReason?: string;
+  /** The user moved the playhead themselves (scrubber, steps or keys), as opposed to playing. */
+  onScrub?: () => void;
 }
 
 export interface AnchorCopy {
@@ -139,6 +141,7 @@ export function SyncPointPicker({
   aside,
   noteExtra,
   confirmDisabledReason,
+  onScrub,
 }: SyncPointPickerProps) {
   const copy = { ...TIPOFF_COPY, ...copyOverride };
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -170,6 +173,8 @@ export function SyncPointPicker({
   useEffect(() => {
     onUserActionRef.current = onUserAction;
   }, [onUserAction]);
+  const onScrubRef = useRef(onScrub);
+  onScrubRef.current = onScrub;
 
   useEffect(() => {
     setVideoEl(videoRef.current);
@@ -290,6 +295,7 @@ export function SyncPointPicker({
     video.currentTime = next;
     setCurrentTime(next);
     onUserActionRef.current?.("seek");
+    onScrubRef.current?.();
   }, []);
 
   const seekBy = useCallback(

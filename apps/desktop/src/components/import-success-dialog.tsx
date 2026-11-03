@@ -58,7 +58,7 @@ export function ImportSuccessDialog({
   const needs = !hasVideo ? "video" : !hasSyncPoint ? "sync" : needsQuarters ? "quarters" : null;
 
   const description = isUpdate
-    ? `${title}: clips refreshed. Playlists using this game keep working.`
+    ? `${title}: clips refreshed. Playlists using this game keep working. Play a clip to check the timing.`
     : needs === "video"
       ? `${title}: ${clips} ready. Add the game video to watch clips and export them.`
       : needs === "sync"
@@ -74,8 +74,9 @@ export function ImportSuccessDialog({
   }
 
   const goPlaylists = () => closeThen(() => navigate("/playlists", { state: { createNew: true } }));
-  // "Set quarters" lands with the picker already open on the first unset quarter.
-  const goGame = () => closeThen(() => navigate(`/matches/${matchId}`, needs === "quarters" ? { state: { openQuarters: true } } : undefined));
+  // "Set quarters" (the primary on a fresh import) lands with the picker already open on the first unset quarter.
+  const goGame = () =>
+    closeThen(() => navigate(`/matches/${matchId}`, needs === "quarters" && !isUpdate ? { state: { openQuarters: true } } : undefined));
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) closeThen(() => navigate("/playlists")); }}>

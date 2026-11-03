@@ -46,8 +46,8 @@ export function SyncHelpPopover({ align = "end" }: { align?: "start" | "center" 
         <div className="space-y-1.5">
           <p className="text-headline">How sync works</p>
           <p className="text-callout text-muted-foreground">
-            Scoutable places every play in your video by the game clock, counting from the tip-off you set. Each clip
-            starts a few seconds before its play.
+            Scoutable places every play in your video by the time the league logged it, counting from the tip-off you
+            set. Each clip starts a few seconds before its play.
           </p>
           <p className="text-callout text-muted-foreground">
             If the video is missing time somewhere, every play after that point lands at the wrong moment. Fix sync tells

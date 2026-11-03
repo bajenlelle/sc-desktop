@@ -167,11 +167,11 @@ describe("findGeniusPeriodMarks", () => {
     const marks = findGeniusPeriodMarks(actions);
     expect(marks["1"]).toEqual({
       startRealWorldTime: "2025-09-19T17:06:08Z",
-      anchor: { realWorldTime: "2025-09-19T17:06:08Z", kind: "period_start", label: "Start of Q1 (clock 10:00)" },
+      anchor: { realWorldTime: "2025-09-19T17:06:08Z", kind: "period_start", label: "Start of Q1 (game clock 10:00)" },
     });
     // Overtime resets the feed's period to 1; the marks use the global period.
-    expect(marks["5"].anchor.label).toBe("Start of OT1 (clock 05:00)");
-    expect(marks["6"].anchor.label).toBe("Start of OT2 (clock 05:00)");
+    expect(marks["5"].anchor.label).toBe("Start of OT1 (game clock 05:00)");
+    expect(marks["6"].anchor.label).toBe("Start of OT2 (game clock 05:00)");
   });
 
   it("records a period's end when the feed logs one, and skips a period without a start", () => {

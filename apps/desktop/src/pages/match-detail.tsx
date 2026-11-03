@@ -12,6 +12,7 @@ import { formatSpan, QuarterSyncPanel, quarterCopy } from "@/components/quarter-
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { trackEvent } from "@/lib/analytics";
 import { newestRequest } from "@scoutable/shared/lib/latest";
+import { computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { describePlay, periodLabel, playClock } from "@scoutable/shared/lib/events";
 import {
   clearAllPeriodSyncs,
@@ -27,7 +28,7 @@ import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
-import { Callout, FormRow, GroupFooter, GroupHeader, GroupedList } from "@/components/ui/group";
+import { Callout, FormRow, GroupFooter, GroupHeader, GroupRow, GroupedList } from "@/components/ui/group";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAuth } from "@/lib/auth-context";
@@ -289,6 +290,8 @@ export function MatchDetailPage() {
     navigate(location.pathname, { replace: true, state: null });
     const pickable = !!url && (!isLocalPath(url) || videoStatus === "ok");
     if (!pickable) return;
+    // The coach said the video holds the whole game: land here, flip nothing.
+    if (s.breaksCut === false) return;
     if (s.breaksCut !== true) void toggleBreaksCut(true);
     else openPeriod(nextUnset(1, s) ?? 2, s);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -500,24 +503,24 @@ export function MatchDetailPage() {
 
   type Cut = NonNullable<SyncPoint["cuts"]>[number];
 
-  /** The play a cut was fixed from: the one it remembers, else the first play it moves. */
+  /** The play a cut remembers being fixed from, while it is still in the game. */
   function cutPlay(cut: Cut) {
-    const events = storedMatch!.events;
-    const remembered = cut.eventId !== undefined ? events.find((e) => e.eventId === cut.eventId) : undefined;
-    return remembered ?? firstPlayOfCut(cut, events);
+    return cut.eventId !== undefined ? storedMatch!.events.find((e) => e.eventId === cut.eventId) : undefined;
   }
 
-  /** "From Q2 05:12": a cut, named by the play it was fixed from. */
+  /** "From Q2 05:12": a cut, named by the play it was fixed from, else the first play it moves. */
   function cutLabel(cut: Cut): string {
-    const play = cutPlay(cut);
+    const play = cutPlay(cut) ?? firstPlayOfCut(cut, storedMatch!.events);
     return play ? `From ${playClock(play)}` : `From ${periodLabel(cut.period)}`;
   }
 
-  /** "Fixed from #7 Ida Andersson, 3PT Made · at 12:34 in the video". */
+  /** "Fixed from #7 Ida Andersson, 3PT Made · at 12:44 in the video"; an older cut only says where it starts. */
   function cutDescription(cut: Cut): string {
     const play = cutPlay(cut);
-    const at = `${formatMMSS(cut.syncVideoTime)} in the video`;
-    return play ? `Fixed from ${describePlay(play)} · at ${at}` : `At ${at}`;
+    const at = play && sync ? computeVideoTime(play, sync) : null;
+    return play && at !== null
+      ? `Fixed from ${describePlay(play)} · at ${formatMMSS(at)} in the video`
+      : `At ${formatMMSS(cut.syncVideoTime)} in the video`;
   }
 
   async function clearQuarters() {
@@ -670,7 +673,7 @@ export function MatchDetailPage() {
 
         <section>
           <GroupHeader title="Sync" action={<SyncHelpPopover />} />
-          <GroupFooter className="pt-0 pb-3">Clips are cut from the video by the game clock, counted from the tip-off.</GroupFooter>
+          <GroupFooter className="pt-0 pb-3">Clips are cut from the video by the time each play was logged, counted from the tip-off.</GroupFooter>
           {canPick ? (
             <>
               {tipoffSet && (
@@ -840,15 +843,16 @@ export function MatchDetailPage() {
             <div className="pt-4">
               <GroupedList>
                 {sync.cuts.map((cut) => (
-                  <FormRow
+                  <GroupRow
                     key={cut.syncRealWorldTime}
                     label={cutLabel(cut)}
                     description={cutDescription(cut)}
-                  >
-                    <Button variant="ghost" size="sm" onClick={() => void removeCut(cut.syncRealWorldTime)}>
-                      Remove
-                    </Button>
-                  </FormRow>
+                    trailing={
+                      <Button variant="ghost" size="sm" onClick={() => void removeCut(cut.syncRealWorldTime)}>
+                        Remove
+                      </Button>
+                    }
+                  />
                 ))}
               </GroupedList>
               <GroupFooter>

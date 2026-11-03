@@ -75,11 +75,19 @@ export function setHasExported(userId: string | undefined): void {
  * timing" tip on this device. Per user, like the export flag above.
  */
 export function getSyncTipSeen(userId: string | undefined): boolean {
-  return !!userId && localStorage.getItem(`scoutable_sync_tip_seen:${userId}`) === "1";
+  try {
+    return !!userId && localStorage.getItem(`scoutable_sync_tip_seen:${userId}`) === "1";
+  } catch {
+    return false;
+  }
 }
 
 export function setSyncTipSeen(userId: string | undefined): void {
-  if (userId) localStorage.setItem(`scoutable_sync_tip_seen:${userId}`, "1");
+  try {
+    if (userId) localStorage.setItem(`scoutable_sync_tip_seen:${userId}`, "1");
+  } catch {
+    // Storage is full or off: the tip shows again next time, which is harmless.
+  }
 }
 
 /**

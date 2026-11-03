@@ -787,7 +787,8 @@ export function UploadZone({
       clipCount: playByPlayEvents.length,
       hasVideo: !!videoPath,
       hasSyncPoint: !!syncPoint,
-      needsQuarters: !!cutDetection?.cut && (!breaksCut || Object.keys(periodSyncs).length === 0),
+      // A coach who turned the switch off has answered: the video holds the whole game.
+      needsQuarters: !!cutDetection?.cut && breaksCutChoice !== false && (!breaksCut || Object.keys(periodSyncs).length === 0),
       isUpdate: !!existingMatch,
     });
     // Long enough to read (a fast save would only flash), then a beat on

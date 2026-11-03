@@ -98,6 +98,16 @@ describe("syncReach: what each choice moves", () => {
     ]);
   });
 
+  it("from this play on stops at a later fix in a later quarter", () => {
+    const later: SyncPoint = { ...q1, cuts: [{ period: 3, syncRealWorldTime: T("18:36:00"), syncVideoTime: 3000 }] };
+    expect(moved(syncReach(later, events, inQ2, "play"))).toEqual([
+      ["Q1", null],
+      ["Q2", { from: 0.5, to: 1 }],
+      ["Q3", { from: 0, to: 0.5 }],
+      ["Q4", null],
+    ]);
+  });
+
   it("from this quarter on: the whole quarter and the ones that follow it", () => {
     expect(moved(syncReach(q1, events, inQ3, "quarter"))).toEqual([
       ["Q1", null],

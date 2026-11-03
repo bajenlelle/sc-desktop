@@ -1195,16 +1195,15 @@ export function PlaylistsPage() {
       if (!duration) continue;
       let pastEnd = 0;
       // The clip Fix sync opens on from the banner: the first past the end,
-      // else the first from Q2 on (the quarters that drift), else any.
+      // else the first from Q2 on (the quarters that drift). A Q1 clip can't
+      // show cut breaks, so a playlist with only Q1 clips gets no such door.
       let firstPastEnd: QueueItem | null = null;
       let firstLater: QueueItem | null = null;
-      let firstAny: QueueItem | null = null;
       for (const c of clips) {
         const event = eventByKey.get(`${matchId}:${c.eventId}`);
         const t = event ? computeVideoTime(event, m.syncPoint) : null;
         if (!event) continue;
         const item = { event, matchId };
-        firstAny ??= item;
         if (event.period >= 2) firstLater ??= item;
         if (t !== null && clipBounds(t, pair.pre, pair.post, c.preRollOffset, c.postRollOffset).start >= duration - 0.25) {
           pastEnd++;
@@ -1218,7 +1217,7 @@ export function PlaylistsPage() {
           title: m.title,
           pastEnd,
           reason: pastEnd > 0 ? "past_end" : "looks_cut",
-          firstClip: firstPastEnd ?? firstLater ?? firstAny,
+          firstClip: firstPastEnd ?? firstLater,
         };
       }
     }
@@ -2208,29 +2207,31 @@ export function PlaylistsPage() {
     if (!fix || !match || !event) return;
     const item: QueueItem = { event, matchId: fix.matchId };
     const hundredths = (n: number) => Math.round(n * 100) / 100;
+    // The toast's Undo works while this is still the game's latest saved fix.
+    // sonner removes a toast after its action unless the click is prevented,
+    // and keeps the action on a toast updated by id unless it is cleared.
     const token = {};
-    lastSyncFixRef.current.set(fix.matchId, token);
     const isLatest = () => lastSyncFixRef.current.get(fix.matchId) === token;
-    const changedSince = (what: string) => toast(`The ${what} changed since, so nothing was undone`, { id: SYNC_FIX_TOAST });
+    const changedSince = (what: string) =>
+      toast(`The ${what} changed since, so nothing was undone`, { id: SYNC_FIX_TOAST, action: undefined });
 
     if (scope === "clip" || !next) {
       const was = getClipOffsets(fix.matchId, fix.eventId);
       const fixed = { pre: hundredths(was.pre - delta), post: hundredths(was.post + delta) };
-      if (!(await commitClipOffsets(fix.matchId, fix.eventId, fixed.pre, fixed.post))) {
-        setSyncFix(null);
-        return;
-      }
+      if (!(await commitClipOffsets(fix.matchId, fix.eventId, fixed.pre, fixed.post))) return;
+      lastSyncFixRef.current.set(fix.matchId, token);
       toast.success(`This clip moved ${describeShift(delta)}`, {
         id: SYNC_FIX_TOAST,
         action: {
           label: "Undo",
-          onClick: () => {
+          onClick: (e) => {
+            e.preventDefault();
             const now = getClipOffsets(fix.matchId, fix.eventId);
             if (!isLatest() || now.pre !== fixed.pre || now.post !== fixed.post) return changedSince("clip");
             lastSyncFixRef.current.delete(fix.matchId);
             void commitClipOffsets(fix.matchId, fix.eventId, was.pre, was.post).then((undone) => {
               if (!undone) return;
-              toast.success("This clip moved back", { id: SYNC_FIX_TOAST });
+              toast.success("This clip moved back", { id: SYNC_FIX_TOAST, action: undefined });
               trackEvent("sync_fix_undone", { scope });
               replayFixedClip(item);
             });
@@ -2246,6 +2247,7 @@ export function PlaylistsPage() {
         toast.error("Couldn't save the sync", { description: e instanceof Error ? e.message : String(e) });
         return;
       }
+      lastSyncFixRef.current.set(fix.matchId, token);
       applySyncLocally(match.id, next);
       const moved = scope === "quarter" && before ? quartersMoved(before, match.events, event.period) : null;
       const what = moved ? joinNames(moved) : scope === "play" ? "This play and later ones" : "The whole game";
@@ -2253,7 +2255,8 @@ export function PlaylistsPage() {
         id: SYNC_FIX_TOAST,
         action: {
           label: "Undo",
-          onClick: () => {
+          onClick: (e) => {
+            e.preventDefault();
             const current = matchLookupRef.current.get(match.id);
             if (!before || !current || !isLatest() || !sameSyncPoint(current.syncPoint, next)) return changedSince("sync");
             lastSyncFixRef.current.delete(match.id);
@@ -2262,11 +2265,15 @@ export function PlaylistsPage() {
                 await updateSyncPoint(match.id, before);
               } catch (e) {
                 Sentry.captureException(e);
-                toast.error("Couldn't put the sync back", { id: SYNC_FIX_TOAST, description: e instanceof Error ? e.message : String(e) });
+                toast.error("Couldn't put the sync back", {
+                  id: SYNC_FIX_TOAST,
+                  action: undefined,
+                  description: e instanceof Error ? e.message : String(e),
+                });
                 return;
               }
               applySyncLocally(match.id, before);
-              toast.success(`${what} moved back`, { id: SYNC_FIX_TOAST });
+              toast.success(`${what} moved back`, { id: SYNC_FIX_TOAST, action: undefined });
               // Shared clips cut for the fix are cut back; a re-cut still running toward it is abandoned.
               void afterSyncChange({ ...current, syncPoint: before }, next);
               trackEvent("sync_fix_undone", { scope });
@@ -4677,9 +4684,11 @@ export function PlaylistsPage() {
     selected !== null &&
     !noSync &&
     !syncHint &&
+    !statsHint &&
     queueClipMatchIds.some((id) => {
       const m = matches.find((x) => x.id === id);
-      return !!m && !m.isDemo && !!m.videoUrl && !!m.syncPoint;
+      // The breaks banner needs the video's length first: don't show, then swap.
+      return !!m && !m.isDemo && !!m.videoUrl && !!m.syncPoint && videoDurations[m.videoUrl] !== undefined;
     });
   useEffect(() => {
     if (!showSyncTip || syncTipShownRef.current) return;
