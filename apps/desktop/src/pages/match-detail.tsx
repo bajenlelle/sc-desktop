@@ -11,7 +11,7 @@ import { formatSpan, QuarterSyncPanel, quarterCopy } from "@/components/quarter-
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { trackEvent } from "@/lib/analytics";
 import { newestRequest } from "@scoutable/shared/lib/latest";
-import { formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
+import { describePlay, periodLabel, playClock } from "@scoutable/shared/lib/events";
 import {
   clearAllPeriodSyncs,
   clearSyncCut,
@@ -497,12 +497,26 @@ export function MatchDetailPage() {
     if (await saveSync(clearSyncCut(sync, realWorldTime))) trackEvent("sync_cut_removed", { surface: "game_page" });
   }
 
-  /** "From Q2 5:12": a cut, named by the first play it moves. */
-  function cutLabel(cut: NonNullable<SyncPoint["cuts"]>[number]): string {
-    const play = firstPlayOfCut(cut, storedMatch!.events);
-    if (!play) return `From ${periodLabel(cut.period)}`;
-    const clock = play.gameClockTime ? formatGameClock(play.gameClockTime) : "";
-    return `From ${periodLabel(play.period)}${clock ? ` ${clock}` : ""}`;
+  type Cut = NonNullable<SyncPoint["cuts"]>[number];
+
+  /** The play a cut was fixed from: the one it remembers, else the first play it moves. */
+  function cutPlay(cut: Cut) {
+    const events = storedMatch!.events;
+    const remembered = cut.eventId !== undefined ? events.find((e) => e.eventId === cut.eventId) : undefined;
+    return remembered ?? firstPlayOfCut(cut, events);
+  }
+
+  /** "From Q2 05:12": a cut, named by the play it was fixed from. */
+  function cutLabel(cut: Cut): string {
+    const play = cutPlay(cut);
+    return play ? `From ${playClock(play)}` : `From ${periodLabel(cut.period)}`;
+  }
+
+  /** "Fixed from #7 Ida Andersson, 3PT Made · at 12:34 in the video". */
+  function cutDescription(cut: Cut): string {
+    const play = cutPlay(cut);
+    const at = `${formatMMSS(cut.syncVideoTime)} in the video`;
+    return play ? `Fixed from ${describePlay(play)} · at ${at}` : `At ${at}`;
   }
 
   async function clearQuarters() {
@@ -655,6 +669,7 @@ export function MatchDetailPage() {
 
         <section>
           <GroupHeader title="Sync" />
+          <GroupFooter className="pt-0 pb-3">Clips are cut from the video by the game clock, counted from the tip-off.</GroupFooter>
           {canPick ? (
             <>
               {tipoffSet && (
@@ -827,7 +842,7 @@ export function MatchDetailPage() {
                   <FormRow
                     key={cut.syncRealWorldTime}
                     label={cutLabel(cut)}
-                    description={`At ${formatMMSS(cut.syncVideoTime)} in the video`}
+                    description={cutDescription(cut)}
                   >
                     <Button variant="ghost" size="sm" onClick={() => void removeCut(cut.syncRealWorldTime)}>
                       Remove
@@ -846,7 +861,7 @@ export function MatchDetailPage() {
                 <DialogTitle>Remove the quarter syncs?</DialogTitle>
                 <DialogDescription>
                   Every quarter follows the tip-off again. Clips from later quarters move back to where
-                  a video that holds the whole game would have them.
+                  a video that holds the whole game would have them. From-this-play-on fixes stay.
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>
