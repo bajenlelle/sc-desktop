@@ -8,6 +8,7 @@
  * moves this clip alone, as its own offsets.
  */
 import * as React from "react";
+import { X } from "lucide-react";
 import { computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { eventLabel, formatGameClock, periodLabel, playerName } from "@scoutable/shared/lib/events";
 import {
@@ -21,8 +22,8 @@ import {
 import { formatSpan } from "@/components/quarter-sync";
 import { SyncPointPicker, type SeekRequest } from "@/components/sync-point-picker";
 import { Button } from "@/components/ui/button";
-import { SegmentedControl } from "@/components/ui/segmented-control";
-import { SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { RadioGroup } from "@/components/ui/radio-group";
+import { SheetClose, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import type { PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 
 export type SyncFixScope = "quarter" | "play" | "game" | "clip";
@@ -102,7 +103,10 @@ export function SyncFixPanel({
   const moves = delta !== null && Math.abs(delta) >= 0.05;
   const quarters = quartersMoved(sync, match.events, event.period);
   const stopsAt = event.realWorldTime ? nextFixAfter(sync, { realWorldTime: event.realWorldTime, period: event.period }) : null;
-  const upTo = stopsAt?.kind === "period" ? `, up to ${periodLabel(stopsAt.period)}` : stopsAt?.kind === "cut" ? ", up to the next fix" : "";
+  /** Where a move from this play stops: the next quarter with its own sync, or the next fix. */
+  const playDetail = stopsAt?.kind === "period" ? `up to ${periodLabel(stopsAt.period)}` : stopsAt?.kind === "cut" ? "up to the next fix" : undefined;
+  const upTo = playDetail ? `, ${playDetail}` : "";
+  const scopeHeadingId = React.useId();
 
   const explanation = !moves
     ? found === null
@@ -144,15 +148,22 @@ export function SyncFixPanel({
   }
 
   return (
-    <div ref={rootRef} tabIndex={-1} className="flex h-full min-h-0 flex-col outline-none">
-      <div className="shrink-0 border-b border-separator px-5 py-4">
-        <SheetTitle>Fix sync</SheetTitle>
-        <SheetDescription>
-          {match.title}. The play-by-play puts this play somewhere else in the video: find it, then set it.
-        </SheetDescription>
+    <div ref={rootRef} tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
+      <div className="flex shrink-0 items-start gap-3 px-5 pt-4 pb-3">
+        <div className="min-w-0 flex-1">
+          <SheetTitle>Fix sync</SheetTitle>
+          <SheetDescription className="truncate">{match.title}</SheetDescription>
+        </div>
+        <SheetClose
+          aria-label="Close"
+          className="ml-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-fill-2 text-muted-foreground outline-none transition-[background-color,transform] duration-150 hover:bg-fill-3 hover:text-foreground active:scale-95 active:bg-fill-4 focus-visible:ring-2 focus-visible:ring-selection"
+        >
+          <X className="size-3.5" />
+        </SheetClose>
       </div>
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5">
         <SyncPointPicker
+          layout="split"
           videoPath={match.videoUrl!}
           copy={{
             title: "Find the play",
@@ -160,36 +171,44 @@ export function SyncFixPanel({
             button: "This is the play",
             confirmed: "Play at",
           }}
-          note={`Look for ${describePlay(event)}.`}
+          // Each "·" sticks to the word before it, so a line never starts with one.
+          note={`Look for ${describePlay(event).replaceAll(" · ", " · ")}.`}
           confirmedSeconds={found}
           seekRequest={seek}
           onConfirm={setFound}
           keyContainer={rootRef}
+          aside={
+            <>
+              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto border-t border-separator pt-3">
+                <p id={scopeHeadingId} className="text-headline text-foreground">
+                  Apply to
+                </p>
+                <RadioGroup<SyncFixScope>
+                  aria-labelledby={scopeHeadingId}
+                  value={scope}
+                  onValueChange={setScope}
+                  options={[
+                    { value: "quarter", label: "This quarter", detail: joinNames(quarters) },
+                    { value: "play", label: "From this play on", detail: playDetail },
+                    { value: "game", label: "Whole game" },
+                    { value: "clip", label: "Just this clip" },
+                  ]}
+                />
+                <p className="text-callout text-muted-foreground" aria-live="polite">
+                  {explanation}
+                </p>
+              </div>
+              <div className="flex shrink-0 justify-end gap-2 pt-3">
+                <Button variant="outline" onClick={onCancel}>
+                  Cancel
+                </Button>
+                <Button disabled={!moves || saving} onClick={() => void apply()}>
+                  {applyLabel}
+                </Button>
+              </div>
+            </>
+          }
         />
-        <div className="space-y-2">
-          <SegmentedControl<SyncFixScope>
-            aria-label="Apply to"
-            value={scope}
-            onValueChange={setScope}
-            options={[
-              { value: "quarter", label: "This quarter" },
-              { value: "play", label: "From this play on" },
-              { value: "game", label: "Whole game" },
-              { value: "clip", label: "Just this clip" },
-            ]}
-          />
-          <p className="text-callout text-muted-foreground" aria-live="polite">
-            {explanation}
-          </p>
-        </div>
-      </div>
-      <div className="flex shrink-0 justify-end gap-2 border-t border-separator px-5 py-3">
-        <Button variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button disabled={!moves || saving} onClick={() => void apply()}>
-          {applyLabel}
-        </Button>
       </div>
     </div>
   );

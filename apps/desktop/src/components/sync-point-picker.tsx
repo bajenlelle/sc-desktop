@@ -11,6 +11,7 @@ import { ControlButton, VolumeControl } from "@/components/editor/transport-bar"
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
+import { cn } from "@/lib/utils";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { probeVideo } from "@/lib/video-frames";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
@@ -60,6 +61,14 @@ export interface SyncPointPickerProps {
    * included. Keys from inside the container reach the picker.
    */
   keyContainer?: React.RefObject<HTMLElement | null>;
+  /**
+   * "stacked" (a page column): the prompt, the footage, then the set row.
+   * "split" (the Fix sync sheet): the footage on the left; the prompt, the
+   * set row and `aside` in a column beside it, which never adds height.
+   */
+  layout?: "stacked" | "split";
+  /** The split layout's column below the set row; it fills what is left. */
+  aside?: React.ReactNode;
 }
 
 export interface AnchorCopy {
@@ -122,6 +131,8 @@ export function SyncPointPicker({
   onDuration,
   keyContainer,
   momentKey,
+  layout = "stacked",
+  aside,
 }: SyncPointPickerProps) {
   const copy = { ...TIPOFF_COPY, ...copyOverride };
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -341,132 +352,166 @@ export function SyncPointPicker({
   const atConfirmed = confirmedTime !== null && Math.abs(currentTime - confirmedTime) < 0.05;
   const stepClass = "h-8 w-auto px-2 text-xs font-medium nums";
 
-  return (
-    <div>
-      <div className="mb-3">
-        <p className="text-headline text-foreground">{copy.title}</p>
-        <p className="mt-0.5 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-callout text-muted-foreground">
-          {copy.instruction}
-          <span className="inline-flex items-center gap-0.5">
-            <Kbd>←</Kbd>
-            <Kbd>→</Kbd>
-          </span>
-          a second,
-          <span className="inline-flex items-center gap-0.5">
-            <Kbd>,</Kbd>
-            <Kbd>.</Kbd>
-          </span>
-          a frame.
-        </p>
-        {note && <p className="mt-1 text-callout text-muted-foreground">{note}</p>}
+  const split = layout === "split";
+
+  const prompt = (
+    <div className={cn(!split && "mb-3")}>
+      <p className="text-headline text-foreground">{copy.title}</p>
+      <p className="mt-0.5 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-callout text-muted-foreground">
+        {copy.instruction}
+        <span className="inline-flex items-center gap-0.5">
+          <Kbd>←</Kbd>
+          <Kbd>→</Kbd>
+        </span>
+        a second,
+        <span className="inline-flex items-center gap-0.5">
+          <Kbd>,</Kbd>
+          <Kbd>.</Kbd>
+        </span>
+        a frame.
+      </p>
+      {note &&
+        (split ? (
+          // Beside the footage, what to look for is the cue the coach keeps checking.
+          <p className="mt-3 rounded-md bg-fill-1 px-3 py-2 text-callout text-balance text-foreground">{note}</p>
+        ) : (
+          <p className="mt-1 text-callout text-muted-foreground">{note}</p>
+        ))}
+    </div>
+  );
+
+  const stage = (
+    <div className="dark overflow-hidden rounded-lg bg-black text-white ring-1 ring-separator">
+      {/* A click on the footage plays and pauses, like any player. */}
+      <div onClick={togglePlay} className="[&>div]:rounded-none">
+        <VideoPlayer src={src} videoRef={videoRef} onLoadFailure={setLoadFailure} />
       </div>
-
-      {suggestionSlot}
-
-      <div className="dark overflow-hidden rounded-lg bg-black text-white ring-1 ring-separator">
-        {/* A click on the footage plays and pauses, like any player. */}
-        <div onClick={togglePlay} className="[&>div]:rounded-none">
-          <VideoPlayer src={src} videoRef={videoRef} onLoadFailure={setLoadFailure} />
+      <div className="flex flex-col gap-1 px-3 pt-1.5 pb-2">
+        {videoEl && duration > 0 ? (
+          <ClipScrubber
+            video={videoEl}
+            start={0}
+            end={duration}
+            onSeek={seekTo}
+            frameSeconds={frameSeconds}
+            showTimes={false}
+            ariaLabel="Recording position"
+          />
+        ) : (
+          <div className="h-6" />
+        )}
+        <div className="flex items-center gap-0.5">
+          <ControlButton label="Back 10 seconds" shortcut="⇧←" onClick={() => seekBy(-10)} className={stepClass}>
+            −10s
+          </ControlButton>
+          <ControlButton label="Back 1 second" shortcut="←" onClick={() => seekBy(-1)} className={stepClass}>
+            −1s
+          </ControlButton>
+          <ControlButton label="Previous frame" shortcut="," onClick={() => seekBy(-frameSeconds)}>
+            <StepBack />
+          </ControlButton>
+          <ControlButton label={playing ? "Pause" : "Play"} shortcut="Space" onClick={togglePlay} size="lg">
+            {playing ? <Pause className="fill-current" /> : <Play className="translate-x-px fill-current" />}
+          </ControlButton>
+          <ControlButton label="Next frame" shortcut="." onClick={() => seekBy(frameSeconds)}>
+            <StepForward />
+          </ControlButton>
+          <ControlButton label="Forward 1 second" shortcut="→" onClick={() => seekBy(1)} className={stepClass}>
+            +1s
+          </ControlButton>
+          <ControlButton label="Forward 10 seconds" shortcut="⇧→" onClick={() => seekBy(10)} className={stepClass}>
+            +10s
+          </ControlButton>
+          <span className="ml-auto flex items-baseline gap-1.5 pl-3">
+            <span ref={readoutRef} className="text-xl font-medium tracking-tight text-white nums" />
+            {duration > 0 && <span className="text-xs text-white/50 nums">of {formatLength(duration)}</span>}
+          </span>
+          <VolumeControl />
         </div>
-        <div className="flex flex-col gap-1 px-3 pt-1.5 pb-2">
-          {videoEl && duration > 0 ? (
-            <ClipScrubber
-              video={videoEl}
-              start={0}
-              end={duration}
-              onSeek={seekTo}
-              frameSeconds={frameSeconds}
-              showTimes={false}
-              ariaLabel="Recording position"
-            />
-          ) : (
-            <div className="h-6" />
-          )}
-          <div className="flex items-center gap-0.5">
-            <ControlButton label="Back 10 seconds" shortcut="⇧←" onClick={() => seekBy(-10)} className={stepClass}>
-              −10s
-            </ControlButton>
-            <ControlButton label="Back 1 second" shortcut="←" onClick={() => seekBy(-1)} className={stepClass}>
-              −1s
-            </ControlButton>
-            <ControlButton label="Previous frame" shortcut="," onClick={() => seekBy(-frameSeconds)}>
-              <StepBack />
-            </ControlButton>
-            <ControlButton label={playing ? "Pause" : "Play"} shortcut="Space" onClick={togglePlay} size="lg">
-              {playing ? <Pause className="fill-current" /> : <Play className="translate-x-px fill-current" />}
-            </ControlButton>
-            <ControlButton label="Next frame" shortcut="." onClick={() => seekBy(frameSeconds)}>
-              <StepForward />
-            </ControlButton>
-            <ControlButton label="Forward 1 second" shortcut="→" onClick={() => seekBy(1)} className={stepClass}>
-              +1s
-            </ControlButton>
-            <ControlButton label="Forward 10 seconds" shortcut="⇧→" onClick={() => seekBy(10)} className={stepClass}>
-              +10s
-            </ControlButton>
-            <span className="ml-auto flex items-baseline gap-1.5 pl-3">
-              <span ref={readoutRef} className="text-xl font-medium tracking-tight text-white nums" />
-              {duration > 0 && <span className="text-xs text-white/50 nums">of {formatLength(duration)}</span>}
-            </span>
-            <VolumeControl />
+      </div>
+    </div>
+  );
+
+  // One row, one height: the states swap in place.
+  const setRow = (
+    <div className={cn("flex h-9 items-center gap-3", !split && "mt-3")}>
+      <AnimatePresence mode="popLayout" initial={false}>
+        {atConfirmed ? (
+          <motion.span
+            key="set"
+            variants={fadeVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            role="status"
+            className="flex h-9 items-center gap-2 rounded-md bg-emerald-500/12 px-3 text-sm font-medium text-emerald-700 dark:text-emerald-300"
+          >
+            <motion.span
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={springs.settle}
+              className="flex size-4 items-center justify-center rounded-full bg-emerald-500 text-white"
+            >
+              <Check className="size-3" strokeWidth={3} />
+            </motion.span>
+            {copy.confirmed} <span className="nums">{formatMSSd(confirmedTime!)}</span>
+          </motion.span>
+        ) : (
+          <motion.span key="unset" variants={fadeVariants} initial="hidden" animate="visible" exit="exit" className="flex items-center gap-3">
+            <Button
+              variant={hasPendingSuggestion ? "outline" : "default"}
+              disabled={videoFailed}
+              title={failureMessage}
+              onClick={confirmHere}
+            >
+              {copy.button}
+            </Button>
+            {confirmedTime !== null && (
+              <span className="text-callout text-muted-foreground">
+                Set at <span className="nums">{formatMSSd(confirmedTime)}</span>
+              </span>
+            )}
+          </motion.span>
+        )}
+      </AnimatePresence>
+      {onSkip && (
+        <Button
+          variant="ghost"
+          className="ml-auto"
+          onClick={() => {
+            trackEvent("sync_point_skipped");
+            onSkip();
+          }}
+        >
+          Skip
+        </Button>
+      )}
+    </div>
+  );
+
+  if (split) {
+    return (
+      <div className="flex items-start gap-5">
+        <div className="min-w-0 flex-1">{stage}</div>
+        {/* Out of the flow, so the footage alone sets the height. */}
+        <div className="relative w-72 shrink-0 self-stretch">
+          <div className="absolute inset-0 flex flex-col gap-3">
+            {prompt}
+            {suggestionSlot}
+            {setRow}
+            <div className="flex min-h-0 flex-1 flex-col">{aside}</div>
           </div>
         </div>
       </div>
+    );
+  }
 
-      {/* One row, one height: the states swap in place. */}
-      <div className="mt-3 flex h-9 items-center gap-3">
-        <AnimatePresence mode="popLayout" initial={false}>
-          {atConfirmed ? (
-            <motion.span
-              key="set"
-              variants={fadeVariants}
-              initial="hidden"
-              animate="visible"
-              exit="exit"
-              role="status"
-              className="flex h-9 items-center gap-2 rounded-md bg-emerald-500/12 px-3 text-sm font-medium text-emerald-700 dark:text-emerald-300"
-            >
-              <motion.span
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={springs.settle}
-                className="flex size-4 items-center justify-center rounded-full bg-emerald-500 text-white"
-              >
-                <Check className="size-3" strokeWidth={3} />
-              </motion.span>
-              {copy.confirmed} <span className="nums">{formatMSSd(confirmedTime!)}</span>
-            </motion.span>
-          ) : (
-            <motion.span key="unset" variants={fadeVariants} initial="hidden" animate="visible" exit="exit" className="flex items-center gap-3">
-              <Button
-                variant={hasPendingSuggestion ? "outline" : "default"}
-                disabled={videoFailed}
-                title={failureMessage}
-                onClick={confirmHere}
-              >
-                {copy.button}
-              </Button>
-              {confirmedTime !== null && (
-                <span className="text-callout text-muted-foreground">
-                  Set at <span className="nums">{formatMSSd(confirmedTime)}</span>
-                </span>
-              )}
-            </motion.span>
-          )}
-        </AnimatePresence>
-        {onSkip && (
-          <Button
-            variant="ghost"
-            className="ml-auto"
-            onClick={() => {
-              trackEvent("sync_point_skipped");
-              onSkip();
-            }}
-          >
-            Skip
-          </Button>
-        )}
-      </div>
+  return (
+    <div>
+      {prompt}
+      {suggestionSlot}
+      {stage}
+      {setRow}
     </div>
   );
 }
