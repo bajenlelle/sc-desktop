@@ -38,6 +38,7 @@ import { getMyScoutingReport, type MyScoutingReport } from "@/lib/scouting-repor
 import { isLiveReport, sharedStatusLabel } from "@scoutable/shared/lib/scouting-reports-db";
 import { defaultOpponent, type ReportDraft } from "@scoutable/shared/lib/report-draft";
 import { emptyHistory, itemsDiff, materialize, pasteIndexAfter, pasteItems, recordEdit, takeRedo, takeUndo, type History, type ItemsEdit } from "@scoutable/shared/lib/playlist-history";
+import { groupItems, ungroupItems } from "@scoutable/shared/lib/playlist-edits";
 import { IS_MACOS } from "@/lib/platform";
 import { fallbackText, pickDefaultPlayer, type StatsCardPlayer, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
 import { leagueSeasonsOf, loadGameStats, loadSeasonPlayer, makeGameCard, makeSeasonCard, seasonOf, statsKindOf, type GameStats } from "@/lib/stats-card-data";
@@ -2554,49 +2555,20 @@ export function PlaylistsPage() {
 
   async function handleGroupSelected() {
     if (!selected || filtersActive) return;
-    const displayKeys = sortedEvents.map(itemKey);
-    const displayKeySet = new Set(displayKeys);
-    const seed = new Set([...selectedClipIds].filter((k) => displayKeySet.has(k)));
-    if (seed.size < 2) return;
-    // Groups are atomic: grouping a selection that touches an existing group
-    // absorbs that whole group into the new one.
-    const absorbedGids = new Set<string>();
-    for (const k of seed) {
-      const g = itemGroupIds.get(k);
-      if (g) absorbedGids.add(g);
-    }
-    const memberKeys = new Set(
-      displayKeys.filter((k) => seed.has(k) || absorbedGids.has(itemGroupIds.get(k) ?? ""))
-    );
-    const blockIndices = displayKeys
-      .map((k, i) => (memberKeys.has(k) ? i : -1))
-      .filter((i) => i >= 0);
-    // Pull-together semantics: the block lands at the first member's display
-    // position (no earlier block index exists before that gap, so moveBlock
-    // keeps the first member in place and pulls the rest up behind it).
-    const newDisplay = moveBlock(sortedEvents, blockIndices, blockIndices[0]);
+    // Over the rows as shown: grouping materializes the visible order, same as a manual drag would.
     const newGroupId = crypto.randomUUID();
-    const newItems = normalizeGroups(
-      mapDisplayToItems(newDisplay).map((it) =>
-        memberKeys.has(playlistItemKey(it)) ? { ...it, groupId: newGroupId } : it
-      )
-    );
-    // Grouping materializes the visible order, same as a manual drag would.
+    const newItems = groupItems(mapDisplayToItems(sortedEvents), selectedClipIds, newGroupId);
+    if (!newItems) return;
     setClockSort("none");
     setSelectedClipIds(new Set());
-    trackEvent("clips_grouped", { playlist_id: selected.id, clip_count: memberKeys.size });
+    trackEvent("clips_grouped", { playlist_id: selected.id, clip_count: newItems.filter((it) => it.groupId === newGroupId).length });
     await applyItemsUpdate(newItems, "Group");
   }
 
   async function handleUngroup(groupId: string) {
     if (!selected || filtersActive) return;
     const clipCount = selected.items.filter((it) => it.groupId === groupId).length;
-    const newItems = selected.items.map((it) => {
-      if (it.groupId !== groupId) return it;
-      const { groupId: _g, ...rest } = it;
-      return rest as PlaylistItem;
-    });
-    await applyItemsUpdate(newItems, "Ungroup");
+    await applyItemsUpdate(ungroupItems(selected.items, groupId), "Ungroup");
     trackEvent("clips_ungrouped", { clip_count: clipCount });
   }
 
