@@ -115,6 +115,7 @@ export async function afterSyncChange(match: SyncedGame, before: SyncPoint | und
       canCut: canCutHere,
       recut: (group, done, total) => recutGroup(match, after, group, done, total, signal, toastId),
       onPatches: announcePatches,
+      report: (e) => Sentry.captureException(e),
     });
     if (result.kind === "hidden") {
       toast.warning(`${plural(result.hidden, "shared clip")} from ${match.title} hidden until re-uploaded`, {
@@ -145,7 +146,8 @@ export async function afterSyncChange(match: SyncedGame, before: SyncPoint | und
       toast.dismiss(toastId);
     }
   } catch (e) {
-    // The clips couldn't be listed: nothing was started, nothing to show.
+    // The clips couldn't be listed (the only throw the run lets out), or
+    // something unexpected: reported, and the run ends here.
     Sentry.captureException(e);
   } finally {
     runs.finish(match.id, signal);

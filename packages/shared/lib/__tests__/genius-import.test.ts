@@ -69,6 +69,11 @@ describe("importedMatch", () => {
     expect(other.syncPoint).toEqual({ syncVideoTime: 42, syncRealWorldTime: T, marks });
   });
 
+  it("a re-import on the same video where the coach now says it holds the whole game drops the quarters", () => {
+    const existing = { syncPoint: { syncVideoTime: 40, syncRealWorldTime: T, periods: { "2": q2 }, breaksCut: true }, videoUrl: "/v.mp4" };
+    expect(importedMatch({ ...base, existing, breaksCutChoice: false }).syncPoint).toEqual({ syncVideoTime: 42, syncRealWorldTime: T, marks, breaksCut: false });
+  });
+
   it("keeps the given id, the source game id and the video path, and the rest as given", () => {
     const m = importedMatch({ ...base, id: "old-id" });
     expect(m).toMatchObject({
@@ -123,12 +128,12 @@ describe("loadGeniusGame", () => {
 
 describe("importGame", () => {
   /** A client that accepts any query and records which tables were written how. */
-  function recordingClient() {
+  function recordingClient(failing: string | null = null) {
     const calls: Array<{ table: string; op: string; args: unknown[] }> = [];
     const chain = (table: string) => {
       const b: Record<string, unknown> = {
-        then(res: (x: { data: null; error: null }) => unknown, rej?: (e: unknown) => unknown) {
-          return Promise.resolve({ data: null, error: null }).then(res, rej);
+        then(res: (x: { data: null; error: { message: string } | null }) => unknown, rej?: (e: unknown) => unknown) {
+          return Promise.resolve({ data: null, error: table === failing ? { message: "db down" } : null }).then(res, rej);
         },
       };
       for (const op of ["upsert", "insert", "update", "delete", "select", "eq", "not", "in", "order"]) {
@@ -154,23 +159,32 @@ describe("importGame", () => {
 
   it("saves a fresh import, keeping plays the league already sent", async () => {
     const { client, calls } = recordingClient();
-    expect(await importGame(client, match(sync), null)).toEqual({ syncChanged: false });
+    expect(await importGame(client, match(sync), null)).toEqual({ followSync: false });
     expect(calls.map((c) => [c.table, c.op])).toEqual([["matches", "upsert"], ["play_by_play_events", "upsert"]]);
     expect(calls[0].args[0]).toMatchObject({ id: "m1", user_id: "me", title: "A vs B", sync_point: sync });
     expect(calls[1].args[1]).toEqual({ onConflict: "match_id,event_id", ignoreDuplicates: true });
   });
 
-  it("a re-import refreshes the plays, and says when the sync moved so old uploads stop being served", async () => {
+  it("a re-import refreshes the plays, and says when the clips should follow; old uploads stop being served", async () => {
     const { client, calls } = recordingClient();
-    expect(await importGame(client, match(sync), { syncPoint: { syncVideoTime: 40, syncRealWorldTime: T } })).toEqual({ syncChanged: true });
+    expect(await importGame(client, match(sync), { syncPoint: { syncVideoTime: 40, syncRealWorldTime: T } })).toEqual({ followSync: true });
     await new Promise((r) => setTimeout(r, 0));
     expect(calls[1].args[1]).toEqual({ onConflict: "match_id,event_id", ignoreDuplicates: false });
     expect(calls.map((c) => [c.table, c.op])).toContainEqual(["playlist_clips", "select"]);
   });
 
+  it("reports a failed clear of old uploads to the host, with the error", async () => {
+    const { client } = recordingClient("playlist_clips");
+    const reported: unknown[] = [];
+    expect(await importGame(client, match(sync), { syncPoint: sync }, { report: (e) => reported.push(e) })).toEqual({ followSync: true });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reported).toHaveLength(1);
+    expect(reported[0]).toBeInstanceOf(Error);
+  });
+
   it("a re-import of a game that had no sync changes nothing about uploads", async () => {
     const { client, calls } = recordingClient();
-    expect(await importGame(client, match(sync), {})).toEqual({ syncChanged: false });
+    expect(await importGame(client, match(sync), {})).toEqual({ followSync: false });
     await new Promise((r) => setTimeout(r, 0));
     expect(calls.map((c) => c.table)).not.toContain("playlist_clips");
   });

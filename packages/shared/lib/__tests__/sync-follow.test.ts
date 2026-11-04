@@ -27,7 +27,7 @@ const row = (playlist_id: string, event_id: number, over: Partial<DbRow> = {}): 
 });
 
 /** A client that lists `rows` for the game and records every update. */
-function fakeClient(rows: DbRow[] | Error) {
+function fakeClient(rows: DbRow[] | Error, failUpdates: (patch: Record<string, unknown>) => boolean = () => false) {
   const updates: Array<{ patch: unknown; filters: Array<[string, unknown]> }> = [];
   const thenable = (result: () => { data: unknown; error: { message: string } | null }, filters: Array<[string, unknown]>) => {
     const b: Record<string, unknown> = {
@@ -43,10 +43,10 @@ function fakeClient(rows: DbRow[] | Error) {
       expect(table).toBe("playlist_clips");
       return {
         select: () => thenable(() => (rows instanceof Error ? { data: null, error: { message: rows.message } } : { data: rows, error: null }), []),
-        update(patch: unknown) {
+        update(patch: Record<string, unknown>) {
           const call = { patch, filters: [] as Array<[string, unknown]> };
           updates.push(call);
-          return thenable(() => ({ data: null, error: null }), call.filters);
+          return thenable(() => (failUpdates(patch) ? { data: null, error: { message: "db down" } } : { data: null, error: null }), call.filters);
         },
       };
     },
@@ -57,12 +57,14 @@ function fakeClient(rows: DbRow[] | Error) {
 function deps(over: { canCut?: boolean; recut?: SyncFollowDeps["recut"] } = {}) {
   const patches: ClipPatch[] = [];
   const recuts: RecutGroup[] = [];
+  const reported: Array<{ error: unknown; where: string }> = [];
   const d: SyncFollowDeps = {
     canCut: async () => over.canCut ?? true,
     recut: over.recut ?? (async (group) => { recuts.push(group); return { shipped: group.rows.length, failedEventIds: [], uploaded: [], aborted: false }; }),
     onPatches: (p) => patches.push(...p),
+    report: (error, where) => reported.push({ error, where }),
   };
-  return { d, patches, recuts };
+  return { d, patches, recuts, reported };
 }
 
 const signal = () => new AbortController().signal;
@@ -154,6 +156,52 @@ describe("followSyncChange", () => {
     expect(await followSyncChange(client, game(after), before, controller.signal, d.d)).toEqual({ kind: "aborted" });
     expect(seen).toEqual(["p1"]);
     expect(updates).toEqual([]);
+  });
+
+  it("a signal already aborted does nothing, and shows nothing (no toast was started)", async () => {
+    const { client, updates } = fakeClient([row("p1", 42, { r2_url: url(42, 8, 5, 634), crop_keyframes: [{ t: 640, cx: 0.4 }] })]);
+    const controller = new AbortController();
+    controller.abort();
+    const d = deps();
+    expect(await followSyncChange(client, game(after), before, controller.signal, d.d)).toEqual({ kind: "nothing" });
+    expect(updates).toEqual([]);
+    expect(d.recuts).toEqual([]);
+  });
+
+  it("moves the pans even when the moved shared clips can only be hidden", async () => {
+    const { client, updates } = fakeClient([row("p1", 42, { r2_url: url(42, 8, 5, 634), crop_keyframes: [{ t: 640, cx: 0.4 }] })]);
+    const d = deps({ canCut: false });
+    expect(await followSyncChange(client, game(after), before, signal(), d.d)).toEqual({ kind: "hidden", hidden: 1 });
+    expect(updates.map((u) => u.patch)).toEqual([{ crop_keyframes: [{ t: 644, cx: 0.4 }] }, { r2_url: null }]);
+    expect(d.patches.map((p) => ("r2Url" in p ? "hidden" : "pan"))).toEqual(["pan", "hidden"]);
+  });
+
+  it("tells the cutter how many clips were resolved before each group, of how many", async () => {
+    const { client } = fakeClient([row("p1", 42, { r2_url: url(42, 8, 5, 634) }), row("p1", 43, { r2_url: url(43, 8, 5, 634) }), row("p2", 44, { r2_url: url(44, 8, 5, 634) })]);
+    const progress: Array<[number, number]> = [];
+    const recut = async (group: RecutGroup, done: number, total: number): Promise<RecutOutcome> => {
+      progress.push([done, total]);
+      return { shipped: group.rows.length, failedEventIds: [], uploaded: [], aborted: false };
+    };
+    await followSyncChange(client, game(after), before, signal(), deps({ recut }).d);
+    expect(progress).toEqual([[0, 3], [2, 3]]);
+  });
+
+  it("reports a failed pan update, a failed hide and a group that couldn't be cut, with the error itself", async () => {
+    const { client } = fakeClient(
+      [row("p1", 42, { r2_url: url(42, 8, 5, 634), crop_keyframes: [{ t: 640, cx: 0.4 }] }), row("p2", 43, { r2_url: url(43, 8, 5, 634) })],
+      (patch) => "crop_keyframes" in patch || "r2_url" in patch,
+    );
+    const boom = new Error("file went away");
+    const recut = async (group: RecutGroup): Promise<RecutOutcome> => {
+      if (group.playlistId === "p1") throw boom;
+      return { shipped: 0, failedEventIds: [43], uploaded: [], aborted: false };
+    };
+    const d = deps({ recut });
+    expect(await followSyncChange(client, game(after), before, signal(), d.d)).toEqual({ kind: "recut", shipped: 0, failed: 2, hidden: 0, playlists: 2 });
+    expect(d.reported.map((r) => r.where)).toEqual(["pan", "recut", "hide", "hide"]);
+    expect(d.reported[1].error).toBe(boom);
+    expect(d.reported[0].error).toBeInstanceOf(Error);
   });
 
   it("a listing error throws", async () => {

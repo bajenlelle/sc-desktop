@@ -51,8 +51,11 @@ export interface SyncFollowDeps {
    */
   recut(group: RecutGroup, done: number, total: number, signal: AbortSignal): Promise<RecutOutcome>;
   onPatches?(patches: ClipPatch[]): void;
+  /** A failure the run carried on past (a pan that didn't save, a hide that didn't, a group that couldn't be cut); the host's crash reporter. Defaults to reportDbError. */
+  report?(error: unknown, where: "pan" | "hide" | "recut"): void;
 }
 
+/** How the run ended. "aborted": stopped by a newer change while cutting, so the host takes its progress down. */
 export type SyncFollowResult =
   | { kind: "nothing" }
   | { kind: "hidden"; hidden: number }
@@ -63,6 +66,11 @@ export type SyncedGame = { id: string; title: string; videoUrl?: string; events:
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+function report(deps: SyncFollowDeps, error: unknown, where: "pan" | "hide" | "recut") {
+  if (deps.report) deps.report(error, where);
+  else reportDbError(`followSyncChange.${where}`, { message: message(error) });
+}
+
 /** Stop serving clips that still hold the old cut; returns the patches announced. */
 async function hideClips(sb: SupabaseClient, rows: OwnMatchClip[], deps: SyncFollowDeps): Promise<ClipPatch[]> {
   const patches: ClipPatch[] = [];
@@ -71,7 +79,7 @@ async function hideClips(sb: SupabaseClient, rows: OwnMatchClip[], deps: SyncFol
       await clearShippedClip(sb, row.playlistId, row.clip.matchId, row.clip.eventId, row.clip.r2Url);
       patches.push({ playlistId: row.playlistId, matchId: row.clip.matchId, eventId: row.clip.eventId, r2Url: null });
     } catch (e) {
-      reportDbError("followSyncChange.hide", { message: message(e) });
+      report(deps, e, "hide");
     }
   }
   if (patches.length > 0) deps.onPatches?.(patches);
@@ -94,8 +102,8 @@ export async function followSyncChange(
   const after = match.syncPoint;
   if (!after) return { kind: "nothing" };
   const rows = await listOwnClipsForMatch(sb, match.id);
-  if (rows.length === 0) return { kind: "nothing" };
-  if (signal.aborted) return { kind: "aborted" };
+  // Stopped before anything was shown: there is nothing to report or dismiss.
+  if (rows.length === 0 || signal.aborted) return { kind: "nothing" };
   const eventById = new Map(match.events.map((e) => [e.eventId, e]));
 
   // Pans: keyframes are absolute video seconds, so they move with the cut.
@@ -115,7 +123,7 @@ export async function followSyncChange(
           row.clip.cropKeyframes = moved;
           patches.push({ playlistId: row.playlistId, matchId: row.clip.matchId, eventId: row.clip.eventId, cropKeyframes: moved });
         } catch (e) {
-          reportDbError("followSyncChange.pan", { message: message(e) });
+          report(deps, e, "pan");
         }
       }),
     );
@@ -124,7 +132,7 @@ export async function followSyncChange(
 
   // Shared clips whose cut moved.
   const canCut = await deps.canCut(match.videoUrl);
-  if (signal.aborted) return { kind: "aborted" };
+  if (signal.aborted) return { kind: "nothing" };
   const plan = planSyncRecut(rows, eventById, after, canCut);
   if (plan.hide.length > 0) {
     const hidden = await hideClips(sb, plan.hide, deps);
@@ -152,7 +160,7 @@ export async function followSyncChange(
       outcome = await deps.recut({ playlistId: first.playlistId, playlistName: first.playlistName, rolls, rows: groupRows }, start, total, signal);
     } catch (e) {
       // The whole group couldn't be cut (e.g. the file went away mid-run).
-      reportDbError("followSyncChange.recut", { message: message(e) });
+      report(deps, e, "recut");
       failedRows.push(...groupRows);
       done = start + groupRows.length;
       continue;

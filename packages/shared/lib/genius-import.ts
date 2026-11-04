@@ -11,7 +11,6 @@ import {
   buildRosters,
   findGeniusPeriodMarks,
   findTipoff,
-  fixtureToScheduleGame,
   homeCompetitor,
   normalizeGeniusActions,
   type ScheduleGame,
@@ -23,7 +22,6 @@ import { clearLegacyShippedClipsForMatch } from "./playlists-db";
 import { reportDbError } from "./report";
 
 export type { ScheduleGame };
-export { fixtureToScheduleGame };
 
 export interface GeniusGameData {
   homeName: string;
@@ -147,21 +145,25 @@ export function importedMatch(input: ImportInput): StoredMatch {
 
 /**
  * Saves the match; a re-import refreshes its plays in place (the league may
- * have corrected them; clips keep working, keyed on match and event). When a
- * re-import can move the sync, uploads that can't say where they were cut
- * stop being served; the host lets the rest follow (afterSyncChange).
+ * have corrected them; clips keep working, keyed on match and event). A
+ * re-import of a synced game may have moved the sync: uploads that can't say
+ * where they were cut stop being served (best effort, reported through
+ * `opts.report` or reportDbError), and `followSync` tells the host to let
+ * the rest follow (afterSyncChange).
  */
 export async function importGame(
   sb: SupabaseClient,
   match: StoredMatch,
   existing: { syncPoint?: SyncPoint } | null,
-): Promise<{ syncChanged: boolean }> {
+  opts?: { report?: (error: unknown) => void },
+): Promise<{ followSync: boolean }> {
   await saveMatch(sb, match, { refreshEvents: !!existing });
-  const syncChanged = !!(existing?.syncPoint && match.syncPoint);
-  if (syncChanged) {
-    void clearLegacyShippedClipsForMatch(sb, match.id).catch((e) =>
-      reportDbError("clearLegacyShippedClipsForMatch", { message: e instanceof Error ? e.message : String(e) }),
-    );
+  const followSync = !!(existing?.syncPoint && match.syncPoint);
+  if (followSync) {
+    void clearLegacyShippedClipsForMatch(sb, match.id).catch((e) => {
+      if (opts?.report) opts.report(e);
+      else reportDbError("clearLegacyShippedClipsForMatch", { message: e instanceof Error ? e.message : String(e) });
+    });
   }
-  return { syncChanged };
+  return { followSync };
 }

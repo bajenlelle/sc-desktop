@@ -710,9 +710,9 @@ export function UploadZone({
     const syncPoint = storedMatch.syncPoint;
 
     try {
-      const { syncChanged } = await importGame(storedMatch, existingMatch);
+      const { followSync } = await importGame(storedMatch, existingMatch);
       // A re-import can move the sync: the clips follow in the background.
-      if (syncChanged) void afterSyncChange(storedMatch, existingMatch!.syncPoint);
+      if (followSync) void afterSyncChange(storedMatch, existingMatch!.syncPoint);
       trackEvent('game_synced', {
         game_id: matchId,
         // Which fixture: team names and league are public, so they can live in analytics.
