@@ -12,7 +12,7 @@ import type { PlaylistClipItem, PlaylistItem } from "../types/match";
 import { isClipItem } from "../types/match";
 import { itemKey } from "./playlist-edits";
 import { itemsDiff, type ItemsDiff } from "./playlist-history";
-import { addClips, insertTextCard, removeClips, reorderItems } from "./playlists-db";
+import { addClips, clearShippedClip, insertTextCard, removeClips, reorderItems, updateClip } from "./playlists-db";
 
 /**
  * Brings the server from `from` to `to`: rows deleted, rows put back with
@@ -55,4 +55,33 @@ export async function appendClips(
   if (fresh.length === 0) return [];
   await addClips(sb, playlist.id, fresh, playlist.items.length);
   return fresh;
+}
+
+export interface ClipLengthResult {
+  /** "retired": the shipped cut's URL was cleared; "kept": that clear failed (the length is saved anyway); "none": nothing was shipped. */
+  shippedCut: "none" | "retired" | "kept";
+  error?: unknown;
+}
+
+/**
+ * Saves a clip's own length (its offsets). An upload recipients already have
+ * was cut at the old length, so it is retired: its URL cleared, only while it
+ * is still the stored one (a newer upload is never wiped). The caller ships
+ * the playlist again. Throws when the save itself fails.
+ */
+export async function changeClipLength(
+  sb: SupabaseClient,
+  playlistId: string,
+  clip: PlaylistClipItem,
+  pre: number,
+  post: number,
+): Promise<ClipLengthResult> {
+  await updateClip(sb, playlistId, clip.matchId, clip.eventId, { preRollOffset: pre, postRollOffset: post });
+  if (!clip.r2Url) return { shippedCut: "none" };
+  try {
+    await clearShippedClip(sb, playlistId, clip.matchId, clip.eventId, clip.r2Url);
+    return { shippedCut: "retired" };
+  } catch (error) {
+    return { shippedCut: "kept", error };
+  }
 }

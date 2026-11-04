@@ -1,13 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { clipBounds } from "../clip-timing";
-import {
-  clampTrimEdge,
-  formatSeconds,
-  offsetsForTrim,
-  stepToWhole,
-  trimEdgeLimits,
-  trimRange,
-} from "../trim-math";
+import { clampTrimEdge, formatSeconds, offsetsForTrim, shiftedClipOffsets, stepToWhole, trimEdgeLimits, trimRange } from "../trim-math";
 
 describe("trimRange", () => {
   it("shows the clip with ten seconds either side", () => {
@@ -114,5 +107,12 @@ describe("stepToWhole", () => {
 
   it("leaves the value when the stepper didn't move", () => {
     expect(stepToWhole(5.5, 5.5)).toBe(5.5);
+  });
+});
+
+describe("shiftedClipOffsets", () => {
+  it("moves the clip by delta, in hundredths", () => {
+    expect(shiftedClipOffsets({ pre: 0, post: 0 }, 1.234)).toEqual({ pre: -1.23, post: 1.23 });
+    expect(shiftedClipOffsets({ pre: -0.5, post: 2 }, -2)).toEqual({ pre: 1.5, post: 0 });
   });
 });

@@ -48,7 +48,7 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { probeMatches, probeVideoDuration, type VideoFileStatus } from "@/lib/video-probe";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { cn } from "@/lib/utils";
-import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, appendClips, writePlaylistItems, updateClip, clearShippedClip, updateTextCard, setPlaylistTeams, setPlaylistUsers, notifyPendingPlaylistShares } from "@/lib/playlists-db";
+import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, appendClips, writePlaylistItems, changeClipLength, type ClipLengthResult, updateClip, clearShippedClip, updateTextCard, setPlaylistTeams, setPlaylistUsers, notifyPendingPlaylistShares } from "@/lib/playlists-db";
 import { groupShipFailures, mergeShipResults, type ClipShipResult } from "@scoutable/shared/lib/ship-result";
 import { listLabels, createLabel as apiCreateLabel, updateLabel as apiUpdateLabel, deleteLabel as apiDeleteLabel, seedDefaultLabels, listAssignmentsForMatches, setClipAssignments as apiSetClipAssignments, bulkAssign as apiBulkAssign } from "@/lib/labels-db";
 import { LabelChip } from "@/components/labels/LabelChip";
@@ -129,7 +129,7 @@ import { PlayerStage } from "@/components/editor/player-stage";
 import { usePersistentVideo } from "@/components/editor/use-persistent-video";
 import { ClipRow, TextCardRow } from "@/components/editor/clip-rows";
 import { ClipTrimmer, type TrimWindow } from "@/components/editor/clip-trimmer";
-import { formatSeconds, offsetsForTrim, stepToWhole } from "@scoutable/shared/lib/trim-math";
+import { formatSeconds, offsetsForTrim, shiftedClipOffsets, stepToWhole } from "@scoutable/shared/lib/trim-math";
 import { Kbd } from "@/components/ui/kbd";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
@@ -1550,8 +1550,9 @@ export function PlaylistsPage() {
       setPlaylists((prev) => prev.map((p) => (p.id === before.id ? patch(p) : p)));
     };
     apply((c) => ({ ...c, preRollOffset: pre, postRollOffset: post, r2Url: undefined }));
+    let result: ClipLengthResult;
     try {
-      await updateClip(before.id, matchId, eventId, { preRollOffset: pre, postRollOffset: post });
+      result = await changeClipLength(before.id, clip, pre, post);
     } catch (err) {
       // Put back only what this change set: a later one may have landed since.
       apply((c) =>
@@ -1564,32 +1565,27 @@ export function PlaylistsPage() {
       return false;
     }
     const reship = () => queuePendingShip({ ...before, items: before.items.map((c) => (isThisClip(c) ? { ...c, r2Url: undefined } : c)) });
-    if (!shippedUrl) {
-      // Nothing was uploaded, or an upload is still running: the ship sorts
-      // out what is missing or stale (see applyR2Urls).
+    if (result.shippedCut !== "kept") {
+      // The old cut is retired, or nothing was uploaded (an upload still
+      // running is sorted out by the ship: see applyR2Urls).
       reship();
       return true;
     }
-    const clearUpload = async () => {
-      try {
-        await clearShippedClip(before.id, matchId, eventId, shippedUrl);
-        reship();
-      } catch (err) {
-        apply((c) => (c.r2Url === undefined ? { ...c, r2Url: shippedUrl } : c));
-        Sentry.captureException(err);
-        toast.error("Recipients still see the old cut", {
-          description: "The new length is saved, but the shared clip couldn't be replaced.",
-          action: {
-            label: "Try again",
-            onClick: () => {
-              apply((c) => ({ ...c, r2Url: undefined }));
-              void clearUpload();
-            },
+    const keptUpload = (err: unknown) => {
+      apply((c) => (c.r2Url === undefined ? { ...c, r2Url: shippedUrl } : c));
+      Sentry.captureException(err);
+      toast.error("Recipients still see the old cut", {
+        description: "The new length is saved, but the shared clip couldn't be replaced.",
+        action: {
+          label: "Try again",
+          onClick: () => {
+            apply((c) => ({ ...c, r2Url: undefined }));
+            void clearShippedClip(before.id, matchId, eventId, shippedUrl).then(reship, keptUpload);
           },
-        });
-      }
+        },
+      });
     };
-    await clearUpload();
+    keptUpload(result.error);
     return true;
   }
 
@@ -2211,7 +2207,6 @@ export function PlaylistsPage() {
     const event = fix ? eventByKey.get(`${fix.matchId}:${fix.eventId}`) : undefined;
     if (!fix || !match || !event) return;
     const item: QueueItem = { event, matchId: fix.matchId };
-    const hundredths = (n: number) => Math.round(n * 100) / 100;
     // The toast's Undo works while this is still the game's latest saved fix.
     // sonner removes a toast after its action unless the click is prevented,
     // and keeps the action on a toast updated by id unless it is cleared.
@@ -2222,7 +2217,7 @@ export function PlaylistsPage() {
 
     if (scope === "clip" || !next) {
       const was = getClipOffsets(fix.matchId, fix.eventId);
-      const fixed = { pre: hundredths(was.pre - delta), post: hundredths(was.post + delta) };
+      const fixed = shiftedClipOffsets(was, delta);
       if (!(await commitClipOffsets(fix.matchId, fix.eventId, fixed.pre, fixed.post))) return;
       lastSyncFixRef.current.set(fix.matchId, token);
       toast.success(`This clip moved ${describeShift(delta)}`, {

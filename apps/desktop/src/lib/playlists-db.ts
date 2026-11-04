@@ -40,3 +40,5 @@ export const notifyPendingPlaylistShares = (playlistId: string) => db.notifyPend
 // The editor's write path and clip appends (@scoutable/shared/lib/playlist-write).
 export const writePlaylistItems = (playlistId: string, from: readonly PlaylistItem[], to: readonly PlaylistItem[]) => write.writePlaylistItems(c(), playlistId, from, to);
 export const appendClips = (playlist: { id: string; items: readonly PlaylistItem[] }, clips: readonly PlaylistClipItem[]) => write.appendClips(c(), playlist, clips);
+export const changeClipLength = (playlistId: string, clip: PlaylistClipItem, pre: number, post: number) => write.changeClipLength(c(), playlistId, clip, pre, post);
+export type { ClipLengthResult } from "@scoutable/shared/lib/playlist-write";

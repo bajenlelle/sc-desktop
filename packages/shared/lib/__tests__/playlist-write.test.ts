@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PlaylistClipItem, PlaylistItem, PlaylistTextCard } from "../../types/match";
 import { itemsDiff } from "../playlist-history";
-import { appendClips, writePlaylistItems } from "../playlist-write";
+import { appendClips, changeClipLength, writePlaylistItems } from "../playlist-write";
 
 /** Every call to the client, in the order it was made. */
 interface Call {
@@ -112,5 +112,61 @@ describe("appendClips", () => {
     const fresh = await appendClips(client, { id: "pl1", items: [clip(1)] }, [clip(1)]);
     expect(fresh).toEqual([]);
     expect(calls).toEqual([]);
+  });
+});
+
+describe("changeClipLength", () => {
+  /** A client whose updates answer in turn from `answers` (null = ok). */
+  function updateClient(answers: Array<{ message: string } | null>) {
+    const updates: Array<{ patch: unknown; filters: Array<[string, unknown]> }> = [];
+    const client = {
+      from() {
+        return {
+          update(patch: unknown) {
+            const call = { patch, filters: [] as Array<[string, unknown]> };
+            updates.push(call);
+            const error = answers[updates.length - 1] ?? null;
+            const b: Record<string, unknown> = {
+              eq(col: string, v: unknown) { call.filters.push([col, v]); return b; },
+              then(res: (x: { error: unknown }) => unknown, rej?: (e: unknown) => unknown) {
+                return Promise.resolve({ error }).then(res, rej);
+              },
+            };
+            return b;
+          },
+        };
+      },
+    } as unknown as SupabaseClient;
+    return { client, updates };
+  }
+
+  it("saves the offsets and retires the shipped cut only while it is still the stored URL", async () => {
+    const { client, updates } = updateClient([null, null]);
+    const result = await changeClipLength(client, "pl1", clip(7, { r2Url: "u", preRollOffset: 1 }), 2, -1);
+    expect(result).toEqual({ shippedCut: "retired" });
+    expect(updates[0].patch).toEqual({ pre_roll_offset: 2, post_roll_offset: -1 });
+    expect(updates[0].filters).toEqual([["playlist_id", "pl1"], ["match_id", "m1"], ["event_id", 7]]);
+    expect(updates[1].patch).toEqual({ r2_url: null });
+    expect(updates[1].filters).toEqual([["playlist_id", "pl1"], ["match_id", "m1"], ["event_id", 7], ["r2_url", "u"]]);
+  });
+
+  it("an unshipped clip saves and reports nothing to retire", async () => {
+    const { client, updates } = updateClient([null]);
+    expect(await changeClipLength(client, "pl1", clip(7), 2, -1)).toEqual({ shippedCut: "none" });
+    expect(updates).toHaveLength(1);
+  });
+
+  it("a failed retire keeps the saved length and says so", async () => {
+    const { client, updates } = updateClient([null, { message: "boom" }]);
+    const result = await changeClipLength(client, "pl1", clip(7, { r2Url: "u" }), 2, -1);
+    expect(result.shippedCut).toBe("kept");
+    expect(result.error).toBeInstanceOf(Error);
+    expect(updates).toHaveLength(2);
+  });
+
+  it("a failed save throws and never touches the URL", async () => {
+    const { client, updates } = updateClient([{ message: "boom" }]);
+    await expect(changeClipLength(client, "pl1", clip(7, { r2Url: "u" }), 2, -1)).rejects.toThrow(/boom/);
+    expect(updates).toHaveLength(1);
   });
 });

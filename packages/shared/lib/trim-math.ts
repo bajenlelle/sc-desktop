@@ -92,6 +92,14 @@ export function offsetsForTrim({
   };
 }
 
+/**
+ * A clip's offsets after it moved `deltaSeconds` later on its own ("Only
+ * this clip" in Fix sync): its start and end keep their distance to the play.
+ */
+export function shiftedClipOffsets(was: { pre: number; post: number }, deltaSeconds: number): { pre: number; post: number } {
+  return { pre: hundredths(was.pre - deltaSeconds), post: hundredths(was.post + deltaSeconds) };
+}
+
 /** Seconds for a readout: "8.5 s", or "3 s" when there are no tenths. */
 export function formatSeconds(n: number): string {
   const t = tenths(n) || 0;
