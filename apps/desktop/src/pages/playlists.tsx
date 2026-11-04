@@ -38,7 +38,7 @@ import { getMyScoutingReport, type MyScoutingReport } from "@/lib/scouting-repor
 import { isLiveReport, sharedStatusLabel } from "@scoutable/shared/lib/scouting-reports-db";
 import { defaultOpponent, type ReportDraft } from "@scoutable/shared/lib/report-draft";
 import { emptyHistory, itemsDiff, materialize, pasteIndexAfter, pasteItems, recordEdit, takeRedo, takeUndo, type History, type ItemsEdit } from "@scoutable/shared/lib/playlist-history";
-import { groupItems, ungroupItems } from "@scoutable/shared/lib/playlist-edits";
+import { cardInsertKey, groupItems, insertBefore, newTextCard, ungroupItems, type CardPlace } from "@scoutable/shared/lib/playlist-edits";
 import { IS_MACOS } from "@/lib/platform";
 import { fallbackText, pickDefaultPlayer, type StatsCardPlayer, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
 import { leagueSeasonsOf, loadGameStats, loadSeasonPlayer, makeGameCard, makeSeasonCard, seasonOf, statsKindOf, type GameStats } from "@/lib/stats-card-data";
@@ -4250,35 +4250,6 @@ export function PlaylistsPage() {
   // Text card operations
   // ---------------------------------------------------------------------------
 
-  /**
-   * Where a new card goes. From the toolbar: after the focused (or playing)
-   * row, else at the start, where an intro card belongs. From a row: above
-   * it. Never inside a group: above or after the whole run instead.
-   */
-  type CardPlace = { at: "toolbar" } | { at: "above"; index: number } | { at: "start" };
-
-  function cardInsertTarget(place: CardPlace): string | null {
-    let gap: number;
-    let after = false;
-    if (place.at === "above") gap = place.index;
-    else if (place.at === "start") gap = 0;
-    else {
-      const key = focusKey ?? activeKey;
-      const idx = key ? sortedEvents.findIndex((i) => itemKey(i) === key) : -1;
-      gap = idx >= 0 ? idx + 1 : 0;
-      after = idx >= 0;
-    }
-    if (gap > 0 && gap < sortedEvents.length) {
-      const gid = itemGroupIds.get(itemKey(sortedEvents[gap]));
-      if (gid && itemGroupIds.get(itemKey(sortedEvents[gap - 1])) === gid) {
-        if (after) while (gap < sortedEvents.length && itemGroupIds.get(itemKey(sortedEvents[gap])) === gid) gap++;
-        else while (gap > 0 && itemGroupIds.get(itemKey(sortedEvents[gap - 1])) === gid) gap--;
-      }
-    }
-    // The item the card goes before, by key, so a slow stats lookup can't misplace it.
-    return sortedEvents[gap] ? itemKey(sortedEvents[gap]) : null;
-  }
-
   /** Clips whose game has stats, in playlist order. */
   const statsClips = useMemo(
     () => sortedEvents.filter((i): i is QueueItem => !isTextCard(i) && statsKindOf(matchLookup.get((i as QueueItem).matchId)) !== null),
@@ -4355,7 +4326,7 @@ export function PlaylistsPage() {
     // Inserting against a filtered (partial) list computes the wrong position.
     if (filtersActive || !selected) return;
     const playlistId = selected.id;
-    const targetKey = cardInsertTarget(place);
+    const targetKey = cardInsertKey(mapDisplayToItems(sortedEvents), place, focusKey ?? activeKey);
 
     let spec: StatsCardSpec | null = null;
     if (kind === "stats") {
@@ -4373,16 +4344,8 @@ export function PlaylistsPage() {
     const before = selectedRef.current;
     if (!before || before.id !== playlistId) return;
 
-    const newCard: PlaylistTextCard = {
-      type: 'text',
-      id: crypto.randomUUID(),
-      text: spec ? fallbackText(spec) : '',
-      durationSeconds: 5,
-      ...(spec ? { card: spec } : {}),
-    };
-    const found = targetKey ? before.items.findIndex((item) => playlistItemKey(item) === targetKey) : -1;
-    const insertAt = found >= 0 ? found : before.items.length;
-    const newItems: PlaylistItem[] = [...before.items.slice(0, insertAt), newCard, ...before.items.slice(insertAt)];
+    const newCard = newTextCard(crypto.randomUUID(), spec);
+    const newItems = insertBefore(before.items, newCard, targetKey);
     setNewlyInsertedCardId(newCard.id);
     setFocusKey(`text:${newCard.id}`);
     setPendingShowCardId(newCard.id);
