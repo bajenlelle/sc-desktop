@@ -5,6 +5,7 @@
 import { createClient } from "@/lib/supabase/client";
 import * as db from "@scoutable/shared/lib/playlists-db";
 import * as write from "@scoutable/shared/lib/playlist-write";
+import * as sharing from "@scoutable/shared/lib/playlist-sharing";
 import type { PlaylistClipItem, PlaylistItem } from "@/types/match";
 import type { StatsCardSpec } from "@scoutable/shared/lib/stats-card";
 
@@ -42,3 +43,4 @@ export const writePlaylistItems = (playlistId: string, from: readonly PlaylistIt
 export const appendClips = (playlist: { id: string; items: readonly PlaylistItem[] }, clips: readonly PlaylistClipItem[]) => write.appendClips(c(), playlist, clips);
 export const changeClipLength = (playlistId: string, clip: PlaylistClipItem, pre: number, post: number) => write.changeClipLength(c(), playlistId, clip, pre, post);
 export type { ClipLengthResult } from "@scoutable/shared/lib/playlist-write";
+export const setPlaylistRecipients = (playlistId: string, teamIds: readonly string[], userIds: readonly string[]) => sharing.setPlaylistRecipients(c(), playlistId, teamIds, userIds);

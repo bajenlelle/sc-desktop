@@ -49,7 +49,8 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { probeMatches, probeVideoDuration, type VideoFileStatus } from "@/lib/video-probe";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { cn } from "@/lib/utils";
-import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, appendClips, writePlaylistItems, changeClipLength, type ClipLengthResult, updateClip, clearShippedClip, updateTextCard, setPlaylistTeams, setPlaylistUsers, notifyPendingPlaylistShares } from "@/lib/playlists-db";
+import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, appendClips, writePlaylistItems, changeClipLength, type ClipLengthResult, updateClip, clearShippedClip, updateTextCard, setPlaylistRecipients, notifyPendingPlaylistShares } from "@/lib/playlists-db";
+import { newRecipients, playlistIsShared } from "@scoutable/shared/lib/playlist-sharing";
 import { groupShipFailures, mergeShipResults, type ClipShipResult } from "@scoutable/shared/lib/ship-result";
 import { listLabels, createLabel as apiCreateLabel, updateLabel as apiUpdateLabel, deleteLabel as apiDeleteLabel, seedDefaultLabels, listAssignmentsForMatches, setClipAssignments as apiSetClipAssignments, bulkAssign as apiBulkAssign } from "@/lib/labels-db";
 import { LabelChip } from "@/components/labels/LabelChip";
@@ -2915,11 +2916,6 @@ export function PlaylistsPage() {
   // ---------------------------------------------------------------------------
 
   /** Segments for shipping/exporting the given playlist's clips. */
-  /** Shared playlists need every clip in the cloud — recipients can't see unshipped clips. */
-  function playlistIsShared(pl: Playlist): boolean {
-    return (pl.teamIds?.length ?? 0) > 0 || (pl.userIds?.length ?? 0) > 0;
-  }
-
   /** Arm a deferred ship for a shared playlist; the watcher effect picks it up. */
   function queuePendingShip(pl: Playlist) {
     if (!playlistIsShared(pl)) return;
@@ -3010,10 +3006,7 @@ export function PlaylistsPage() {
   /** Write the share rows (this is what triggers recipient notifications). */
   async function commitShare(teamIds: string[], userIds: string[], newlyAddedTeams: string[], newlyAddedUsers: string[]) {
     if (!selected) return;
-    await Promise.all([
-      setPlaylistTeams(selected.id, teamIds),
-      setPlaylistUsers(selected.id, userIds),
-    ]);
+    await setPlaylistRecipients(selected.id, teamIds, userIds);
     setPlaylists((prev) => prev.map((p) =>
       p.id === selected.id ? { ...p, teamIds, teamId: teamIds[0], userIds } : p
     ));
@@ -3035,10 +3028,7 @@ export function PlaylistsPage() {
   // nothing and sends nothing.
   async function handleShare(teamIds: string[], userIds: string[]) {
     if (!selected) return;
-    const prevTeamIds = selected.teamIds ?? [];
-    const prevUserIds = selected.userIds ?? [];
-    const newlyAddedTeams = teamIds.filter((id) => !prevTeamIds.includes(id));
-    const newlyAddedUsers = userIds.filter((id) => !prevUserIds.includes(id));
+    const { teams: newlyAddedTeams, users: newlyAddedUsers } = newRecipients(selected, teamIds, userIds);
 
     // Removal-only (or no-op) changes need no uploads — commit and close.
     if (newlyAddedTeams.length + newlyAddedUsers.length === 0) {
@@ -3170,10 +3160,7 @@ export function PlaylistsPage() {
   /** Commit + close from the resolve step ("Share without them" or clean retry). */
   async function finishResolvedShare(teamIds: string[], userIds: string[], result: ClipShipResult, total: number) {
     if (!selected) return;
-    const prevTeamIds = selected.teamIds ?? [];
-    const prevUserIds = selected.userIds ?? [];
-    const newlyAddedTeams = teamIds.filter((id) => !prevTeamIds.includes(id));
-    const newlyAddedUsers = userIds.filter((id) => !prevUserIds.includes(id));
+    const { teams: newlyAddedTeams, users: newlyAddedUsers } = newRecipients(selected, teamIds, userIds);
     try {
       await commitShare(teamIds, userIds, newlyAddedTeams, newlyAddedUsers);
     } catch (e) {
