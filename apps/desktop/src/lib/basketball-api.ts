@@ -10,18 +10,9 @@
  */
 
 import { createClient } from "@/lib/supabase/client";
-import { getGeniusFixtures, getGeniusMatch } from "@scoutable/shared/lib/genius-client";
-import {
-  buildRosters,
-  findGeniusPeriodMarks,
-  findTipoff,
-  fixtureToScheduleGame,
-  playableFixtures,
-  homeCompetitor,
-  normalizeGeniusActions,
-  type ScheduleGame,
-} from "@scoutable/shared/lib/genius";
-import type { PlayByPlayEvent, SyncPoint } from "@/types/match";
+import { getGeniusFixtures } from "@scoutable/shared/lib/genius-client";
+import { fixtureToScheduleGame, playableFixtures, type ScheduleGame } from "@scoutable/shared/lib/genius";
+import { loadGeniusGame, type GeniusGameData } from "@scoutable/shared/lib/genius-import";
 import { PLAYOFF, REGULAR, type League, type Season, type Stage } from "@scoutable/shared/types/league";
 
 export type { ScheduleGame };
@@ -156,24 +147,7 @@ export async function getLeagueSchedule(
   return stage?.matchType ? games.filter((g) => g.matchType === stage.matchType) : games;
 }
 
-export interface GeniusGameData {
-  homeName: string;
-  awayName: string;
-  /** YYYY-MM-DD, from the fixture's UTC start time. */
-  date: string;
-  homeRoster: Array<{ jerseyNumber: string; playerName: string }>;
-  awayRoster: Array<{ jerseyNumber: string; playerName: string }>;
-  events: PlayByPlayEvent[];
-  tipoffRealWorldTime: string | null;
-  /**
-   * Each period's reference times from the league (start, end, and what to
-   * look for in the video), saved on the sync point so a video that skips
-   * the breaks can be synced quarter by quarter, now or later.
-   */
-  periodMarks?: SyncPoint["marks"];
-  /** "empty" = the match exists but carries no play-by-play upstream. */
-  pbpStatus: "ok" | "empty";
-}
+export type { GeniusGameData } from "@scoutable/shared/lib/genius-import";
 
 /**
  * Everything the import flow needs for one game: names, date, rosters,
@@ -185,24 +159,5 @@ export async function fetchGameData(
   game: ScheduleGame,
 ): Promise<GeniusGameData> {
   if (!season.competitionId) throw new Error("League has no data source configured");
-  const res = await getGeniusMatch(createClient(), season.competitionId, Number(game.uuid));
-  if (!res.ok) throw new Error(`Failed to fetch game data: ${res.error}`);
-
-  const { fixture, actions, players, pbpStatus } = res.data;
-  const home = homeCompetitor(fixture);
-  const homeTeamId = home?.teamId ?? 0;
-  const away = fixture.competitors.find((c) => c !== home);
-  const rosters = buildRosters(players, homeTeamId);
-
-  return {
-    homeName: home?.teamName ?? game.homeTeamInfo.names.long,
-    awayName: away?.teamName ?? game.awayTeamInfo.names.long,
-    date: game.rawStartDateTime.slice(0, 10),
-    homeRoster: rosters.home,
-    awayRoster: rosters.away,
-    events: normalizeGeniusActions(actions, homeTeamId),
-    tipoffRealWorldTime: findTipoff(actions),
-    periodMarks: findGeniusPeriodMarks(actions),
-    pbpStatus,
-  };
+  return loadGeniusGame(createClient(), season.competitionId, game);
 }

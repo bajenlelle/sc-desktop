@@ -4,6 +4,7 @@
  */
 import { createClient } from "@/lib/supabase/client";
 import * as db from "@scoutable/shared/lib/matches-db";
+import * as gi from "@scoutable/shared/lib/genius-import";
 import type { StoredMatch, SyncPoint } from "@/types/match";
 
 const c = () => createClient();
@@ -13,6 +14,12 @@ const c = () => createClient();
 export const saveMatch = async (match: StoredMatch, opts?: { refreshEvents?: boolean }) => {
   await db.saveMatch(c(), match, opts);
   window.dispatchEvent(new CustomEvent("matches-changed"));
+};
+// The import's save (upsert + plays), announced like saveMatch.
+export const importGame = async (match: StoredMatch, existing: { syncPoint?: SyncPoint } | null) => {
+  const result = await gi.importGame(c(), match, existing);
+  window.dispatchEvent(new CustomEvent("matches-changed"));
+  return result;
 };
 export const findMatchBySourceGame = (sourceGameId: string, orgId?: string) =>
   db.findMatchBySourceGame(c(), sourceGameId, orgId);

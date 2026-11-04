@@ -5,7 +5,7 @@ import { Check, ChevronRight, Film, Loader2, X } from "lucide-react";
 import { GeneratingSession, type SavePhase } from "@/components/generating-session";
 import { SyncPointPicker, type SeekRequest } from "@/components/sync-point-picker";
 import { followsSummary, QuarterSyncPanel, quarterCopy } from "@/components/quarter-sync";
-import { carrySyncOver, describePeriodSyncs, videoLooksCut } from "@scoutable/shared/lib/period-sync";
+import { describePeriodSyncs, videoLooksCut } from "@scoutable/shared/lib/period-sync";
 import { newestRequest } from "@scoutable/shared/lib/latest";
 import { isSuggestionPending, TipoffSuggestionStrip } from "@/components/tipoff-suggestion-strip";
 import { AutoHeight } from "@/components/ui/auto-height";
@@ -16,8 +16,8 @@ import { useTipoffSuggestion } from "@/lib/use-tipoff-suggestion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { saveMatch, findMatchBySourceGame, findImportedSourceGames } from "@/lib/matches-db";
-import { clearLegacyShippedClipsForMatch } from "@/lib/playlists-db";
+import { importGame, findMatchBySourceGame, findImportedSourceGames } from "@/lib/matches-db";
+import { importedMatch } from "@scoutable/shared/lib/genius-import";
 import { afterSyncChange } from "@/lib/sync-change";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/auth-context";
@@ -35,7 +35,7 @@ import { Sentry } from "@/lib/sentry";
 import type { ScheduleGame, League, Season, Stage } from "@/lib/basketball-api";
 import { LeaguePicker } from "@/components/league-picker";
 import { SingleSelectDropdown } from "@/components/ui/multi-select-dropdown";
-import type { PeriodSync, StoredMatch, SyncPoint, PlayByPlayEvent } from "@/types/match";
+import type { PeriodSync, SyncPoint, PlayByPlayEvent } from "@/types/match";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useMyTeam } from "@/lib/my-team";
 import { TeamDialog } from "@/components/team-dialog";
@@ -679,29 +679,11 @@ export function UploadZone({
     saveStartedRef.current = performance.now();
     setImportedSummary(null);
 
-    let syncPoint: SyncPoint | undefined;
-    if (syncSeconds !== null) {
-      syncPoint = {
-        syncVideoTime: syncSeconds,
-        syncRealWorldTime: tipoffRealWorldTime ?? "",
-        // Kept even for a video that holds the whole game: the quarters can
-        // still be synced later, from the game page or the editor.
-        ...(periodMarks && Object.keys(periodMarks).length > 0 ? { marks: periodMarks } : {}),
-        ...(breaksCut
-          ? { breaksCut: true, ...(Object.keys(periodSyncs).length > 0 ? { periods: periodSyncs } : {}) }
-          : breaksCutChoice === false
-            ? { breaksCut: false }
-            : {}),
-      };
-      // A re-import onto the same video keeps the quarters and cuts already fixed.
-      syncPoint = carrySyncOver(existingMatch?.syncPoint, syncPoint, !!videoPath && existingMatch?.videoUrl === videoPath);
-    }
-
-    // Re-imports keep the existing row id — saveMatch upserts, so the game
+    // Re-imports keep the existing row id — the save upserts, so the game
     // updates in place and playlist clips (keyed on match_id + event_id)
     // keep working. A fresh id would create an identically-named duplicate.
     const matchId = existingMatch?.id ?? crypto.randomUUID();
-    const storedMatch: StoredMatch = {
+    const storedMatch = importedMatch({
       id: matchId,
       // Stable across re-imports of the same fixture — dedupes the quota log.
       sourceGameId: selectedGame?.uuid,
@@ -711,23 +693,26 @@ export function UploadZone({
       awayTeam: { name: awayTeam, color: awayColor },
       homeRoster,
       awayRoster,
-      videoUrl: videoPath ?? undefined,
-      syncPoint,
+      videoUrl: videoPath,
       events: playByPlayEvents,
       leagueId: selectedLeague.id,
       seasonId: selectedSeason?.id,
       stageId: selectedStage?.id,
       orgId: activeOrgId ?? undefined,
-    };
+      syncSeconds,
+      tipoffRealWorldTime,
+      periodMarks,
+      breaksCut,
+      breaksCutChoice,
+      periodSyncs,
+      existing: existingMatch,
+    });
+    const syncPoint = storedMatch.syncPoint;
 
     try {
-      await saveMatch(storedMatch, { refreshEvents: !!existingMatch });
-      if (existingMatch?.syncPoint && syncPoint) {
-        // A re-import can move the sync: uploads that can't say where they
-        // were cut stop being served, and the rest follow in the background.
-        void clearLegacyShippedClipsForMatch(matchId).catch((e) => Sentry.captureException(e));
-        void afterSyncChange(storedMatch, existingMatch.syncPoint);
-      }
+      const { syncChanged } = await importGame(storedMatch, existingMatch);
+      // A re-import can move the sync: the clips follow in the background.
+      if (syncChanged) void afterSyncChange(storedMatch, existingMatch!.syncPoint);
       trackEvent('game_synced', {
         game_id: matchId,
         // Which fixture: team names and league are public, so they can live in analytics.
