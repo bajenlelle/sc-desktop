@@ -14,7 +14,8 @@ import * as React from "react";
 import { X } from "lucide-react";
 import { computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { describePlay, periodLabel, playClock } from "@scoutable/shared/lib/events";
-import { nextFixAfter, projectedSync, shiftPeriod, shiftWholeGame, syncFromPlayOn } from "@scoutable/shared/lib/period-sync";
+import { nextFixAfter, projectedSync } from "@scoutable/shared/lib/period-sync";
+import { planSyncFix } from "@scoutable/shared/lib/sync-fix";
 import { joinNames, pickPeekPlays, quartersMoved, syncReach, type SyncFixScope } from "@scoutable/shared/lib/sync-reach";
 import { SyncReachStrip } from "@/components/editor/sync-reach-strip";
 import { formatSpan } from "@/components/quarter-sync";
@@ -156,18 +157,12 @@ export function SyncFixPanel({
   }
 
   async function apply() {
-    if (!moves || delta === null || scope === null) return;
-    const next =
-      scope === "quarter"
-        ? { ...shiftPeriod(sync, match.events, event.period, delta), ...(event.period >= 2 ? { breaksCut: true } : {}) }
-        : scope === "play" && event.realWorldTime && found !== null
-          ? syncFromPlayOn(sync, { realWorldTime: event.realWorldTime, period: event.period, eventId: event.eventId }, found, leadSeconds)
-          : scope === "game"
-            ? shiftWholeGame(sync, delta)
-            : null;
+    if (!moves || found === null || scope === null) return;
+    const plan = planSyncFix(sync, match.events, event, scope, found, leadSeconds);
+    if (!plan) return;
     setSaving(true);
     try {
-      await onApply(scope, next, delta);
+      await onApply(scope, plan.next, plan.delta);
     } finally {
       setSaving(false);
     }
