@@ -48,7 +48,7 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { probeMatches, probeVideoDuration, type VideoFileStatus } from "@/lib/video-probe";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { cn } from "@/lib/utils";
-import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, removeClips, reorderItems, updateClip, clearShippedClip, insertTextCard, updateTextCard, setPlaylistTeams, setPlaylistUsers, notifyPendingPlaylistShares } from "@/lib/playlists-db";
+import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, appendClips, writePlaylistItems, updateClip, clearShippedClip, updateTextCard, setPlaylistTeams, setPlaylistUsers, notifyPendingPlaylistShares } from "@/lib/playlists-db";
 import { groupShipFailures, mergeShipResults, type ClipShipResult } from "@scoutable/shared/lib/ship-result";
 import { listLabels, createLabel as apiCreateLabel, updateLabel as apiUpdateLabel, deleteLabel as apiDeleteLabel, seedDefaultLabels, listAssignmentsForMatches, setClipAssignments as apiSetClipAssignments, bulkAssign as apiBulkAssign } from "@/lib/labels-db";
 import { LabelChip } from "@/components/labels/LabelChip";
@@ -4088,11 +4088,7 @@ export function PlaylistsPage() {
     const prev = writeChainRef.current.get(playlistId) ?? Promise.resolve(true);
     const run = prev.then(async () => {
       try {
-        const d = itemsDiff(from, to);
-        if (d.removedClips.length > 0 || d.removedTextIds.length > 0) await removeClips(playlistId, d.removedClips, d.removedTextIds);
-        if (d.addedClips.length > 0) await addClips(playlistId, d.addedClips, 0, { restore: true });
-        for (const t of d.addedText) await insertTextCard(playlistId, t.id, t.text, t.durationSeconds, 0, t.card);
-        await reorderItems(playlistId, to);
+        await writePlaylistItems(playlistId, from, to);
         return true;
       } catch (err) {
         console.error("[playlists] Failed to save a change to the list:", err);
@@ -4244,21 +4240,12 @@ export function PlaylistsPage() {
 
   async function handleAddSelectedToPlaylist(target: Playlist) {
     if (!selected) return;
-    const existingSet = new Set(target.items.filter(isClipItem).map((c) => `${c.matchId}:${c.eventId}`));
-    const toAdd: PlaylistClipItem[] = sortedEvents
-      .filter((item): item is QueueItem => {
-        if (isTextCard(item)) return false;
-        const key = `${(item as QueueItem).matchId}:${(item as QueueItem).event.eventId}`;
-        return selectedClipIds.has(key) && !existingSet.has(key);
-      })
-      .map((item) => {
-        const found = clipByKey.get(`${item.matchId}:${item.event.eventId}`)
-          ?? { type: 'clip' as const, matchId: item.matchId, eventId: item.event.eventId };
-        // Copies never carry group membership into the target playlist.
-        const { groupId: _g, ...clean } = found;
-        return clean as PlaylistClipItem;
-      });
-    await addClips(target.id, toAdd, target.items.length);
+    const picked: PlaylistClipItem[] = sortedEvents
+      .filter((item): item is QueueItem => !isTextCard(item) && selectedClipIds.has(`${(item as QueueItem).matchId}:${(item as QueueItem).event.eventId}`))
+      .map((item) => clipByKey.get(`${item.matchId}:${item.event.eventId}`)
+        ?? { type: 'clip' as const, matchId: item.matchId, eventId: item.event.eventId });
+    // Clips the target already holds are skipped, and copies never carry group membership into it.
+    const toAdd = await appendClips(target, picked);
     toAdd.forEach((clip) => {
       trackEvent('clip_added_to_playlist', { playlist_id: target.id, match_id: clip.matchId })
     })

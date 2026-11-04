@@ -4,6 +4,7 @@
  */
 import { createClient } from "@/lib/supabase/client";
 import * as db from "@scoutable/shared/lib/playlists-db";
+import * as write from "@scoutable/shared/lib/playlist-write";
 import type { PlaylistClipItem, PlaylistItem } from "@/types/match";
 import type { StatsCardSpec } from "@scoutable/shared/lib/stats-card";
 
@@ -36,3 +37,6 @@ export const listOwnPlaylistsAndShared = (orgId?: string, opts?: db.OrgScopeOpts
 export const hasSharedAnyPlaylist = () => db.hasSharedAnyPlaylist(c());
 export type { SharedPlaylist } from "@scoutable/shared/lib/playlists-db";
 export const notifyPendingPlaylistShares = (playlistId: string) => db.notifyPendingPlaylistShares(c(), playlistId);
+// The editor's write path and clip appends (@scoutable/shared/lib/playlist-write).
+export const writePlaylistItems = (playlistId: string, from: readonly PlaylistItem[], to: readonly PlaylistItem[]) => write.writePlaylistItems(c(), playlistId, from, to);
+export const appendClips = (playlist: { id: string; items: readonly PlaylistItem[] }, clips: readonly PlaylistClipItem[]) => write.appendClips(c(), playlist, clips);
