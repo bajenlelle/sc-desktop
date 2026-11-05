@@ -30,6 +30,8 @@ import { Button } from "@/components/ui/button";
 import { VideoPlaceholder } from "@/components/video-placeholder";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { CardImage } from "@/components/editor/card-image";
+import { ClipCaption } from "@/components/player/clip-caption";
+import { CAPTION_MAX_CHARS } from "@scoutable/shared/lib/clip-caption";
 import { StatsCardInspector } from "@/components/editor/stats-card-inspector";
 import type { ScoutingReportRun } from "@/components/editor/scouting-report-dialog";
 import { ReportView } from "@/components/report/report-view";
@@ -584,6 +586,9 @@ export function PlaylistsPage() {
   }, [theaterMode]);
 
   const clipNoteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** What was typed but not saved yet, with the clip it was typed on: a save never lands on whichever clip is active when the timer fires. */
+  const pendingNoteRef = useRef<{ playlistId: string; matchId: string; eventId: number; note: string } | null>(null);
+  const noteFieldRef = useRef<HTMLTextAreaElement>(null);
   const clipEndRef = useRef<number | undefined>(undefined);
   const pendingSeekRef = useRef<{ seekTo: number; clipEnd: number } | null>(null);
   const preRollRef = useRef(preRoll);
@@ -635,8 +640,9 @@ export function PlaylistsPage() {
       ? `${activeMatchId}:${activeEventId}`
       : null;
 
-  // Sync note textarea when active clip changes
+  // Sync note textarea when active clip changes; what was typed on the last clip is saved first.
   useEffect(() => {
+    flushClipNote();
     if (activeEventId === null || !selected) { setClipNote(""); return; }
     const clip = selected.items.filter(isClipItem).find(
       (c) => c.matchId === activeMatchId && c.eventId === activeEventId
@@ -1591,29 +1597,57 @@ export function PlaylistsPage() {
     return true;
   }
 
-  function saveClipNote(note: string) {
-    if (!selected || activeEventId === null || activeMatchId === null) return;
-    const matchId = activeMatchId;
-    const newItems = selected.items.map((c) =>
-      isClipItem(c) && c.matchId === matchId && c.eventId === activeEventId
-        ? { ...c, note: note.trim() || undefined }
-        : c
-    );
-    const updatedPlaylist = { ...selected, items: newItems };
-    setSelected(updatedPlaylist);
-    selectedRef.current = updatedPlaylist;
-    setPlaylists((prev) => prev.map((p) => (p.id === selected.id ? updatedPlaylist : p)));
-    updateClip(selected.id, matchId, activeEventId, { note: note.trim() || null }).catch(() => {});
+  /** Saves a note on the clip it was typed on, and shows every copy of that playlist the new text. */
+  function saveClipNote(target: { playlistId: string; matchId: string; eventId: number; note: string }) {
+    const { playlistId, matchId, eventId } = target;
+    const note = target.note.trim();
+    const patch = (pl: Playlist): Playlist =>
+      pl.id !== playlistId
+        ? pl
+        : {
+            ...pl,
+            items: pl.items.map((c) =>
+              isClipItem(c) && c.matchId === matchId && c.eventId === eventId ? { ...c, note: note || undefined } : c,
+            ),
+          };
+    const before =
+      (playlistsRef.current.find((p) => p.id === playlistId) ?? selectedRef.current)?.items
+        .filter(isClipItem)
+        .find((c) => c.matchId === matchId && c.eventId === eventId)?.note ?? "";
+    if (selectedRef.current) selectedRef.current = patch(selectedRef.current);
+    setSelected((prev) => (prev ? patch(prev) : prev));
+    setPlaylists((prev) => prev.map(patch));
+    if (note !== before) {
+      trackEvent("clip_note_set", { length: note.length, lines: note ? note.split("\n").length : 0, cleared: note === "" });
+    }
+    updateClip(playlistId, matchId, eventId, { note: note || null }).catch((e) => {
+      Sentry.captureException(e);
+      toast.error("Couldn't save the note");
+    });
+  }
+
+  /** Saves what was typed, now: on blur, when the active clip changes, and when the timer fires. */
+  function flushClipNote() {
+    if (clipNoteSaveTimerRef.current) {
+      clearTimeout(clipNoteSaveTimerRef.current);
+      clipNoteSaveTimerRef.current = null;
+    }
+    const pending = pendingNoteRef.current;
+    pendingNoteRef.current = null;
+    if (pending) saveClipNote(pending);
   }
 
   function handleNoteChange(value: string) {
     setClipNote(value);
+    if (!selected || activeEventId === null || activeMatchId === null) return;
+    pendingNoteRef.current = { playlistId: selected.id, matchId: activeMatchId, eventId: activeEventId, note: value };
     if (clipNoteSaveTimerRef.current) clearTimeout(clipNoteSaveTimerRef.current);
-    clipNoteSaveTimerRef.current = setTimeout(() => {
-      clipNoteSaveTimerRef.current = null;
-      saveClipNote(value);
-    }, 600);
+    clipNoteSaveTimerRef.current = setTimeout(flushClipNote, 600);
   }
+
+  // Leaving the page mid-type must not lose the note.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => () => flushClipNote(), []);
 
   const activeClipOffsets = useMemo(() => {
     if (activeEventId === null) return { pre: 0, post: 0 };
@@ -2370,6 +2404,10 @@ export function PlaylistsPage() {
       );
     };
     switch (action) {
+      case "note":
+        e.preventDefault();
+        noteFieldRef.current?.focus();
+        return;
       case "fullscreen":
         e.preventDefault();
         toggleFullscreen();
@@ -4757,6 +4795,10 @@ export function PlaylistsPage() {
                 </Button>
               </div>
             )}
+            {/* The note as the players and the export see it, following every keystroke. */}
+            {activeEventId !== null && !cardOnStage && clipNote.trim() && (
+              <ClipCaption key={activeKey ?? "note"} text={clipNote} />
+            )}
             {stageCard && (
               <div className="absolute inset-0 z-10 bg-black">
                 <CardImage source={stageCard} aspect="16:9" className="size-full" />
@@ -4899,13 +4941,32 @@ export function PlaylistsPage() {
               );
             })()}
             {activeEventId !== null && (
-              <textarea
-                className="w-full resize-none rounded-md bg-card px-3 py-2 text-sm text-foreground ring-1 ring-separator outline-none transition-[box-shadow] duration-150 placeholder:text-muted-foreground/60 focus:ring-2 focus:ring-selection"
-                rows={2}
-                placeholder="Add a note for this clip…"
-                value={clipNote}
-                onChange={(e) => handleNoteChange(e.target.value)}
-              />
+              <div className="flex flex-col gap-1">
+                <textarea
+                  ref={noteFieldRef}
+                  className="w-full resize-none rounded-md bg-card px-3 py-2 text-sm text-foreground ring-1 ring-separator outline-none transition-[box-shadow] duration-150 placeholder:text-muted-foreground/60 focus:ring-2 focus:ring-selection"
+                  rows={2}
+                  maxLength={CAPTION_MAX_CHARS}
+                  placeholder="Note for players, shown on the clip…"
+                  value={clipNote}
+                  onChange={(e) => handleNoteChange(e.target.value)}
+                  onKeyDown={(e) => {
+                    // Return finishes (Shift+Return breaks a line); so does Esc.
+                    if ((e.key === "Enter" && !e.shiftKey) || e.key === "Escape") {
+                      e.preventDefault();
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  onBlur={flushClipNote}
+                />
+                {CAPTION_MAX_CHARS - clipNote.length <= 20 && (
+                  <span className="self-end text-caption text-muted-foreground nums">
+                    {CAPTION_MAX_CHARS - clipNote.length === 1
+                      ? "1 character left"
+                      : `${CAPTION_MAX_CHARS - clipNote.length} characters left`}
+                  </span>
+                )}
+              </div>
             )}
           </div>
         )}
