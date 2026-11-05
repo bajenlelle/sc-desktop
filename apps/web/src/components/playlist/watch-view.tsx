@@ -15,6 +15,7 @@ import { PlayerStage, type PlayerStageHandle } from "@/components/player/player-
 import { useMediaDuration, useMediaElement } from "@/components/player/use-media";
 import { useStageFullscreen } from "@/components/player/use-stage-fullscreen";
 import { CardImage } from "@/components/stats-card/card-image";
+import { ClipCaption } from "@/components/player/clip-caption";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { useReducedMotionSafe } from "@/lib/motion";
@@ -297,6 +298,7 @@ export function WatchView({
                     )}
                   </div>
                 )}
+                {activeClip?.note && !activeCard && <ClipCaption key={activeClip.key} text={activeClip.note} />}
                 {/* Narrow, the controls' own centre button plays instead. */}
                 {!q.isQueueActive && q.src === null && items.length > 0 && (
                   <div className="absolute inset-0 z-30 flex items-center justify-center @max-[559px]/stage:hidden">
@@ -335,12 +337,6 @@ export function WatchView({
                   .filter(Boolean)
                   .join(" · ")}
               </p>
-              {activeClip.note && (
-                <figure className="rounded-window bg-fill-1 px-3.5 py-2.5">
-                  <figcaption className="text-subheadline text-muted-foreground">Note from your coach</figcaption>
-                  <blockquote className="mt-0.5 whitespace-pre-wrap text-body text-foreground">{activeClip.note}</blockquote>
-                </figure>
-              )}
             </div>
           )}
         </div>

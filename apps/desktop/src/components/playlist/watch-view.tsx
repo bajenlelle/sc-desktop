@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { WatchClipRow, WatchTextCardRow } from "./ClipRow";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { CardImage } from "@/components/editor/card-image";
+import { ClipCaption } from "@/components/player/clip-caption";
 import { useWatchQueue, type WatchItem } from "./use-watch-queue";
 
 const SPEED_KEY = "scoutable_watch_speed";
@@ -274,6 +275,7 @@ export function WatchView({
                     )}
                   </div>
                 )}
+                {activeClip?.note && !activeCard && <ClipCaption key={activeClip.key} text={activeClip.note} />}
                 {!q.isQueueActive && q.src === null && items.length > 0 && (
                   <div className="absolute inset-0 z-10 flex items-center justify-center">
                     <button
@@ -311,12 +313,6 @@ export function WatchView({
                   .filter(Boolean)
                   .join(" · ")}
               </p>
-              {activeClip.note && (
-                <figure className="rounded-window bg-fill-1 px-3.5 py-2.5">
-                  <figcaption className="text-subheadline text-muted-foreground">Note from your coach</figcaption>
-                  <blockquote className="mt-0.5 whitespace-pre-wrap text-body text-foreground">{activeClip.note}</blockquote>
-                </figure>
-              )}
             </div>
           )}
         </div>
