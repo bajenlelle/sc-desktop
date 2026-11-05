@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CARD_SIZE, layoutStatsCard, layoutTextCard, type MeasureText } from "../card-layout";
+import { CARD_SIZE, layoutStatsCard, layoutTextCard, wrapWords, type MeasureText } from "../card-layout";
 import type { CardContent } from "../stats-card";
 
 /** Roughly Roboto: half an em per character, bold a little wider. */
@@ -115,5 +115,21 @@ describe("layoutTextCard", () => {
 
   it("draws nothing for an empty card", () => {
     expect(layoutTextCard("   ", "9:16", measure)).toEqual([]);
+  });
+});
+
+describe("wrapWords", () => {
+  const width = (s: string) => s.length * 10;
+
+  it("wraps greedily at the width", () => {
+    expect(wrapWords("aa bb cc", width, 50)).toEqual(["aa bb", "cc"]);
+  });
+
+  it("leaves an over-wide word alone on its line", () => {
+    expect(wrapWords("short averyveryverylongword end", width, 100)).toEqual(["short", "averyveryverylongword", "end"]);
+  });
+
+  it("is empty for blank text", () => {
+    expect(wrapWords("   ", width, 100)).toEqual([]);
   });
 });

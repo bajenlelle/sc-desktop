@@ -188,6 +188,23 @@ export function layoutStatsCard(content: CardContent, aspect: CardAspect, measur
   return runs;
 }
 
+/** Greedy word wrap; a word wider than the line stands alone on its own line. */
+export function wrapWords(text: string, measure: (line: string) => number, maxWidth: number): string[] {
+  const lines: string[] = [];
+  let current = "";
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (current && measure(candidate) > maxWidth) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
 /**
  * A text card, drawn as the Rust exporter always has: white Roboto at a
  * 72 px line height (61 px em), centred, word-wrapped inside 40 px side
@@ -197,18 +214,7 @@ export function layoutTextCard(text: string, aspect: CardAspect, measure: Measur
   const { width, height } = CARD_SIZE[aspect];
   const px = 61;
   const maxWidth = width - (aspect === "9:16" ? 120 : 80);
-  const lines: string[] = [];
-  let current = "";
-  for (const word of text.split(/\s+/).filter(Boolean)) {
-    const candidate = current ? `${current} ${word}` : word;
-    if (current && measure(candidate, px, "regular") > maxWidth) {
-      lines.push(current);
-      current = word;
-    } else {
-      current = candidate;
-    }
-  }
-  if (current) lines.push(current);
+  const lines = wrapWords(text, (line) => measure(line, px, "regular"), maxWidth);
 
   const step = Math.round(px * 1.2);
   const blockHeight = (lines.length - 1) * step + CAP * px;
