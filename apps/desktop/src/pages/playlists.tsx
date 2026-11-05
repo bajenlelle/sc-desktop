@@ -2808,6 +2808,7 @@ export function PlaylistsPage() {
         if (clip?.preRollOffset !== undefined) (seg as Extract<ExportSegment, { kind: 'clip' }>).preRollOffset = clip.preRollOffset;
         if (clip?.postRollOffset !== undefined) (seg as Extract<ExportSegment, { kind: 'clip' }>).postRollOffset = clip.postRollOffset;
         if (clip?.cropKeyframes) (seg as Extract<ExportSegment, { kind: 'clip' }>).cropKeyframes = clip.cropKeyframes;
+        if (clip?.note?.trim()) (seg as Extract<ExportSegment, { kind: 'clip' }>).note = clip.note.trim();
         return seg;
       })
       .filter((x): x is ExportSegment => x !== null);

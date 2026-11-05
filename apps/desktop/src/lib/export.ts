@@ -9,7 +9,8 @@ import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing"
 import { toSegmentKeyframes, type CropKeyframe } from "@scoutable/shared/lib/crop-path";
 import { isExportCancelled, type ExportProgress } from "@scoutable/shared/lib/export-progress";
 import { fallbackText, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
-import { cardPngBase64 } from "@/lib/card-painter";
+import type { CardAspect } from "@scoutable/shared/lib/card-layout";
+import { cardPngBase64, clipCaptionPngBase64 } from "@/lib/card-painter";
 import type { PlayByPlayEvent, SyncPoint } from "@/types/match";
 
 export type { ExportProgress };
@@ -67,7 +68,12 @@ async function invokeExportPlaylist(
 }
 
 export type ExportSegment =
-  | { kind: 'clip'; videoPath: string; matchId: string; event: PlayByPlayEvent; syncPoint: SyncPoint; preRollOffset?: number; postRollOffset?: number; cropKeyframes?: CropKeyframe[] }
+  | {
+      kind: 'clip'; videoPath: string; matchId: string; event: PlayByPlayEvent; syncPoint: SyncPoint;
+      preRollOffset?: number; postRollOffset?: number; cropKeyframes?: CropKeyframe[];
+      /** The coach's note, burned in as a pill for the whole clip. */
+      note?: string;
+    }
   | { kind: 'text'; text: string; durationSeconds: number; card?: StatsCardSpec };
 
 // Legacy interface kept for callers that haven't migrated yet
@@ -79,8 +85,11 @@ export interface ExportItem {
   postRollOffset?: number;
 }
 
+/** A full-frame transparent PNG at the export size, over the clip between two clip-relative times. */
+interface RustOverlay { png_base64: string; from_seconds: number; to_seconds: number }
+
 type RustSegment =
-  | { kind: 'clip'; video_path: string; start: number; end: number; crop_keyframes?: CropKeyframe[] }
+  | { kind: 'clip'; video_path: string; start: number; end: number; crop_keyframes?: CropKeyframe[]; overlays?: RustOverlay[] }
   | { kind: 'text'; text: string; duration_seconds: number }
   | { kind: 'image'; png_base64: string; duration_seconds: number };
 
@@ -239,12 +248,36 @@ async function buildRustSegments(
     if (seg.kind === 'text') cards.set(seg, await cardSegment(seg, vertical));
   }
 
+  // The note pills, one drawing per distinct note. A note that can't be
+  // drawn leaves its clip bare (there is no Rust fallback for a pill), and
+  // the coach is told once.
+  const aspect: CardAspect = vertical ? "9:16" : "16:9";
+  const captions = new Map<string, string | null>();
+  let undrawn = 0;
+  for (const seg of segments) {
+    if (seg.kind !== 'clip') continue;
+    const note = seg.note?.trim();
+    if (!note || captions.has(note)) continue;
+    try {
+      captions.set(note, await clipCaptionPngBase64(note, aspect));
+    } catch (e) {
+      console.warn("Note drawing failed; exporting the clip without it", e);
+      captions.set(note, null);
+      undrawn++;
+    }
+  }
+  if (undrawn > 0) toast.warning("Some clip notes couldn't be drawn. The video is exported without them.");
+
   const rustSegments: RustSegment[] = segments
     .map((seg): RustSegment | null => {
       if (seg.kind === 'text') return cards.get(seg) ?? null;
       const t = computeVideoTime(seg.event, seg.syncPoint);
       if (t === null) return null;
       const { start, end } = clipBounds(t, preRoll, postRoll, seg.preRollOffset, seg.postRollOffset);
+      const note = seg.note?.trim();
+      const png = note ? captions.get(note) : undefined;
+      // The whole clip: between() is inclusive, so the last frame is covered too.
+      const overlays = png ? { overlays: [{ png_base64: png, from_seconds: 0, to_seconds: end - start }] } : {};
       if (vertical) {
         // Stored keyframe times are absolute video seconds; ffmpeg's crop
         // expression sees t from the seek point, so rebase onto the clip.
@@ -254,9 +287,10 @@ async function buildRustSegments(
           start,
           end,
           crop_keyframes: toSegmentKeyframes(seg.cropKeyframes, start, end),
+          ...overlays,
         };
       }
-      return { kind: 'clip', video_path: seg.videoPath, start, end };
+      return { kind: 'clip', video_path: seg.videoPath, start, end, ...overlays };
     })
     .filter((s): s is RustSegment => s !== null);
 
