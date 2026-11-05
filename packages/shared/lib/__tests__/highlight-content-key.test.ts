@@ -142,3 +142,20 @@ describe("highlightContentKey with stats cards", () => {
     expect(highlightContentKey(plain, 10, 3, "16:9")).not.toBe(key(spec));
   });
 });
+
+describe("highlightContentKey and the clip note", () => {
+  it("changes when a clip's note changes, in both aspects", () => {
+    const noted = [clip(1, { note: "Watch the help side" }), BASE[1], BASE[2]];
+    const edited = [clip(1, { note: "Watch the weak side" }), BASE[1], BASE[2]];
+    for (const aspect of ["16:9", "9:16"] as const) {
+      expect(highlightContentKey(noted, 10, 3, aspect)).not.toBe(highlightContentKey(BASE, 10, 3, aspect));
+      expect(highlightContentKey(edited, 10, 3, aspect)).not.toBe(highlightContentKey(noted, 10, 3, aspect));
+    }
+  });
+
+  it("treats a blank note as no note", () => {
+    expect(highlightContentKey([clip(1, { note: "  " }), BASE[1], BASE[2]], 10, 3, "16:9")).toBe(
+      highlightContentKey(BASE, 10, 3, "16:9"),
+    );
+  });
+});

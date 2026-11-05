@@ -85,3 +85,11 @@ describe("nextShuttleRate", () => {
     expect(nextShuttleRate(0.5)).toBe(1);
   });
 });
+
+describe("the note key", () => {
+  it("N writes the note; Shift+N and ⌘N are left alone", () => {
+    expect(resolvePlayerKey(key("KeyN"))).toBe("note");
+    expect(resolvePlayerKey(key("KeyN", { shiftKey: true }))).toBeNull();
+    expect(resolvePlayerKey(key("KeyN", { metaKey: true }))).toBeNull();
+  });
+});

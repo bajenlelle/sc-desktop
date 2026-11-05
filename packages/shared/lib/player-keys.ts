@@ -4,7 +4,7 @@
  * M mutes.
  * The clip list adds a macOS table's keys: Shift extends the selection,
  * ⌘↑/⌘↓ and Home/End jump to the ends, Return plays the focused row,
- * Shift+F10 opens its menu, T trims the playing clip. Every native menu
+ * Shift+F10 opens its menu, T trims the playing clip, N writes its note. Every native menu
  * accelerator is a ⌘-chord, so
  * chords are left alone except ⌘A and ⌘↑/⌘↓, which the list claims.
  */
@@ -20,6 +20,7 @@ export type PlayerKeyAction =
   | "play-focused"
   | "row-menu"
   | "trim"
+  | "note"
   | "nudge-back"
   | "nudge-forward"
   | "nudge-back-far"
@@ -84,6 +85,8 @@ export function resolvePlayerKey(e: KeyChord): PlayerKeyAction | null {
       return "replay";
     case "KeyT":
       return e.shiftKey ? null : "trim";
+    case "KeyN":
+      return e.shiftKey ? null : "note";
     case "Space":
       return "toggle-play";
     case "KeyM":

@@ -7,6 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { computeVideoTime } from "./clip-timing";
 import type { SyncPoint } from "../types/match";
 import { CARD_RENDER_VERSION } from "./card-layout";
+import { CAPTION_RENDER_VERSION } from "./clip-caption";
 import { cardContent, type StatsCardSpec } from "./stats-card";
 
 export interface HighlightShare {
@@ -45,6 +46,8 @@ export type HighlightContentSegment =
       preRollOffset?: number;
       postRollOffset?: number;
       cropKeyframes?: { t: number; cx: number }[];
+      /** The coach's note, burned in as a pill for the whole clip. */
+      note?: string;
     }
   | { kind: "text"; text: string; durationSeconds: number; card?: StatsCardSpec };
 
@@ -68,10 +71,12 @@ export function cyrb53(str: string, seed = 0): string {
  * a re-synced game re-cuts every clip, so a sync edit must invalidate the
  * link; that gap was the v1→v2 bump), roll settings, cards as drawn — and, for
  * 9:16 only, the crop-pan keyframes (pans don't shape a widescreen render,
- * so a pan edit must not invalidate a 16:9 link). Reuse requires an
- * identical key, so any relevant edit between sends re-renders instead of
- * serving a stale link. Watermark is deliberately outside the key — this
- * surface is always watermarked.
+ * so a pan edit must not invalidate a 16:9 link), and each clip's note as
+ * the pill draws it (with the pill's drawing version; a clip without a
+ * note keeps the key it always had). Reuse requires an identical key, so
+ * any relevant edit between sends re-renders instead of serving a stale
+ * link. Watermark is deliberately outside the key — this surface is always
+ * watermarked.
  */
 export function highlightContentKey(
   segments: HighlightContentSegment[],
@@ -87,6 +92,7 @@ export function highlightContentKey(
       return `${s.card ? "s" : "t"}|${s.durationSeconds}|${drawn}|r${CARD_RENDER_VERSION}`;
     }
     const videoTime = s.syncPoint ? computeVideoTime(s.event, s.syncPoint) : null;
+    const note = s.note?.trim();
     return `c|${s.matchId}|${s.event.eventId}|${videoTime?.toFixed(1) ?? "x"}|${
       s.preRollOffset ?? 0
     }|${s.postRollOffset ?? 0}|${
@@ -95,7 +101,7 @@ export function highlightContentKey(
             .map((k) => `${k.t.toFixed(3)}:${k.cx.toFixed(4)}`)
             .join(",")
         : ""
-    }`;
+    }${note ? `|n${CAPTION_RENDER_VERSION}:${note}` : ""}`;
   });
   return cyrb53(`v2|${preRoll}|${postRoll}|${parts.join(";")}`);
 }
