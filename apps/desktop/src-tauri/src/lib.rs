@@ -30,6 +30,10 @@ enum ExportSegment {
         /// guarantees both). Ignored for 16:9 exports.
         #[serde(default)]
         crop_keyframes: Option<Vec<CropKf>>,
+        /// Full-frame PNGs drawn over the clip, each between two
+        /// segment-relative times. Empty when the clip has nothing on it.
+        #[serde(default)]
+        overlays: Vec<ClipOverlay>,
     },
     Text {
         text: String,
@@ -59,6 +63,25 @@ fn decode_card_png(png_base64: &str, vertical: bool) -> Result<Vec<u8>, String> 
         return Err(format!("Card image is {w}x{h}, expected {}x{}", expected.0, expected.1));
     }
     Ok(bytes)
+}
+
+/// A full-frame transparent PNG at the export's own WxH, composited over a
+/// clip segment between two segment-relative times (0 = the segment's in
+/// point). Today a clip's note pill for the whole clip; later, timed
+/// annotations.
+#[derive(serde::Deserialize)]
+struct ClipOverlay {
+    png_base64: String,
+    from_seconds: f64,
+    to_seconds: f64,
+}
+
+/// One overlay as `clip_segment_args` wants it: its PNG on disk and its
+/// window in segment seconds.
+struct OverlayInput<'a> {
+    png: &'a str,
+    from: f64,
+    to: f64,
 }
 
 #[derive(serde::Deserialize, Clone, Copy)]
@@ -212,51 +235,83 @@ fn export_frame_rate(probed: Option<f64>) -> String {
     format!("{}", fps.round().clamp(1.0, 60.0) as u32)
 }
 
-/// ffmpeg argv that renders one clip segment to `out`.
+/// ffmpeg argv that renders one clip segment to `out`. `overlays` are
+/// composited at the output size, after the geometry and before the fades,
+/// so they fade with the clip; without any, the argv is the single-input
+/// `-vf` form it always was.
+#[allow(clippy::too_many_arguments)] // mirrors the segment's fields; the goldens call it positionally
 fn clip_segment_args(
     video_path: &str,
     start: f64,
     end: f64,
     crop_keyframes: Option<&[CropKf]>,
+    overlays: &[OverlayInput<'_>],
     vertical: bool,
     rate: &str,
     out: &str,
 ) -> Vec<String> {
     let duration = (end - start).max(0.001);
     let fade_out_start = (duration - 0.25).max(0.0);
-    // fps= right after the timestamp reset: clips from sources with other rates
-    // (a second game, a phone recording) join the export's rate too.
-    let vf = if vertical {
+    let geometry = if vertical {
         // Crop first (at native resolution), scale second. Window width comes
         // from expression vars (2*trunc(ih*9/32) = even-rounded ih*9/16), so no
         // probing is needed; min(iw,..) keeps narrow sources valid. x is
         // re-evaluated per frame — the whole pan is this one filter.
         let x_expr = build_crop_x_expr(crop_keyframes.unwrap_or(&[]));
         format!(
-            "setpts=PTS-STARTPTS,fps={rate},\
-             crop=w=min(iw\\,2*trunc(ih*9/32)):h=ih:x={x_expr}:y=0,\
-             scale=1080:1920:flags=lanczos,setsar=1,\
-             fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25"
+            "crop=w=min(iw\\,2*trunc(ih*9/32)):h=ih:x={x_expr}:y=0,\
+             scale=1080:1920:flags=lanczos,setsar=1"
         )
     } else {
-        format!(
-            "setpts=PTS-STARTPTS,fps={rate},\
-             scale=1280:720:force_original_aspect_ratio=decrease,\
-             pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black,\
-             fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25"
-        )
+        "scale=1280:720:force_original_aspect_ratio=decrease,\
+         pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black"
+            .to_string()
     };
+    let fades = format!("fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25");
+
     let mut args: Vec<String> = vec![
         "-y".into(),
         "-ss".into(), format!("{start:.3}"),
         "-to".into(), format!("{end:.3}"),
         "-i".into(), video_path.to_string(),
-        "-vf".into(), vf,
+    ];
+    if overlays.is_empty() {
+        // fps= right after the timestamp reset: clips from sources with other rates
+        // (a second game, a phone recording) join the export's rate too.
+        args.extend(["-vf".into(), format!("setpts=PTS-STARTPTS,fps={rate},{geometry},{fades}")]);
+    } else {
+        // One extra input per overlay: a single frame that overlay's default
+        // eof_action=repeat holds for the whole clip, as concat_args' watermark.
+        for ov in overlays {
+            args.extend(["-i".into(), ov.png.to_string()]);
+        }
+        // `t` counts from the segment's start: input-side -ss zeroes the
+        // timestamps and setpts pins the first frame to 0, as the crop
+        // keyframes already rely on.
+        let mut graph = format!("[0:v]setpts=PTS-STARTPTS,fps={rate},{geometry}[v0]");
+        for (k, ov) in overlays.iter().enumerate() {
+            graph.push_str(&format!(
+                ";[v{k}][{input}:v]overlay=0:0:enable=between(t\\,{from:.3}\\,{to:.3})[v{next}]",
+                input = k + 1,
+                from = ov.from,
+                to = ov.to,
+                next = k + 1,
+            ));
+        }
+        graph.push_str(&format!(";[v{}]{fades}[outv]", overlays.len()));
+        args.extend([
+            "-filter_complex".into(), graph,
+            // A -map switches automatic stream selection off: name the audio too.
+            "-map".into(), "[outv]".into(),
+            "-map".into(), "0:a:0".into(),
+        ]);
+    }
+    args.extend([
         "-af".into(), "asetpts=PTS-STARTPTS".into(),
         "-c:v".into(), "libx264".into(),
         "-preset".into(), "fast".into(),
         "-crf".into(), "23".into(),
-    ];
+    ]);
     if vertical {
         // Upscaled crop must stay 4:2:0 — social platforms reject exotic
         // pixel formats. (16:9 path left byte-identical.)
@@ -491,18 +546,41 @@ async fn export_playlist(
         let temp_path = temp.track(std::env::temp_dir().join(format!("sc_seg_{}_{}.mp4", timestamp, i)));
 
         let status = match segment {
-            ExportSegment::Clip { video_path, start, end, crop_keyframes } => {
+            ExportSegment::Clip { video_path, start, end, crop_keyframes, overlays } => {
+                // Each overlay's PNG goes to disk first, so a bad one fails
+                // with its own message before ffmpeg runs.
+                let mut overlay_files: Vec<(std::path::PathBuf, f64, f64)> = Vec::with_capacity(overlays.len());
+                for (k, ov) in overlays.iter().enumerate() {
+                    if !(ov.from_seconds.is_finite() && ov.to_seconds.is_finite() && ov.from_seconds <= ov.to_seconds) {
+                        return Err(format!("Overlay {} of segment {} has an invalid time window", k + 1, i + 1));
+                    }
+                    let bytes = decode_card_png(&ov.png_base64, vertical)
+                        .map_err(|e| format!("Overlay {} of segment {}: {e}", k + 1, i + 1))?;
+                    let png_path = temp.track(std::env::temp_dir().join(format!("sc_ov_{}_{}_{}.png", timestamp, i, k)));
+                    std::fs::write(&png_path, &bytes)
+                        .map_err(|e| format!("Failed to save overlay frame: {e}"))?;
+                    overlay_files.push((png_path, ov.from_seconds, ov.to_seconds));
+                }
+                let overlay_inputs: Vec<OverlayInput<'_>> = overlay_files
+                    .iter()
+                    .map(|(path, from, to)| OverlayInput { png: path.to_str().unwrap(), from: *from, to: *to })
+                    .collect();
                 let args = clip_segment_args(
                     video_path,
                     *start,
                     *end,
                     crop_keyframes.as_deref(),
+                    &overlay_inputs,
                     vertical,
                     &rate,
                     temp_path.to_str().unwrap(),
                 );
 
-                run_ffmpeg(&app, &args, job).await?
+                let result = run_ffmpeg(&app, &args, job).await;
+                for (path, _, _) in &overlay_files {
+                    let _ = std::fs::remove_file(path);
+                }
+                result?
             }
             ExportSegment::Text { text, duration_seconds } => {
                 use ab_glyph::{FontArc, PxScale};
@@ -1497,7 +1575,7 @@ mod tests {
 
     #[test]
     fn clip_segment_16x9_resamples_to_the_export_rate() {
-        let args = clip_segment_args("/v/game.mp4", 10.0, 14.0, None, false, "30000/1001", "/tmp/seg.mp4");
+        let args = clip_segment_args("/v/game.mp4", 10.0, 14.0, None, &[], false, "30000/1001", "/tmp/seg.mp4");
         assert_eq!(&args[..7], ["-y", "-ss", "10.000", "-to", "14.000", "-i", "/v/game.mp4"]);
         assert_eq!(
             arg_after(&args, "-vf"),
@@ -1512,7 +1590,7 @@ mod tests {
 
     #[test]
     fn clip_segment_9x16_resamples_before_cropping() {
-        let args = clip_segment_args("/v/game.mp4", 0.0, 2.0, Some(&[]), true, "25", "/tmp/seg.mp4");
+        let args = clip_segment_args("/v/game.mp4", 0.0, 2.0, Some(&[]), &[], true, "25", "/tmp/seg.mp4");
         assert_eq!(
             arg_after(&args, "-vf"),
             "setpts=PTS-STARTPTS,fps=25,\
@@ -1540,6 +1618,98 @@ mod tests {
         assert_eq!(arg_after(&args, "-crf"), "28");
         assert_eq!(arg_after(&args, "-b:a"), "96k");
         assert_eq!(args.last().unwrap(), "/tmp/clip.mp4");
+    }
+
+    fn overlay(png: &str, from: f64, to: f64) -> OverlayInput<'_> {
+        OverlayInput { png, from, to }
+    }
+
+    #[test]
+    fn clip_segment_without_overlays_keeps_the_single_input_vf_path() {
+        let args = clip_segment_args("/v/game.mp4", 10.0, 14.0, None, &[], false, "30000/1001", "/tmp/seg.mp4");
+        assert_eq!(
+            args,
+            [
+                "-y", "-ss", "10.000", "-to", "14.000", "-i", "/v/game.mp4",
+                "-vf",
+                "setpts=PTS-STARTPTS,fps=30000/1001,\
+                 scale=1280:720:force_original_aspect_ratio=decrease,\
+                 pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black,\
+                 fade=t=in:st=0:d=0.25,fade=t=out:st=3.750:d=0.25",
+                "-af", "asetpts=PTS-STARTPTS",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-b:a", "128k",
+                "/tmp/seg.mp4",
+            ]
+        );
+    }
+
+    #[test]
+    fn clip_segment_16x9_overlay_sits_after_the_geometry_and_before_the_fades() {
+        let args = clip_segment_args(
+            "/v/game.mp4", 10.0, 14.0, None, &[overlay("/tmp/ov.png", 0.0, 4.0)], false, "30000/1001", "/tmp/seg.mp4",
+        );
+        assert_eq!(&args[..9], ["-y", "-ss", "10.000", "-to", "14.000", "-i", "/v/game.mp4", "-i", "/tmp/ov.png"]);
+        assert_eq!(
+            arg_after(&args, "-filter_complex"),
+            "[0:v]setpts=PTS-STARTPTS,fps=30000/1001,\
+             scale=1280:720:force_original_aspect_ratio=decrease,\
+             pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black[v0];\
+             [v0][1:v]overlay=0:0:enable=between(t\\,0.000\\,4.000)[v1];\
+             [v1]fade=t=in:st=0:d=0.25,fade=t=out:st=3.750:d=0.25[outv]"
+        );
+        assert!(!args.iter().any(|a| a == "-vf"), "overlays need -filter_complex: {args:?}");
+        let maps: Vec<&str> = args.windows(2).filter(|w| w[0] == "-map").map(|w| w[1].as_str()).collect();
+        assert_eq!(maps, ["[outv]", "0:a:0"], "a -map turns auto-selection off, so the audio must be named");
+        assert_eq!(arg_after(&args, "-af"), "asetpts=PTS-STARTPTS");
+        assert!(!args.iter().any(|a| a == "-pix_fmt"), "16:9 path keeps the source pixel format");
+        assert_eq!(args.last().unwrap(), "/tmp/seg.mp4");
+    }
+
+    #[test]
+    fn clip_segment_9x16_overlay_follows_crop_scale_and_setsar() {
+        let args = clip_segment_args(
+            "/v/game.mp4", 0.0, 2.0, Some(&[]), &[overlay("/tmp/ov.png", 0.0, 2.0)], true, "25", "/tmp/seg.mp4",
+        );
+        assert_eq!(
+            arg_after(&args, "-filter_complex"),
+            "[0:v]setpts=PTS-STARTPTS,fps=25,\
+             crop=w=min(iw\\,2*trunc(ih*9/32)):h=ih:x=2*trunc(clip(0.5*iw-ow/2\\,0\\,iw-ow)/2):y=0,\
+             scale=1080:1920:flags=lanczos,setsar=1[v0];\
+             [v0][1:v]overlay=0:0:enable=between(t\\,0.000\\,2.000)[v1];\
+             [v1]fade=t=in:st=0:d=0.25,fade=t=out:st=1.750:d=0.25[outv]"
+        );
+        assert_eq!(arg_after(&args, "-pix_fmt"), "yuv420p");
+    }
+
+    #[test]
+    fn clip_segment_chains_timed_overlays_in_input_order() {
+        let args = clip_segment_args(
+            "/v/game.mp4", 10.0, 14.0, None,
+            &[overlay("/tmp/a.png", 0.5, 2.0), overlay("/tmp/b.png", 1.0, 3.25)],
+            false, "25", "/tmp/seg.mp4",
+        );
+        assert_eq!(&args[7..11], ["-i", "/tmp/a.png", "-i", "/tmp/b.png"]);
+        let graph = arg_after(&args, "-filter_complex");
+        assert!(
+            graph.contains(
+                "[v0];[v0][1:v]overlay=0:0:enable=between(t\\,0.500\\,2.000)[v1];\
+                 [v1][2:v]overlay=0:0:enable=between(t\\,1.000\\,3.250)[v2];[v2]fade=t=in"
+            ),
+            "{graph}"
+        );
+        assert!(graph.ends_with("fade=t=out:st=3.750:d=0.25[outv]"), "{graph}");
+    }
+
+    #[test]
+    fn clip_segment_deserializes_overlays_and_defaults_to_none() {
+        let json = r#"[{"kind":"clip","video_path":"/v/g.mp4","start":1.0,"end":4.0,
+            "overlays":[{"png_base64":"AAAA","from_seconds":0,"to_seconds":3}]},
+            {"kind":"clip","video_path":"/v/g.mp4","start":1.0,"end":4.0}]"#;
+        let segments: Vec<ExportSegment> = serde_json::from_str(json).unwrap();
+        assert!(matches!(&segments[0], ExportSegment::Clip { overlays, .. }
+            if overlays.len() == 1 && overlays[0].png_base64 == "AAAA" && overlays[0].to_seconds == 3.0));
+        assert!(matches!(&segments[1], ExportSegment::Clip { overlays, .. } if overlays.is_empty()));
     }
 
     fn png_base64(w: u32, h: u32) -> String {
@@ -1658,8 +1828,8 @@ mod tests {
         let src_fps = probe_blocking(&ffmpeg, std::path::Path::new(&src)).fps;
         let rate = export_frame_rate(Some(src_fps));
         run_ffmpeg_blocking(&ffmpeg, &text_card_args(&p("card.png"), 2.0, &rate, &p("t1.mp4")));
-        run_ffmpeg_blocking(&ffmpeg, &clip_segment_args(&src, base + 2.0, base + 5.0, None, false, &rate, &p("c1.mp4")));
-        run_ffmpeg_blocking(&ffmpeg, &clip_segment_args(&src, base + 6.0, base + 9.0, None, false, &rate, &p("c2.mp4")));
+        run_ffmpeg_blocking(&ffmpeg, &clip_segment_args(&src, base + 2.0, base + 5.0, None, &[], false, &rate, &p("c1.mp4")));
+        run_ffmpeg_blocking(&ffmpeg, &clip_segment_args(&src, base + 6.0, base + 9.0, None, &[], false, &rate, &p("c2.mp4")));
         let inputs = [p("t1.mp4"), p("c1.mp4"), p("c2.mp4")];
         run_ffmpeg_blocking(&ffmpeg, &concat_args(&inputs, Some(&p("wm.png")), false, &rate, &p("out.mp4")));
 
@@ -1669,6 +1839,67 @@ mod tests {
         let want = src_fps.min(60.0);
         assert!((fps - want).abs() < 0.01, "output rate {fps}, want the source's {want}");
         eprintln!("source {src_fps} fps -> rate {rate}: output level {level}, {fps} fps");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// End to end with the bundled ffmpeg: a clip with a timed overlay. The
+    /// white box must be in the frame inside its window and gone outside it,
+    /// the transparent area must stay footage, and the overlaid segment must
+    /// keep the iPhone-safe level through the concat pass. Run with
+    /// `cargo test -- --ignored`.
+    #[test]
+    #[ignore = "needs the untracked ffmpeg sidecar in src-tauri/binaries"]
+    fn export_with_clip_overlay_burns_the_png_in() {
+        let ffmpeg = sidecar_ffmpeg().expect("bundled ffmpeg missing in src-tauri/binaries");
+        let dir = scratch("export_overlay_e2e");
+        let p = |name: &str| dir.join(name).to_str().unwrap().to_string();
+
+        // lavfi can't be seeked, so the source is a file: 6 s of black with a tone.
+        run_ffmpeg_blocking(&ffmpeg, &[
+            "-y", "-f", "lavfi", "-i", "color=black:s=1280x720:r=25",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
+            "-t", "6", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", &p("src.mp4"),
+        ].map(String::from));
+
+        let mut ov = image::RgbaImage::from_pixel(1280, 720, image::Rgba([0, 0, 0, 0]));
+        for y in 36..136 {
+            for x in 40..440 {
+                ov.put_pixel(x, y, image::Rgba([255, 255, 255, 255]));
+            }
+        }
+        ov.save(dir.join("ov.png")).unwrap();
+        render_watermark_png(&dir.join("wm.png")).unwrap();
+
+        let src = p("src.mp4");
+        run_ffmpeg_blocking(
+            &ffmpeg,
+            &clip_segment_args(&src, 0.0, 4.0, None, &[overlay(&p("ov.png"), 1.0, 2.0)], false, "25", &p("c1.mp4")),
+        );
+
+        let pixel = |at: &str, x: u32, y: u32| -> [u8; 3] {
+            let frame = p(&format!("f{at}.png"));
+            run_ffmpeg_blocking(&ffmpeg, &["-y", "-ss", at, "-i", &p("c1.mp4"), "-frames:v", "1", &frame].map(String::from));
+            image::open(&frame).unwrap().to_rgb8().get_pixel(x, y).0
+        };
+        let inside = pixel("1.5", 100, 80);
+        assert!(inside.iter().all(|c| *c > 200), "overlay missing inside its window: {inside:?}");
+        let after = pixel("3.0", 100, 80);
+        assert!(after.iter().all(|c| *c < 40), "overlay still there after its window: {after:?}");
+        let clear = pixel("1.5", 800, 500);
+        assert!(clear.iter().all(|c| *c < 40), "the transparent area must stay footage: {clear:?}");
+
+        let inputs = [p("c1.mp4")];
+        run_ffmpeg_blocking(&ffmpeg, &concat_args(&inputs, Some(&p("wm.png")), false, "25", &p("out.mp4")));
+        let level = avc_level(&std::fs::read(dir.join("out.mp4")).unwrap());
+        assert!(level <= 42, "H.264 level {level} (iPhones refuse anything above 42 = 4.2)");
+
+        image::RgbaImage::from_pixel(1080, 1920, image::Rgba([0, 0, 0, 0])).save(dir.join("ov9.png")).unwrap();
+        run_ffmpeg_blocking(
+            &ffmpeg,
+            &clip_segment_args(&src, 0.0, 2.0, Some(&[]), &[overlay(&p("ov9.png"), 0.0, 2.0)], true, "25", &p("c9.mp4")),
+        );
+        assert!(std::fs::metadata(dir.join("c9.mp4")).unwrap().len() > 4096, "9:16 overlaid segment is empty");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
