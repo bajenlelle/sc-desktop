@@ -32,11 +32,9 @@ function ActiveRowPill() {
 /**
  * One clip in a recipient's playlist: the event and player, then period,
  * clock, team and (in multi-game playlists) the game; whether it has been
- * watched, and the coach's note. The playing row carries the springing
- * highlight. Stacked under the player (narrower than the watch view's
- * side-by-side width) the row is what says what's playing, so it shows the
- * note in full; side by side, the note shows on the clip itself and the row
- * only marks that there is one (the full text on hover).
+ * watched, and a mark when the coach left a note: the note itself shows on
+ * the clip, the row only says there is one (the full text on hover). The
+ * playing row carries the springing highlight.
  */
 export function WatchClipRow({
   rowKey,
@@ -85,17 +83,10 @@ export function WatchClipRow({
             </>
           )}
         </span>
-        {note && (
-          <span className="mt-1 flex min-w-0 items-start gap-1.5 text-subheadline text-foreground/80 @min-[860px]/watch:hidden">
-            <MessageSquare aria-hidden className="mt-[3px] size-3.5 shrink-0 text-primary/70" />
-            <span className="sr-only">Note from your coach:</span>
-            <span className="min-w-0 whitespace-pre-wrap break-words">{note}</span>
-          </span>
-        )}
       </span>
       <span className="relative z-10 flex shrink-0 items-center gap-1.5">
         {note && (
-          <MessageSquare aria-label="Note from your coach" className="hidden size-3.5 text-primary/70 @min-[860px]/watch:block"><title>{note}</title></MessageSquare>
+          <MessageSquare aria-label="Note from your coach" className="size-3.5 text-primary/70"><title>{note}</title></MessageSquare>
         )}
         {active ? (
           <Play aria-label="Playing" className="size-3.5 fill-current text-primary" />

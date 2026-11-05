@@ -1,8 +1,9 @@
 /**
  * The watch screen's list rows: who made the play, then what it was and
  * where it sits in the game (period, clock, team and, in multi-game
- * playlists, the game), the coach's note in full, and whether it has been
- * watched. One 6 pt dot in the event's colour family (eventHue) keeps a long
+ * playlists, the game), a mark when the coach left a note (the note itself
+ * shows on the clip), and whether it has been watched. One 6 pt dot in the
+ * event's colour family (eventHue) keeps a long
  * list scannable without painting every row. The playing row's highlight is
  * one pill that springs from row to row (ActivePill).
  */
@@ -85,15 +86,8 @@ export function WatchClipRow({
           <Text variant="subheadline" nums numberOfLines={1} className="shrink text-muted-foreground">
             {meta}
           </Text>
+          {note ? <Icon name="note" size={13} color={colors.mutedForeground} /> : null}
         </View>
-        {note ? (
-          <View className="mt-1 min-w-0 flex-row items-start gap-1.5">
-            <Icon name="note" size={14} color={colors.mutedForeground} style={{ marginTop: 3 }} />
-            <Text variant="subheadline" className="shrink text-foreground/80">
-              {note}
-            </Text>
-          </View>
-        ) : null}
       </View>
       <RowMark active={active} watched={watched} />
     </Tappable>
