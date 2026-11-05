@@ -22,6 +22,7 @@ import { usePlaylists } from "@/lib/playlists-store";
 import { supabase } from "@/lib/supabase";
 import { useThemeColors } from "@/lib/theme-context";
 import { useClipQueue } from "@/hooks/use-clip-queue";
+import { ClipCaption } from "@/components/player/ClipCaption";
 import { PlayerStage } from "@/components/player/PlayerStage";
 import { useStageFullscreen } from "@/components/player/use-stage-fullscreen";
 import { ActivePill, WatchClipRow, WatchTextCardRow, useActivePill } from "@/components/WatchClipRow";
@@ -231,6 +232,7 @@ export default function WatchScreen() {
               </Text>
             </View>
           )}
+          {activeClip?.note && !activeCard && <ClipCaption key={activeClip.key} text={activeClip.note} />}
         </PlayerStage>
       </View>
 
