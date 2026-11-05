@@ -65,7 +65,7 @@ export function WatchClipRow({
         </span>
       </span>
       <span className="relative z-10 flex shrink-0 items-center gap-1.5">
-        {note && <MessageSquare aria-label="Note from your coach" className="size-3.5 text-primary/70" />}
+        {note && <MessageSquare aria-label="Note from your coach" className="size-3.5 text-primary/70"><title>{note}</title></MessageSquare>}
         {active ? (
           <Play aria-label="Playing" className="size-3.5 fill-current text-primary" />
         ) : watched ? (

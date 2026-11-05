@@ -31,7 +31,7 @@ import { VideoPlaceholder } from "@/components/video-placeholder";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { CardImage } from "@/components/editor/card-image";
 import { ClipCaption } from "@/components/player/clip-caption";
-import { CAPTION_MAX_CHARS } from "@scoutable/shared/lib/clip-caption";
+import { ClipNoteField } from "@/components/editor/clip-note-field";
 import { StatsCardInspector } from "@/components/editor/stats-card-inspector";
 import type { ScoutingReportRun } from "@/components/editor/scouting-report-dialog";
 import { ReportView } from "@/components/report/report-view";
@@ -589,6 +589,10 @@ export function PlaylistsPage() {
   /** What was typed but not saved yet, with the clip it was typed on: a save never lands on whichever clip is active when the timer fires. */
   const pendingNoteRef = useRef<{ playlistId: string; matchId: string; eventId: number; note: string } | null>(null);
   const noteFieldRef = useRef<HTMLTextAreaElement>(null);
+  /** While the coach writes, a clip that ends waits instead of handing the field to the next one. */
+  const noteFocusRef = useRef(false);
+  /** The note as it was when the field was focused: one analytics event per visit, not per save. */
+  const noteAtFocusRef = useRef("");
   const clipEndRef = useRef<number | undefined>(undefined);
   const pendingSeekRef = useRef<{ seekTo: number; clipEnd: number } | null>(null);
   const preRollRef = useRef(preRoll);
@@ -1617,9 +1621,7 @@ export function PlaylistsPage() {
     if (selectedRef.current) selectedRef.current = patch(selectedRef.current);
     setSelected((prev) => (prev ? patch(prev) : prev));
     setPlaylists((prev) => prev.map(patch));
-    if (note !== before) {
-      trackEvent("clip_note_set", { length: note.length, lines: note ? note.split("\n").length : 0, cleared: note === "" });
-    }
+    if (note === before) return;
     updateClip(playlistId, matchId, eventId, { note: note || null }).catch((e) => {
       Sentry.captureException(e);
       toast.error("Couldn't save the note");
@@ -1643,6 +1645,20 @@ export function PlaylistsPage() {
     pendingNoteRef.current = { playlistId: selected.id, matchId: activeMatchId, eventId: activeEventId, note: value };
     if (clipNoteSaveTimerRef.current) clearTimeout(clipNoteSaveTimerRef.current);
     clipNoteSaveTimerRef.current = setTimeout(flushClipNote, 600);
+  }
+
+  function handleNoteFocus() {
+    noteFocusRef.current = true;
+    noteAtFocusRef.current = clipNote.trim();
+  }
+
+  function handleNoteBlur() {
+    noteFocusRef.current = false;
+    flushClipNote();
+    const note = clipNote.trim();
+    if (note !== noteAtFocusRef.current) {
+      trackEvent("clip_note_set", { length: note.length, lines: note ? note.split("\n").length : 0, cleared: note === "" });
+    }
   }
 
   // Leaving the page mid-type must not lose the note.
@@ -1895,6 +1911,11 @@ export function PlaylistsPage() {
       if (video.currentTime < end) return;
       // Guard: if we're >60s past clipEnd the video is at a stale position (seek in progress)
       if (video.currentTime > end + 60) return;
+      // The coach is writing this clip's note: wait here; play goes on to the next clip.
+      if (noteFocusRef.current) {
+        video.pause();
+        return;
+      }
 
       clipEndRef.current = undefined;
       video.pause();
@@ -4797,7 +4818,7 @@ export function PlaylistsPage() {
             )}
             {/* The note as the players and the export see it, following every keystroke. */}
             {activeEventId !== null && !cardOnStage && clipNote.trim() && (
-              <ClipCaption key={activeKey ?? "note"} text={clipNote} />
+              <ClipCaption key={activeKey ?? "note"} text={clipNote} preview />
             )}
             {stageCard && (
               <div className="absolute inset-0 z-10 bg-black">
@@ -4941,32 +4962,13 @@ export function PlaylistsPage() {
               );
             })()}
             {activeEventId !== null && (
-              <div className="flex flex-col gap-1">
-                <textarea
-                  ref={noteFieldRef}
-                  className="w-full resize-none rounded-md bg-card px-3 py-2 text-sm text-foreground ring-1 ring-separator outline-none transition-[box-shadow] duration-150 placeholder:text-muted-foreground/60 focus:ring-2 focus:ring-selection"
-                  rows={2}
-                  maxLength={CAPTION_MAX_CHARS}
-                  placeholder="Note for players, shown on the clip…"
-                  value={clipNote}
-                  onChange={(e) => handleNoteChange(e.target.value)}
-                  onKeyDown={(e) => {
-                    // Return finishes (Shift+Return breaks a line); so does Esc.
-                    if ((e.key === "Enter" && !e.shiftKey) || e.key === "Escape") {
-                      e.preventDefault();
-                      e.currentTarget.blur();
-                    }
-                  }}
-                  onBlur={flushClipNote}
-                />
-                {CAPTION_MAX_CHARS - clipNote.length <= 20 && (
-                  <span className="self-end text-caption text-muted-foreground nums">
-                    {CAPTION_MAX_CHARS - clipNote.length === 1
-                      ? "1 character left"
-                      : `${CAPTION_MAX_CHARS - clipNote.length} characters left`}
-                  </span>
-                )}
-              </div>
+              <ClipNoteField
+                fieldRef={noteFieldRef}
+                value={clipNote}
+                onChange={handleNoteChange}
+                onFocus={handleNoteFocus}
+                onBlur={handleNoteBlur}
+              />
             )}
           </div>
         )}

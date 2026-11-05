@@ -248,12 +248,12 @@ async function buildRustSegments(
     if (seg.kind === 'text') cards.set(seg, await cardSegment(seg, vertical));
   }
 
-  // The note pills, one drawing per distinct note. A note that can't be
-  // drawn leaves its clip bare (there is no Rust fallback for a pill), and
-  // the coach is told once.
+  // The note pills, one drawing per distinct note. There is no Rust
+  // fallback for a pill, and a bare render would be reused by Send to my
+  // phone under the note's own key, so a note that can't be drawn stops the
+  // export instead.
   const aspect: CardAspect = vertical ? "9:16" : "16:9";
-  const captions = new Map<string, string | null>();
-  let undrawn = 0;
+  const captions = new Map<string, string>();
   for (const seg of segments) {
     if (seg.kind !== 'clip') continue;
     const note = seg.note?.trim();
@@ -261,12 +261,10 @@ async function buildRustSegments(
     try {
       captions.set(note, await clipCaptionPngBase64(note, aspect));
     } catch (e) {
-      console.warn("Note drawing failed; exporting the clip without it", e);
-      captions.set(note, null);
-      undrawn++;
+      console.warn("Note drawing failed", e);
+      throw new Error("Couldn't draw the clip notes. Try the export again.");
     }
   }
-  if (undrawn > 0) toast.warning("Some clip notes couldn't be drawn. The video is exported without them.");
 
   const rustSegments: RustSegment[] = segments
     .map((seg): RustSegment | null => {

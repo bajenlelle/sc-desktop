@@ -67,7 +67,8 @@ export function ClipCaption({ text }: { text: string }) {
           >
             <Text
               numberOfLines={CAPTION_MAX_LINES}
-              style={{ color: CAPTION_COLOR, fontSize: font, lineHeight: font * CAPTION_EM.lineHeight, fontWeight: "700" }}
+              className="font-bold"
+              style={{ color: CAPTION_COLOR, fontSize: font, lineHeight: font * CAPTION_EM.lineHeight }}
             >
               {trimmed}
             </Text>

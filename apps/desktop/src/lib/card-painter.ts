@@ -112,7 +112,7 @@ export function paintClipCaption(text: string, aspect: CardAspect, canvas = docu
   ctx.font = font(l.fontSize, CAPTION_WEIGHT);
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
-  const lines = wrapCaption(text, (s) => ctx.measureText(s).width, l.maxWidth - 2 * l.padX, l.maxLines);
+  const lines = wrapCaption(text, (s) => ctx.measureText(s).width, l.textWidth, l.maxLines);
   if (lines.length === 0) return canvas;
   const textWidth = Math.ceil(Math.max(...lines.map((s) => ctx.measureText(s).width)));
   roundedRect(ctx, l.left, l.top, textWidth + 2 * l.padX, lines.length * l.lineHeight + 2 * l.padY, l.radius);
