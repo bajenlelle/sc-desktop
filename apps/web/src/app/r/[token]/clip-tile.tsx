@@ -68,7 +68,7 @@ export function ClipTile({ clip, src, poster, first }: { clip: ReportClip; src: 
             ))}
           </ul>
         )}
-        {clip.note && <p className="report-note text-body text-foreground">{clip.note}</p>}
+        {clip.note && <p className="report-note whitespace-pre-wrap text-body text-foreground">{clip.note}</p>}
       </figcaption>
     </figure>
   );

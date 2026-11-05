@@ -401,7 +401,7 @@ const ClipTileCard = memo(function ClipTileCard({
             ))}
           </div>
         )}
-        {note && <p className="text-footnote text-foreground [text-wrap:pretty]">{note}</p>}
+        {note && <p className="whitespace-pre-wrap text-footnote text-foreground [text-wrap:pretty]">{note}</p>}
       </figcaption>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
