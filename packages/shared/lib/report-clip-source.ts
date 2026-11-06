@@ -3,6 +3,7 @@
  */
 
 import type { PlaylistClipItem, SyncPoint } from "../types/match";
+import type { DrawingShape } from "./clip-drawing";
 import { clipBounds, computeVideoTime } from "./clip-timing";
 import { clipWatchEffects, type WatchDrawing, type WatchSlow } from "./watch-queue";
 
@@ -92,4 +93,53 @@ export function clipEffectsInWindow(item: Pick<PlaylistClipItem, "drawings" | "s
     .filter((s) => s.length >= MIN_SLOW_SECONDS)
     .sort((a, b) => a.at - b.at);
   return { drawings, slows };
+}
+
+/**
+ * How far into a clip its still is taken: just past an uploaded copy's
+ * quarter-second fade-in from black, the clip's first frame worth showing.
+ */
+export const FIRST_FRAME_SECONDS = 0.3;
+
+/** Where a report tile's still comes from: the game's own video, or the clip's uploaded copy. */
+export type ReportFrameRequest = { kind: "local"; path: string; at: number } | { kind: "shared"; url: string; at: number };
+
+const ms = (v: number) => Math.round(v * 1000) / 1000;
+
+/**
+ * The still a report tile shows until it plays: the clip's first frame, from
+ * what the tile would play (the game's video at the clip's start, or the
+ * uploaded copy just past its fade-in). A window too short for the offset
+ * gives its middle. Null when nothing can play.
+ */
+export function reportFirstFrame(source: ReportClipSource): ReportFrameRequest | null {
+  switch (source.kind) {
+    case "local": {
+      const at = source.end - source.start < 2 * FIRST_FRAME_SECONDS ? (source.start + source.end) / 2 : source.start + FIRST_FRAME_SECONDS;
+      return { kind: "local", path: source.path, at: ms(at) };
+    }
+    case "shared":
+      return { kind: "shared", url: source.url, at: FIRST_FRAME_SECONDS };
+    case "none":
+      return null;
+  }
+}
+
+/** A still's cache key: a trim, a sync change or a new upload makes a new one. */
+export function reportFrameKey(request: ReportFrameRequest): string {
+  return request.kind === "local" ? `local|${request.path}|${request.at.toFixed(3)}` : `shared|${request.url}|${request.at.toFixed(3)}`;
+}
+
+/**
+ * The drawing a published clip's poster burns in: the first one its uploaded
+ * file shows (the players' rule over the file's own window, clipWatchEffects),
+ * at the exact frame the coach drew on. Taken from the file, never from
+ * today's pre- and post-roll, so the poster and the PDF never show a drawing
+ * the clip doesn't. Null when the file shows none.
+ */
+export function reportPosterDrawing(item: Pick<PlaylistClipItem, "drawings" | "r2Url">): { t: number; shapes: DrawingShape[] } | null {
+  if (!item.r2Url) return null;
+  const first = clipWatchEffects(item, item.r2Url).drawings?.[0];
+  const drawing = first ? item.drawings?.find((d) => d.id === first.id) : undefined;
+  return drawing ? { t: drawing.t, shapes: drawing.shapes } : null;
 }

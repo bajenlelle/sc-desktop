@@ -94,7 +94,16 @@ players open from a link, and that "Save as PDF" prints.
   shared volume and the load-failure messages are the Clips view's); the
   others are placeholders, and a stopped tile gives its element back
   (`release-video.ts`), since leftover videos in WKWebView end in black paused
-  frames. A click on the footage or Space (while the player has focus) plays
+  frames. A placeholder shows the clip's first frame as a still
+  (`reportFirstFrame`, 0.3 s in, past an uploaded copy's fade-in), asked for
+  once the tile comes within 400 px of the screen (`lib/report-frames.ts`):
+  from the game's own video with ffmpeg (`grab_frames`, three at a time), or,
+  when the video isn't on this computer, from the uploaded copy through one
+  hidden video at a time drawn on a canvas and let go at once (the media host
+  sends `Access-Control-Allow-Origin: *`). Stills are kept for the session by
+  key (a trim, a sync change or a new upload makes a new one); one that failed
+  isn't asked for again. A drawn clip shows its first frame here too; the
+  shared page's poster is its drawn frame. A click on the footage or Space (while the player has focus) plays
   and pauses; the bar has play/pause and the scrubber; at the end the last
   frame stays with Replay; ✕ (Stop), Esc, or the clip leaving the report or
   its section stops it. What plays is `reportClipSource`
@@ -190,8 +199,9 @@ players open from a link, and that "Save as PDF" prints.
   `highlights/<user>/<uuid>.jpg`); the page prepends the media host
   (`NEXT_PUBLIC_R2_PUBLIC_URL`), the database checks the key shapes.
 - **A clip block carries the coach's drawings and slow motion** (`drawings`,
-  `slowMotion`, absent when none): in the clip file's time, as the players get
-  them (`clipWatchEffects`; a file whose key has no `_s` start, from before
+  `slowMotion`, absent when none): in the clip file's time and inside the file,
+  as the players get them (`clipWatchEffects`: the key's `_s` start and its pre
+  + post totals bound it; a file whose key has no start, from before
   2026-09-14, gets neither), with short ids (`d1`, `s1`, `w1`) and points at
   three decimals so a 300-clip report stays within 256 KB. No migration: the
   database checks only keys, posters and the size. The page re-checks every
@@ -262,10 +272,11 @@ Ship the clips in the report that have no hosted file yet (Clip & Ship,
 idempotent; left-out clips aren't cut), cut a
 640 px poster per clip from the local game video (`extract_clip_poster`) and
 upload it as the coach's own `highlights/<user>/<uuid>.jpg` (best effort), then
-publish. A clip the coach drew on gets the drawn frame as its poster: its first
-drawing inside the clip's window, at the frame it was drawn on, with the
-drawing burned in on the export's 16:9 (`clip_poster_args`), so the page shows
-it before play and the PDF prints it. The others get the play's moment, and so
+publish. A clip the coach drew on gets the drawn frame as its poster: the first
+drawing its uploaded file shows (`reportPosterDrawing`: the players' rule over
+the file's own window, read from its key, never today's pre- and post-roll), at
+the frame it was drawn on, with the drawing burned in on the export's 16:9
+(`clip_poster_args`), so the page shows it before play and the PDF prints it. The others get the play's moment, and so
 does a drawn clip whose drawn poster fails. Publishing is the only step that makes anything public; cancelling
 before it publishes nothing. A staging build links to `http://localhost:3000`.
 

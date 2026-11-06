@@ -172,6 +172,30 @@ describe("buildWatchItems and a clip's effects", () => {
     expect((item as { slowMotion: unknown[] }).slowMotion).toHaveLength(1);
   });
 
+  it("drops drawings past the file's end and cuts slow motion there", () => {
+    // The file runs at most pre + post = 13 s (its key's totals).
+    const [item] = buildWatchItems(
+      playlist(
+        clip("m1", 1, {
+          r2Url: shipped,
+          drawings: [
+            { id: "in", t: 112.5, hold: 4, shapes },
+            { id: "edge", t: 112.95, hold: 4, shapes },
+            { id: "out", t: 115, hold: 4, shapes },
+          ],
+          slowMotion: [
+            { id: "a", t: 112, length: 3, rate: 0.5 },
+            { id: "b", t: 113.5, length: 1, rate: 0.5 },
+          ],
+        }),
+      ),
+      events,
+    );
+    expect((item as { drawings: { id: string }[] }).drawings.map((d) => d.id)).toEqual(["in"]);
+    expect(item).toMatchObject({ slowMotion: [{ id: "a", at: 12, length: 1, rate: 0.5 }] });
+    expect((item as { slowMotion: unknown[] }).slowMotion).toHaveLength(1);
+  });
+
   it("leaves the effects out when the file's start is unknown, or there are none", () => {
     const [legacy] = buildWatchItems(playlist(clip("m1", 1, { drawings: [{ id: "d", t: 2, hold: 4, shapes }] })), events);
     expect(legacy).not.toHaveProperty("drawings");

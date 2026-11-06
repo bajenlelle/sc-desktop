@@ -10,7 +10,7 @@
 import type { Playlist, PlayByPlayEvent, PlaylistClipItem, PlaylistTextCard } from "../types/match";
 import type { DrawingShape } from "./clip-drawing";
 import type { SlowRate } from "./clip-timeline";
-import { shippedStart } from "./clip-timing";
+import { shippedStart, shippedTotals } from "./clip-timing";
 import { isClipItem } from "../types/match";
 import type { OrgMembership } from "../types/org";
 import { clipViewKey } from "./clip-views-db";
@@ -53,9 +53,9 @@ const r3 = (v: number) => Math.round(v * 1000) / 1000;
  * A clip's drawings and slow motion in its uploaded file's time: the file
  * starts at the clip's cut, which its key records (to a tenth of a second,
  * so a frozen frame can be a frame off the editor's). A key without a start
- * (older uploads) carries neither. Drawings before the file's first tenth
- * are dropped and sections are clipped to the file's start; the players
- * ignore anything past the file's end.
+ * (older uploads) carries neither. Drawings outside the file (its first
+ * and last tenth included) are dropped and sections are cut to it; its end
+ * is its key's pre + post totals.
  */
 export function clipWatchEffects(
   clip: Pick<PlaylistClipItem, "drawings" | "slowMotion">,
@@ -63,14 +63,18 @@ export function clipWatchEffects(
 ): { drawings?: WatchDrawing[]; slowMotion?: WatchSlow[] } {
   const start = shippedStart(r2Url);
   if (start === null) return {};
+  // The file runs at most its key's pre + post totals (less only when the play
+  // was too early in the video for the whole pre-roll).
+  const totals = shippedTotals(r2Url);
+  const end = totals ? totals.pre + totals.post : Infinity;
   const drawings = (clip.drawings ?? [])
     .map((d) => ({ id: d.id, at: r3(d.t - start), hold: d.hold, shapes: d.shapes }))
-    .filter((d) => d.at >= 0.1)
+    .filter((d) => d.at >= 0.1 && d.at < end - 0.1)
     .sort((a, b) => a.at - b.at);
   const slowMotion = (clip.slowMotion ?? [])
     .map((s) => {
       const at = Math.max(0, s.t - start);
-      return { id: s.id, at: r3(at), length: r3(s.t + s.length - start - at), rate: s.rate };
+      return { id: s.id, at: r3(at), length: r3(Math.min(s.t + s.length - start, end) - at), rate: s.rate };
     })
     .filter((s) => s.length >= 0.1)
     .sort((a, b) => a.at - b.at);

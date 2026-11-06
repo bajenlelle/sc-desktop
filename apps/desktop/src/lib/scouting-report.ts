@@ -23,16 +23,15 @@ import { clipDrawingPngBase64 } from "@/lib/card-painter";
 import { uploadToR2 } from "@/lib/r2-upload";
 import { publishScoutingReport } from "@/lib/scouting-reports-db";
 import type { ExportSegment } from "@/lib/export";
-import type { DrawingShape } from "@scoutable/shared/lib/clip-drawing";
-import { clipBounds, computeVideoTime, shippedStart } from "@scoutable/shared/lib/clip-timing";
+import { computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { isExportCancelled } from "@scoutable/shared/lib/export-progress";
 import { itemKey } from "@scoutable/shared/lib/playlist-edits";
-import { clipEffectsInWindow } from "@scoutable/shared/lib/report-clip-source";
+import { reportPosterDrawing } from "@scoutable/shared/lib/report-clip-source";
 import { deriveReportLayout, type ReportDraft } from "@scoutable/shared/lib/report-draft";
 import { buildScoutingReport, clampReportTitle, type MissingClip } from "@scoutable/shared/lib/scouting-report";
 import { scoutingReportUrl } from "@scoutable/shared/lib/scouting-reports-db";
 import type { ClipShipFailure, ClipShipResult } from "@scoutable/shared/lib/ship-result";
-import { isClipItem, type PlayByPlayEvent, type Playlist, type PlaylistClipItem, type PlaylistItem, type SyncPoint } from "@/types/match";
+import { isClipItem, type PlayByPlayEvent, type Playlist, type PlaylistItem, type SyncPoint } from "@/types/match";
 
 export type ReportStage = "clips" | "posters" | "publishing";
 
@@ -109,20 +108,6 @@ export async function pool<T>(items: readonly T[], limit: number, signal: AbortS
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
-/**
- * The drawing a clip's poster shows: the first inside the clip's window (the
- * window its file was cut with, since a trim or a sync change re-cuts the
- * file), at the exact frame the coach drew on. None when the page can't show
- * drawings for the file (a key without its start), so the PDF never shows a
- * drawing the clip doesn't.
- */
-function posterDrawing(item: PlaylistClipItem, videoTime: number, preRoll: number, postRoll: number): { t: number; shapes: DrawingShape[] } | null {
-  if (!item.r2Url || shippedStart(item.r2Url) === null) return null;
-  const { start, end } = clipBounds(videoTime, preRoll, postRoll, item.preRollOffset, item.postRollOffset);
-  const first = clipEffectsInWindow(item, start, end).drawings[0];
-  return first ? { t: first.at, shapes: first.shapes } : null;
-}
-
 /** The items with freshly uploaded file URLs on their clips. */
 function withUploads(items: PlaylistItem[], uploaded: ClipShipResult["uploaded"]): PlaylistItem[] {
   if (uploaded.length === 0) return items;
@@ -190,7 +175,7 @@ export async function generateScoutingReport(args: GenerateReportArgs): Promise<
         const tempPath = `${tempDir}/sc_poster_${crypto.randomUUID()}.jpg`;
         try {
           // The drawn frame when the coach drew on the clip; the play's moment otherwise, or if that fails.
-          const drawing = posterDrawing(item, at, args.preRoll, args.postRoll);
+          const drawing = reportPosterDrawing(item);
           let drawn = false;
           if (drawing) {
             try {

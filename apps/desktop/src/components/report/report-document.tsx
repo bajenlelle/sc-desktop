@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { ChevronDown, Loader2, MoreHorizontal, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,10 +15,11 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { PopUpButton } from "@/components/ui/pop-up-button";
 import { StatsCardInspector } from "@/components/editor/stats-card-inspector";
 import { LabelChip } from "@/components/labels/LabelChip";
+import { useReportFrame } from "@/lib/report-frames";
 import { cn } from "@/lib/utils";
 import { eventColors, eventLabel, formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { LEFT_OUT, REPORT_INTRO_LIMIT, REPORT_NOTE_LIMIT, REPORT_TITLE_MAX, TEAM_SECTION, sectionLabel, type DraftSection, type Placement, type ReportDraft } from "@scoutable/shared/lib/report-draft";
-import type { ReportClipEffects, ReportClipSource } from "@scoutable/shared/lib/report-clip-source";
+import type { ReportClipEffects, ReportClipSource, ReportFrameRequest } from "@scoutable/shared/lib/report-clip-source";
 import { cardContent, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
 import type { Label } from "@scoutable/shared/types/labels";
 import type { League } from "@scoutable/shared/types/league";
@@ -74,6 +75,8 @@ export interface ReportDocumentProps {
   playingSource: ReportClipSource | null;
   /** The playing clip's drawings and slow motion, in the time of what it plays. */
   playingEffects: ReportClipEffects | null;
+  /** Where a tile's still comes from (its first frame); null when nothing can play. */
+  frameOf: (clip: ViewClip) => ReportFrameRequest | null;
   focusPlayer: boolean;
   /** Goes up when the side panel's row for the playing clip is clicked again (see ReportClipPlayer). */
   playRequest: number;
@@ -320,6 +323,20 @@ function SectionStats({
   );
 }
 
+/** A tile's still, faded in once it has loaded. */
+function Still({ src }: { src: string }) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <img
+      src={src}
+      alt=""
+      draggable={false}
+      onLoad={() => setLoaded(true)}
+      className={cn("absolute inset-0 size-full object-cover transition-opacity duration-200", loaded ? "opacity-100" : "opacity-0")}
+    />
+  );
+}
+
 const ClipTileCard = memo(function ClipTileCard({
   clip,
   here,
@@ -331,6 +348,7 @@ const ClipTileCard = memo(function ClipTileCard({
   count,
   playing,
   effects,
+  frameOf,
   focusPlayer,
   playRequest,
   onPlay,
@@ -352,6 +370,7 @@ const ClipTileCard = memo(function ClipTileCard({
   /** What the tile plays while it is the playing one; null shows the placeholder. */
   playing: ReportClipSource | null;
   effects: ReportClipEffects | null;
+  frameOf: (clip: ViewClip) => ReportFrameRequest | null;
   focusPlayer: boolean;
   playRequest: number;
   onPlay: () => void;
@@ -373,6 +392,21 @@ const ClipTileCard = memo(function ClipTileCard({
     wasPlaying.current = isPlaying;
   }, [isPlaying]);
 
+  // The clip's first frame, asked for once the tile comes near the screen.
+  const frame = useMemo(() => frameOf(clip), [frameOf, clip]);
+  const [near, setNear] = useState(false);
+  useEffect(() => {
+    const el = placeholderRef.current;
+    if (near || !el) return;
+    const observer = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && setNear(true), {
+      root: el.closest<HTMLElement>("[data-report-scroll]"),
+      rootMargin: "400px 0px",
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [near, isPlaying]);
+  const still = useReportFrame(frame, near);
+
   return (
     <figure className="group/tile relative flex flex-col gap-2" data-clip-key={clip.key}>
       {playing ? (
@@ -391,12 +425,21 @@ const ClipTileCard = memo(function ClipTileCard({
           onClick={onPlay}
           aria-label={`Play ${eventLabel(event)}`}
           className={cn(
-            "flex aspect-video items-center justify-center rounded-window bg-fill-2 ring-1 ring-separator outline-none transition-[background-color,box-shadow] duration-300 hover:bg-fill-3 focus-visible:ring-2 focus-visible:ring-selection",
+            "group/still relative flex aspect-video items-center justify-center overflow-hidden rounded-window bg-fill-2 ring-1 ring-separator outline-none transition-[background-color,box-shadow] duration-300 hover:bg-fill-3 focus-visible:ring-2 focus-visible:ring-selection",
             (selected || flashing) && "ring-2 ring-selection",
             flashing && "bg-fill-3",
           )}
         >
-          <Play className="size-5 fill-current text-muted-foreground" aria-hidden />
+          {still ? (
+            <>
+              <Still key={still} src={still} />
+              <span className="relative flex size-11 items-center justify-center rounded-full bg-black/55 text-white ring-1 ring-white/15 backdrop-blur-md transition-transform duration-150 group-hover/still:scale-105 group-active/still:scale-95">
+                <Play className="size-5 translate-x-px fill-current" aria-hidden />
+              </span>
+            </>
+          ) : (
+            <Play className="size-5 fill-current text-muted-foreground" aria-hidden />
+          )}
         </button>
       )}
       <figcaption className="flex flex-col gap-1">
@@ -466,6 +509,7 @@ function ClipGrid({ clips, here, targets, empty, props }: { clips: ViewClip[]; h
             count={many ? props.selected.size : 1}
             playing={props.playingKey === clip.key ? props.playingSource : null}
             effects={props.playingKey === clip.key ? props.playingEffects : null}
+            frameOf={props.frameOf}
             focusPlayer={props.focusPlayer}
             playRequest={props.playingKey === clip.key ? props.playRequest : 0}
             onPlay={() => props.onPlayClip(clip.key)}

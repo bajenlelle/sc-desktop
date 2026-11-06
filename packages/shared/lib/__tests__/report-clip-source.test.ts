@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SyncPoint } from "../../types/match";
-import { reportClipEffects, reportClipSource } from "../report-clip-source";
+import { FIRST_FRAME_SECONDS, reportClipEffects, reportClipSource, reportFirstFrame, reportFrameKey, reportPosterDrawing } from "../report-clip-source";
 
 const sync: SyncPoint = { syncVideoTime: 100, syncRealWorldTime: "2026-10-04T18:00:00Z" };
 const path = "/Users/coach/Movies/game.mp4";
@@ -120,8 +120,8 @@ describe("reportClipEffects", () => {
     ]);
   });
 
-  it("takes the uploaded copy's own time, as the players do", () => {
-    // The copy starts 152 s into the game's video (its key's _s152.0).
+  it("takes the uploaded copy's own time and window, as the players do", () => {
+    // The copy starts 152 s into the game's video (its key's _s152.0) and runs at most 8 + 4 s.
     const fx = reportClipEffects(item, { kind: "shared", url });
     expect(fx.drawings.map((d) => [d.id, d.at])).toEqual([
       ["a", 3],
@@ -129,9 +129,8 @@ describe("reportClipEffects", () => {
       ["late", 10.95],
     ]);
     expect(fx.slows.map((s) => [s.id, s.at, s.length])).toEqual([
-      ["w2", 10.5, 2],
+      ["w2", 10.5, 1.5],
       ["w3", 10.95, 1],
-      ["w4", 18, 1],
     ]);
   });
 
@@ -139,5 +138,64 @@ describe("reportClipEffects", () => {
     expect(reportClipEffects(item, { kind: "none", reason: "no_video" })).toEqual({ drawings: [], slows: [] });
     expect(reportClipEffects({}, { kind: "local", path, start: 150, end: 163 })).toEqual({ drawings: [], slows: [] });
     expect(reportClipEffects(item, { kind: "shared", url: "https://media.scoutable.se/clips/m1/42_pre8.0_post4.0.mp4" })).toEqual({ drawings: [], slows: [] });
+  });
+});
+
+describe("reportFirstFrame", () => {
+  it("takes the game video's frame just after the clip starts", () => {
+    expect(FIRST_FRAME_SECONDS).toBe(0.3);
+    expect(reportFirstFrame({ kind: "local", path, start: 150, end: 163 })).toEqual({ kind: "local", path, at: 150.3 });
+  });
+
+  it("takes the middle of a window too short for that", () => {
+    expect(reportFirstFrame({ kind: "local", path, start: 10, end: 10.4 })).toEqual({ kind: "local", path, at: 10.2 });
+  });
+
+  it("takes the uploaded copy's frame just after its fade-in from black", () => {
+    expect(reportFirstFrame({ kind: "shared", url })).toEqual({ kind: "shared", url, at: 0.3 });
+  });
+
+  it("has nothing for a clip that can't play", () => {
+    expect(reportFirstFrame({ kind: "none", reason: "no_video" })).toBeNull();
+  });
+});
+
+describe("reportFrameKey", () => {
+  it("changes with the file and with where the clip starts in it", () => {
+    const a = reportFrameKey({ kind: "local", path, at: 150.3 });
+    expect(reportFrameKey({ kind: "local", path, at: 150.3 })).toBe(a);
+    expect(reportFrameKey({ kind: "local", path, at: 151.3 })).not.toBe(a);
+    expect(reportFrameKey({ kind: "local", path: "/Users/coach/Movies/other.mp4", at: 150.3 })).not.toBe(a);
+    const b = reportFrameKey({ kind: "shared", url, at: 0.3 });
+    expect(b).not.toBe(a);
+    expect(reportFrameKey({ kind: "shared", url: url.replace("_s152.0", "_s153.0"), at: 0.3 })).not.toBe(b);
+  });
+});
+
+describe("reportPosterDrawing", () => {
+  // Shipped with a 5 s pre-roll: the file starts 5 s before the play (at 100) and runs 3 s past it.
+  const shipped = "https://media.scoutable.se/clips/m1/42_pre5.0_post3.0_s95.0.mp4";
+  const spot = (x: number) => [{ kind: "spotlight" as const, id: `s${x}`, at: { x, y: 0.5 }, r: 0.1 }];
+
+  it("burns in the first drawing the clip's file shows, at the frame it was drawn on", () => {
+    const item = {
+      r2Url: shipped,
+      drawings: [
+        { id: "before", t: 93, hold: 4, shapes: spot(0.1) }, // before the file starts: the page never shows it
+        { id: "second", t: 99.5, hold: 4, shapes: spot(0.3) },
+        { id: "first", t: 97.123, hold: 4, shapes: spot(0.2) },
+        { id: "after", t: 104, hold: 4, shapes: spot(0.4) }, // past the file's end
+      ],
+    };
+    expect(reportPosterDrawing(item)).toEqual({ t: 97.123, shapes: spot(0.2) });
+  });
+
+  it("has none when the file shows no drawing, doesn't say where it starts, or isn't there", () => {
+    const outside = [{ id: "before", t: 93, hold: 4, shapes: spot(0.1) }, { id: "after", t: 104, hold: 4, shapes: spot(0.4) }];
+    expect(reportPosterDrawing({ r2Url: shipped, drawings: outside })).toBeNull();
+    const inside = [{ id: "in", t: 97, hold: 4, shapes: spot(0.2) }];
+    expect(reportPosterDrawing({ r2Url: "https://media.scoutable.se/clips/m1/42_pre5.0_post3.0.mp4", drawings: inside })).toBeNull();
+    expect(reportPosterDrawing({ drawings: inside })).toBeNull();
+    expect(reportPosterDrawing({ r2Url: shipped })).toBeNull();
   });
 });

@@ -40,7 +40,7 @@ import {
   type ReportDraft,
 } from "@scoutable/shared/lib/report-draft";
 import { leaderCompetition, leaderRows } from "@scoutable/shared/lib/report-leaders";
-import { reportClipEffects, reportClipSource, type ReportClipSource } from "@scoutable/shared/lib/report-clip-source";
+import { reportClipEffects, reportClipSource, reportFirstFrame, type ReportClipSource } from "@scoutable/shared/lib/report-clip-source";
 import { buildScoutingReport, reportOutline } from "@scoutable/shared/lib/scouting-report";
 import type { Label } from "@scoutable/shared/types/labels";
 import type { League } from "@scoutable/shared/types/league";
@@ -478,6 +478,8 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
       }),
     [localVideoPath, matchLookup, preRoll, postRoll],
   );
+  // The still each tile shows until it plays: the clip's first frame, from what it would play.
+  const frameOf = useCallback((clip: ViewClip) => reportFirstFrame(sourceOf(clip)), [sourceOf]);
   const playingClip = livePlaying ? clipByKey.get(livePlaying.key)?.clip : undefined;
   const playingSource = useMemo(() => (playingClip ? sourceOf(playingClip) : null), [playingClip, sourceOf]);
   // The coach's drawings and slow motion, in the time of what the tile plays.
@@ -636,7 +638,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
         ) : (
           <div className="w-[288px] shrink-0 border-r border-separator" />
         )}
-        <div ref={scrollRef} className="min-w-0 flex-1 overflow-y-auto">
+        <div ref={scrollRef} data-report-scroll className="min-w-0 flex-1 overflow-y-auto">
           {draft ? (
             <>
               <ReportDocument
@@ -665,6 +667,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
                 playingKey={livePlaying?.key ?? null}
                 playingSource={playingSource}
                 playingEffects={playingEffects}
+                frameOf={frameOf}
                 focusPlayer={livePlaying?.via === "tile"}
                 playRequest={playRequest}
                 onPlayClip={(key) => playClip(key, "tile")}
