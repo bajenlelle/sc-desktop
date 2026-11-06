@@ -319,9 +319,7 @@ fn clip_segment_args(
              scale=1080:1920:flags=lanczos,setsar=1"
         )
     } else {
-        "scale=1280:720:force_original_aspect_ratio=decrease,\
-         pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black"
-            .to_string()
+        LANDSCAPE_FRAME.to_string()
     };
     let fades = format!("fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start:.3}:d=0.25");
 
@@ -920,18 +918,53 @@ fn resolve_output_within(output_path: &str, dir: &std::path::Path, who: &str) ->
         .join(file_name))
 }
 
+/// The 16:9 frame every landscape export draws on: the source fitted into
+/// 1280×720, with black bars where its shape differs. Overlays (a note, a
+/// drawing) are 1280×720 PNGs over this frame.
+const LANDSCAPE_FRAME: &str = "scale=1280:720:force_original_aspect_ratio=decrease,\
+                               pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black";
+
+/// ffmpeg's arguments for a clip's poster: one frame at `seek`, 640 px wide.
+/// With a drawing (a 1280×720 PNG, an export overlay), the frame is first
+/// fitted to the export's frame, the drawing laid over it and the whole
+/// scaled to 640×360, so the poster shows what the export shows there.
+fn clip_poster_args(seek: f64, video: &str, overlay_png: Option<&str>, out: &str) -> Vec<String> {
+    let mut args: Vec<String> = vec!["-y".into(), "-ss".into(), format!("{seek:.3}"), "-i".into(), video.into()];
+    match overlay_png {
+        None => args.extend(["-frames:v", "1", "-vf", "scale=640:-2"].map(String::from)),
+        Some(png) => args.extend([
+            "-i".into(),
+            png.into(),
+            "-filter_complex".into(),
+            format!("[0:v]{LANDSCAPE_FRAME}[b];[b][1:v]overlay=0:0,scale=640:360,setsar=1[out]"),
+            "-map".into(),
+            "[out]".into(),
+            "-frames:v".into(),
+            "1".into(),
+        ]),
+    }
+    args.extend(["-q:v".into(), "4".into(), out.into()]);
+    args
+}
+
 /// One frame of the coach's own game video at `at_seconds`, as a 640 px JPEG:
 /// the poster of a clip in a scouting report (a video doesn't print, its
 /// poster does). The input must be a real file (no URL or protocol reaches
 /// ffmpeg: the path is resolved first); the output must be inside the temp
 /// dir, like every file this app writes for upload. If the second asked for is
 /// past the end, an earlier one is tried, so a clip near the end still gets one.
+///
+/// With `overlay_png_base64` (a drawing painted at the export's 1280×720),
+/// the drawing is burned into that frame: the poster of a clip the coach drew
+/// on is the drawn frame, which is what the report's PDF prints. Only that
+/// exact second will do then; the app falls back to a plain poster.
 #[tauri::command]
 async fn extract_clip_poster(
     app: tauri::AppHandle,
     video_path: String,
     at_seconds: f64,
     output_path: String,
+    overlay_png_base64: Option<String>,
 ) -> Result<(), String> {
     use tauri_plugin_shell::ShellExt;
     if !at_seconds.is_finite() || at_seconds < 0.0 {
@@ -947,32 +980,46 @@ async fn extract_clip_poster(
 
     let video_arg = video.to_string_lossy().to_string();
     let output_arg = output.to_string_lossy().to_string();
-    let mut last_err = String::from("no frame extracted");
-    for seek in [at_seconds, (at_seconds - 3.0).max(0.0)] {
-        let result = app
-            .shell()
-            .sidecar("ffmpeg")
-            .map_err(|e| e.to_string())?
-            .args([
-                "-y",
-                "-ss", &format!("{seek:.3}"),
-                "-i", &video_arg,
-                "-frames:v", "1",
-                "-vf", "scale=640:-2",
-                "-q:v", "4",
-                &output_arg,
-            ])
-            .output()
-            .await
-            .map_err(sidecar_error)?;
-        // ffmpeg can exit 0 without producing a frame when -ss is past EOF.
-        let produced = std::fs::metadata(&output).map(|m| m.len() > 0).unwrap_or(false);
-        if result.status.success() && produced {
-            return Ok(());
+
+    // The drawing goes to disk next to the output (inside the temp dir), and
+    // is removed whatever happens.
+    let overlay = match overlay_png_base64 {
+        Some(b64) => {
+            let bytes = decode_card_png(&b64, false).map_err(|e| format!("extract_clip_poster: {e}"))?;
+            let path = output.with_extension("drawing.png");
+            std::fs::write(&path, &bytes).map_err(|e| format!("extract_clip_poster: cannot save the drawing: {e}"))?;
+            Some(path)
         }
-        last_err = String::from_utf8_lossy(&result.stderr).to_string();
+        None => None,
+    };
+    let overlay_arg = overlay.as_ref().map(|p| p.to_string_lossy().to_string());
+    let seeks = if overlay.is_some() { vec![at_seconds] } else { vec![at_seconds, (at_seconds - 3.0).max(0.0)] };
+
+    let result = async {
+        let mut last_err = String::from("no frame extracted");
+        for seek in seeks {
+            let result = app
+                .shell()
+                .sidecar("ffmpeg")
+                .map_err(|e| e.to_string())?
+                .args(clip_poster_args(seek, &video_arg, overlay_arg.as_deref(), &output_arg))
+                .output()
+                .await
+                .map_err(sidecar_error)?;
+            // ffmpeg can exit 0 without producing a frame when -ss is past EOF.
+            let produced = std::fs::metadata(&output).map(|m| m.len() > 0).unwrap_or(false);
+            if result.status.success() && produced {
+                return Ok(());
+            }
+            last_err = String::from_utf8_lossy(&result.stderr).to_string();
+        }
+        Err(format!("extract_clip_poster: {last_err}"))
     }
-    Err(format!("extract_clip_poster: {last_err}"))
+    .await;
+    if let Some(path) = &overlay {
+        let _ = std::fs::remove_file(path);
+    }
+    result
 }
 
 #[tauri::command]
@@ -1998,6 +2045,30 @@ mod tests {
     }
 
     #[test]
+    fn clip_poster_without_a_drawing_is_the_plain_frame() {
+        let args = clip_poster_args(12.5, "/v/game.mp4", None, "/tmp/p.jpg");
+        assert_eq!(
+            args,
+            ["-y", "-ss", "12.500", "-i", "/v/game.mp4", "-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "4", "/tmp/p.jpg"]
+        );
+    }
+
+    #[test]
+    fn clip_poster_with_a_drawing_burns_it_into_the_exports_frame() {
+        let args = clip_poster_args(12.5, "/v/game.mp4", Some("/tmp/d.png"), "/tmp/p.jpg");
+        assert_eq!(
+            args,
+            [
+                "-y", "-ss", "12.500", "-i", "/v/game.mp4", "-i", "/tmp/d.png",
+                "-filter_complex",
+                "[0:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black[b];\
+                 [b][1:v]overlay=0:0,scale=640:360,setsar=1[out]",
+                "-map", "[out]", "-frames:v", "1", "-q:v", "4", "/tmp/p.jpg",
+            ]
+        );
+    }
+
+    #[test]
     fn text_card_is_rendered_at_the_export_rate() {
         let args = text_card_args("/tmp/card.png", 3.0, "25", "/tmp/t.mp4");
         assert_eq!(arg_after(&args, "-framerate"), "25");
@@ -2174,6 +2245,35 @@ mod tests {
             }
         }
         ov.save(path).unwrap();
+    }
+
+    /// The poster of a clip the coach drew on: the drawing burned into the
+    /// frame, on the export's 16:9 at 640×360, a 4:3 source letterboxed like
+    /// the export. Run with `cargo test -- --ignored poster`.
+    #[test]
+    #[ignore = "needs the untracked ffmpeg sidecar in src-tauri/binaries"]
+    fn clip_poster_with_a_drawing_shows_it_on_the_exports_frame() {
+        let ffmpeg = sidecar_ffmpeg().expect("bundled ffmpeg missing in src-tauri/binaries");
+        let dir = scratch("poster_drawing_e2e");
+        let p = |name: &str| dir.join(name).to_str().unwrap().to_string();
+        run_ffmpeg_blocking(&ffmpeg, &[
+            "-y", "-f", "lavfi", "-i", "color=black:s=960x720:r=25", "-t", "4",
+            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", &p("src.mp4"),
+        ].map(String::from));
+        white_box_png(&dir.join("draw.png"));
+
+        run_ffmpeg_blocking(&ffmpeg, &clip_poster_args(2.0, &p("src.mp4"), Some(&p("draw.png")), &p("drawn.jpg")));
+        let drawn = image::open(dir.join("drawn.jpg")).unwrap().to_rgb8();
+        assert_eq!(drawn.dimensions(), (640, 360));
+        // The box spans 40..440 × 36..136 of the 1280×720 drawing: 20..220 × 18..68 here.
+        let inside = drawn.get_pixel(50, 40).0;
+        assert!(inside.iter().all(|c| *c > 200), "the drawing is missing: {inside:?}");
+        let footage = drawn.get_pixel(400, 300).0;
+        assert!(footage.iter().all(|c| *c < 40), "outside the drawing the frame must stay footage: {footage:?}");
+
+        run_ffmpeg_blocking(&ffmpeg, &clip_poster_args(2.0, &p("src.mp4"), None, &p("plain.jpg")));
+        assert_eq!(image::open(dir.join("plain.jpg")).unwrap().to_rgb8().dimensions(), (640, 480), "a plain poster keeps the source's shape");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The mean of the pixel's channels at `at` seconds.
