@@ -93,3 +93,11 @@ describe("the note key", () => {
     expect(resolvePlayerKey(key("KeyN", { metaKey: true }))).toBeNull();
   });
 });
+
+describe("the draw key", () => {
+  it("D draws on the clip; Shift+D and ⌘D are left alone", () => {
+    expect(resolvePlayerKey(key("KeyD"))).toBe("draw");
+    expect(resolvePlayerKey(key("KeyD", { shiftKey: true }))).toBeNull();
+    expect(resolvePlayerKey(key("KeyD", { metaKey: true }))).toBeNull();
+  });
+});

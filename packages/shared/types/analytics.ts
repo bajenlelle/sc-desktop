@@ -67,6 +67,8 @@ export type AnalyticsEvent =
   | "stats_card_inserted"
   | "stats_card_suggestion_dismissed"
   | "clip_note_set" // length, lines, cleared: the editor saved a clip's note (shown on the clip)
+  | "clip_drawing_set" // shapes, spotlights, arrows, texts, hold_seconds, drawings_on_clip, removed: the editor saved a drawing on a clip
+  | "clip_slow_motion_set" // rate, length_seconds, sections_on_clip, removed: the editor saved a slow-motion section
   // Scouting report (lib/scouting-report.ts, lib/report-draft.ts). origin: "web" from the web.
   | "scouting_report_opened" // players, clips, has_draft, shared
   | "scouting_report_players_picked" // players (in the report after), added, removed, with_clips, from_leaders, sorted_by

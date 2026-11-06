@@ -12,6 +12,8 @@ import { reportDbError } from "./report";
 import { currentUserId } from "./current-user";
 import type { Playlist, PlaylistItem, PlaylistClipItem, PlaylistTextCard } from "../types/match";
 import type { CropKeyframe } from "./crop-path";
+import type { ClipDrawing } from './clip-drawing';
+import type { SlowSection } from './clip-timeline';
 import { parseCardSpec, type StatsCardSpec } from "./stats-card";
 import { shippedStart } from "./clip-timing";
 
@@ -33,6 +35,9 @@ export interface PlaylistClipRow {
   r2_url: string | null;
   group_id: string | null;
   crop_keyframes: CropKeyframe[] | null;
+  /** Drawings and slow motion on a clip (20261106100000); absent from older selects. */
+  drawings?: ClipDrawing[] | null;
+  slow_motion?: SlowSection[] | null;
   /** A text item's card spec (20261017200000); absent from older selects. */
   card?: unknown;
 }
@@ -98,6 +103,8 @@ export function rowToPlaylist(row: PlaylistRow): Playlist {
         ...(c.crop_keyframes && c.crop_keyframes.length > 0
           ? { cropKeyframes: c.crop_keyframes }
           : {}),
+        ...(c.drawings && c.drawings.length > 0 ? { drawings: c.drawings } : {}),
+        ...(c.slow_motion && c.slow_motion.length > 0 ? { slowMotion: c.slow_motion } : {}),
       } satisfies PlaylistClipItem;
     })
     .filter((x): x is PlaylistItem => x !== null);
@@ -144,6 +151,8 @@ const CLIPS_SELECT = `
   r2_url,
   group_id,
   crop_keyframes,
+  drawings,
+  slow_motion,
   card
 `;
 
@@ -363,6 +372,8 @@ export async function addClips(
       post_roll_offset: clip.postRollOffset ?? 0,
       note: clip.note ?? null,
       crop_keyframes: clip.cropKeyframes ?? null,
+      drawings: clip.drawings ?? null,
+      slow_motion: clip.slowMotion ?? null,
       ...(opts.restore ? { r2_url: clip.r2Url ?? null } : {}),
     }));
   // A clip already in the playlist is a no-op, not an error: every caller
@@ -498,6 +509,8 @@ export async function updateClip(
     postRollOffset?: number;
     note?: string | null;
     cropKeyframes?: CropKeyframe[] | null;
+    drawings?: ClipDrawing[] | null;
+    slowMotion?: SlowSection[] | null;
   }
 ): Promise<void> {
   const row: Record<string, unknown> = {};
@@ -507,6 +520,8 @@ export async function updateClip(
   // Empty array normalizes to NULL — "no keyframes" has one representation.
   if ("cropKeyframes" in patch)
     row.crop_keyframes = patch.cropKeyframes?.length ? patch.cropKeyframes : null;
+  if ("drawings" in patch) row.drawings = patch.drawings?.length ? patch.drawings : null;
+  if ("slowMotion" in patch) row.slow_motion = patch.slowMotion?.length ? patch.slowMotion : null;
   if (Object.keys(row).length === 0) return;
   const { error } = await supabase
     .from("playlist_clips")

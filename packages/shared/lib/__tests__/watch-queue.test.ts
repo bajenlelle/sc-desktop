@@ -9,6 +9,7 @@ import {
   watchProgress,
 } from "../watch-queue";
 import { clipViewKey } from "../clip-views-db";
+import { clipShipKey } from "../clip-timing";
 import type { Playlist, PlayByPlayEvent, PlaylistClipItem, PlaylistTextCard } from "../../types/match";
 import type { OrgMembership } from "../../types/org";
 
@@ -144,5 +145,38 @@ describe("canScrubPlaylist", () => {
     expect(canScrubPlaylist({ userId: "p1", myOrgs: [member("club", "coach")] }, { createdBy: "coach-1" })).toBe(false);
     expect(canScrubPlaylist({ userId: null, myOrgs: [] }, { orgId: "club" })).toBe(false);
     expect(canScrubPlaylist({ userId: undefined, myOrgs: [] }, { orgId: "club", createdBy: undefined })).toBe(false);
+  });
+});
+
+describe("buildWatchItems and a clip's effects", () => {
+  const shipped = `https://media.example/${clipShipKey("m1", 1, 10, 3, 100)}`;
+  const events = new Map([[clipKey("m1", 1), event(1)]]);
+  const playlist = (c: PlaylistClipItem): Playlist => ({ id: "p1", name: "P", items: [c] });
+  const shapes = [{ kind: "spotlight" as const, id: "s", at: { x: 0.5, y: 0.5 }, r: 0.1 }];
+
+  it("rebases a clip's drawings to the file and drops those before it", () => {
+    const [item] = buildWatchItems(
+      playlist(clip("m1", 1, { r2Url: shipped, drawings: [{ id: "late", t: 102.5, hold: 4, shapes }, { id: "early", t: 99, hold: 4, shapes }] })),
+      events,
+    );
+    expect(item).toMatchObject({ drawings: [{ id: "late", at: 2.5, hold: 4, shapes }] });
+    expect((item as { drawings: unknown[] }).drawings).toHaveLength(1);
+  });
+
+  it("clips slow motion to the file's start", () => {
+    const [item] = buildWatchItems(
+      playlist(clip("m1", 1, { r2Url: shipped, slowMotion: [{ id: "a", t: 99.5, length: 1, rate: 0.5 }, { id: "b", t: 99, length: 1, rate: 0.25 }] })),
+      events,
+    );
+    expect(item).toMatchObject({ slowMotion: [{ id: "a", at: 0, length: 0.5, rate: 0.5 }] });
+    expect((item as { slowMotion: unknown[] }).slowMotion).toHaveLength(1);
+  });
+
+  it("leaves the effects out when the file's start is unknown, or there are none", () => {
+    const [legacy] = buildWatchItems(playlist(clip("m1", 1, { drawings: [{ id: "d", t: 2, hold: 4, shapes }] })), events);
+    expect(legacy).not.toHaveProperty("drawings");
+    const [plain] = buildWatchItems(playlist(clip("m1", 1, { r2Url: shipped })), events);
+    expect(plain).not.toHaveProperty("drawings");
+    expect(plain).not.toHaveProperty("slowMotion");
   });
 });

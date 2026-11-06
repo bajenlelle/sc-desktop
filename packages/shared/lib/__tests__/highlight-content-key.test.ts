@@ -159,3 +159,42 @@ describe("highlightContentKey and the clip note", () => {
     );
   });
 });
+
+describe("highlightContentKey and a clip's drawings and slow motion", () => {
+  // The clip's video time is 130 s; with 10 s before and 3 s after it covers 120–133.
+  const synced = (extra: Partial<Extract<HighlightContentSegment, { kind: "clip" }>> = {}): HighlightContentSegment[] => [
+    clip(1, {
+      event: { eventId: 1, realWorldTime: "2026-09-14T18:00:30.000Z" },
+      syncPoint: { syncVideoTime: 100, syncRealWorldTime: "2026-09-14T18:00:00.000Z" },
+      ...extra,
+    }),
+    BASE[1],
+  ];
+  const spot = { kind: "spotlight" as const, id: "s", at: { x: 0.4, y: 0.5 }, r: 0.1 };
+  const drawing = { id: "d", t: 125, hold: 4, shapes: [spot] };
+  const key = (segs: HighlightContentSegment[], aspect: "16:9" | "9:16" = "16:9") => highlightContentKey(segs, 10, 3, aspect);
+
+  it("changes when a drawing inside the clip changes, in both aspects", () => {
+    for (const aspect of ["16:9", "9:16"] as const) {
+      const drawn = key(synced({ drawings: [drawing] }), aspect);
+      expect(drawn).not.toBe(key(synced(), aspect));
+      expect(key(synced({ drawings: [{ ...drawing, shapes: [{ ...spot, at: { x: 0.45, y: 0.5 } }] }] }), aspect)).not.toBe(drawn);
+      expect(key(synced({ drawings: [{ ...drawing, hold: 6 }] }), aspect)).not.toBe(drawn);
+    }
+    // jsonb hands the fields back in its own order: the same drawing keeps its key.
+    const reordered = { shapes: [{ r: 0.1, at: { y: 0.5, x: 0.4 }, id: "s", kind: "spotlight" as const }], hold: 4, t: 125, id: "d" };
+    expect(key(synced({ drawings: [reordered] }))).toBe(key(synced({ drawings: [drawing] })));
+  });
+
+  it("changes when a slow-motion section changes, in both aspects", () => {
+    const slowed = (rate: 0.5 | 0.25) => synced({ slowMotion: [{ id: "s1", t: 124, length: 2, rate }] });
+    for (const aspect of ["16:9", "9:16"] as const) {
+      expect(key(slowed(0.5), aspect)).not.toBe(key(synced(), aspect));
+      expect(key(slowed(0.25), aspect)).not.toBe(key(slowed(0.5), aspect));
+    }
+  });
+
+  it("ignores effects outside the clip's window", () => {
+    expect(key(synced({ drawings: [{ ...drawing, t: 190 }], slowMotion: [{ id: "s1", t: 150, length: 2, rate: 0.5 }] }))).toBe(key(synced()));
+  });
+});

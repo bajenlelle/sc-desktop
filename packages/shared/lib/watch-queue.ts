@@ -7,17 +7,75 @@
  * Clips are identified by game and event together: event ids number the
  * plays within one game, so two games in one playlist can share them.
  */
-import type { Playlist, PlayByPlayEvent, PlaylistTextCard } from "../types/match";
+import type { Playlist, PlayByPlayEvent, PlaylistClipItem, PlaylistTextCard } from "../types/match";
+import type { DrawingShape } from "./clip-drawing";
+import type { SlowRate } from "./clip-timeline";
+import { shippedStart } from "./clip-timing";
 import { isClipItem } from "../types/match";
 import type { OrgMembership } from "../types/org";
 import { clipViewKey } from "./clip-views-db";
 import { isStaffRole } from "./orgs";
 import { playableClips } from "./playlist-feed";
 
+/** A drawing in the clip's uploaded file: `at` is seconds into the file. */
+export interface WatchDrawing {
+  id: string;
+  at: number;
+  hold: number;
+  shapes: DrawingShape[];
+}
+
+/** A slow-motion section in the clip's uploaded file. */
+export interface WatchSlow {
+  id: string;
+  at: number;
+  length: number;
+  rate: SlowRate;
+}
+
 /** One item a recipient can watch: a clip's own uploaded file, or a timed text card. */
 export type WatchItem =
-  | { kind: "clip"; key: string; event: PlayByPlayEvent; matchId: string; r2Url: string; note?: string }
+  | {
+      kind: "clip";
+      key: string;
+      event: PlayByPlayEvent;
+      matchId: string;
+      r2Url: string;
+      note?: string;
+      drawings?: WatchDrawing[];
+      slowMotion?: WatchSlow[];
+    }
   | { kind: "text"; key: string; card: PlaylistTextCard };
+
+const r3 = (v: number) => Math.round(v * 1000) / 1000;
+
+/**
+ * A clip's drawings and slow motion in its uploaded file's time: the file
+ * starts at the clip's cut, which its key records (to a tenth of a second,
+ * so a frozen frame can be a frame off the editor's). A key without a start
+ * (older uploads) carries neither. Drawings before the file's first tenth
+ * are dropped and sections are clipped to the file's start; the players
+ * ignore anything past the file's end.
+ */
+export function clipWatchEffects(
+  clip: Pick<PlaylistClipItem, "drawings" | "slowMotion">,
+  r2Url: string,
+): { drawings?: WatchDrawing[]; slowMotion?: WatchSlow[] } {
+  const start = shippedStart(r2Url);
+  if (start === null) return {};
+  const drawings = (clip.drawings ?? [])
+    .map((d) => ({ id: d.id, at: r3(d.t - start), hold: d.hold, shapes: d.shapes }))
+    .filter((d) => d.at >= 0.1)
+    .sort((a, b) => a.at - b.at);
+  const slowMotion = (clip.slowMotion ?? [])
+    .map((s) => {
+      const at = Math.max(0, s.t - start);
+      return { id: s.id, at: r3(at), length: r3(s.t + s.length - start - at), rate: s.rate };
+    })
+    .filter((s) => s.length >= 0.1)
+    .sort((a, b) => a.at - b.at);
+  return { ...(drawings.length ? { drawings } : {}), ...(slowMotion.length ? { slowMotion } : {}) };
+}
 
 /** The key a clip goes by in the watch list. */
 export function clipKey(matchId: string, eventId: number): string {
@@ -37,7 +95,7 @@ export function buildWatchItems(playlist: Playlist, eventByKey: Map<string, Play
       const key = clipKey(item.matchId, item.eventId);
       const event = eventByKey.get(key);
       if (!event) continue;
-      items.push({ kind: "clip", key, event, matchId: item.matchId, r2Url: item.r2Url, note: item.note });
+      items.push({ kind: "clip", key, event, matchId: item.matchId, r2Url: item.r2Url, note: item.note, ...clipWatchEffects(item, item.r2Url) });
     } else {
       items.push({ kind: "text", key: `text:${item.id}`, card: item });
     }

@@ -56,7 +56,7 @@ describe("writePlaylistItems", () => {
     expect(calls[2].args).toEqual({
       rows: [{
         playlist_id: "pl1", item_type: "clip", match_id: "m1", event_id: 3, position: 0,
-        pre_roll_offset: 0, post_roll_offset: 0, note: null, crop_keyframes: null, r2_url: "c",
+        pre_roll_offset: 0, post_roll_offset: 0, note: null, crop_keyframes: null, drawings: null, slow_motion: null, r2_url: "c",
       }],
       opts: { onConflict: "playlist_id,match_id,event_id", ignoreDuplicates: true },
     });
@@ -168,5 +168,16 @@ describe("changeClipLength", () => {
     const { client, updates } = updateClient([{ message: "boom" }]);
     await expect(changeClipLength(client, "pl1", clip(7, { r2Url: "u" }), 2, -1)).rejects.toThrow(/boom/);
     expect(updates).toHaveLength(1);
+  });
+});
+
+describe("writePlaylistItems and a clip's effects", () => {
+  it("puts a clip back with its drawings and slow motion", async () => {
+    const { client, calls } = fakeClient();
+    const drawings = [{ id: "d1", t: 5, hold: 4, shapes: [] }];
+    const slowMotion = [{ id: "s1", t: 4, length: 2, rate: 0.5 as const }];
+    await writePlaylistItems(client, "pl1", [], [clip(3, { drawings, slowMotion })]);
+    const upsert = calls.find((c) => c.op === "upsert")!;
+    expect((upsert.args as { rows: Record<string, unknown>[] }).rows[0]).toMatchObject({ drawings, slow_motion: slowMotion });
   });
 });

@@ -5,6 +5,8 @@
 
 import type { CropKeyframe } from '../lib/crop-path';
 import type { StatsCardSpec } from '../lib/stats-card';
+import type { ClipDrawing } from '../lib/clip-drawing';
+import type { SlowSection } from '../lib/clip-timeline';
 export type { CropKeyframe };
 
 export type MatchStatus = "pending" | "processing" | "completed" | "failed";
@@ -220,6 +222,10 @@ export interface PlaylistClipItem {
   groupId?: string;        // ordering-lock group (editor-only); members stay contiguous
   /** Vertical-export pan path; absent = static centered crop. See lib/crop-path.ts. */
   cropKeyframes?: CropKeyframe[];
+  /** Drawings on the clip: each freezes one frame (absolute source time) for `hold` seconds. See lib/clip-drawing.ts. */
+  drawings?: ClipDrawing[];
+  /** Slow-motion sections (absolute source time). See lib/clip-timeline.ts. */
+  slowMotion?: SlowSection[];
 }
 
 export interface PlaylistTextCard {

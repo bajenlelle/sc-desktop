@@ -775,3 +775,18 @@ describe("replaceClipR2Url", () => {
     await expect(replaceClipR2Url(client, "pl1", "m1", 7, "a", "b")).rejects.toThrow(/boom/);
   });
 });
+
+describe("rowToPlaylist and a clip's effects", () => {
+  const drawing = { id: "d1", t: 102.5, hold: 4, shapes: [] };
+  const slow = { id: "s1", t: 101, length: 2, rate: 0.5 as const };
+
+  it("keeps a clip's drawings and slow motion and omits the keys when there are none", () => {
+    const withEffects = rowToPlaylist(plRow({ playlist_clips: [clipRow({ drawings: [drawing], slow_motion: [slow] })] }));
+    expect(withEffects.items[0]).toMatchObject({ drawings: [drawing], slowMotion: [slow] });
+    for (const empty of [null, []]) {
+      const item = rowToPlaylist(plRow({ playlist_clips: [clipRow({ drawings: empty as never, slow_motion: empty as never })] })).items[0];
+      expect(item).not.toHaveProperty("drawings");
+      expect(item).not.toHaveProperty("slowMotion");
+    }
+  });
+});

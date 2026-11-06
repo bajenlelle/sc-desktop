@@ -4,7 +4,9 @@
  * platform Supabase client.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { computeVideoTime } from "./clip-timing";
+import { clipBounds, computeVideoTime } from "./clip-timing";
+import { DRAWING_RENDER_VERSION, type ClipDrawing, type DrawingShape } from "./clip-drawing";
+import type { SlowSection } from "./clip-timeline";
 import type { SyncPoint } from "../types/match";
 import { CARD_RENDER_VERSION } from "./card-layout";
 import { CAPTION_RENDER_VERSION } from "./clip-caption";
@@ -48,6 +50,9 @@ export type HighlightContentSegment =
       cropKeyframes?: { t: number; cx: number }[];
       /** The coach's note, burned in as a pill for the whole clip. */
       note?: string;
+      /** Drawings and slow motion, burned in as held frames and slowed stretches. */
+      drawings?: ClipDrawing[];
+      slowMotion?: SlowSection[];
     }
   | { kind: "text"; text: string; durationSeconds: number; card?: StatsCardSpec };
 
@@ -65,6 +70,36 @@ export function cyrb53(str: string, seed = 0): string {
   return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
 }
 
+const k3 = (v: number) => v.toFixed(3);
+
+/** A shape's fields in a fixed order: jsonb hands objects back with its own key order. */
+function shapeKey(s: DrawingShape): string {
+  switch (s.kind) {
+    case "spotlight":
+      return `s:${k3(s.at.x)}:${k3(s.at.y)}:${k3(s.r)}`;
+    case "arrow":
+      return `a:${s.arrow}:${k3(s.from.x)}:${k3(s.from.y)}:${k3(s.to.x)}:${k3(s.to.y)}:${k3(s.bend ?? 0)}:${s.color ?? ""}`;
+    case "text":
+      return `t:${k3(s.at.x)}:${k3(s.at.y)}:${s.color ?? ""}:${s.text}`;
+  }
+}
+
+/** The drawings and slow motion a clip's render shows, within its window; "" when none. */
+function effectsKey(drawings: ClipDrawing[] | undefined, slows: SlowSection[] | undefined, window: { start: number; end: number } | null): string {
+  if (!window) return "";
+  const shown = (drawings ?? [])
+    .filter((d) => d.t > window.start + 0.1 && d.t < window.end - 0.1)
+    .sort((a, b) => a.t - b.t)
+    .map((d) => `${d.t.toFixed(2)}@${d.hold}:${d.shapes.map(shapeKey).join(",")}`)
+    .join("/");
+  const slowed = (slows ?? [])
+    .filter((s) => s.t < window.end && s.t + s.length > window.start)
+    .sort((a, b) => a.t - b.t)
+    .map((s) => `${s.t.toFixed(2)}+${s.length}@${s.rate}`)
+    .join(",");
+  return `${shown ? `|d${DRAWING_RENDER_VERSION}:${shown}` : ""}${slowed ? `|s:${slowed}` : ""}`;
+}
+
 /**
  * Fingerprint of exactly what a send-to-phone render contains: clip
  * identities IN ORDER, each clip's computed in-video time (sync-dependent —
@@ -73,7 +108,9 @@ export function cyrb53(str: string, seed = 0): string {
  * 9:16 only, the crop-pan keyframes (pans don't shape a widescreen render,
  * so a pan edit must not invalidate a 16:9 link), and each clip's note as
  * the pill draws it (with the pill's drawing version; a clip without a
- * note keeps the key it always had). Reuse requires an identical key, so
+ * note keeps the key it always had), and the drawings and slow-motion
+ * sections inside the clip's window (a clip without them keeps its key).
+ * Reuse requires an identical key, so
  * any relevant edit between sends re-renders instead of serving a stale
  * link. Watermark is deliberately outside the key — this surface is always
  * watermarked.
@@ -101,7 +138,11 @@ export function highlightContentKey(
             .map((k) => `${k.t.toFixed(3)}:${k.cx.toFixed(4)}`)
             .join(",")
         : ""
-    }${note ? `|n${CAPTION_RENDER_VERSION}:${note}` : ""}`;
+    }${note ? `|n${CAPTION_RENDER_VERSION}:${note}` : ""}${effectsKey(
+      s.drawings,
+      s.slowMotion,
+      videoTime === null ? null : clipBounds(videoTime, preRoll, postRoll, s.preRollOffset ?? 0, s.postRollOffset ?? 0),
+    )}`;
   });
   return cyrb53(`v2|${preRoll}|${postRoll}|${parts.join(";")}`);
 }
