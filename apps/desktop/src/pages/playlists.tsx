@@ -3171,6 +3171,8 @@ export function PlaylistsPage() {
         if (clip?.postRollOffset !== undefined) (seg as Extract<ExportSegment, { kind: 'clip' }>).postRollOffset = clip.postRollOffset;
         if (clip?.cropKeyframes) (seg as Extract<ExportSegment, { kind: 'clip' }>).cropKeyframes = clip.cropKeyframes;
         if (clip?.note?.trim()) (seg as Extract<ExportSegment, { kind: 'clip' }>).note = clip.note.trim();
+        if (clip?.drawings?.length) (seg as Extract<ExportSegment, { kind: 'clip' }>).drawings = clip.drawings;
+        if (clip?.slowMotion?.length) (seg as Extract<ExportSegment, { kind: 'clip' }>).slowMotion = clip.slowMotion;
         return seg;
       })
       .filter((x): x is ExportSegment => x !== null);
@@ -3289,6 +3291,8 @@ export function PlaylistsPage() {
   // Built from pl.items (not the selected playlist's queue) so a deferred
   // ship stays correct when the coach has switched focus to another playlist.
   // Upload order doesn't matter, so no sort is applied.
+  // Shipped clips stay plain cuts: the players draw the note, the drawings and
+  // the slow motion themselves, so editing them never needs a re-upload.
   function buildShipSegments(pl: Playlist): ExportSegment[] {
     return pl.items
       .filter(isClipItem)

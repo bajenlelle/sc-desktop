@@ -6,11 +6,13 @@ import { toast } from "sonner";
 import { isLocalPath } from "@/lib/stream";
 import { probeVideoDuration, probeVideoPath, videoBasename } from "@/lib/video-probe";
 import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
-import { toSegmentKeyframes, type CropKeyframe } from "@scoutable/shared/lib/crop-path";
+import { cxAt, toSegmentKeyframes, type CropKeyframe } from "@scoutable/shared/lib/crop-path";
+import type { ClipDrawing } from "@scoutable/shared/lib/clip-drawing";
+import { segmentTimeline, type SlowSection } from "@scoutable/shared/lib/clip-timeline";
 import { isExportCancelled, type ExportProgress } from "@scoutable/shared/lib/export-progress";
 import { fallbackText, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
 import type { CardAspect } from "@scoutable/shared/lib/card-layout";
-import { cardPngBase64, clipCaptionPngBase64 } from "@/lib/card-painter";
+import { cardPngBase64, clipCaptionPngBase64, clipDrawingPngBase64 } from "@/lib/card-painter";
 import type { PlayByPlayEvent, SyncPoint } from "@/types/match";
 
 export type { ExportProgress };
@@ -73,6 +75,10 @@ export type ExportSegment =
       preRollOffset?: number; postRollOffset?: number; cropKeyframes?: CropKeyframe[];
       /** The coach's note, burned in as a pill for the whole clip. */
       note?: string;
+      /** Drawings (absolute source time): each holds its frame with the drawing over it. */
+      drawings?: ClipDrawing[];
+      /** Slow-motion sections (absolute source time). */
+      slowMotion?: SlowSection[];
     }
   | { kind: 'text'; text: string; durationSeconds: number; card?: StatsCardSpec };
 
@@ -85,11 +91,22 @@ export interface ExportItem {
   postRollOffset?: number;
 }
 
-/** A full-frame transparent PNG at the export size, over the clip between two clip-relative times. */
+/** A full-frame transparent PNG at the export size, over the clip between two times of the rendered clip. */
 interface RustOverlay { png_base64: string; from_seconds: number; to_seconds: number }
 
+/** One piece of the clip's timeline (clip-timeline.ts segmentTimeline): played at `speed`, then held. */
+interface RustPiece { from_seconds: number; to_seconds: number; speed: number; hold_seconds: number }
+
 type RustSegment =
-  | { kind: 'clip'; video_path: string; start: number; end: number; crop_keyframes?: CropKeyframe[]; overlays?: RustOverlay[] }
+  | {
+      kind: 'clip';
+      video_path: string;
+      start: number;
+      end: number;
+      crop_keyframes?: CropKeyframe[];
+      overlays?: RustOverlay[];
+      pieces?: RustPiece[];
+    }
   | { kind: 'text'; text: string; duration_seconds: number }
   | { kind: 'image'; png_base64: string; duration_seconds: number };
 
@@ -266,16 +283,53 @@ async function buildRustSegments(
     }
   }
 
+  // Each clip's place in the video, cut into pieces where its drawings hold
+  // a frame and where it plays slowly (clip-timeline.ts), with each
+  // drawing painted once. Like a note, a drawing that can't be painted stops
+  // the export: a render without it would be reused under its key.
+  type Placed = { start: number; end: number; timeline: ReturnType<typeof segmentTimeline<ClipDrawing>>; pngs: string[] };
+  const placed = new Map<ExportSegment, Placed>();
+  for (const seg of segments) {
+    if (seg.kind !== 'clip') continue;
+    const t = computeVideoTime(seg.event, seg.syncPoint);
+    if (t === null) continue;
+    const { start, end } = clipBounds(t, preRoll, postRoll, seg.preRollOffset, seg.postRollOffset);
+    const timeline = segmentTimeline(seg.drawings ?? [], seg.slowMotion ?? [], start, end);
+    const pngs: string[] = [];
+    for (const w of timeline.windows) {
+      try {
+        // The crop window where the drawing's frame is: cxAt reads absolute keyframes.
+        const cx = vertical ? cxAt(seg.cropKeyframes, w.drawing.t) : undefined;
+        pngs.push(await clipDrawingPngBase64(w.drawing.shapes, aspect, cx));
+      } catch (e) {
+        console.warn("Drawing failed", e);
+        throw new Error("Couldn't draw the clip drawings. Try the export again.");
+      }
+    }
+    placed.set(seg, { start, end, timeline, pngs });
+  }
+
   const rustSegments: RustSegment[] = segments
     .map((seg): RustSegment | null => {
       if (seg.kind === 'text') return cards.get(seg) ?? null;
-      const t = computeVideoTime(seg.event, seg.syncPoint);
-      if (t === null) return null;
-      const { start, end } = clipBounds(t, preRoll, postRoll, seg.preRollOffset, seg.postRollOffset);
+      const at = placed.get(seg);
+      if (!at) return null;
+      const { start, end, timeline, pngs } = at;
       const note = seg.note?.trim();
       const png = note ? captions.get(note) : undefined;
-      // The whole clip: between() is inclusive, so the last frame is covered too.
-      const overlays = png ? { overlays: [{ png_base64: png, from_seconds: 0, to_seconds: end - start }] } : {};
+      // Drawings while their frames hold, then the note for the whole
+      // rendered clip (between() is inclusive, so the last frame is covered
+      // too), drawn last so it stays readable over a spotlight's dimming.
+      const list: RustOverlay[] = [
+        ...timeline.windows.map((w, j) => ({ png_base64: pngs[j], from_seconds: w.from, to_seconds: w.to })),
+        ...(png ? [{ png_base64: png, from_seconds: 0, to_seconds: timeline.duration }] : []),
+      ];
+      const overlays = list.length > 0 ? { overlays: list } : {};
+      // A clip without drawings or slow motion sends exactly what it always did.
+      const pieces =
+        timeline.pieces.length > 0
+          ? { pieces: timeline.pieces.map((p) => ({ from_seconds: p.from, to_seconds: p.to, speed: p.speed, hold_seconds: p.hold })) }
+          : {};
       if (vertical) {
         // Stored keyframe times are absolute video seconds; ffmpeg's crop
         // expression sees t from the seek point, so rebase onto the clip.
@@ -286,9 +340,10 @@ async function buildRustSegments(
           end,
           crop_keyframes: toSegmentKeyframes(seg.cropKeyframes, start, end),
           ...overlays,
+          ...pieces,
         };
       }
-      return { kind: 'clip', video_path: seg.videoPath, start, end, ...overlays };
+      return { kind: 'clip', video_path: seg.videoPath, start, end, ...overlays, ...pieces };
     })
     .filter((s): s is RustSegment => s !== null);
 
