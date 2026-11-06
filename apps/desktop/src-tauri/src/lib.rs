@@ -34,6 +34,11 @@ enum ExportSegment {
         /// segment-relative times. Empty when the clip has nothing on it.
         #[serde(default)]
         overlays: Vec<ClipOverlay>,
+        /// The clip's output timeline in pieces, for drawings that hold a
+        /// frame and slow-motion sections (cut by the app's clip-timeline.ts).
+        /// Empty when the clip plays straight through.
+        #[serde(default)]
+        pieces: Vec<ClipPiece>,
     },
     Text {
         text: String,
@@ -66,9 +71,9 @@ fn decode_card_png(png_base64: &str, vertical: bool) -> Result<Vec<u8>, String> 
 }
 
 /// A full-frame transparent PNG at the export's own WxH, composited over a
-/// clip segment between two segment-relative times (0 = the segment's in
-/// point). Today a clip's note pill for the whole clip; later, timed
-/// annotations.
+/// clip segment between two times of the rendered segment (0 = its first
+/// frame; held frames and slow motion count): a clip's note pill for the
+/// whole clip, a drawing while its frame is held.
 #[derive(serde::Deserialize)]
 struct ClipOverlay {
     png_base64: String,
@@ -82,6 +87,52 @@ struct OverlayInput<'a> {
     png: &'a str,
     from: f64,
     to: f64,
+}
+
+/// One piece of a clip segment's output timeline, cut by the app (shared
+/// clip-timeline.ts): segment seconds [from, to) played at `speed` (1, 0.5
+/// or 0.25), then its last frame held for `hold_seconds` with silent audio
+/// (0 = none). Pieces cover the segment in order.
+#[derive(serde::Deserialize, Clone, Copy)]
+struct ClipPiece {
+    from_seconds: f64,
+    to_seconds: f64,
+    speed: f64,
+    hold_seconds: f64,
+}
+
+/// What the pieces render to: each piece's played length plus its hold.
+fn pieces_output_duration(pieces: &[ClipPiece]) -> f64 {
+    pieces.iter().map(|p| (p.to_seconds - p.from_seconds) / p.speed + p.hold_seconds).sum()
+}
+
+/// The app guarantees the pieces' shape; a piece that breaks it is a bug,
+/// refused like a bad overlay window rather than rendered wrong.
+fn validate_pieces(pieces: &[ClipPiece], duration: f64, segment: usize) -> Result<(), String> {
+    const GAP: f64 = 0.002;
+    for (i, p) in pieces.iter().enumerate() {
+        let k = i + 1;
+        if ![p.from_seconds, p.to_seconds, p.speed, p.hold_seconds].iter().all(|v| v.is_finite()) {
+            return Err(format!("Piece {k} of segment {segment} has an invalid time"));
+        }
+        if ![1.0, 0.5, 0.25].iter().any(|s: &f64| (p.speed - s).abs() < 1e-9) {
+            return Err(format!("Piece {k} of segment {segment} has an invalid speed"));
+        }
+        if p.hold_seconds != 0.0 && !(0.2..=15.0).contains(&p.hold_seconds) {
+            return Err(format!("Piece {k} of segment {segment} has an invalid hold"));
+        }
+        if p.to_seconds - p.from_seconds < 0.05 - 1e-9 {
+            return Err(format!("Piece {k} of segment {segment} is too short"));
+        }
+    }
+    if let (Some(first), Some(last)) = (pieces.first(), pieces.last()) {
+        let off = |d: f64| d.abs() > GAP + 1e-9;
+        let gap = pieces.windows(2).any(|w| off(w[1].from_seconds - w[0].to_seconds));
+        if off(first.from_seconds) || off(last.to_seconds - duration) || gap {
+            return Err(format!("The pieces of segment {segment} don't cover the clip"));
+        }
+    }
+    Ok(())
 }
 
 #[derive(serde::Deserialize, Clone, Copy)]
@@ -238,7 +289,11 @@ fn export_frame_rate(probed: Option<f64>) -> String {
 /// ffmpeg argv that renders one clip segment to `out`. `overlays` are
 /// composited at the output size, after the geometry and before the fades,
 /// so they fade with the clip; without any, the argv is the single-input
-/// `-vf` form it always was.
+/// `-vf` form it always was. `pieces` (drawings' held frames, slow motion)
+/// split the picture and the sound after the geometry, stretch, hold and
+/// join them again in one graph, so every seam lands on a frame of the
+/// export's rate and the sound stays in step; the overlays then count the
+/// rendered segment's time.
 #[allow(clippy::too_many_arguments)] // mirrors the segment's fields; the goldens call it positionally
 fn clip_segment_args(
     video_path: &str,
@@ -246,11 +301,12 @@ fn clip_segment_args(
     end: f64,
     crop_keyframes: Option<&[CropKf]>,
     overlays: &[OverlayInput<'_>],
+    pieces: &[ClipPiece],
     vertical: bool,
     rate: &str,
     out: &str,
 ) -> Vec<String> {
-    let duration = (end - start).max(0.001);
+    let duration = if pieces.is_empty() { (end - start).max(0.001) } else { pieces_output_duration(pieces).max(0.001) };
     let fade_out_start = (duration - 0.25).max(0.0);
     let geometry = if vertical {
         // Crop first (at native resolution), scale second. Window width comes
@@ -275,7 +331,7 @@ fn clip_segment_args(
         "-to".into(), format!("{end:.3}"),
         "-i".into(), video_path.to_string(),
     ];
-    if overlays.is_empty() {
+    if overlays.is_empty() && pieces.is_empty() {
         // fps= right after the timestamp reset: clips from sources with other rates
         // (a second game, a phone recording) join the export's rate too.
         args.extend(["-vf".into(), format!("setpts=PTS-STARTPTS,fps={rate},{geometry},{fades}")]);
@@ -288,7 +344,11 @@ fn clip_segment_args(
         // `t` counts from the segment's start: input-side -ss zeroes the
         // timestamps and setpts pins the first frame to 0, as the crop
         // keyframes already rely on.
-        let mut graph = format!("[0:v]setpts=PTS-STARTPTS,fps={rate},{geometry}[v0]");
+        let mut graph = if pieces.is_empty() {
+            format!("[0:v]setpts=PTS-STARTPTS,fps={rate},{geometry}[v0]")
+        } else {
+            pieces_graph(pieces, &geometry, rate)
+        };
         for (k, ov) in overlays.iter().enumerate() {
             graph.push_str(&format!(
                 ";[v{k}][{input}:v]overlay=0:0:enable=between(t\\,{from:.3}\\,{to:.3})[v{next}]",
@@ -303,11 +363,15 @@ fn clip_segment_args(
             "-filter_complex".into(), graph,
             // A -map switches automatic stream selection off: name the audio too.
             "-map".into(), "[outv]".into(),
-            "-map".into(), "0:a:0".into(),
+            "-map".into(), if pieces.is_empty() { "0:a:0".into() } else { "[outa]".into() },
         ]);
     }
+    if pieces.is_empty() {
+        // With pieces the sound comes out of the graph, and a stream from a
+        // complex graph can't take -af as well.
+        args.extend(["-af".into(), "asetpts=PTS-STARTPTS".into()]);
+    }
     args.extend([
-        "-af".into(), "asetpts=PTS-STARTPTS".into(),
         "-c:v".into(), "libx264".into(),
         "-preset".into(), "fast".into(),
         "-crf".into(), "23".into(),
@@ -323,6 +387,53 @@ fn clip_segment_args(
         out.to_string(),
     ]);
     args
+}
+
+/// The head of a pieced clip's graph, up to `[v0]` (picture) and `[outa]`
+/// (sound): the picture is split after the geometry (so the 9:16 crop's
+/// time is the source's, and a pan doesn't move during a hold), each piece
+/// is trimmed (an end is exclusive, so seams meet exactly), restarted at 0,
+/// slowed by stretching its timestamps and filling frames at the export's
+/// rate, and held by cloning its last frame; the sound gets the same cuts,
+/// atempo for slow motion (0.5 at most per filter) and silence for a hold.
+/// concat lines each piece's picture up with its sound.
+fn pieces_graph(pieces: &[ClipPiece], geometry: &str, rate: &str) -> String {
+    let n = pieces.len();
+    let labels = |prefix: &str| (0..n).map(|k| format!("[{prefix}{k}]")).collect::<String>();
+    let range = |k: usize, p: &ClipPiece| -> Option<String> {
+        match (k == 0, k == n - 1) {
+            (true, true) => None,
+            (true, false) => Some(format!("end={:.3}", p.to_seconds)),
+            (false, true) => Some(format!("start={:.3}", p.from_seconds)),
+            (false, false) => Some(format!("start={:.3}:end={:.3}", p.from_seconds, p.to_seconds)),
+        }
+    };
+    let factor = |p: &ClipPiece| (1.0 / p.speed).round() as u32;
+    let mut graph = format!("[0:v]setpts=PTS-STARTPTS,fps={rate},{geometry},split={n}{}", labels("s"));
+    for (k, p) in pieces.iter().enumerate() {
+        let trim = range(k, p).map(|r| format!("trim={r},")).unwrap_or_default();
+        let slow = if factor(p) > 1 { format!(",setpts={}*PTS,fps={rate}", factor(p)) } else { String::new() };
+        let hold = if p.hold_seconds > 0.0 {
+            format!(",tpad=stop_mode=clone:stop_duration={:.3}", p.hold_seconds)
+        } else {
+            String::new()
+        };
+        graph.push_str(&format!(";[s{k}]{trim}setpts=PTS-STARTPTS{slow}{hold}[p{k}]"));
+    }
+    graph.push_str(&format!(";[0:a:0]asetpts=PTS-STARTPTS,asplit={n}{}", labels("a")));
+    for (k, p) in pieces.iter().enumerate() {
+        let trim = range(k, p).map(|r| format!("atrim={r},")).unwrap_or_default();
+        let tempo = match factor(p) {
+            2 => ",atempo=0.5",
+            4 => ",atempo=0.5,atempo=0.5",
+            _ => "",
+        };
+        let pad = if p.hold_seconds > 0.0 { format!(",apad=pad_dur={:.3}", p.hold_seconds) } else { String::new() };
+        graph.push_str(&format!(";[a{k}]{trim}asetpts=PTS-STARTPTS{tempo}{pad}[q{k}]"));
+    }
+    let pairs: String = (0..n).map(|k| format!("[p{k}][q{k}]")).collect();
+    graph.push_str(&format!(";{pairs}concat=n={n}:v=1:a=1[v0][outa]"));
+    graph
 }
 
 /// ffmpeg argv that turns a rendered text-card PNG into a segment with silent audio.
@@ -546,7 +657,8 @@ async fn export_playlist(
         let temp_path = temp.track(std::env::temp_dir().join(format!("sc_seg_{}_{}.mp4", timestamp, i)));
 
         let status = match segment {
-            ExportSegment::Clip { video_path, start, end, crop_keyframes, overlays } => {
+            ExportSegment::Clip { video_path, start, end, crop_keyframes, overlays, pieces } => {
+                validate_pieces(pieces, end - start, i + 1)?;
                 // Each overlay's PNG goes to disk first, so a bad one fails
                 // with its own message before ffmpeg runs.
                 let mut overlay_files: Vec<(std::path::PathBuf, f64, f64)> = Vec::with_capacity(overlays.len());
@@ -571,6 +683,7 @@ async fn export_playlist(
                     *end,
                     crop_keyframes.as_deref(),
                     &overlay_inputs,
+                    pieces,
                     vertical,
                     &rate,
                     temp_path.to_str().unwrap(),
@@ -1575,7 +1688,7 @@ mod tests {
 
     #[test]
     fn clip_segment_16x9_resamples_to_the_export_rate() {
-        let args = clip_segment_args("/v/game.mp4", 10.0, 14.0, None, &[], false, "30000/1001", "/tmp/seg.mp4");
+        let args = clip_segment_args("/v/game.mp4", 10.0, 14.0, None, &[], &[], false, "30000/1001", "/tmp/seg.mp4");
         assert_eq!(&args[..7], ["-y", "-ss", "10.000", "-to", "14.000", "-i", "/v/game.mp4"]);
         assert_eq!(
             arg_after(&args, "-vf"),
@@ -1590,7 +1703,7 @@ mod tests {
 
     #[test]
     fn clip_segment_9x16_resamples_before_cropping() {
-        let args = clip_segment_args("/v/game.mp4", 0.0, 2.0, Some(&[]), &[], true, "25", "/tmp/seg.mp4");
+        let args = clip_segment_args("/v/game.mp4", 0.0, 2.0, Some(&[]), &[], &[], true, "25", "/tmp/seg.mp4");
         assert_eq!(
             arg_after(&args, "-vf"),
             "setpts=PTS-STARTPTS,fps=25,\
@@ -1626,7 +1739,7 @@ mod tests {
 
     #[test]
     fn clip_segment_without_overlays_keeps_the_single_input_vf_path() {
-        let args = clip_segment_args("/v/game.mp4", 10.0, 14.0, None, &[], false, "30000/1001", "/tmp/seg.mp4");
+        let args = clip_segment_args("/v/game.mp4", 10.0, 14.0, None, &[], &[], false, "30000/1001", "/tmp/seg.mp4");
         assert_eq!(
             args,
             [
@@ -1647,7 +1760,7 @@ mod tests {
     #[test]
     fn clip_segment_16x9_overlay_sits_after_the_geometry_and_before_the_fades() {
         let args = clip_segment_args(
-            "/v/game.mp4", 10.0, 14.0, None, &[overlay("/tmp/ov.png", 0.0, 4.0)], false, "30000/1001", "/tmp/seg.mp4",
+            "/v/game.mp4", 10.0, 14.0, None, &[overlay("/tmp/ov.png", 0.0, 4.0)], &[], false, "30000/1001", "/tmp/seg.mp4",
         );
         assert_eq!(&args[..9], ["-y", "-ss", "10.000", "-to", "14.000", "-i", "/v/game.mp4", "-i", "/tmp/ov.png"]);
         assert_eq!(
@@ -1669,7 +1782,7 @@ mod tests {
     #[test]
     fn clip_segment_9x16_overlay_follows_crop_scale_and_setsar() {
         let args = clip_segment_args(
-            "/v/game.mp4", 0.0, 2.0, Some(&[]), &[overlay("/tmp/ov.png", 0.0, 2.0)], true, "25", "/tmp/seg.mp4",
+            "/v/game.mp4", 0.0, 2.0, Some(&[]), &[overlay("/tmp/ov.png", 0.0, 2.0)], &[], true, "25", "/tmp/seg.mp4",
         );
         assert_eq!(
             arg_after(&args, "-filter_complex"),
@@ -1686,7 +1799,7 @@ mod tests {
     fn clip_segment_chains_timed_overlays_in_input_order() {
         let args = clip_segment_args(
             "/v/game.mp4", 10.0, 14.0, None,
-            &[overlay("/tmp/a.png", 0.5, 2.0), overlay("/tmp/b.png", 1.0, 3.25)],
+            &[overlay("/tmp/a.png", 0.5, 2.0), overlay("/tmp/b.png", 1.0, 3.25)], &[],
             false, "25", "/tmp/seg.mp4",
         );
         assert_eq!(&args[7..11], ["-i", "/tmp/a.png", "-i", "/tmp/b.png"]);
@@ -1710,6 +1823,146 @@ mod tests {
         assert!(matches!(&segments[0], ExportSegment::Clip { overlays, .. }
             if overlays.len() == 1 && overlays[0].png_base64 == "AAAA" && overlays[0].to_seconds == 3.0));
         assert!(matches!(&segments[1], ExportSegment::Clip { overlays, .. } if overlays.is_empty()));
+    }
+
+    fn piece(from: f64, to: f64, speed: f64, hold: f64) -> ClipPiece {
+        ClipPiece { from_seconds: from, to_seconds: to, speed, hold_seconds: hold }
+    }
+
+    #[test]
+    fn clip_segment_with_a_hold_splits_pads_and_concats_before_the_overlays() {
+        let args = clip_segment_args(
+            "/v/game.mp4", 10.0, 14.0, None,
+            &[overlay("/tmp/d.png", 1.0, 2.999), overlay("/tmp/n.png", 0.0, 6.0)],
+            &[piece(0.0, 1.0, 1.0, 2.0), piece(1.0, 4.0, 1.0, 0.0)],
+            false, "30000/1001", "/tmp/seg.mp4",
+        );
+        assert_eq!(
+            &args[..11],
+            ["-y", "-ss", "10.000", "-to", "14.000", "-i", "/v/game.mp4", "-i", "/tmp/d.png", "-i", "/tmp/n.png"]
+        );
+        assert_eq!(
+            arg_after(&args, "-filter_complex"),
+            "[0:v]setpts=PTS-STARTPTS,fps=30000/1001,\
+             scale=1280:720:force_original_aspect_ratio=decrease,\
+             pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black,split=2[s0][s1];\
+             [s0]trim=end=1.000,setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=2.000[p0];\
+             [s1]trim=start=1.000,setpts=PTS-STARTPTS[p1];\
+             [0:a:0]asetpts=PTS-STARTPTS,asplit=2[a0][a1];\
+             [a0]atrim=end=1.000,asetpts=PTS-STARTPTS,apad=pad_dur=2.000[q0];\
+             [a1]atrim=start=1.000,asetpts=PTS-STARTPTS[q1];\
+             [p0][q0][p1][q1]concat=n=2:v=1:a=1[v0][outa];\
+             [v0][1:v]overlay=0:0:enable=between(t\\,1.000\\,2.999)[v1];\
+             [v1][2:v]overlay=0:0:enable=between(t\\,0.000\\,6.000)[v2];\
+             [v2]fade=t=in:st=0:d=0.25,fade=t=out:st=5.750:d=0.25[outv]"
+        );
+        let maps: Vec<&str> = args.windows(2).filter(|w| w[0] == "-map").map(|w| w[1].as_str()).collect();
+        assert_eq!(maps, ["[outv]", "[outa]"], "the audio comes out of the graph");
+        assert!(!args.iter().any(|a| a == "-af" || a == "-vf" || a == "-pix_fmt"), "{args:?}");
+        assert_eq!(
+            &args[args.len() - 11..],
+            ["-c:v", "libx264", "-preset", "fast", "-crf", "23", "-c:a", "aac", "-b:a", "128k", "/tmp/seg.mp4"]
+        );
+    }
+
+    #[test]
+    fn clip_segment_slow_piece_stretches_video_and_audio() {
+        let args = clip_segment_args(
+            "/v/game.mp4", 10.0, 14.0, None,
+            &[overlay("/tmp/d.png", 1.5, 3.499), overlay("/tmp/n.png", 0.0, 6.5)],
+            &[piece(0.0, 0.5, 1.0, 0.0), piece(0.5, 1.0, 0.5, 2.0), piece(1.0, 4.0, 1.0, 0.0)],
+            false, "25", "/tmp/seg.mp4",
+        );
+        assert_eq!(
+            args.join(" "),
+            "-y -ss 10.000 -to 14.000 -i /v/game.mp4 -i /tmp/d.png -i /tmp/n.png -filter_complex \
+             [0:v]setpts=PTS-STARTPTS,fps=25,scale=1280:720:force_original_aspect_ratio=decrease,\
+             pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black,split=3[s0][s1][s2];\
+             [s0]trim=end=0.500,setpts=PTS-STARTPTS[p0];\
+             [s1]trim=start=0.500:end=1.000,setpts=PTS-STARTPTS,setpts=2*PTS,fps=25,tpad=stop_mode=clone:stop_duration=2.000[p1];\
+             [s2]trim=start=1.000,setpts=PTS-STARTPTS[p2];\
+             [0:a:0]asetpts=PTS-STARTPTS,asplit=3[a0][a1][a2];\
+             [a0]atrim=end=0.500,asetpts=PTS-STARTPTS[q0];\
+             [a1]atrim=start=0.500:end=1.000,asetpts=PTS-STARTPTS,atempo=0.5,apad=pad_dur=2.000[q1];\
+             [a2]atrim=start=1.000,asetpts=PTS-STARTPTS[q2];\
+             [p0][q0][p1][q1][p2][q2]concat=n=3:v=1:a=1[v0][outa];\
+             [v0][1:v]overlay=0:0:enable=between(t\\,1.500\\,3.499)[v1];\
+             [v1][2:v]overlay=0:0:enable=between(t\\,0.000\\,6.500)[v2];\
+             [v2]fade=t=in:st=0:d=0.25,fade=t=out:st=6.250:d=0.25[outv] \
+             -map [outv] -map [outa] -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k /tmp/seg.mp4"
+        );
+    }
+
+    #[test]
+    fn clip_segment_quarter_speed_chains_two_atempos() {
+        let args = clip_segment_args(
+            "/v/game.mp4", 10.0, 14.0, None, &[],
+            &[piece(0.0, 1.0, 1.0, 0.0), piece(1.0, 2.0, 0.25, 0.0), piece(2.0, 4.0, 1.0, 0.0)],
+            false, "25", "/tmp/seg.mp4",
+        );
+        let graph = arg_after(&args, "-filter_complex");
+        assert!(graph.contains("[s1]trim=start=1.000:end=2.000,setpts=PTS-STARTPTS,setpts=4*PTS,fps=25[p1]"), "{graph}");
+        assert!(graph.contains("[a1]atrim=start=1.000:end=2.000,asetpts=PTS-STARTPTS,atempo=0.5,atempo=0.5[q1]"), "{graph}");
+        assert!(graph.ends_with("concat=n=3:v=1:a=1[v0][outa];[v0]fade=t=in:st=0:d=0.25,fade=t=out:st=6.750:d=0.25[outv]"), "{graph}");
+        assert_eq!(args.iter().filter(|a| *a == "-i").count(), 1);
+    }
+
+    #[test]
+    fn clip_segment_lone_slow_piece_has_no_trim() {
+        let args = clip_segment_args("/v/game.mp4", 10.0, 14.0, None, &[], &[piece(0.0, 4.0, 0.5, 0.0)], false, "25", "/tmp/seg.mp4");
+        let graph = arg_after(&args, "-filter_complex");
+        assert!(graph.contains(",split=1[s0];[s0]setpts=PTS-STARTPTS,setpts=2*PTS,fps=25[p0];"), "{graph}");
+        assert!(graph.contains("asplit=1[a0];[a0]asetpts=PTS-STARTPTS,atempo=0.5[q0];"), "{graph}");
+        assert!(graph.contains("[p0][q0]concat=n=1:v=1:a=1[v0][outa]"), "{graph}");
+        assert!(graph.ends_with("fade=t=out:st=7.750:d=0.25[outv]"), "{graph}");
+    }
+
+    #[test]
+    fn clip_segment_9x16_pieces_crop_before_the_split() {
+        let args = clip_segment_args(
+            "/v/game.mp4", 0.0, 2.0, Some(&[]), &[],
+            &[piece(0.0, 1.0, 1.0, 3.0), piece(1.0, 2.0, 1.0, 0.0)],
+            true, "25", "/tmp/seg.mp4",
+        );
+        let graph = arg_after(&args, "-filter_complex");
+        assert!(graph.starts_with("[0:v]setpts=PTS-STARTPTS,fps=25,crop=w=min(iw\\,2*trunc(ih*9/32)):h=ih:x="), "{graph}");
+        assert!(graph.contains(",scale=1080:1920:flags=lanczos,setsar=1,split=2[s0][s1];"), "{graph}");
+        assert!(graph.ends_with("fade=t=out:st=4.750:d=0.25[outv]"), "{graph}");
+        assert_eq!(arg_after(&args, "-pix_fmt"), "yuv420p");
+    }
+
+    #[test]
+    fn clip_segment_deserializes_pieces_and_defaults_to_empty() {
+        let json = r#"[{"kind":"clip","video_path":"/v/g.mp4","start":1.0,"end":4.0,
+            "pieces":[{"from_seconds":0,"to_seconds":1,"speed":0.5,"hold_seconds":2},
+                      {"from_seconds":1,"to_seconds":3,"speed":1,"hold_seconds":0}]},
+            {"kind":"clip","video_path":"/v/g.mp4","start":1.0,"end":4.0}]"#;
+        let segments: Vec<ExportSegment> = serde_json::from_str(json).unwrap();
+        assert!(matches!(&segments[0], ExportSegment::Clip { pieces, .. }
+            if pieces.len() == 2 && pieces[0].speed == 0.5 && pieces[0].hold_seconds == 2.0));
+        assert!(matches!(&segments[1], ExportSegment::Clip { pieces, .. } if pieces.is_empty()));
+    }
+
+    #[test]
+    fn validate_pieces_accepts_a_covering_timeline() {
+        let ok = [piece(0.0, 1.0, 1.0, 0.2), piece(1.002, 1.052, 0.5, 15.0), piece(1.052, 4.0, 1.0, 0.0)];
+        assert_eq!(validate_pieces(&ok, 4.0, 1), Ok(()));
+        assert_eq!(validate_pieces(&[], 4.0, 1), Ok(()));
+    }
+
+    #[test]
+    fn validate_pieces_rejects_bad_pieces_with_their_numbers() {
+        let cases: [(Vec<ClipPiece>, &str); 6] = [
+            (vec![piece(0.0, f64::NAN, 1.0, 0.0)], "Piece 1 of segment 3 has an invalid time"),
+            (vec![piece(0.0, 1.0, 1.0, 0.0), piece(1.0, 4.0, 0.3, 0.0)], "Piece 2 of segment 3 has an invalid speed"),
+            (vec![piece(0.0, 1.0, 1.0, 0.1), piece(1.0, 4.0, 1.0, 0.0)], "Piece 1 of segment 3 has an invalid hold"),
+            (vec![piece(0.0, 0.049, 1.0, 0.0), piece(0.049, 4.0, 1.0, 0.0)], "Piece 1 of segment 3 is too short"),
+            (vec![piece(0.0, 1.0, 1.0, 0.0), piece(1.01, 4.0, 1.0, 0.0)], "The pieces of segment 3 don't cover the clip"),
+            (vec![piece(0.0, 1.0, 1.0, 0.0), piece(1.0, 3.9, 1.0, 0.0)], "The pieces of segment 3 don't cover the clip"),
+        ];
+        for (pieces, message) in cases {
+            assert_eq!(validate_pieces(&pieces, 4.0, 3), Err(message.to_string()));
+        }
     }
 
     fn png_base64(w: u32, h: u32) -> String {
@@ -1828,8 +2081,8 @@ mod tests {
         let src_fps = probe_blocking(&ffmpeg, std::path::Path::new(&src)).fps;
         let rate = export_frame_rate(Some(src_fps));
         run_ffmpeg_blocking(&ffmpeg, &text_card_args(&p("card.png"), 2.0, &rate, &p("t1.mp4")));
-        run_ffmpeg_blocking(&ffmpeg, &clip_segment_args(&src, base + 2.0, base + 5.0, None, &[], false, &rate, &p("c1.mp4")));
-        run_ffmpeg_blocking(&ffmpeg, &clip_segment_args(&src, base + 6.0, base + 9.0, None, &[], false, &rate, &p("c2.mp4")));
+        run_ffmpeg_blocking(&ffmpeg, &clip_segment_args(&src, base + 2.0, base + 5.0, None, &[], &[], false, &rate, &p("c1.mp4")));
+        run_ffmpeg_blocking(&ffmpeg, &clip_segment_args(&src, base + 6.0, base + 9.0, None, &[], &[], false, &rate, &p("c2.mp4")));
         let inputs = [p("t1.mp4"), p("c1.mp4"), p("c2.mp4")];
         run_ffmpeg_blocking(&ffmpeg, &concat_args(&inputs, Some(&p("wm.png")), false, &rate, &p("out.mp4")));
 
@@ -1874,7 +2127,7 @@ mod tests {
         let src = p("src.mp4");
         run_ffmpeg_blocking(
             &ffmpeg,
-            &clip_segment_args(&src, 0.0, 4.0, None, &[overlay(&p("ov.png"), 1.0, 2.0)], false, "25", &p("c1.mp4")),
+            &clip_segment_args(&src, 0.0, 4.0, None, &[overlay(&p("ov.png"), 1.0, 2.0)], &[], false, "25", &p("c1.mp4")),
         );
 
         let pixel = |at: &str, x: u32, y: u32| -> [u8; 3] {
@@ -1897,9 +2150,139 @@ mod tests {
         image::RgbaImage::from_pixel(1080, 1920, image::Rgba([0, 0, 0, 0])).save(dir.join("ov9.png")).unwrap();
         run_ffmpeg_blocking(
             &ffmpeg,
-            &clip_segment_args(&src, 0.0, 2.0, Some(&[]), &[overlay(&p("ov9.png"), 0.0, 2.0)], true, "25", &p("c9.mp4")),
+            &clip_segment_args(&src, 0.0, 2.0, Some(&[]), &[overlay(&p("ov9.png"), 0.0, 2.0)], &[], true, "25", &p("c9.mp4")),
         );
         assert!(std::fs::metadata(dir.join("c9.mp4")).unwrap().len() > 4096, "9:16 overlaid segment is empty");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 8 s whose brightness rises steadily (so the brightness tells the source second), with a tone.
+    fn ramp_source(ffmpeg: &std::path::Path, out: &str) {
+        run_ffmpeg_blocking(ffmpeg, &[
+            "-y", "-f", "lavfi", "-i", "color=c=white:s=1280x720:r=25",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
+            "-vf", "fade=t=in:st=0:d=8", "-t", "8", "-c:v", "libx264", "-preset", "ultrafast",
+            "-pix_fmt", "yuv420p", "-c:a", "aac", out,
+        ].map(String::from));
+    }
+
+    fn white_box_png(path: &std::path::Path) {
+        let mut ov = image::RgbaImage::from_pixel(1280, 720, image::Rgba([0, 0, 0, 0]));
+        for y in 36..136 {
+            for x in 40..440 {
+                ov.put_pixel(x, y, image::Rgba([255, 255, 255, 255]));
+            }
+        }
+        ov.save(path).unwrap();
+    }
+
+    /// The mean of the pixel's channels at `at` seconds.
+    fn luma_at(ffmpeg: &std::path::Path, dir: &std::path::Path, file: &str, at: f64, x: u32, y: u32) -> f64 {
+        let stem = std::path::Path::new(file).file_stem().unwrap().to_string_lossy().to_string();
+        let frame = dir.join(format!("luma_{stem}_{at}_{x}.png"));
+        run_ffmpeg_blocking(ffmpeg, &["-y".into(), "-ss".into(), format!("{at}"), "-i".into(), file.to_string(),
+            "-frames:v".into(), "1".into(), frame.to_str().unwrap().to_string()]);
+        let px = image::open(&frame).unwrap().to_rgb8().get_pixel(x, y).0;
+        (px[0] as f64 + px[1] as f64 + px[2] as f64) / 3.0
+    }
+
+    /// The loudest sample between `ss` and `ss + t`, in dB (-inf for silence).
+    fn volume_db(ffmpeg: &std::path::Path, file: &str, ss: f64, t: f64) -> f64 {
+        let out = run_ffmpeg_blocking(ffmpeg, &["-ss".into(), format!("{ss}"), "-t".into(), format!("{t}"), "-i".into(), file.to_string(),
+            "-vn".into(), "-af".into(), "volumedetect".into(), "-f".into(), "null".into(), "-".into()]);
+        let err = String::from_utf8_lossy(&out.stderr);
+        let v = err.split("max_volume:").nth(1).expect("no volumedetect output").trim_start();
+        let v = v.split(" dB").next().unwrap().trim();
+        if v == "-inf" { f64::NEG_INFINITY } else { v.parse().unwrap() }
+    }
+
+    fn frame_count(ffmpeg: &std::path::Path, file: &str) -> u64 {
+        let out = run_ffmpeg_blocking(ffmpeg, &["-i".into(), file.to_string(), "-f".into(), "null".into(), "-".into()]);
+        let err = String::from_utf8_lossy(&out.stderr);
+        let tail = err.rsplit("frame=").next().unwrap().trim_start();
+        tail.split(|c: char| !c.is_ascii_digit()).next().unwrap().parse().unwrap()
+    }
+
+    #[test]
+    #[ignore = "needs the untracked ffmpeg sidecar in src-tauri/binaries"]
+    fn export_with_a_hold_freezes_the_frame_and_silences_the_audio() {
+        let ffmpeg = sidecar_ffmpeg().expect("bundled ffmpeg missing in src-tauri/binaries");
+        let dir = scratch("export_hold_e2e");
+        let p = |name: &str| dir.join(name).to_str().unwrap().to_string();
+        ramp_source(&ffmpeg, &p("src.mp4"));
+        white_box_png(&dir.join("draw.png"));
+        render_watermark_png(&dir.join("wm.png")).unwrap();
+        let src = p("src.mp4");
+        run_ffmpeg_blocking(&ffmpeg, &clip_segment_args(
+            &src, 2.0, 6.0, None, &[overlay(&p("draw.png"), 1.0, 2.999)],
+            &[piece(0.0, 1.0, 1.0, 2.0), piece(1.0, 4.0, 1.0, 0.0)], false, "25", &p("c1.mp4"),
+        ));
+        run_ffmpeg_blocking(&ffmpeg, &clip_segment_args(&src, 2.0, 6.0, None, &[], &[], false, "25", &p("r.mp4")));
+        let (c1, r) = (p("c1.mp4"), p("r.mp4"));
+
+        let ms = probe_blocking(&ffmpeg, &dir.join("c1.mp4")).duration_ms as f64;
+        assert!((ms - 6000.0).abs() <= 60.0, "a 4 s clip with a 2 s hold lasts 6 s, got {ms} ms");
+        assert_eq!(frame_count(&ffmpeg, &c1), 150);
+
+        let l = |file: &str, at: f64| luma_at(&ffmpeg, &dir, file, at, 800, 500);
+        assert!((l(&c1, 1.5) - l(&c1, 2.5)).abs() <= 4.0, "the frame holds still during the hold");
+        assert!(l(&c1, 3.5) - l(&c1, 2.5) >= 10.0, "the picture moves again after the hold");
+        assert!((l(&c1, 3.5) - l(&r, 1.5)).abs() <= 6.0, "after the hold the clip goes on where it stopped");
+        assert!((l(&c1, 0.5) - l(&r, 0.5)).abs() <= 6.0);
+
+        let boxed = |at: f64| luma_at(&ffmpeg, &dir, &c1, at, 100, 80) > 200.0;
+        assert!(boxed(1.5) && boxed(2.5), "the drawing shows during the hold");
+        assert!(!boxed(0.5) && !boxed(3.5), "and only then");
+
+        assert!(volume_db(&ffmpeg, &c1, 1.1, 1.8) < -60.0, "the hold is silent");
+        assert!(volume_db(&ffmpeg, &c1, 0.2, 0.6) > -30.0);
+        assert!(volume_db(&ffmpeg, &c1, 3.2, 2.5) > -30.0);
+
+        assert!(avc_level(&std::fs::read(dir.join("c1.mp4")).unwrap()) <= 42);
+        run_ffmpeg_blocking(&ffmpeg, &concat_args(&[c1.clone()], Some(&p("wm.png")), false, "25", &p("out.mp4")));
+        let level = avc_level(&std::fs::read(dir.join("out.mp4")).unwrap());
+        assert!(level <= 42, "H.264 level {level} (iPhones refuse anything above 42 = 4.2)");
+
+        image::RgbaImage::from_pixel(1080, 1920, image::Rgba([0, 0, 0, 0])).save(dir.join("ov9.png")).unwrap();
+        run_ffmpeg_blocking(&ffmpeg, &clip_segment_args(
+            &src, 0.0, 2.0, Some(&[]), &[overlay(&p("ov9.png"), 1.0, 3.999)],
+            &[piece(0.0, 1.0, 1.0, 3.0), piece(1.0, 2.0, 1.0, 0.0)], true, "25", &p("c9.mp4"),
+        ));
+        assert!(std::fs::metadata(dir.join("c9.mp4")).unwrap().len() > 4096, "9:16 held segment is empty");
+        let ms9 = probe_blocking(&ffmpeg, &dir.join("c9.mp4")).duration_ms as f64;
+        assert!((ms9 - 5000.0).abs() <= 60.0, "9:16 with a 3 s hold lasts 5 s, got {ms9} ms");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[ignore = "needs the untracked ffmpeg sidecar in src-tauri/binaries"]
+    fn export_with_slow_motion_stretches_and_keeps_the_mapping() {
+        let ffmpeg = sidecar_ffmpeg().expect("bundled ffmpeg missing in src-tauri/binaries");
+        let dir = scratch("export_slow_e2e");
+        let p = |name: &str| dir.join(name).to_str().unwrap().to_string();
+        ramp_source(&ffmpeg, &p("src.mp4"));
+        let src = p("src.mp4");
+        run_ffmpeg_blocking(&ffmpeg, &clip_segment_args(&src, 2.0, 6.0, None, &[], &[], false, "25", &p("r.mp4")));
+        run_ffmpeg_blocking(&ffmpeg, &clip_segment_args(
+            &src, 2.0, 6.0, None, &[],
+            &[piece(0.0, 1.0, 1.0, 0.0), piece(1.0, 2.0, 0.5, 0.0), piece(2.0, 4.0, 1.0, 0.0)], false, "25", &p("half.mp4"),
+        ));
+        run_ffmpeg_blocking(&ffmpeg, &clip_segment_args(
+            &src, 2.0, 6.0, None, &[],
+            &[piece(0.0, 1.0, 1.0, 0.0), piece(1.0, 1.5, 0.25, 0.0), piece(1.5, 4.0, 1.0, 0.0)], false, "25", &p("quarter.mp4"),
+        ));
+        let (r, half, quarter) = (p("r.mp4"), p("half.mp4"), p("quarter.mp4"));
+        let l = |file: &str, at: f64| luma_at(&ffmpeg, &dir, file, at, 800, 500);
+
+        let ms = probe_blocking(&ffmpeg, &dir.join("half.mp4")).duration_ms as f64;
+        assert!((ms - 5000.0).abs() <= 120.0, "a second at half speed adds a second, got {ms} ms");
+        assert!((l(&half, 2.0) - l(&r, 1.5)).abs() <= 6.0, "inside the section the picture runs at half speed");
+        assert!((l(&half, 4.0) - l(&r, 3.0)).abs() <= 6.0, "after it the clip is back in step");
+        assert!(volume_db(&ffmpeg, &half, 1.2, 1.6) > -30.0, "the slowed sound is still there");
+
+        let ms = probe_blocking(&ffmpeg, &dir.join("quarter.mp4")).duration_ms as f64;
+        assert!((ms - 5500.0).abs() <= 160.0, "half a second at quarter speed adds 1.5 s, got {ms} ms");
+        assert!((l(&quarter, 2.0) - l(&r, 1.25)).abs() <= 6.0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
