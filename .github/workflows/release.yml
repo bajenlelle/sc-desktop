@@ -9,7 +9,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-14
+          - platform: macos-15
             args: --target universal-apple-darwin
           - platform: windows-latest
             args: --target x86_64-pc-windows-msvc
@@ -35,10 +35,10 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-14' && 'aarch64-apple-darwin,x86_64-apple-darwin' || 'x86_64-pc-windows-msvc' }}
+          targets: ${{ matrix.platform == 'macos-15' && 'aarch64-apple-darwin,x86_64-apple-darwin' || 'x86_64-pc-windows-msvc' }}
 
       - name: Cache arm64 FFmpeg binary
-        if: matrix.platform == 'macos-14'
+        if: matrix.platform == 'macos-15'
         id: cache-ffmpeg-arm64
         uses: actions/cache@v4
         with:
@@ -46,7 +46,7 @@ jobs:
           key: ffmpeg-arm64-static-7.1.1-x264-2
 
       - name: Build arm64 FFmpeg (static)
-        if: matrix.platform == 'macos-14' && steps.cache-ffmpeg-arm64.outputs.cache-hit != 'true'
+        if: matrix.platform == 'macos-15' && steps.cache-ffmpeg-arm64.outputs.cache-hit != 'true'
         working-directory: apps/desktop
         run: |
           mkdir -p src-tauri/binaries
@@ -114,7 +114,7 @@ jobs:
           rm -rf "ffmpeg-${FFMPEG_VERSION}" x264-stable
 
       - name: Download macOS FFmpeg binaries
-        if: matrix.platform == 'macos-14'
+        if: matrix.platform == 'macos-15'
         working-directory: apps/desktop
         run: |
           mkdir -p src-tauri/binaries
@@ -158,7 +158,7 @@ jobs:
           Copy-Item (Get-ChildItem ffmpeg_tmp -Recurse -Filter ffmpeg.exe | Select-Object -First 1).FullName src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe
 
       - name: Import Apple certificate
-        if: matrix.platform == 'macos-14'
+        if: matrix.platform == 'macos-15'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -203,9 +203,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_ID: ${{ matrix.platform == 'macos-14' && secrets.APPLE_ID || '' }}
-          APPLE_PASSWORD: ${{ matrix.platform == 'macos-14' && secrets.APPLE_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ matrix.platform == 'macos-14' && secrets.APPLE_TEAM_ID || '' }}
+          APPLE_ID: ${{ matrix.platform == 'macos-15' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ matrix.platform == 'macos-15' && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ matrix.platform == 'macos-15' && secrets.APPLE_TEAM_ID || '' }}
           APPLE_SIGNING_IDENTITY: "Developer ID Application: Leonard Halling (3DJ5YZKR49)"
           AZURE_TENANT_ID: ${{ matrix.platform == 'windows-latest' && secrets.AZURE_TENANT_ID || '' }}
           AZURE_CLIENT_ID: ${{ matrix.platform == 'windows-latest' && secrets.AZURE_CLIENT_ID || '' }}
@@ -247,7 +247,7 @@ jobs:
           if ($bad) { throw "Not validly signed: $($bad.Path -join ', ')" }
 
       - name: Sign macOS updater bundle
-        if: matrix.platform == 'macos-14'
+        if: matrix.platform == 'macos-15'
         working-directory: apps/desktop
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
