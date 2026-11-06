@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { clipWatchEffects } from "@scoutable/shared/lib/watch-queue";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, Clapperboard, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
@@ -299,7 +300,7 @@ export function MyPlaylistsPage() {
         if (!item.r2Url) continue;
         const event = eventByKey.get(`${item.matchId}:${item.eventId}`);
         if (event) {
-          out.push({ kind: "clip", key: `${item.matchId}:${item.eventId}`, event, matchId: item.matchId, r2Url: item.r2Url, note: item.note });
+          out.push({ kind: "clip", key: `${item.matchId}:${item.eventId}`, event, matchId: item.matchId, r2Url: item.r2Url, note: item.note, ...clipWatchEffects(item, item.r2Url) });
         }
       } else {
         out.push({ kind: "text", key: `text:${item.id}`, card: item });

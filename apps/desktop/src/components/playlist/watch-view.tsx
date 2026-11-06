@@ -19,6 +19,8 @@ import { WatchClipRow, WatchTextCardRow } from "./ClipRow";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { CardImage } from "@/components/editor/card-image";
 import { ClipCaption } from "@/components/player/clip-caption";
+import { DrawingLayer } from "@/components/player/drawing-layer";
+import { useClipEffects } from "@/lib/use-clip-effects";
 import { useWatchQueue, type WatchItem } from "./use-watch-queue";
 
 const SPEED_KEY = "scoutable_watch_speed";
@@ -38,6 +40,9 @@ function readSpeed(): number {
  * coach's note for the playing clip right under the footage, where the eye
  * already is.
  */
+const NO_DRAWINGS: never[] = [];
+const NO_SLOWS: never[] = [];
+
 export function WatchView({
   title,
   items,
@@ -80,6 +85,13 @@ export function WatchView({
   const q = useWatchQueue({ video, items, onWatched });
   const activeClip = q.activeItem?.kind === "clip" ? q.activeItem : null;
   const activeCard = q.activeItem?.kind === "text" ? q.activeItem.card : null;
+  // The coach's drawings freeze their frames and slow motion slows its stretch, in the clip file's time.
+  const clipEffects = useClipEffects(
+    video,
+    { drawings: activeClip?.drawings ?? NO_DRAWINGS, slows: activeClip?.slowMotion ?? NO_SLOWS },
+    speed,
+    !!activeClip && !activeCard,
+  );
 
   const resume = useCallback(() => {
     if (items.length === 0) return;
@@ -135,6 +147,7 @@ export function WatchView({
     if (!action) return;
     const nudge = (delta: number) => {
       if (!activeClip || duration === null) return;
+      clipEffects.cancel();
       video.currentTime = clamp(video.currentTime + delta, 0, Math.max(0, duration - 0.05));
     };
     switch (action) {
@@ -247,8 +260,12 @@ export function WatchView({
                 position={q.position >= 0 ? { index: q.position, total: items.length } : null}
                 clipWindow={activeClip && duration !== null ? { start: 0, end: duration } : null}
                 onSeek={(t) => {
+                  clipEffects.cancel();
                   if (duration !== null) video.currentTime = clamp(t, 0, Math.max(0, duration - 0.05));
                 }}
+                hold={{ active: !!clipEffects.holding, cancel: clipEffects.cancel }}
+                drawings={activeClip?.drawings?.map((d) => ({ id: d.id, t: d.at, hold: d.hold }))}
+                slows={activeClip?.slowMotion?.map((s) => ({ id: s.id, t: s.at, length: s.length, rate: s.rate }))}
                 transport={{
                   canPrev: q.canPrev,
                   canNext: q.canNext,
@@ -274,6 +291,9 @@ export function WatchView({
                       <p className="px-8 text-center text-4xl font-semibold text-white">{activeCard.text}</p>
                     )}
                   </div>
+                )}
+                {clipEffects.shown && !activeCard && (
+                  <DrawingLayer key={clipEffects.shown.id} shapes={clipEffects.shown.shapes} />
                 )}
                 {activeClip?.note && !activeCard && <ClipCaption key={activeClip.key} text={activeClip.note} />}
                 {!q.isQueueActive && q.src === null && items.length > 0 && (
@@ -352,6 +372,7 @@ export function WatchView({
                     event={item.event}
                     matchTitle={matchTitleFor(item.matchId)}
                     note={item.note}
+                    drawings={item.drawings?.length ?? 0}
                     watched={isWatched(item.matchId, item.event.eventId)}
                     active={q.activeKey === item.key}
                     onPlay={() => q.playFrom(item.key)}

@@ -1,4 +1,4 @@
-import { Check, MessageSquare, Play, Type } from "lucide-react";
+import { Check, MessageSquare, PenLine, Play, Type } from "lucide-react";
 import { eventColors, eventLabel, formatGameClock, playerName } from "@scoutable/shared/lib/events";
 import type { PlayByPlayEvent, PlaylistTextCard } from "@/types/match";
 import { ActiveRowPill } from "@/components/editor/clip-rows";
@@ -21,6 +21,7 @@ export function WatchClipRow({
   event,
   matchTitle,
   note,
+  drawings = 0,
   watched,
   active,
   onPlay,
@@ -30,6 +31,8 @@ export function WatchClipRow({
   /** Shown in multi-game playlists only. */
   matchTitle?: string;
   note?: string;
+  /** How many drawings the coach made on the clip. */
+  drawings?: number;
   watched: boolean;
   active: boolean;
   onPlay: () => void;
@@ -66,6 +69,7 @@ export function WatchClipRow({
       </span>
       <span className="relative z-10 flex shrink-0 items-center gap-1.5">
         {note && <MessageSquare aria-label="Note from your coach" className="size-3.5 text-primary/70"><title>{note}</title></MessageSquare>}
+        {drawings > 0 && <PenLine aria-label="Drawings on this clip" className="size-3.5 text-primary/70"><title>Drawings on this clip</title></PenLine>}
         {active ? (
           <Play aria-label="Playing" className="size-3.5 fill-current text-primary" />
         ) : watched ? (

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isWatchedPosition } from "@scoutable/shared/lib/clip-timing";
 import type { PlayByPlayEvent, PlaylistTextCard } from "@/types/match";
+import type { WatchDrawing, WatchSlow } from "@scoutable/shared/lib/watch-queue";
 
 /**
  * One item a recipient can watch. Clips are pre-cut files in cloud storage
@@ -8,7 +9,17 @@ import type { PlayByPlayEvent, PlaylistTextCard } from "@/types/match";
  * by swapping the source — no seeking, no sync point.
  */
 export type WatchItem =
-  | { kind: "clip"; key: string; event: PlayByPlayEvent; matchId: string; r2Url: string; note?: string }
+  | {
+      kind: "clip";
+      key: string;
+      event: PlayByPlayEvent;
+      matchId: string;
+      r2Url: string;
+      note?: string;
+      /** The coach's drawings and slow motion, in the clip file's time (clipWatchEffects). */
+      drawings?: WatchDrawing[];
+      slowMotion?: WatchSlow[];
+    }
   | { kind: "text"; key: string; card: PlaylistTextCard };
 
 /**
