@@ -145,7 +145,11 @@ export function FullscreenButton({ active, onToggle }: { active: boolean; onTogg
   );
 }
 
-/** Prev · Replay · Play/Pause · Next · Stop, with the speed menu and full screen. */
+/**
+ * Prev · Replay · Play/Pause · Next · Stop, with the speed menu and full
+ * screen. A single clip (a scouting report's) has no queue to move through
+ * or stop: Replay and Play/Pause.
+ */
 export function TransportBar({
   transport,
   speed,
@@ -153,6 +157,7 @@ export function TransportBar({
   fullscreen,
   onToggleFullscreen,
   readout,
+  single = false,
 }: {
   transport: TransportProps;
   speed: number;
@@ -161,25 +166,32 @@ export function TransportBar({
   onToggleFullscreen?: () => void;
   /** "3 of 48" */
   readout?: React.ReactNode;
+  single?: boolean;
 }) {
   const { paused, isQueueActive, canPrev, canNext } = transport;
   return (
     <div className="flex items-center gap-0.5">
-      <ControlButton label="Previous clip" shortcut="↑" onClick={transport.onPrev} disabled={!canPrev}>
-        <SkipBack className="fill-current" />
-      </ControlButton>
+      {!single && (
+        <ControlButton label="Previous clip" shortcut="↑" onClick={transport.onPrev} disabled={!canPrev}>
+          <SkipBack className="fill-current" />
+        </ControlButton>
+      )}
       <ControlButton label="Replay clip" shortcut="R" onClick={transport.onReplay} disabled={!isQueueActive}>
         <RotateCcw />
       </ControlButton>
       <ControlButton label={paused ? "Play" : "Pause"} shortcut="Space" onClick={transport.onTogglePlay} size="lg">
         <PlayPauseGlyph paused={paused} />
       </ControlButton>
-      <ControlButton label="Next clip" shortcut="↓" onClick={transport.onNext} disabled={!canNext}>
-        <SkipForward className="fill-current" />
-      </ControlButton>
-      <ControlButton label="Stop" onClick={transport.onStop} disabled={!isQueueActive}>
-        <Square className="size-3.5 fill-current" />
-      </ControlButton>
+      {!single && (
+        <>
+          <ControlButton label="Next clip" shortcut="↓" onClick={transport.onNext} disabled={!canNext}>
+            <SkipForward className="fill-current" />
+          </ControlButton>
+          <ControlButton label="Stop" onClick={transport.onStop} disabled={!isQueueActive}>
+            <Square className="size-3.5 fill-current" />
+          </ControlButton>
+        </>
+      )}
 
       {readout && <span className="ml-2 truncate text-xs nums text-white/80">{readout}</span>}
 

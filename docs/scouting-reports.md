@@ -108,7 +108,12 @@ players open from a link, and that "Save as PDF" prints.
   is current), from 0 to the end of the file; else the tile says why: "The
   game’s video isn’t on this computer." or "This game isn’t synced to its
   video yet." Each play is `scouting_report_clip_played` (via tile or panel,
-  source local, shared or none).
+  source local, shared or none). The coach's drawings freeze their frames and
+  slow motion slows its stretch, as in the Clips view: `reportClipEffects`
+  gives them in the time of what plays (the game's own video keeps their
+  absolute times inside the clip's window, `clipEffectsInWindow`; an uploaded
+  copy takes the players' rebase onto the file, `clipWatchEffects`). A held
+  frame reads as playing, and the scrubber shows the drawings and the sections.
 - **The side panel** (`report-outline.tsx`, a tree): Team (always, with 0),
   each player and "Not in report" (folded at first), each with its clips as
   one-line rows (the play's colour, the play, the time, a note mark; the hover
@@ -184,6 +189,17 @@ players open from a link, and that "Save as PDF" prints.
   anonymous. It stores storage **keys**, never URLs (`clips/…mp4`, posters
   `highlights/<user>/<uuid>.jpg`); the page prepends the media host
   (`NEXT_PUBLIC_R2_PUBLIC_URL`), the database checks the key shapes.
+- **A clip block carries the coach's drawings and slow motion** (`drawings`,
+  `slowMotion`, absent when none): in the clip file's time, as the players get
+  them (`clipWatchEffects`; a file whose key has no `_s` start, from before
+  2026-09-14, gets neither), with short ids (`d1`, `s1`, `w1`) and points at
+  three decimals so a 300-clip report stays within 256 KB. No migration: the
+  database checks only keys, posters and the size. The page re-checks every
+  shape (`parseDrawingShape`) and caps what it reads (20 drawings, 40 shapes,
+  20 sections a clip). The content key takes them in a fixed form
+  (`drawingShapeKey`, since jsonb hands objects back in its own key order) and
+  is unchanged for a report without them, so only a report whose clips have
+  effects reads "Changed since sharing" until Update link puts them in.
 - `publish_scouting_report` (owner; `report_limit_reached`; `license_locked`;
   `invalid_content`) updates the playlist's live report in place, so
   **regenerating keeps the same link** and gives it a fresh 30 days.
@@ -246,7 +262,11 @@ Ship the clips in the report that have no hosted file yet (Clip & Ship,
 idempotent; left-out clips aren't cut), cut a
 640 px poster per clip from the local game video (`extract_clip_poster`) and
 upload it as the coach's own `highlights/<user>/<uuid>.jpg` (best effort), then
-publish. Publishing is the only step that makes anything public; cancelling
+publish. A clip the coach drew on gets the drawn frame as its poster: its first
+drawing inside the clip's window, at the frame it was drawn on, with the
+drawing burned in on the export's 16:9 (`clip_poster_args`), so the page shows
+it before play and the PDF prints it. The others get the play's moment, and so
+does a drawn clip whose drawn poster fails. Publishing is the only step that makes anything public; cancelling
 before it publishes nothing. A staging build links to `http://localhost:3000`.
 
 ## The page (`apps/web/src/app/r/[token]/`)
@@ -257,6 +277,21 @@ QR per player). `X-Robots-Tag`, `Referrer-Policy: no-referrer` and no-store come
 from `next.config.ts`; the link preview carries the title, opponent and counts,
 never a player's name, stat or note.
 
+- **Clips play in the playlists' player** (`report-player.tsx`): the watch
+  view's `PlayerStage` in its one-clip form (`single`: play and pause, Replay,
+  speed and full screen, no previous, next or stop), with the coach's drawings
+  and slow motion (`useClipEffects`, `DrawingLayer`, markers and bands on the
+  timeline). Until a tap a clip is its poster with a play button; the tap
+  mounts the player (`flushSync`) and gives its video the source and `play()`
+  inside the gesture, so phones play it with sound. One clip plays at a time
+  across the page and the viewer's speed carries between clips (module state,
+  not remembered). Full screen keeps the drawings: the stage itself where the
+  browser allows it, a layer over the whole window on an iPhone. With the
+  player focused: Space and K, F, R, ←/→ (2 s, ⇧ 10 s), Esc leaves full screen.
+  The note stays in the caption under the clip, not on the video. The page is
+  outside the signed-in app, so the player brings `AppProviders` (tooltips and
+  motion) along. Before 2026-11-06 the page played the file in the browser's
+  own controls (AirPlay, picture in picture and Download went with them).
 - **The footer is on every report**, on screen and in the saved PDF, on every
   plan: "Made with scoutable." (`FooterMark`) links to `REPORT_FOOTER_URL`,
   `https://scoutable.se/?utm_source=scouting_report&utm_medium=report_footer`.

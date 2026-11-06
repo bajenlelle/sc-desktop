@@ -85,6 +85,8 @@ export interface PlayerStageProps {
   /** The coach's drawings and slow motion on the timeline, in the file's time. */
   drawings?: TimelineDrawing[];
   slows?: TimelineSlow[];
+  /** One clip on its own (a scouting report's): no previous, next or stop. */
+  single?: boolean;
   /** Overlays on the footage (a text card, the Play button). */
   children?: React.ReactNode;
   className?: string;
@@ -122,6 +124,7 @@ export function PlayerStage({
   hold,
   drawings,
   slows,
+  single = false,
   children,
   className,
   handleRef,
@@ -379,21 +382,25 @@ export function PlayerStage({
                 {/* A wash so white controls read over bright footage. */}
                 <div className="absolute inset-0 bg-black/25" />
                 <div className="absolute inset-0 flex items-center justify-center gap-8">
-                  <div className="pointer-events-auto" {...stopBubbling}>
-                    <ControlButton label="Previous clip" onClick={transport.onPrev} disabled={!transport.canPrev} className="size-11 [&_svg]:size-6">
-                      <SkipBack className="fill-current" />
-                    </ControlButton>
-                  </div>
+                  {!single && (
+                    <div className="pointer-events-auto" {...stopBubbling}>
+                      <ControlButton label="Previous clip" onClick={transport.onPrev} disabled={!transport.canPrev} className="size-11 [&_svg]:size-6">
+                        <SkipBack className="fill-current" />
+                      </ControlButton>
+                    </div>
+                  )}
                   <div className="pointer-events-auto" {...stopBubbling}>
                     <ControlButton label={effectivePaused ? "Play" : "Pause"} onClick={togglePlay} size="xl">
                       <PlayPauseGlyph paused={effectivePaused} />
                     </ControlButton>
                   </div>
-                  <div className="pointer-events-auto" {...stopBubbling}>
-                    <ControlButton label="Next clip" onClick={transport.onNext} disabled={!transport.canNext} className="size-11 [&_svg]:size-6">
-                      <SkipForward className="fill-current" />
-                    </ControlButton>
-                  </div>
+                  {!single && (
+                    <div className="pointer-events-auto" {...stopBubbling}>
+                      <ControlButton label="Next clip" onClick={transport.onNext} disabled={!transport.canNext} className="size-11 [&_svg]:size-6">
+                        <SkipForward className="fill-current" />
+                      </ControlButton>
+                    </div>
+                  )}
                 </div>
                 {/* Speed and full screen in the top corner, as iOS's player
                     keeps them, so the timeline gets the whole width. */}
@@ -443,6 +450,7 @@ export function PlayerStage({
                   fullscreen={fullscreen.active}
                   onToggleFullscreen={fullscreen.toggle}
                   readout={readout}
+                  single={single}
                 />
               </motion.div>
             ))}
