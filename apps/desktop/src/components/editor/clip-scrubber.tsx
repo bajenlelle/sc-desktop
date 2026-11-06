@@ -23,6 +23,8 @@ export function ClipScrubber({
   start,
   end,
   markers,
+  drawings,
+  onDrawingClick,
   onSeek,
   frameSeconds = 1 / 25,
   showTimes = true,
@@ -33,6 +35,9 @@ export function ClipScrubber({
   start: number;
   end: number;
   markers?: CropKeyframe[];
+  /** The clip's drawings (absolute time): a diamond each, a click opens one (or jumps to it). */
+  drawings?: { id: string; t: number; hold: number }[];
+  onDrawingClick?: (id: string) => void;
   onSeek: (t: number) => void;
   frameSeconds?: number;
   /** Elapsed and total either side of the track; off where a larger readout sits nearby. */
@@ -226,6 +231,26 @@ export function ClipScrubber({
                 onSeek(k.t);
               }}
               className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/40 bg-primary shadow transition-transform duration-100 hover:scale-125 active:scale-110"
+              style={{ left: `${frac * 100}%` }}
+            />
+          );
+        })}
+        {(drawings ?? []).map((d) => {
+          const frac = clamp((d.t - start) / duration, 0, 1);
+          const label = `Drawing, ${d.hold} s`;
+          return (
+            <button
+              key={d.id}
+              type="button"
+              title={label}
+              aria-label={label}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onDrawingClick) onDrawingClick(d.id);
+                else onSeek(d.t);
+              }}
+              className="absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[2px] bg-white shadow ring-1 ring-black/40 transition-transform duration-100 hover:scale-125 active:scale-110"
               style={{ left: `${frac * 100}%` }}
             />
           );

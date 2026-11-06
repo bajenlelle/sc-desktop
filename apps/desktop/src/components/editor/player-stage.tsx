@@ -74,6 +74,11 @@ export interface PlayerStageProps {
    * same material, and a click on the footage no longer toggles playback.
    */
   trimBar?: React.ReactNode;
+  /** A drawing holds the frame: the controls read "playing", and Play/Pause ends the hold where it stands. */
+  hold?: { active: boolean; cancel: () => void };
+  /** The active clip's drawings, as markers on the timeline (absolute time). */
+  drawings?: { id: string; t: number; hold: number }[];
+  onDrawingClick?: (id: string) => void;
 }
 
 /**
@@ -106,6 +111,9 @@ export function PlayerStage({
   handleRef,
   playback,
   trimBar,
+  hold,
+  drawings,
+  onDrawingClick,
 }: PlayerStageProps) {
   const hostRef = React.useRef<HTMLDivElement | null>(null);
   const stageRef = React.useRef<HTMLDivElement | null>(null);
@@ -235,32 +243,39 @@ export function PlayerStage({
 
   // Chrome visibility: any pointer movement on the stage shows it and arms
   // the idle timer; while paused or hovering the bar it never hides.
+  // A held frame is part of playback: the controls don't pin as for a pause.
+  const shownPaused = playback ? playback.paused : paused && !hold?.active;
   const poke = React.useCallback(() => {
     setActive(true);
     if (idleTimer.current !== null) window.clearTimeout(idleTimer.current);
     idleTimer.current = window.setTimeout(() => setActive(false), IDLE_MS);
   }, []);
   React.useEffect(() => {
-    if (paused) {
+    if (shownPaused) {
       setActive(true);
       if (idleTimer.current !== null) window.clearTimeout(idleTimer.current);
       idleTimer.current = null;
     } else {
       poke();
     }
-  }, [paused, poke]);
+  }, [shownPaused, poke]);
   React.useEffect(
     () => () => {
       if (idleTimer.current !== null) window.clearTimeout(idleTimer.current);
     },
     [],
   );
-  const chromeVisible = (playback ? playback.paused : paused) || active || chromeHover;
+  const chromeVisible = shownPaused || active || chromeHover;
 
   const togglePlay = React.useCallback(() => {
     if (playback) {
       setFlash({ id: Date.now(), kind: playback.paused ? "play" : "pause" });
       playback.toggle();
+      return;
+    }
+    if (hold?.active) {
+      hold.cancel();
+      setFlash({ id: Date.now(), kind: "pause" });
       return;
     }
     if (!transport.isQueueActive && video.paused && transport.onPlayAll) {
@@ -275,13 +290,13 @@ export function PlayerStage({
       video.pause();
       setFlash({ id: Date.now(), kind: "pause" });
     }
-  }, [video, transport, playback]);
+  }, [video, transport, playback, hold]);
 
   React.useImperativeHandle(handleRef, () => ({ togglePlay }), [togglePlay]);
 
   const transportProps: TransportProps = {
     ...transport,
-    paused: playback ? playback.paused : paused,
+    paused: shownPaused,
     onTogglePlay: togglePlay,
   };
 
@@ -301,7 +316,7 @@ export function PlayerStage({
       style={fullscreen ? undefined : { aspectRatio: "16/9" }}
       onPointerMove={poke}
       onPointerLeave={() => {
-        if (!paused) setActive(false);
+        if (!shownPaused) setActive(false);
       }}
       onClick={
         clickable
@@ -412,6 +427,8 @@ export function PlayerStage({
                 start={clipWindow.start}
                 end={clipWindow.end}
                 markers={markers}
+                drawings={drawings}
+                onDrawingClick={onDrawingClick}
                 onSeek={onSeek}
               />
             )}

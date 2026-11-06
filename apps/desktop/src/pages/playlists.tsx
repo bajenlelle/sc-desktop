@@ -22,6 +22,7 @@ import {
   ListVideo,
   MoreHorizontal,
   Plus,
+  PenLine,
   Scissors,
   Tag,
   VideoOff,
@@ -31,6 +32,13 @@ import { VideoPlaceholder } from "@/components/video-placeholder";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { CardImage } from "@/components/editor/card-image";
 import { ClipCaption } from "@/components/player/clip-caption";
+import { DrawingLayer } from "@/components/player/drawing-layer";
+import { DrawOverlay } from "@/components/editor/draw-overlay";
+import { DrawBar } from "@/components/editor/draw-bar";
+import { useDrawSession } from "@/components/editor/use-draw-session";
+import { useClipEffects, type EffectDrawing } from "@/lib/use-clip-effects";
+import { HOLD_DEFAULT, type ClipDrawing } from "@scoutable/shared/lib/clip-drawing";
+import type { SlowSpan } from "@scoutable/shared/lib/clip-timeline";
 import { ClipNoteField } from "@/components/editor/clip-note-field";
 import { StatsCardInspector } from "@/components/editor/stats-card-inspector";
 import type { ScoutingReportRun } from "@/components/editor/scouting-report-dialog";
@@ -593,6 +601,16 @@ export function PlaylistsPage() {
   const noteFocusRef = useRef(false);
   /** The note as it was when the field was focused: one analytics event per visit, not per save. */
   const noteAtFocusRef = useRef("");
+  /** The drawing being made (draw mode), the clip it is on, and its pending save. */
+  const draw = useDrawSession();
+  const drawModeRef = useRef(false);
+  drawModeRef.current = !!draw.session;
+  const drawTargetRef = useRef<{ playlistId: string; matchId: string; eventId: number } | null>(null);
+  /** The clip's drawings when the session began: one analytics event per visit, not per save. */
+  const drawingsAtStartRef = useRef<ClipDrawing[] | undefined>(undefined);
+  const pendingDrawingsRef = useRef<{ playlistId: string; matchId: string; eventId: number; drawings: ClipDrawing[] } | null>(null);
+  const drawingsSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const finishDrawRef = useRef<(opts?: { remove?: boolean }) => void>(() => {});
   const clipEndRef = useRef<number | undefined>(undefined);
   const pendingSeekRef = useRef<{ seekTo: number; clipEnd: number } | null>(null);
   const preRollRef = useRef(preRoll);
@@ -644,8 +662,9 @@ export function PlaylistsPage() {
       ? `${activeMatchId}:${activeEventId}`
       : null;
 
-  // Sync note textarea when active clip changes; what was typed on the last clip is saved first.
+  // Sync note textarea when active clip changes; what was typed on the last clip (and drawn on it) is saved first.
   useEffect(() => {
+    finishDrawRef.current();
     flushClipNote();
     if (activeEventId === null || !selected) { setClipNote(""); return; }
     const clip = selected.items.filter(isClipItem).find(
@@ -1496,6 +1515,7 @@ export function PlaylistsPage() {
   // ---------------------------------------------------------------------------
 
   const handleStop = useCallback(() => {
+    finishDrawRef.current();
     if (trimActiveRef.current) {
       trimActiveRef.current = false;
       setTrim(null);
@@ -1664,6 +1684,8 @@ export function PlaylistsPage() {
   // Leaving the page mid-type must not lose the note.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => () => flushClipNote(), []);
+  // …nor a drawing.
+  useEffect(() => () => finishDrawRef.current(), []);
 
   const activeClipOffsets = useMemo(() => {
     if (activeEventId === null) return { pre: 0, post: 0 };
@@ -1688,6 +1710,7 @@ export function PlaylistsPage() {
   const activeClipCrop = useMemo(() => {
     const empty = {
       keyframes: undefined as CropKeyframe[] | undefined,
+      drawings: undefined as ClipDrawing[] | undefined,
       start: null as number | null,
       end: null as number | null,
     };
@@ -1707,7 +1730,7 @@ export function PlaylistsPage() {
         end = b.end;
       }
     }
-    return { keyframes: clip?.cropKeyframes, start, end };
+    return { keyframes: clip?.cropKeyframes, drawings: clip?.drawings, start, end };
   }, [activeClipKey, selected, matchLookup, eventByKey, preRoll, postRoll]);
 
   /** Persist the active clip's crop pan — same optimistic shape as adjustActiveClip. */
@@ -1724,6 +1747,130 @@ export function PlaylistsPage() {
     setPlaylists((prev) => prev.map((p) => (p.id === selected.id ? updatedPlaylist : p)));
     updateClip(selected.id, activeClipKey.matchId, activeClipKey.eventId, { cropKeyframes: kfs }).catch(() => {});
   }
+
+  // The active clip's drawings as the editor plays them: frozen on their frames, in the source video's time.
+  const effectDrawings = useMemo<EffectDrawing[]>(() => {
+    const { start, end, drawings } = activeClipCrop;
+    if (start === null || end === null || !drawings) return [];
+    return drawings
+      .filter((d) => d.t > start + 0.1 && d.t < end - 0.1)
+      .map((d) => ({ id: d.id, at: d.t, hold: d.hold, shapes: d.shapes }));
+  }, [activeClipCrop]);
+  const effectSlows = useMemo<SlowSpan[]>(() => [], []);
+  const clipEffects = useClipEffects(
+    persistentVideo,
+    { drawings: effectDrawings, slows: effectSlows },
+    playbackSpeed,
+    !!activeClipKey && !draw.session && !activeTextCard && !trim,
+  );
+
+  /** The clip's drawings with `d` in place of any copy of it (dropped when it has no shapes), in time order. */
+  function withDrawing(list: ClipDrawing[] | undefined, d: ClipDrawing): ClipDrawing[] {
+    const rest = (list ?? []).filter((x) => x.id !== d.id);
+    return (d.shapes.length > 0 ? [...rest, d] : rest).sort((a, b) => a.t - b.t);
+  }
+
+  function clipDrawingsOf(target: { playlistId: string; matchId: string; eventId: number }): ClipDrawing[] | undefined {
+    const pl = playlistsRef.current.find((p) => p.id === target.playlistId) ?? selectedRef.current;
+    return pl?.items.filter(isClipItem).find((c) => c.matchId === target.matchId && c.eventId === target.eventId)?.drawings;
+  }
+
+  /** Saves a clip's drawings and shows every copy of that playlist the change. */
+  function saveClipDrawings(target: { playlistId: string; matchId: string; eventId: number; drawings: ClipDrawing[] }) {
+    const { playlistId, matchId, eventId, drawings } = target;
+    const patch = (pl: Playlist): Playlist =>
+      pl.id !== playlistId
+        ? pl
+        : {
+            ...pl,
+            items: pl.items.map((c) =>
+              isClipItem(c) && c.matchId === matchId && c.eventId === eventId
+                ? { ...c, drawings: drawings.length ? drawings : undefined }
+                : c,
+            ),
+          };
+    if (selectedRef.current) selectedRef.current = patch(selectedRef.current);
+    setSelected((prev) => (prev ? patch(prev) : prev));
+    setPlaylists((prev) => prev.map(patch));
+    updateClip(playlistId, matchId, eventId, { drawings }).catch((e) => {
+      Sentry.captureException(e);
+      toast.error("Couldn't save the drawing");
+    });
+  }
+
+  function flushClipDrawings() {
+    if (drawingsSaveTimerRef.current) {
+      clearTimeout(drawingsSaveTimerRef.current);
+      drawingsSaveTimerRef.current = null;
+    }
+    const pending = pendingDrawingsRef.current;
+    pendingDrawingsRef.current = null;
+    if (pending) saveClipDrawings(pending);
+  }
+
+  // Every change while drawing is saved shortly after, so closing the editor mid-drawing loses nothing.
+  useEffect(() => {
+    const target = drawTargetRef.current;
+    const d = draw.session?.drawing;
+    if (!target || !d) return;
+    const current = clipDrawingsOf(target);
+    const next = withDrawing(current, d);
+    if (JSON.stringify(current ?? []) === JSON.stringify(next)) return;
+    pendingDrawingsRef.current = { ...target, drawings: next };
+    if (drawingsSaveTimerRef.current) clearTimeout(drawingsSaveTimerRef.current);
+    drawingsSaveTimerRef.current = setTimeout(flushClipDrawings, 600);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draw.session?.drawing]);
+
+  /** Draw mode on the playhead's frame, or on a drawing (its marker, or the one the playhead stands on). */
+  function enterDraw(existing?: ClipDrawing) {
+    const video = videoRef.current;
+    const { start, end } = activeClipCrop;
+    if (!video || !selected || !activeClipKey || activeTextCard || start === null || end === null) return;
+    finishDraw();
+    setCropMode(false);
+    if (trimActiveRef.current) abandonTrim();
+    clipEffects.cancel();
+    video.pause();
+    const target = existing ?? activeClipCrop.drawings?.find((d) => Math.abs(d.t - video.currentTime) <= 0.05);
+    const t = target?.t ?? Math.round(clamp(video.currentTime, start + 0.1, end - 0.1) * 1000) / 1000;
+    if (Math.abs(video.currentTime - t) > 0.001) video.currentTime = t;
+    drawTargetRef.current = { playlistId: selected.id, matchId: activeClipKey.matchId, eventId: activeClipKey.eventId };
+    drawingsAtStartRef.current = activeClipCrop.drawings;
+    draw.start(
+      `${activeClipKey.matchId}:${activeClipKey.eventId}`,
+      target ?? { id: crypto.randomUUID(), t, hold: HOLD_DEFAULT, shapes: [] },
+    );
+  }
+
+  /** Leaves draw mode and saves the drawing (dropped when it has no shapes, or when removed). */
+  function finishDraw(opts: { remove?: boolean } = {}) {
+    const ended = draw.end();
+    const target = drawTargetRef.current;
+    drawTargetRef.current = null;
+    if (!ended || !target) return;
+    const d = opts.remove ? { ...ended, shapes: [] } : ended;
+    const current = clipDrawingsOf(target);
+    const next = withDrawing(current, d);
+    if (drawingsSaveTimerRef.current) {
+      clearTimeout(drawingsSaveTimerRef.current);
+      drawingsSaveTimerRef.current = null;
+    }
+    pendingDrawingsRef.current = null;
+    if (JSON.stringify(current ?? []) !== JSON.stringify(next)) saveClipDrawings({ ...target, drawings: next });
+    if (JSON.stringify(drawingsAtStartRef.current ?? []) !== JSON.stringify(next)) {
+      trackEvent("clip_drawing_set", {
+        shapes: d.shapes.length,
+        spotlights: d.shapes.filter((s) => s.kind === "spotlight").length,
+        arrows: d.shapes.filter((s) => s.kind === "arrow").length,
+        texts: d.shapes.filter((s) => s.kind === "text").length,
+        hold_seconds: d.hold,
+        drawings_on_clip: next.length,
+        removed: d.shapes.length === 0,
+      });
+    }
+  }
+  finishDrawRef.current = finishDraw;
 
   function handleCropCommit(t: number, cx: number) {
     setActiveClipCropKeyframes(upsertKeyframe(activeClipCrop.keyframes, t, cx));
@@ -1749,6 +1896,7 @@ export function PlaylistsPage() {
   function handleCropSeek(t: number) {
     const video = videoRef.current;
     if (!video) return;
+    clipEffects.cancel();
     const { start, end } = activeClipCrop;
     // Stay inside the clip window — a hair short of the end so the
     // timeupdate auto-advance doesn't immediately fire.
@@ -1911,8 +2059,8 @@ export function PlaylistsPage() {
       if (video.currentTime < end) return;
       // Guard: if we're >60s past clipEnd the video is at a stale position (seek in progress)
       if (video.currentTime > end + 60) return;
-      // The coach is writing this clip's note: wait here; play goes on to the next clip.
-      if (noteFocusRef.current) {
+      // The coach is writing this clip's note or drawing on it: wait here; play goes on to the next clip.
+      if (noteFocusRef.current || drawModeRef.current) {
         video.pause();
         return;
       }
@@ -2385,6 +2533,10 @@ export function PlaylistsPage() {
     if (trim && (activeKey !== trim.key || playerFs.active || cropMode)) abandonTrim();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKey, playerFs.active, cropMode]);
+  // Draw mode's bar lives under the player, which full screen hides: going full screen finishes the drawing.
+  useEffect(() => {
+    if (playerFs.active && drawModeRef.current) finishDrawRef.current();
+  }, [playerFs.active]);
 
   // One key owner for the page (src/lib/key-scope.ts); the Add Clips sheet
   // registers its own scope on top while it is open. The handler closes
@@ -2428,6 +2580,10 @@ export function PlaylistsPage() {
       case "note":
         e.preventDefault();
         noteFieldRef.current?.focus();
+        return;
+      case "draw":
+        e.preventDefault();
+        if (activeClipKey && !activeTextCard && !trimActiveRef.current) enterDraw();
         return;
       case "fullscreen":
         e.preventDefault();
@@ -4758,6 +4914,9 @@ export function PlaylistsPage() {
                 : null
             }
             markers={cropMode ? activeClipCrop.keyframes : undefined}
+            drawings={draw.session ? undefined : effectDrawings.map((d) => ({ id: d.id, t: d.at, hold: d.hold }))}
+            onDrawingClick={(id) => enterDraw(activeClipCrop.drawings?.find((d) => d.id === id))}
+            hold={{ active: !!clipEffects.holding, cancel: clipEffects.cancel }}
             onSeek={handleCropSeek}
             transport={{
               canPrev,
@@ -4771,8 +4930,8 @@ export function PlaylistsPage() {
             }}
             speed={playbackSpeed}
             onSpeedChange={setPlaybackSpeed}
-            interactive={!cropMode}
-            hideChrome={!playerFs.active && !!stageCard}
+            interactive={!cropMode && !draw.session}
+            hideChrome={(!playerFs.active && !!stageCard) || !!draw.session}
             playback={stageCard ? { paused: cardPaused, toggle: toggleCard } : undefined}
             trimBar={
               trim ? (
@@ -4816,8 +4975,27 @@ export function PlaylistsPage() {
                 </Button>
               </div>
             )}
+            {draw.session && (
+              <DrawOverlay
+                session={draw.session}
+                onAdd={draw.addShape}
+                onUpdate={draw.updateShape}
+                onRecord={draw.pushHistory}
+                onRemove={draw.removeShape}
+                onSelect={draw.select}
+                onUndo={draw.undo}
+                onRedo={draw.redo}
+                onTool={draw.setTool}
+                onArrowKind={draw.setArrowKind}
+                onDone={() => finishDraw()}
+              />
+            )}
+            {/* A drawing while its frame is held (or the playhead stands on it). */}
+            {!draw.session && clipEffects.shown && !cardOnStage && (
+              <DrawingLayer key={clipEffects.shown.id} shapes={clipEffects.shown.shapes} />
+            )}
             {/* The note as the players and the export see it, following every keystroke. */}
-            {activeEventId !== null && !cardOnStage && clipNote.trim() && (
+            {activeEventId !== null && !cardOnStage && !draw.session && clipNote.trim() && (
               <ClipCaption key={activeKey ?? "note"} text={clipNote} preview />
             )}
             {stageCard && (
@@ -4841,7 +5019,22 @@ export function PlaylistsPage() {
                 onHold={pauseCard}
               />
             )}
-            {activeClipKey && (
+            {draw.session && (
+              <DrawBar
+                session={draw.session}
+                canUndo={draw.canUndo}
+                canRedo={draw.canRedo}
+                onTool={draw.setTool}
+                onArrowKind={draw.setArrowKind}
+                onColor={draw.setColor}
+                onHold={draw.setHold}
+                onUndo={draw.undo}
+                onRedo={draw.redo}
+                onRemove={() => finishDraw({ remove: true })}
+                onDone={() => finishDraw()}
+              />
+            )}
+            {activeClipKey && !draw.session && (
               <CropEditorBar
                 active={cropMode}
                 onToggle={() => setCropMode((v) => !v)}
@@ -4854,7 +5047,7 @@ export function PlaylistsPage() {
             )}
             {/* This clip's own length: the playlist's clip length plus the
                 clip's offsets, shown as the seconds that actually play. */}
-            {activeEventId !== null && (() => {
+            {activeEventId !== null && !draw.session && (() => {
               // A trim can leave fractions: shown to the tenth, and the
               // steppers move on to whole seconds from there.
               const before = preRoll + activeClipOffsets.pre;
@@ -4884,6 +5077,18 @@ export function PlaylistsPage() {
                     />
                     <span className="text-callout text-muted-foreground">after</span>
                   </div>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="xs" disabled={!!trim || !!activeTextCard} onClick={() => enterDraw()}>
+                        <PenLine />
+                        Draw
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="flex items-center gap-1.5">
+                      Draw on this frame
+                      <Kbd>D</Kbd>
+                    </TooltipContent>
+                  </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -4930,7 +5135,7 @@ export function PlaylistsPage() {
                 </div>
               );
             })()}
-            {activeClipKey && activeOrgId && (() => {
+            {activeClipKey && activeOrgId && !draw.session && (() => {
               const key = `${activeClipKey.matchId}:${activeClipKey.eventId}`;
               const assignedIds = clipAssignments.get(key) ?? new Set<string>();
               const assigned = labels.filter((l) => assignedIds.has(l.id));
@@ -4961,7 +5166,7 @@ export function PlaylistsPage() {
                 </div>
               );
             })()}
-            {activeEventId !== null && (
+            {activeEventId !== null && !draw.session && (
               <ClipNoteField
                 fieldRef={noteFieldRef}
                 value={clipNote}
