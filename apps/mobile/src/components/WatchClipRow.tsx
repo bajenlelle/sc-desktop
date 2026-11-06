@@ -46,6 +46,7 @@ export function WatchClipRow({
   event,
   matchTitle,
   note,
+  drawings = 0,
   watched,
   active,
   onPlay,
@@ -55,6 +56,8 @@ export function WatchClipRow({
   /** Shown in multi-game playlists only. */
   matchTitle?: string;
   note?: string;
+  /** How many drawings the coach made on the clip. */
+  drawings?: number;
   watched: boolean;
   active: boolean;
   onPlay: () => void;
@@ -87,6 +90,7 @@ export function WatchClipRow({
             {meta}
           </Text>
           {note ? <Icon name="note" size={13} color={colors.mutedForeground} /> : null}
+          {drawings > 0 ? <Icon name="draw" size={13} color={colors.mutedForeground} /> : null}
         </View>
       </View>
       <RowMark active={active} watched={watched} />

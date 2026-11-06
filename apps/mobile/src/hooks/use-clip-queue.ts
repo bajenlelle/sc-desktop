@@ -13,7 +13,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useVideoPlayer } from "expo-video";
 import { useEventListener } from "expo";
 import { isWatchedPosition } from "@scoutable/shared/lib/clip-timing";
-import type { WatchItem } from "@scoutable/shared/lib/watch-queue";
+import { drawingToShow, holdDue, rearm, slowRateAt } from "@scoutable/shared/lib/clip-timeline";
+import type { WatchDrawing, WatchItem } from "@scoutable/shared/lib/watch-queue";
 
 export const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
 
@@ -83,10 +84,82 @@ export function useClipQueue({
   }, []);
 
   const player = useVideoPlayer(null, (p) => {
-    // Ten a second: the watched rule and the scrubber's time readout (tenths).
+    // Ten a second: the watched rule, the scrubber's time readout (tenths),
+    // and the coach's drawings and slow motion.
     p.timeUpdateEventInterval = 0.1;
     p.loop = false;
+    // Slow motion keeps the sound's pitch.
+    p.preservesPitch = true;
   });
+
+  // -- the coach's drawings (a held frame) and slow motion ------------------------
+
+  /** The drawing whose frame is held, and the one to draw now (held, or paused on its frame). */
+  const [holding, setHolding] = useState<WatchDrawing | null>(null);
+  const [shownDrawing, setShownDrawing] = useState<WatchDrawing | null>(null);
+  const holdRef = useRef<WatchDrawing | null>(null);
+  const firedRef = useRef<Set<string>>(new Set());
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The next pause is the hold's own, not the viewer's. */
+  const selfPauseRef = useRef(false);
+  const lastTimeRef = useRef(0);
+  const shownRef = useRef<WatchDrawing | null>(null);
+
+  const activeEffects = useCallback(() => {
+    const item = itemsRef.current[indexRef.current];
+    return item?.kind === "clip"
+      ? { drawings: item.drawings ?? [], slows: item.slowMotion ?? [] }
+      : { drawings: [], slows: [] };
+  }, []);
+
+  const showDrawing = useCallback(
+    (now: number, paused: boolean) => {
+      const next = drawingToShow(activeEffects().drawings, now, holdRef.current?.id ?? null, paused);
+      if (next?.id === shownRef.current?.id && next?.shapes === shownRef.current?.shapes) return;
+      shownRef.current = next;
+      setShownDrawing(next);
+    },
+    [activeEffects],
+  );
+
+  /** Ends a hold where it stands: the video stays paused on the frame. */
+  const cancelHold = useCallback(() => {
+    if (holdTimerRef.current !== null) clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = null;
+    if (holdRef.current) {
+      holdRef.current = null;
+      setHolding(null);
+    }
+  }, []);
+
+  /** A new clip (or none): nothing fired, nothing held, nothing drawn. */
+  const resetEffects = useCallback(() => {
+    cancelHold();
+    firedRef.current = new Set();
+    shownRef.current = null;
+    setShownDrawing(null);
+  }, [cancelHold]);
+
+  const startHold = useCallback(
+    (d: WatchDrawing) => {
+      firedRef.current.add(d.id);
+      holdRef.current = d;
+      setHolding(d);
+      selfPauseRef.current = true;
+      player.pause();
+      player.currentTime = d.at;
+      showDrawing(d.at, true);
+      if (holdTimerRef.current !== null) clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = setTimeout(() => {
+        holdTimerRef.current = null;
+        if (!isMountedRef.current || holdRef.current?.id !== d.id) return;
+        holdRef.current = null;
+        setHolding(null);
+        player.play();
+      }, d.hold * 1000);
+    },
+    [player, showDrawing],
+  );
 
   const clearTextTimer = useCallback(() => {
     if (textTimerRef.current !== null) clearTimeout(textTimerRef.current);
@@ -106,6 +179,7 @@ export function useClipQueue({
   );
 
   const stop = useCallback(() => {
+    resetEffects();
     clearTextTimer();
     activeRef.current = false;
     indexRef.current = -1;
@@ -116,7 +190,7 @@ export function useClipQueue({
     setCardPaused(false);
     setFailed(false);
     if (isMountedRef.current) player.pause();
-  }, [player, clearTextTimer]);
+  }, [player, clearTextTimer, resetEffects]);
 
   const playIndex = useCallback(
     (i: number) => {
@@ -127,6 +201,7 @@ export function useClipQueue({
         return;
       }
       clearTextTimer();
+      resetEffects();
       indexRef.current = i;
       activeRef.current = true;
       backgroundCardRef.current = false;
@@ -171,7 +246,7 @@ export function useClipQueue({
           setFailed(true);
         });
     },
-    [player, stop, clearTextTimer, armCardTimer],
+    [player, stop, clearTextTimer, armCardTimer, resetEffects],
   );
   useLayoutEffect(() => {
     playIndexRef.current = playIndex;
@@ -195,6 +270,22 @@ export function useClipQueue({
     }
     // Watched = playback reached the shared threshold (isWatchedPosition).
     if (isWatchedPosition(currentTime, player.duration)) report();
+
+    // Slow motion: the viewer's speed times the section's, and the frame of
+    // each drawing held as playback reaches it.
+    lastTimeRef.current = currentTime;
+    const { drawings, slows } = activeEffects();
+    const want = speedRef.current * slowRateAt(slows, currentTime);
+    if (Math.abs(player.playbackRate - want) > 1e-3) player.playbackRate = want;
+    if (firedRef.current.size > 0) firedRef.current = rearm(drawings, currentTime, firedRef.current);
+    if (!holdRef.current && player.playing) {
+      const due = holdDue(drawings, currentTime, firedRef.current);
+      if (due) {
+        startHold(due);
+        return;
+      }
+    }
+    showDrawing(currentTime, !player.playing);
   });
 
   useEventListener(player, "playToEnd", () => {
@@ -206,7 +297,13 @@ export function useClipQueue({
   });
 
   useEventListener(player, "playingChange", ({ isPlaying }) => {
-    if (isMountedRef.current) setPaused(!isPlaying);
+    if (!isMountedRef.current) return;
+    setPaused(!isPlaying);
+    // The viewer's own pause ends a hold where it stands; a play goes on from it.
+    if (isPlaying) cancelHold();
+    else if (selfPauseRef.current) selfPauseRef.current = false;
+    else cancelHold();
+    showDrawing(lastTimeRef.current, !isPlaying);
   });
 
   useEventListener(player, "sourceLoad", ({ duration: d }) => {
@@ -318,20 +415,25 @@ export function useClipQueue({
       playIndex(indexRef.current);
       return;
     }
+    // During a hold the controls read "playing": Pause ends the hold, the frame stays.
+    if (holdRef.current) {
+      cancelHold();
+      return;
+    }
     if (player.playing) player.pause();
     else player.play();
-  }, [player, failed, playIndex]);
+  }, [player, failed, playIndex, cancelHold]);
 
   const setSpeed = useCallback(
     (s: number) => {
       speedRef.current = s;
       setSpeedState(s);
-      player.playbackRate = s;
+      player.playbackRate = s * slowRateAt(activeEffects().slows, player.currentTime);
       AsyncStorage.setItem(SPEED_KEY, String(s)).catch(() => {
         // Remembering the speed is a convenience.
       });
     },
-    [player],
+    [player, activeEffects],
   );
 
   const position = activeKey ? items.findIndex((i) => i.key === activeKey) : -1;
@@ -347,6 +449,10 @@ export function useClipQueue({
     canNext: isQueueActive && position >= 0 && position < items.length - 1,
     /** The footage is paused (or nothing is playing). */
     paused,
+    /** A drawing holds the frame (paused, but part of playback), and the drawing to show now. */
+    holding,
+    shownDrawing,
+    cancelHold,
     cardPaused,
     failed,
     loading,

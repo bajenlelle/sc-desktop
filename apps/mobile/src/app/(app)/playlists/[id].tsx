@@ -23,6 +23,7 @@ import { supabase } from "@/lib/supabase";
 import { useThemeColors } from "@/lib/theme-context";
 import { useClipQueue } from "@/hooks/use-clip-queue";
 import { ClipCaption } from "@/components/player/ClipCaption";
+import { DrawingLayer } from "@/components/player/DrawingLayer";
 import { PlayerStage } from "@/components/player/PlayerStage";
 import { useStageFullscreen } from "@/components/player/use-stage-fullscreen";
 import { ActivePill, WatchClipRow, WatchTextCardRow, useActivePill } from "@/components/WatchClipRow";
@@ -200,7 +201,8 @@ export default function WatchScreen() {
           player={queue.player}
           duration={activeClip ? queue.duration : null}
           canScrub={canScrub}
-          paused={activeCard ? queue.cardPaused : !queue.isQueueActive || queue.paused}
+          // A held frame is part of playback: the controls read "playing".
+          paused={activeCard ? queue.cardPaused : !queue.isQueueActive || (queue.paused && !queue.holding)}
           onTogglePlay={onTogglePlay}
           transport={{
             isQueueActive: queue.isQueueActive,
@@ -221,6 +223,8 @@ export default function WatchScreen() {
           idleLabel={idleLabel}
           cardShowing={!!activeCard}
           onScrubbingChange={setScrubbing}
+          drawings={activeClip?.drawings}
+          slows={activeClip?.slowMotion}
         >
           {activeCard && (
             <View className="absolute inset-0 items-center justify-center bg-black px-8">
@@ -232,6 +236,7 @@ export default function WatchScreen() {
               </Text>
             </View>
           )}
+          {queue.shownDrawing && !activeCard && <DrawingLayer key={queue.shownDrawing.id} shapes={queue.shownDrawing.shapes} />}
           {activeClip?.note && !activeCard && <ClipCaption key={activeClip.key} text={activeClip.note} />}
         </PlayerStage>
       </View>
@@ -292,6 +297,7 @@ export default function WatchScreen() {
                   event={item.event}
                   matchTitle={matchTitleFor(item.matchId)}
                   note={item.note}
+                  drawings={item.drawings?.length ?? 0}
                   watched={clipViews.has(clipViewKey(playlist.id, item.matchId, item.event.eventId))}
                   active={queue.activeKey === item.key}
                   onPlay={() => playFrom(item.key)}

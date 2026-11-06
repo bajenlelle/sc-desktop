@@ -56,6 +56,8 @@ export function PlayerStage({
   idleLabel,
   cardShowing,
   onScrubbingChange,
+  drawings,
+  slows,
   children,
 }: {
   player: VideoPlayer;
@@ -80,6 +82,9 @@ export function PlayerStage({
   /** A text card is up (it has no timeline, so the bar is only its buttons). */
   cardShowing?: boolean;
   onScrubbingChange?: (scrubbing: boolean) => void;
+  /** The coach's drawings and slow motion on the timeline, in the file's time. */
+  drawings?: { id: string; at: number }[];
+  slows?: { id: string; at: number; length: number }[];
   /** Overlays on the footage (a text card). Taps pass through them. */
   children?: ReactNode;
 }) {
@@ -133,9 +138,9 @@ export function PlayerStage({
   const scrubber =
     duration !== null && duration > 0 ? (
       canScrub ? (
-        <ClipScrubber player={player} duration={duration} onScrubbingChange={handleScrubbing} />
+        <ClipScrubber player={player} duration={duration} onScrubbingChange={handleScrubbing} drawings={drawings} slows={slows} />
       ) : (
-        <ClipProgress player={player} duration={duration} />
+        <ClipProgress player={player} duration={duration} drawings={drawings} slows={slows} />
       )
     ) : null;
   // In full screen the controls keep clear of the notch and the home indicator.

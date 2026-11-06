@@ -56,11 +56,15 @@ export function ClipScrubber({
   player,
   duration: total,
   onScrubbingChange,
+  drawings,
+  slows,
 }: {
   player: VideoPlayer;
   /** The clip's length: each clip is its own file, so the track spans it. */
   duration: number;
   onScrubbingChange?: (scrubbing: boolean) => void;
+  drawings?: TimelineDrawing[];
+  slows?: TimelineSlow[];
 }) {
   const duration = Math.max(0.001, total);
   const width = useSharedValue(0);
@@ -185,7 +189,9 @@ export function ClipScrubber({
             <Animated.View
               style={[{ height: "100%", width: "100%", borderRadius: 3, backgroundColor: "rgba(255,255,255,0.9)", transformOrigin: "left" }, fillStyle]}
             />
+            <SlowBands slows={slows} duration={duration} />
           </View>
+          <DrawingMarks drawings={drawings} duration={duration} />
           <Animated.View
             pointerEvents="none"
             style={[
@@ -219,7 +225,17 @@ export function ClipScrubber({
  * The scrubber's times around a thinner line with nothing to grab; VoiceOver
  * reads it as a progress bar, and a tap goes through to the footage.
  */
-export function ClipProgress({ player, duration: total }: { player: VideoPlayer; duration: number }) {
+export function ClipProgress({
+  player,
+  duration: total,
+  drawings,
+  slows,
+}: {
+  player: VideoPlayer;
+  duration: number;
+  drawings?: TimelineDrawing[];
+  slows?: TimelineSlow[];
+}) {
   const duration = Math.max(0.001, total);
   const never = useRef(null);
   const { elapsed, progress } = usePlaybackFollow(player, duration, never);
@@ -238,7 +254,9 @@ export function ClipProgress({ player, duration: total }: { player: VideoPlayer;
           <Animated.View
             style={[{ height: "100%", width: "100%", borderRadius: 2, backgroundColor: "rgba(255,255,255,0.9)", transformOrigin: "left" }, fillStyle]}
           />
+          <SlowBands slows={slows} duration={duration} />
         </View>
+        <DrawingMarks drawings={drawings} duration={duration} />
       </View>
       <TimeLabel align="left">{formatClipTime(duration)}</TimeLabel>
     </View>
@@ -257,5 +275,61 @@ function TimeLabel({ children, align }: { children: string; align: "left" | "rig
     >
       {children}
     </Text>
+  );
+}
+
+type TimelineDrawing = { id: string; at: number };
+type TimelineSlow = { id: string; at: number; length: number };
+
+/** Slow-motion stretches as bands over the track. */
+function SlowBands({ slows, duration }: { slows?: TimelineSlow[]; duration: number }) {
+  return (
+    <>
+      {(slows ?? []).map((s) => {
+        const from = Math.min(1, Math.max(0, s.at / duration));
+        const to = Math.min(1, Math.max(0, (s.at + s.length) / duration));
+        return to > from ? (
+          <View
+            key={s.id}
+            pointerEvents="none"
+            style={{ position: "absolute", top: 0, bottom: 0, left: `${from * 100}%`, width: `${(to - from) * 100}%`, backgroundColor: "rgba(56,189,248,0.7)" }}
+          />
+        ) : null;
+      })}
+    </>
+  );
+}
+
+const MARK = 9;
+
+/** A small diamond where each drawing holds the frame. */
+function DrawingMarks({ drawings, duration }: { drawings?: TimelineDrawing[]; duration: number }) {
+  return (
+    <>
+      {(drawings ?? []).map((d) => {
+        const frac = d.at / duration;
+        if (frac < 0 || frac > 1) return null;
+        return (
+          <View
+            key={d.id}
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              left: `${frac * 100}%`,
+              top: "50%",
+              width: MARK,
+              height: MARK,
+              marginLeft: -MARK / 2,
+              marginTop: -MARK / 2,
+              borderRadius: 2,
+              backgroundColor: "#ffffff",
+              borderWidth: 1,
+              borderColor: "rgba(0,0,0,0.4)",
+              transform: [{ rotate: "45deg" }],
+            }}
+          />
+        );
+      })}
+    </>
   );
 }
