@@ -1,11 +1,15 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Pause, Play, RotateCcw, X } from "lucide-react";
 import { VideoPlayer } from "@/components/video-player";
 import { ClipScrubber } from "@/components/editor/clip-scrubber";
 import { ControlButton } from "@/components/editor/transport-bar";
+import { DrawingLayer } from "@/components/player/drawing-layer";
 import { streamFileSrc } from "@/lib/stream";
+import { useClipEffects } from "@/lib/use-clip-effects";
 import { cn } from "@/lib/utils";
-import type { ReportClipSource } from "@scoutable/shared/lib/report-clip-source";
+import type { ReportClipEffects, ReportClipSource } from "@scoutable/shared/lib/report-clip-source";
+
+const NO_EFFECTS: ReportClipEffects = { drawings: [], slows: [] };
 
 const NONE_MESSAGE: Record<Extract<ReportClipSource, { kind: "none" }>["reason"], string> = {
   no_video: "The game’s video isn’t on this computer.",
@@ -41,12 +45,15 @@ function StopButton({ onClose, className }: { onClose: () => void; className?: s
  */
 export function ReportClipPlayer({
   source,
+  effects,
   onClose,
   autoFocus = false,
   playRequest = 0,
   className,
 }: {
   source: ReportClipSource;
+  /** The coach's drawings and slow motion, in the time of what `source` plays (reportClipEffects). */
+  effects?: ReportClipEffects | null;
   onClose: () => void;
   /** Take the keyboard on opening (a click on the tile; not a row in the side panel, which keeps it). */
   autoFocus?: boolean;
@@ -63,7 +70,18 @@ export function ReportClipPlayer({
   const src = source.kind === "local" ? streamFileSrc(source.path) : source.url;
   const clip = source.kind === "local" ? { start: source.start, end: source.end } : null;
   // A new source is a new player: the old element is released, the new one starts at the top.
-  return <ClipVideo key={`${src}|${clip?.start}|${clip?.end}`} src={src} clip={clip} onClose={onClose} autoFocus={autoFocus} playRequest={playRequest} className={className} />;
+  return (
+    <ClipVideo
+      key={`${src}|${clip?.start}|${clip?.end}`}
+      src={src}
+      clip={clip}
+      effects={effects ?? NO_EFFECTS}
+      onClose={onClose}
+      autoFocus={autoFocus}
+      playRequest={playRequest}
+      className={className}
+    />
+  );
 }
 
 function NothingToPlay({ message, onClose, autoFocus, className }: { message: string; onClose: () => void; autoFocus: boolean; className?: string }) {
@@ -90,11 +108,14 @@ function NothingToPlay({ message, onClose, autoFocus, className }: { message: st
  * The footage with a small bar over its foot: play/pause and the scrubber.
  * The game's own video plays the clip's stretch (`clip`) and stops at its end;
  * an uploaded copy plays from 0 to the end of the file. At the end the last
- * frame stays, with Replay over it.
+ * frame stays, with Replay over it. The coach's drawings freeze their frames
+ * and slow motion slows its stretch, as in the editor and the players' views;
+ * a held frame counts as playing.
  */
 function ClipVideo({
   src,
   clip,
+  effects,
   onClose,
   autoFocus,
   playRequest,
@@ -103,6 +124,7 @@ function ClipVideo({
   src: string;
   /** The clip within the game's video; null for an uploaded copy (the whole file). */
   clip: { start: number; end: number } | null;
+  effects: ReportClipEffects;
   onClose: () => void;
   autoFocus: boolean;
   playRequest: number;
@@ -117,6 +139,11 @@ function ClipVideo({
   const [failed, setFailed] = useState(false);
   const start = clip?.start ?? 0;
   const end = clip?.end ?? duration;
+  const fx = useClipEffects(video, effects, 1, !failed);
+  // A held frame is part of playback: the controls read "playing".
+  const live = playing || fx.holding !== null;
+  const markers = useMemo(() => effects.drawings.map((d) => ({ id: d.id, t: d.at, hold: d.hold })), [effects.drawings]);
+  const bands = useMemo(() => effects.slows.map((s) => ({ id: s.id, t: s.at, length: s.length, rate: s.rate })), [effects.slows]);
 
   // Once, when the player opens (a new source is a new player).
   useEffect(() => {
@@ -167,6 +194,7 @@ function ClipVideo({
   function replay() {
     const v = videoRef.current;
     if (!v) return;
+    fx.cancel();
     v.currentTime = start;
     setEnded(false);
     v.play().catch(() => {});
@@ -175,7 +203,9 @@ function ClipVideo({
   function togglePlay() {
     const v = videoRef.current;
     if (!v) return;
-    if (ended) replay();
+    // Pausing a held frame ends the hold where it stands; the drawing stays while the frame does.
+    if (fx.holding) fx.cancel();
+    else if (ended) replay();
     else if (v.paused) v.play().catch(() => {});
     else v.pause();
   }
@@ -188,12 +218,13 @@ function ClipVideo({
     const v = videoRef.current;
     if (!v) return;
     if (ended) replay();
-    else if (v.paused) v.play().catch(() => {});
+    else if (v.paused && !fx.holding) v.play().catch(() => {});
   }, [playRequest]);
 
   function seek(t: number) {
     const v = videoRef.current;
     if (!v) return;
+    fx.cancel();
     const to = Math.min(Math.max(t, start), end);
     v.currentTime = to;
     if (to < end) setEnded(false);
@@ -209,7 +240,7 @@ function ClipVideo({
   }
 
   // Shown while paused, and while the pointer is over the tile or a control has the keyboard.
-  const chrome = cn("transition-opacity duration-150 focus-within:opacity-100", playing ? "opacity-0 group-hover/player:opacity-100" : "opacity-100");
+  const chrome = cn("transition-opacity duration-150 focus-within:opacity-100", live ? "opacity-0 group-hover/player:opacity-100" : "opacity-100");
 
   return (
     <div
@@ -225,6 +256,8 @@ function ClipVideo({
       <div onClick={togglePlay} className="h-full w-full [&>div]:rounded-none">
         <VideoPlayer src={src} videoRef={videoRef} onLoadFailure={(f) => setFailed(f !== null)} />
       </div>
+
+      {fx.shown && !failed && <DrawingLayer key={fx.shown.id} shapes={fx.shown.shapes} />}
 
       {ended && !failed && (
         <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center">
@@ -243,10 +276,14 @@ function ClipVideo({
 
       {!failed && (
         <div className={cn("dark absolute inset-x-2 bottom-2 z-30 flex items-center gap-1 rounded-lg bg-black/55 py-0.5 pr-2 pl-0.5 text-white ring-1 ring-white/10 backdrop-blur-xl", chrome)}>
-          <ControlButton label={playing ? "Pause" : "Play"} shortcut="Space" onClick={togglePlay} className="size-7 [&_svg]:size-4">
-            {playing ? <Pause className="fill-current" /> : <Play className="translate-x-px fill-current" />}
+          <ControlButton label={live ? "Pause" : "Play"} shortcut="Space" onClick={togglePlay} className="size-7 [&_svg]:size-4">
+            {live ? <Pause className="fill-current" /> : <Play className="translate-x-px fill-current" />}
           </ControlButton>
-          {video && end > start ? <ClipScrubber video={video} start={start} end={end} onSeek={seek} className="min-w-0 flex-1" /> : <div className="h-6 flex-1" />}
+          {video && end > start ? (
+            <ClipScrubber video={video} start={start} end={end} onSeek={seek} drawings={markers} slows={bands} className="min-w-0 flex-1" />
+          ) : (
+            <div className="h-6 flex-1" />
+          )}
         </div>
       )}
     </div>

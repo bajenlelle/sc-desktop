@@ -71,7 +71,15 @@ export function reportClipEffects(item: Pick<PlaylistClipItem, "drawings" | "slo
     const fx = clipWatchEffects(item, source.url);
     return { drawings: fx.drawings ?? [], slows: fx.slowMotion ?? [] };
   }
-  const { start, end } = source;
+  return clipEffectsInWindow(item, source.start, source.end);
+}
+
+/**
+ * A clip's effects inside its window [start, end] of the game's video, in that
+ * video's own (absolute) time, as the editor and the export take them: a
+ * drawing at the window's very ends is left out, a section is cut to it.
+ */
+export function clipEffectsInWindow(item: Pick<PlaylistClipItem, "drawings" | "slowMotion">, start: number, end: number): ReportClipEffects {
   const drawings = (item.drawings ?? [])
     .filter((d) => d.t > start + EDGE_SECONDS && d.t < end - EDGE_SECONDS)
     .sort((a, b) => a.t - b.t)

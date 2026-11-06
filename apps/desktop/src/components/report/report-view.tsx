@@ -40,7 +40,7 @@ import {
   type ReportDraft,
 } from "@scoutable/shared/lib/report-draft";
 import { leaderCompetition, leaderRows } from "@scoutable/shared/lib/report-leaders";
-import { reportClipSource, type ReportClipSource } from "@scoutable/shared/lib/report-clip-source";
+import { reportClipEffects, reportClipSource, type ReportClipSource } from "@scoutable/shared/lib/report-clip-source";
 import { buildScoutingReport, reportOutline } from "@scoutable/shared/lib/scouting-report";
 import type { Label } from "@scoutable/shared/types/labels";
 import type { League } from "@scoutable/shared/types/league";
@@ -480,6 +480,11 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
   );
   const playingClip = livePlaying ? clipByKey.get(livePlaying.key)?.clip : undefined;
   const playingSource = useMemo(() => (playingClip ? sourceOf(playingClip) : null), [playingClip, sourceOf]);
+  // The coach's drawings and slow motion, in the time of what the tile plays.
+  const playingEffects = useMemo(
+    () => (playingClip && playingSource ? reportClipEffects(playingClip.item, playingSource) : null),
+    [playingClip, playingSource],
+  );
 
   /** A click on a tile plays it there; a row in the side panel also brings the tile into view. */
   function playClip(key: string, via: "tile" | "panel") {
@@ -659,6 +664,7 @@ export const ReportView = memo(function ReportView(props: ReportViewProps) {
                 flashKey={flashKey}
                 playingKey={livePlaying?.key ?? null}
                 playingSource={playingSource}
+                playingEffects={playingEffects}
                 focusPlayer={livePlaying?.via === "tile"}
                 playRequest={playRequest}
                 onPlayClip={(key) => playClip(key, "tile")}

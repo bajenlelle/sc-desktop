@@ -9,25 +9,30 @@
  *      are cut and uploaded first. Idempotent: a clip that has one is skipped.
  *   2. posters: one JPEG frame per clip (a video doesn't print, its poster
  *      does), cut from the coach's local game video and uploaded as the
- *      coach's own highlights/<user>/<uuid>.jpg. Best effort: a missing
- *      poster leaves a placeholder, never a failed report.
+ *      coach's own highlights/<user>/<uuid>.jpg. A clip the coach drew on
+ *      gets the drawn frame with the drawing burned in, so the PDF shows it;
+ *      the others the play's moment. Best effort: a missing poster leaves a
+ *      placeholder, never a failed report.
  *   3. publish: the only step that makes anything public. Cancelling before
  *      it publishes nothing; the clips and posters already up are harmless.
  */
 import { invoke } from "@tauri-apps/api/core";
 import { createClient } from "@/lib/supabase/client";
 import { clipAndShip } from "@/lib/clip-and-ship";
+import { clipDrawingPngBase64 } from "@/lib/card-painter";
 import { uploadToR2 } from "@/lib/r2-upload";
 import { publishScoutingReport } from "@/lib/scouting-reports-db";
 import type { ExportSegment } from "@/lib/export";
-import { computeVideoTime } from "@scoutable/shared/lib/clip-timing";
+import type { DrawingShape } from "@scoutable/shared/lib/clip-drawing";
+import { clipBounds, computeVideoTime, shippedStart } from "@scoutable/shared/lib/clip-timing";
 import { isExportCancelled } from "@scoutable/shared/lib/export-progress";
 import { itemKey } from "@scoutable/shared/lib/playlist-edits";
+import { clipEffectsInWindow } from "@scoutable/shared/lib/report-clip-source";
 import { deriveReportLayout, type ReportDraft } from "@scoutable/shared/lib/report-draft";
 import { buildScoutingReport, clampReportTitle, type MissingClip } from "@scoutable/shared/lib/scouting-report";
 import { scoutingReportUrl } from "@scoutable/shared/lib/scouting-reports-db";
 import type { ClipShipFailure, ClipShipResult } from "@scoutable/shared/lib/ship-result";
-import { isClipItem, type PlayByPlayEvent, type Playlist, type PlaylistItem, type SyncPoint } from "@/types/match";
+import { isClipItem, type PlayByPlayEvent, type Playlist, type PlaylistClipItem, type PlaylistItem, type SyncPoint } from "@/types/match";
 
 export type ReportStage = "clips" | "posters" | "publishing";
 
@@ -104,6 +109,20 @@ export async function pool<T>(items: readonly T[], limit: number, signal: AbortS
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
+/**
+ * The drawing a clip's poster shows: the first inside the clip's window (the
+ * window its file was cut with, since a trim or a sync change re-cuts the
+ * file), at the exact frame the coach drew on. None when the page can't show
+ * drawings for the file (a key without its start), so the PDF never shows a
+ * drawing the clip doesn't.
+ */
+function posterDrawing(item: PlaylistClipItem, videoTime: number, preRoll: number, postRoll: number): { t: number; shapes: DrawingShape[] } | null {
+  if (!item.r2Url || shippedStart(item.r2Url) === null) return null;
+  const { start, end } = clipBounds(videoTime, preRoll, postRoll, item.preRollOffset, item.postRollOffset);
+  const first = clipEffectsInWindow(item, start, end).drawings[0];
+  return first ? { t: first.at, shapes: first.shapes } : null;
+}
+
 /** The items with freshly uploaded file URLs on their clips. */
 function withUploads(items: PlaylistItem[], uploaded: ClipShipResult["uploaded"]): PlaylistItem[] {
   if (uploaded.length === 0) return items;
@@ -170,7 +189,19 @@ export async function generateScoutingReport(args: GenerateReportArgs): Promise<
       if (source && at !== null) {
         const tempPath = `${tempDir}/sc_poster_${crypto.randomUUID()}.jpg`;
         try {
-          await invoke("extract_clip_poster", { videoPath: source.videoPath, atSeconds: at, outputPath: tempPath });
+          // The drawn frame when the coach drew on the clip; the play's moment otherwise, or if that fails.
+          const drawing = posterDrawing(item, at, args.preRoll, args.postRoll);
+          let drawn = false;
+          if (drawing) {
+            try {
+              const overlayPngBase64 = await clipDrawingPngBase64(drawing.shapes, "16:9");
+              await invoke("extract_clip_poster", { videoPath: source.videoPath, atSeconds: drawing.t, outputPath: tempPath, overlayPngBase64 });
+              drawn = true;
+            } catch (e) {
+              if (signal.aborted || isExportCancelled(e)) throw e;
+            }
+          }
+          if (!drawn) await invoke("extract_clip_poster", { videoPath: source.videoPath, atSeconds: at, outputPath: tempPath });
           const posterKey = `highlights/${user.id}/${crypto.randomUUID()}.jpg`;
           await uploadToR2(tempPath, posterKey, "image/jpeg", signal);
           posters.set(key, posterKey);

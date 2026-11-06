@@ -18,7 +18,7 @@ import { LabelChip } from "@/components/labels/LabelChip";
 import { cn } from "@/lib/utils";
 import { eventColors, eventLabel, formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { LEFT_OUT, REPORT_INTRO_LIMIT, REPORT_NOTE_LIMIT, REPORT_TITLE_MAX, TEAM_SECTION, sectionLabel, type DraftSection, type Placement, type ReportDraft } from "@scoutable/shared/lib/report-draft";
-import type { ReportClipSource } from "@scoutable/shared/lib/report-clip-source";
+import type { ReportClipEffects, ReportClipSource } from "@scoutable/shared/lib/report-clip-source";
 import { cardContent, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
 import type { Label } from "@scoutable/shared/types/labels";
 import type { League } from "@scoutable/shared/types/league";
@@ -72,6 +72,8 @@ export interface ReportDocumentProps {
   /** The clip playing in its tile (one at a time), what it plays, and whether its player takes the keyboard. */
   playingKey: string | null;
   playingSource: ReportClipSource | null;
+  /** The playing clip's drawings and slow motion, in the time of what it plays. */
+  playingEffects: ReportClipEffects | null;
   focusPlayer: boolean;
   /** Goes up when the side panel's row for the playing clip is clicked again (see ReportClipPlayer). */
   playRequest: number;
@@ -328,6 +330,7 @@ const ClipTileCard = memo(function ClipTileCard({
   flashing,
   count,
   playing,
+  effects,
   focusPlayer,
   playRequest,
   onPlay,
@@ -348,6 +351,7 @@ const ClipTileCard = memo(function ClipTileCard({
   count: number;
   /** What the tile plays while it is the playing one; null shows the placeholder. */
   playing: ReportClipSource | null;
+  effects: ReportClipEffects | null;
   focusPlayer: boolean;
   playRequest: number;
   onPlay: () => void;
@@ -372,7 +376,14 @@ const ClipTileCard = memo(function ClipTileCard({
   return (
     <figure className="group/tile relative flex flex-col gap-2" data-clip-key={clip.key}>
       {playing ? (
-        <ReportClipPlayer source={playing} onClose={onStop} autoFocus={focusPlayer} playRequest={playRequest} className={cn((selected || flashing) && "ring-2 ring-selection")} />
+        <ReportClipPlayer
+          source={playing}
+          effects={effects}
+          onClose={onStop}
+          autoFocus={focusPlayer}
+          playRequest={playRequest}
+          className={cn((selected || flashing) && "ring-2 ring-selection")}
+        />
       ) : (
         <button
           ref={placeholderRef}
@@ -454,6 +465,7 @@ function ClipGrid({ clips, here, targets, empty, props }: { clips: ViewClip[]; h
             flashing={props.flashKey === clip.key}
             count={many ? props.selected.size : 1}
             playing={props.playingKey === clip.key ? props.playingSource : null}
+            effects={props.playingKey === clip.key ? props.playingEffects : null}
             focusPlayer={props.focusPlayer}
             playRequest={props.playingKey === clip.key ? props.playRequest : 0}
             onPlay={() => props.onPlayClip(clip.key)}
