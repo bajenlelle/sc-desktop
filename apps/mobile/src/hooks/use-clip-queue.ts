@@ -122,6 +122,15 @@ export function useClipQueue({
     [activeEffects],
   );
 
+  /** The viewer's speed times the slow section's at `now`; call only while playing (see timeUpdate). */
+  const applyRate = useCallback(
+    (now: number) => {
+      const want = speedRef.current * slowRateAt(activeEffects().slows, now);
+      if (Math.abs(player.playbackRate - want) > 1e-3) player.playbackRate = want;
+    },
+    [player, activeEffects],
+  );
+
   /** Ends a hold where it stands: the video stays paused on the frame. */
   const cancelHold = useCallback(() => {
     if (holdTimerRef.current !== null) clearTimeout(holdTimerRef.current);
@@ -153,8 +162,7 @@ export function useClipQueue({
       holdTimerRef.current = setTimeout(() => {
         holdTimerRef.current = null;
         if (!isMountedRef.current || holdRef.current?.id !== d.id) return;
-        holdRef.current = null;
-        setHolding(null);
+        // The hold ends with playingChange, so the controls never read "paused" in between.
         player.play();
       }, d.hold * 1000);
     },
@@ -274,9 +282,9 @@ export function useClipQueue({
     // Slow motion: the viewer's speed times the section's, and the frame of
     // each drawing held as playback reaches it.
     lastTimeRef.current = currentTime;
-    const { drawings, slows } = activeEffects();
-    const want = speedRef.current * slowRateAt(slows, currentTime);
-    if (Math.abs(player.playbackRate - want) > 1e-3) player.playbackRate = want;
+    const { drawings } = activeEffects();
+    // Only while playing: on iOS a rate set on a paused player starts it (AVPlayer.rate).
+    if (player.playing && !holdRef.current) applyRate(currentTime);
     if (firedRef.current.size > 0) firedRef.current = rearm(drawings, currentTime, firedRef.current);
     if (!holdRef.current && player.playing) {
       const due = holdDue(drawings, currentTime, firedRef.current);
@@ -304,6 +312,7 @@ export function useClipQueue({
     if (isPlaying) {
       cancelHold();
       firedRef.current = firedOnPlay(activeEffects().drawings, player.currentTime, firedRef.current);
+      applyRate(player.currentTime);
     }
     else if (selfPauseRef.current) selfPauseRef.current = false;
     else cancelHold();
@@ -340,6 +349,8 @@ export function useClipQueue({
     const sub = AppState.addEventListener("change", (state) => {
       if (!isMountedRef.current) return;
       if (state !== "active") {
+        // A hold's timer would play the clip in the background.
+        cancelHold();
         player.pause();
         if (textTimerRef.current !== null) {
           cardRemainingRef.current = Math.max(0, cardDeadlineRef.current - Date.now());
@@ -352,7 +363,7 @@ export function useClipQueue({
       }
     });
     return () => sub.remove();
-  }, [player, clearTextTimer, armCardTimer]);
+  }, [player, clearTextTimer, armCardTimer, cancelHold]);
 
   useEffect(() => clearTextTimer, [clearTextTimer]);
 
@@ -435,12 +446,13 @@ export function useClipQueue({
     (s: number) => {
       speedRef.current = s;
       setSpeedState(s);
-      player.playbackRate = s * slowRateAt(activeEffects().slows, player.currentTime);
+      // A paused player takes the speed when it plays (playingChange): on iOS setting it would start playback.
+      if (player.playing) applyRate(player.currentTime);
       AsyncStorage.setItem(SPEED_KEY, String(s)).catch(() => {
         // Remembering the speed is a convenience.
       });
     },
-    [player, activeEffects],
+    [player, applyRate],
   );
 
   const position = activeKey ? items.findIndex((i) => i.key === activeKey) : -1;

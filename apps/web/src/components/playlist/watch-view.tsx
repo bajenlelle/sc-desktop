@@ -218,6 +218,7 @@ export function WatchView({
         return;
       case "shuttle-pause":
         e.preventDefault();
+        cancelHold();
         video?.pause();
         return;
       case "shuttle-forward":

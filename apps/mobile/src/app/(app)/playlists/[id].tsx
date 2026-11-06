@@ -222,7 +222,11 @@ export default function WatchScreen() {
           failed={!!activeClip && queue.failed}
           idleLabel={idleLabel}
           cardShowing={!!activeCard}
-          onScrubbingChange={setScrubbing}
+          onScrubbingChange={(on) => {
+            // A scrub ends a hold where it stands, or its timer would play mid-scrub.
+            if (on) queue.cancelHold();
+            setScrubbing(on);
+          }}
           drawings={activeClip?.drawings}
           slows={activeClip?.slowMotion}
         >

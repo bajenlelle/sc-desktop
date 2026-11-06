@@ -134,6 +134,12 @@ describe("hitTest", () => {
     expect(hitTest([spot, cut], p(0.9, 0.9), F, 0)).toBeNull();
   });
 
+  it("can leave spotlights out, so an arrow or a label starts on the spotlighted player", () => {
+    expect(hitTest([spot], p(0.5, 0.5), F, 0, { spotlights: false })).toBeNull();
+    expect(hitTest([cut, spot], p(0.5, 0.5), F, 0, { spotlights: false })?.id).toBe(cut.id);
+    expect(hitTest([cut, spot], p(0.5, 0.5), F, 0)?.id).toBe(spot.id);
+  });
+
   it("finds a label by its pill", () => {
     const label: DrawingShape = { kind: "text", id: "t", at: p(0.2, 0.2), text: "Help side" };
     expect(hitTest([label], p(0.2, 0.2), F, 0)?.id).toBe("t");

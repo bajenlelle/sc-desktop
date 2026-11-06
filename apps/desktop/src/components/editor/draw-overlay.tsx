@@ -124,6 +124,9 @@ export function DrawOverlay({
   const [hover, setHover] = useState(false);
   const shapes = session.drawing.shapes;
   const selected = shapes.find((s) => s.id === session.selectedId) ?? null;
+  // A spotlight is picked only with its own tool: with Arrow or Text the
+  // press starts on the spotlighted player (its handle still resizes it).
+  const pick = (p: DrawingPoint, f: Frame) => hitTest(shapes, p, f, PICK, { spotlights: session.tool === "spotlight" });
 
   useEffect(() => {
     void loadCardFonts().catch(() => {});
@@ -212,7 +215,7 @@ export function DrawOverlay({
       e.currentTarget.setPointerCapture(e.pointerId);
       return;
     }
-    const hit = hitTest(shapes, p, frame, PICK);
+    const hit = pick(p, frame);
     if (hit) {
       onSelect(hit.id);
       setDragState({ mode: "move", id: hit.id, start: p, orig: hit, snapshot: shapes });
@@ -225,6 +228,8 @@ export function DrawOverlay({
     }
     onSelect(null);
     if (session.tool === "text") {
+      // The mouse events that follow this press would focus nothing and blur the new field.
+      e.preventDefault();
       setTextState({ at: p, value: "" });
       return;
     }
@@ -237,7 +242,7 @@ export function DrawOverlay({
     const d = dragRef.current;
     const p = toPoint(e);
     if (!d) {
-      const over = !!hitTest(shapes, p, frame, PICK);
+      const over = !!pick(p, frame);
       if (over !== hover) setHover(over);
       return;
     }
@@ -316,6 +321,10 @@ export function DrawOverlay({
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
           onDoubleClick={onDoubleClick}
+          // A press on the frame never takes focus from the label's field (the field's own presses do).
+          onMouseDown={(e) => {
+            if (!(e.target instanceof HTMLInputElement)) e.preventDefault();
+          }}
         >
           <DrawingShapes shapes={visible} frame={frame} animate={false} idPrefix={`do${id}`} />
           <DrawingLabels shapes={visible} frame={frame} animate={false} selectedId={session.selectedId} />

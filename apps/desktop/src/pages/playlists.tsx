@@ -2673,12 +2673,14 @@ export function PlaylistsPage() {
     if (trim && (activeKey !== trim.key || playerFs.active || cropMode)) abandonTrim();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKey, playerFs.active, cropMode]);
-  // Draw mode's bar and the slow-motion bar live under the player, which full screen hides.
+  // Draw mode's bar and the slow-motion bar live under the player, which full
+  // screen and the report view hide (and the report view's way back puts the
+  // editor's keys above draw mode's).
   useEffect(() => {
-    if (!playerFs.active) return;
+    if (!playerFs.active && !reportView) return;
     if (drawModeRef.current) finishDrawRef.current();
     if (slowEditRef.current) closeSlowRef.current();
-  }, [playerFs.active]);
+  }, [playerFs.active, reportView]);
 
   // One key owner for the page (src/lib/key-scope.ts); the Add Clips sheet
   // registers its own scope on top while it is open. The handler closes
@@ -2712,6 +2714,7 @@ export function PlaylistsPage() {
     const video = videoRef.current;
     const nudge = (delta: number) => {
       if (!video || activeClipCrop.start === null || activeClipCrop.end === null) return;
+      clipEffects.cancel();
       video.currentTime = clamp(
         video.currentTime + delta,
         activeClipCrop.start,
@@ -2776,6 +2779,11 @@ export function PlaylistsPage() {
           if (queueItems.length > 0) startQueue(queueItems);
           return;
         }
+        // A held frame reads as playing: Space ends the hold where it stands.
+        if (clipEffects.holding) {
+          clipEffects.cancel();
+          return;
+        }
         if (video.paused) video.play().catch(() => {});
         else video.pause();
         return;
@@ -2798,6 +2806,7 @@ export function PlaylistsPage() {
         return;
       case "shuttle-pause":
         e.preventDefault();
+        clipEffects.cancel();
         video?.pause();
         return;
       case "shuttle-forward": {

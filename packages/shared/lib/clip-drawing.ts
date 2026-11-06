@@ -276,13 +276,24 @@ function distanceToPolyline(p: DrawingPoint, polyline: DrawingPoint[]): number {
   return best;
 }
 
-/** The shape under a point (a fraction of the frame), the last drawn first, or null. */
-export function hitTest(shapes: DrawingShape[], p: DrawingPoint, frame: Frame, tolerancePx: number): DrawingShape | null {
+/**
+ * The shape under a point (a fraction of the frame), the last drawn first,
+ * or null. `spotlights: false` leaves spotlights out, so an arrow or a label
+ * can start on the spotlighted player.
+ */
+export function hitTest(
+  shapes: DrawingShape[],
+  p: DrawingPoint,
+  frame: Frame,
+  tolerancePx: number,
+  opts: { spotlights?: boolean } = {},
+): DrawingShape | null {
   const P = toPx(p, frame);
   const m = drawingMetrics(frame);
   for (let i = shapes.length - 1; i >= 0; i--) {
     const s = shapes[i];
     if (s.kind === "spotlight") {
+      if (opts.spotlights === false) continue;
       const e = spotlightEllipse(s, frame);
       const rx = e.rx + tolerancePx;
       const ry = e.ry + tolerancePx;

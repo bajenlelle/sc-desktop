@@ -89,9 +89,8 @@ export function useClipEffects(
       timerRef.current = window.setTimeout(() => {
         timerRef.current = null;
         if (holdingRef.current?.id !== d.id) return;
-        holdingRef.current = null;
-        setHolding(null);
-        video.play().catch(() => {});
+        // The hold ends with the play event, so the controls never read "paused" in between.
+        video.play().catch(() => endHold());
       }, d.hold * 1000);
     };
     let raf = 0;
