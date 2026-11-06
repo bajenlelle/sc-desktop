@@ -16,11 +16,14 @@
  * below), so a coach can't point a report at an arbitrary address.
  */
 import type { PlayByPlayEvent, Playlist, PlaylistClipItem, PlaylistItem } from "../types/match";
+import { drawingShapeKey, HOLD_MAX, HOLD_MIN, parseDrawingShape, type DrawingPoint, type DrawingShape } from "./clip-drawing";
+import { SLOW_MAX_LENGTH, SLOW_RATES } from "./clip-timeline";
 import { eventLabel, formatGameClock, periodLabel } from "./events";
 import { cyrb53 } from "./highlight-shares-db";
 import { itemKey } from "./playlist-edits";
 import { deriveReportLayout, sectionLabel, REPORT_MAX_SECTIONS, REPORT_TITLE_MAX, type ReportDraft } from "./report-draft";
 import { cardContent, type StatsCardSpec } from "./stats-card";
+import { clipWatchEffects, type WatchDrawing, type WatchSlow } from "./watch-queue";
 
 export { REPORT_MAX_SECTIONS, REPORT_TITLE_MAX };
 
@@ -28,6 +31,15 @@ export const SCOUTING_REPORT_VERSION = 1 as const;
 
 /** What the database accepts (publish_scouting_report checks the same numbers; sections and the title are in report-draft.ts). */
 export const REPORT_MAX_CLIPS = 300;
+
+/** What a clip's effects are held to, built and read: more than anyone draws, few enough that a page can't be made to choke. */
+export const REPORT_MAX_DRAWINGS = 20;
+export const REPORT_MAX_SHAPES = 40;
+export const REPORT_MAX_SLOWS = 20;
+/** A clip file is never this long; an effect said to be later than this isn't read. */
+const MAX_FILE_SECONDS = 3600;
+/** The shortest slow-motion section the players play (watch-queue's clipWatchEffects keeps the same). */
+const MIN_SLOW_SECONDS = 0.1;
 
 /** presign-upload's CLIP_KEY: a clip file in the public media bucket. */
 export const REPORT_CLIP_KEY =
@@ -77,6 +89,14 @@ export interface ReportClip {
   note: string | null;
   /** The coach's labels on the clip, at most two. */
   labels: string[];
+  /**
+   * The coach's drawings, in the clip file's time (watch-queue's
+   * clipWatchEffects), ids d1…, shapes s1…, points at three decimals: the
+   * page freezes on each and draws it. Absent when none.
+   */
+  drawings?: WatchDrawing[];
+  /** Slow-motion sections in the clip file's time, ids w1…. Absent when none. */
+  slowMotion?: WatchSlow[];
 }
 
 export interface ReportText {
@@ -166,6 +186,44 @@ export function clipKeyFromUrl(url: string): string | null {
   return REPORT_CLIP_KEY.test(key) ? key : null;
 }
 
+const r3 = (v: number) => Math.round(v * 1000) / 1000;
+const r3Point = (p: DrawingPoint): DrawingPoint => ({ x: r3(p.x), y: r3(p.y) });
+
+function compactShape(s: DrawingShape, id: string): DrawingShape {
+  switch (s.kind) {
+    case "spotlight":
+      return { kind: "spotlight", id, at: r3Point(s.at), r: r3(s.r) };
+    case "arrow":
+      return {
+        kind: "arrow",
+        id,
+        arrow: s.arrow,
+        from: r3Point(s.from),
+        to: r3Point(s.to),
+        ...(s.bend !== undefined ? { bend: r3(s.bend) } : {}),
+        ...(s.color ? { color: s.color } : {}),
+      };
+    case "text":
+      return { kind: "text", id, at: r3Point(s.at), text: s.text, ...(s.color ? { color: s.color } : {}) };
+  }
+}
+
+/**
+ * A clip's drawings and slow motion as the report stores them: in its file's
+ * time, as the players get them, with short ids and points at three decimals
+ * (0.1% of the frame), so a report of 300 clips stays within the database's
+ * 256 KB. Nothing for a file whose key doesn't say where it starts.
+ */
+function reportEffects(item: PlaylistClipItem, r2Url: string): Pick<ReportClip, "drawings" | "slowMotion"> {
+  const fx = clipWatchEffects(item, r2Url);
+  const drawings = (fx.drawings ?? [])
+    .filter((d) => d.shapes.length > 0)
+    .slice(0, REPORT_MAX_DRAWINGS)
+    .map((d, i) => ({ id: `d${i + 1}`, at: d.at, hold: d.hold, shapes: d.shapes.slice(0, REPORT_MAX_SHAPES).map((s, j) => compactShape(s, `s${j + 1}`)) }));
+  const slowMotion = (fx.slowMotion ?? []).slice(0, REPORT_MAX_SLOWS).map((s, i) => ({ id: `w${i + 1}`, at: s.at, length: s.length, rate: s.rate }));
+  return effectsOf(drawings, slowMotion);
+}
+
 function statsOf(card: StatsCardSpec): ReportStats {
   const c = cardContent(card);
   return { context: c.context, cells: c.cells, asOf: card.asOf };
@@ -212,6 +270,7 @@ export function buildScoutingReport(input: BuildReportInput): BuiltReport {
       game: multiGame ? (input.matchLabel?.(item.matchId) ?? null) : null,
       note: item.note?.trim() ? item.note.trim() : null,
       labels: [...(input.labelsByKey?.get(key) ?? [])].slice(0, 2),
+      ...reportEffects(item, item.r2Url!),
     };
   };
 
@@ -259,6 +318,19 @@ export function buildScoutingReport(input: BuildReportInput): BuiltReport {
 }
 
 /**
+ * A clip's effects for the content key, in a fixed form: each shape by its
+ * fields in order (drawingShapeKey), never by JSON.stringify, since jsonb
+ * hands the coach's drawings back with its own key order. Nothing for a clip
+ * without effects, so its key is what it was before clips had them.
+ */
+function effectsKeyOf(b: ReportClip): { d?: string; w?: string } {
+  return {
+    ...(b.drawings?.length ? { d: b.drawings.map((d) => `${d.at}@${d.hold}:${d.shapes.map(drawingShapeKey).join(",")}`).join("/") } : {}),
+    ...(b.slowMotion?.length ? { w: b.slowMotion.map((s) => `${s.at}+${s.length}@${s.rate}`).join(",") } : {}),
+  };
+}
+
+/**
  * What the playlist says, as a hash: the sections and what is in them, not
  * when the report was made, which poster frames it uses (posters are re-cut on
  * every publish), when the numbers were read, or the share sheet's own fields
@@ -275,7 +347,7 @@ export function reportContentKey(report: ScoutingReport): string {
       st: s.stats ? { c: s.stats.context, v: s.stats.cells } : null,
       b: s.blocks.map((b) =>
         b.kind === "clip"
-          ? { k: b.clipKey, n: b.note, l: b.labels, g: b.game, y: b.label, q: b.period, c: b.clock }
+          ? { k: b.clipKey, n: b.note, l: b.labels, g: b.game, y: b.label, q: b.period, c: b.clock, ...effectsKeyOf(b) }
           : b.kind === "text"
             ? { x: b.text }
             : { h: b.heading, v: b.stats.cells, c: b.stats.context },
@@ -303,6 +375,48 @@ function parseStats(raw: unknown): ReportStats | null {
   return { context: str(raw.context), cells, asOf: str(raw.asOf) };
 }
 
+const effectsOf = (drawings: WatchDrawing[], slowMotion: WatchSlow[]): Pick<ReportClip, "drawings" | "slowMotion"> => ({
+  ...(drawings.length ? { drawings } : {}),
+  ...(slowMotion.length ? { slowMotion } : {}),
+});
+const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const inFile = (v: unknown): v is number => finite(v) && v >= 0 && v <= MAX_FILE_SECONDS;
+
+/** A clip's drawings as the page can draw them: in time order, each shape checked, holds and counts held to their limits, ids given afresh. */
+function parseDrawings(raw: unknown): WatchDrawing[] {
+  if (!Array.isArray(raw)) return [];
+  const read: Omit<WatchDrawing, "id">[] = [];
+  for (const d of raw) {
+    if (!isObj(d) || !inFile(d.at) || !finite(d.hold) || !Array.isArray(d.shapes)) continue;
+    const shapes: DrawingShape[] = [];
+    for (const s of d.shapes) {
+      if (shapes.length >= REPORT_MAX_SHAPES) break;
+      const shape = parseDrawingShape(s, `s${shapes.length + 1}`);
+      if (shape) shapes.push(shape);
+    }
+    if (shapes.length > 0) read.push({ at: d.at, hold: Math.min(HOLD_MAX, Math.max(HOLD_MIN, d.hold)), shapes });
+  }
+  return read
+    .sort((a, b) => a.at - b.at)
+    .slice(0, REPORT_MAX_DRAWINGS)
+    .map((d, i) => ({ id: `d${i + 1}`, ...d }));
+}
+
+/** A clip's slow-motion sections as the players take them: a rate they have, long enough to play, at most the editor's longest. */
+function parseSlows(raw: unknown): WatchSlow[] {
+  if (!Array.isArray(raw)) return [];
+  const read: Omit<WatchSlow, "id">[] = [];
+  for (const s of raw) {
+    if (!isObj(s) || !inFile(s.at) || !finite(s.length) || s.length < MIN_SLOW_SECONDS) continue;
+    const rate = SLOW_RATES.find((r) => r === s.rate);
+    if (rate !== undefined) read.push({ at: s.at, length: Math.min(s.length, SLOW_MAX_LENGTH), rate });
+  }
+  return read
+    .sort((a, b) => a.at - b.at)
+    .slice(0, REPORT_MAX_SLOWS)
+    .map((s, i) => ({ id: `w${i + 1}`, ...s }));
+}
+
 function parseBlock(raw: unknown): ReportBlock | null {
   if (!isObj(raw)) return null;
   if (raw.kind === "clip") {
@@ -322,6 +436,7 @@ function parseBlock(raw: unknown): ReportBlock | null {
       game: strOrNull(raw.game),
       note: strOrNull(raw.note),
       labels: Array.isArray(raw.labels) ? raw.labels.filter((l): l is string => typeof l === "string").slice(0, 2) : [],
+      ...effectsOf(parseDrawings(raw.drawings), parseSlows(raw.slowMotion)),
     };
   }
   if (raw.kind === "text") return typeof raw.text === "string" && raw.text.trim() ? { kind: "text", text: raw.text } : null;

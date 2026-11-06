@@ -5,7 +5,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { clipBounds, computeVideoTime } from "./clip-timing";
-import { DRAWING_RENDER_VERSION, type ClipDrawing, type DrawingShape } from "./clip-drawing";
+import { DRAWING_RENDER_VERSION, drawingShapeKey, type ClipDrawing } from "./clip-drawing";
 import type { SlowSection } from "./clip-timeline";
 import type { SyncPoint } from "../types/match";
 import { CARD_RENDER_VERSION } from "./card-layout";
@@ -70,27 +70,13 @@ export function cyrb53(str: string, seed = 0): string {
   return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
 }
 
-const k3 = (v: number) => v.toFixed(3);
-
-/** A shape's fields in a fixed order: jsonb hands objects back with its own key order. */
-function shapeKey(s: DrawingShape): string {
-  switch (s.kind) {
-    case "spotlight":
-      return `s:${k3(s.at.x)}:${k3(s.at.y)}:${k3(s.r)}`;
-    case "arrow":
-      return `a:${s.arrow}:${k3(s.from.x)}:${k3(s.from.y)}:${k3(s.to.x)}:${k3(s.to.y)}:${k3(s.bend ?? 0)}:${s.color ?? ""}`;
-    case "text":
-      return `t:${k3(s.at.x)}:${k3(s.at.y)}:${s.color ?? ""}:${s.text}`;
-  }
-}
-
 /** The drawings and slow motion a clip's render shows, within its window; "" when none. */
 function effectsKey(drawings: ClipDrawing[] | undefined, slows: SlowSection[] | undefined, window: { start: number; end: number } | null): string {
   if (!window) return "";
   const shown = (drawings ?? [])
     .filter((d) => d.t > window.start + 0.1 && d.t < window.end - 0.1)
     .sort((a, b) => a.t - b.t)
-    .map((d) => `${d.t.toFixed(2)}@${d.hold}:${d.shapes.map(shapeKey).join(",")}`)
+    .map((d) => `${d.t.toFixed(2)}@${d.hold}:${d.shapes.map(drawingShapeKey).join(",")}`)
     .join("/");
   const slowed = (slows ?? [])
     .filter((s) => s.t < window.end && s.t + s.length > window.start)

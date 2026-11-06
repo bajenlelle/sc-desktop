@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildScoutingReport, clampReportTitle, clipKeyFromUrl, reportContentKey, reportJumpItems, reportOutline, type BuildReportInput } from "../scouting-report";
+import { buildScoutingReport, clampReportTitle, clipKeyFromUrl, reportContentKey, reportJumpItems, reportOutline, type BuildReportInput, type ReportClip } from "../scouting-report";
+import type { DrawingShape } from "../clip-drawing";
 import { LEFT_OUT, addSections, emptyDraft, moveClip, setIntro, setNote, setOpponent, setStats, setTitle, type ReportDraft } from "../report-draft";
 import type { SeasonStatsCard, StatsCardPlayer } from "../stats-card";
 import type { PlayByPlayEvent, PlaylistClipItem, PlaylistItem, PlaylistTextCard } from "../../types/match";
@@ -223,6 +224,79 @@ describe("content key", () => {
   it("is a function of the report alone", () => {
     const { report, contentKey } = buildScoutingReport(input(twoPlayers(), items()));
     expect(reportContentKey(report)).toBe(contentKey);
+  });
+
+  it("is what it was before clips had drawings and slow motion, for a report without them", () => {
+    // Pinned with the code from before effects: a shared report without them stays up to date.
+    expect(buildScoutingReport(input(twoPlayers(), items())).contentKey).toMatchInlineSnapshot(`"23sxqjiv4lq"`);
+  });
+});
+
+describe("drawings and slow motion", () => {
+  // The fixture's files start 100 s into the game's video (url(): _s100.0).
+  const drawn = (over: Partial<PlaylistClipItem> = {}) =>
+    clip("m1", 1, {
+      drawings: [
+        {
+          id: "8c1f2b9e-drawing",
+          t: 102.5,
+          hold: 4,
+          shapes: [
+            { kind: "spotlight", id: "8c1f2b9e-spot", at: { x: 0.51234, y: 0.4 }, r: 0.08512 },
+            { kind: "arrow", id: "8c1f2b9e-arrow", arrow: "pass", from: { x: 0.1, y: 0.2 }, to: { x: 0.3, y: 0.40049 }, bend: 0.33333, color: "red" },
+          ],
+        },
+      ],
+      slowMotion: [{ id: "8c1f2b9e-slow", t: 101, length: 2, rate: 0.5 }],
+      ...over,
+    });
+  const clipOf = (items: PlaylistItem[]) =>
+    buildScoutingReport(input(twoPlayers(), items)).report.sections.flatMap((s) => s.blocks).find((b) => b.kind === "clip") as ReportClip;
+
+  it("carries a clip's drawings and slow motion in its file's time, with short ids and points at three decimals", () => {
+    const c = clipOf([drawn()]);
+    expect(c.drawings).toEqual([
+      {
+        id: "d1",
+        at: 2.5,
+        hold: 4,
+        shapes: [
+          { kind: "spotlight", id: "s1", at: { x: 0.512, y: 0.4 }, r: 0.085 },
+          { kind: "arrow", id: "s2", arrow: "pass", from: { x: 0.1, y: 0.2 }, to: { x: 0.3, y: 0.4 }, bend: 0.333, color: "red" },
+        ],
+      },
+    ]);
+    expect(c.slowMotion).toEqual([{ id: "w1", at: 1, length: 2, rate: 0.5 }]);
+  });
+
+  it("leaves both out for a clip without them, or whose file doesn't say where it starts", () => {
+    const plain = clipOf([clip("m1", 1)]);
+    expect("drawings" in plain || "slowMotion" in plain).toBe(false);
+    const legacy = clipOf([drawn({ r2Url: `${HOST}/clips/m1/1_pre10.0_post3.0.mp4` })]);
+    expect("drawings" in legacy || "slowMotion" in legacy).toBe(false);
+  });
+
+  it("moves the content key when a drawing or a section changes", () => {
+    const keyOf = (item: PlaylistClipItem) => buildScoutingReport(input(twoPlayers(), [item, clip("m1", 2)])).contentKey;
+    const d = drawn().drawings![0];
+    const plain = keyOf(clip("m1", 1));
+    const base = keyOf(drawn());
+    const moved = keyOf(drawn({ drawings: [{ ...d, shapes: [{ ...d.shapes[0], at: { x: 0.6, y: 0.4 } } as DrawingShape, d.shapes[1]] }] }));
+    const held = keyOf(drawn({ drawings: [{ ...d, hold: 6 }] }));
+    const quarter = keyOf(drawn({ slowMotion: [{ id: "w", t: 101, length: 2, rate: 0.25 }] }));
+    const longer = keyOf(drawn({ slowMotion: [{ id: "w", t: 101, length: 3, rate: 0.5 }] }));
+    expect(new Set([plain, base, moved, held, quarter, longer]).size).toBe(6);
+  });
+
+  it("keeps the content key when the same effects come back from the database with other ids and key order", () => {
+    const keyOf = (item: PlaylistClipItem) => buildScoutingReport(input(twoPlayers(), [item])).contentKey;
+    const reloaded = drawn({
+      drawings: JSON.parse(
+        '[{"t":102.5,"id":"other","hold":4,"shapes":[{"r":0.08512,"at":{"y":0.4,"x":0.51234},"id":"a","kind":"spotlight"},{"to":{"y":0.40049,"x":0.3},"bend":0.33333,"from":{"y":0.2,"x":0.1},"color":"red","arrow":"pass","id":"b","kind":"arrow"}]}]',
+      ),
+      slowMotion: JSON.parse('[{"t":101,"rate":0.5,"id":"z","length":2}]'),
+    });
+    expect(keyOf(reloaded)).toBe(keyOf(drawn()));
   });
 });
 

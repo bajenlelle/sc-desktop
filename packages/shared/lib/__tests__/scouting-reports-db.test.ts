@@ -17,7 +17,7 @@ import {
   scoutingReportUrl,
   sharedStatusLabel,
 } from "../scouting-reports-db";
-import { parseScoutingReport, type ScoutingReport } from "../scouting-report";
+import { parseScoutingReport, type ReportClip, type ScoutingReport } from "../scouting-report";
 
 const CLIP = "clips/probe-m/1_pre10.0_post3.0_s100.0.mp4";
 const POSTER = "highlights/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000002.jpg";
@@ -57,6 +57,78 @@ function rpcClient(result: { data?: unknown; error?: { message: string; details?
 describe("parseScoutingReport", () => {
   it("reads back what the builder wrote", () => {
     expect(parseScoutingReport(JSON.parse(JSON.stringify(report)))).toEqual(report);
+  });
+
+  it("reads back a clip's drawings and slow motion", () => {
+    const clip: ReportClip = {
+      ...(report.sections[0].blocks[1] as ReportClip),
+      drawings: [
+        {
+          id: "d1",
+          at: 2.5,
+          hold: 4,
+          shapes: [
+            { kind: "spotlight", id: "s1", at: { x: 0.5, y: 0.4 }, r: 0.085 },
+            { kind: "text", id: "s2", at: { x: 0.2, y: 0.8 }, text: "Help side", color: "white" },
+          ],
+        },
+      ],
+      slowMotion: [{ id: "w1", at: 1, length: 2, rate: 0.25 }],
+    };
+    const withEffects: ScoutingReport = { ...report, sections: [{ ...report.sections[0], blocks: [report.sections[0].blocks[0], clip] }] };
+    expect(parseScoutingReport(JSON.parse(JSON.stringify(withEffects)))).toEqual(withEffects);
+  });
+
+  it("keeps what it can draw of a clip's effects, in time order, held to their limits", () => {
+    const shape = { kind: "spotlight", at: { x: 0.5, y: 0.5 }, r: 0.1 };
+    const read = (drawings: unknown, slowMotion: unknown) => {
+      const raw = JSON.parse(JSON.stringify(report));
+      Object.assign(raw.sections[0].blocks[1], { drawings, slowMotion });
+      return parseScoutingReport(raw)!.sections[0].blocks[1] as ReportClip;
+    };
+    const clip = read(
+      [
+        { at: 3, hold: 0.2, shapes: Array.from({ length: 50 }, () => shape) }, // hold up to 1 s, the first 40 shapes
+        { id: "x", at: 2, hold: 4, shapes: [{ kind: "circle" }] }, // nothing it can draw
+        { id: "y", at: -1, hold: 4, shapes: [shape] }, // before the file starts
+        { id: "z", at: "4", hold: 4, shapes: [shape] },
+        { at: 1, hold: 30, shapes: [shape, { kind: "circle" }, { ...shape, at: { x: 2, y: 0.5 } }, null] }, // hold down to 10 s
+      ],
+      [
+        { at: 2, length: 1, rate: 0.3 }, // a rate the players don't have
+        { at: 1, length: 99, rate: 0.5 }, // down to 6 s
+        { at: 3, length: 0.05, rate: 0.25 }, // too short to play
+        { at: Number.NaN, length: 1, rate: 0.5 },
+      ],
+    );
+    expect(clip.drawings).toEqual([
+      {
+        id: "d1",
+        at: 1,
+        hold: 10,
+        shapes: [
+          { kind: "spotlight", id: "s1", at: { x: 0.5, y: 0.5 }, r: 0.1 },
+          { kind: "spotlight", id: "s2", at: { x: 1, y: 0.5 }, r: 0.1 },
+        ],
+      },
+      { id: "d2", at: 3, hold: 1, shapes: Array.from({ length: 40 }, (_, i) => ({ kind: "spotlight", id: `s${i + 1}`, at: { x: 0.5, y: 0.5 }, r: 0.1 })) },
+    ]);
+    expect(clip.slowMotion).toEqual([{ id: "w1", at: 1, length: 6, rate: 0.5 }]);
+  });
+
+  it("caps a clip's effects and leaves them out when nothing is left", () => {
+    const shape = { kind: "spotlight", at: { x: 0.5, y: 0.5 }, r: 0.1 };
+    const raw = JSON.parse(JSON.stringify(report));
+    Object.assign(raw.sections[0].blocks[1], {
+      drawings: Array.from({ length: 25 }, (_, i) => ({ at: i + 1, hold: 4, shapes: [shape] })),
+      slowMotion: Array.from({ length: 25 }, (_, i) => ({ at: i, length: 0.5, rate: 0.5 })),
+    });
+    const capped = parseScoutingReport(raw)!.sections[0].blocks[1] as ReportClip;
+    expect(capped.drawings).toHaveLength(20);
+    expect(capped.slowMotion).toHaveLength(20);
+    Object.assign(raw.sections[0].blocks[1], { drawings: "lots", slowMotion: [{ at: 1, length: 1, rate: 2 }] });
+    const none = parseScoutingReport(raw)!.sections[0].blocks[1] as ReportClip;
+    expect("drawings" in none || "slowMotion" in none).toBe(false);
   });
 
   it("rejects what isn't a version 1 report", () => {

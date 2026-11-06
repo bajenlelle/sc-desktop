@@ -5,7 +5,9 @@ import {
   arrowPolyline,
   clampShape,
   drawingMetrics,
+  drawingShapeKey,
   hitTest,
+  parseDrawingShape,
   pointsToPath,
   screenBar,
   shaftPolyline,
@@ -144,5 +146,58 @@ describe("hitTest", () => {
     const label: DrawingShape = { kind: "text", id: "t", at: p(0.2, 0.2), text: "Help side" };
     expect(hitTest([label], p(0.2, 0.2), F, 0)?.id).toBe("t");
     expect(hitTest([label], p(0.2, 0.4), F, 0)).toBeNull();
+  });
+});
+
+describe("drawingShapeKey", () => {
+  it("names a shape by its fields in a fixed order, at three decimals, whatever order its keys come in", () => {
+    const a: DrawingShape = { kind: "arrow", id: "x", arrow: "pass", from: p(0.1, 0.5), to: p(0.6, 0.5), bend: 0.25, color: "red" };
+    const reordered = JSON.parse('{"to":{"y":0.5,"x":0.6},"color":"red","bend":0.25,"from":{"y":0.5,"x":0.1},"arrow":"pass","id":"y","kind":"arrow"}');
+    expect(drawingShapeKey(a)).toBe("a:pass:0.100:0.500:0.600:0.500:0.250:red");
+    expect(drawingShapeKey(reordered)).toBe(drawingShapeKey(a));
+    expect(drawingShapeKey({ kind: "spotlight", id: "s", at: p(0.5, 0.25), r: 0.085 })).toBe("s:0.500:0.250:0.085");
+    expect(drawingShapeKey({ kind: "text", id: "t", at: p(0.2, 0.2), text: "Help side" })).toBe("t:0.200:0.200::Help side");
+  });
+});
+
+describe("parseDrawingShape", () => {
+  it("reads each kind of shape and gives it the id it is handed", () => {
+    expect(parseDrawingShape({ kind: "spotlight", at: { x: 0.5, y: 0.4 }, r: 0.1 }, "s1")).toEqual({ kind: "spotlight", id: "s1", at: p(0.5, 0.4), r: 0.1 });
+    expect(parseDrawingShape({ kind: "arrow", arrow: "screen", from: { x: 0.1, y: 0.2 }, to: { x: 0.3, y: 0.4 }, bend: -0.5, color: "blue" }, "s2")).toEqual({
+      kind: "arrow",
+      id: "s2",
+      arrow: "screen",
+      from: p(0.1, 0.2),
+      to: p(0.3, 0.4),
+      bend: -0.5,
+      color: "blue",
+    });
+    expect(parseDrawingShape({ kind: "text", at: { x: 0.2, y: 0.8 }, text: " Help side ", color: "white" }, "s3")).toEqual({ kind: "text", id: "s3", at: p(0.2, 0.8), text: "Help side", color: "white" });
+  });
+
+  it("keeps a shape inside the frame and its limits, like the editor", () => {
+    expect(parseDrawingShape({ kind: "spotlight", at: { x: -1, y: 2 }, r: 9 }, "s")).toEqual({ kind: "spotlight", id: "s", at: p(0, 1), r: 0.3 });
+    expect(parseDrawingShape({ kind: "arrow", arrow: "cut", from: { x: 0, y: 0 }, to: { x: 1, y: 1 }, bend: 4 }, "s")).toMatchObject({ bend: 1 });
+    expect((parseDrawingShape({ kind: "text", at: { x: 0.5, y: 0.5 }, text: "x".repeat(60) }, "s") as { text: string }).text).toHaveLength(40);
+  });
+
+  it("drops what it can't draw and leaves out a colour it doesn't know", () => {
+    expect(parseDrawingShape(null, "s")).toBeNull();
+    expect(parseDrawingShape("spotlight", "s")).toBeNull();
+    expect(parseDrawingShape({ kind: "circle", at: { x: 0.5, y: 0.5 }, r: 0.1 }, "s")).toBeNull();
+    expect(parseDrawingShape({ kind: "spotlight", at: { x: Number.NaN, y: 0.5 }, r: 0.1 }, "s")).toBeNull();
+    expect(parseDrawingShape({ kind: "spotlight", at: { x: 0.5, y: 0.5 } }, "s")).toBeNull();
+    expect(parseDrawingShape({ kind: "arrow", arrow: "lob", from: { x: 0, y: 0 }, to: { x: 1, y: 1 } }, "s")).toBeNull();
+    expect(parseDrawingShape({ kind: "arrow", arrow: "cut", from: { x: 0, y: 0 }, to: "1,1" }, "s")).toBeNull();
+    expect(parseDrawingShape({ kind: "arrow", arrow: "cut", from: { x: 0, y: 0 }, to: { x: 1, y: 1 }, bend: "lots" }, "s")).toBeNull();
+    expect(parseDrawingShape({ kind: "text", at: { x: 0.5, y: 0.5 }, text: "   " }, "s")).toBeNull();
+    expect(parseDrawingShape({ kind: "text", at: { x: 0.5, y: 0.5 }, text: 7 }, "s")).toBeNull();
+    expect(parseDrawingShape({ kind: "arrow", arrow: "cut", from: { x: 0, y: 0 }, to: { x: 1, y: 1 }, color: "pink" }, "s")).toEqual({
+      kind: "arrow",
+      id: "s",
+      arrow: "cut",
+      from: p(0, 0),
+      to: p(1, 1),
+    });
   });
 });

@@ -241,6 +241,63 @@ export function clampShape(s: DrawingShape): DrawingShape {
   }
 }
 
+const k3 = (v: number) => v.toFixed(3);
+
+/**
+ * A shape's fields in a fixed order, at three decimals: jsonb hands objects
+ * back with its own key order, so a key built from JSON.stringify would
+ * change after a reload. The id is left out: it names the shape, it isn't
+ * what is drawn.
+ */
+export function drawingShapeKey(s: DrawingShape): string {
+  switch (s.kind) {
+    case "spotlight":
+      return `s:${k3(s.at.x)}:${k3(s.at.y)}:${k3(s.r)}`;
+    case "arrow":
+      return `a:${s.arrow}:${k3(s.from.x)}:${k3(s.from.y)}:${k3(s.to.x)}:${k3(s.to.y)}:${k3(s.bend ?? 0)}:${s.color ?? ""}`;
+    case "text":
+      return `t:${k3(s.at.x)}:${k3(s.at.y)}:${s.color ?? ""}:${s.text}`;
+  }
+}
+
+const ARROW_KINDS: readonly ArrowKind[] = ["cut", "pass", "screen", "dribble"];
+type Raw = Record<string, unknown>;
+const isRaw = (v: unknown): v is Raw => typeof v === "object" && v !== null && !Array.isArray(v);
+const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const rawPoint = (v: unknown): DrawingPoint | null => (isRaw(v) && finite(v.x) && finite(v.y) ? { x: v.x, y: v.y } : null);
+const rawColor = (v: unknown): { color?: DrawingColor } =>
+  typeof v === "string" && Object.prototype.hasOwnProperty.call(DRAWING_COLORS, v) ? { color: v as DrawingColor } : {};
+
+/**
+ * A shape read from data someone else wrote (a published scouting report),
+ * with the id it is given: its kind and fields checked, then held inside the
+ * frame and its limits like the editor's (clampShape). Null when it can't be
+ * drawn; a colour it doesn't know is left out (the default draws instead).
+ */
+export function parseDrawingShape(raw: unknown, id: string): DrawingShape | null {
+  if (!isRaw(raw)) return null;
+  switch (raw.kind) {
+    case "spotlight": {
+      const at = rawPoint(raw.at);
+      return at && finite(raw.r) ? clampShape({ kind: "spotlight", id, at, r: raw.r }) : null;
+    }
+    case "arrow": {
+      const from = rawPoint(raw.from);
+      const to = rawPoint(raw.to);
+      const arrow = ARROW_KINDS.find((k) => k === raw.arrow);
+      if (!from || !to || !arrow || (raw.bend !== undefined && !finite(raw.bend))) return null;
+      return clampShape({ kind: "arrow", id, arrow, from, to, ...(finite(raw.bend) ? { bend: raw.bend } : {}), ...rawColor(raw.color) });
+    }
+    case "text": {
+      const at = rawPoint(raw.at);
+      const text = typeof raw.text === "string" ? labelText(raw.text) : "";
+      return at && text ? clampShape({ kind: "text", id, at, text, ...rawColor(raw.color) }) : null;
+    }
+    default:
+      return null;
+  }
+}
+
 /**
  * A point of the 16:9 frame in the 9:16 export's crop window centred at `cx`
  * (a fraction of the source width, as crop keyframes). The window's left

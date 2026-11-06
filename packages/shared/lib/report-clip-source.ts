@@ -4,6 +4,7 @@
 
 import type { PlaylistClipItem, SyncPoint } from "../types/match";
 import { clipBounds, computeVideoTime } from "./clip-timing";
+import { clipWatchEffects, type WatchDrawing, type WatchSlow } from "./watch-queue";
 
 export type ReportClipSource =
   /** The game's video on this computer, from `start` to `end` (seconds into the file). */
@@ -44,4 +45,43 @@ export function reportClipSource(args: {
   }
   if (item.r2Url) return { kind: "shared", url: item.r2Url };
   return { kind: "none", reason: videoPath ? "no_sync" : "no_video" };
+}
+
+/** A report clip's drawings and slow motion, in the time of what it plays. */
+export interface ReportClipEffects {
+  drawings: WatchDrawing[];
+  slows: WatchSlow[];
+}
+
+/** Closer than this to a clip's ends a drawing isn't shown, as in the editor and the export (clip-timeline's segmentTimeline). */
+const EDGE_SECONDS = 0.1;
+/** The shortest stretch of a slow section worth playing. */
+const MIN_SLOW_SECONDS = 0.1;
+
+/**
+ * What a report clip's player freezes on and slows down, in its source's
+ * time: the game's own video keeps the editor's absolute times, inside the
+ * clip's window (a drawing at its very ends is left out, a section is cut to
+ * it); the uploaded copy takes the players' rebase onto the file
+ * (clipWatchEffects). Nothing to play, nothing to show.
+ */
+export function reportClipEffects(item: Pick<PlaylistClipItem, "drawings" | "slowMotion">, source: ReportClipSource): ReportClipEffects {
+  if (source.kind === "none") return { drawings: [], slows: [] };
+  if (source.kind === "shared") {
+    const fx = clipWatchEffects(item, source.url);
+    return { drawings: fx.drawings ?? [], slows: fx.slowMotion ?? [] };
+  }
+  const { start, end } = source;
+  const drawings = (item.drawings ?? [])
+    .filter((d) => d.t > start + EDGE_SECONDS && d.t < end - EDGE_SECONDS)
+    .sort((a, b) => a.t - b.t)
+    .map((d) => ({ id: d.id, at: d.t, hold: d.hold, shapes: d.shapes }));
+  const slows = (item.slowMotion ?? [])
+    .map((s) => {
+      const at = Math.max(s.t, start);
+      return { id: s.id, at, length: Math.min(s.t + s.length, end) - at, rate: s.rate };
+    })
+    .filter((s) => s.length >= MIN_SLOW_SECONDS)
+    .sort((a, b) => a.at - b.at);
+  return { drawings, slows };
 }
