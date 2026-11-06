@@ -16,6 +16,8 @@ import { useMediaDuration, useMediaElement } from "@/components/player/use-media
 import { useStageFullscreen } from "@/components/player/use-stage-fullscreen";
 import { CardImage } from "@/components/stats-card/card-image";
 import { ClipCaption } from "@/components/player/clip-caption";
+import { DrawingLayer } from "@/components/player/drawing-layer";
+import { useClipEffects } from "@/components/player/use-clip-effects";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { useReducedMotionSafe } from "@/lib/motion";
@@ -44,6 +46,9 @@ function readSpeed(): number {
  * would change height from clip to clip (and vanish for a text card),
  * moving the list under the reader's finger.
  */
+const NO_DRAWINGS: never[] = [];
+const NO_SLOWS: never[] = [];
+
 export function WatchView({
   title,
   items,
@@ -94,6 +99,14 @@ export function WatchView({
   const q = useWatchQueue({ video, videoRef, items, onWatched });
   const activeClip = q.activeItem?.kind === "clip" ? q.activeItem : null;
   const activeCard = q.activeItem?.kind === "text" ? q.activeItem.card : null;
+  // The coach's drawings freeze their frames and slow motion slows its stretch, in the clip file's time.
+  const clipEffects = useClipEffects(
+    video,
+    { drawings: activeClip?.drawings ?? NO_DRAWINGS, slows: activeClip?.slowMotion ?? NO_SLOWS },
+    speed,
+    !!activeClip && !activeCard,
+  );
+  const cancelHold = clipEffects.cancel;
 
   const { playFrom } = q;
   const resume = useCallback(() => {
@@ -117,9 +130,10 @@ export function WatchView({
       // Without the timeline, back but never ahead: ahead is where a clip
       // counts as watched. Covers the arrow keys too.
       if (!canScrub && t > el.currentTime) return;
+      cancelHold();
       el.currentTime = clamp(t, 0, Math.max(0, duration - 0.05));
     },
-    [videoRef, duration, canScrub],
+    [videoRef, duration, canScrub, cancelHold],
   );
 
   // The lock screen and Control Center scrub the playing video through the
@@ -266,6 +280,9 @@ export function WatchView({
                 src={q.src}
                 duration={activeClip ? duration : null}
                 onSeek={seek}
+                hold={{ active: !!clipEffects.holding, cancel: clipEffects.cancel }}
+                drawings={activeClip?.drawings}
+                slows={activeClip?.slowMotion}
                 canScrub={canScrub}
                 fullscreen={fullscreen}
                 title={title}
@@ -297,6 +314,9 @@ export function WatchView({
                       <p className="px-8 text-center text-2xl font-semibold text-white sm:text-4xl">{activeCard.text}</p>
                     )}
                   </div>
+                )}
+                {clipEffects.shown && !activeCard && (
+                  <DrawingLayer key={clipEffects.shown.id} shapes={clipEffects.shown.shapes} />
                 )}
                 {activeClip?.note && !activeCard && <ClipCaption key={activeClip.key} text={activeClip.note} />}
                 {/* Narrow, the controls' own centre button plays instead. */}
@@ -374,6 +394,7 @@ export function WatchView({
                     event={item.event}
                     matchTitle={matchTitleFor(item.matchId)}
                     note={item.note}
+                    drawings={item.drawings?.length ?? 0}
                     watched={isWatched(item.matchId, item.event.eventId)}
                     active={q.activeKey === item.key}
                     onPlay={() => q.playFrom(item.key)}

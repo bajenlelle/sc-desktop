@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { PortalContainerProvider } from "@/lib/portal-container";
 import { springs, useReducedMotionSafe } from "@/lib/motion";
 import { cn } from "@/lib/utils";
-import { ClipProgress, ClipScrubber } from "./clip-scrubber";
+import { ClipProgress, ClipScrubber, type TimelineDrawing, type TimelineSlow } from "./clip-scrubber";
 import {
   ControlButton,
   FullscreenButton,
@@ -80,6 +80,11 @@ export interface PlayerStageProps {
   position?: { index: number; total: number } | null;
   /** Something other than the footage is playing (a timed text card): its state drives the controls. */
   playback?: { paused: boolean; toggle: () => void };
+  /** A drawing holds the frame: the controls read "playing", and Play/Pause ends the hold where it stands. */
+  hold?: { active: boolean; cancel: () => void };
+  /** The coach's drawings and slow motion on the timeline, in the file's time. */
+  drawings?: TimelineDrawing[];
+  slows?: TimelineSlow[];
   /** Overlays on the footage (a text card, the Play button). */
   children?: React.ReactNode;
   className?: string;
@@ -114,6 +119,9 @@ export function PlayerStage({
   title,
   position,
   playback,
+  hold,
+  drawings,
+  slows,
   children,
   className,
   handleRef,
@@ -129,7 +137,8 @@ export function PlayerStage({
   const [chromeHover, setChromeHover] = React.useState(false);
   const lastPointer = React.useRef<string | null>(null);
 
-  const effectivePaused = playback ? playback.paused : paused;
+  // A held frame is part of playback: the controls don't pin as for a pause.
+  const effectivePaused = playback ? playback.paused : paused && !hold?.active;
 
   React.useEffect(() => {
     const el = videoRef.current;
@@ -221,6 +230,11 @@ export function PlayerStage({
       playback.toggle();
       return;
     }
+    if (hold?.active) {
+      hold.cancel();
+      setFlash({ id: Date.now(), kind: "pause" });
+      return;
+    }
     if (!video) return;
     if (!transport.isQueueActive && video.paused && transport.onPlayAll) {
       transport.onPlayAll();
@@ -234,7 +248,7 @@ export function PlayerStage({
       video.pause();
       setFlash({ id: Date.now(), kind: "pause" });
     }
-  }, [video, transport, playback]);
+  }, [video, transport, playback, hold]);
 
   React.useImperativeHandle(handleRef, () => ({ togglePlay }), [togglePlay]);
 
@@ -243,9 +257,9 @@ export function PlayerStage({
   const scrubber =
     video && duration !== null && !playback ? (
       canScrub ? (
-        <ClipScrubber video={video} duration={duration} onSeek={onSeek} />
+        <ClipScrubber video={video} duration={duration} onSeek={onSeek} drawings={drawings} slows={slows} />
       ) : (
-        <ClipProgress video={video} duration={duration} />
+        <ClipProgress video={video} duration={duration} drawings={drawings} slows={slows} />
       )
     ) : null;
 

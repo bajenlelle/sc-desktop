@@ -26,6 +26,8 @@ export function ClipScrubber({
   duration: total,
   onSeek,
   frameSeconds = 1 / 25,
+  drawings,
+  slows,
   className,
 }: {
   video: HTMLVideoElement;
@@ -33,6 +35,9 @@ export function ClipScrubber({
   duration: number;
   onSeek: (t: number) => void;
   frameSeconds?: number;
+  /** The coach's drawings and slow motion, in the file's time: a diamond each (a click jumps to it) and bands. */
+  drawings?: TimelineDrawing[];
+  slows?: TimelineSlow[];
   className?: string;
 }) {
   const duration = Math.max(0.001, total);
@@ -174,7 +179,9 @@ export function ClipScrubber({
         {/* Track: grows on hover like a QuickTime scrubber. */}
         <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-white/25 transition-[height] duration-150 group-hover/track:h-2">
           <div ref={fillRef} className="h-full w-full origin-left rounded-full bg-white/90" style={{ transform: "scaleX(0)" }} />
+          <SlowBands slows={slows} duration={duration} />
         </div>
+        <DrawingMarkers drawings={drawings} duration={duration} onSeek={onSeek} />
         <motion.div
           aria-hidden
           className="pointer-events-none absolute top-1/2 left-0 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_1px_3px_rgb(0_0_0/0.5)] pointer-coarse:size-4"
@@ -205,10 +212,14 @@ export function ClipScrubber({
 export function ClipProgress({
   video,
   duration: total,
+  drawings,
+  slows,
   className,
 }: {
   video: HTMLVideoElement;
   duration: number;
+  drawings?: TimelineDrawing[];
+  slows?: TimelineSlow[];
   className?: string;
 }) {
   const duration = Math.max(0.001, total);
@@ -253,9 +264,74 @@ export function ClipProgress({
       >
         <div className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 overflow-hidden rounded-full bg-white/25">
           <div ref={fillRef} className="h-full w-full origin-left rounded-full bg-white/90" style={{ transform: "scaleX(0)" }} />
+          <SlowBands slows={slows} duration={duration} />
         </div>
+        <DrawingMarkers drawings={drawings} duration={duration} />
       </div>
       <span className="w-10 shrink-0 text-xs nums text-white/80">{formatClipTime(duration)}</span>
     </div>
+  );
+}
+
+export type TimelineDrawing = { id: string; at: number; hold: number };
+export type TimelineSlow = { id: string; at: number; length: number };
+
+/** Slow-motion stretches as bands over the track. */
+function SlowBands({ slows, duration }: { slows?: TimelineSlow[]; duration: number }) {
+  return (
+    <>
+      {(slows ?? []).map((s) => {
+        const from = clamp(s.at / duration, 0, 1);
+        const to = clamp((s.at + s.length) / duration, 0, 1);
+        return to > from ? (
+          <span
+            key={s.id}
+            aria-hidden
+            className="absolute inset-y-0 bg-sky-400/70"
+            style={{ left: `${from * 100}%`, width: `${(to - from) * 100}%` }}
+          />
+        ) : null;
+      })}
+    </>
+  );
+}
+
+/** A diamond where each drawing holds the frame: a button that jumps there, or a mark for a viewer who can't scrub. */
+function DrawingMarkers({
+  drawings,
+  duration,
+  onSeek,
+}: {
+  drawings?: TimelineDrawing[];
+  duration: number;
+  onSeek?: (t: number) => void;
+}) {
+  return (
+    <>
+      {(drawings ?? []).map((d) => {
+        const frac = d.at / duration;
+        if (frac < 0 || frac > 1) return null;
+        const label = `Drawing, ${d.hold} s`;
+        const className =
+          "absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[2px] bg-white shadow ring-1 ring-black/40";
+        return onSeek ? (
+          <button
+            key={d.id}
+            type="button"
+            title={label}
+            aria-label={label}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSeek(d.at);
+            }}
+            className={cn(className, "transition-transform duration-100 hover:scale-125 active:scale-110")}
+            style={{ left: `${frac * 100}%` }}
+          />
+        ) : (
+          <span key={d.id} title={label} className={cn(className, "pointer-events-auto")} style={{ left: `${frac * 100}%` }} />
+        );
+      })}
+    </>
   );
 }
