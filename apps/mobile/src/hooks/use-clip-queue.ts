@@ -13,7 +13,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useVideoPlayer } from "expo-video";
 import { useEventListener } from "expo";
 import { isWatchedPosition } from "@scoutable/shared/lib/clip-timing";
-import { drawingToShow, holdDue, rearm, slowRateAt } from "@scoutable/shared/lib/clip-timeline";
+import { drawingToShow, firedOnPlay, holdDue, rearm, slowRateAt } from "@scoutable/shared/lib/clip-timeline";
 import type { WatchDrawing, WatchItem } from "@scoutable/shared/lib/watch-queue";
 
 export const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -299,8 +299,12 @@ export function useClipQueue({
   useEventListener(player, "playingChange", ({ isPlaying }) => {
     if (!isMountedRef.current) return;
     setPaused(!isPlaying);
-    // The viewer's own pause ends a hold where it stands; a play goes on from it.
-    if (isPlaying) cancelHold();
+    // The viewer's own pause ends a hold where it stands; a play goes on from
+    // it, and a play from a drawing's frame doesn't hold it again.
+    if (isPlaying) {
+      cancelHold();
+      firedRef.current = firedOnPlay(activeEffects().drawings, player.currentTime, firedRef.current);
+    }
     else if (selfPauseRef.current) selfPauseRef.current = false;
     else cancelHold();
     showDrawing(lastTimeRef.current, !isPlaying);
@@ -421,8 +425,11 @@ export function useClipQueue({
       return;
     }
     if (player.playing) player.pause();
-    else player.play();
-  }, [player, failed, playIndex, cancelHold]);
+    else {
+      firedRef.current = firedOnPlay(activeEffects().drawings, player.currentTime, firedRef.current);
+      player.play();
+    }
+  }, [player, failed, playIndex, cancelHold, activeEffects]);
 
   const setSpeed = useCallback(
     (s: number) => {

@@ -147,6 +147,25 @@ export function ClipScrubber({
     frameSeek.schedule(time);
   }
 
+  /**
+   * A marker (keyframe, drawing, slow motion) under the thumb lets the press
+   * through to the track, so the thumb can always be grabbed: a new
+   * drawing's marker sits right where the playhead is. Its click is then
+   * the drag's, not the marker's.
+   */
+  const passedRef = useRef(false);
+  function markerPress(e: React.PointerEvent<HTMLButtonElement>) {
+    const track = trackRef.current;
+    passedRef.current =
+      !!track && Math.abs(e.clientX - track.getBoundingClientRect().left - thumbX.get()) <= THUMB_HIT;
+    if (!passedRef.current) e.stopPropagation();
+  }
+  function markerClickPassed(): boolean {
+    const passed = passedRef.current;
+    passedRef.current = false;
+    return passed;
+  }
+
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (e.button !== 0) return;
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -248,9 +267,10 @@ export function ClipScrubber({
               type="button"
               title={label}
               aria-label={label}
-              onPointerDown={(e) => e.stopPropagation()}
+              onPointerDown={markerPress}
               onClick={(e) => {
                 e.stopPropagation();
+                if (markerClickPassed()) return;
                 if (onSlowClick) onSlowClick(s.id);
                 else onSeek(s.t);
               }}
@@ -266,9 +286,10 @@ export function ClipScrubber({
               key={`${k.t}`}
               type="button"
               title={`Keyframe at ${formatClipTime(k.t - start)}. Click to jump`}
-              onPointerDown={(e) => e.stopPropagation()}
+              onPointerDown={markerPress}
               onClick={(e) => {
                 e.stopPropagation();
+                if (markerClickPassed()) return;
                 onSeek(k.t);
               }}
               className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/40 bg-primary shadow transition-transform duration-100 hover:scale-125 active:scale-110"
@@ -285,9 +306,10 @@ export function ClipScrubber({
               type="button"
               title={label}
               aria-label={label}
-              onPointerDown={(e) => e.stopPropagation()}
+              onPointerDown={markerPress}
               onClick={(e) => {
                 e.stopPropagation();
+                if (markerClickPassed()) return;
                 if (onDrawingClick) onDrawingClick(d.id);
                 else onSeek(d.t);
               }}

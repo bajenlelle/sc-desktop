@@ -71,6 +71,17 @@ export function rearm(drawings: HoldDrawing[], now: number, fired: ReadonlySet<s
   return next;
 }
 
+/**
+ * The fired drawings once playback starts at `now`: a play from a drawing's
+ * frame (or from within its window) goes on instead of holding it again,
+ * since the viewer has just seen it held, or paused on it to look.
+ */
+export function firedOnPlay(drawings: HoldDrawing[], now: number, fired: ReadonlySet<string>): Set<string> {
+  const next = new Set(fired);
+  for (const d of drawings) if (now >= d.at - SHOW_TOLERANCE && now < d.at + FIRE_WINDOW) next.add(d.id);
+  return next;
+}
+
 /** What to draw: the drawing being held, or, while paused, the one whose frame the playhead stands on. */
 export function drawingToShow<T extends HoldDrawing>(drawings: T[], now: number, holdingId: string | null, paused: boolean): T | null {
   if (holdingId) return drawings.find((d) => d.id === holdingId) ?? null;

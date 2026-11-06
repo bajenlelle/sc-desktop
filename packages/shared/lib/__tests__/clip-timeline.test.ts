@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   drawingToShow,
+  firedOnPlay,
   holdDue,
   rearm,
   segmentTimeline,
@@ -26,6 +27,14 @@ describe("holds in the players", () => {
   it("rearms fired drawings the playhead went back before", () => {
     expect(rearm([a, b], 1.5, new Set(["a", "b"]))).toEqual(new Set());
     expect(rearm([a, b], 4.5, new Set(["a", "b"]))).toEqual(new Set(["a"]));
+  });
+
+  it("a play from a drawing's frame goes on instead of holding it again", () => {
+    expect(firedOnPlay([a, b], 2, new Set())).toEqual(new Set(["a"]));
+    expect(firedOnPlay([a, b], 1.97, new Set())).toEqual(new Set(["a"])); // the seek landed a hair before the frame
+    expect(firedOnPlay([a, b], 2.5, new Set(["b"]))).toEqual(new Set(["a", "b"]));
+    expect(firedOnPlay([a, b], 1.9, new Set())).toEqual(new Set()); // before it: it holds when reached
+    expect(holdDue([a, b], 2.1, firedOnPlay([a, b], 2, new Set()))).toBeNull();
   });
 
   it("shows the held drawing, or the one under a paused playhead", () => {

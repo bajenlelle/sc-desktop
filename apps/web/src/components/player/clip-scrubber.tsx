@@ -181,7 +181,7 @@ export function ClipScrubber({
           <div ref={fillRef} className="h-full w-full origin-left rounded-full bg-white/90" style={{ transform: "scaleX(0)" }} />
           <SlowBands slows={slows} duration={duration} />
         </div>
-        <DrawingMarkers drawings={drawings} duration={duration} onSeek={onSeek} />
+        <DrawingMarkers drawings={drawings} duration={duration} onSeek={onSeek} thumbAt={() => thumbX.get()} track={trackRef} />
         <motion.div
           aria-hidden
           className="pointer-events-none absolute top-1/2 left-0 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_1px_3px_rgb(0_0_0/0.5)] pointer-coarse:size-4"
@@ -301,11 +301,17 @@ function DrawingMarkers({
   drawings,
   duration,
   onSeek,
+  thumbAt,
+  track,
 }: {
   drawings?: TimelineDrawing[];
   duration: number;
   onSeek?: (t: number) => void;
+  /** Where the thumb is on the track (px), so a marker under it lets the press through to the thumb. */
+  thumbAt?: () => number;
+  track?: React.RefObject<HTMLDivElement | null>;
 }) {
+  const passedRef = useRef(false);
   return (
     <>
       {(drawings ?? []).map((d) => {
@@ -320,9 +326,19 @@ function DrawingMarkers({
             type="button"
             title={label}
             aria-label={label}
-            onPointerDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => {
+              const el = track?.current;
+              const hit = e.pointerType === "mouse" ? THUMB_HIT.mouse : THUMB_HIT.touch;
+              passedRef.current =
+                !!el && !!thumbAt && Math.abs(e.clientX - el.getBoundingClientRect().left - thumbAt()) <= hit;
+              if (!passedRef.current) e.stopPropagation();
+            }}
             onClick={(e) => {
               e.stopPropagation();
+              if (passedRef.current) {
+                passedRef.current = false;
+                return;
+              }
               onSeek(d.at);
             }}
             className={cn(className, "transition-transform duration-100 hover:scale-125 active:scale-110")}

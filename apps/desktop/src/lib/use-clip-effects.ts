@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { DrawingShape } from "@scoutable/shared/lib/clip-drawing";
-import { drawingToShow, holdDue, rearm, slowRateAt, type SlowSpan } from "@scoutable/shared/lib/clip-timeline";
+import { drawingToShow, firedOnPlay, holdDue, rearm, slowRateAt, type SlowSpan } from "@scoutable/shared/lib/clip-timeline";
 
 /** A drawing in the player's time base (`at`: seconds on the video's own clock). */
 export interface EffectDrawing {
@@ -95,10 +95,15 @@ export function useClipEffects(
       }, d.hold * 1000);
     };
     let raf = 0;
+    let wasPaused = video.paused;
     const tick = () => {
       const now = video.currentTime;
       const { drawings, slows } = effectsRef.current;
       if (firedRef.current.size > 0) firedRef.current = rearm(drawings, now, firedRef.current);
+      // Play from a drawing's frame goes on (seen here, not in the play
+      // event: a frame can run between play() and that event).
+      if (wasPaused && !video.paused) firedRef.current = firedOnPlay(drawings, now, firedRef.current);
+      wasPaused = video.paused;
       if (!holdingRef.current && !video.paused && !video.seeking) {
         const due = holdDue(drawings, now, firedRef.current);
         if (due) startHold(due);
