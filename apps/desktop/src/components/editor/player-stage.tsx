@@ -7,6 +7,7 @@ import {
   type MediaFailure,
 } from "@scoutable/shared/lib/media-failure";
 import type { CropKeyframe } from "@scoutable/shared/lib/crop-path";
+import type { SlowRate } from "@scoutable/shared/lib/clip-timeline";
 import { useAuth } from "@/lib/auth-context";
 import { Sentry } from "@/lib/sentry";
 import { Wordmark } from "@/components/logo";
@@ -79,6 +80,10 @@ export interface PlayerStageProps {
   /** The active clip's drawings, as markers on the timeline (absolute time). */
   drawings?: { id: string; t: number; hold: number }[];
   onDrawingClick?: (id: string) => void;
+  /** Slow-motion sections, as bands on the timeline (absolute time). */
+  slows?: { id: string; t: number; length: number; rate: SlowRate }[];
+  selectedSlowId?: string | null;
+  onSlowClick?: (id: string) => void;
 }
 
 /**
@@ -114,6 +119,9 @@ export function PlayerStage({
   hold,
   drawings,
   onDrawingClick,
+  slows,
+  selectedSlowId,
+  onSlowClick,
 }: PlayerStageProps) {
   const hostRef = React.useRef<HTMLDivElement | null>(null);
   const stageRef = React.useRef<HTMLDivElement | null>(null);
@@ -429,6 +437,9 @@ export function PlayerStage({
                 markers={markers}
                 drawings={drawings}
                 onDrawingClick={onDrawingClick}
+                slows={slows}
+                selectedSlowId={selectedSlowId}
+                onSlowClick={onSlowClick}
                 onSeek={onSeek}
               />
             )}

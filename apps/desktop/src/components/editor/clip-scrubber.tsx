@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { animate, motion, useMotionValue } from "framer-motion";
 import type { CropKeyframe } from "@scoutable/shared/lib/crop-path";
+import type { SlowRate } from "@scoutable/shared/lib/clip-timeline";
 import { clamp, rubberband } from "@scoutable/shared/lib/motion-math";
 import { formatClipTime } from "@scoutable/shared/lib/clip-timing";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,9 @@ export function ClipScrubber({
   markers,
   drawings,
   onDrawingClick,
+  slows,
+  selectedSlowId = null,
+  onSlowClick,
   onSeek,
   frameSeconds = 1 / 25,
   showTimes = true,
@@ -38,6 +42,10 @@ export function ClipScrubber({
   /** The clip's drawings (absolute time): a diamond each, a click opens one (or jumps to it). */
   drawings?: { id: string; t: number; hold: number }[];
   onDrawingClick?: (id: string) => void;
+  /** Slow-motion sections (absolute time): a band each, and a marker at its start that opens it. */
+  slows?: { id: string; t: number; length: number; rate: SlowRate }[];
+  selectedSlowId?: string | null;
+  onSlowClick?: (id: string) => void;
   onSeek: (t: number) => void;
   frameSeconds?: number;
   /** Elapsed and total either side of the track; off where a larger readout sits nearby. */
@@ -217,7 +225,40 @@ export function ClipScrubber({
         {/* Track: grows on hover like a QuickTime scrubber. */}
         <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-white/25 transition-[height] duration-150 group-hover/track:h-2">
           <div ref={fillRef} className="h-full w-full origin-left rounded-full bg-white/90" style={{ transform: "scaleX(0)" }} />
+          {(slows ?? []).map((s) => {
+            const from = clamp((s.t - start) / duration, 0, 1);
+            const to = clamp((s.t + s.length - start) / duration, 0, 1);
+            return to > from ? (
+              <span
+                key={s.id}
+                aria-hidden
+                className={cn("absolute inset-y-0", s.id === selectedSlowId ? "bg-sky-300" : "bg-sky-400/70")}
+                style={{ left: `${from * 100}%`, width: `${(to - from) * 100}%` }}
+              />
+            ) : null;
+          })}
         </div>
+        {(slows ?? []).map((s) => {
+          const frac = (s.t - start) / duration;
+          if (frac < 0 || frac > 1) return null;
+          const label = `Slow motion, ${Number(s.length.toFixed(1))} s at ${s.rate === 0.5 ? "½×" : "¼×"}`;
+          return (
+            <button
+              key={`slow-${s.id}`}
+              type="button"
+              title={label}
+              aria-label={label}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onSlowClick) onSlowClick(s.id);
+                else onSeek(s.t);
+              }}
+              className="absolute top-1/2 h-3 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-sm bg-sky-300 shadow ring-1 ring-black/40 transition-transform duration-100 hover:scale-125 active:scale-110"
+              style={{ left: `${frac * 100}%` }}
+            />
+          );
+        })}
         {(markers ?? []).map((k) => {
           const frac = clamp((k.t - start) / duration, 0, 1);
           return (

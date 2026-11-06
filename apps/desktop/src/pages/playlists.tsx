@@ -24,6 +24,7 @@ import {
   Plus,
   PenLine,
   Scissors,
+  Snail,
   Tag,
   VideoOff,
 } from "lucide-react";
@@ -35,10 +36,18 @@ import { ClipCaption } from "@/components/player/clip-caption";
 import { DrawingLayer } from "@/components/player/drawing-layer";
 import { DrawOverlay } from "@/components/editor/draw-overlay";
 import { DrawBar } from "@/components/editor/draw-bar";
+import { SlowBar } from "@/components/editor/slow-bar";
 import { useDrawSession } from "@/components/editor/use-draw-session";
 import { useClipEffects, type EffectDrawing } from "@/lib/use-clip-effects";
 import { HOLD_DEFAULT, type ClipDrawing } from "@scoutable/shared/lib/clip-drawing";
-import type { SlowSpan } from "@scoutable/shared/lib/clip-timeline";
+import {
+  SLOW_DEFAULT_LENGTH,
+  SLOW_MAX_LENGTH,
+  SLOW_MIN_LENGTH,
+  type SlowRate,
+  type SlowSection,
+  type SlowSpan,
+} from "@scoutable/shared/lib/clip-timeline";
 import { ClipNoteField } from "@/components/editor/clip-note-field";
 import { StatsCardInspector } from "@/components/editor/stats-card-inspector";
 import type { ScoutingReportRun } from "@/components/editor/scouting-report-dialog";
@@ -611,6 +620,16 @@ export function PlaylistsPage() {
   const pendingDrawingsRef = useRef<{ playlistId: string; matchId: string; eventId: number; drawings: ClipDrawing[] } | null>(null);
   const drawingsSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const finishDrawRef = useRef<(opts?: { remove?: boolean }) => void>(() => {});
+  /** The slow-motion section whose bar is open, the clip it is on, and its pending save. */
+  const [slowEdit, setSlowEdit] = useState<{ clipKey: string; id: string } | null>(null);
+  const slowEditRef = useRef(false);
+  slowEditRef.current = !!slowEdit;
+  const slowTargetRef = useRef<{ playlistId: string; matchId: string; eventId: number } | null>(null);
+  /** The clip's sections when the bar opened: one analytics event per visit, not per save. */
+  const slowAtOpenRef = useRef<SlowSection[] | undefined>(undefined);
+  const pendingSlowRef = useRef<{ playlistId: string; matchId: string; eventId: number; slowMotion: SlowSection[] } | null>(null);
+  const slowSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeSlowRef = useRef<() => void>(() => {});
   const clipEndRef = useRef<number | undefined>(undefined);
   const pendingSeekRef = useRef<{ seekTo: number; clipEnd: number } | null>(null);
   const preRollRef = useRef(preRoll);
@@ -665,6 +684,7 @@ export function PlaylistsPage() {
   // Sync note textarea when active clip changes; what was typed on the last clip (and drawn on it) is saved first.
   useEffect(() => {
     finishDrawRef.current();
+    closeSlowRef.current();
     flushClipNote();
     if (activeEventId === null || !selected) { setClipNote(""); return; }
     const clip = selected.items.filter(isClipItem).find(
@@ -1516,6 +1536,7 @@ export function PlaylistsPage() {
 
   const handleStop = useCallback(() => {
     finishDrawRef.current();
+    closeSlowRef.current();
     if (trimActiveRef.current) {
       trimActiveRef.current = false;
       setTrim(null);
@@ -1684,8 +1705,9 @@ export function PlaylistsPage() {
   // Leaving the page mid-type must not lose the note.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => () => flushClipNote(), []);
-  // …nor a drawing.
+  // …nor a drawing or a slow-motion change.
   useEffect(() => () => finishDrawRef.current(), []);
+  useEffect(() => () => closeSlowRef.current(), []);
 
   const activeClipOffsets = useMemo(() => {
     if (activeEventId === null) return { pre: 0, post: 0 };
@@ -1711,6 +1733,7 @@ export function PlaylistsPage() {
     const empty = {
       keyframes: undefined as CropKeyframe[] | undefined,
       drawings: undefined as ClipDrawing[] | undefined,
+      slowMotion: undefined as SlowSection[] | undefined,
       start: null as number | null,
       end: null as number | null,
     };
@@ -1730,7 +1753,7 @@ export function PlaylistsPage() {
         end = b.end;
       }
     }
-    return { keyframes: clip?.cropKeyframes, drawings: clip?.drawings, start, end };
+    return { keyframes: clip?.cropKeyframes, drawings: clip?.drawings, slowMotion: clip?.slowMotion, start, end };
   }, [activeClipKey, selected, matchLookup, eventByKey, preRoll, postRoll]);
 
   /** Persist the active clip's crop pan — same optimistic shape as adjustActiveClip. */
@@ -1756,7 +1779,10 @@ export function PlaylistsPage() {
       .filter((d) => d.t > start + 0.1 && d.t < end - 0.1)
       .map((d) => ({ id: d.id, at: d.t, hold: d.hold, shapes: d.shapes }));
   }, [activeClipCrop]);
-  const effectSlows = useMemo<SlowSpan[]>(() => [], []);
+  const effectSlows = useMemo<SlowSpan[]>(
+    () => (activeClipCrop.slowMotion ?? []).map((s) => ({ at: s.t, length: s.length, rate: s.rate })),
+    [activeClipCrop],
+  );
   const clipEffects = useClipEffects(
     persistentVideo,
     { drawings: effectDrawings, slows: effectSlows },
@@ -1828,6 +1854,7 @@ export function PlaylistsPage() {
     const { start, end } = activeClipCrop;
     if (!video || !selected || !activeClipKey || activeTextCard || start === null || end === null) return;
     finishDraw();
+    closeSlow();
     setCropMode(false);
     if (trimActiveRef.current) abandonTrim();
     clipEffects.cancel();
@@ -1871,6 +1898,119 @@ export function PlaylistsPage() {
     }
   }
   finishDrawRef.current = finishDraw;
+
+  /** The active clip's slow-motion sections, saved shortly after (a stepper is clicked in bursts). */
+  function setActiveClipSlowMotion(next: SlowSection[]) {
+    const target = slowTargetRef.current;
+    if (!target) return;
+    const sorted = [...next].sort((a, b) => a.t - b.t);
+    const patch = (pl: Playlist): Playlist =>
+      pl.id !== target.playlistId
+        ? pl
+        : {
+            ...pl,
+            items: pl.items.map((c) =>
+              isClipItem(c) && c.matchId === target.matchId && c.eventId === target.eventId
+                ? { ...c, slowMotion: sorted.length ? sorted : undefined }
+                : c,
+            ),
+          };
+    if (selectedRef.current) selectedRef.current = patch(selectedRef.current);
+    setSelected((prev) => (prev ? patch(prev) : prev));
+    setPlaylists((prev) => prev.map(patch));
+    pendingSlowRef.current = { ...target, slowMotion: sorted };
+    if (slowSaveTimerRef.current) clearTimeout(slowSaveTimerRef.current);
+    slowSaveTimerRef.current = setTimeout(flushClipSlowMotion, 600);
+  }
+
+  function flushClipSlowMotion() {
+    if (slowSaveTimerRef.current) {
+      clearTimeout(slowSaveTimerRef.current);
+      slowSaveTimerRef.current = null;
+    }
+    const p = pendingSlowRef.current;
+    pendingSlowRef.current = null;
+    if (!p) return;
+    updateClip(p.playlistId, p.matchId, p.eventId, { slowMotion: p.slowMotion }).catch((e) => {
+      Sentry.captureException(e);
+      toast.error("Couldn't save the slow motion");
+    });
+  }
+
+  function clipSlowMotionOf(target: { playlistId: string; matchId: string; eventId: number }): SlowSection[] | undefined {
+    const pl = playlistsRef.current.find((p) => p.id === target.playlistId) ?? selectedRef.current;
+    return pl?.items.filter(isClipItem).find((c) => c.matchId === target.matchId && c.eventId === target.eventId)?.slowMotion;
+  }
+
+  /** Opens a section's bar. */
+  function selectSlow(section: SlowSection) {
+    if (!selected || !activeClipKey) return;
+    closeSlow();
+    slowTargetRef.current = { playlistId: selected.id, matchId: activeClipKey.matchId, eventId: activeClipKey.eventId };
+    slowAtOpenRef.current = activeClipCrop.slowMotion;
+    setSlowEdit({ clipKey: `${activeClipKey.matchId}:${activeClipKey.eventId}`, id: section.id });
+  }
+
+  /** Closes the bar: saves now, and counts the visit if anything changed. */
+  function closeSlow() {
+    const target = slowTargetRef.current;
+    const open = slowEdit;
+    flushClipSlowMotion();
+    setSlowEdit(null);
+    slowTargetRef.current = null;
+    if (!target || !open) return;
+    const now = clipSlowMotionOf(target) ?? [];
+    if (JSON.stringify(slowAtOpenRef.current ?? []) === JSON.stringify(now)) return;
+    const section = now.find((s) => s.id === open.id);
+    trackEvent("clip_slow_motion_set", {
+      rate: section?.rate ?? null,
+      length_seconds: section?.length ?? 0,
+      sections_on_clip: now.length,
+      removed: !section,
+    });
+  }
+  closeSlowRef.current = closeSlow;
+
+  /** "Slow motion": opens the section under the playhead (or just after it), or makes one from here. */
+  function openSlowMotion() {
+    const video = videoRef.current;
+    const { start, end } = activeClipCrop;
+    if (!video || !selected || !activeClipKey || activeTextCard || start === null || end === null) return;
+    finishDraw();
+    setCropMode(false);
+    if (trimActiveRef.current) abandonTrim();
+    const t0 = video.currentTime;
+    const sections = [...(activeClipCrop.slowMotion ?? [])].sort((a, b) => a.t - b.t);
+    const hit = sections.find((s) => t0 >= s.t - 0.5 && t0 < s.t + s.length);
+    if (hit) {
+      if (t0 < hit.t) video.currentTime = hit.t;
+      selectSlow(hit);
+      return;
+    }
+    const t = Math.round(clamp(t0, start, end - SLOW_MIN_LENGTH) * 1000) / 1000;
+    const next = sections.find((s) => s.t > t);
+    const room = Math.floor((Math.min(end, next?.t ?? Infinity) - t) * 10) / 10;
+    if (room < SLOW_MIN_LENGTH) {
+      if (next) selectSlow(next);
+      return;
+    }
+    const section: SlowSection = { id: crypto.randomUUID(), t, length: Math.min(SLOW_DEFAULT_LENGTH, room), rate: 0.5 };
+    selectSlow(section);
+    slowTargetRef.current = { playlistId: selected.id, matchId: activeClipKey.matchId, eventId: activeClipKey.eventId };
+    setActiveClipSlowMotion([...sections, section]);
+  }
+
+  const slowSection = slowEdit ? (activeClipCrop.slowMotion?.find((s) => s.id === slowEdit.id) ?? null) : null;
+  /** How long a section may be from its start: to the clip's end, or the next section. */
+  function slowRoom(s: SlowSection): { min: number; max: number } {
+    const others = (activeClipCrop.slowMotion ?? []).filter((x) => x.id !== s.id);
+    const prevEnd = Math.max(activeClipCrop.start ?? 0, ...others.filter((x) => x.t < s.t).map((x) => x.t + x.length));
+    const nextStart = Math.min(activeClipCrop.end ?? Infinity, ...others.filter((x) => x.t > s.t).map((x) => x.t));
+    return { min: prevEnd, max: nextStart };
+  }
+  function updateSlow(id: string, patch: Partial<SlowSection>) {
+    setActiveClipSlowMotion((activeClipCrop.slowMotion ?? []).map((s) => (s.id === id ? { ...s, ...patch } : s)));
+  }
 
   function handleCropCommit(t: number, cx: number) {
     setActiveClipCropKeyframes(upsertKeyframe(activeClipCrop.keyframes, t, cx));
@@ -2059,8 +2199,8 @@ export function PlaylistsPage() {
       if (video.currentTime < end) return;
       // Guard: if we're >60s past clipEnd the video is at a stale position (seek in progress)
       if (video.currentTime > end + 60) return;
-      // The coach is writing this clip's note or drawing on it: wait here; play goes on to the next clip.
-      if (noteFocusRef.current || drawModeRef.current) {
+      // The coach is writing this clip's note, drawing on it or slowing it: wait here; play goes on to the next clip.
+      if (noteFocusRef.current || drawModeRef.current || slowEditRef.current) {
         video.pause();
         return;
       }
@@ -2533,9 +2673,11 @@ export function PlaylistsPage() {
     if (trim && (activeKey !== trim.key || playerFs.active || cropMode)) abandonTrim();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKey, playerFs.active, cropMode]);
-  // Draw mode's bar lives under the player, which full screen hides: going full screen finishes the drawing.
+  // Draw mode's bar and the slow-motion bar live under the player, which full screen hides.
   useEffect(() => {
-    if (playerFs.active && drawModeRef.current) finishDrawRef.current();
+    if (!playerFs.active) return;
+    if (drawModeRef.current) finishDrawRef.current();
+    if (slowEditRef.current) closeSlowRef.current();
   }, [playerFs.active]);
 
   // One key owner for the page (src/lib/key-scope.ts); the Add Clips sheet
@@ -2595,6 +2737,11 @@ export function PlaylistsPage() {
         // closes the CSS layer; the hook's poll reconciles the window);
         // otherwise Escape lets go of the selection.
         if (document.querySelector('[role="dialog"]')) return;
+        if (slowEditRef.current) {
+          e.preventDefault();
+          closeSlowRef.current();
+          return;
+        }
         if (playerFsRef.current.active) {
           e.preventDefault();
           void playerFsRef.current.exit();
@@ -4917,6 +5064,19 @@ export function PlaylistsPage() {
             drawings={draw.session ? undefined : effectDrawings.map((d) => ({ id: d.id, t: d.at, hold: d.hold }))}
             onDrawingClick={(id) => enterDraw(activeClipCrop.drawings?.find((d) => d.id === id))}
             hold={{ active: !!clipEffects.holding, cancel: clipEffects.cancel }}
+            slows={draw.session ? undefined : activeClipCrop.slowMotion}
+            selectedSlowId={slowEdit?.id ?? null}
+            onSlowClick={(id) => {
+              const s = activeClipCrop.slowMotion?.find((x) => x.id === id);
+              if (!s) return;
+              finishDraw();
+              const video = videoRef.current;
+              if (video) {
+                clipEffects.cancel();
+                video.currentTime = s.t;
+              }
+              selectSlow(s);
+            }}
             onSeek={handleCropSeek}
             transport={{
               canPrev,
@@ -5047,7 +5207,32 @@ export function PlaylistsPage() {
             )}
             {/* This clip's own length: the playlist's clip length plus the
                 clip's offsets, shown as the seconds that actually play. */}
-            {activeEventId !== null && !draw.session && (() => {
+            {slowSection && !draw.session && activeClipCrop.start !== null && (
+              <SlowBar
+                section={slowSection}
+                clipStart={activeClipCrop.start}
+                maxLength={Math.min(SLOW_MAX_LENGTH, slowRoom(slowSection).max - slowSection.t)}
+                onRate={(rate: SlowRate) => updateSlow(slowSection.id, { rate })}
+                onLength={(n) =>
+                  updateSlow(slowSection.id, {
+                    length: Math.round(Math.max(SLOW_MIN_LENGTH, Math.min(n, SLOW_MAX_LENGTH, slowRoom(slowSection).max - slowSection.t)) * 1000) / 1000,
+                  })
+                }
+                onStartHere={() => {
+                  const video = videoRef.current;
+                  if (!video) return;
+                  const { min, max } = slowRoom(slowSection);
+                  const t = Math.round(clamp(video.currentTime, min, max - SLOW_MIN_LENGTH) * 1000) / 1000;
+                  updateSlow(slowSection.id, { t, length: Math.min(slowSection.length, Math.round((max - t) * 1000) / 1000) });
+                }}
+                onRemove={() => {
+                  setActiveClipSlowMotion((activeClipCrop.slowMotion ?? []).filter((s) => s.id !== slowSection.id));
+                  closeSlow();
+                }}
+                onDone={closeSlow}
+              />
+            )}
+            {activeEventId !== null && !draw.session && !slowSection && (() => {
               // A trim can leave fractions: shown to the tenth, and the
               // steppers move on to whole seconds from there.
               const before = preRoll + activeClipOffsets.pre;
@@ -5088,6 +5273,15 @@ export function PlaylistsPage() {
                       Draw on this frame
                       <Kbd>D</Kbd>
                     </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="xs" disabled={!!trim || !!activeTextCard} onClick={openSlowMotion}>
+                        <Snail />
+                        Slow motion
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Play from here at half or quarter speed</TooltipContent>
                   </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
