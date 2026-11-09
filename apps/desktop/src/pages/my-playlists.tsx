@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { ChevronLeft, Clapperboard, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { playableClips, toFeedPlaylists, sharerFilterOptions } from "@scoutable/shared/lib/playlist-feed";
-import { collectReferencedMatchIds, mergeEventsIntoMatches } from "@scoutable/shared/lib/playlist-matches";
+import { collectReferencedPlays, mergeEventsIntoMatches } from "@scoutable/shared/lib/playlist-matches";
 import { isPlayerOnly } from "@scoutable/shared/lib/orgs";
 import { EMPTY_FEED_FILTERS, PlaylistFeed, type FeedFilters } from "@/components/playlist/PlaylistFeed";
 import { SharedByMe } from "@/components/playlist/SharedByMe";
@@ -186,8 +186,9 @@ export function MyPlaylistsPage() {
         ]);
         // Events only for the referenced matches, published with the shells
         // in one go: clip rows drop when their event lookup misses.
-        const referencedIds = collectReferencedMatchIds([...pls, ...directPls, ...sharedOutPls]);
-        const eventsByMatch = await listEventsForMatches(referencedIds).catch(
+        // Named plays: a cached game read before a newer share is read again.
+        const plays = collectReferencedPlays([...pls, ...directPls, ...sharedOutPls]);
+        const eventsByMatch = await listEventsForMatches([...plays.keys()], { required: plays }).catch(
           () => ({}) as Record<string, PlayByPlayEvent[]>,
         );
         setMatches(mergeEventsIntoMatches(shells, eventsByMatch));

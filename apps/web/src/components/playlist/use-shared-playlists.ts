@@ -22,7 +22,7 @@ import {
 import { listMatchesLight, listEventsForMatches } from "@scoutable/shared/lib/matches-db";
 import {
   buildAggregatedTeamMap,
-  collectReferencedMatchIds,
+  collectReferencedPlays,
   mergeEventsIntoMatches,
 } from "@scoutable/shared/lib/playlist-matches";
 import { toFeedPlaylists, type FeedPlaylist } from "@scoutable/shared/lib/playlist-feed";
@@ -164,8 +164,9 @@ export function useSharedPlaylists() {
       // the shells and published in ONE setMatches — clip rows silently drop
       // when their event lookup misses, so light-shells-first would flash
       // every playlist empty (and break ?p= deep links mid-load).
-      const referencedIds = collectReferencedMatchIds([...pls, ...directPls, ...sharedOutPls]);
-      const eventsByMatch = await listEventsForMatches(supabase, referencedIds).catch(
+      // Named plays: a cached game read before a newer share is read again.
+      const plays = collectReferencedPlays([...pls, ...directPls, ...sharedOutPls]);
+      const eventsByMatch = await listEventsForMatches(supabase, [...plays.keys()], { required: plays }).catch(
         () => ({}) as Record<string, PlayByPlayEvent[]>,
       );
       setMatches(mergeEventsIntoMatches(shells, eventsByMatch));

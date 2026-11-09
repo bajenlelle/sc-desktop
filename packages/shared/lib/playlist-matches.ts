@@ -23,6 +23,26 @@ export function collectReferencedMatchIds(playlists: Playlist[]): string[] {
 }
 
 /**
+ * The plays those same shipped clips stand on, by match: what a consumption
+ * surface will look up. Handed to listEventsForMatches as `required`, so a
+ * cached play-by-play read before a newer share from the same game (a
+ * recipient sees only the plays behind clips shared with them) is read
+ * again instead of silently dropping the new playlist's clips.
+ */
+export function collectReferencedPlays(playlists: Playlist[]): Map<string, Set<number>> {
+  const plays = new Map<string, Set<number>>();
+  for (const pl of playlists) {
+    for (const item of pl.items) {
+      if (!isClipItem(item) || !item.r2Url) continue;
+      let set = plays.get(item.matchId);
+      if (!set) plays.set(item.matchId, (set = new Set()));
+      set.add(item.eventId);
+    }
+  }
+  return plays;
+}
+
+/**
  * Every matchId referenced by a clip, shipped or not — the editing surface's
  * counterpart to `collectReferencedMatchIds`.
  *

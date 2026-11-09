@@ -8,12 +8,13 @@ function eventRow(matchId: string, eventId: number) {
 
 /**
  * Double for `from("matches").select("id, play_by_play_events(*)").in("id", ids)`
- * (and the two deletes deleteMatch makes). `visible` is what RLS returns;
- * `fail` makes the next read fail; `gate` holds reads until released.
+ * (and the two deletes deleteMatch makes). `visible` is what RLS returns
+ * (plays 1..n per game; mutate it to share more); `fail` makes the next read
+ * fail; `gate` holds reads until released; `afterRead` runs after each read.
  */
 function mockClient(opts: { uid?: string | null; visible?: Record<string, number> } = {}) {
   const reads: string[][] = [];
-  const state = { fail: false, gate: null as Promise<void> | null };
+  const state = { fail: false, gate: null as Promise<void> | null, afterRead: null as (() => void) | null };
   const uid = opts.uid === undefined ? "coach" : opts.uid;
   const visible = opts.visible ?? { m1: 2, m2: 1, m3: 3 };
   const client = {
@@ -29,12 +30,11 @@ function mockClient(opts: { uid?: string | null; visible?: Record<string, number
           reads.push([...ids]);
           if (state.gate) await state.gate;
           if (state.fail) return { data: null, error: { message: "boom" } };
-          return {
-            data: ids
-              .filter((id) => id in visible)
-              .map((id) => ({ id, play_by_play_events: Array.from({ length: visible[id] }, (_, i) => eventRow(id, i + 1)) })),
-            error: null,
-          };
+          const data = ids
+            .filter((id) => id in visible)
+            .map((id) => ({ id, play_by_play_events: Array.from({ length: visible[id] }, (_, i) => eventRow(id, i + 1)) }));
+          state.afterRead?.();
+          return { data, error: null };
         },
       };
       return b;
@@ -131,6 +131,61 @@ describe("listEventsForMatches cache", () => {
     await deleteMatch(client, "m2");
     await listEventsForMatches(client, ["m1", "m2"]);
     expect(reads).toEqual([["m1", "m2"], ["m1"], ["m2"]]);
+  });
+
+  it("reads a game again when a newer share needs a play its entry lacks", async () => {
+    // A player's entry holds only the plays shared with them when it was read.
+    const visible = { m1: 3 };
+    const { client, reads } = mockClient({ uid: "player", visible });
+    await listEventsForMatches(client, ["m1"], { required: new Map([["m1", new Set([1, 2])]]) });
+    visible.m1 = 5; // a second playlist from the game is shared
+    const out = await listEventsForMatches(client, ["m1"], { required: new Map([["m1", new Set([1, 2, 4])]]) });
+    expect(out.m1.map((e) => e.eventId)).toEqual([1, 2, 3, 4, 5]);
+    // The fresh entry covers it from now on.
+    await listEventsForMatches(client, ["m1"], { required: new Map([["m1", new Set([4, 5])]]) });
+    expect(reads).toEqual([["m1"], ["m1"]]);
+  });
+
+  it("serves the entry while it holds every play asked for", async () => {
+    const { client, reads } = mockClient({ visible: { m1: 3, m2: 1 } });
+    await listEventsForMatches(client, ["m1", "m2"]);
+    await listEventsForMatches(client, ["m1", "m2"], {
+      required: new Map([["m1", new Set([1, 3])], ["m2", new Set<number>()]]),
+    });
+    expect(reads).toEqual([["m1", "m2"]]);
+  });
+
+  it("re-reads only the stale game of several", async () => {
+    const visible = { m1: 2, m2: 2 };
+    const { client, reads } = mockClient({ uid: "player", visible });
+    await listEventsForMatches(client, ["m1", "m2"]);
+    visible.m2 = 3;
+    const out = await listEventsForMatches(client, ["m1", "m2"], {
+      required: new Map([["m1", new Set([2])], ["m2", new Set([3])]]),
+    });
+    expect(reads).toEqual([["m1", "m2"], ["m2"]]);
+    expect(out.m1).toHaveLength(2);
+    expect(out.m2).toHaveLength(3);
+  });
+
+  it("asks again after a shared read that came back without a needed play", async () => {
+    const visible = { m1: 2 };
+    const { client, reads, state } = mockClient({ uid: "player", visible });
+    let release!: () => void;
+    state.gate = new Promise((r) => (release = r));
+    // The share lands after the first read was answered.
+    state.afterRead = () => {
+      visible.m1 = 3;
+      state.afterRead = null;
+    };
+    const a = listEventsForMatches(client, ["m1"]);
+    const b = listEventsForMatches(client, ["m1"], { required: new Map([["m1", new Set([3])]]) });
+    await Promise.resolve();
+    release();
+    const [ra, rb] = await Promise.all([a, b]);
+    expect(ra.m1).toHaveLength(2);
+    expect(rb.m1).toHaveLength(3);
+    expect(reads).toEqual([["m1"], ["m1"]]);
   });
 
   it("returns {} for no ids without a read", async () => {

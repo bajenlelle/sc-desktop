@@ -28,7 +28,7 @@ export const findImportedSourceGames = (sourceGameIds: string[], orgId?: string)
   db.findImportedSourceGames(c(), sourceGameIds, orgId);
 export const getMatch = (id: string) => db.getMatch(c(), id);
 export const listMatches = (orgId?: string, opts?: { ownOnly?: boolean }) => db.listMatches(c(), orgId, opts);
-export const listEventsForMatches = (matchIds: string[]) => db.listEventsForMatches(c(), matchIds);
+export const listEventsForMatches = (matchIds: string[], opts?: { required?: db.RequiredPlays }) => db.listEventsForMatches(c(), matchIds, opts);
 // Announced so open pages (playlists' matchLookup, Library badges) pick up
 // the new sync point without a remount. Returns the shared-clip invalidation
 // count so callers can tell the coach a re-upload is due.

@@ -27,7 +27,7 @@ import {
 import { listMatchesLight, listEventsForMatches } from "@scoutable/shared/lib/matches-db";
 import {
   buildAggregatedTeamMap,
-  collectReferencedMatchIds,
+  collectReferencedPlays,
   mergeEventsIntoMatches,
 } from "@scoutable/shared/lib/playlist-matches";
 import { clipViewKey, listMyClipViews, markClipWatched } from "@scoutable/shared/lib/clip-views-db";
@@ -182,8 +182,10 @@ export function PlaylistsProvider({ children }: { children: React.ReactNode }) {
     // whose event lookup misses, so light-shells-first would flash every
     // playlist empty. On refresh the old populated lookup stays live until
     // this replacement lands.
-    const referencedIds = collectReferencedMatchIds([...pls, ...directPls, ...sharedOut]);
-    const eventsByMatch = await listEventsForMatches(supabase, referencedIds).catch(
+    // The plays they stand on are named, so a game's cached play-by-play read
+    // before a newer share from it is read again instead of dropping clips.
+    const plays = collectReferencedPlays([...pls, ...directPls, ...sharedOut]);
+    const eventsByMatch = await listEventsForMatches(supabase, [...plays.keys()], { required: plays }).catch(
       () => ({}) as Record<string, PlayByPlayEvent[]>,
     );
     if (stale()) return;

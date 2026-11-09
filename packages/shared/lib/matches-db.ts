@@ -350,7 +350,11 @@ export async function listMatches(
  *
  * Keyed by user as well as game: RLS shows a playlist recipient only the
  * plays behind its clips, so one account's full list must never serve
- * another signed in on the same device. An entry lasts an hour (the desktop
+ * another signed in on the same device. For the same reason a recipient's
+ * entry is only as complete as their shares were when it was read: a new
+ * playlist from that game brings plays the entry lacks. Callers that play
+ * shared clips name the plays they need (`required`), and an entry missing
+ * any of them is read again. An entry lasts an hour (the desktop
  * stays open for days: a correction on the server, or a re-import from
  * another device, arrives within the hour) and a reload empties it all. The
  * arrays are shared between callers: read them, never mutate them.
@@ -358,6 +362,18 @@ export async function listMatches(
 const EVENTS_CACHE_MS = 60 * 60_000;
 const eventsCache = new Map<string, { at: number; events: PlayByPlayEvent[] }>();
 const eventsInflight = new Map<string, Promise<PlayByPlayEvent[] | undefined>>();
+
+/** The plays a caller needs, by game: event ids per match id. */
+export type RequiredPlays = ReadonlyMap<string, ReadonlySet<number>>;
+
+/** Whether a game's list holds every play the caller needs from it. */
+function coversPlays(events: readonly PlayByPlayEvent[], needed: ReadonlySet<number> | undefined): boolean {
+  if (!needed || needed.size === 0) return true;
+  if (events.length < needed.size) return false;
+  const have = new Set(events.map((e) => e.eventId));
+  for (const id of needed) if (!have.has(id)) return false;
+  return true;
+}
 
 /** Forgets the cached play-by-play of these games (all games without ids), for every user. */
 export function invalidateMatchEvents(matchIds?: readonly string[]): void {
@@ -371,32 +387,28 @@ export function invalidateMatchEvents(matchIds?: readonly string[]): void {
   }
 }
 
+/**
+ * The play-by-play of these games, from the cache where it can. `required`
+ * names the plays the caller will look up; a cached (or in-flight) list
+ * missing any of them is read again rather than served.
+ */
 export async function listEventsForMatches(
   supabase: SupabaseClient,
-  matchIds: string[]
+  matchIds: string[],
+  opts?: { required?: RequiredPlays },
 ): Promise<Record<string, PlayByPlayEvent[]>> {
   if (matchIds.length === 0) return {};
   const uid = await currentUserId(supabase);
+  const required = opts?.required;
   const byMatch: Record<string, PlayByPlayEvent[]> = {};
-  const waits: Promise<unknown>[] = [];
-  const need: string[] = [];
-  for (const id of new Set(matchIds)) {
-    const key = `${uid}:${id}`;
-    const hit = uid ? eventsCache.get(key) : undefined;
-    if (hit && Date.now() - hit.at < EVENTS_CACHE_MS) {
-      byMatch[id] = hit.events;
-      continue;
-    }
-    const pending = uid ? eventsInflight.get(key) : undefined;
-    if (pending) waits.push(pending.then((events) => { if (events) byMatch[id] = events; }));
-    else need.push(id);
-  }
-  if (need.length > 0) {
+
+  /** One read for these games; registers itself so concurrent callers share it. */
+  const readGames = (ids: string[]): Promise<void> => {
     const read = (async () => {
       const { data, error } = await supabase
         .from("matches")
         .select("id, play_by_play_events(*)")
-        .in("id", need);
+        .in("id", ids);
       if (error || !data) return null;
       const fetched: Record<string, PlayByPlayEvent[]> = {};
       for (const row of data as { id: string; play_by_play_events: EventRow[] }[]) {
@@ -404,7 +416,7 @@ export async function listEventsForMatches(
       }
       return fetched;
     })();
-    for (const id of need) {
+    for (const id of ids) {
       const key = `${uid}:${id}`;
       const one = read.then((fetched) => fetched?.[id]);
       if (uid) {
@@ -414,18 +426,41 @@ export async function listEventsForMatches(
         });
       }
     }
-    waits.push(
-      read.then((fetched) => {
-        if (!fetched) return;
-        for (const [id, events] of Object.entries(fetched)) {
-          byMatch[id] = events;
-          // A game RLS didn't return isn't cached: the next call asks again.
-          if (uid) eventsCache.set(`${uid}:${id}`, { at: Date.now(), events });
-        }
-      }),
-    );
+    return read.then((fetched) => {
+      if (!fetched) return;
+      for (const [id, events] of Object.entries(fetched)) {
+        byMatch[id] = events;
+        // A game RLS didn't return isn't cached: the next call asks again.
+        if (uid) eventsCache.set(`${uid}:${id}`, { at: Date.now(), events });
+      }
+    });
+  };
+
+  const waits: Promise<unknown>[] = [];
+  const need: string[] = [];
+  // Games whose in-flight read came back without a play this caller needs:
+  // it started before that play was shared, so ask once more after it.
+  const again: string[] = [];
+  for (const id of new Set(matchIds)) {
+    const key = `${uid}:${id}`;
+    const hit = uid ? eventsCache.get(key) : undefined;
+    if (hit && Date.now() - hit.at < EVENTS_CACHE_MS && coversPlays(hit.events, required?.get(id))) {
+      byMatch[id] = hit.events;
+      continue;
+    }
+    const pending = uid ? eventsInflight.get(key) : undefined;
+    if (pending) {
+      waits.push(
+        pending.then((events) => {
+          if (events && coversPlays(events, required?.get(id))) byMatch[id] = events;
+          else if (events) again.push(id);
+        }),
+      );
+    } else need.push(id);
   }
+  if (need.length > 0) waits.push(readGames(need));
   await Promise.all(waits);
+  if (again.length > 0) await readGames(again);
   return byMatch;
 }
 

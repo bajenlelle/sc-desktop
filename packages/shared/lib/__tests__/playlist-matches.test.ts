@@ -3,6 +3,7 @@ import {
   buildAggregatedTeamMap,
   collectClipMatchIds,
   collectReferencedMatchIds,
+  collectReferencedPlays,
   mergeEventsIntoMatches,
   missingClipMatchIds,
 } from "../playlist-matches";
@@ -98,6 +99,37 @@ describe("collectReferencedMatchIds", () => {
   it("is empty for no playlists or clipless playlists", () => {
     expect(collectReferencedMatchIds([])).toEqual([]);
     expect(collectReferencedMatchIds([pl({}), pl({ id: "p2", items: [textCard({})] })])).toEqual([]);
+  });
+});
+
+describe("collectReferencedPlays", () => {
+  it("groups the shipped clips' plays by match, across playlists", () => {
+    const plays = collectReferencedPlays([
+      pl({
+        items: [
+          clip({ matchId: "m1", eventId: 1, r2Url: "https://r2/a.mp4" }),
+          clip({ matchId: "m2", eventId: 7, r2Url: "https://r2/b.mp4" }),
+        ],
+      }),
+      // A second playlist from the same game, with a play the first lacks.
+      pl({
+        id: "p2",
+        items: [
+          clip({ matchId: "m1", eventId: 1, r2Url: "https://r2/a.mp4" }),
+          clip({ matchId: "m1", eventId: 4, r2Url: "https://r2/c.mp4" }),
+        ],
+      }),
+    ]);
+    expect([...plays.keys()]).toEqual(["m1", "m2"]);
+    expect([...plays.get("m1")!]).toEqual([1, 4]);
+    expect([...plays.get("m2")!]).toEqual([7]);
+  });
+
+  it("skips text cards and unshipped clips, like collectReferencedMatchIds", () => {
+    const plays = collectReferencedPlays([
+      pl({ items: [textCard({}), clip({ matchId: "unshipped" }), clip({ matchId: "empty", r2Url: "" })] }),
+    ]);
+    expect(plays.size).toBe(0);
   });
 });
 
