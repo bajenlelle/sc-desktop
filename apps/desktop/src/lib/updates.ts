@@ -7,7 +7,7 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import { toast } from "sonner";
 import { Sentry } from "@/lib/sentry";
 
-/** Fired when any interactive check finds an update; UpdateChecker shows the banner. */
+/** Fired when any interactive check finds an update; UpdateChecker shows the sidebar card. */
 export const UPDATE_FOUND_EVENT = "update-found";
 
 /**
@@ -38,7 +38,7 @@ export async function interactiveUpdateCheck(): Promise<void> {
     const update = await check();
     if (update?.available) {
       window.dispatchEvent(new CustomEvent<Update>(UPDATE_FOUND_EVENT, { detail: update }));
-      toast.info(`Version ${update.version} is available — use the banner at the top to install.`);
+      toast.info(`Version ${update.version} is available. Install it from the card in the sidebar.`);
     } else {
       toast.success("You're on the latest version.");
     }

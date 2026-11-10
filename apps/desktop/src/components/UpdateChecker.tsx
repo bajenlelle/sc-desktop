@@ -9,6 +9,7 @@ import {
   type DownloadProgress,
 } from "@scoutable/shared/lib/update-progress";
 import { releaseNoteLines, type ReleaseNoteLine } from "@scoutable/shared/lib/release-notes";
+import { shouldOfferFoundUpdate, UPDATE_RECHECK_MS } from "@scoutable/shared/lib/update-offer";
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -93,23 +94,63 @@ export async function installUpdate() {
   }
 }
 
+// The version the coach dismissed this session: the periodic check keeps it
+// hidden and brings the card back only for a newer release. A relaunch or a
+// check the coach asks for shows it again.
+let dismissedVersion: string | null = null;
+
 export function dismissUpdate() {
+  if (state.update) dismissedVersion = state.update.version;
   // Release the Rust-side updater resource, not just the JS handle.
   state.update?.close().catch(() => {});
   setState({ update: null, status: "idle", error: null });
 }
 
-/** Runs the startup check and listens for interactive checks. Renders nothing. */
+/** Shows a found update in the card, releasing the one it replaces. */
+function showUpdate(update: Update) {
+  if (state.update && state.update !== update) state.update.close().catch(() => {});
+  setState({ update, status: "idle", error: null });
+}
+
+/**
+ * Runs the startup check, then looks again every few hours so a coach who
+ * keeps the app open hears about a release (or one newer than they
+ * dismissed). Listens for interactive checks too. Renders nothing.
+ */
 export function UpdateChecker() {
   useEffect(() => {
     silentUpdateCheck().then((u) => {
-      if (u) setState({ update: u });
+      if (u) showUpdate(u);
     });
+    const recheck = window.setInterval(() => {
+      // Nothing to ask while the card is up or an install is running.
+      if (state.update || busy) return;
+      silentUpdateCheck().then((u) => {
+        if (!u) return;
+        if (shouldOfferFoundUpdate({ found: u.version, showing: state.update !== null || busy, dismissed: dismissedVersion })) {
+          showUpdate(u);
+        } else {
+          u.close().catch(() => {});
+        }
+      });
+    }, UPDATE_RECHECK_MS);
     // Interactive checks (settings button, menu item) surface here too, so
-    // the install affordance is always the sidebar card.
-    const onFound = (e: Event) => setState({ update: (e as CustomEvent<Update>).detail });
+    // the install affordance is always the sidebar card. The coach asked, so
+    // a dismissed version shows again; an install already running keeps its
+    // card.
+    const onFound = (e: Event) => {
+      const found = (e as CustomEvent<Update>).detail;
+      if (busy) {
+        found.close().catch(() => {});
+        return;
+      }
+      showUpdate(found);
+    };
     window.addEventListener(UPDATE_FOUND_EVENT, onFound);
-    return () => window.removeEventListener(UPDATE_FOUND_EVENT, onFound);
+    return () => {
+      window.clearInterval(recheck);
+      window.removeEventListener(UPDATE_FOUND_EVENT, onFound);
+    };
   }, []);
   return null;
 }
