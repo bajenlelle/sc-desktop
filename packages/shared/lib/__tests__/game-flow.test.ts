@@ -427,6 +427,13 @@ describe("flowChart", () => {
     expect(chart.line.endsWith("L100 26.3")).toBe(true);
   });
 
+  it("opens a zoomed stretch on the difference it starts with, at the whole game's scale", () => {
+    const chart = flowChart({ points: [{ x: 20, diff: -6 }], x0: 0, x1: 40, height: 44, pad: 2, startDiff: -8, minScale: 20 });
+    expect(chart.maxAbs).toBe(20);
+    expect(chart.line).toBe("M0 30L20 30L20 28L40 28");
+    expect(chart.home).toBe("M0 22L20 22L20 22L40 22L40 22L0 22Z");
+  });
+
   it("is a flat line for a game without baskets", () => {
     expect(flowChart({ points: [], x0: 0, x1: 50, height: 40 }).line).toBe("M0 20L50 20");
   });

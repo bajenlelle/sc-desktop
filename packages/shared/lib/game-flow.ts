@@ -478,8 +478,10 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
  * The score-difference chart as SVG paths: geometry only, so any painter
  * draws the same picture. `points` are baskets already placed on the x axis
  * (ascending); the difference holds between them, so the line is stepped. It
- * starts level at `x0` and ends at `x1`. The scale is symmetric, to the
- * largest lead rounded up to five (at least `minScale`).
+ * starts at `x0` on `startDiff` (0 for a whole game; the difference a zoomed
+ * stretch opens on) and ends at `x1`. The scale is symmetric, to the largest
+ * lead rounded up to five (at least `minScale`: a zoomed stretch passes the
+ * whole game's, so the picture doesn't rescale).
  */
 export function flowChart(input: {
   points: ReadonlyArray<{ x: number; diff: number }>;
@@ -489,10 +491,12 @@ export function flowChart(input: {
   /** Room kept clear above and below. */
   pad?: number;
   minScale?: number;
+  startDiff?: number;
 }): FlowChart {
   const { points, x0, x1, height } = input;
   const pad = input.pad ?? 2;
-  let largest = 0;
+  const startDiff = input.startDiff ?? 0;
+  let largest = Math.abs(startDiff);
   for (const p of points) largest = Math.max(largest, Math.abs(p.diff));
   const maxAbs = Math.max(input.minScale ?? 10, Math.ceil(largest / 5) * 5);
   const zeroY = round1(height / 2);
@@ -500,8 +504,8 @@ export function flowChart(input: {
   const yOf = (diff: number) => round1(height / 2 - diff * unit);
 
   // The step line's corners.
-  const corners: Array<{ x: number; diff: number }> = [{ x: x0, diff: 0 }];
-  let prev = 0;
+  const corners: Array<{ x: number; diff: number }> = [{ x: x0, diff: startDiff }];
+  let prev = startDiff;
   for (const p of points) {
     const x = round1(Math.min(Math.max(p.x, x0), x1));
     corners.push({ x, diff: prev }, { x, diff: p.diff });
