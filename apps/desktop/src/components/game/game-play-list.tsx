@@ -148,10 +148,18 @@ export function GamePlayList({
   // A jump to a quarter or a marker shows that row, whether or not a play is current there yet.
   useEffect(() => {
     if (!reveal) return;
+    const scroller = scrollerRef.current;
     const row = rowOf(reveal.key);
-    if (!row) return;
+    if (!scroller || !row) return;
+    // A period header is sticky: once the list has passed it, it sits at the top wherever the list is, so
+    // its own position says "already here" for every earlier period. The row after it is where the period starts.
+    const header = reveal.key.startsWith("period:");
+    const anchor = header ? row.nextElementSibling : row;
+    if (!(anchor instanceof HTMLElement)) return;
+    const top = anchor.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
     ownScrollUntil.current = performance.now() + OWN_SCROLL_MS;
-    row.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
+    // Under the sticky header; a marker keeps a little air above it.
+    scroller.scrollTo({ top: Math.max(0, top - HEADER_PX - (header ? 0 : 4)), behavior: reduced ? "auto" : "smooth" });
     // The nonce is the request; the key alone repeats when the same quarter is asked for twice.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reveal?.nonce]);
@@ -244,7 +252,7 @@ export function GamePlayList({
               data-row-key={row.key}
               onClick={() => onMarker(row)}
               className={cn(
-                "flex h-7 w-full scroll-mt-8 items-center gap-2 px-3 text-subheadline text-muted-foreground outline-none transition-colors duration-100 hover:bg-fill-1 hover:text-foreground active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection",
+                "flex h-7 w-full items-center gap-2 px-3 text-subheadline text-muted-foreground outline-none transition-colors duration-100 hover:bg-fill-1 hover:text-foreground active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection",
                 row.kind === "period_end" && "mt-1 mb-2",
               )}
             >
