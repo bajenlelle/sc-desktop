@@ -58,7 +58,7 @@ export type AnalyticsEvent =
   | "sync_tip_dismissed" // how (got_it | fix_sync)
   // Playlist production (desktop)
   | "playlist_created"
-  | "clip_added_to_playlist"
+  | "clip_added_to_playlist" // playlist_id, match_id; from the game view also surface (game_view), via (row | now_bar | bulk), moment
   | "clip_trimmed" // desktop trim handles (props: playlist_id, in_changed, out_changed, length_seconds)
   | "playlist_filtered"
   | "clips_grouped"
@@ -88,7 +88,16 @@ export type AnalyticsEvent =
   | "scouting_report_footer_clicked" // fired by the public page's "Made with Scoutable"
   | "folder_created"
   | "label_created"
-  | "label_applied"
+  | "label_applied" // bulk; surface (game_view) where it isn't the editor
+  // Game view (desktop /matches/:id: the whole game, its plays and its timeline; docs/game-view.md)
+  | "game_view_opened" // plays, synced, video (ok | missing | unreadable | none | remote), score (plays | feed | none), timeouts, entry (library | details | link), is_demo
+  | "game_view_seeked" // via (row | timeline | key | marker | quarter | transport | now_bar), kind (play | time | timeout | period | run), period
+  | "game_view_filtered" // team, moment, groups (the filter sheet's active groups), search, on_court, visible
+  | "game_view_closed" // seconds_played, clips_added, labels_applied
+  | "collect_target_set" // source (existing | new), shared, via (toolbar | row | now_bar | bulk)
+  | "collect_undone" // via (toast | row), clips
+  | "collect_sent" // clips: "Send N clips…" opened a shared target to upload what was held
+  | "game_marks_filled" // outcome (filled | unsaved | failed | skipped), timeouts, error
   // Distribution & virality
   | "video_exported"
   | "playlist_shipped"

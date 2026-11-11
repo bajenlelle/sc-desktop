@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { CalendarIcon, Check, ChevronLeft, ChevronsUpDown, Film, ListPlus, Loader2, MinusCircle, Plus, VideoOff } from "lucide-react";
@@ -209,7 +209,12 @@ function RosterGroup({
   );
 }
 
-export function MatchDetailPage() {
+/**
+ * The game's settings: title, date, colours, video, sync, rosters. The route
+ * (pages/game.tsx) shows it as the game page's Details view and hands it the
+ * Game | Details switch for its toolbar.
+ */
+export function MatchDetailPage({ viewSwitch }: { viewSwitch?: ReactNode } = {}) {
   const { id } = useParams<{ id: string }>();
   const matchId = id!;
   const navigate = useNavigate();
@@ -540,10 +545,13 @@ export function MatchDetailPage() {
           .filter(Boolean)
           .join(" · ")}
         leading={
-          <Button variant="ghost" size="sm" className="-ml-1 shrink-0 text-muted-foreground" onClick={() => navigate("/matches")}>
-            <ChevronLeft />
-            Library
-          </Button>
+          <>
+            <Button variant="ghost" size="sm" className="-ml-1 shrink-0 text-muted-foreground" onClick={() => navigate("/matches")}>
+              <ChevronLeft />
+              Library
+            </Button>
+            {viewSwitch}
+          </>
         }
         actions={
           <AnimatePresence>

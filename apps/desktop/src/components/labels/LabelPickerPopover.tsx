@@ -36,6 +36,9 @@ interface LabelPickerPopoverProps {
   onSeedDefaults?: () => Promise<void>;
   align?: "start" | "center" | "end";
   side?: "top" | "right" | "bottom" | "left";
+  /** Set by a surface that opens the picker itself (the game view's G key); it opens on its trigger otherwise. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 function triState(
@@ -105,8 +108,15 @@ export function LabelPickerPopover({
   onSeedDefaults,
   align = "end",
   side = "bottom",
+  open: openProp,
+  onOpenChange,
 }: LabelPickerPopoverProps) {
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = openProp ?? ownOpen;
+  const setOpen = (next: boolean) => {
+    setOwnOpen(next);
+    onOpenChange?.(next);
+  };
   const [query, setQuery] = useState("");
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");

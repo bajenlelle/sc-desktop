@@ -121,3 +121,43 @@ export function setAddClipsScope(playlistId: string, scope: AddClipsScope): void
     // Storage is full or off: the sheet starts by its other rules next time.
   }
 }
+
+/**
+ * The playlist a game's plays were last collected into (the game view's
+ * "Adding to"). Per game, on this computer; never guessed when missing.
+ */
+const collectTargetKey = (matchId: string) => `scoutable_collect_target:${matchId}`;
+
+export function getCollectTarget(matchId: string): string | null {
+  try {
+    return localStorage.getItem(collectTargetKey(matchId));
+  } catch {
+    return null;
+  }
+}
+
+export function setCollectTarget(matchId: string, playlistId: string | null): void {
+  try {
+    if (playlistId) localStorage.setItem(collectTargetKey(matchId), playlistId);
+    else localStorage.removeItem(collectTargetKey(matchId));
+  } catch {
+    // Storage is full or off: the coach picks the playlist again next time.
+  }
+}
+
+/** Whether this user has used the game view's timeline on this device: its one-line hint goes then. */
+export function getGameTimelineTipSeen(userId: string | undefined): boolean {
+  try {
+    return !!userId && localStorage.getItem(`scoutable_game_timeline_tip_seen:${userId}`) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function setGameTimelineTipSeen(userId: string | undefined): void {
+  try {
+    if (userId) localStorage.setItem(`scoutable_game_timeline_tip_seen:${userId}`, "1");
+  } catch {
+    // Storage is full or off: the hint shows again next time, which is harmless.
+  }
+}

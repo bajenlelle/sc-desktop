@@ -25,6 +25,10 @@ export interface TransportProps {
   onNext: () => void;
   onReplay: () => void;
   onStop: () => void;
+  /** What the buttons are called where they don't step through clips (the game view steps through plays). */
+  labels?: { prev?: string; next?: string; replay?: string };
+  /** No Stop button: a whole game is paused, never stopped. */
+  hideStop?: boolean;
 }
 
 /** A white-on-footage control that acts on the press and names its key in a tooltip. */
@@ -148,24 +152,26 @@ export function TransportBar({
   /** "0:04 / 0:13 · 3 of 48" */
   readout?: React.ReactNode;
 }) {
-  const { paused, isQueueActive, canPrev, canNext } = transport;
+  const { paused, isQueueActive, canPrev, canNext, labels } = transport;
   return (
     <div className="flex items-center gap-0.5">
-      <ControlButton label="Previous clip" shortcut="↑" onClick={transport.onPrev} disabled={!canPrev}>
+      <ControlButton label={labels?.prev ?? "Previous clip"} shortcut="↑" onClick={transport.onPrev} disabled={!canPrev}>
         <SkipBack className="fill-current" />
       </ControlButton>
-      <ControlButton label="Replay clip" shortcut="R" onClick={transport.onReplay} disabled={!isQueueActive}>
+      <ControlButton label={labels?.replay ?? "Replay clip"} shortcut="R" onClick={transport.onReplay} disabled={!isQueueActive}>
         <RotateCcw />
       </ControlButton>
       <ControlButton label={paused ? "Play" : "Pause"} shortcut="Space" onClick={transport.onTogglePlay} size="lg">
         {paused ? <Play className="translate-x-px fill-current" /> : <Pause className="fill-current" />}
       </ControlButton>
-      <ControlButton label="Next clip" shortcut="↓" onClick={transport.onNext} disabled={!canNext}>
+      <ControlButton label={labels?.next ?? "Next clip"} shortcut="↓" onClick={transport.onNext} disabled={!canNext}>
         <SkipForward className="fill-current" />
       </ControlButton>
-      <ControlButton label="Stop" onClick={transport.onStop} disabled={!isQueueActive}>
-        <Square className="size-3.5 fill-current" />
-      </ControlButton>
+      {!transport.hideStop && (
+        <ControlButton label="Stop" onClick={transport.onStop} disabled={!isQueueActive}>
+          <Square className="size-3.5 fill-current" />
+        </ControlButton>
+      )}
 
       {readout && <span className="ml-2 truncate text-xs nums text-white/80">{readout}</span>}
 

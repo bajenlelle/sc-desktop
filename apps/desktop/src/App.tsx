@@ -14,7 +14,7 @@ import { RootLayout } from "@/components/root-layout";
 import { HomePage } from "@/pages/home";
 import { MatchesPage } from "@/pages/matches";
 import { ReportsPage } from "@/pages/reports";
-import { MatchDetailPage } from "@/pages/match-detail";
+import { GamePage } from "@/pages/game";
 import { UploadPage } from "@/pages/upload";
 import { PlaylistsPage } from "@/pages/playlists";
 import { MyPlaylistsPage } from "@/pages/my-playlists";
@@ -237,7 +237,7 @@ export default function App() {
                 path="/matches/:id"
                 element={
                   <ProtectedRoute>
-                    <MatchDetailPage />
+                    <GamePage />
                   </ProtectedRoute>
                 }
               />

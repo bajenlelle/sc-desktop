@@ -10,6 +10,15 @@ import { useFrameSeek } from "./use-frame-seek";
 
 const THUMB_HIT = 10;
 
+/** A position in a whole game: "7:42", "1:32:10". Whole seconds, since an hour of footage isn't read in tenths. */
+function formatLongTime(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const rest = String(s % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${rest}` : `${m}:${rest}`;
+}
+
 /**
  * The active clip's timeline, built like NSSlider: pressing the thumb keeps
  * the grab offset, pressing the track jumps, the thumb tracks the pointer
@@ -32,6 +41,8 @@ export function ClipScrubber({
   onSeek,
   frameSeconds = 1 / 25,
   showTimes = true,
+  longTimes = false,
+  ticks,
   ariaLabel = "Clip position",
   className,
 }: {
@@ -50,10 +61,16 @@ export function ClipScrubber({
   frameSeconds?: number;
   /** Elapsed and total either side of the track; off where a larger readout sits nearby. */
   showTimes?: boolean;
+  /** The range is a whole game: times read h:mm:ss, in wider columns. */
+  longTimes?: boolean;
+  /** Plain marks on the track (absolute time): where each quarter of a game starts. */
+  ticks?: number[];
   ariaLabel?: string;
   className?: string;
 }) {
   const duration = Math.max(0.001, end - start);
+  const formatTime = longTimes ? formatLongTime : formatClipTime;
+  const timeWidth = longTimes ? "w-14" : "w-10";
   const trackRef = useRef<HTMLDivElement | null>(null);
   const fillRef = useRef<HTMLDivElement | null>(null);
   const elapsedRef = useRef<HTMLSpanElement | null>(null);
@@ -87,11 +104,11 @@ export function ClipScrubber({
       // Only what changed: the text moves once a second, the fill not at all while paused.
       if (fillRef.current && frac !== fracRef.current) fillRef.current.style.transform = `scaleX(${frac})`;
       fracRef.current = frac;
-      const text = formatClipTime(time - start);
+      const text = formatTime(time - start);
       if (elapsedRef.current && elapsedRef.current.textContent !== text) elapsedRef.current.textContent = text;
       return frac;
     },
-    [start, duration],
+    [start, duration, formatTime],
   );
 
   // Follow playback at the display rate (timeupdate is ~4 Hz in WKWebView),
@@ -220,8 +237,8 @@ export function ClipScrubber({
 
   return (
     <div className={cn("flex items-center gap-2", className)}>
-      <span ref={elapsedRef} className={cn("w-10 text-right text-xs nums text-white/80", !showTimes && "hidden")}>
-        {formatClipTime(elapsedNow)}
+      <span ref={elapsedRef} className={cn(timeWidth, "text-right text-xs nums text-white/80", !showTimes && "hidden")}>
+        {formatTime(elapsedNow)}
       </span>
       <div
         ref={trackRef}
@@ -231,7 +248,7 @@ export function ClipScrubber({
         aria-valuemin={0}
         aria-valuemax={Math.round(duration * 10) / 10}
         aria-valuenow={Math.round(elapsedNow * 10) / 10}
-        aria-valuetext={formatClipTime(elapsedNow)}
+        aria-valuetext={formatTime(elapsedNow)}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endScrub}
@@ -254,6 +271,12 @@ export function ClipScrubber({
                 className={cn("absolute inset-y-0", s.id === selectedSlowId ? "bg-sky-300" : "bg-sky-400/70")}
                 style={{ left: `${from * 100}%`, width: `${(to - from) * 100}%` }}
               />
+            ) : null;
+          })}
+          {(ticks ?? []).map((t) => {
+            const frac = (t - start) / duration;
+            return frac > 0 && frac < 1 ? (
+              <span key={t} aria-hidden className="absolute inset-y-0 w-px bg-black/60" style={{ left: `${frac * 100}%` }} />
             ) : null;
           })}
         </div>
@@ -330,11 +353,11 @@ export function ClipScrubber({
             className="pointer-events-none absolute -top-6 -translate-x-1/2 rounded bg-black/70 px-1.5 py-0.5 text-[11px] nums text-white backdrop-blur-sm"
             style={{ left: hoverX }}
           >
-            {formatClipTime(hoverTime - start)}
+            {formatTime(hoverTime - start)}
           </div>
         )}
       </div>
-      {showTimes && <span className="w-10 text-xs nums text-white/80">{formatClipTime(duration)}</span>}
+      {showTimes && <span className={cn(timeWidth, "text-xs nums text-white/80")}>{formatTime(duration)}</span>}
     </div>
   );
 }
