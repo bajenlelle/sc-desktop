@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Label } from "../../types/labels";
 import { labelPickerOrder, noteLabelUsed, RECENT_LABELS_KEPT, RECENT_LABELS_SHOWN } from "../label-order";
 
-const label = (name: string): Label => ({ id: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), userId: "u", orgId: "o", name, color: "violet", createdAt: "2026-01-01T00:00:00Z" });
+const label = (name: string): Label => ({ id: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), userId: "u", orgId: "o", name, color: "violet", createdAt: "2026-01-01T00:00:00Z", hotkey: null });
 // The default vocabulary, alphabetical as the picker gets it.
 const VOCABULARY = ["Bad Defense", "Box Out", "Closeout", "Cut", "Drive", "Good Defense", "Iso", "Off-ball Screen", "Pick & Pop", "Pick & Roll", "Switch", "Transition"].map(label);
 const names = (list: Label[]) => list.map((l) => l.name);

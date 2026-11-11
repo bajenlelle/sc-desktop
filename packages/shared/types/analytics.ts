@@ -89,7 +89,8 @@ export type AnalyticsEvent =
   | "folder_created"
   | "label_created"
   | "label_applied" // bulk; surface (game_view) where it isn't the editor
-  | "label_picked" // by (key | pointer | repeat: the game view's "same label again"), position (row in the picker), recent (from its Recent group), searched, created: a label put on from the label picker
+  | "label_picked" // by (key | pointer | repeat: the game view's "same label again" | hotkey: the label's own key, position then its key), position (row in the picker), recent (from its Recent group), searched, created: a label put on from the label picker or by a key
+  | "label_key_set" // slot (1–9, 0 when taken away), replaced (the key was another label's): a label given its key
   // Game view (desktop /matches/:id: the whole game, its plays and its timeline; docs/game-view.md)
   | "game_view_opened" // plays, synced, video (ok | missing | unreadable | none | remote), score (plays | feed | none), timeouts, entry (library | details | link), is_demo
   | "game_view_seeked" // via (row | timeline | key | marker | quarter | transport | now_bar), kind (play | time | timeout | period | run), period
