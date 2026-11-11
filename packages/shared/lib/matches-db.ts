@@ -12,6 +12,7 @@ import { applyOrgScope, clearLegacyShippedClipsForMatch, type OrgScopeOpts } fro
 import { reportDbError } from "./report";
 import type { PlaylistFolder, PlayByPlayEvent, StoredMatch, SyncPoint } from "../types/match";
 import { normalizeSyncPoint } from "./period-sync";
+import { normalizeGameMarks } from "./game-marks";
 
 // ---------------------------------------------------------------------------
 // DB row types (snake_case columns from Postgres)
@@ -34,6 +35,8 @@ interface MatchRow {
   org_id: string | null;
   is_demo?: boolean;
   source_game_id?: string | null;
+  /** Absent on a database the game_marks migration hasn't reached. */
+  game_marks?: unknown;
   created_at: string;
   updated_at: string;
 }
@@ -108,6 +111,7 @@ function rowToStoredMatch(row: MatchRow, events: EventRow[]): StoredMatch {
     orgId: row.org_id ?? undefined,
     isDemo: row.is_demo ?? false,
     sourceGameId: row.source_game_id ?? undefined,
+    gameMarks: row.game_marks ? normalizeGameMarks(row.game_marks) : undefined,
     events: events.map(rowToEvent),
   };
 }

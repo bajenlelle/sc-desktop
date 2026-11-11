@@ -5,6 +5,7 @@
 import { createClient } from "@/lib/supabase/client";
 import * as db from "@scoutable/shared/lib/matches-db";
 import * as gi from "@scoutable/shared/lib/genius-import";
+import * as gmf from "@scoutable/shared/lib/game-marks-fill";
 import { Sentry } from "@/lib/sentry";
 import type { StoredMatch, SyncPoint } from "@/types/match";
 
@@ -27,6 +28,10 @@ export const findMatchBySourceGame = (sourceGameId: string, orgId?: string) =>
 export const findImportedSourceGames = (sourceGameIds: string[], orgId?: string) =>
   db.findImportedSourceGames(c(), sourceGameIds, orgId);
 export const getMatch = (id: string) => db.getMatch(c(), id);
+// A game's timeouts and period bounds, read from the league feed the first time
+// the game is opened. Not announced: nothing but the open game view draws them.
+export const fillGameMarks = (match: Parameters<typeof gmf.fillGameMarks>[1], competitionId: number | null) =>
+  gmf.fillGameMarks(c(), match, competitionId);
 export const listMatches = (orgId?: string, opts?: { ownOnly?: boolean }) => db.listMatches(c(), orgId, opts);
 export const listEventsForMatches = (matchIds: string[], opts?: { required?: db.RequiredPlays }) => db.listEventsForMatches(c(), matchIds, opts);
 // Announced so open pages (playlists' matchLookup, Library badges) pick up

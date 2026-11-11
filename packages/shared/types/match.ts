@@ -7,6 +7,7 @@ import type { CropKeyframe } from '../lib/crop-path';
 import type { StatsCardSpec } from '../lib/stats-card';
 import type { ClipDrawing } from '../lib/clip-drawing';
 import type { SlowSection } from '../lib/clip-timeline';
+import type { GameMarks } from './game-marks';
 export type { CropKeyframe };
 
 export type MatchStatus = "pending" | "processing" | "completed" | "failed";
@@ -299,6 +300,8 @@ export interface StoredMatch {
   isDemo?: boolean;
   /** The league API's stable game uuid — dedupes re-imports in the quota log. */
   sourceGameId?: string;
+  /** Timeouts and period bounds from the league feed (lib/game-marks.ts); absent until the game view has read them. */
+  gameMarks?: GameMarks;
 }
 
 // --- Match -------------------------------------------------------------------
