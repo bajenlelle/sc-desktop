@@ -136,6 +136,29 @@ add; G label; ⌘F the player search.
 - Labels are independent of collecting: label now, build later through the
   label filter in Add clips.
 
+## Labelling
+
+A coach going through a game reaches for the same few labels again and again,
+so the label picker (`components/labels/LabelPickerPopover.tsx`, the same one
+the editor and Add clips use) is built for repeating:
+
+- **The labels used last are at the top** ("Recent", up to four, most recent
+  first), the rest in alphabetical order so a label that isn't recent is
+  always in the same place. The order is read when the picker opens and holds
+  while it is open: no row moves under the pointer. The rule is
+  `packages/shared/lib/label-order.ts`; what was used is kept per device
+  (`lib/recent-labels.ts`), and a label counts as used when the picker closes
+  with it still on.
+- **Enter starts at the label used last**, so "the same label again" is G,
+  Enter. Typing narrows the list and Enter takes the best match (a name that
+  starts with it, then a word that does, then anywhere); the arrows move
+  through it. Enter closes the picker, a click leaves it open for a second
+  label. A new label is made only from the "Create" row, which Enter reaches
+  by itself when nothing matches.
+- **The footage holds while a label is chosen** and carries on when the picker
+  closes, and the Now bar's picker stays on the play it was opened for. Both
+  are the game view's, not the picker's.
+
 Analytics events are in `packages/shared/types/analytics.ts` (`game_view_*`,
 `collect_*`, `game_marks_filled`).
 

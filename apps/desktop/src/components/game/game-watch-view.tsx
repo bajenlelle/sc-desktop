@@ -115,7 +115,8 @@ export function GameWatchView({
   const [filters, setFilters] = useState<GameFilters>(EMPTY_GAME_FILTERS);
   const [zoomPeriod, setZoomPeriod] = useState<number | null>(null);
   const [labelPickerFor, setLabelPickerFor] = useState<string | null>(null);
-  const [nowLabelOpen, setNowLabelOpen] = useState(false);
+  // The play the Now bar's label picker was opened for: it stays that play however long the choosing takes.
+  const [nowLabelFor, setNowLabelFor] = useState<TimedPlay | null>(null);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [followSignal, setFollowSignal] = useState(0);
   const [reveal, setReveal] = useState<{ key: string; nonce: number } | null>(null);
@@ -464,6 +465,23 @@ export function GameWatchView({
   const addOne = useCallback((play: TimedPlay, anchor: HTMLElement) => collect.add([play], "row", filters.moment, anchor), [collect, filters.moment]);
   const openRowLabels = useCallback((play: TimedPlay) => setLabelPickerFor(play.key), []);
 
+  // Choosing a label holds the footage: the label goes on the play it was asked for, and nothing
+  // goes by unseen meanwhile. It carries on by itself when the picker closes.
+  const labelling = nowLabelFor !== null || labelPickerFor !== null;
+  const resumeAfterLabel = useRef(false);
+  useEffect(() => {
+    if (!footage) return;
+    if (labelling) {
+      if (!video.paused) {
+        resumeAfterLabel.current = true;
+        video.pause();
+      }
+    } else if (resumeAfterLabel.current) {
+      resumeAfterLabel.current = false;
+      video.play().catch(() => {});
+    }
+  }, [labelling, footage, video]);
+
   const labelPicker = (play: TimedPlay, trigger: ReactElement, open: boolean, onOpenChange: (open: boolean) => void, side: "top" | "bottom") => (
     <LabelPickerPopover
       open={open}
@@ -510,7 +528,7 @@ export function GameWatchView({
       }
       if (e.code === "KeyG") {
         e.preventDefault();
-        if (current) setNowLabelOpen(true);
+        if (current) setNowLabelFor(current);
         return;
       }
       if (e.code === "PageDown" || e.code === "PageUp") {
@@ -794,7 +812,10 @@ export function GameWatchView({
                     labels={current ? [...(labels.assignments.get(current.key) ?? [])].flatMap((id) => labels.labels.filter((l) => l.id === id)) : []}
                     collect={current ? collect.statusOf(current.key) : "none"}
                     targetName={collect.target?.name ?? null}
-                    labelButton={(trigger) => (current ? labelPicker(current, trigger, nowLabelOpen, setNowLabelOpen, "top") : trigger)}
+                    labelButton={(trigger) => {
+                      const target = nowLabelFor ?? current;
+                      return target ? labelPicker(target, trigger, nowLabelFor !== null, (open) => setNowLabelFor(open ? current : null), "top") : trigger;
+                    }}
                     addRef={addButtonRef}
                     onAdd={addCurrent}
                     onSkip={skip}
