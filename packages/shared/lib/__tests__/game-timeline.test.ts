@@ -276,6 +276,22 @@ describe("momentAt", () => {
     expect(momentAt(tl, 1900)).toEqual({ phase: "after", period: 2, next: null });
   });
 
+  it("counts the lead before a period as the period, at its start only", () => {
+    expect(momentAt(tl, 98, 2)).toEqual({ phase: "live", period: 1, next: 2 });
+    expect(momentAt(tl, 97.9, 2)).toEqual({ phase: "before", period: null, next: 1 });
+    expect(momentAt(tl, 998, 2)).toEqual({ phase: "live", period: 2, next: null });
+    expect(momentAt(tl, 997, 2)).toEqual({ phase: "break", period: 1, next: 2 });
+    // The end of a period is where it is: the lead never starts a break early.
+    expect(momentAt(tl, 900, 2)).toEqual({ phase: "live", period: 1, next: 2 });
+    expect(momentAt(tl, 1801, 2)).toEqual({ phase: "after", period: 2, next: null });
+  });
+
+  it("has no break where the video skips one shorter than the lead", () => {
+    const cut = { bands: [tl.bands[0], { ...tl.bands[1], start: 901 }] };
+    expect(momentAt(cut, 900.5, 2)).toEqual({ phase: "live", period: 2, next: null });
+    expect(momentAt(cut, 900.5)).toEqual({ phase: "break", period: 1, next: 2 });
+  });
+
   it("has no period for a game with no bands", () => {
     expect(momentAt({ bands: [] }, 10)).toEqual({ phase: "live", period: null, next: null });
   });

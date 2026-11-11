@@ -267,22 +267,33 @@ export function activePlay(
 export type GamePhase = "before" | "live" | "break" | "after";
 
 /**
+ * How long before a period's start a jump to that period lands: the footage
+ * is already on the teams lining up when the clock starts.
+ */
+export const PERIOD_LEAD_SECONDS = 2;
+
+/**
  * Where second `t` falls in the game: before tip-off, in a period, in the
  * break after `period` (with `next` the period to come), or after the final
  * whistle. "live" with no period when the game has no bands at all.
+ *
+ * `lead` counts that many seconds before a period's start as the period
+ * itself, so a jump that lands just ahead of a quarter is already in it and
+ * not still in the break it skipped.
  */
 export function momentAt(
   tl: Pick<GameTimeline, "bands">,
   t: number,
+  lead = 0,
 ): { phase: GamePhase; period: number | null; next: number | null } {
   const { bands } = tl;
   if (bands.length === 0) return { phase: "live", period: null, next: null };
-  if (t < bands[0].start) return { phase: "before", period: null, next: bands[0].period };
+  if (t < bands[0].start - lead) return { phase: "before", period: null, next: bands[0].period };
   for (let i = 0; i < bands.length; i++) {
     const band = bands[i];
     if (t <= band.end) return { phase: "live", period: band.period, next: bands[i + 1]?.period ?? null };
     const following = bands[i + 1];
-    if (following && t < following.start) return { phase: "break", period: band.period, next: following.period };
+    if (following && t < following.start - lead) return { phase: "break", period: band.period, next: following.period };
   }
   return { phase: "after", period: bands[bands.length - 1].period, next: null };
 }
