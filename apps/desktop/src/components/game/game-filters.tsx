@@ -127,7 +127,7 @@ export function GameFilterBar({
   /** Of the listed plays, how many aren't in the target yet. */
   addable: number;
   targetName: string | null;
-  onAddAll: () => void;
+  onAddAll: (anchor: HTMLElement) => void;
   searchRef: React.Ref<HTMLInputElement>;
   sheetOpen: boolean;
   onSheetOpenChange: (open: boolean) => void;
@@ -162,8 +162,10 @@ export function GameFilterBar({
               type="button"
               aria-label={sheetCount > 0 ? `Filters, ${sheetCount} on` : "Filters"}
               className={cn(
-                "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium outline-none transition-[background-color,transform] duration-100 active:scale-[0.97] data-[state=open]:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection",
-                sheetCount > 0 ? "bg-selection text-selection-foreground" : "bg-card text-foreground shadow-xs ring-1 ring-separator hover:bg-fill-1",
+                "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium outline-none transition-[background-color,transform] duration-100 active:scale-[0.97] focus-visible:ring-2 focus-visible:ring-selection",
+                sheetCount > 0
+                  ? "bg-selection text-selection-foreground"
+                  : "bg-card text-foreground shadow-xs ring-1 ring-separator hover:bg-fill-1 data-[state=open]:bg-fill-2",
               )}
             >
               <ListFilter className="size-3.5" />
@@ -314,7 +316,7 @@ export function GameFilterBar({
               size="xs"
               className="ml-auto shrink-0"
               disabled={addable === 0}
-              onClick={onAddAll}
+              onClick={(e) => onAddAll(e.currentTarget)}
               title={addable === 0 ? `All ${visible} are in ${targetName ?? "the playlist"}` : undefined}
             >
               {addable === 0 ? <Check /> : <Plus />}

@@ -14,6 +14,12 @@ import { GamePlayRow, type CollectStatus } from "./game-play-row";
 const NO_LABELS: readonly Label[] = [];
 /** How long one of the list's own scrolls can take: scroll events inside it aren't the coach's. */
 const OWN_SCROLL_MS = 700;
+/** A scroll event this soon after one of the list's own belongs to the same scroll, however long it runs. */
+const OWN_SCROLL_GRACE_MS = 160;
+/** The sticky period header covers this much of the list's top. */
+const HEADER_PX = 28;
+/** The room kept under the current row, so the play to come is in view (the rows' own scroll margin). */
+const LOOKAHEAD_PX = 64;
 
 /**
  * The game as a list: each period under its header (its score, how many
@@ -40,6 +46,7 @@ export function GamePlayList({
   labelPickerFor,
   renderLabelPicker,
   followSignal,
+  reveal,
   onPlay,
   onAdd,
   onRemove,
@@ -63,8 +70,10 @@ export function GamePlayList({
   labelPickerFor: string | null;
   renderLabelPicker: (play: TimedPlay) => ReactNode;
   followSignal: number;
+  /** A row to bring to the top of the list: the quarter or the marker a key jumped to. */
+  reveal: { key: string; nonce: number } | null;
   onPlay: (play: TimedPlay) => void;
-  onAdd: (play: TimedPlay) => void;
+  onAdd: (play: TimedPlay, anchor: HTMLElement) => void;
   onRemove: (play: TimedPlay) => void;
   onLabel: (play: TimedPlay) => void;
   onMarker: (row: Exclude<GameRow, { kind: "play" } | { kind: "period" }>) => void;
@@ -103,19 +112,24 @@ export function GamePlayList({
     if (!scroller || !row) return null;
     const box = scroller.getBoundingClientRect();
     const r = row.getBoundingClientRect();
-    // The sticky period header covers the top 28 px.
-    if (r.bottom < box.top + 28) return "up";
+    if (r.bottom < box.top + HEADER_PX) return "up";
     if (r.top > box.bottom) return "down";
     return null;
   }, [activeKey, rowOf]);
 
   const bringIntoView = useCallback(
     (smooth: boolean) => {
+      const scroller = scrollerRef.current;
       const row = activeKey ? rowOf(activeKey) : null;
-      if (!row) return;
+      if (!scroller || !row) return;
+      setAway(null);
+      // Clear of the header with room below: the list stays where it is, so a quarter that was just
+      // brought to the top keeps its header there when its first play starts.
+      const box = scroller.getBoundingClientRect();
+      const r = row.getBoundingClientRect();
+      if (r.top >= box.top + HEADER_PX && r.bottom <= box.bottom - LOOKAHEAD_PX) return;
       ownScrollUntil.current = performance.now() + OWN_SCROLL_MS;
       row.scrollIntoView({ block: "nearest", behavior: smooth && !reduced ? "smooth" : "auto" });
-      setAway(null);
     },
     [activeKey, rowOf, reduced],
   );
@@ -131,8 +145,24 @@ export function GamePlayList({
     setFollowing(true);
   }, [followSignal]);
 
+  // A jump to a quarter or a marker shows that row, whether or not a play is current there yet.
+  useEffect(() => {
+    if (!reveal) return;
+    const row = rowOf(reveal.key);
+    if (!row) return;
+    ownScrollUntil.current = performance.now() + OWN_SCROLL_MS;
+    row.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
+    // The nonce is the request; the key alone repeats when the same quarter is asked for twice.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reveal?.nonce]);
+
   function onScroll() {
-    if (performance.now() < ownScrollUntil.current) return;
+    const now = performance.now();
+    if (now < ownScrollUntil.current) {
+      // One of the list's own scrolls, still under way: a long one outlasts the first estimate.
+      ownScrollUntil.current = Math.max(ownScrollUntil.current, now + OWN_SCROLL_GRACE_MS);
+      return;
+    }
     const where = whereIsActive();
     setAway(where);
     // Scrolled away: stop following. Scrolled back to the current row: follow again.
@@ -192,6 +222,7 @@ export function GamePlayList({
             return (
               <div
                 key={row.key}
+                data-row-key={row.key}
                 className="sticky top-0 z-20 flex h-7 items-center gap-2 bg-background/90 px-3 text-subheadline backdrop-blur-md"
               >
                 <span className="font-semibold">{periodLabel(row.period)}</span>
@@ -210,9 +241,10 @@ export function GamePlayList({
             <button
               key={row.key}
               type="button"
+              data-row-key={row.key}
               onClick={() => onMarker(row)}
               className={cn(
-                "flex h-7 w-full items-center gap-2 px-3 text-subheadline text-muted-foreground outline-none transition-colors duration-100 hover:bg-fill-1 hover:text-foreground active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection",
+                "flex h-7 w-full scroll-mt-8 items-center gap-2 px-3 text-subheadline text-muted-foreground outline-none transition-colors duration-100 hover:bg-fill-1 hover:text-foreground active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection",
                 row.kind === "period_end" && "mt-1 mb-2",
               )}
             >
@@ -239,7 +271,7 @@ export function GamePlayList({
                 setFollowing(true);
                 bringIntoView(true);
               }}
-              className="pointer-events-auto flex h-7 items-center gap-1.5 rounded-full bg-popover px-3 text-subheadline font-medium shadow-menu ring-1 ring-separator outline-none transition-[background-color,transform] duration-100 hover:bg-fill-1 active:scale-[0.97] focus-visible:ring-2 focus-visible:ring-selection"
+              className="pointer-events-auto flex h-7 items-center gap-1.5 rounded-full bg-material-popover px-3 text-subheadline font-medium shadow-menu outline-none backdrop-blur-xl transition-[background-color,transform] duration-100 hover:bg-fill-2 active:scale-[0.97] focus-visible:ring-2 focus-visible:ring-selection"
             >
               {away === "up" ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />}
               Jump to now

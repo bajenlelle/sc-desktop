@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { itemKey } from "@scoutable/shared/lib/playlist-edits";
@@ -44,6 +44,8 @@ export function useCollect({
   const [playlists, setPlaylists] = useState<Playlist[] | null>(null);
   const [targetId, setTargetId] = useState<string | null>(() => getCollectTarget(match.id));
   const [pickerOpen, setPickerOpenState] = useState(false);
+  /** The control that asked for the picker (a row's plus, the Now bar's Add): it opens from there. Null: from its own button. */
+  const [pickerAnchor, setPickerAnchor] = useState<HTMLElement | null>(null);
   /** `${playlistId}|${clipKey}` of every clip this visit added. */
   const [addedHere, setAddedHere] = useState<ReadonlySet<string>>(() => new Set());
   const [addedTotal, setAddedTotal] = useState(0);
@@ -169,29 +171,36 @@ export function useCollect({
       if (held) saidHeld.current = true;
       toast(fresh.length === 1 ? `Added to ${playlist.name}` : `${fresh.length} clips added to ${playlist.name}`, {
         id: COLLECT_TOAST,
-        description: held ? "Players see new clips once you send them." : undefined,
+        // Sonner's own description grey is unreadable on the dark themes.
+        description: held ? createElement("span", { className: "text-muted-foreground" }, "Players see new clips once you send them.") : undefined,
         action: { label: "Undo", onClick: () => undo(playlist, keys, "toast") },
       });
     },
     [match.id, mutate, enqueue, undo],
   );
 
-  /** Adds plays to the target; with none chosen yet, opens the picker and adds them once one is. */
+  /**
+   * Adds plays to the target; with none chosen yet, opens the picker (from
+   * `anchor`, the control that was pressed) and adds them once one is.
+   */
   const add = useCallback(
-    (plays: readonly TimedPlay[], via: CollectVia, moment: string | null = null) => {
+    (plays: readonly TimedPlay[], via: CollectVia, moment: string | null = null, anchor: HTMLElement | null = null) => {
       if (plays.length === 0) return;
       if (target) {
         addTo(target, plays, via, moment);
         return;
       }
       pendingRef.current = { plays, via, moment };
+      setPickerAnchor(anchor);
       setPickerOpenState(true);
     },
     [target, addTo],
   );
 
+  /** The picker's own button and its dismissal: opened here it belongs to that button, and closing drops what was waiting. */
   const setPickerOpen = useCallback((open: boolean) => {
     if (!open) pendingRef.current = null;
+    else setPickerAnchor(null);
     setPickerOpenState(open);
   }, []);
 
@@ -272,6 +281,7 @@ export function useCollect({
     chooseTarget,
     createTarget,
     pickerOpen,
+    pickerAnchor,
     setPickerOpen,
     unsent,
     openTarget,

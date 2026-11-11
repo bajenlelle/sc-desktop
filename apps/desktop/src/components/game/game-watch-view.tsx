@@ -4,7 +4,7 @@ import { ChevronLeft, Play, Tag, VideoOff } from "lucide-react";
 import { formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { GAME_MOMENTS, gameFlow, gameMoments, onCourtStints, scoreAfter, type GameMoment } from "@scoutable/shared/lib/game-flow";
 import { EMPTY_GAME_FILTERS, gameFiltersActive, gameRows, keepPlay, type GameFilters, type GameRow } from "@scoutable/shared/lib/game-list";
-import { buildGameTimeline, visibleOrder, type TimedPlay } from "@scoutable/shared/lib/game-timeline";
+import { buildGameTimeline, PERIOD_LEAD_SECONDS, visibleOrder, type TimedPlay } from "@scoutable/shared/lib/game-timeline";
 import { videoLooksCut } from "@scoutable/shared/lib/period-sync";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
 import { defaultPreRoll } from "@scoutable/shared/lib/provider";
@@ -13,6 +13,7 @@ import { usePersistentVideo } from "@/components/editor/use-persistent-video";
 import { LabelPickerPopover } from "@/components/labels/LabelPickerPopover";
 import { Page } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
+import { AutoHeight } from "@/components/ui/auto-height";
 import { Button } from "@/components/ui/button";
 import { Callout } from "@/components/ui/group";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
@@ -117,6 +118,8 @@ export function GameWatchView({
   const [nowLabelOpen, setNowLabelOpen] = useState(false);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [followSignal, setFollowSignal] = useState(0);
+  const [reveal, setReveal] = useState<{ key: string; nonce: number } | null>(null);
+  const addButtonRef = useRef<HTMLButtonElement | null>(null);
   const [tipSeen, setTipSeen] = useState(() => getGameTimelineTipSeen(user?.id));
   const searchRef = useRef<HTMLInputElement | null>(null);
 
@@ -196,6 +199,8 @@ export function GameWatchView({
   // The play on screen, whatever the list is filtered to: the Now bar names it, A adds it, G labels it.
   const nowPlay = useMemo(() => (playback.nowKey ? (timeline.plays.find((p) => p.key === playback.nowKey) ?? null) : null), [timeline, playback.nowKey]);
   const refollow = useCallback(() => setFollowSignal((n) => n + 1), []);
+  /** Brings a row to the top of the list: the quarter or the marker a key jumped to. */
+  const revealRow = useCallback((key: string) => setReveal((prev) => ({ key, nonce: (prev?.nonce ?? 0) + 1 })), []);
 
   const playPlay = useCallback(
     (play: TimedPlay, via = "row") => {
@@ -366,15 +371,15 @@ export function GameWatchView({
   // ---- Moving through the game ----------------------------------------------
   /** The places Page Up and Page Down stop at: each period's start, each timeout's restart, each run's first basket. */
   const jumps = useMemo(() => {
-    const list: { time: number; kind: string; period: number }[] = [];
-    for (const b of timeline.bands) list.push({ time: Math.max(0, b.start - 2), kind: "period", period: b.period });
+    const list: { time: number; kind: string; period: number; row: string }[] = [];
+    for (const b of timeline.bands) list.push({ time: Math.max(0, b.start - PERIOD_LEAD_SECONDS), kind: "period", period: b.period, row: `period:${b.period}` });
     for (const t of marks?.timeouts ?? []) {
       const at = timeline.timeOf(t.resumeRealWorldTime ?? t.realWorldTime, t.period);
-      if (at !== null) list.push({ time: Math.max(0, at - 3), kind: "timeout", period: t.period });
+      if (at !== null) list.push({ time: Math.max(0, at - 3), kind: "timeout", period: t.period, row: `timeout:${t.eventId}` });
     }
     for (const run of flow.runs) {
       const first = playByEvent.get(run.fromEventId);
-      if (first) list.push({ time: first.start, kind: "run", period: run.period });
+      if (first) list.push({ time: first.start, kind: "run", period: run.period, row: `run:${run.fromEventId}` });
     }
     return list.sort((a, b) => a.time - b.time);
   }, [timeline, marks, flow, playByEvent]);
@@ -388,8 +393,9 @@ export function GameWatchView({
       trackSeek("key", target.kind, target.period);
       playback.seekTo(target.time, { play: !video.paused });
       refollow();
+      revealRow(target.row);
     },
-    [footage, video, jumps, playback, trackSeek, refollow],
+    [footage, video, jumps, playback, trackSeek, refollow, revealRow],
   );
 
   const toPeriod = useCallback(
@@ -397,10 +403,11 @@ export function GameWatchView({
       const band = timeline.bands.find((b) => b.period === period);
       if (!band || !footage) return;
       trackSeek(via, "period", period);
-      playback.seekTo(Math.max(0, band.start - 2), { play: true });
+      playback.seekTo(Math.max(0, band.start - PERIOD_LEAD_SECONDS), { play: true });
       refollow();
+      revealRow(`period:${period}`);
     },
-    [timeline, footage, playback, trackSeek, refollow],
+    [timeline, footage, playback, trackSeek, refollow, revealRow],
   );
 
   const onMarker = useCallback(
@@ -438,15 +445,23 @@ export function GameWatchView({
 
   // ---- Adding and labelling the play on screen ---------------------------------
   const between = footage && playback.moment !== null && playback.moment.phase !== "live";
-  const current = between ? null : nowPlay;
+  // A quarter has no play of its own until its first one: the last play of the quarter before isn't "now".
+  const stale =
+    footage && nowPlay !== null && nowPlay.reach === "in" && playback.moment?.phase === "live" && playback.moment.period !== null && nowPlay.event.period < playback.moment.period;
+  const current = between || stale ? null : nowPlay;
+  // A picker that has to open (no playlist chosen yet) grows from the control that asked: the Now bar's Add
+  // (for the A key too), the "Add all" button, a row's plus.
   const addCurrent = useCallback(() => {
-    if (current && collect.statusOf(current.key) === "none") collect.add([current], "now_bar", filters.moment);
+    if (current && collect.statusOf(current.key) === "none") collect.add([current], "now_bar", filters.moment, addButtonRef.current);
   }, [current, collect, filters.moment]);
-  const addAll = useCallback(() => {
-    const plays = order.map((i) => timeline.plays[i]).filter((p) => collect.statusOf(p.key) === "none");
-    collect.add(plays, "bulk", filters.moment);
-  }, [order, timeline, collect, filters.moment]);
-  const addOne = useCallback((play: TimedPlay) => collect.add([play], "row", filters.moment), [collect, filters.moment]);
+  const addAll = useCallback(
+    (anchor: HTMLElement) => {
+      const plays = order.map((i) => timeline.plays[i]).filter((p) => collect.statusOf(p.key) === "none");
+      collect.add(plays, "bulk", filters.moment, anchor);
+    },
+    [order, timeline, collect, filters.moment],
+  );
+  const addOne = useCallback((play: TimedPlay, anchor: HTMLElement) => collect.add([play], "row", filters.moment, anchor), [collect, filters.moment]);
   const openRowLabels = useCallback((play: TimedPlay) => setLabelPickerFor(play.key), []);
 
   const labelPicker = (play: TimedPlay, trigger: ReactElement, open: boolean, onOpenChange: (open: boolean) => void, side: "top" | "bottom") => (
@@ -669,15 +684,23 @@ export function GameWatchView({
   // ---- The Now bar's words ---------------------------------------------------------
   const currentScore = current ? scoreAfter(flow, current.event.eventId) : null;
   const momentPeriod = playback.moment?.period ?? null;
-  const breakTotals = momentPeriod !== null ? flow.periods.find((p) => p.period === momentPeriod) : undefined;
+  // A break stands at the score its period ended on; a period that has only just started, at the one before it.
+  const breakTotals =
+    momentPeriod === null
+      ? undefined
+      : playback.moment?.phase === "live"
+        ? flow.periods.filter((p) => p.period < momentPeriod).at(-1)
+        : flow.periods.find((p) => p.period === momentPeriod);
   const skip =
     playback.moment?.phase === "before"
-      ? () => seekTo(Math.max(0, (firstBandStart ?? 0) - 2), "now_bar", "period", true)
+      ? () => seekTo(Math.max(0, (firstBandStart ?? 0) - PERIOD_LEAD_SECONDS), "now_bar", "period", true)
       : playback.moment?.phase === "break" && playback.moment.next !== null
         ? () => toPeriod(playback.moment!.next!, "now_bar")
         : null;
   const readout = current
-    ? [periodLabel(current.event.period), formatGameClock(current.event.gameClockTime), currentScore ? `${currentScore.home}–${currentScore.away}` : null].filter(Boolean).join(" · ")
+    ? [periodLabel(current.event.period), current.event.gameClockTime && formatGameClock(current.event.gameClockTime), currentScore ? `${currentScore.home}–${currentScore.away}` : null]
+        .filter(Boolean)
+        .join(" · ")
     : undefined;
 
   return (
@@ -772,6 +795,7 @@ export function GameWatchView({
                     collect={current ? collect.statusOf(current.key) : "none"}
                     targetName={collect.target?.name ?? null}
                     labelButton={(trigger) => (current ? labelPicker(current, trigger, nowLabelOpen, setNowLabelOpen, "top") : trigger)}
+                    addRef={addButtonRef}
                     onAdd={addCurrent}
                     onSkip={skip}
                   />
@@ -814,6 +838,7 @@ export function GameWatchView({
                 labelPickerFor={labelPickerFor}
                 renderLabelPicker={renderRowLabelPicker}
                 followSignal={followSignal}
+                reveal={reveal}
                 onPlay={playPlay}
                 onAdd={addOne}
                 onRemove={collect.removeAdded}
@@ -824,7 +849,8 @@ export function GameWatchView({
             </div>
           </ResizablePanel>
         </ResizablePanelGroup>
-        {banner && <div className="shrink-0 px-4 pb-2">{banner}</div>}
+        {/* A warning about the sync opens its own room: the footage above gives way, it doesn't jump. */}
+        <AutoHeight className="shrink-0">{banner && <div className="px-4 pb-2">{banner}</div>}</AutoHeight>
         <GameTimelineStrip
           timeline={timeline}
           flow={flow}
@@ -837,6 +863,7 @@ export function GameWatchView({
           inTarget={collect.inTarget}
           activeKey={playback.nowKey}
           stints={stints}
+          stintName={chosenPlayer?.name ?? null}
           zoomPeriod={zoomPeriod}
           onZoom={setZoomPeriod}
           onPlay={(play) => {
@@ -848,7 +875,7 @@ export function GameWatchView({
             playback.seekTo(t);
             refollow();
           }}
-          hint={tipSeen || timeline.plays.length === 0 ? null : "Click anywhere on the timeline to jump there. Double-click a quarter to zoom in."}
+          hint={tipSeen || timeline.plays.length === 0 ? null : "Click or drag anywhere on the timeline to move through the game. Double-click a quarter to zoom in."}
         />
       </div>
     </Page>

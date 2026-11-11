@@ -1,4 +1,4 @@
-import type { ReactElement, ReactNode } from "react";
+import type { ReactElement, ReactNode, Ref } from "react";
 import { Check, Plus, Tag } from "lucide-react";
 import { eventColors, eventLabel, formatGameClock, periodLabel, playerName } from "@scoutable/shared/lib/events";
 import type { Score } from "@scoutable/shared/lib/game-flow";
@@ -14,7 +14,8 @@ import type { GameMoment } from "./use-game-playback";
 /**
  * What is on screen, in words, right under the footage: the current play
  * with the clock and the score, or where the video is when no play is on
- * (warm-up, a break, after the final whistle) with the way past it. It is
+ * (warm-up, a break, the start of a quarter, after the final whistle) with
+ * the way past it. It is
  * also where the play on screen is labelled and added, with the keys that do
  * the same shown on the buttons: the bar always names the play A will add.
  */
@@ -28,6 +29,7 @@ export function GameNowBar({
   collect,
   targetName,
   labelButton,
+  addRef,
   onAdd,
   onSkip,
 }: {
@@ -37,13 +39,15 @@ export function GameNowBar({
   moment: GameMoment | null;
   /** The score after the current play. */
   score: Score | null;
-  /** The score a break or the final whistle stands at. */
+  /** The score a break, the final whistle or a period that has just started stands at. */
   breakScore: Score | null;
   labels: readonly Label[];
   collect: CollectStatus;
   targetName: string | null;
   /** Wraps the Label button in the label picker. */
   labelButton: (trigger: ReactElement) => ReactNode;
+  /** The Add button: where a picker it has to open grows from, for the A key as for a click. */
+  addRef: Ref<HTMLButtonElement>;
   onAdd: () => void;
   /** Past the stretch with no basketball in it: to tip-off, or to the next period. */
   onSkip: (() => void) | null;
@@ -64,6 +68,9 @@ export function GameNowBar({
       const half = moment.period === 2 && moment.next === 3;
       text = [half ? "Half-time" : `End of ${periodLabel(moment.period ?? 1)}`, scoreText(breakScore)].filter(Boolean).join(" · ");
       skip = moment.next ? `Skip to ${periodLabel(moment.next)}` : null;
+    } else if (moment.period !== null) {
+      // In a period, before its first play.
+      text = [`Start of ${periodLabel(moment.period)}`, scoreText(breakScore)].filter(Boolean).join(" · ");
     } else {
       text = "Before the first play";
     }
@@ -81,7 +88,8 @@ export function GameNowBar({
 
   const e = play.event;
   const colors = eventColors(e);
-  const where = [periodLabel(e.period), formatGameClock(e.gameClockTime), scoreText(score)].filter(Boolean).join(" · ");
+  // Some feeds keep no game clock: the quarter and the score stand without it.
+  const where = [periodLabel(e.period), e.gameClockTime && formatGameClock(e.gameClockTime), scoreText(score)].filter(Boolean).join(" · ");
   return (
     <div className="flex h-11 shrink-0 items-center gap-2 px-1">
       <span className="shrink-0 text-callout text-muted-foreground nums">{where}</span>
@@ -99,14 +107,14 @@ export function GameNowBar({
           <Button variant="outline" size="sm" aria-label="Label this play">
             <Tag />
             Label
-            <Kbd className="ml-0.5 h-4 min-w-4 text-[10px]">G</Kbd>
+            <Kbd className="ml-0.5 h-4 min-w-4 text-caption">G</Kbd>
           </Button>,
         )}
         {collect === "none" ? (
-          <Button size="sm" onClick={onAdd} aria-label={targetName ? `Add this play to ${targetName}` : "Add this play to a playlist"}>
+          <Button ref={addRef} size="sm" onClick={onAdd} aria-label={targetName ? `Add this play to ${targetName}` : "Add this play to a playlist"}>
             <Plus />
             Add
-            <Kbd className="ml-0.5 h-4 min-w-4 border-white/25 bg-white/15 text-[10px] text-primary-foreground">A</Kbd>
+            <Kbd className="ml-0.5 h-4 min-w-4 border-white/25 bg-white/15 text-caption text-primary-foreground">A</Kbd>
           </Button>
         ) : (
           <Button size="sm" variant="secondary" disabled aria-label={`In ${targetName ?? "the playlist"}`}>

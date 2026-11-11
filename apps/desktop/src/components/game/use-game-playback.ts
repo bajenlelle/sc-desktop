@@ -3,6 +3,7 @@ import { clamp } from "@scoutable/shared/lib/motion-math";
 import {
   activePlay,
   momentAt,
+  PERIOD_LEAD_SECONDS,
   pinFor,
   playIndexAt,
   type GamePhase,
@@ -78,7 +79,8 @@ export function useGamePlayback({
       key = at >= 0 ? now.plays[now.order[at]].key : null;
     }
     setActiveKey((prev) => (prev === key ? prev : key));
-    const at = momentAt({ bands: now.bands as PeriodBand[] }, video.currentTime);
+    // The lead before a period is that period: a jump to Q3 isn't still half-time.
+    const at = momentAt({ bands: now.bands as PeriodBand[] }, video.currentTime, PERIOD_LEAD_SECONDS);
     setMoment((prev) => (prev && prev.phase === at.phase && prev.period === at.period && prev.next === at.next ? prev : at));
   }, [video]);
 

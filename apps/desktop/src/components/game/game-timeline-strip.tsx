@@ -1,10 +1,13 @@
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { animate, motion, useMotionValue } from "framer-motion";
 import { describePlay, eventHue, formatGameClock, periodLabel, type EventHue } from "@scoutable/shared/lib/events";
 import { flowChart, scoreAfter, type CourtStint, type GameFlow, type GameMoment } from "@scoutable/shared/lib/game-flow";
 import { gameScale, type GameScale, type GameTimeline, type ScaleSegment, type TimedPlay } from "@scoutable/shared/lib/game-timeline";
+import { clamp, rubberband } from "@scoutable/shared/lib/motion-math";
 import type { GameMarks } from "@scoutable/shared/types/game-marks";
 import { useFrameSeek } from "@/components/editor/use-frame-seek";
 import { PopUpButton } from "@/components/ui/pop-up-button";
+import { springs, useReducedMotionSafe } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { teamTints, type TeamTints } from "./team-tints";
 
@@ -24,8 +27,10 @@ const Y = {
 
 /** How near (px) the pointer must be to a play for a click to mean that play. */
 const SNAP_PX = 4;
-/** Movement (px) that turns a press into a scrub. */
+/** Movement (px) that makes a press a scrub and not a click. */
 const DRAG_PX = 4;
+/** How near (px) a press must be to the playhead to grab it where it is. */
+const PLAYHEAD_HIT = 10;
 /** At the whole game's width only the largest runs are drawn. */
 const RUNS_SHOWN = 6;
 
@@ -66,6 +71,62 @@ interface Teams {
 }
 
 /**
+ * The scale the strip is drawn with. A change of zoom (the whole game, or one
+ * quarter) springs from the scale on screen to the new one, so the quarter
+ * grows to fill the strip and its neighbours slide out the sides they came
+ * from; a new zoom asked for mid-flight starts from wherever the strip is.
+ * A change of width or of the game itself is not a gesture and simply applies.
+ * Under reduced motion the zoom cuts.
+ */
+function useZoomedScale(timeline: GameTimeline, width: number, zoomPeriod: number | null): { scale: GameScale; settled: boolean } {
+  const reduced = useReducedMotionSafe();
+  const whole = useMemo(() => gameScale(timeline, width), [timeline, width]);
+  const target = useMemo(() => (zoomPeriod === null ? whole : gameScale(timeline, width, { zoomPeriod })), [timeline, width, zoomPeriod, whole]);
+  const [blend, setBlend] = useState<GameScale | null>(null);
+  const shown = useRef<GameScale>(target);
+  const last = useRef({ zoomPeriod, whole });
+
+  useEffect(() => {
+    const zoomChanged = last.current.zoomPeriod !== zoomPeriod;
+    const sameGame = last.current.whole === whole;
+    last.current = { zoomPeriod, whole };
+    if (!zoomChanged || !sameGame || reduced) {
+      shown.current = target;
+      setBlend(null);
+      return;
+    }
+    // From what is on screen now (a settled scale, or a zoom still in flight).
+    const from = shown.current.xOf;
+    const controls = animate(0, 1, {
+      ...springs.standard,
+      onUpdate: (p) => {
+        const xOf = (t: number) => {
+          const a = from(t);
+          return a + (target.xOf(t) - a) * p;
+        };
+        // The whole game's stretches, each where the blend puts it: those leaving the strip collapse into its edges.
+        const mid: GameScale = {
+          width,
+          segments: whole.segments.map((s) => ({ ...s, x0: xOf(s.t0), x1: xOf(s.t1) })),
+          xOf,
+          tOf: target.tOf,
+        };
+        shown.current = mid;
+        setBlend(mid);
+      },
+      onComplete: () => {
+        shown.current = target;
+        setBlend(null);
+      },
+    });
+    return () => controls.stop();
+  }, [target, whole, zoomPeriod, width, reduced]);
+
+  if (!blend) shown.current = target;
+  return { scale: blend ?? target, settled: blend === null };
+}
+
+/**
  * Everything on the strip that doesn't move with playback, drawn once per
  * game, width, zoom and filter: the period bands with their scores, the
  * score graph, runs, timeouts, the clutch stretch, a tick per play and a
@@ -97,6 +158,7 @@ const StripDrawing = memo(function StripDrawing({
   stints: readonly CourtStint[] | null;
   /** The clutch stretch on the axis, when the game has one. */
   clutch: { from: number; to: number } | null;
+  /** Settled on one quarter (not the whole game, and not on the way between the two). */
   zoomed: boolean;
   patternId: string;
 }) {
@@ -106,6 +168,8 @@ const StripDrawing = memo(function StripDrawing({
     const p = playByEvent.get(eventId);
     return p ? scale.xOf(p.time) : null;
   };
+  /** On the strip, not parked at an edge by a zoom. */
+  const inside = (x: number) => x > 0.5 && x < width - 0.5;
 
   const chart = useMemo(() => {
     if (flow.source === "none") return null;
@@ -137,15 +201,13 @@ const StripDrawing = memo(function StripDrawing({
         ? { side: 2 as const, ...flow.largestLead.away }
         : null;
   // Zoomed into another quarter, the peak isn't on the strip.
-  const peakPlay = peak ? playByEvent.get(peak.eventId) : undefined;
-  const peakShown =
-    !!peakPlay && (!zoomed || (peakPlay.time >= (scale.segments[0]?.t0 ?? 0) && peakPlay.time <= (scale.segments[scale.segments.length - 1]?.t1 ?? 0)));
-  const peakX = peak && peakShown ? xOfEvent(peak.eventId) : null;
+  const peakAt = peak ? xOfEvent(peak.eventId) : null;
+  const peakX = peakAt !== null && inside(peakAt) ? peakAt : null;
 
-  const runs = useMemo(() => {
-    const list = zoomed ? flow.runs : [...flow.runs].sort((a, b) => b.points - a.points).slice(0, RUNS_SHOWN);
-    return list;
-  }, [flow, zoomed]);
+  const runs = useMemo(
+    () => (zoomed ? flow.runs : [...flow.runs].sort((a, b) => b.points - a.points).slice(0, RUNS_SHOWN)),
+    [flow, zoomed],
+  );
 
   return (
     <svg width={width} height={Y.height} className="absolute inset-0 block text-foreground" aria-hidden>
@@ -156,11 +218,16 @@ const StripDrawing = memo(function StripDrawing({
         <pattern id={`${patternId}-away`} width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(135)">
           <line x1="0" y1="0" x2="0" y2="5" strokeWidth="1.5" stroke={tints.away} strokeOpacity={0.55} />
         </pattern>
+        {/* While a zoom is under way, what leaves the strip gathers at its edges: keep the last pixel of each side clear. */}
+        <clipPath id={`${patternId}-clip`}>
+          <rect x={1} y={-2} width={Math.max(0, width - 2)} height={Y.height + 4} />
+        </clipPath>
       </defs>
 
       {/* Periods as bands; the footage around them folded into notches. */}
       {scale.segments.map((s, i) => {
         const w = s.x1 - s.x0;
+        if (w < 0.5) return null;
         if (s.kind !== "period") {
           return w > 3 ? (
             <rect key={i} x={s.x0} y={0} width={w} height={Y.height} fill={`url(#${patternId}-notch)`} />
@@ -179,7 +246,7 @@ const StripDrawing = memo(function StripDrawing({
                 x={s.x0 + w / 2}
                 y={Y.periods + 12.5}
                 textAnchor="middle"
-                className="text-[11px] font-medium nums"
+                className="text-subheadline font-medium nums"
                 style={{ fill: "var(--muted-foreground)", whiteSpace: "pre" }}
               >
                 {label}
@@ -189,127 +256,132 @@ const StripDrawing = memo(function StripDrawing({
         );
       })}
 
-      {/* Clutch time: a line under its stretch of the period band. */}
-      {clutch && scale.xOf(clutch.to) - scale.xOf(clutch.from) > 2 && (
-        <line
-          x1={scale.xOf(clutch.from)}
-          x2={scale.xOf(clutch.to)}
-          y1={Y.periods + Y.periodsH + 1.5}
-          y2={Y.periods + Y.periodsH + 1.5}
-          strokeWidth="1.5"
-          strokeDasharray="4 2"
-          style={{ stroke: "var(--muted-foreground)" }}
-        />
-      )}
-
-      {/* The score difference: home above the line, away below. */}
-      <g transform={`translate(0 ${Y.chart})`}>
-        {chart ? (
-          <>
-            {chart.maxAbs > 10 && (
-              <>
-                <line x1={0} x2={width} y1={chart.yOf(10)} y2={chart.yOf(10)} strokeWidth="1" style={{ stroke: "var(--separator)" }} />
-                <line x1={0} x2={width} y1={chart.yOf(-10)} y2={chart.yOf(-10)} strokeWidth="1" style={{ stroke: "var(--separator)" }} />
-              </>
-            )}
-            <path d={chart.home} fill={tints.home} fillOpacity={tints.homeOpacity} />
-            <path d={chart.away} fill={tints.away} fillOpacity={tints.awayOpacity} />
-            {tints.awayHatch && <path d={chart.away} fill={`url(#${patternId}-away)`} />}
-            <line x1={0} x2={width} y1={chart.zeroY} y2={chart.zeroY} strokeWidth="1" style={{ stroke: "var(--separator-strong)" }} />
-            <path d={chart.line} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
-
-            {/* Runs: a bar on the running side's edge. */}
-            {runs.map((run) => {
-              const from = xOfEvent(run.fromEventId);
-              const to = xOfEvent(run.toEventId);
-              if (from === null || to === null) return null;
-              return (
-                <rect
-                  key={run.fromEventId}
-                  x={from}
-                  y={run.team === 1 ? 0 : Y.chartH - 3}
-                  width={Math.max(3, to - from)}
-                  height={3}
-                  rx="1.5"
-                  fill="currentColor"
-                  fillOpacity={0.55}
-                />
-              );
-            })}
-
-            {/* The one number worth printing: the largest lead, at its peak. */}
-            {peak && peakX !== null && (
-              <text
-                x={Math.min(Math.max(peakX, 14), width - 14)}
-                // On the zero line's side of the peak, inside the area: the edges belong to the runs and the timeouts.
-                y={peak.side === 1 ? chart.yOf(peak.lead) + 12 : chart.yOf(-peak.lead) - 5}
-                textAnchor="middle"
-                className="text-[10px] font-semibold nums"
-                style={{ fill: "var(--foreground)" }}
-              >
-                +{peak.lead}
-              </text>
-            )}
-
-            {/* Who is above and who is below: the graph's legend, on the graph. */}
-            <g className="text-[10px] font-medium" style={{ fill: "var(--muted-foreground)" }}>
-              <rect x={4} y={3} width={7} height={7} rx="1.5" fill={tints.home} fillOpacity={0.7} />
-              <text x={15} y={10}>
-                {teams.home.name}
-              </text>
-              <rect x={4} y={Y.chartH - 11} width={7} height={7} rx="1.5" fill={tints.away} fillOpacity={0.6} />
-              <text x={15} y={Y.chartH - 4}>
-                {teams.away.name}
-              </text>
-            </g>
-          </>
-        ) : (
-          <text x={width / 2} y={Y.chartH / 2 + 4} textAnchor="middle" className="text-[12px]" style={{ fill: "var(--muted-foreground)" }}>
-            This game has no score on record, so there is no score graph.
-          </text>
+      <g clipPath={`url(#${patternId}-clip)`}>
+        {/* Clutch time: a line under its stretch of the period band. */}
+        {clutch && scale.xOf(clutch.to) - scale.xOf(clutch.from) > 2 && (
+          <line
+            x1={scale.xOf(clutch.from)}
+            x2={scale.xOf(clutch.to)}
+            y1={Y.periods + Y.periodsH + 1.5}
+            y2={Y.periods + Y.periodsH + 1.5}
+            strokeWidth="1.5"
+            strokeDasharray="4 2"
+            style={{ stroke: "var(--muted-foreground)" }}
+          />
         )}
 
-        {/* Timeouts: a flag on the calling side's edge; the officials' on the line. */}
-        {(marks?.timeouts ?? []).map((t) => {
-          const time = timeline.timeOf(t.realWorldTime, t.period);
-          if (time === null) return null;
-          const x = scale.xOf(time);
-          if (x <= 0 || x >= width) return null;
-          const fill = { fill: "var(--muted-foreground)" };
-          if (t.teamNumber === 1) return <path key={t.eventId} d={`M${x - 4} 0H${x + 4}L${x} 7Z`} style={fill} />;
-          if (t.teamNumber === 2) return <path key={t.eventId} d={`M${x - 4} ${Y.chartH}H${x + 4}L${x} ${Y.chartH - 7}Z`} style={fill} />;
-          return <circle key={t.eventId} cx={x} cy={Y.chartH / 2} r="2.5" fill="none" strokeWidth="1.5" style={{ stroke: "var(--muted-foreground)" }} />;
+        {/* The score difference: home above the line, away below. */}
+        <g transform={`translate(0 ${Y.chart})`}>
+          {chart ? (
+            <>
+              {chart.maxAbs > 10 && (
+                <>
+                  <line x1={0} x2={width} y1={chart.yOf(10)} y2={chart.yOf(10)} strokeWidth="1" style={{ stroke: "var(--separator)" }} />
+                  <line x1={0} x2={width} y1={chart.yOf(-10)} y2={chart.yOf(-10)} strokeWidth="1" style={{ stroke: "var(--separator)" }} />
+                </>
+              )}
+              <path d={chart.home} fill={tints.home} fillOpacity={tints.homeOpacity} />
+              <path d={chart.away} fill={tints.away} fillOpacity={tints.awayOpacity} />
+              {tints.awayHatch && <path d={chart.away} fill={`url(#${patternId}-away)`} />}
+              <line x1={0} x2={width} y1={chart.zeroY} y2={chart.zeroY} strokeWidth="1" style={{ stroke: "var(--separator-strong)" }} />
+              <path d={chart.line} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+
+              {/* Runs: a bar on the running side's edge. */}
+              {runs.map((run) => {
+                const from = xOfEvent(run.fromEventId);
+                const to = xOfEvent(run.toEventId);
+                if (from === null || to === null || (!inside(from) && !inside(to) && to - from < 1)) return null;
+                return (
+                  <rect
+                    key={run.fromEventId}
+                    x={from}
+                    y={run.team === 1 ? 0 : Y.chartH - 3}
+                    width={Math.max(3, to - from)}
+                    height={3}
+                    rx="1.5"
+                    fill="currentColor"
+                    fillOpacity={0.55}
+                  />
+                );
+              })}
+
+              {/* The one number worth printing: the largest lead, at its peak. */}
+              {peak && peakX !== null && (
+                <text
+                  x={Math.min(Math.max(peakX, 14), width - 14)}
+                  // On the zero line's side of the peak, inside the area: the edges belong to the runs and the timeouts.
+                  y={peak.side === 1 ? chart.yOf(peak.lead) + 12 : chart.yOf(-peak.lead) - 5}
+                  textAnchor="middle"
+                  className="text-caption font-semibold nums"
+                  style={{ fill: "var(--foreground)" }}
+                >
+                  +{peak.lead}
+                </text>
+              )}
+            </>
+          ) : (
+            <text x={width / 2} y={Y.chartH / 2 + 4} textAnchor="middle" className="text-callout" style={{ fill: "var(--muted-foreground)" }}>
+              This game has no score on record, so there is no score graph.
+            </text>
+          )}
+
+          {/* Timeouts: a flag on the calling side's edge; the officials' on the line. */}
+          {(marks?.timeouts ?? []).map((t) => {
+            const time = timeline.timeOf(t.realWorldTime, t.period);
+            if (time === null) return null;
+            const x = scale.xOf(time);
+            if (!inside(x)) return null;
+            const fill = { fill: "var(--muted-foreground)" };
+            if (t.teamNumber === 1) return <path key={t.eventId} d={`M${x - 4} 0H${x + 4}L${x} 7Z`} style={fill} />;
+            if (t.teamNumber === 2) return <path key={t.eventId} d={`M${x - 4} ${Y.chartH}H${x + 4}L${x} ${Y.chartH - 7}Z`} style={fill} />;
+            return <circle key={t.eventId} cx={x} cy={Y.chartH / 2} r="2.5" fill="none" strokeWidth="1.5" style={{ stroke: "var(--muted-foreground)" }} />;
+          })}
+        </g>
+
+        {/* A chosen player's stints on the floor. */}
+        {(stints ?? []).map((s) => {
+          const from = xOfEvent(s.fromEventId);
+          const to = xOfEvent(s.toEventId);
+          if (from === null || to === null || (!inside(from) && !inside(to) && to - from < 1)) return null;
+          // In the accent, so it never reads as one of the run bars just above it.
+          return <rect key={s.fromEventId} x={from} y={Y.stint} width={Math.max(2, to - from)} height={Y.stintH} rx="1.5" style={{ fill: "var(--primary)" }} />;
+        })}
+
+        {/* One tick per play: home in the upper row, away in the lower, a make taller than a miss. */}
+        {timeline.plays.map((p) => {
+          if (p.reach !== "in") return null;
+          const e = p.event;
+          const side = e.eventTeam?.teamNumber ?? e.player?.teamNumber;
+          if (side !== 1 && side !== 2) return null;
+          const x = scale.xOf(p.time);
+          if (!inside(x)) return null;
+          const h = SHOTS.has(e.type) ? (e.isSuccessful ? Y.tickH : 5) : 6;
+          const y = side === 1 ? Y.homeTicks + Y.tickH - h : Y.awayTicks;
+          const hidden = dimmed?.has(p.key) ?? false;
+          return (
+            <g key={p.key} opacity={hidden ? 0.15 : 1}>
+              <rect x={x - 0.75} y={y} width={1.5} height={h} className={TICK_FILL[eventHue(e)]} />
+              {inTarget.has(p.key) && (
+                <circle cx={x} cy={side === 1 ? Y.homeTicks - 2 : Y.awayTicks + Y.tickH + 2} r="2" style={{ fill: "var(--primary)" }} />
+              )}
+            </g>
+          );
         })}
       </g>
 
-      {/* A chosen player's stints on the floor. */}
-      {(stints ?? []).map((s) => {
-        const from = xOfEvent(s.fromEventId);
-        const to = xOfEvent(s.toEventId);
-        if (from === null || to === null) return null;
-        return <rect key={s.fromEventId} x={from} y={Y.stint} width={Math.max(2, to - from)} height={Y.stintH} rx="1.5" fill="currentColor" fillOpacity={0.6} />;
-      })}
-
-      {/* One tick per play: home in the upper row, away in the lower, a make taller than a miss. */}
-      {timeline.plays.map((p) => {
-        if (p.reach !== "in") return null;
-        const e = p.event;
-        const side = e.eventTeam?.teamNumber ?? e.player?.teamNumber;
-        if (side !== 1 && side !== 2) return null;
-        const x = scale.xOf(p.time);
-        if (zoomed && (x <= 0 || x >= width)) return null;
-        const h = SHOTS.has(e.type) ? (e.isSuccessful ? Y.tickH : 5) : 6;
-        const y = side === 1 ? Y.homeTicks + Y.tickH - h : Y.awayTicks;
-        const hidden = dimmed?.has(p.key) ?? false;
-        return (
-          <g key={p.key} opacity={hidden ? 0.15 : 1}>
-            <rect x={x - 0.75} y={y} width={1.5} height={h} className={TICK_FILL[eventHue(e)]} />
-            {inTarget.has(p.key) && (
-              <circle cx={x} cy={side === 1 ? Y.homeTicks - 2 : Y.awayTicks + Y.tickH + 2} r="2" style={{ fill: "var(--primary)" }} />
-            )}
-          </g>
-        );
-      })}
+      {/* Who is above and who is below: the graph's legend, on the graph. */}
+      {chart && (
+        <g transform={`translate(0 ${Y.chart})`} className="text-footnote font-medium" style={{ fill: "var(--muted-foreground)" }}>
+          <rect x={4} y={3} width={7} height={7} rx="1.5" fill={tints.home} fillOpacity={0.7} />
+          <text x={15} y={10}>
+            {teams.home.name}
+          </text>
+          <rect x={4} y={Y.chartH - 11} width={7} height={7} rx="1.5" fill={tints.away} fillOpacity={0.6} />
+          <text x={15} y={Y.chartH - 4}>
+            {teams.away.name}
+          </text>
+        </g>
+      )}
     </svg>
   );
 });
@@ -331,10 +403,13 @@ interface Hover {
  * through them, timeouts and runs sit on its edges, every play is a tick,
  * and the playhead crosses all of it.
  *
- * A click snaps to the play under the pointer and plays it from its pre-roll,
- * exactly as its row would; with no play near, it goes to that second. A
- * drag scrubs 1:1 from where it was grabbed. Double-clicking a quarter gives
- * it the whole strip.
+ * It answers the press, not the release: the playhead goes to the pointer
+ * the moment the button is down and follows it 1:1 from there (from where it
+ * was grabbed, when the press is on the playhead itself), the video catching
+ * up a frame at a time; past either end it resists and springs back. Let go
+ * without having moved and it was a click: on a play, that play from its
+ * pre-roll, exactly as its row would; elsewhere, that second. Double-click a
+ * quarter to give it the whole strip.
  */
 export function GameTimelineStrip({
   timeline,
@@ -348,6 +423,7 @@ export function GameTimelineStrip({
   inTarget,
   activeKey,
   stints,
+  stintName,
   zoomPeriod,
   onZoom,
   onPlay,
@@ -368,20 +444,24 @@ export function GameTimelineStrip({
   inTarget: ReadonlySet<string>;
   activeKey: string | null;
   stints: readonly CourtStint[] | null;
+  /** Whose stints they are, for the hover. */
+  stintName: string | null;
   zoomPeriod: number | null;
   onZoom: (period: number | null) => void;
   onPlay: (play: TimedPlay) => void;
   onSeek: (t: number) => void;
-  /** A first-visit line under the strip; gone after the first click. */
+  /** A first-visit line in the header, in the game facts' place; gone after the first use. */
   hint: string | null;
   className?: string;
 }) {
   const patternId = useId().replace(/:/g, "");
   const trackRef = useRef<HTMLDivElement | null>(null);
-  const playheadRef = useRef<HTMLDivElement | null>(null);
+  const playheadX = useMotionValue(0);
+  const [playheadShown, setPlayheadShown] = useState(false);
+  const [pressed, setPressed] = useState(false);
   const [width, setWidth] = useState(0);
   const [hover, setHover] = useState<Hover | null>(null);
-  const pressRef = useRef<{ x: number; scrubbing: boolean; wasPlaying: boolean } | null>(null);
+  const scrubRef = useRef<{ grabOffset: number; startX: number; moved: boolean; wasPlaying: boolean } | null>(null);
   const frameSeek = useFrameSeek(video, onSeek);
 
   useLayoutEffect(() => {
@@ -393,7 +473,7 @@ export function GameTimelineStrip({
     return () => observer.disconnect();
   }, []);
 
-  const scale = useMemo(() => gameScale(timeline, Math.max(1, width), { zoomPeriod }), [timeline, width, zoomPeriod]);
+  const { scale, settled } = useZoomedScale(timeline, Math.max(1, width), zoomPeriod);
   const tints = useMemo(() => teamTints(teams.home.color, teams.away.color), [teams.home.color, teams.away.color]);
 
   const dimmed = useMemo(() => {
@@ -415,20 +495,20 @@ export function GameTimelineStrip({
 
   const activePlay = useMemo(() => (activeKey ? (timeline.plays.find((p) => p.key === activeKey) ?? null) : null), [timeline, activeKey]);
 
-  // The playhead follows playback at the display rate, off React: a transform on one element.
+  // The playhead follows playback at the display rate, off React: one motion
+  // value moved by a frame loop while the video plays. While the coach holds
+  // it, the pointer drives it instead.
   useEffect(() => {
-    const el = playheadRef.current;
-    if (!el) return;
     if (!video) {
       // No footage: the line marks the selected play.
-      el.style.opacity = activePlay ? "1" : "0";
-      if (activePlay) el.style.transform = `translateX(${scale.xOf(activePlay.time)}px)`;
+      setPlayheadShown(!!activePlay);
+      if (activePlay) playheadX.set(scale.xOf(activePlay.time));
       return;
     }
-    el.style.opacity = "1";
+    setPlayheadShown(true);
     let raf = 0;
     const paint = () => {
-      if (!pressRef.current?.scrubbing) el.style.transform = `translateX(${scale.xOf(video.currentTime)}px)`;
+      if (!scrubRef.current) playheadX.set(scale.xOf(video.currentTime));
     };
     const tick = () => {
       paint();
@@ -450,7 +530,7 @@ export function GameTimelineStrip({
       for (const ev of events) video.removeEventListener(ev, sync);
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [video, scale, activePlay]);
+  }, [video, scale, activePlay, playheadX]);
 
   /** The listed play nearest a pixel, and how far away it is. */
   const nearest = useCallback(
@@ -477,61 +557,80 @@ export function GameTimelineStrip({
     [order, scale, timeline],
   );
 
-  const localX = (clientX: number) => {
-    const rect = trackRef.current?.getBoundingClientRect();
-    return rect ? Math.min(Math.max(clientX - rect.left, 0), rect.width) : 0;
-  };
+  /** The pointer on the track, in its own pixels; not clamped, so a drag past an end is known as one. */
+  const localX = (clientX: number) => clientX - (trackRef.current?.getBoundingClientRect().left ?? 0);
 
   function hoverAt(x: number): Hover {
-    const segment = scale.segments.find((s) => x >= s.x0 && x <= s.x1) ?? null;
-    const near = segment?.kind === "period" ? nearest(x) : null;
-    return { x, play: near?.play ?? null, snap: !!near && near.distance <= SNAP_PX, time: scale.tOf(x), segment };
+    const at = clamp(x, 0, width);
+    const segment = scale.segments.find((s) => at >= s.x0 && at <= s.x1) ?? null;
+    const near = segment?.kind === "period" ? nearest(at) : null;
+    return { x: at, play: near?.play ?? null, snap: !!near && near.distance <= SNAP_PX, time: scale.tOf(at), segment };
+  }
+
+  /** Moves the held playhead to the pointer: 1:1 inside the strip, resisting past its ends. */
+  function scrubTo(x: number) {
+    const s = scrubRef.current;
+    if (!s) return;
+    const raw = x - s.grabOffset;
+    const over = raw < 0 ? raw : raw > width ? raw - width : 0;
+    playheadX.set(clamp(raw, 0, width) + rubberband(over, width));
+    frameSeek.schedule(scale.tOf(clamp(raw, 0, width)));
   }
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (e.button !== 0) return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    pressRef.current = { x: localX(e.clientX), scrubbing: false, wasPlaying: !!video && !video.paused };
+    const x = localX(e.clientX);
+    if (!video) {
+      // Nothing to scrub: the release is a click that selects a play.
+      scrubRef.current = { grabOffset: 0, startX: x, moved: false, wasPlaying: false };
+      return;
+    }
+    // On the playhead itself, keep hold of it where it was grabbed; anywhere else, it comes to the pointer.
+    const onPlayhead = Math.abs(x - playheadX.get()) <= PLAYHEAD_HIT;
+    scrubRef.current = { grabOffset: onPlayhead ? x - playheadX.get() : 0, startX: x, moved: false, wasPlaying: !video.paused };
+    if (!video.paused) video.pause();
+    setPressed(true);
+    if (!onPlayhead) scrubTo(x);
   }
 
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
     const x = localX(e.clientX);
-    const press = pressRef.current;
-    if (press && video && !press.scrubbing && Math.abs(x - press.x) > DRAG_PX) {
-      press.scrubbing = true;
-      if (press.wasPlaying) video.pause();
-    }
-    if (press?.scrubbing) {
-      // 1:1 with the pointer; the video catches up a frame at a time.
-      if (playheadRef.current) playheadRef.current.style.transform = `translateX(${x}px)`;
-      frameSeek.schedule(scale.tOf(x));
+    const s = scrubRef.current;
+    if (s) {
+      if (Math.abs(x - s.startX) > DRAG_PX) s.moved = true;
+      if (video && s.moved) scrubTo(x);
     }
     setHover(hoverAt(x));
   }
 
-  /** The press that just ended was a scrub: the click that follows it isn't a click. */
-  const scrubbedRef = useRef(false);
-
-  function onPointerUp() {
-    const press = pressRef.current;
-    pressRef.current = null;
-    scrubbedRef.current = !!press?.scrubbing;
-    if (!press?.scrubbing) return;
-    frameSeek.settle();
-    if (press.wasPlaying) video?.play().catch(() => {});
-  }
-
-  function onClick(e: React.MouseEvent<HTMLDivElement>) {
-    if (scrubbedRef.current) {
-      scrubbedRef.current = false;
+  function endPress(cancelled: boolean) {
+    const s = scrubRef.current;
+    if (!s) return;
+    scrubRef.current = null;
+    setPressed(false);
+    if (video) {
+      frameSeek.settle();
+      // Let go past an end: the playhead springs back to it.
+      const rest = clamp(playheadX.get(), 0, width);
+      if (rest !== playheadX.get()) animate(playheadX, rest, springs.settle);
+    }
+    if (cancelled) {
+      if (s.wasPlaying) video?.play().catch(() => {});
       return;
     }
-    // The second click of a double-click is the zoom's.
-    if (e.detail > 1) return;
-    const at = hoverAt(localX(e.clientX));
-    if (at.play && at.snap) onPlay(at.play);
-    else if (video) onSeek(at.time);
-    else if (at.play) onPlay(at.play);
+    if (s.moved) {
+      // A scrub: playback carries on from where it was dropped.
+      if (s.wasPlaying) video?.play().catch(() => {});
+      return;
+    }
+    // A click. (Both clicks of a double-click land here, on the same spot, before the zoom: the second changes nothing.)
+    const at = hoverAt(s.startX);
+    if (at.play && (at.snap || !video)) onPlay(at.play);
+    else if (video) {
+      onSeek(at.time);
+      if (s.wasPlaying) video.play().catch(() => {});
+    }
   }
 
   function onDoubleClick(e: React.MouseEvent<HTMLDivElement>) {
@@ -551,13 +650,14 @@ export function GameTimelineStrip({
     const e = play.event;
     const score = scoreAfter(flow, e.eventId);
     const kinds = moments.get(e.eventId);
-    const run = kinds?.has("run") ? flow.runs.find((r) => {
-      const from = flow.indexOf.get(r.fromEventId) ?? -1;
-      const to = flow.indexOf.get(r.toEventId) ?? -1;
-      const at = flow.indexOf.get(e.eventId) ?? -2;
-      return at >= from && at <= to;
-    }) : undefined;
+    const at = flow.indexOf.get(e.eventId) ?? -1;
+    const within = (fromId: number, toId: number) => at >= (flow.indexOf.get(fromId) ?? Infinity) && at <= (flow.indexOf.get(toId) ?? -Infinity);
+    const run = kinds?.has("run") ? flow.runs.find((r) => within(r.fromEventId, r.toEventId)) : undefined;
+    const stint = stints?.find((s) => within(s.fromEventId, s.toEventId));
     const extra = [
+      stint && stintName
+        ? `${stintName} on the floor${stint.plusMinus !== null ? `: ${stint.plusMinus > 0 ? "+" : ""}${stint.plusMinus} in this stint` : ""}`
+        : null,
       flow.leadChanges.includes(e.eventId) ? "Lead change" : null,
       flow.ties.includes(e.eventId) && score ? `Tied at ${score.home}` : null,
       run ? `Run · ${run.team === 1 ? teams.home.name : teams.away.name} ${run.points}–0` : null,
@@ -565,11 +665,11 @@ export function GameTimelineStrip({
     ].filter(Boolean).join(" · ");
     return {
       head: score ? `${score.home}–${score.away}` : null,
-      where: `${periodLabel(e.period)} · ${formatGameClock(e.gameClockTime)}`,
+      where: [periodLabel(e.period), e.gameClockTime && formatGameClock(e.gameClockTime)].filter(Boolean).join(" · "),
       what: describePlay(e),
       extra: extra || null,
     };
-  }, [hover, flow, moments, teams]);
+  }, [hover, flow, moments, teams, stints, stintName]);
 
   const final = flow.final;
   const lead = flow.largestLead.home && (!flow.largestLead.away || flow.largestLead.home.lead >= flow.largestLead.away.lead)
@@ -589,14 +689,14 @@ export function GameTimelineStrip({
   ];
 
   const valueText = activePlay
-    ? `${periodLabel(activePlay.event.period)} ${formatGameClock(activePlay.event.gameClockTime)}${(() => {
+    ? `${[periodLabel(activePlay.event.period), activePlay.event.gameClockTime && formatGameClock(activePlay.event.gameClockTime)].filter(Boolean).join(" ")}${(() => {
         const s = scoreAfter(flow, activePlay.event.eventId);
         return s ? `, ${teams.home.name} ${s.home}, ${teams.away.name} ${s.away}` : "";
       })()}`
     : "Before the first play";
 
   return (
-    <section aria-label="Game timeline" className={cn("@container/strip relative z-10 shrink-0 border-t border-separator bg-background px-4 pt-2 pb-2.5 select-none", className)}>
+    <section aria-label="Game timeline" className={cn("@container/strip relative z-10 shrink-0 border-t border-separator bg-background px-4 pt-2 pb-3 select-none", className)}>
       <div className="flex h-7 items-center gap-3">
         {final && (
           <p className="flex min-w-0 shrink items-baseline gap-1.5 text-callout">
@@ -607,7 +707,10 @@ export function GameTimelineStrip({
             <span className="truncate">{teams.away.name}</span>
           </p>
         )}
-        {facts.length > 0 && <p className="hidden min-w-0 truncate text-subheadline text-muted-foreground nums @min-[760px]/strip:block">{facts.join(" · ")}</p>}
+        {/* The game's facts; on a first visit, how the strip works, in the same place, so nothing moves when it goes. */}
+        {(hint || facts.length > 0) && (
+          <p className="hidden min-w-0 truncate text-subheadline text-muted-foreground nums @min-[760px]/strip:block">{hint ?? facts.join(" · ")}</p>
+        )}
         {timeline.bands.length > 1 && (
           <PopUpButton
             aria-label="Timeline zoom"
@@ -630,18 +733,21 @@ export function GameTimelineStrip({
         aria-valuemax={Math.round(timeline.domain.end)}
         aria-valuenow={Math.round(activePlay?.time ?? 0)}
         aria-valuetext={valueText}
+        // A press with the mouse doesn't take the keyboard's focus ring: every key works from anywhere in the view.
+        // It still ends typing in a field, as a click anywhere outside one does.
+        onMouseDown={(e) => {
+          e.preventDefault();
+          if (document.activeElement instanceof HTMLElement && document.activeElement !== e.currentTarget) document.activeElement.blur();
+        }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onClick={onClick}
-        onPointerCancel={() => {
-          pressRef.current = null;
-        }}
+        onPointerUp={() => endPress(false)}
+        onPointerCancel={() => endPress(true)}
         onPointerLeave={() => {
-          if (!pressRef.current) setHover(null);
+          if (!scrubRef.current) setHover(null);
         }}
         onDoubleClick={onDoubleClick}
-        className="relative mt-1 touch-none rounded-md outline-none focus-visible:ring-2 focus-visible:ring-selection"
+        className="relative mt-1 cursor-default touch-none rounded-md outline-none focus-visible:ring-2 focus-visible:ring-selection"
         style={{ height: Y.height }}
       >
         {width > 0 && (
@@ -656,29 +762,36 @@ export function GameTimelineStrip({
             inTarget={inTarget}
             stints={stints}
             clutch={clutch}
-            zoomed={zoomPeriod !== null}
+            zoomed={settled && zoomPeriod !== null}
             patternId={patternId}
           />
         )}
 
-        {/* Where the pointer is; the play a click would mean lights up as a second line. */}
-        {hover && (
-          <div aria-hidden className="pointer-events-none absolute inset-y-0 w-px bg-foreground/35" style={{ transform: `translateX(${hover.snap && hover.play ? scale.xOf(hover.play.time) : hover.x}px)` }} />
+        {/* Where the pointer is; over a play, the line sits on the play a click would mean. */}
+        {hover && !pressed && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 left-0 w-px bg-foreground/35"
+            style={{ transform: `translateX(${hover.snap && hover.play ? scale.xOf(hover.play.time) : hover.x}px)` }}
+          />
         )}
 
-        <div
-          ref={playheadRef}
+        <motion.div
           aria-hidden
-          className="pointer-events-none absolute inset-y-0 left-0 -ml-px w-0.5 rounded-full bg-foreground shadow-[0_0_0_1px_var(--background)]"
-          style={{ opacity: 0 }}
+          className="pointer-events-none absolute inset-y-0 left-0 -ml-px w-0.5 rounded-full bg-foreground shadow-[0_0_0_1px_var(--background)] will-change-transform"
+          style={{ x: playheadX, opacity: playheadShown ? 1 : 0 }}
         >
-          <span className="absolute -top-1 left-1/2 size-2 -translate-x-1/2 rounded-full bg-foreground shadow-[0_0_0_1px_var(--background)]" />
-        </div>
+          <motion.span
+            className="absolute -top-1 left-1/2 -ml-1 block size-2 rounded-full bg-foreground shadow-[0_0_0_1px_var(--background)]"
+            animate={{ scale: pressed ? 1.5 : 1 }}
+            transition={springs.snappy}
+          />
+        </motion.div>
 
         {hover && tip && (
           <div
             role="presentation"
-            className="pointer-events-none absolute bottom-full z-30 mb-2 w-max max-w-72 -translate-x-1/2 rounded-md bg-popover px-2.5 py-1.5 text-subheadline text-popover-foreground shadow-menu ring-1 ring-separator"
+            className="pointer-events-none absolute bottom-full z-30 mb-2 w-max max-w-72 -translate-x-1/2 rounded-lg bg-material-popover px-2.5 py-1.5 text-subheadline text-popover-foreground shadow-menu backdrop-blur-xl"
             style={{ left: Math.min(Math.max(hover.x, 110), Math.max(110, width - 110)) }}
           >
             <p className="flex items-baseline gap-2 nums">
@@ -693,8 +806,6 @@ export function GameTimelineStrip({
           </div>
         )}
       </div>
-
-      {hint && <p className="mt-1.5 text-subheadline text-muted-foreground">{hint}</p>}
     </section>
   );
 }

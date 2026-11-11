@@ -3,7 +3,7 @@ import { Check, ChevronsUpDown, ListPlus, Loader2, Plus, Send } from "lucide-rea
 import { toast } from "sonner";
 import { playlistIsShared } from "@scoutable/shared/lib/playlist-sharing";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SearchField } from "@/components/ui/search-field";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Sentry } from "@/lib/sentry";
@@ -20,7 +20,9 @@ import type { Collect } from "./use-collect";
  * "Open playlist", or "Send n clips…" while players are waiting for some.
  */
 export function CollectControl({ collect, highlight }: { collect: Collect; highlight?: boolean }) {
-  const { target, candidates, loading, pickerOpen, setPickerOpen, unsent } = collect;
+  const { target, candidates, loading, pickerOpen, pickerAnchor, setPickerOpen, unsent } = collect;
+  // Asked for by a row's plus or the Now bar's Add, the picker grows from that control, not from here.
+  const anchorRef = React.useMemo(() => ({ current: pickerAnchor }), [pickerAnchor]);
   const [search, setSearch] = React.useState("");
   const [creating, setCreating] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
@@ -57,6 +59,7 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
           if (next) setSearch("");
         }}
       >
+        {pickerAnchor && <PopoverAnchor virtualRef={anchorRef} />}
         <PopoverTrigger asChild>
           <button
             type="button"

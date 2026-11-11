@@ -1,4 +1,5 @@
-import { memo, type ReactNode } from "react";
+import { Fragment, memo, type ReactNode } from "react";
+import { motion } from "framer-motion";
 import { Check, Play, Plus, Tag } from "lucide-react";
 import { SITUATION_OPTIONS } from "@scoutable/shared/lib/clip-filters";
 import { eventColors, eventLabel, formatGameClock, playerName } from "@scoutable/shared/lib/events";
@@ -8,6 +9,7 @@ import type { Label } from "@scoutable/shared/types/labels";
 import { ActiveRowPill } from "@/components/editor/clip-rows";
 import { LabelChip } from "@/components/labels/LabelChip";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { springs } from "@/lib/motion";
 import { pressable } from "@/lib/pressable";
 import { cn } from "@/lib/utils";
 
@@ -61,7 +63,8 @@ export const GamePlayRow = memo(function GamePlayRow({
   /** The label picker, on the one row that is being labelled; the plain button otherwise. */
   labelPicker: ReactNode | null;
   onPlay: (play: TimedPlay) => void;
-  onAdd: (play: TimedPlay) => void;
+  /** `anchor` is the plus that was pressed: a picker it has to open grows from there. */
+  onAdd: (play: TimedPlay, anchor: HTMLElement) => void;
   onRemove: (play: TimedPlay) => void;
   onLabel: (play: TimedPlay) => void;
 }) {
@@ -73,6 +76,15 @@ export const GamePlayRow = memo(function GamePlayRow({
   const words = e.qualifiers.map((q) => QUALIFIER_WORDS.get(q)).filter(Boolean);
   const number = e.player?.pno ? `#${e.player.pno} ` : "";
   const quiet = "opacity-0 group-hover:opacity-100";
+  // The second line, in the order it is read. A feed with no game clock leaves the clock out, not a dash.
+  const details: { key: string; node: ReactNode }[] = [];
+  if (e.gameClockTime) details.push({ key: "clock", node: <span className="shrink-0">{formatGameClock(e.gameClockTime)}</span> });
+  if (e.eventTeam?.teamName && e.player) details.push({ key: "team", node: <span className="truncate">{e.eventTeam.teamName}</span> });
+  if (words.length > 0) details.push({ key: "words", node: <span className="shrink-0">{words.join(", ")}</span> });
+  if (note) details.push({ key: "note", node: <span className="shrink-0 font-medium text-foreground">{note}</span> });
+  if (outside) {
+    details.push({ key: "reach", node: <span className="shrink-0">{play.reach === "before" ? "Before the video starts" : "After the video ends"}</span> });
+  }
 
   return (
     <div
@@ -99,33 +111,16 @@ export const GamePlayRow = memo(function GamePlayRow({
           ))}
           {more > 0 && <span className="shrink-0 text-xs text-muted-foreground">+{more}</span>}
         </span>
-        <span className="flex min-w-0 items-center gap-1 text-subheadline text-muted-foreground nums">
-          <span className="shrink-0">{formatGameClock(e.gameClockTime)}</span>
-          {e.eventTeam?.teamName && e.player && (
-            <>
-              <span aria-hidden>·</span>
-              <span className="truncate">{e.eventTeam.teamName}</span>
-            </>
-          )}
-          {words.length > 0 && (
-            <>
-              <span aria-hidden>·</span>
-              <span className="shrink-0">{words.join(", ")}</span>
-            </>
-          )}
-          {note && (
-            <>
-              <span aria-hidden>·</span>
-              <span className="shrink-0 font-medium text-foreground">{note}</span>
-            </>
-          )}
-          {outside && (
-            <>
-              <span aria-hidden>·</span>
-              <span className="shrink-0">{play.reach === "before" ? "Before the video starts" : "After the video ends"}</span>
-            </>
-          )}
-        </span>
+        {details.length > 0 && (
+          <span className="flex min-w-0 items-center gap-1 text-subheadline text-muted-foreground nums">
+            {details.map((d, i) => (
+              <Fragment key={d.key}>
+                {i > 0 && <span aria-hidden>·</span>}
+                {d.node}
+              </Fragment>
+            ))}
+          </span>
+        )}
       </span>
       {score && scored && (
         <span className="relative z-10 flex shrink-0 items-center text-sm text-muted-foreground nums" aria-label={`${score.home} to ${score.away}`}>
@@ -158,7 +153,7 @@ export const GamePlayRow = memo(function GamePlayRow({
                 type="button"
                 aria-label={targetName ? `Add to ${targetName}` : "Add to a playlist"}
                 className={cn(iconButton, "text-muted-foreground hover:text-foreground", !active && quiet)}
-                onClick={() => onAdd(play)}
+                onClick={(ev) => onAdd(play, ev.currentTarget)}
               >
                 <Plus />
               </button>
@@ -174,10 +169,13 @@ export const GamePlayRow = memo(function GamePlayRow({
                 className={cn(iconButton, "text-primary")}
                 onClick={() => onRemove(play)}
               >
-                <Check className="stroke-[2.5]" />
+                {/* The add, confirmed where it was made: the check arrives, it doesn't just appear. */}
+                <motion.span initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={springs.snappy} className="flex">
+                  <Check className="stroke-[2.5]" />
+                </motion.span>
               </button>
             </TooltipTrigger>
-            <TooltipContent>Added just now. Click to take it out again.</TooltipContent>
+            <TooltipContent>Remove from {targetName ?? "the playlist"}</TooltipContent>
           </Tooltip>
         ) : (
           <Tooltip>
