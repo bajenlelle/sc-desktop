@@ -39,6 +39,8 @@ export interface LabelRowControls {
   onRename: (id: string, name: string) => Promise<void>;
   onRecolor: (id: string, color: LabelColor) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  /** Gives a label its key (1–9), or takes it away (null). */
+  onSetKey?: (id: string, slot: number | null) => Promise<void>;
   onSeedDefaults?: () => Promise<void>;
 }
 
@@ -337,6 +339,7 @@ export function ClipRow({
                 onRename={labelControls.onRename}
                 onRecolor={labelControls.onRecolor}
                 onDelete={labelControls.onDelete}
+                onSetKey={labelControls.onSetKey}
                 onSeedDefaults={labelControls.onSeedDefaults}
               />
             )}

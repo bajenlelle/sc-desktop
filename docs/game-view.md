@@ -116,7 +116,8 @@ released app lists each row there as a clip.
 **Keys**: the player's own (Space, K, J, L, arrows, R, M, F) as in the editor;
 ↑ ↓ the previous or next listed play; Page Up and Page Down the previous or
 next marker (quarter start, timeout, run); 1–9 the start of that period; A
-add; G label; ⇧G the same label again; ⌘F the player search.
+add; G label; ⇧G the same label again; ⌥1–⌥9 the label that has that key
+(held: which key is which label); ⌘F the player search.
 
 ## Collecting (`use-collect.ts`, `collect-control.tsx`)
 
@@ -163,6 +164,45 @@ the editor and Add clips use) is built for repeating:
   closes, and the Now bar's picker stays on the play it was opened for. Both
   are the game view's, not the picker's.
 
+### A key per label
+
+For a coach who tags with three or four labels at once, each of them is one
+press away: a label can have a key, 1 to 9, and Option (Alt on Windows) with
+that digit puts it on the clip on screen, or takes it off, with nothing
+opened and the footage playing on.
+
+- **The coach chooses the keys** in the label picker: a label's row carries
+  its key, and on the label's own row that is the control that sets it, from
+  a list of the nine keys and who has each. Nothing assigns or moves a key by
+  itself. One label has one key and one key has one label, so a key given to
+  another label moves, and a toast names the label that lost it.
+- **A press toggles**, as a click on the label in the picker does, and says
+  what it did in a toast with Undo. Undo names the clip the key was pressed
+  on: in the game view another play may be on screen by then. A label put on
+  this way counts as used, so Recent and ⇧G follow it. A key no label has
+  says so, and where a key is given.
+- **Where**: the game view (the play on screen), the editor (the selected
+  clips, else the clip on screen) and Add clips (the clip that is playing;
+  the ticks are what will be added, so they are left to "Apply label"). Keys
+  are off while a field has the keyboard, as all the app's keys are, so the
+  characters Option types (@ and $ on a Swedish layout) still type.
+- **Holding Option** for a moment in the game view shows which key is which
+  label over the corner of the stage (`game-label-keys.tsx`), with a check on
+  the labels the play on screen has.
+- **Option with a digit** because nothing else is free: the digits alone are
+  the quarters here and the arrow kinds while drawing, ⌘1–⌘5 are the Go menu,
+  Control with a digit switches desktops on a Mac, and the letters are the
+  player's. By the key's place (`KeyboardEvent.code`), not its character.
+  AltGr reports as Control with Alt and is left alone.
+- **Kept with the account**: `labels.hotkey` (smallint 1–9, nullable, one
+  label per key in a coach's vocabulary by a partial unique index; migration
+  `20261111110000_label_hotkeys.sql`, probe `supabase/tests/label_hotkeys.sh`).
+  A key is set through `set_label_hotkey`, which takes it from the label that
+  had it in the same step. The rule is `packages/shared/lib/label-keys.ts`.
+  `listLabels` reads a database the migration hasn't reached without keys,
+  and setting one there fails with a toast; `move_to_club` recreates labels by
+  name and colour, so a label arrives in a club without a key.
+
 Why it is shaped this way (looked up 2026-11-11):
 
 - *Copies on top of an unchanged list.* Menus that reorder themselves by use
@@ -180,15 +220,23 @@ Why it is shaped this way (looked up 2026-11-11):
   when it is sent.
 - *Enter takes the highlighted match* is the W3C combobox pattern.
 
-Not built: **a key per label.** Every sports tagging tool gives each code its
-own key (Hudl Sportscode's code window, Nacsport and Catapult's tag templates,
-LongoMatch's dashboard), as do MAXQDA (nine code shortcuts) and Lightroom
-(a keyword set of nine on ⌥1–9). It is the step after "the same label again"
-for a coach who tags with three or four labels at once. It needs a place to
-keep each coach's keys and keys that are free: 1–9 are the quarters here.
+- *A key per label.* Every sports tagging tool gives each code its own key
+  (Hudl Sportscode's code window, Nacsport and Catapult's tag templates,
+  LongoMatch's dashboard). The shape here is the one the tools with a small
+  fixed set share: the person assigns the keys (MAXQDA, Lightroom, Things),
+  there are nine (MAXQDA's code shortcuts, Lightroom's keyword set on ⌥1–9;
+  Finder has seven), a press toggles (Lightroom, Finder, Things), a key has
+  one label (MAXQDA overwrites, LongoMatch refuses a key in use; BORIS lets
+  keys be shared and then has to stop and ask), and the key is shown where
+  the label is (Sportscode on hover, Lightroom while Option is held; Nielsen
+  Norman: beside the command, and never the only way).
+
+Not built: a key for a label in the picker while its search field has the
+keyboard (Option types characters there), the key legend outside the game
+view, and more than nine keys.
 
 Analytics events are in `packages/shared/types/analytics.ts` (`game_view_*`,
-`collect_*`, `game_marks_filled`).
+`collect_*`, `game_marks_filled`, `label_picked`, `label_key_set`).
 
 ## Not built
 

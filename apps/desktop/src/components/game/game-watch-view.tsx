@@ -8,6 +8,7 @@ import { EMPTY_GAME_FILTERS, gameFiltersActive, gameRows, keepPlay, type GameFil
 import { buildGameTimeline, PERIOD_LEAD_SECONDS, visibleOrder, type TimedPlay } from "@scoutable/shared/lib/game-timeline";
 import { videoLooksCut } from "@scoutable/shared/lib/period-sync";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
+import { labelForKey, labelKeySlot } from "@scoutable/shared/lib/label-keys";
 import { defaultPreRoll } from "@scoutable/shared/lib/provider";
 import { PlayerStage, type PlayerStageHandle } from "@/components/editor/player-stage";
 import { usePersistentVideo } from "@/components/editor/use-persistent-video";
@@ -23,6 +24,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { getGameTimelineTipSeen, setGameTimelineTipSeen } from "@/lib/prefs";
+import { LABEL_KEY_TOAST, labelKeyMessage, toastNoLabelOnKey, useOptionHeld } from "@/lib/label-keys";
 import { rememberLabelUsed, useRecentLabelIds } from "@/lib/recent-labels";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { useClipLabels } from "@/lib/use-clip-labels";
@@ -32,6 +34,7 @@ import { videoBasename, type VideoFileStatus } from "@/lib/video-probe";
 import type { StoredMatch } from "@/types/match";
 import { CollectControl } from "./collect-control";
 import { GameFilterBar, type GamePerson } from "./game-filters";
+import { GameLabelKeys } from "./game-label-keys";
 import { GameNowBar } from "./game-now-bar";
 import { GamePlayList } from "./game-play-list";
 import { GameTimelineStrip } from "./game-timeline-strip";
@@ -494,11 +497,40 @@ export function GameWatchView({
     void labels.handlers.onToggleClip(match.id, eventId, lastLabel.id, "none");
     rememberLabelUsed(lastLabel.id);
     trackEvent("label_picked", { by: "repeat", position: 0, recent: true, searched: false, created: false });
-    toast(`Labelled ${lastLabel.name}`, {
-      id: "game-label-again",
+    toast(labelKeyMessage(lastLabel.name, true), {
+      id: LABEL_KEY_TOAST,
       action: { label: "Undo", onClick: () => void labels.handlers.onToggleClip(match.id, eventId, lastLabel.id, "all") },
     });
   }, [current, lastLabel, labels.assignments, labels.handlers, match.id]);
+
+  /**
+   * A label's own key (⌥1–⌥9): the label goes on the play on screen, or comes off it, while the footage
+   * plays on. Undo names the play the key was pressed on: by then another one may be on screen.
+   */
+  const labelByKey = useCallback(
+    (slot: number) => {
+      const label = labelForKey(labels.labels, slot);
+      if (!label) {
+        toastNoLabelOnKey(slot);
+        return;
+      }
+      if (!current) return;
+      const { eventId } = current.event;
+      const on = !(labels.assignments.get(current.key)?.has(label.id) ?? false);
+      void labels.handlers.onToggleClip(match.id, eventId, label.id, on ? "none" : "all");
+      if (on) {
+        rememberLabelUsed(label.id);
+        trackEvent("label_picked", { by: "hotkey", position: slot, recent: false, searched: false, created: false });
+      }
+      toast(labelKeyMessage(label.name, on), {
+        id: LABEL_KEY_TOAST,
+        action: { label: "Undo", onClick: () => void labels.handlers.onToggleClip(match.id, eventId, label.id, on ? "all" : "none") },
+      });
+    },
+    [current, labels.labels, labels.assignments, labels.handlers, match.id],
+  );
+  // Option held for a moment asks which key is which label.
+  const labelKeysShown = useOptionHeld("game");
 
   // Choosing a label holds the footage: the label goes on the play it was asked for, and nothing
   // goes by unseen meanwhile. It carries on by itself when the picker closes.
@@ -531,6 +563,7 @@ export function GameWatchView({
       onRename={labels.handlers.onRename}
       onRecolor={labels.handlers.onRecolor}
       onDelete={labels.handlers.onDelete}
+      onSetKey={labels.handlers.onSetKey}
       onSeedDefaults={labels.handlers.onSeedDefaults}
     />
   );
@@ -581,6 +614,13 @@ export function GameWatchView({
     if (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && e.code === "KeyG") {
       e.preventDefault();
       labelAgain();
+      return;
+    }
+    const labelKey = labelKeySlot(e);
+    if (labelKey !== null) {
+      e.preventDefault();
+      // A held key would put the label on and take it off again.
+      if (!e.repeat) labelByKey(labelKey);
       return;
     }
     if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.code === "KeyF") {
@@ -841,6 +881,8 @@ export function GameWatchView({
                           </div>
                         )}
                       </PlayerStage>
+                      {/* In the stage's own box, so it is there in full screen too. */}
+                      {labelKeysShown && <GameLabelKeys labels={labels.labels} on={current ? labels.assignments.get(current.key) : undefined} />}
                     </div>
                   </div>
                   <GameNowBar

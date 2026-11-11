@@ -11,12 +11,16 @@ import {
 } from "@scoutable/shared/lib/events";
 import { clipBounds, computeVideoTime } from "@scoutable/shared/lib/clip-timing";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
+import { labelForKey, labelKeySlot } from "@scoutable/shared/lib/label-keys";
 import { clickSelection, extendSelection, moveFocus, type FocusMove } from "@scoutable/shared/lib/list-selection";
 import { orderForAdd, startGame } from "@scoutable/shared/lib/add-clips-games";
 import type { PlayByPlayEvent, Playlist, PlaylistClipItem, StoredMatch } from "@/types/match";
 import { isClipItem } from "@/types/match";
+import { toast } from "sonner";
 import { trackEvent } from "@/lib/analytics";
 import { getAddClipsScope, setAddClipsScope } from "@/lib/prefs";
+import { LABEL_KEY_TOAST, labelKeyMessage, toastNoLabelOnKey } from "@/lib/label-keys";
+import { rememberLabelUsed } from "@/lib/recent-labels";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
@@ -253,6 +257,8 @@ export interface ClipBrowserLabelHandlers {
   onRename: (id: string, name: string) => Promise<void>;
   onRecolor: (id: string, color: LabelColor) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  /** Gives a label its key (1–9), or takes it away (null). */
+  onSetKey: (id: string, slot: number | null) => Promise<void>;
   onSeedDefaults: () => Promise<void>;
 }
 
@@ -805,6 +811,33 @@ export function ClipBrowserPanel({
   const newCount = Array.from(selectedIds).filter((k) => !existingSet.has(k)).length;
   const isMultiMatch = filterMatchId === null;
 
+  /**
+   * A label's own key (⌥1–⌥9): the label goes on the clip that is playing, or comes off it. The
+   * ticks are what will be added, not what is being labelled, so they are left to "Apply label".
+   */
+  const labelByKey = (slot: number) => {
+    if (!activeOrgId) return;
+    const label = labelForKey(labels, slot);
+    if (!label) {
+      toastNoLabelOnKey(slot);
+      return;
+    }
+    const key = activeEventKeyRef.current;
+    const playing = key ? filteredRef.current.find(({ event, matchId }) => `${matchId}:${event.eventId}` === key) : undefined;
+    if (!key || !playing) return;
+    const { matchId, event } = playing;
+    const on = !(labelAssignments.get(key)?.has(label.id) ?? false);
+    void labelHandlers.onToggleClip(matchId, event.eventId, label.id, on ? "none" : "all");
+    if (on) {
+      rememberLabelUsed(label.id);
+      trackEvent("label_picked", { by: "hotkey", position: slot, recent: false, searched: false, created: false });
+    }
+    toast(labelKeyMessage(label.name, on), {
+      id: LABEL_KEY_TOAST,
+      action: { label: "Undo", onClick: () => void labelHandlers.onToggleClip(matchId, event.eventId, label.id, on ? "all" : "none") },
+    });
+  };
+
   // Keys belong to the sheet while it is open (one owner at a time), the
   // editor's where they make sense here: ↑/↓, Home/End and ⌘↑/⌘↓ walk the
   // clips, Shift with them ticks the range, ←/→ nudge (Shift: further),
@@ -812,6 +845,13 @@ export function ClipBrowserPanel({
   // playing clip, ⌘A ticks every shown clip, ⌘↩ adds.
   useKeyScope("clip-browser", true, panelRef);
   useHotkeys("clip-browser", (e) => {
+    const labelKey = labelKeySlot(e);
+    if (labelKey !== null) {
+      e.preventDefault();
+      // A held key would put the label on and take it off again.
+      if (!e.repeat) labelByKey(labelKey);
+      return;
+    }
     if (e.key === "Enter") {
       e.preventDefault();
       if (e.metaKey || e.ctrlKey) {
@@ -936,6 +976,7 @@ export function ClipBrowserPanel({
               onRename={labelHandlers.onRename}
               onRecolor={labelHandlers.onRecolor}
               onDelete={labelHandlers.onDelete}
+              onSetKey={labelHandlers.onSetKey}
               onSeedDefaults={labelHandlers.onSeedDefaults}
             />
           )}
@@ -1103,6 +1144,7 @@ export function ClipBrowserPanel({
                           onRename={labelHandlers.onRename}
                           onRecolor={labelHandlers.onRecolor}
                           onDelete={labelHandlers.onDelete}
+                          onSetKey={labelHandlers.onSetKey}
                           onSeedDefaults={labelHandlers.onSeedDefaults}
                         />
                       ) : undefined}

@@ -71,7 +71,9 @@ import { cn } from "@/lib/utils";
 import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, appendClips, writePlaylistItems, changeClipLength, type ClipLengthResult, updateClip, clearShippedClip, updateTextCard, setPlaylistRecipients, notifyPendingPlaylistShares } from "@/lib/playlists-db";
 import { newRecipients, playlistIsShared } from "@scoutable/shared/lib/playlist-sharing";
 import { groupShipFailures, mergeShipResults, type ClipShipResult } from "@scoutable/shared/lib/ship-result";
-import { listLabels, createLabel as apiCreateLabel, updateLabel as apiUpdateLabel, deleteLabel as apiDeleteLabel, seedDefaultLabels, listAssignmentsForMatches, setClipAssignments as apiSetClipAssignments, bulkAssign as apiBulkAssign } from "@/lib/labels-db";
+import { listLabels, createLabel as apiCreateLabel, updateLabel as apiUpdateLabel, deleteLabel as apiDeleteLabel, seedDefaultLabels, listAssignmentsForMatches, setClipAssignments as apiSetClipAssignments, bulkAssign as apiBulkAssign, setLabelHotkey as apiSetLabelHotkey } from "@/lib/labels-db";
+import { LABEL_KEY_TOAST, labelKeyMessage, toastNoLabelOnKey } from "@/lib/label-keys";
+import { rememberLabelUsed } from "@/lib/recent-labels";
 import { LabelChip } from "@/components/labels/LabelChip";
 import { LabelPickerPopover, type LabelTriState } from "@/components/labels/LabelPickerPopover";
 import type { Label, LabelColor, ClipKey } from "@scoutable/shared/types/labels";
@@ -154,6 +156,7 @@ import { formatSeconds, offsetsForTrim, shiftedClipOffsets, stepToWhole } from "
 import { Kbd } from "@/components/ui/kbd";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
+import { labelForKey, labelKeySlot, withLabelKey } from "@scoutable/shared/lib/label-keys";
 import { clamp } from "@scoutable/shared/lib/motion-math";
 import { dragBlockKeys, isSameOrder, itemsIndexForGap } from "@scoutable/shared/lib/list-reorder";
 import {
@@ -1065,6 +1068,23 @@ export function PlaylistsPage() {
     await apiUpdateLabel(id, { color });
     setLabels((prev) => prev.map((l) => (l.id === id ? { ...l, color } : l)));
   }, []);
+
+  // A label's key (packages/shared/lib/label-keys.ts). The label that had the key loses it, here
+  // as in the database (set_label_hotkey).
+  const handleSetLabelKey = useCallback(
+    async (id: string, slot: number | null) => {
+      const before = new Map(labels.map((l) => [l.id, l.hotkey]));
+      setLabels((prev) => withLabelKey(prev, id, slot).labels);
+      try {
+        await apiSetLabelHotkey(id, slot);
+      } catch (e) {
+        console.error("set label key:", e);
+        setLabels((prev) => prev.map((l) => (before.has(l.id) ? { ...l, hotkey: before.get(l.id) ?? null } : l)));
+        toast.error("Couldn't set the key", { description: "Check the connection and try again." });
+      }
+    },
+    [labels],
+  );
 
   const handleDeleteLabel = useCallback(async (id: string) => {
     await apiDeleteLabel(id);
@@ -2682,11 +2702,48 @@ export function PlaylistsPage() {
     if (slowEditRef.current) closeSlowRef.current();
   }, [playerFs.active, reportView]);
 
+  /**
+   * A label's own key (⌥1–⌥9): the label goes on the selected clips, else on the clip on screen,
+   * or comes off when all of them have it, as a click on it in the picker would do.
+   */
+  const labelByKey = (slot: number) => {
+    if (!activeOrgId) return;
+    const label = labelForKey(labels, slot);
+    if (!label) {
+      toastNoLabelOnKey(slot);
+      return;
+    }
+    const has = (c: ClipKey) => clipAssignments.get(`${c.matchId}:${c.eventId}`)?.has(label.id) ?? false;
+    const clips = selectedClipKeyPairs.length > 0 ? selectedClipKeyPairs : activeClipKey ? [activeClipKey] : [];
+    if (clips.length === 0) return;
+    const on = !clips.every(has);
+    // The clips this press changes: what Undo puts back.
+    const changed = on ? clips.filter((c) => !has(c)) : clips;
+    const write = (to: ClipKey[], state: LabelTriState) =>
+      to.length === 1 ? handleToggleClipLabel(to[0].matchId, to[0].eventId, label.id, state) : applyBulkLabel(to, label.id, state);
+    void write(clips, on ? "none" : "all");
+    if (on) {
+      rememberLabelUsed(label.id);
+      trackEvent("label_picked", { by: "hotkey", position: slot, recent: false, searched: false, created: false });
+    }
+    toast(labelKeyMessage(label.name, on, changed.length), {
+      id: LABEL_KEY_TOAST,
+      action: { label: "Undo", onClick: () => void write(changed, on ? "all" : "none") },
+    });
+  };
+
   // One key owner for the page (src/lib/key-scope.ts); the Add Clips sheet
   // registers its own scope on top while it is open. The handler closes
   // over the latest render, so no refs are needed for state.
   useKeyScope("editor", !reportView);
   useHotkeys("editor", (e) => {
+    const labelKey = labelKeySlot(e);
+    if (labelKey !== null) {
+      e.preventDefault();
+      // A held key would put the label on and take it off again.
+      if (!e.repeat) labelByKey(labelKey);
+      return;
+    }
     // Edit shortcuts for the rows. A text field keeps its own (useHotkeys skips fields), and so
     // does text selected on the page for ⌘C.
     if ((e.metaKey || e.ctrlKey) && !e.altKey) {
@@ -5366,6 +5423,7 @@ export function PlaylistsPage() {
                     onRename={handleRenameLabel}
                     onRecolor={handleRecolorLabel}
                     onDelete={handleDeleteLabel}
+                    onSetKey={handleSetLabelKey}
                     onSeedDefaults={handleSeedDefaultLabels}
                     align="start"
                   />
@@ -5632,6 +5690,7 @@ export function PlaylistsPage() {
                   onRename: handleRenameLabel,
                   onRecolor: handleRecolorLabel,
                   onDelete: handleDeleteLabel,
+                  onSetKey: handleSetLabelKey,
                   onSeedDefaults: handleSeedDefaultLabels,
                 } : undefined}
                 groupPos={!filtersActive ? groupRuns.get(key)?.pos : undefined}
@@ -5688,6 +5747,7 @@ export function PlaylistsPage() {
             onRename={handleRenameLabel}
             onRecolor={handleRecolorLabel}
             onDelete={handleDeleteLabel}
+            onSetKey={handleSetLabelKey}
             onSeedDefaults={handleSeedDefaultLabels}
             side="top"
           />
@@ -6156,6 +6216,7 @@ export function PlaylistsPage() {
                   onRename: handleRenameLabel,
                   onRecolor: handleRecolorLabel,
                   onDelete: handleDeleteLabel,
+                  onSetKey: handleSetLabelKey,
                   onSeedDefaults: handleSeedDefaultLabels,
                 }}
               />

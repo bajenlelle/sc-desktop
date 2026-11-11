@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { Check, MoreHorizontal, Plus, Search, X } from "lucide-react";
+import { Check, Keyboard, MoreHorizontal, Plus, Search, X } from "lucide-react";
+import { toast } from "sonner";
 import {
   Popover,
   PopoverContent,
@@ -13,9 +14,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Kbd } from "@/components/ui/kbd";
 import { trackEvent } from "@/lib/analytics";
 import { LABEL_COLORS, labelDotClasses, labelSwatchClasses } from "@/lib/label-colors";
+import { LABEL_KEY_TOAST, labelKeyText } from "@/lib/label-keys";
 import { getRecentLabelIds, rememberLabelUsed } from "@/lib/recent-labels";
+import { labelKeySlots, withLabelKey } from "@scoutable/shared/lib/label-keys";
 import { labelPickerOrder } from "@scoutable/shared/lib/label-order";
 import { clamp } from "@scoutable/shared/lib/motion-math";
 import type { Label, LabelColor } from "@scoutable/shared/types/labels";
@@ -47,6 +51,8 @@ interface LabelPickerPopoverProps {
   onRename: (id: string, name: string) => Promise<void>;
   onRecolor: (id: string, color: LabelColor) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  /** Gives a label its key (1–9), or takes it away (null). Without it the keys are shown but can't be set here. */
+  onSetKey?: (id: string, slot: number | null) => Promise<void> | void;
   /** Optional: shown when there are zero labels in the active org. */
   onSeedDefaults?: () => Promise<void>;
   align?: "start" | "center" | "end";
@@ -119,6 +125,10 @@ function ColorSwatchGrid({
  * "this one, done" and closes the picker; a click leaves it open for a second
  * label. A new label is only made from the "Create" row, which Enter reaches
  * by itself when nothing matches.
+ *
+ * It is also where a label gets its key (packages/shared/lib/label-keys.ts):
+ * the key is written on the label's row, and on its own row that is the
+ * control that sets it, from a list of the nine keys and who has each.
  */
 export function LabelPickerPopover({
   trigger,
@@ -130,6 +140,7 @@ export function LabelPickerPopover({
   onRename,
   onRecolor,
   onDelete,
+  onSetKey,
   onSeedDefaults,
   align = "end",
   side = "bottom",
@@ -145,6 +156,8 @@ export function LabelPickerPopover({
   const [query, setQuery] = useState("");
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  /** The label whose list of keys is open. */
+  const [keyFor, setKeyFor] = useState<string | null>(null);
   const [createColor, setCreateColor] = useState<LabelColor>("violet");
   const inputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -171,6 +184,7 @@ export function LabelPickerPopover({
       rememberPutOn();
       setQuery("");
       setRenameId(null);
+      setKeyFor(null);
       setMoved(null);
     }
   }, [open]);
@@ -269,6 +283,21 @@ export function LabelPickerPopover({
 
   const [deleteTarget, setDeleteTarget] = useState<Label | null>(null);
 
+  // The nine keys and who has each: what the list of keys shows, so a key is never taken unseen.
+  const keySlots = useMemo(() => labelKeySlots(labels), [labels]);
+
+  function chooseKey(label: Label, slot: number | null) {
+    setKeyFor(null);
+    if (!onSetKey || label.hotkey === slot) return;
+    const { displaced } = withLabelKey(labels, label.id, slot);
+    trackEvent("label_key_set", { slot: slot ?? 0, replaced: displaced !== null });
+    void onSetKey(label.id, slot);
+    // A key that moved changed a second label: say which.
+    if (slot !== null && displaced) {
+      toast(`${labelKeyText(slot)} is ${label.name} now`, { id: LABEL_KEY_TOAST, description: `${displaced.name} has no key.` });
+    }
+  }
+
   async function handleRenameSubmit() {
     if (!renameId) return;
     const next = renameValue.trim();
@@ -307,6 +336,7 @@ export function LabelPickerPopover({
           id={optionId(row.key)}
           role="option"
           aria-selected={state === "all"}
+          aria-keyshortcuts={label.hotkey === null ? undefined : `Alt+${label.hotkey}`}
           onClick={() => toggle(row, "pointer")}
           className="flex flex-1 items-center gap-2 text-left"
           disabled={isRenaming}
@@ -336,6 +366,78 @@ export function LabelPickerPopover({
             <span className="flex-1 truncate text-sm">{label.name}</span>
           )}
         </button>
+
+        {/* The label's key. On a copy, and where keys can't be set, it is only written; a copy has no
+            controls after it, so it keeps their room and the keys of both groups stand in one line. */}
+        {label.hotkey !== null && !(manage && onSetKey) && (
+          <>
+            <Kbd className="h-4 min-w-4 shrink-0 text-caption">{labelKeyText(label.hotkey)}</Kbd>
+            {row.recent && <span className="w-14 shrink-0" aria-hidden />}
+          </>
+        )}
+
+        {/* On the label's own row the key is the control that sets it: the nine keys and who has each. */}
+        {manage && onSetKey && (
+          <Popover open={keyFor === label.id} onOpenChange={(o) => setKeyFor(o ? label.id : null)}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "flex h-6 min-w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-fill-2 hover:text-foreground data-[state=open]:opacity-100",
+                  label.hotkey === null && "opacity-0 group-hover:opacity-100",
+                )}
+                aria-label={label.hotkey === null ? `Give ${label.name} a key` : `${label.name} has the key ${labelKeyText(label.hotkey)}. Change it`}
+              >
+                {label.hotkey === null ? <Keyboard className="h-3.5 w-3.5" /> : <Kbd className="h-4 min-w-4 text-caption">{labelKeyText(label.hotkey)}</Kbd>}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              side="right"
+              align="start"
+              className="w-56 p-1"
+              onCloseAutoFocus={(e) => {
+                // Back to the search field: the arrows and Enter keep working on the list.
+                e.preventDefault();
+                inputRef.current?.focus();
+              }}
+            >
+              <p className="px-2 pt-1 pb-1 text-caption text-muted-foreground">Key for {label.name}</p>
+              <div role="radiogroup" aria-label={`Key for ${label.name}`}>
+                {keySlots.map(({ slot, label: holder }) => {
+                  const own = holder?.id === label.id;
+                  return (
+                    <button
+                      key={slot}
+                      type="button"
+                      role="radio"
+                      aria-checked={own}
+                      onClick={() => chooseKey(label, slot)}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm outline-none hover:bg-fill-2 focus-visible:bg-fill-2"
+                    >
+                      <Kbd className="h-4 min-w-7 shrink-0 text-caption">{labelKeyText(slot)}</Kbd>
+                      {holder && <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", labelDotClasses[holder.color])} />}
+                      <span className={cn("min-w-0 flex-1 truncate", !own && "text-muted-foreground")}>{holder?.name}</span>
+                      {own && <Check className="h-3.5 w-3.5 shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+              {label.hotkey !== null && (
+                <>
+                  <div className="mx-1 my-1 h-px bg-separator" />
+                  <button
+                    type="button"
+                    onClick={() => chooseKey(label, null)}
+                    className="flex w-full items-center rounded px-2 py-1 text-left text-sm outline-none hover:bg-fill-2 focus-visible:bg-fill-2"
+                  >
+                    Remove key
+                  </button>
+                </>
+              )}
+              <p className="px-2 pt-1.5 pb-1 text-caption text-muted-foreground">Press a label's key to put it on the clip on screen, or take it off.</p>
+            </PopoverContent>
+          </Popover>
+        )}
 
         {manage && (
           <Popover>

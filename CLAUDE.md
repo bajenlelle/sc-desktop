@@ -94,6 +94,10 @@ playlists, and share them with teams; players watch on web/mobile.
   has a follow-up that drops it. One picker everywhere
   (`LabelPickerPopover`): the labels used last come first and Enter starts at
   the last one (`packages/shared/lib/label-order.ts`; remembered per device).
+  A label can have a key, 1 to 9 (`labels.hotkey`, set through
+  `set_label_hotkey` so one key has one label): Option or Alt with the digit
+  toggles it on the clip on screen in the game view, the editor and Add clips
+  (`packages/shared/lib/label-keys.ts`, `docs/game-view.md`).
 - **Game marks**: a game's timeouts and period bounds live in
   `matches.game_marks` (`packages/shared/lib/game-marks.ts`), not in
   `play_by_play_events`, where every released app lists each row as a clip.

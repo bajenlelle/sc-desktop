@@ -14,6 +14,7 @@ export const createLabel = (orgId: string, name: string, color: LabelColor) =>
 export const updateLabel = (id: string, patch: { name?: string; color?: LabelColor }) =>
   db.updateLabel(c(), id, patch);
 export const deleteLabel = (id: string) => db.deleteLabel(c(), id);
+export const setLabelHotkey = (id: string, hotkey: number | null) => db.setLabelHotkey(c(), id, hotkey);
 export const seedDefaultLabels = (orgId: string) => db.seedDefaultLabels(c(), orgId);
 
 export const listAssignmentsForMatches = (orgId: string, matchIds: string[]) =>

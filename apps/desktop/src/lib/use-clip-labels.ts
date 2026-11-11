@@ -12,8 +12,10 @@ import {
   listLabels,
   seedDefaultLabels,
   setClipAssignments,
+  setLabelHotkey,
   updateLabel,
 } from "@/lib/labels-db";
+import { withLabelKey } from "@scoutable/shared/lib/label-keys";
 
 const clipKey = (matchId: string, eventId: number) => `${matchId}:${eventId}`;
 const byName = (a: Label, b: Label) => a.name.localeCompare(b.name);
@@ -32,6 +34,8 @@ export function useClipLabels(orgId: string | null, matchId: string, surface: st
   // Writes read the latest sets, not the ones a handler was created with.
   const assignmentsRef = useRef(assignments);
   assignmentsRef.current = assignments;
+  const labelsRef = useRef(labels);
+  labelsRef.current = labels;
   const [applied, setApplied] = useState(0);
 
   useEffect(() => {
@@ -125,6 +129,17 @@ export function useClipLabels(orgId: string | null, matchId: string, surface: st
       onRecolor: async (id: string, color: LabelColor) => {
         await updateLabel(id, { color });
         setLabels((prev) => prev.map((l) => (l.id === id ? { ...l, color } : l)));
+      },
+      // The label that had the key loses it, here as in the database (set_label_hotkey).
+      onSetKey: async (id: string, slot: number | null) => {
+        const before = new Map(labelsRef.current.map((l) => [l.id, l.hotkey]));
+        setLabels((prev) => withLabelKey(prev, id, slot).labels);
+        try {
+          await setLabelHotkey(id, slot);
+        } catch {
+          setLabels((prev) => prev.map((l) => (before.has(l.id) ? { ...l, hotkey: before.get(l.id) ?? null } : l)));
+          toast.error("Couldn't set the key", { description: "Check the connection and try again." });
+        }
       },
       onDelete: async (id: string) => {
         await deleteLabel(id);
