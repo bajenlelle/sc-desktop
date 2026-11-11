@@ -116,7 +116,7 @@ released app lists each row there as a clip.
 **Keys**: the player's own (Space, K, J, L, arrows, R, M, F) as in the editor;
 ↑ ↓ the previous or next listed play; Page Up and Page Down the previous or
 next marker (quarter start, timeout, run); 1–9 the start of that period; A
-add; G label; ⌘F the player search.
+add; G label; ⇧G the same label again; ⌘F the player search.
 
 ## Collecting (`use-collect.ts`, `collect-control.tsx`)
 
@@ -142,22 +142,50 @@ A coach going through a game reaches for the same few labels again and again,
 so the label picker (`components/labels/LabelPickerPopover.tsx`, the same one
 the editor and Add clips use) is built for repeating:
 
-- **The labels used last are at the top** ("Recent", up to four, most recent
-  first), the rest in alphabetical order so a label that isn't recent is
-  always in the same place. The order is read when the picker opens and holds
-  while it is open: no row moves under the pointer. The rule is
-  `packages/shared/lib/label-order.ts`; what was used is kept per device
-  (`lib/recent-labels.ts`), and a label counts as used when the picker closes
-  with it still on.
+- **The labels used last are repeated at the top** ("Recent", up to four, most
+  recent first) over "All labels", the whole vocabulary in alphabetical order.
+  They are copies: every label stays where it always is. The order is read
+  when the picker opens and holds while it is open, so no row moves under the
+  pointer. The rule is `packages/shared/lib/label-order.ts`; what was used is
+  kept per device (`lib/recent-labels.ts`), and a label counts as used when
+  the picker closes with it still on.
 - **Enter starts at the label used last**, so "the same label again" is G,
   Enter. Typing narrows the list and Enter takes the best match (a name that
   starts with it, then a word that does, then anywhere); the arrows move
   through it. Enter closes the picker, a click leaves it open for a second
   label. A new label is made only from the "Create" row, which Enter reaches
   by itself when nothing matches.
+- **The same label again without the picker**: ⇧G, or the button beside
+  Label in the Now bar (the label's colour and the key; its name too when the
+  bar is wide enough). It only ever puts the label on, and says so in a toast
+  with Undo.
 - **The footage holds while a label is chosen** and carries on when the picker
   closes, and the Now bar's picker stays on the play it was opened for. Both
   are the game view's, not the picker's.
+
+Why it is shaped this way (looked up 2026-11-11):
+
+- *Copies on top of an unchanged list.* Menus that reorder themselves by use
+  were slower and disliked (Mitchell & Shneiderman 1989); a split menu with at
+  most four frequent items on top was faster (Sears & Shneiderman 1994); and
+  what makes the split work is that it duplicates rather than moves, leaving
+  the familiar list alone (Gajos et al., AVI 2006). In Findlater & McGrenere
+  (CHI 2004) a static split beat an adaptive one and most people preferred
+  choosing the top items themselves, which is the case for label keys below.
+- *One key for the last code.* The research coding tools all have it:
+  ATLAS.ti's Quick Coding (⌘L), MAXQDA's code with the last used code, NVivo's
+  quick coding bar and its list of recent nodes. Dovetail puts recent tags at
+  the top of its tag menu.
+- *Hold the footage.* Frame.io pauses when a comment is started and plays on
+  when it is sent.
+- *Enter takes the highlighted match* is the W3C combobox pattern.
+
+Not built: **a key per label.** Every sports tagging tool gives each code its
+own key (Hudl Sportscode's code window, Nacsport and Catapult's tag templates,
+LongoMatch's dashboard), as do MAXQDA (nine code shortcuts) and Lightroom
+(a keyword set of nine on ⌥1–9). It is the step after "the same label again"
+for a coach who tags with three or four labels at once. It needs a place to
+keep each coach's keys and keys that are free: 1–9 are the quarters here.
 
 Analytics events are in `packages/shared/types/analytics.ts` (`game_view_*`,
 `collect_*`, `game_marks_filled`).

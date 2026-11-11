@@ -7,6 +7,8 @@ import type { Label } from "@scoutable/shared/types/labels";
 import { LabelChip } from "@/components/labels/LabelChip";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { labelDotClasses } from "@/lib/label-colors";
 import { cn } from "@/lib/utils";
 import type { CollectStatus } from "./game-play-row";
 import type { GameMoment } from "./use-game-playback";
@@ -29,6 +31,8 @@ export function GameNowBar({
   collect,
   targetName,
   labelButton,
+  lastLabel,
+  onLabelAgain,
   addRef,
   onAdd,
   onSkip,
@@ -46,6 +50,9 @@ export function GameNowBar({
   targetName: string | null;
   /** Wraps the Label button in the label picker. */
   labelButton: (trigger: ReactElement) => ReactNode;
+  /** The label used last: one press puts it on this play, without the picker. Null until a label has been used. */
+  lastLabel: Label | null;
+  onLabelAgain: () => void;
   /** The Add button: where a picker it has to open grows from, for the A key as for a click. */
   addRef: Ref<HTMLButtonElement>;
   onAdd: () => void;
@@ -91,7 +98,7 @@ export function GameNowBar({
   // Some feeds keep no game clock: the quarter and the score stand without it.
   const where = [periodLabel(e.period), e.gameClockTime && formatGameClock(e.gameClockTime), scoreText(score)].filter(Boolean).join(" · ");
   return (
-    <div className="flex h-11 shrink-0 items-center gap-2 px-1">
+    <div className="@container/now flex h-11 shrink-0 items-center gap-2 px-1">
       <span className="shrink-0 text-callout text-muted-foreground nums">{where}</span>
       <span className={cn("inline-flex shrink-0 items-center rounded-full px-2 py-px text-[11px] font-medium", colors.badge)}>{eventLabel(e)}</span>
       <span className="min-w-0 truncate text-callout font-medium">
@@ -103,6 +110,27 @@ export function GameNowBar({
         ))}
       </span>
       <span className="ml-auto flex shrink-0 items-center gap-1.5">
+        {/* The same label again: what a coach going through a game does most. At the window's usual width the
+            bar has room for the label's colour and the key only; its name joins them when there is room. */}
+        {lastLabel && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="max-w-48 min-w-0 shrink-0 px-2"
+                disabled={labels.some((l) => l.id === lastLabel.id)}
+                onClick={onLabelAgain}
+                aria-label={`Label this play ${lastLabel.name} again`}
+              >
+                <span className={cn("size-2.5 shrink-0 rounded-full", labelDotClasses[lastLabel.color])} aria-hidden />
+                <span className="hidden truncate @min-[780px]/now:inline">{lastLabel.name}</span>
+                <Kbd className="h-4 min-w-4 text-caption">⇧G</Kbd>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Label this play {lastLabel.name} again</TooltipContent>
+          </Tooltip>
+        )}
         {labelButton(
           <Button variant="outline" size="sm" aria-label="Label this play">
             <Tag />

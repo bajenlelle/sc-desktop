@@ -24,6 +24,14 @@ import { cn } from "@/lib/utils";
 /** The "Create …" row's place among the rows the arrows move through. */
 const CREATE = "__create__";
 
+/** One row of the list. A recent label is listed twice: its copy under "Recent", and where it always is. */
+interface PickerRow {
+  key: string;
+  label: Label;
+  recent: boolean;
+}
+const recentKey = (id: string) => `recent:${id}`;
+
 export type LabelTriState = "all" | "some" | "none";
 
 interface LabelPickerPopoverProps {
@@ -104,8 +112,9 @@ function ColorSwatchGrid({
 
 /**
  * Puts labels on a clip (or on several, in bulk). Built for doing it over and
- * over: the labels used last are at the top and the one used last is where
- * Enter starts, so "the same label again" is open, Enter. Typing narrows the
+ * over: the labels used last are repeated at the top, over the whole list in
+ * its usual order, and the one used last is where Enter starts, so "the same
+ * label again" is open, Enter. Typing narrows the
  * list and Enter takes the best match; the arrows move through it. Enter is
  * "this one, done" and closes the picker; a click leaves it open for a second
  * label. A new label is only made from the "Create" row, which Enter reaches
@@ -179,7 +188,13 @@ export function LabelPickerPopover({
   const queryLower = trimmedQuery.toLowerCase();
 
   const order = useMemo(() => labelPickerOrder(labels, recentAtOpen, trimmedQuery), [labels, recentAtOpen, trimmedQuery]);
-  const rows = useMemo(() => [...order.recent, ...order.rest], [order]);
+  const rows = useMemo<PickerRow[]>(
+    () => [
+      ...order.recent.map((label) => ({ key: recentKey(label.id), label, recent: true })),
+      ...order.all.map((label) => ({ key: label.id, label, recent: false })),
+    ],
+    [order],
+  );
 
   const exactMatch = useMemo(
     () => labels.some((l) => l.name.toLowerCase() === queryLower),
@@ -191,9 +206,11 @@ export function LabelPickerPopover({
 
   // What Enter acts on: the row that was moved to, else the label used last (the best match while
   // searching), else "Create" when nothing matches.
-  const ids = useMemo(() => [...rows.map((l) => l.id), ...(showCreateRow ? [CREATE] : [])], [rows, showCreateRow]);
-  const active = moved && ids.includes(moved) ? moved : (order.first ?? (showCreateRow ? CREATE : null));
-  const optionId = (id: string) => `${listId}-${id}`;
+  const ids = useMemo(() => [...rows.map((r) => r.key), ...(showCreateRow ? [CREATE] : [])], [rows, showCreateRow]);
+  // The label used last has its copy at the very top when there is a Recent group.
+  const firstKey = order.first === null ? null : order.recent.length > 0 ? recentKey(order.first) : order.first;
+  const active = moved && ids.includes(moved) ? moved : (firstKey ?? (showCreateRow ? CREATE : null));
+  const optionId = (key: string) => `${listId}-${key}`;
 
   useEffect(() => {
     if (!movedByKey.current) return;
@@ -201,12 +218,13 @@ export function LabelPickerPopover({
     listRef.current?.querySelector<HTMLElement>("[data-active]")?.scrollIntoView({ block: "nearest" });
   }, [active]);
 
-  function toggle(label: Label, by: "key" | "pointer") {
+  function toggle(row: PickerRow, by: "key" | "pointer") {
+    const { label } = row;
     const state = triState(label.id, assignedAllIds, assignedSomeIds);
     putOn.current = putOn.current.filter((id) => id !== label.id);
     if (state !== "all") {
       putOn.current.push(label.id);
-      trackEvent("label_picked", { by, position: rows.indexOf(label), recent: order.recent.includes(label), searched: trimmedQuery !== "", created: false });
+      trackEvent("label_picked", { by, position: rows.indexOf(row), recent: row.recent, searched: trimmedQuery !== "", created: false });
     }
     void onToggle(label.id, state);
     // Enter is "this one, done". A click leaves the picker open for a second label.
@@ -243,8 +261,8 @@ export function LabelPickerPopover({
       e.preventDefault();
       if (active === CREATE) void handleCreate("key");
       else {
-        const label = rows.find((l) => l.id === active);
-        if (label) toggle(label, "key");
+        const row = rows.find((r) => r.key === active);
+        if (row) toggle(row, "key");
       }
     }
   }
@@ -265,27 +283,31 @@ export function LabelPickerPopover({
     setRenameId(null);
   }
 
-  const renderRow = (label: Label) => {
+  const renderRow = (row: PickerRow) => {
+    const { label } = row;
     const state = triState(label.id, assignedAllIds, assignedSomeIds);
-    const isRenaming = renameId === label.id;
+    // A label is renamed in its own place, not in its copy.
+    const isRenaming = renameId === label.id && !row.recent;
+    // A copy under "Recent" is for picking; the colour, the name and deleting are on the label's own row.
+    const manage = !isRenaming && !row.recent;
     return (
       <div
-        key={label.id}
+        key={row.key}
         role="presentation"
-        data-active={active === label.id || undefined}
+        data-active={active === row.key || undefined}
         // One highlight for the pointer and the arrows, as in a menu. A move, not an enter: a list
         // that scrolls under a resting pointer doesn't take the highlight from the keys.
         onPointerMove={() => {
-          if (moved !== label.id) setMoved(label.id);
+          if (moved !== row.key) setMoved(row.key);
         }}
         className="group flex items-center gap-2 px-2 py-1.5 data-[active]:bg-fill-2"
       >
         <button
           type="button"
-          id={optionId(label.id)}
+          id={optionId(row.key)}
           role="option"
           aria-selected={state === "all"}
-          onClick={() => toggle(label, "pointer")}
+          onClick={() => toggle(row, "pointer")}
           className="flex flex-1 items-center gap-2 text-left"
           disabled={isRenaming}
         >
@@ -315,7 +337,7 @@ export function LabelPickerPopover({
           )}
         </button>
 
-        {!isRenaming && (
+        {manage && (
           <Popover>
             <PopoverTrigger asChild>
               <button
@@ -335,7 +357,7 @@ export function LabelPickerPopover({
           </Popover>
         )}
 
-        {!isRenaming && (
+        {manage && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -458,14 +480,22 @@ export function LabelPickerPopover({
             </div>
           )}
 
+          {/* Recent on top, all labels below in their usual places: copies, as a font menu lists recent fonts. */}
           {order.recent.length > 0 && (
             <p role="presentation" className="px-3 pt-1 pb-0.5 text-caption text-muted-foreground">
               Recent
             </p>
           )}
-          {order.recent.map(renderRow)}
-          {order.recent.length > 0 && order.rest.length > 0 && <div role="presentation" className="mx-2 my-1 h-px bg-separator" />}
-          {order.rest.map(renderRow)}
+          {rows.filter((r) => r.recent).map(renderRow)}
+          {order.recent.length > 0 && (
+            <>
+              <div role="presentation" className="mx-2 my-1 h-px bg-separator" />
+              <p role="presentation" className="px-3 pt-1 pb-0.5 text-caption text-muted-foreground">
+                All labels
+              </p>
+            </>
+          )}
+          {rows.filter((r) => !r.recent).map(renderRow)}
         </div>
 
         {/* Create row */}

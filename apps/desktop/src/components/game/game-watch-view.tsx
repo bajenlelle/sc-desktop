@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import { ChevronLeft, Play, Tag, VideoOff } from "lucide-react";
 import { formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { GAME_MOMENTS, gameFlow, gameMoments, onCourtStints, scoreAfter, type GameMoment } from "@scoutable/shared/lib/game-flow";
@@ -22,6 +23,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { getGameTimelineTipSeen, setGameTimelineTipSeen } from "@/lib/prefs";
+import { rememberLabelUsed, useRecentLabelIds } from "@/lib/recent-labels";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { useClipLabels } from "@/lib/use-clip-labels";
 import { useGameMarks } from "@/lib/use-game-marks";
@@ -465,6 +467,39 @@ export function GameWatchView({
   const addOne = useCallback((play: TimedPlay, anchor: HTMLElement) => collect.add([play], "row", filters.moment, anchor), [collect, filters.moment]);
   const openRowLabels = useCallback((play: TimedPlay) => setLabelPickerFor(play.key), []);
 
+  // The label used last, of this space's vocabulary: what "the same label again" puts on.
+  const recentLabelIds = useRecentLabelIds();
+  const lastLabel = useMemo(() => {
+    const byId = new Map(labels.labels.map((l) => [l.id, l]));
+    for (const id of recentLabelIds) {
+      const label = byId.get(id);
+      if (label) return label;
+    }
+    return null;
+  }, [recentLabelIds, labels.labels]);
+
+  /**
+   * The same label again, on the play on screen, without the picker: one key (or one click) per play for
+   * a coach who is looking for one thing through the whole game. It only ever puts the label on; with no
+   * label used yet it opens the picker.
+   */
+  const labelAgain = useCallback(() => {
+    if (!current) return;
+    if (!lastLabel) {
+      setNowLabelFor(current);
+      return;
+    }
+    if (labels.assignments.get(current.key)?.has(lastLabel.id)) return;
+    const { eventId } = current.event;
+    void labels.handlers.onToggleClip(match.id, eventId, lastLabel.id, "none");
+    rememberLabelUsed(lastLabel.id);
+    trackEvent("label_picked", { by: "repeat", position: 0, recent: true, searched: false, created: false });
+    toast(`Labelled ${lastLabel.name}`, {
+      id: "game-label-again",
+      action: { label: "Undo", onClick: () => void labels.handlers.onToggleClip(match.id, eventId, lastLabel.id, "all") },
+    });
+  }, [current, lastLabel, labels.assignments, labels.handlers, match.id]);
+
   // Choosing a label holds the footage: the label goes on the play it was asked for, and nothing
   // goes by unseen meanwhile. It carries on by itself when the picker closes.
   const labelling = nowLabelFor !== null || labelPickerFor !== null;
@@ -542,6 +577,11 @@ export function GameWatchView({
         toPeriod(Number(digit[1]), "quarter");
         return;
       }
+    }
+    if (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && e.code === "KeyG") {
+      e.preventDefault();
+      labelAgain();
+      return;
     }
     if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.code === "KeyF") {
       e.preventDefault();
@@ -816,6 +856,8 @@ export function GameWatchView({
                       const target = nowLabelFor ?? current;
                       return target ? labelPicker(target, trigger, nowLabelFor !== null, (open) => setNowLabelFor(open ? current : null), "top") : trigger;
                     }}
+                    lastLabel={lastLabel}
+                    onLabelAgain={labelAgain}
                     addRef={addButtonRef}
                     onAdd={addCurrent}
                     onSkip={skip}
