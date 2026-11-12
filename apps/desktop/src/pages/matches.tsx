@@ -1,18 +1,30 @@
 import { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Film, Plus } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { SearchField } from "@/components/ui/search-field";
-import { GroupedList } from "@/components/ui/group";
+import { GroupedList, GroupHeader } from "@/components/ui/group";
 import { EmptyState } from "@/components/empty-state";
 import { MatchRow } from "@/components/match-row";
 import { RelinkVideosDialog } from "@/components/relink-videos-dialog";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
-import { listMatchesLight } from "@/lib/matches-db";
+import { listMatchesLight, setMatchArchived } from "@/lib/matches-db";
 import { probeMatches, type VideoFileStatus } from "@/lib/video-probe";
 import { useAuth } from "@/lib/auth-context";
 import type { StoredMatch } from "@/types/match";
+
+function filterBySearch(list: StoredMatch[], search: string): StoredMatch[] {
+  if (!search.trim()) return list;
+  const q = search.toLowerCase();
+  return list.filter(
+    (m) =>
+      m.title.toLowerCase().includes(q) ||
+      m.homeTeam.name.toLowerCase().includes(q) ||
+      m.awayTeam.name.toLowerCase().includes(q)
+  );
+}
 
 export function MatchesPage() {
   const { activeOrgId, activeOrgRole, activeOrgIsPersonal, profileLoading } = useAuth();
@@ -21,6 +33,8 @@ export function MatchesPage() {
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  // Not remembered across visits: archived is the exception.
+  const [showArchived, setShowArchived] = useState(false);
   const [videoStatus, setVideoStatus] = useState<Map<string, VideoFileStatus>>(new Map());
 
   // Machine-switch detection: matches sync via the DB, but video files live
@@ -35,13 +49,20 @@ export function MatchesPage() {
     return () => { cancelled = true; };
   }, [matches]);
 
+  // The Library loads archived games too and splits them here, so the toggle
+  // is instant and the Archived group can show its count.
+  const active = useMemo(() => matches.filter((m) => !m.archivedAt), [matches]);
+  const archived = useMemo(() => matches.filter((m) => m.archivedAt), [matches]);
+
+  // Active games only: the Relink dialog never asks about archived ones (their
+  // rows still show the badge, probeMatches probes every game).
   const missingMatches = useMemo(
     () =>
-      matches.filter((m) => {
+      active.filter((m) => {
         const s = videoStatus.get(m.id);
         return s !== undefined && s !== "ok";
       }),
-    [matches, videoStatus],
+    [active, videoStatus],
   );
 
   useEffect(() => {
@@ -49,16 +70,8 @@ export function MatchesPage() {
     if (activeOrgId && !canAccess) navigate("/my-playlists", { replace: true });
   }, [activeOrgId, canAccess, profileLoading, navigate]);
 
-  const filtered = useMemo(() => {
-    if (!search.trim()) return matches;
-    const q = search.toLowerCase();
-    return matches.filter(
-      (m) =>
-        m.title.toLowerCase().includes(q) ||
-        m.homeTeam.name.toLowerCase().includes(q) ||
-        m.awayTeam.name.toLowerCase().includes(q)
-    );
-  }, [matches, search]);
+  const filteredActive = useMemo(() => filterBySearch(active, search), [active, search]);
+  const filteredArchived = useMemo(() => filterBySearch(archived, search), [archived, search]);
 
   useEffect(() => {
     if (!canAccess) return;
@@ -77,6 +90,45 @@ export function MatchesPage() {
 
   if (!profileLoading && !canAccess) return null;
 
+  // Archived games stay in the list: optimistic, then the database's own stamp.
+  // Undo brings the game back; bringing it back needs no toast, the row visibly moves.
+  async function setArchived(match: StoredMatch, archived: boolean) {
+    const setStamp = (archivedAt: string | undefined) =>
+      setMatches((ms) => ms.map((m) => (m.id === match.id ? { ...m, archivedAt } : m)));
+    setStamp(archived ? new Date().toISOString() : undefined);
+    let stored: string | null;
+    try {
+      stored = await setMatchArchived(match.id, archived);
+    } catch {
+      setStamp(match.archivedAt);
+      toast.error(archived ? "Couldn't archive the game" : "Couldn't bring the game back", {
+        description: "Check the connection and try again.",
+      });
+      return;
+    }
+    setStamp(stored ?? undefined);
+    if (archived) {
+      toast("Game archived", {
+        // Sonner's own description grey is unreadable on the dark themes.
+        description: <span className="text-muted-foreground">Clips from it stay in your playlists.</span>,
+        // The row as it is now, so a failed Undo puts it back in the Archived group.
+        action: { label: "Undo", onClick: () => void setArchived({ ...match, archivedAt: stored ?? undefined }, false) },
+      });
+    }
+  }
+
+  const searching = search.trim() !== "";
+  const archivedRowsShown = showArchived || searching;
+  const renderRow = (match: StoredMatch) => (
+    <MatchRow
+      key={match.id}
+      match={match}
+      videoStatus={videoStatus.get(match.id)}
+      onArchive={(a) => void setArchived(match, a)}
+      onDelete={() => setMatches((ms) => ms.filter((m) => m.id !== match.id))}
+    />
+  );
+
   const importButton = (
     <Button size="sm" asChild>
       <Link to="/upload">
@@ -90,7 +142,7 @@ export function MatchesPage() {
     <Page>
       <Toolbar
         title="Library"
-        subtitle={!loading && matches.length > 0 ? `${matches.length} games` : undefined}
+        subtitle={!loading && matches.length > 0 ? `${active.length} games` : undefined}
         search={
           !loading && matches.length > 0 ? (
             <SearchField
@@ -139,22 +191,50 @@ export function MatchesPage() {
             body="Import a game and every play becomes a clip, synced to the official play-by-play."
             action={importButton}
           />
-        ) : filtered.length === 0 ? (
+        ) : searching && filteredActive.length === 0 && filteredArchived.length === 0 ? (
           <EmptyState
             title="No games match your search"
             body="Try a different title or team name."
           />
         ) : (
-          <GroupedList>
-            {filtered.map((match) => (
-              <MatchRow
-                key={match.id}
-                match={match}
-                videoStatus={videoStatus.get(match.id)}
-                onDelete={() => setMatches((ms) => ms.filter((m) => m.id !== match.id))}
-              />
-            ))}
-          </GroupedList>
+          <div className="space-y-8">
+            {filteredActive.length > 0 ? (
+              <GroupedList>{filteredActive.map(renderRow)}</GroupedList>
+            ) : (
+              !searching && (
+                <EmptyState
+                  title="Every game is archived"
+                  body="Import a game, or show your archived games below."
+                  action={importButton}
+                />
+              )
+            )}
+            {archived.length > 0 && (!searching || filteredArchived.length > 0) && (
+              <section>
+                <GroupHeader
+                  title={
+                    <>
+                      Archived <span className="ml-1.5 font-normal text-muted-foreground nums">{archived.length}</span>
+                    </>
+                  }
+                  action={
+                    !searching && (
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        className="text-muted-foreground"
+                        aria-expanded={showArchived}
+                        onClick={() => setShowArchived((v) => !v)}
+                      >
+                        {showArchived ? "Hide" : "Show"}
+                      </Button>
+                    )
+                  }
+                />
+                {archivedRowsShown && <GroupedList>{filteredArchived.map(renderRow)}</GroupedList>}
+              </section>
+            )}
+          </div>
         )}
       </PageContent>
     </Page>

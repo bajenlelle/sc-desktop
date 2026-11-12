@@ -1191,6 +1191,12 @@ export function PlaylistsPage() {
   const matchLookupRef = useRef(matchLookup);
   useEffect(() => { matchLookupRef.current = matchLookup; }, [matchLookup]);
 
+  // Add clips lists games that aren't archived, plus the one a "Build a playlist" came from; all of them if that leaves none.
+  const addClipsMatches = useMemo((): StoredMatch[] => {
+    const shown = matches.filter((m) => !m.archivedAt || m.id === addClipsFrom);
+    return shown.length > 0 ? shown : matches;
+  }, [matches, addClipsFrom]);
+
   /**
    * Event lookup by `matchId:eventId`, built once per matches change.
    *
@@ -6198,7 +6204,7 @@ export function PlaylistsPage() {
           >
             <SheetContent>
               <ClipBrowserPanel
-                matches={matches}
+                matches={addClipsMatches}
                 matchLookup={matchLookup}
                 playlist={selected}
                 preferredMatchId={addClipsFrom}
