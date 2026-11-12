@@ -4451,11 +4451,11 @@ export function PlaylistsPage() {
 
         {/* Subfolders, then this folder's playlists */}
         {isExpanded && (
-          <div className="relative">
-            {/* Guide line: 1 px under the parent's chevron centre = the row's mx-2 (8) + its padding (8 + depth * FOLDER_INDENT) + half the 14 px chevron (7). */}
+          <div className="relative isolate">
+            {/* Guide line: 1 px under the parent's chevron centre = the row's mx-2 (8) + its padding (8 + depth * FOLDER_INDENT) + half the 14 px chevron (7), i.e. x = 23 + 14 * depth. isolate + -z-10 keep it behind the rows' backgrounds (a selected row would otherwise be cut by it). */}
             <span
               aria-hidden
-              className="pointer-events-none absolute inset-y-0 w-px bg-separator"
+              className="pointer-events-none absolute inset-y-0 -z-10 w-px bg-separator"
               style={{ left: 8 + 8 + depth * FOLDER_INDENT + 7 }}
             />
             {subfolders.map((sub) => renderFolderNode(sub, depth + 1))}
