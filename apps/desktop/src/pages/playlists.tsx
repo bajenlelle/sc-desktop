@@ -6170,7 +6170,7 @@ export function PlaylistsPage() {
               if (!open) setAddClipsFrom(null);
             }}
           >
-            <SheetContent>
+            <SheetContent onInteractOutside={(e) => e.preventDefault()}>
               <ClipBrowserPanel
                 matches={matches}
                 matchLookup={matchLookup}
