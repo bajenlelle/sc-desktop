@@ -15,6 +15,8 @@ const content = (cells: number, heading = "Alva Berg"): CardContent => ({
   })),
 });
 
+const NOTE = "Great closeouts all game and smart help from the weak side, keep talking on every switch and box out early";
+
 function inFrame(aspect: "16:9" | "9:16", runs: ReturnType<typeof layoutStatsCard>) {
   const { width } = CARD_SIZE[aspect];
   for (const r of runs) {
@@ -98,6 +100,33 @@ describe("layoutStatsCard", () => {
     expect(runs).toHaveLength(3);
     const mid = (runs[0].y - runs[0].px * 0.72 + runs[2].y) / 2;
     expect(Math.abs(mid - 330)).toBeLessThan(2);
+  });
+
+  it("wraps a note under the cells, inside the band", () => {
+    for (const [aspect, bottom, max] of [["16:9", 600, 28], ["9:16", 1140, 38]] as const) {
+      const runs = layoutStatsCard({ ...content(6), note: NOTE }, aspect, measure);
+      const note = runs.slice(3 + 12);
+      expect(note.length).toBeGreaterThanOrEqual(2);
+      expect(note.length).toBeLessThanOrEqual(3);
+      expect(note.every((r) => r.weight === "regular" && r.px <= max)).toBe(true);
+      expect(Math.min(...note.map((r) => r.y))).toBeGreaterThan(Math.max(...runs.slice(0, 15).map((r) => r.y)));
+      expect(Math.max(...runs.map((r) => r.y))).toBeLessThan(bottom);
+      inFrame(aspect, runs);
+    }
+  });
+
+  it("shrinks a long note to three lines and ends it with an ellipsis", () => {
+    const runs = layoutStatsCard({ ...content(6), note: `${NOTE} ${NOTE} ${NOTE}` }, "9:16", measure);
+    const note = runs.slice(3 + 12);
+    expect(note).toHaveLength(3);
+    expect(note[2].text.endsWith("…")).toBe(true);
+    expect(note[0].px).toBeGreaterThanOrEqual(30);
+    inFrame("9:16", runs);
+  });
+
+  it("cuts a word wider than the card", () => {
+    const runs = layoutStatsCard({ ...content(3), note: "x".repeat(140) }, "16:9", measure);
+    inFrame("16:9", runs);
   });
 });
 

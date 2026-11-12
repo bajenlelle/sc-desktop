@@ -279,10 +279,11 @@ export function createStatsCardLoader({ fetchPage, onLayoutError }: StatsCardLoa
 // Building cards
 // ---------------------------------------------------------------------------
 
-/** What survives a change of player, game or scope: the overrides, and hand-picked columns. */
+/** What survives a change of player, game or scope: the overrides, the note, and hand-picked columns. */
 export interface CardKeep {
   heading?: string | null;
   details?: string | null;
+  note?: string | null;
   /** Only when the player picked them; otherwise the new line's defaults apply. */
   columns?: StatKey[];
 }
@@ -309,6 +310,7 @@ export function makeGameCard(match: StoredMatch, stats: GameStats, option: Stats
     columns: [],
     heading: keep.heading ?? null,
     details: keep.details ?? null,
+    ...(keep.note ? { note: keep.note } : {}),
     asOf: new Date().toISOString(),
   };
   const kept = keep.columns ? normalizeColumns(keep.columns, card) : [];
@@ -328,6 +330,7 @@ export function makeSeasonCard(season: StatsCardSeason, player: StatsCardPlayer,
     columns: [],
     heading: keep.heading ?? null,
     details: keep.details ?? null,
+    ...(keep.note ? { note: keep.note } : {}),
     asOf: new Date().toISOString(),
   };
   const kept = keep.columns ? normalizeColumns(keep.columns, card) : [];

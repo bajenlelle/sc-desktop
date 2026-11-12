@@ -459,6 +459,8 @@ describe("makeGameCard", () => {
     expect(kept.heading).toBe("Player of the game");
     expect(kept.details).toBe("#21");
     expect(kept.columns).toEqual(["pts", "min", "pm"]); // card order, once each
+    expect(makeGameCard(match, stats, option, 41539, { note: "Watch the closeouts" }).note).toBe("Watch the closeouts");
+    expect("note" in makeGameCard(match, stats, option, 41539)).toBe(false);
     // None of these exist on a game line, so the defaults apply.
     const fresh = makeGameCard(match, stats, option, 41539, { columns: ["gp"] as StatKey[] });
     expect(fresh.columns).toEqual(defaultColumns(fresh));

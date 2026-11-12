@@ -8,7 +8,7 @@
  * show a plain text card instead of losing it.
  *
  * Official numbers only: the line is a snapshot of the source, never edited;
- * players choose the columns and may override the heading and details.
+ * players choose the columns, may override the heading and details, and may add a note.
  */
 import type { PlayByPlayEvent } from "../types/match";
 import { playerName } from "./events";
@@ -16,6 +16,7 @@ import { gameEfficiency, gameRebounds, type GameLine, type SeasonLine } from "./
 
 export const STATS_CARD_VERSION = 1 as const;
 export const MAX_STAT_COLUMNS = 6;
+export const STATS_CARD_NOTE_MAX = 140;
 
 export type StatsCardScope = "game" | "season";
 /** Where the numbers came from: the official hosted pages, our play-by-play, or Profixio's. */
@@ -61,6 +62,8 @@ interface StatsCardBase {
   /** Overrides; null means automatic, so a new player or game rewrites them. */
   heading: string | null;
   details: string | null;
+  /** The coach's own words under the numbers; null or absent means none. */
+  note?: string | null;
   /** When the numbers were read (ISO). */
   asOf: string;
 }
@@ -299,6 +302,8 @@ export interface CardContent {
   details: string;
   context: string;
   cells: CardCell[];
+  /** Present only when the card has one. */
+  note?: string;
 }
 
 export function cardContent(card: StatsCardSpec): CardContent {
@@ -306,11 +311,14 @@ export function cardContent(card: StatsCardSpec): CardContent {
     value: formatStat(key, card)!,
     label: statLabel(key),
   }));
+  const note = card.note?.trim();
   return {
     heading: card.heading?.trim() || card.player.name,
     details: card.details?.trim() ?? autoDetails(card.player),
     context: cardContext(card),
     cells,
+    // Only when set, so a card without a note keeps its content key (send-to-phone links).
+    ...(note ? { note } : {}),
   };
 }
 
@@ -319,7 +327,7 @@ export function fallbackText(card: StatsCardSpec): string {
   const content = cardContent(card);
   const stats = content.cells.map((c) => `${c.value} ${c.label}`);
   const where = card.scope === "game" ? opponentLabel(card.game) : `season averages, ${card.season.label}`;
-  return [content.heading, ...stats, where].join(" · ");
+  return [content.heading, ...stats, where, ...(content.note ? [content.note] : [])].join(" · ");
 }
 
 // ---------------------------------------------------------------------------
@@ -374,6 +382,7 @@ export function parseCardSpec(raw: unknown): StatsCardSpec | null {
     player,
     heading: strOrNull(raw.heading),
     details: strOrNull(raw.details),
+    ...(typeof raw.note === "string" && raw.note.trim() ? { note: raw.note.slice(0, STATS_CARD_NOTE_MAX) } : {}),
     asOf: typeof raw.asOf === "string" ? raw.asOf : "",
   };
 
