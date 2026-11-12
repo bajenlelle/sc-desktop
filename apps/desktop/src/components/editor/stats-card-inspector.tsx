@@ -353,10 +353,19 @@ export function StatsCardInspector({
           maxLength={STATS_CARD_NOTE_MAX}
           placeholder="Add a note to the card"
           value={spec.note ?? ""}
+          // Return does nothing in a one-line note. Stopping it here, rather than rewriting
+          // the value in onChange, keeps the cursor where it is; onChange only flattens pastes.
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.preventDefault();
+          }}
           onChange={(e) => onChange({ ...spec, note: e.target.value.replace(/\s*\n\s*/g, " ") || null })}
           className="min-h-0 px-2 py-1"
         />
-        {noteLeft <= 20 && <span className="text-caption text-muted-foreground nums">{`${noteLeft} characters left`}</span>}
+        {noteLeft <= 20 && (
+          <span aria-live="polite" className="text-caption text-muted-foreground nums">
+            {`${noteLeft} ${noteLeft === 1 ? "character" : "characters"} left`}
+          </span>
+        )}
       </div>
       </>
       )}

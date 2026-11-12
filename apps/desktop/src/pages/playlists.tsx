@@ -1599,11 +1599,11 @@ export function PlaylistsPage() {
 
   /**
    * The one way a clip's own length changes (Reset, a trim, an only-this-clip Fix sync):
-   * applied at once, saved, and put back with a toast if the save fails.
+   * applied at once, saved, and put back with a toast if the save fails; true once the
+   * offsets are saved (the shared upload may still be catching up).
    * An upload recipients already have was cut at the old length, so it is
    * cleared and, in a shared playlist, made again with the new cut.
    */
-  /** Saves a clip's own offsets; true once they are saved (the shared upload may still be catching up). */
   async function commitClipOffsets(matchId: string, eventId: number, pre: number, post: number): Promise<boolean> {
     const before = selectedRef.current;
     if (!before) return false;
