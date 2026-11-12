@@ -592,7 +592,7 @@ export async function setMatchArchived(
     .update({ archived_at: archived ? new Date().toISOString() : null })
     .eq("id", matchId)
     .select("archived_at");
-  if (error) throw new Error(`Failed to archive game: ${error.message}`);
+  if (error) throw new Error(`Failed to change the game's archive state: ${error.message}`);
   // Zero rows means RLS filtered the update away (not this user's game, or a
   // stale id): without this check the game would look archived until the next
   // load, as with updateVideoUrl.

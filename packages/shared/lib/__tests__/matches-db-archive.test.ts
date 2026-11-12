@@ -48,6 +48,6 @@ describe("setMatchArchived", () => {
 
   it("a database error throws", async () => {
     const { client } = mockClient({ data: null, error: { message: "boom" } });
-    await expect(setMatchArchived(client, "m1", true)).rejects.toThrow("Failed to archive game: boom");
+    await expect(setMatchArchived(client, "m1", true)).rejects.toThrow("Failed to change the game's archive state: boom");
   });
 });
