@@ -249,7 +249,8 @@ export function GamePlayList({
             aria-label="Plays"
             onScroll={onScroll}
             onContextMenu={onContextMenu}
-            className="min-h-0 flex-1 overflow-y-auto pb-4"
+            // Room for the selection's pill under the last row, as in the editor.
+            className={cn("min-h-0 flex-1 overflow-y-auto", selecting ? "pb-16" : "pb-4")}
           >
             {rows.map((row) => {
               if (row.kind === "play") {

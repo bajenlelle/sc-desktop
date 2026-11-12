@@ -56,10 +56,8 @@ export function GamePlayMenuContent({
       {target && (
         <ContextMenuItem
           disabled={allIn}
-          onSelect={() => {
-            collect.add(plays, "menu", moment, anchor);
-            onDone?.();
-          }}
+          // `onDone` once the plays are in, not before: an add that has to ask for a playlist first keeps the selection.
+          onSelect={() => collect.add(plays, "menu", moment, anchor, onDone)}
         >
           <span className="min-w-0 truncate">
             {allIn

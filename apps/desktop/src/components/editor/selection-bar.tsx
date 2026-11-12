@@ -48,6 +48,7 @@ export function SelectionBar({
   count,
   onRemove,
   onClear,
+  clearTitle = "Deselect all (Esc, or click empty space in the list)",
   group,
   labelPicker,
   addTo,
@@ -56,6 +57,8 @@ export function SelectionBar({
   /** Without it, no Remove: the game view's selection is of plays, not of a playlist's clips. */
   onRemove?: () => void;
   onClear: () => void;
+  /** The clear button's tooltip: the ways to let go of the selection where the bar is. */
+  clearTitle?: string;
   group: SelectionGroupAction | null;
   labelPicker?: React.ReactNode;
   addTo: React.ReactNode;
@@ -96,7 +99,7 @@ export function SelectionBar({
             {labelPicker}
             {addTo}
             <span aria-hidden className="mx-0.5 h-4 w-px shrink-0 bg-separator" />
-            <PillButton icon aria-label="Deselect all" title="Deselect all (Esc, or click empty space in the list)" onClick={onClear}>
+            <PillButton icon aria-label="Deselect all" title={clearTitle} onClick={onClear}>
               <X />
             </PillButton>
           </div>

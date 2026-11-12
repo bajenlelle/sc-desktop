@@ -52,7 +52,7 @@ export function useCollect({
   /** `${playlistId}|${clipKey}` of every clip this visit added. */
   const [addedHere, setAddedHere] = useState<ReadonlySet<string>>(() => new Set());
   const [addedTotal, setAddedTotal] = useState(0);
-  const pendingRef = useRef<{ plays: readonly TimedPlay[]; via: CollectVia; moment: string | null } | null>(null);
+  const pendingRef = useRef<{ plays: readonly TimedPlay[]; via: CollectVia; moment: string | null; onAdded?: () => void } | null>(null);
   /** What the server holds for each playlist: the base every write goes from. */
   const saved = useRef(new Map<string, PlaylistItem[]>());
   const chains = useRef(new Map<string, Promise<void>>());
@@ -195,16 +195,20 @@ export function useCollect({
 
   /**
    * Adds plays to the target; with none chosen yet, opens the picker (from
-   * `anchor`, the control that was pressed) and adds them once one is.
+   * `anchor`, the control that was pressed, or its own button when null) and
+   * adds them once one is. `onAdded` runs once the plays went in: at once
+   * with a target, after the choice without one, never when the picker is
+   * dismissed (a selection they came from stays).
    */
   const add = useCallback(
-    (plays: readonly TimedPlay[], via: CollectVia, moment: string | null = null, anchor: HTMLElement | null = null) => {
+    (plays: readonly TimedPlay[], via: CollectVia, moment: string | null = null, anchor: HTMLElement | null = null, onAdded?: () => void) => {
       if (plays.length === 0) return;
       if (target) {
         addToPlaylist(target, plays, via, moment, true);
+        onAdded?.();
         return;
       }
-      pendingRef.current = { plays, via, moment };
+      pendingRef.current = { plays, via, moment, onAdded };
       setPickerAnchor(anchor);
       setPickerOpenState(true);
     },
@@ -226,7 +230,10 @@ export function useCollect({
       setCollectTarget(match.id, playlist.id);
       setPickerOpenState(false);
       trackEvent("collect_target_set", { source, shared: playlistIsShared(playlist), via: pending?.via ?? "toolbar" });
-      if (pending) addToPlaylist(playlist, pending.plays, pending.via, pending.moment, true);
+      if (pending) {
+        addToPlaylist(playlist, pending.plays, pending.via, pending.moment, true);
+        pending.onAdded?.();
+      }
     },
     [match.id, addToPlaylist],
   );

@@ -274,6 +274,14 @@ export function GameWatchView({
     anchorRef.current = null;
     extendFocusRef.current = null;
   }
+  // Playback drives the current row: once it moves on (playing through, a marker, a quarter, the timeline), Shift+arrows
+  // extend from the play it reached, not from where the last click or Shift move left off.
+  useEffect(() => {
+    if (playback.activeKey !== extendFocusRef.current) {
+      anchorRef.current = null;
+      extendFocusRef.current = null;
+    }
+  }, [playback.activeKey]);
 
   const setSpeed = useCallback((next: number) => {
     setSpeedState(next);
@@ -1051,15 +1059,15 @@ export function GameWatchView({
                   <SelectionBar
                     count={selected.size}
                     onClear={clearSelection}
+                    clearTitle="Deselect all (Esc)"
                     group={null}
                     addTo={
                       <>
                         <PillButton
                           title={collect.target ? `Add ${selected.size} ${selected.size === 1 ? "play" : "plays"} to ${collect.target.name}` : "Add to playlist…"}
-                          onClick={(e) => {
-                            collect.add(selectedPlays, "selection", filters.moment, e.currentTarget);
-                            clearSelection();
-                          }}
+                          // With no target the picker opens from its own button (the pill leaves with the selection), and
+                          // the selection stays until a playlist is chosen and the plays are in: dismissed, nothing is lost.
+                          onClick={() => collect.add(selectedPlays, "selection", filters.moment, null, clearSelection)}
                         >
                           <Plus />
                           {collect.target ? (
