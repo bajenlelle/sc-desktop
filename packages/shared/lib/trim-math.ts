@@ -105,15 +105,3 @@ export function formatSeconds(n: number): string {
   const t = tenths(n) || 0;
   return `${Number.isInteger(t) ? t : t.toFixed(1)} s`;
 }
-
-/**
- * A ± stepper over a value a trim made fractional lands on whole seconds
- * first: from 8.5, up is 9 and down is 8 (not 9.5 and 7.5). `next` is the
- * stepper's own proposal, which only says which way it went.
- */
-export function stepToWhole(value: number, next: number): number {
-  const EPS = 0.001;
-  if (next > value) return Math.floor(value + EPS) + 1;
-  if (next < value) return Math.ceil(value - EPS) - 1;
-  return value;
-}

@@ -152,7 +152,7 @@ import { PlayerStage } from "@/components/editor/player-stage";
 import { usePersistentVideo } from "@/components/editor/use-persistent-video";
 import { ClipRow, TextCardRow } from "@/components/editor/clip-rows";
 import { ClipTrimmer, type TrimWindow } from "@/components/editor/clip-trimmer";
-import { formatSeconds, offsetsForTrim, shiftedClipOffsets, stepToWhole } from "@scoutable/shared/lib/trim-math";
+import { offsetsForTrim, shiftedClipOffsets } from "@scoutable/shared/lib/trim-math";
 import { Kbd } from "@/components/ui/kbd";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
@@ -171,7 +171,6 @@ import { Callout } from "@/components/ui/group";
 import { EmptyState } from "@/components/empty-state";
 import { SearchField } from "@/components/ui/search-field";
 import { ShareRecipients } from "@/components/playlist/share-recipients";
-import { Stepper } from "@/components/ui/stepper";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { AddToPopover } from "@/components/editor/add-to-popover";
 import { BROWSER_WIDTH, BrowserColumn } from "@/components/editor/browser-column";
@@ -1576,10 +1575,7 @@ export function PlaylistsPage() {
     videoRef.current?.pause();
   }, []);
 
-  /**
-   * The steppers and Reset: the playing clip's own length, applied to the
-   * clip while it plays.
-   */
+  /** Reset: the playing clip back to the playlist's clip length, applied while it plays. */
   function adjustActiveClip(preDelta: number, postDelta: number) {
     if (!selected || !activeClipKey) return;
     const { matchId, eventId } = activeClipKey;
@@ -1602,7 +1598,7 @@ export function PlaylistsPage() {
   }
 
   /**
-   * The one way a clip's own length changes (the steppers, Reset, a trim):
+   * The one way a clip's own length changes (Reset, a trim, an only-this-clip Fix sync):
    * applied at once, saved, and put back with a toast if the save fails.
    * An upload recipients already have was cut at the old length, so it is
    * cleared and, in a shared playlist, made again with the new cut.
@@ -5275,8 +5271,6 @@ export function PlaylistsPage() {
                 onReset={() => setActiveClipCropKeyframes(null)}
               />
             )}
-            {/* This clip's own length: the playlist's clip length plus the
-                clip's offsets, shown as the seconds that actually play. */}
             {slowSection && !draw.session && activeClipCrop.start !== null && (
               <SlowBar
                 section={slowSection}
@@ -5303,35 +5297,9 @@ export function PlaylistsPage() {
               />
             )}
             {activeEventId !== null && !draw.session && !slowSection && (() => {
-              // A trim can leave fractions: shown to the tenth, and the
-              // steppers move on to whole seconds from there.
-              const before = preRoll + activeClipOffsets.pre;
-              const after = postRoll + activeClipOffsets.post;
               return (
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1">
                   <span className="text-callout text-muted-foreground">This clip</span>
-                  <div className="flex items-center gap-1.5">
-                    <Stepper
-                      label="Seconds before the play"
-                      value={before}
-                      min={0}
-                      disabled={!!trim}
-                      onChange={(n) => adjustActiveClip(stepToWhole(before, n) - before, 0)}
-                      format={formatSeconds}
-                    />
-                    <span className="text-callout text-muted-foreground">before</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <Stepper
-                      label="Seconds after the play"
-                      value={after}
-                      min={0}
-                      disabled={!!trim}
-                      onChange={(n) => adjustActiveClip(0, stepToWhole(after, n) - after)}
-                      format={formatSeconds}
-                    />
-                    <span className="text-callout text-muted-foreground">after</span>
-                  </div>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="xs" disabled={!!trim || !!activeTextCard} onClick={() => enterDraw()}>
@@ -5387,14 +5355,20 @@ export function PlaylistsPage() {
                     <TooltipContent>Play at the wrong moment? Move this clip, or every clip of the game</TooltipContent>
                   </Tooltip>
                   {(activeClipOffsets.pre !== 0 || activeClipOffsets.post !== 0) && !trim && (
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => adjustActiveClip(-activeClipOffsets.pre, -activeClipOffsets.post)}
-                      title={`Back to the playlist's ${preRoll} s before and ${postRoll} s after. Also undoes a Fix sync made for this clip alone.`}
-                    >
-                      Reset
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          onClick={() => adjustActiveClip(-activeClipOffsets.pre, -activeClipOffsets.post)}
+                        >
+                          Reset trim
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {`Back to the playlist's clip length (${preRoll} s before, ${postRoll} s after). Also undoes a Fix sync made for this clip alone.`}
+                      </TooltipContent>
+                    </Tooltip>
                   )}
                 </div>
               );
