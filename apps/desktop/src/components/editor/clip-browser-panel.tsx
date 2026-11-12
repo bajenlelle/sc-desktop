@@ -14,6 +14,15 @@ import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } f
 import { labelForKey, labelKeySlot } from "@scoutable/shared/lib/label-keys";
 import { clickSelection, extendSelection, moveFocus, type FocusMove } from "@scoutable/shared/lib/list-selection";
 import { orderForAdd, startGame } from "@scoutable/shared/lib/add-clips-games";
+import {
+  EMPTY_CLIP_FILTERS,
+  EVENT_TYPE_OPTIONS,
+  SHOT_TYPE_OPTIONS,
+  SITUATION_OPTIONS,
+  applyClipFilters,
+  toggleFilter,
+  type ClipFilters,
+} from "@scoutable/shared/lib/clip-filters";
 import type { PlayByPlayEvent, Playlist, PlaylistClipItem, StoredMatch } from "@/types/match";
 import { isClipItem } from "@/types/match";
 import { toast } from "sonner";
@@ -47,84 +56,8 @@ import { usePersistentVideo } from "./use-persistent-video";
 // Filter vocabulary
 // ---------------------------------------------------------------------------
 
-const EVENT_TYPE_OPTIONS = [
-  { value: "2pt-made", label: "2PT made" },
-  { value: "2pt-miss", label: "2PT miss" },
-  { value: "3pt-made", label: "3PT made" },
-  { value: "3pt-miss", label: "3PT miss" },
-  { value: "freethrow-made", label: "FT made" },
-  { value: "freethrow-miss", label: "FT miss" },
-  { value: "rebound-off", label: "Off. rebound" },
-  { value: "rebound-def", label: "Def. rebound" },
-  { value: "turnover", label: "Turnover" },
-  { value: "steal", label: "Steal" },
-  { value: "assist", label: "Assist" },
-  { value: "foul", label: "Foul" },
-  { value: "foulon", label: "Foul drawn" },
-  { value: "block", label: "Block" },
-];
-
-const SHOT_TYPE_OPTIONS = [
-  { value: "subtype:layup", label: "Layup" },
-  { value: "subtype:floater", label: "Floater" },
-  { value: "subtype:jumpshot", label: "Jump shot" },
-  { value: "subtype:dunk", label: "Dunk / alley-oop" },
-  { value: "subtype:tipin", label: "Tip-in" },
-];
-
-const SITUATION_OPTIONS = [
-  { value: "qual:fastbreak", label: "Fast break" },
-  { value: "qual:pointsinthepaint", label: "In the paint" },
-  { value: "qual:2ndchance", label: "2nd chance" },
-  { value: "qual:fromturnover", label: "From turnover" },
-  { value: "qual:shooting", label: "Shooting foul" },
-  { value: "subtype:charge", label: "Charge" },
-  { value: "subtype:technical", label: "Technical foul" },
-  { value: "subtype:badpass", label: "Bad pass" },
-  { value: "subtype:ballhandling", label: "Ball handling" },
-  { value: "subtype:travel", label: "Travel" },
-  { value: "subtype:24sec", label: "Shot clock" },
-];
-
-function matchesSingleType(e: PlayByPlayEvent, filter: string): boolean {
-  if (filter === "rebound-off") return e.type === "rebound" && e.subType === "offensive";
-  if (filter === "rebound-def") return e.type === "rebound" && e.subType === "defensive";
-  if (filter === "rebound-inbound") return e.type === "rebound" && e.subType === "offensivedeadball";
-  const [type, outcome] = filter.split("-");
-  if (e.type !== type) return false;
-  if (outcome === "made") return e.isSuccessful === 1;
-  if (outcome === "miss") return e.isSuccessful === 0;
-  return true;
-}
-
-function matchesShotType(e: PlayByPlayEvent, f: string): boolean {
-  const sub = e.subType ?? "";
-  switch (f) {
-    case "subtype:layup":    return ["layup", "drivinglayup", "reverselayup"].includes(sub);
-    case "subtype:floater":  return sub === "floatingjumpshot";
-    case "subtype:jumpshot": return ["jumpshot", "pullupjumpshot", "turnaroundjumpshot", "fadeaway", "stepbackjumpshot", "hookshot"].includes(sub);
-    case "subtype:dunk":     return ["dunk", "alleyoop", "alleyoopdunk"].includes(sub);
-    case "subtype:tipin":    return ["tipinlayup", "tipindunk"].includes(sub);
-    default: return false;
-  }
-}
-
-function matchesSituation(e: PlayByPlayEvent, f: string): boolean {
-  switch (f) {
-    case "qual:fastbreak":        return e.qualifiers.includes("fastbreak");
-    case "qual:pointsinthepaint": return e.qualifiers.includes("pointsinthepaint");
-    case "qual:2ndchance":        return e.qualifiers.includes("2ndchance");
-    case "qual:fromturnover":     return e.qualifiers.includes("fromturnover");
-    case "qual:shooting":         return e.type === "foul" && e.qualifiers.includes("shooting");
-    case "subtype:charge":        return e.type === "foul" && e.subType === "offensive";
-    case "subtype:technical":     return e.type === "foul" && ["technical", "benchTechnical", "coachTechnical"].includes(e.subType ?? "");
-    case "subtype:badpass":       return e.type === "turnover" && e.subType === "badpass";
-    case "subtype:ballhandling":  return e.type === "turnover" && e.subType === "ballhandling";
-    case "subtype:travel":        return e.type === "turnover" && e.subType === "travel";
-    case "subtype:24sec":         return e.type === "turnover" && e.subType === "24sec";
-    default: return false;
-  }
-}
+// No Timeout chip: timeouts live in game marks, not in the play-by-play, so it would match nothing.
+const BROWSER_TYPE_OPTIONS = EVENT_TYPE_OPTIONS.filter((o) => o.value !== "timeout");
 
 // ---------------------------------------------------------------------------
 // A row in the browser
@@ -341,12 +274,10 @@ export function ClipBrowserPanel({
     };
   }, [filterMatchId, matchIdsKey, onNeedEvents, onNeedLabels]);
 
-  const [filterTypes, setFilterTypes] = useState<Set<string>>(new Set());
-  const [filterSubTypes, setFilterSubTypes] = useState<Set<string>>(new Set());
-  const [filterSituations, setFilterSituations] = useState<Set<string>>(new Set());
-  const [filterTeams, setFilterTeams] = useState<Set<string>>(new Set());
-  const [filterPlayers, setFilterPlayers] = useState<Set<string>>(new Set());
-  const [filterLabelIds, setFilterLabelIds] = useState<Set<string>>(new Set());
+  const [filters, setFilters] = useState<ClipFilters>(EMPTY_CLIP_FILTERS);
+  // One group's setter, for the dropdowns and chips.
+  const setGroup = (group: keyof ClipFilters) => (next: ReadonlySet<string>) =>
+    setFilters((f) => ({ ...f, [group]: next }));
   const [preRoll, setPreRoll] = useState(10);
   const [postRoll, setPostRoll] = useState(3);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set()); // "matchId:eventId"
@@ -398,46 +329,33 @@ export function ClipBrowserPanel({
     if (!wanted || teams.length === 0) return;
     pendingTeamsRef.current = null;
     const kept = wanted.filter((t) => teams.includes(t));
-    if (kept.length > 0) setFilterTeams(new Set(kept));
+    if (kept.length > 0) setFilters((f) => ({ ...f, teams: new Set(kept) }));
   }, [teams]);
   const players = useMemo(() => {
-    const source = filterTeams.size > 0
-      ? allEvents.filter(({ event }) => filterTeams.has(event.eventTeam?.teamName ?? ""))
+    const source = filters.teams.size > 0
+      ? allEvents.filter(({ event }) => filters.teams.has(event.eventTeam?.teamName ?? ""))
       : allEvents;
     return Array.from(new Set(
       source.map((x) => (x.event.player ? playerName(x.event) : null)).filter(Boolean) as string[],
     ));
-  }, [allEvents, filterTeams]);
+  }, [allEvents, filters.teams]);
   // Same Game + Team narrowing as the players list, so the Leaders popover
   // never offers a player the Team filter would immediately hide.
   const leaderEvents = useMemo(() => {
-    const source = filterTeams.size > 0
-      ? allEvents.filter(({ event }) => filterTeams.has(event.eventTeam?.teamName ?? ""))
+    const source = filters.teams.size > 0
+      ? allEvents.filter(({ event }) => filters.teams.has(event.eventTeam?.teamName ?? ""))
       : allEvents;
     return source.map((x) => x.event);
-  }, [allEvents, filterTeams]);
+  }, [allEvents, filters.teams]);
 
   const handleLeaderToggle = useCallback((name: string) => {
-    setFilterPlayers((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
+    setFilters((f) => toggleFilter(f, "players", name));
   }, []);
 
-  const filtered = useMemo(() => allEvents.filter(({ event, matchId }) => {
-    if (filterTypes.size > 0 && !Array.from(filterTypes).some((f) => matchesSingleType(event, f))) return false;
-    if (filterSubTypes.size > 0 && !Array.from(filterSubTypes).some((f) => matchesShotType(event, f))) return false;
-    if (filterSituations.size > 0 && !Array.from(filterSituations).some((f) => matchesSituation(event, f))) return false;
-    if (filterTeams.size > 0 && !filterTeams.has(event.eventTeam?.teamName ?? "")) return false;
-    if (filterPlayers.size > 0 && !filterPlayers.has(playerName(event))) return false;
-    if (filterLabelIds.size > 0) {
-      const assigned = labelAssignments.get(`${matchId}:${event.eventId}`);
-      if (!assigned || ![...filterLabelIds].some((id) => assigned.has(id))) return false;
-    }
-    return true;
-  }), [allEvents, filterTypes, filterSubTypes, filterSituations, filterTeams, filterPlayers, filterLabelIds, labelAssignments]);
+  const filtered = useMemo(
+    () => applyClipFilters(allEvents, filters, (x) => labelAssignments.get(`${x.matchId}:${x.event.eventId}`)),
+    [allEvents, filters, labelAssignments],
+  );
 
   const selectedClipKeyPairs = useMemo<ClipKey[]>(() => {
     const out: ClipKey[] = [];
@@ -470,14 +388,12 @@ export function ClipBrowserPanel({
   function handleGameChange(newMatchId: string | null) {
     pendingTeamsRef.current = null;
     setFilterMatchId(newMatchId);
-    setFilterTeams(new Set());
-    setFilterPlayers(new Set());
+    setFilters((f) => ({ ...f, teams: new Set(), players: new Set() }));
     if (newMatchId) setAddClipsScope(playlist.id, { gameId: newMatchId, teams: [] });
   }
 
   function handleTeamChange(newTeams: Set<string>) {
     pendingTeamsRef.current = null;
-    setFilterTeams(newTeams);
     if (filterMatchId) setAddClipsScope(playlist.id, { gameId: filterMatchId, teams: [...newTeams] });
     const source = newTeams.size > 0
       ? allEvents.filter(({ event }) => newTeams.has(event.eventTeam?.teamName ?? ""))
@@ -485,7 +401,7 @@ export function ClipBrowserPanel({
     const validPlayers = new Set(
       source.map((x) => (x.event.player ? playerName(x.event) : null)).filter(Boolean) as string[],
     );
-    setFilterPlayers((prev) => new Set([...prev].filter((p) => validPlayers.has(p))));
+    setFilters((f) => ({ ...f, teams: newTeams, players: new Set([...f.players].filter((p) => validPlayers.has(p))) }));
   }
 
   // Keep ref for the key handler (avoids stale closures)
@@ -1007,26 +923,26 @@ export function ClipBrowserPanel({
       <div className="flex shrink-0 flex-col gap-2 border-b border-separator px-5 pb-3">
         <div className="flex flex-wrap items-center gap-2">
           <GamePicker matches={matches} items={playlist.items} value={filterMatchId} onChange={handleGameChange} />
-          <MultiSelectDropdown options={SHOT_TYPE_OPTIONS} selected={filterSubTypes} onChange={setFilterSubTypes} placeholder="Shot type" />
-          <MultiSelectDropdown options={SITUATION_OPTIONS} selected={filterSituations} onChange={setFilterSituations} placeholder="Situation" />
+          <MultiSelectDropdown options={SHOT_TYPE_OPTIONS} selected={filters.shotTypes} onChange={setGroup("shotTypes")} placeholder="Shot type" />
+          <MultiSelectDropdown options={SITUATION_OPTIONS} selected={filters.situations} onChange={setGroup("situations")} placeholder="Situation" />
           <MultiSelectDropdown
             options={teams.map((t) => ({ value: t, label: t }))}
-            selected={filterTeams}
+            selected={filters.teams}
             onChange={handleTeamChange}
             placeholder="Team"
           />
           <MultiSelectDropdown
             options={players.map((p) => ({ value: p, label: p }))}
-            selected={filterPlayers}
-            onChange={setFilterPlayers}
+            selected={filters.players}
+            onChange={setGroup("players")}
             placeholder="Player"
           />
-          <LeadersPopover events={leaderEvents} selectedPlayers={filterPlayers} onTogglePlayer={handleLeaderToggle} />
+          <LeadersPopover events={leaderEvents} selectedPlayers={filters.players} onTogglePlayer={handleLeaderToggle} />
           {labels.length > 0 && (
             <MultiSelectDropdown
               options={labels.map((l) => ({ value: l.id, label: l.name }))}
-              selected={filterLabelIds}
-              onChange={setFilterLabelIds}
+              selected={filters.labels ?? EMPTY_CLIP_FILTERS.labels!}
+              onChange={setGroup("labels")}
               placeholder="Labels"
             />
           )}
@@ -1061,7 +977,7 @@ export function ClipBrowserPanel({
             </Popover>
           </div>
         </div>
-        <EventTypeChips options={EVENT_TYPE_OPTIONS} selected={filterTypes} onChange={setFilterTypes} />
+        <EventTypeChips options={BROWSER_TYPE_OPTIONS} selected={filters.types} onChange={setGroup("types")} />
       </div>
 
       {/* Content: events | preview */}

@@ -87,8 +87,8 @@ export function MultiSelectDropdown({
   onChange,
   placeholder,
 }: {
-  options: { value: string; label: string }[];
-  selected: Set<string>;
+  options: readonly { value: string; label: string }[];
+  selected: ReadonlySet<string>;
   onChange: (next: Set<string>) => void;
   placeholder: string;
 }) {
