@@ -275,3 +275,18 @@ export function playersByTeam(events: readonly PlayByPlayEvent[]): PlayerGroup[]
   for (const [teamName, group] of groups) out.push({ teamName, players: [...group.values()].sort(byNumberThenName) });
   return [...out.filter((g) => g.teamName !== ""), ...out.filter((g) => g.teamName === "")];
 }
+
+/** matchesClipFilters, reading `players` as playerKey()s instead of names. */
+export function matchesClipFiltersByKey(e: PlayByPlayEvent, f: ClipFilters): boolean {
+  return matchesClipFilters(e, { ...f, players: new Set() }) && (f.players.size === 0 || f.players.has(playerKey(e) ?? ""));
+}
+
+/** applyClipFilters, reading `players` as playerKey()s. */
+export function applyClipFiltersByKey<T extends { event: PlayByPlayEvent }>(
+  entries: readonly T[],
+  f: ClipFilters,
+  labelsOf?: (entry: T) => ReadonlySet<string> | undefined,
+): T[] {
+  if (!hasActiveFilters(f)) return [...entries];
+  return entries.filter((x) => matchesClipFiltersByKey(x.event, f) && matchesLabelFilter(labelsOf?.(x), f.labels));
+}

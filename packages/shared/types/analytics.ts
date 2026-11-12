@@ -134,6 +134,7 @@ export type AnalyticsEvent =
   // Clip browser
   | "clip_leaders_used" // player picked from the Leaders popover (props: metric)
   | "clip_browser_opened" // the Add clips sheet opened; start (remembered | most_clips | newest), games_in_playlist
+  | "clip_browser_games_set" // games (how many), via (pick | toggle | latest | team)
   // Device registry & gate
   | "device_identity_migrated" // legacy random-uuid row collapsed into a hardware id
   | "device_gate_hit" // touch returned blocked (flag on)

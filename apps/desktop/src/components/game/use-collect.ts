@@ -154,7 +154,7 @@ export function useCollect({
             trackEvent("clip_added_to_playlist", { playlist_id: playlist.id, match_id: clip.matchId, surface: "game_view", via, moment });
           }
           // The editor's Add clips starts on this game next time.
-          setAddClipsScope(playlist.id, { gameId: match.id, teams: [] });
+          setAddClipsScope(playlist.id, { gameIds: [match.id], teams: [] });
         } catch (e) {
           Sentry.captureException(e);
           const failed = new Set(keys);

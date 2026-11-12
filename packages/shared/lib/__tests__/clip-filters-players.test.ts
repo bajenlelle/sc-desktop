@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PlayByPlayEvent } from "../../types/match";
-import { playerKey, playersByTeam } from "../clip-filters";
+import { EMPTY_CLIP_FILTERS, applyClipFiltersByKey, matchesClipFiltersByKey, playerKey, playersByTeam } from "../clip-filters";
 
 function ev(partial: Partial<PlayByPlayEvent> & { eventId: number }): PlayByPlayEvent {
   return {
@@ -17,6 +17,7 @@ function ev(partial: Partial<PlayByPlayEvent> & { eventId: number }): PlayByPlay
 
 const made2 = ev({ eventId: 1, type: "2pt", subType: "layup", isSuccessful: 1, qualifiers: ["fastbreak", "pointsinthepaint"], eventTeam: { teamCode: "FRY", teamName: "Fryshuset", teamNumber: 1 }, player: { playerId: 1, pno: 4, firstName: "Pedro", familyName: "Lelo", teamNumber: 1 } });
 const defReb = ev({ eventId: 3, type: "rebound", subType: "defensive", isSuccessful: 1, eventTeam: { teamCode: "FRY", teamName: "Fryshuset", teamNumber: 1 } });
+const miss3 = ev({ eventId: 2, type: "3pt", subType: "jumpshot", isSuccessful: 0, eventTeam: { teamCode: "SOL", teamName: "Sollentuna", teamNumber: 2 }, player: { playerId: 2, pno: 7, firstName: "Finn", familyName: "Eriksson", teamNumber: 2 } });
 
 const p = (playerId: number, pno: number, first: string, family: string, teamNumber = 1) => ({ playerId, pno, firstName: first, familyName: family, teamNumber });
 const fry = { teamCode: "", teamName: "Fryshuset", teamNumber: 1 };
@@ -70,5 +71,25 @@ describe("playersByTeam", () => {
       ev({ eventId: 2, eventTeam: fry, player: p(4, 4, "Pedro", "Lelo") }),
     ];
     expect(playersByTeam(events).map((g) => g.teamName)).toEqual(["Fryshuset", ""]);
+  });
+});
+
+describe("matchesClipFiltersByKey", () => {
+  const ada = ev({ eventId: 9, type: "2pt", isSuccessful: 1, player: p(0, 5, "Ada", "Lind") });
+  it("matches players by key, by id or by name", () => {
+    const f = { ...EMPTY_CLIP_FILTERS, players: new Set(["id:1", "name:Ada Lind"]) };
+    expect(matchesClipFiltersByKey(made2, f)).toBe(true);
+    expect(matchesClipFiltersByKey(ada, f)).toBe(true);
+    expect(matchesClipFiltersByKey(miss3, f)).toBe(false);
+    expect(matchesClipFiltersByKey(defReb, f)).toBe(false);
+  });
+  it("still applies the other groups, and no players lets every player through", () => {
+    expect(matchesClipFiltersByKey(made2, { ...EMPTY_CLIP_FILTERS, players: new Set(["id:1"]), types: new Set(["3pt-miss"]) })).toBe(false);
+    expect(matchesClipFiltersByKey(miss3, { ...EMPTY_CLIP_FILTERS, types: new Set(["3pt-miss"]) })).toBe(true);
+  });
+  it("applies with labels like applyClipFilters", () => {
+    const all = [made2, miss3].map((event) => ({ event }));
+    const labels = new Map([[made2, new Set(["pnr"])]]);
+    expect(applyClipFiltersByKey(all, { ...EMPTY_CLIP_FILTERS, labels: new Set(["pnr"]) }, (x) => labels.get(x.event)).map((x) => x.event.eventId)).toEqual([1]);
   });
 });
