@@ -101,6 +101,7 @@ export function GameWatchView({
   match,
   videoStatus,
   viewSwitch,
+  tabBar,
   entry,
   startEventId,
   onOpenDetails,
@@ -109,6 +110,8 @@ export function GameWatchView({
   /** "ok": the video plays here. "missing" / "unreadable": a local file that doesn't. "none": no video linked. */
   videoStatus: VideoFileStatus | "none";
   viewSwitch: ReactNode;
+  /** The open games' tabs, under the toolbar (from two games). */
+  tabBar?: ReactNode;
   /** How the coach got here, for analytics. */
   entry: string;
   /** A play to open on (a link from elsewhere). */
@@ -898,6 +901,7 @@ export function GameWatchView({
     <Page>
       <Toolbar
         variant="static"
+        tabBar={tabBar}
         title={match.title}
         leading={
           <>

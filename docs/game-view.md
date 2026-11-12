@@ -20,10 +20,35 @@ stretch where a game turned.
   on a play, and every `openQuarters` link lands on Details.
 - **Only one view is mounted.** Details' tip-off picker has a video of its
   own, and two decoders on one file is how paused frames go black. The game is
-  read again each time Game is entered, so a sync changed in Details shows.
+  read again when Game is entered from Details or from outside (Library, a
+  link), so a sync changed in Details shows; a tab switch serves the copy read
+  on this visit until any `matches-changed`, or for 10 minutes.
 - The view (`components/game/game-watch-view.tsx`) keeps the position per game
   for the app session (`sessionStorage`, `scoutable_game_position:<id>`), so
   Details and back resumes where the coach was.
+
+### Games in tabs
+
+- **One mounted view, no hidden videos.** A tab is a remembered game, not a
+  page kept alive: switching remounts the page on the other game, so there is
+  still one decoder (`lib/release-video.ts`), and the position memory above is
+  what resumes it.
+- From two open games a tab bar sits under the toolbar, inside its material
+  (`Toolbar`'s `tabBar` row, `components/game/game-tab-strip.tsx`). Six at
+  most: a seventh game closes the tab shown least recently, quietly. New games
+  open on the right; no drag reordering. A tab activates on press, closes with
+  its × (on hover or focus) or a middle click; ⌘W stays Close Window.
+- The tabs are per user and space for the app session (`sessionStorage`,
+  `scoutable_game_tabs:<userId>:<orgId>`; `apps/desktop/src/lib/game-tabs.ts`
+  over the pure `packages/shared/lib/game-tabs.ts`). On any `matches-changed`
+  the store empties its loaded-game cache and reads the open games again:
+  renamed games take their new title, deleted ones and games moved to another
+  space lose their tab (an empty read is taken as a failed one).
+- ⌃Tab and ⌃⇧Tab step through the tabs and wrap (handled in the page, on every
+  layout, not while a dialog is open); the Window menu has Show Next Game Tab
+  (⌘⇧]) and Show Previous Game Tab (⌘⇧[), on only on the game page.
+- A switch replaces the history entry (`replace: true`), as the Game | Details
+  switch does: Back leaves the games.
 
 ## What it reads from the stats (`packages/shared/lib`, pure, tested)
 

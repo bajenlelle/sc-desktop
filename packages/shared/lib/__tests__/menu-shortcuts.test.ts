@@ -37,6 +37,14 @@ describe("menuIdForChord", () => {
     expect(menuIdForChord(chord("f", { ctrlKey: true }))).toBeNull();
   });
 
+  it("maps Shift with [ and ] to the game tabs, shifted or not", () => {
+    expect(menuIdForChord(chord("{", { ctrlKey: true, shiftKey: true }))).toBe("game-tab-prev");
+    expect(menuIdForChord(chord("[", { ctrlKey: true, shiftKey: true }))).toBe("game-tab-prev");
+    expect(menuIdForChord(chord("}", { ctrlKey: true, shiftKey: true }))).toBe("game-tab-next");
+    expect(menuIdForChord(chord("]", { metaKey: true, shiftKey: true }))).toBe("game-tab-next");
+    expect(menuIdForChord(chord("[", { ctrlKey: true }))).toBeNull();
+  });
+
   it("treats Cmd like Ctrl, matching CmdOrCtrl", () => {
     expect(menuIdForChord(chord("n", { metaKey: true }))).toBe("new-playlist");
   });

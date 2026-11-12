@@ -125,6 +125,12 @@ export function MenuHandler() {
         case "fullscreen-player":
           window.dispatchEvent(new CustomEvent("player-fullscreen-toggle"));
           break;
+        case "game-tab-prev":
+          window.dispatchEvent(new CustomEvent("menu-game-tab", { detail: -1 }));
+          break;
+        case "game-tab-next":
+          window.dispatchEvent(new CustomEvent("menu-game-tab", { detail: 1 }));
+          break;
         case "send-feedback":
           window.dispatchEvent(new CustomEvent("menu-send-feedback"));
           break;
@@ -206,9 +212,13 @@ export function MenuHandler() {
   }, [user, isCoachOrAdmin, activeOrgIsPersonal, activeOrgCanManage]);
 
   useEffect(() => {
+    const onGame = /^\/matches\/[^/]+$/.test(pathname);
     setEnabled("toggle-playlist-browser", pathname === "/playlists");
-    // Both players: the editor and the watch view of a shared playlist.
-    setEnabled("fullscreen-player", pathname === "/playlists" || pathname === "/my-playlists");
+    // Every player: the editor, the watch view of a shared playlist, and the game view.
+    setEnabled("fullscreen-player", pathname === "/playlists" || pathname === "/my-playlists" || onGame);
+    // The game page's tabs (pages/game.tsx listens for "menu-game-tab").
+    setEnabled("game-tab-prev", onGame);
+    setEnabled("game-tab-next", onGame);
     // Export is enabled by pages/playlists.tsx while a playlist is open;
     // everywhere else it must be off. On the page itself the mirror must not
     // keep a stale "off" — the page decides, through its own listener.
