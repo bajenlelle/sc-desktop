@@ -58,7 +58,7 @@ import { getMyScoutingReport, type MyScoutingReport } from "@/lib/scouting-repor
 import { isLiveReport, sharedStatusLabel } from "@scoutable/shared/lib/scouting-reports-db";
 import { defaultOpponent, type ReportDraft } from "@scoutable/shared/lib/report-draft";
 import { dropFuture, emptyHistory, itemsDiff, materialize, pasteIndexAfter, pasteItems, recordEdit, takeRedo, takeUndo, type History, type ItemsEdit } from "@scoutable/shared/lib/playlist-history";
-import { nextHistoryStep, recordSidebarEdit, takeSidebarStep, type SidebarEdit } from "@scoutable/shared/lib/sidebar-history";
+import { failedSidebarStep, nextHistoryStep, recordSidebarEdit, takeSidebarStep, type SidebarEdit } from "@scoutable/shared/lib/sidebar-history";
 import { cardInsertKey, groupItems, insertBefore, newTextCard, ungroupItems, type CardPlace } from "@scoutable/shared/lib/playlist-edits";
 import { IS_MACOS } from "@/lib/platform";
 import { fallbackText, pickDefaultPlayer, type StatsCardPlayer, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
@@ -563,8 +563,10 @@ export function PlaylistsPage() {
   // that orders them against the rows' edits for ⌘Z.
   const sidebarHistoryRef = useRef(emptyHistory<SidebarEdit>());
   const editSeqRef = useRef(0);
+  // The space the sidebar history belongs to, read by a rename that resolves after a switch.
+  const activeOrgIdRef = useRef(activeOrgId);
   // Another space has other playlists and folders.
-  useEffect(() => { sidebarHistoryRef.current = emptyHistory(); }, [activeOrgId]);
+  useEffect(() => { activeOrgIdRef.current = activeOrgId; sidebarHistoryRef.current = emptyHistory(); }, [activeOrgId]);
   // The toolbar row the report view fills, so its toolbar sits where the clips toolbar does.
   const [reportToolbarSlot, setReportToolbarSlot] = useState<HTMLDivElement | null>(null);
   const [myReport, setMyReport] = useState<MyScoutingReport | null>(null);
@@ -3769,10 +3771,13 @@ export function PlaylistsPage() {
     const old = folders.find((f) => f.id === id)?.name;
     if (old === undefined || !name || name === old) return;
     setFolders((prev) => prev.map((f) => f.id === id ? { ...f, name } : f));
+    const space = activeOrgId;
     try {
       await updateFolder(id, { name });
+      // A switch to another space while saving: that space's history doesn't hold this rename.
+      if (activeOrgIdRef.current !== space) return;
       const edit = recordSidebar({ label: "Rename folder", target: "folder", id, field: "name", before: old, after: name });
-      toast("Folder renamed", { id: EDIT_TOAST, action: { label: "Undo", onClick: () => undoSidebarIfLatest(edit) } });
+      toast("Folder renamed", { id: EDIT_TOAST, duration: 4000, action: { label: "Undo", onClick: () => undoSidebarIfLatest(edit) } });
     } catch (err) {
       console.error("Failed to rename folder:", err);
       setFolders((prev) => prev.map((f) => f.id === id && f.name === name ? { ...f, name: old } : f));
@@ -3916,10 +3921,13 @@ export function PlaylistsPage() {
     if (old === undefined || !name || name === old) return;
     setPlaylists((prev) => prev.map((p) => p.id === playlistId ? { ...p, name } : p));
     setSelected((prev) => prev?.id === playlistId ? { ...prev, name } : prev);
+    const space = activeOrgId;
     try {
       await updatePlaylist(playlistId, { name });
+      // A switch to another space while saving: that space's history doesn't hold this rename.
+      if (activeOrgIdRef.current !== space) return;
       const edit = recordSidebar({ label: "Rename playlist", target: "playlist", id: playlistId, field: "name", before: old, after: name });
-      toast("Playlist renamed", { id: EDIT_TOAST, action: { label: "Undo", onClick: () => undoSidebarIfLatest(edit) } });
+      toast("Playlist renamed", { id: EDIT_TOAST, duration: 4000, action: { label: "Undo", onClick: () => undoSidebarIfLatest(edit) } });
     } catch (err) {
       console.error("[playlists] Failed to rename playlist:", err);
       setPlaylists((prev) => prev.map((p) => p.id === playlistId && p.name === name ? { ...p, name: old } : p));
@@ -4553,7 +4561,7 @@ export function PlaylistsPage() {
           setSelected(restored);
         }
         setPlaylists((ps) => ps.map((p) => (p.id === playlistId && p.items === to ? { ...p, items: from } : p)));
-        toast.error("Couldn’t save that change, so it was taken back. Check the connection and try again.", { id: EDIT_TOAST });
+        toast.error("Couldn’t save that change, so it was taken back. Check the connection and try again.", { id: EDIT_TOAST, action: undefined });
         return false;
       }
     });
@@ -4629,32 +4637,37 @@ export function PlaylistsPage() {
 
   /**
    * ⌘Z / ⇧⌘Z on the sidebar: a name or a place goes back (or forward), unless
-   * the playlist or folder was renamed, moved or deleted since; then nothing
-   * changes, the toast says so, and the edit is forgotten.
+   * the playlist or folder was renamed, moved or deleted since, the folder it
+   * would go into was deleted, or a folder would land inside itself; then
+   * nothing changes, the toast says so, and the edit is forgotten. A failed
+   * save keeps the edit where it was, so the next ⌘Z tries it again.
    */
   function stepSidebar(direction: "undo" | "redo"): boolean {
-    const step = takeSidebarStep(sidebarHistoryRef.current, direction, sidebarValue);
+    const prior = sidebarHistoryRef.current;
+    const step = takeSidebarStep(
+      prior,
+      direction,
+      sidebarValue,
+      (folderId) => foldersRef.current.some((f) => f.id === folderId),
+      (folderId, parentId) => wouldCreateCycle(foldersRef.current, folderId, parentId),
+    );
     if (!step) return false;
     const { edit } = step;
-    const blocked =
-      "blocked" in step ? step.blocked
-      : edit.target === "folder" && edit.field === "parent" && wouldCreateCycle(foldersRef.current, edit.id, step.to) ? "changed"
-      : null;
-    if (blocked || !("to" in step)) {
-      sidebarHistoryRef.current = {
-        past: step.history.past.filter((e) => e !== edit),
-        future: step.history.future.filter((e) => e !== edit),
-      };
+    sidebarHistoryRef.current = step.history;
+    if ("blocked" in step) {
       const verb = direction === "undo" ? "undone" : "redone";
       const message =
-        blocked === "gone" ? `The ${edit.target} was deleted, so nothing was ${verb}`
+        step.blocked === "gone" ? `The ${edit.target} was deleted, so nothing was ${verb}`
+        : step.blocked === "place_gone" ? `The folder it was in was deleted, so nothing was ${verb}`
+        : step.blocked === "cycle" ? `That would put the folder inside itself, so nothing was ${verb}`
         : edit.field === "name" ? `The name changed since, so nothing was ${verb}`
         : `The ${edit.target} moved since, so nothing was ${verb}`;
       toast(message, { id: EDIT_TOAST, action: undefined });
       return true;
     }
-    sidebarHistoryRef.current = step.history;
-    void writeSidebarValue(edit, step.to);
+    void writeSidebarValue(edit, step.to).then((ok) => {
+      if (!ok) sidebarHistoryRef.current = failedSidebarStep(sidebarHistoryRef.current, prior, step);
+    });
     toast(`${direction === "undo" ? "Undo" : "Redo"}: ${edit.label}`, { id: EDIT_TOAST, duration: 2000, action: undefined });
     return true;
   }
@@ -4772,7 +4785,7 @@ export function PlaylistsPage() {
     void navigator.clipboard?.writeText(rows.map(rowText).filter(Boolean).join("\n")).catch(() => {});
     const noun = `${rows.length} item${rows.length !== 1 ? "s" : ""}`;
     if (!cut) {
-      toast(`${noun} copied. Paste with ${MOD}V here or in another playlist.`, { id: EDIT_TOAST, duration: 2500 });
+      toast(`${noun} copied. Paste with ${MOD}V here or in another playlist.`, { id: EDIT_TOAST, duration: 2500, action: undefined });
       return true;
     }
     const taken = new Set(rows.map(playlistItemKey));
@@ -4790,7 +4803,7 @@ export function PlaylistsPage() {
     if (!pl || rowClipboard.length === 0) return false;
     const { items, pasted } = pasteItems(pl.items, rowClipboard, pasteIndexAfter(pl.items, focusKey));
     if (pasted.length === 0) {
-      toast("Those clips are already in this playlist", { id: EDIT_TOAST });
+      toast("Those clips are already in this playlist", { id: EDIT_TOAST, action: undefined });
       return true;
     }
     const keys = pasted.map(playlistItemKey);
