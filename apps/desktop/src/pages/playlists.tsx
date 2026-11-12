@@ -4650,12 +4650,12 @@ export function PlaylistsPage() {
         blocked === "gone" ? `The ${edit.target} was deleted, so nothing was ${verb}`
         : edit.field === "name" ? `The name changed since, so nothing was ${verb}`
         : `The ${edit.target} moved since, so nothing was ${verb}`;
-      toast(message, { id: EDIT_TOAST });
+      toast(message, { id: EDIT_TOAST, action: undefined });
       return true;
     }
     sidebarHistoryRef.current = step.history;
     void writeSidebarValue(edit, step.to);
-    toast(`${direction === "undo" ? "Undo" : "Redo"}: ${edit.label}`, { id: EDIT_TOAST, duration: 2000 });
+    toast(`${direction === "undo" ? "Undo" : "Redo"}: ${edit.label}`, { id: EDIT_TOAST, duration: 2000, action: undefined });
     return true;
   }
 
@@ -4696,7 +4696,7 @@ export function PlaylistsPage() {
     } catch (err) {
       console.error("[playlists] Failed to save a sidebar change:", err);
       if (from !== undefined) put(from, value);
-      toast.error("Couldn’t save that change, so it was taken back. Check the connection and try again.", { id: EDIT_TOAST });
+      toast.error("Couldn’t save that change, so it was taken back. Check the connection and try again.", { id: EDIT_TOAST, action: undefined });
       return false;
     }
   }
@@ -4725,7 +4725,7 @@ export function PlaylistsPage() {
       setFocusKey(back[0]);
       setAnchorKey(back[0]);
     }
-    toast(`${direction === "undo" ? "Undo" : "Redo"}: ${step.edit.label}`, { id: EDIT_TOAST, duration: 2000 });
+    toast(`${direction === "undo" ? "Undo" : "Redo"}: ${step.edit.label}`, { id: EDIT_TOAST, duration: 2000, action: undefined });
     void writeItems(pl.id, from, to).then((ok) => {
       if (ok && itemsDiff(from, to).addedClips.length > 0) queuePendingShip(updated);
     });
