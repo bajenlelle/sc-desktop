@@ -302,6 +302,8 @@ export interface StoredMatch {
   sourceGameId?: string;
   /** Timeouts and period bounds from the league feed (lib/game-marks.ts); absent until the game view has read them. */
   gameMarks?: GameMarks;
+  /** When the owner archived the game (hidden from the desktop's Library, Home and Add clips); absent = in the library. Every playback surface keeps archived games. */
+  archivedAt?: string;
 }
 
 // --- Match -------------------------------------------------------------------

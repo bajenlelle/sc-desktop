@@ -128,16 +128,19 @@ describe("loadGeniusGame", () => {
 
 describe("importGame", () => {
   /** A client that accepts any query and records which tables were written how. */
-  function recordingClient(failing: string | null = null) {
+  function recordingClient(failing: string | null = null, failingOp?: string) {
     const calls: Array<{ table: string; op: string; args: unknown[] }> = [];
     const chain = (table: string) => {
+      const ops: string[] = [];
+      const fails = () => table === failing && (failingOp === undefined || ops.includes(failingOp));
       const b: Record<string, unknown> = {
         then(res: (x: { data: null; error: { message: string } | null }) => unknown, rej?: (e: unknown) => unknown) {
-          return Promise.resolve({ data: null, error: table === failing ? { message: "db down" } : null }).then(res, rej);
+          return Promise.resolve({ data: null, error: fails() ? { message: "db down" } : null }).then(res, rej);
         },
       };
       for (const op of ["upsert", "insert", "update", "delete", "select", "eq", "not", "in", "order"]) {
         b[op] = (...args: unknown[]) => {
+          ops.push(op);
           if (["upsert", "insert", "update", "delete", "select"].includes(op)) calls.push({ table, op, args });
           return b;
         };
@@ -187,5 +190,18 @@ describe("importGame", () => {
     expect(await importGame(client, match(sync), {})).toEqual({ followSync: false });
     await new Promise((r) => setTimeout(r, 0));
     expect(calls.map((c) => c.table)).not.toContain("playlist_clips");
+  });
+
+  it("a re-import brings an archived game back to the library", async () => {
+    const { client, calls } = recordingClient();
+    await importGame(client, match(sync), {});
+    expect(calls).toContainEqual({ table: "matches", op: "update", args: [{ archived_at: null }] });
+  });
+
+  it("an un-archive that fails doesn't fail the re-import", async () => {
+    const { client } = recordingClient("matches", "update");
+    const reported: unknown[] = [];
+    expect(await importGame(client, match(sync), {}, { report: (e) => reported.push(e) })).toEqual({ followSync: false });
+    expect(reported).toHaveLength(1);
   });
 });
