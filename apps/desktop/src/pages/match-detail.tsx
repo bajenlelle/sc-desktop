@@ -391,6 +391,8 @@ export function MatchDetailPage({ viewSwitch, tabBar }: { viewSwitch?: ReactNode
     return (
       <Page>
         <Toolbar
+          variant={tabBar ? "static" : "scroll"}
+          tabBar={tabBar}
           title="Game"
           leading={
             <Button variant="ghost" size="sm" className="-ml-1 text-muted-foreground" onClick={() => navigate("/matches")}>
@@ -399,7 +401,7 @@ export function MatchDetailPage({ viewSwitch, tabBar }: { viewSwitch?: ReactNode
             </Button>
           }
         />
-        <PageContent width="narrow">
+        <PageContent width="narrow" className={cn(tabBar && "pt-3")}>
           {notFound ? (
             <EmptyState
               icon={<Film />}

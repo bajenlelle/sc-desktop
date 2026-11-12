@@ -105,6 +105,13 @@ describe("reconcileGameTabs", () => {
     expect(s.recent).toEqual(["a"]);
   });
 
+  it("keeps a game opened while the read was out", () => {
+    const s = reconcileGameTabs(st(["a", "b", "c"]), [{ id: "a", title: "A2", date: null }], null, ["a", "b"]);
+    expect(ids(s)).toEqual(["a", "c"]);
+    expect(s.tabs.map((tab) => tab.title)).toEqual(["A2", "C"]);
+    expect(s.recent).toEqual(["c", "a"]);
+  });
+
   it("keeps everything when nothing came back (a failed read)", () => {
     const s = st(["a", "b"]);
     expect(reconcileGameTabs(s, [], "o1")).toBe(s);

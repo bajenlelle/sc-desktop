@@ -79,17 +79,25 @@ export function stepGameTab(state: GameTabs, activeId: string, step: 1 | -1): st
  * didn't come back is gone (deleted, or no longer visible), one that now
  * belongs to another space has moved there, and the rest take their current
  * title and date. An empty read is taken as a failed one and changes nothing.
+ * With `asked` (the ids the read was for), a tab outside it, opened while the
+ * read was out, is kept as it is.
  */
 export function reconcileGameTabs(
   state: GameTabs,
   found: readonly { id: string; title: string; date: string | null; orgId?: string | null }[],
   orgId: string | null,
+  asked?: readonly string[],
 ): GameTabs {
   if (found.length === 0 || state.tabs.length === 0) return state;
   const byId = new Map(found.map((f) => [f.id, f]));
+  const askedIds = asked ? new Set(asked) : null;
   let changed = false;
   const tabs: GameTab[] = [];
   for (const tab of state.tabs) {
+    if (askedIds && !askedIds.has(tab.id)) {
+      tabs.push(tab);
+      continue;
+    }
     const f = byId.get(tab.id);
     const elsewhere = f && f.orgId != null && orgId != null && f.orgId !== orgId;
     if (!f || elsewhere) {

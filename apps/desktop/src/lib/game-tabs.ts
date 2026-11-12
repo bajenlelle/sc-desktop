@@ -77,9 +77,10 @@ function onMatchesChanged() {
   listMatchesByIds(ids)
     .then((matches) => {
       const found = matches.map((m) => ({ id: m.id, title: m.title, date: m.date || null, orgId: m.orgId }));
+      // Only the games asked about: one opened while the read was out stays.
       for (const [scope] of open) {
         const orgId = scope.slice(scope.indexOf(":") + 1) || null;
-        write(scope, reconcileGameTabs(read(scope), found, orgId));
+        write(scope, reconcileGameTabs(read(scope), found, orgId, ids));
       }
     })
     .catch(() => {
@@ -127,16 +128,16 @@ export function neighbourGameTab(scope: string | null, activeId: string, step: 1
 
 type LoadedGame = { match: StoredMatch; videoStatus: VideoFileStatus | "none" };
 
-/** The games read on this visit, oldest first; one more than the tabs, so the leaving game's copy stays. */
+/** The games read on this visit, least recently used first; one more than the tabs, so the leaving game's copy stays. */
 const loadedGames = new Map<string, { entry: LoadedGame; at: number }>();
 
 export function recallLoadedGame(id: string): LoadedGame | null {
   const cached = loadedGames.get(id);
   if (!cached) return null;
-  if (Date.now() - cached.at > LOADED_GAME_MS) {
-    loadedGames.delete(id);
-    return null;
-  }
+  loadedGames.delete(id);
+  if (Date.now() - cached.at > LOADED_GAME_MS) return null;
+  // Shown again: the newest in eviction order, its age unchanged.
+  loadedGames.set(id, cached);
   return cached.entry;
 }
 

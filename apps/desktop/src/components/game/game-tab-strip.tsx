@@ -28,7 +28,8 @@ export function GameTabStrip({
   onClose: (id: string, via: "button" | "middle_click") => void;
 }) {
   return (
-    <div role="tablist" aria-label="Open games" className="flex min-w-0 flex-1 items-center gap-1">
+    // The row between and around the tabs still drags the window.
+    <div data-tauri-drag-region role="tablist" aria-label="Open games" className="flex min-w-0 flex-1 items-center gap-1">
       <AnimatePresence initial={false}>
         {tabs.map((tab) => {
           const active = tab.id === activeId;
@@ -80,7 +81,7 @@ export function GameTabStrip({
               </Tooltip>
               <button
                 type="button"
-                aria-label={`Close ${tab.title}`}
+                aria-label={`Close ${tab.title || "game"}`}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={() => onClose(tab.id, "button")}
                 className="absolute top-1/2 left-1.5 flex size-4 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground opacity-0 outline-none transition-[opacity,background-color] duration-100 group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-fill-3 hover:text-foreground focus-visible:ring-2 focus-visible:ring-selection"
