@@ -4,11 +4,15 @@
  * the config, the global setup and the specs see the same port and account.
  * The default export is the global setup: one sign-in per run, saved as the
  * storage state every test starts from.
+ *
+ * Specs import `test` and `expect` from here, not from @playwright/test: this
+ * `test` fails a test whose page logged a `headless:` line (an unmocked or
+ * native Tauri call, even one the app swallowed) or threw an uncaught error.
  */
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, webkit, type Page } from "@playwright/test";
+import { test as base, expect, webkit, type Page } from "@playwright/test";
 import { loadEnv } from "vite";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -18,6 +22,32 @@ export const PORT = Number(process.env.HEADLESS_PORT || 1430);
 export const BASE_URL = `http://localhost:${PORT}`;
 export const OUT_DIR = path.join(HERE, "out");
 export const STATE_FILE = path.join(OUT_DIR, `state-${PORT}.json`);
+
+/**
+ * Page errors that are the browser's, not the app's. PostHog's config fetch
+ * is refused by WebKit's CORS checks on localhost; the app never sees it.
+ */
+const BROWSER_NOISE = [/posthog\.com\/.*access control checks/];
+
+export const test = base.extend<{ headlessProblems: void }>({
+  headlessProblems: [
+    async ({ page }, use) => {
+      const problems: string[] = [];
+      page.on("console", (message) => {
+        if (message.text().startsWith("headless:")) problems.push(`console.${message.type()}: ${message.text()}`);
+      });
+      page.on("pageerror", (error) => {
+        if (!BROWSER_NOISE.some((noise) => noise.test(error.message))) problems.push(`pageerror: ${error.message}`);
+      });
+      await use();
+      if (problems.length > 0) {
+        throw new Error(`headless: the page reported ${problems.length} problem(s):\n${problems.join("\n")}`);
+      }
+    },
+    { auto: true },
+  ],
+});
+export { expect };
 
 /** The Home or Library toolbar title: the app is signed in and past its loading screens. */
 const signedInTitle = (page: Page) => page.getByRole("heading", { level: 1, name: /^(Home|Library)$/ });
@@ -47,14 +77,20 @@ export async function shot(page: Page, name: string): Promise<string> {
  * Opens the first game in the Library and waits for its page: the Game view
  * when its video plays here and it is synced, else Details (a staging game's
  * video is usually on another computer), which is a game page all the same.
+ * With `shotLibraryAs`, the loaded Library is screenshotted first under that
+ * name. Returns the opened game's title as its Library row shows it.
  */
-export async function openFirstGame(page: Page): Promise<void> {
+export async function openFirstGame(page: Page, options: { shotLibraryAs?: string } = {}): Promise<string> {
   await page.goto("/matches");
   await expect(page.getByRole("heading", { level: 1, name: "Library" })).toBeVisible();
   const first = page.locator('a[href^="/matches/"]').first();
   await expect(first, "the test account has a game in its Library").toBeVisible();
+  // The row's first text is the game's title (components/match-row.tsx).
+  const title = (await first.locator("span").first().innerText()).trim();
+  if (options.shotLibraryAs) await shot(page, options.shotLibraryAs);
   await first.click();
   await expect(page.getByRole("radiogroup", { name: "View" })).toBeVisible({ timeout: 30_000 });
+  return title;
 }
 
 export default async function globalSetup(): Promise<void> {

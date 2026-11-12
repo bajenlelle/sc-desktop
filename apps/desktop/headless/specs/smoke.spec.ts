@@ -3,26 +3,21 @@
  * games, the first game's Game view draws its play list and timeline, and a
  * playlist's Add clips lists events. Reads only; creates nothing.
  */
-import { expect, test } from "@playwright/test";
-import { openFirstGame, shot } from "../helpers";
+import { expect, openFirstGame, shot, test } from "../helpers";
 
 test("library, game view and Add clips render against staging", async ({ page, browserName }) => {
   const name = (step: string) => `smoke-${browserName}-${step}`;
 
-  await page.goto("/matches");
-  await expect(page.getByRole("heading", { level: 1, name: "Library" })).toBeVisible();
-  await expect(page.locator('a[href^="/matches/"]').first()).toBeVisible();
-  await shot(page, name("library"));
+  // Asserts the Library heading and a game row, and screenshots the Library on the way.
+  const title = await openFirstGame(page, { shotLibraryAs: name("library") });
+  expect(title, "the first Library row has a title").not.toBe("");
 
-  await openFirstGame(page);
   // A game whose video isn't on this computer opens on Details; the Game view draws without footage.
   await page.getByRole("radio", { name: "Game" }).click();
   await expect(page.getByRole("radio", { name: "Game" })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(title);
   await expect(page.getByRole("list", { name: "Plays" })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("region", { name: "Game timeline" })).toBeVisible();
-  const title = await page.getByRole("heading", { level: 1 }).innerText();
-  expect(title.trim(), "the toolbar names the game").not.toBe("");
-  await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
   await shot(page, name("game"));
 
   await page.goto("/playlists");
