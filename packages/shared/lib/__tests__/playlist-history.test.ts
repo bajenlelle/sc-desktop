@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   HISTORY_LIMIT,
+  dropFuture,
   emptyHistory,
   itemsDiff,
   materialize,
@@ -52,6 +53,13 @@ describe("the history", () => {
     for (let i = 0; i < HISTORY_LIMIT + 5; i++) h = recordEdit(h, edit(`e${i}`, [clip(i)], [clip(i + 1)]));
     expect(h.past).toHaveLength(HISTORY_LIMIT);
     expect(h.past[0].label).toBe("e5");
+  });
+
+  it("drops what could be redone and keeps the past", () => {
+    const h = { past: [edit("a", [clip(1)], [])], future: [edit("b", [], [clip(2)])] };
+    expect(dropFuture(h)).toEqual({ past: h.past, future: [] });
+    const none = { past: [], future: [] };
+    expect(dropFuture(none)).toBe(none);
   });
 
   it("records nothing for an edit that changed neither the rows, their order nor their groups", () => {

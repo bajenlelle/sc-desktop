@@ -11,6 +11,7 @@
  *
  * The stack itself (pushEdit, takeUndo, takeRedo) takes any kind of edit: the
  * scouting report keeps one of its own (recordReportEdit in report-draft.ts).
+ * The sidebar keeps its own too, renames and moves (sidebar-history.ts).
  */
 import type { PlaylistClipItem, PlaylistItem, PlaylistTextCard } from "../types/match";
 import { isClipItem } from "../types/match";
@@ -23,6 +24,8 @@ export interface Edit<S> {
   label: string;
   before: S;
   after: S;
+  /** Order across the histories on one page (sidebar-history.ts). */
+  seq?: number;
 }
 
 export type ItemsEdit = Edit<PlaylistItem[]>;
@@ -45,6 +48,11 @@ function shape(items: readonly PlaylistItem[]): string {
 export function pushEdit<E>(history: History<E>, edit: E): History<E> {
   const past = [...history.past, edit];
   return { past: past.length > HISTORY_LIMIT ? past.slice(past.length - HISTORY_LIMIT) : past, future: [] };
+}
+
+/** Forgets what could be redone, keeping the past; the same object when there is nothing to forget. */
+export function dropFuture<E>(history: History<E>): History<E> {
+  return history.future.length === 0 ? history : { past: history.past, future: [] };
 }
 
 /** Adds a playlist edit; one that changed nothing is not one. */
