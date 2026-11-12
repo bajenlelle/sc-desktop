@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronRight,
   Folder,
+  FolderOpen,
   FolderPlus,
   Share2,
   Users,
@@ -3950,6 +3951,8 @@ export function PlaylistsPage() {
 
   /** One step of indent per folder depth. */
   const FOLDER_INDENT = 14;
+  /** A folder row's chevron (size-3.5 = 14 px) plus its gap-1 (4 px): where every row's icon starts. */
+  const ICON_INSET = 18;
 
   function renderSectionHeader({
     id,
@@ -4003,7 +4006,7 @@ export function PlaylistsPage() {
             onDragEnd={() => setDragOverFolder(null)}
             style={{ paddingLeft: 8 + depth * FOLDER_INDENT }}
             className={cn(
-              "group mx-2 flex h-7 cursor-default select-none items-center gap-1.5 rounded-md pr-1.5 outline-none transition-[background-color,box-shadow] duration-100",
+              "group mx-2 flex h-7 cursor-default select-none items-center gap-1 rounded-md pr-1.5 outline-none transition-[background-color,box-shadow] duration-100",
               isActive ? "bg-selection text-selection-foreground" : "text-foreground hover:bg-fill-1 active:bg-fill-2",
               isDropTarget && "bg-selection/20 ring-2 ring-inset ring-selection",
               clipOpenPlaylistId === pl.id && "animate-pulse",
@@ -4011,6 +4014,7 @@ export function PlaylistsPage() {
             )}
             onClick={() => !isEditingThis && selectPlaylist(pl)}
           >
+            {folders.length > 0 && <span aria-hidden className="size-3.5 shrink-0" />}
             <ListVideo className={cn("size-4 shrink-0", isActive ? "text-selection-foreground" : "text-primary")} />
             {isEditingThis && editingVia === "sidebar" ? (
               <input
@@ -4280,7 +4284,11 @@ export function PlaylistsPage() {
                   springLoading ? "text-primary" : "text-muted-foreground",
                 )}
               />
-              <Folder className="size-4 shrink-0 text-primary" />
+              {isExpanded ? (
+                <FolderOpen className="size-4 shrink-0 text-primary" />
+              ) : (
+                <Folder className="size-4 shrink-0 text-primary" />
+              )}
               {isEditing ? (
                 <input
                   autoFocus
@@ -4443,11 +4451,17 @@ export function PlaylistsPage() {
 
         {/* Subfolders, then this folder's playlists */}
         {isExpanded && (
-          <div>
+          <div className="relative">
+            {/* Guide line: 1 px under the parent's chevron centre = the row's mx-2 (8) + its padding (8 + depth * FOLDER_INDENT) + half the 14 px chevron (7). */}
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 w-px bg-separator"
+              style={{ left: 8 + 8 + depth * FOLDER_INDENT + 7 }}
+            />
             {subfolders.map((sub) => renderFolderNode(sub, depth + 1))}
             {items.length === 0 && subfolders.length === 0 ? (
               <p
-                style={{ paddingLeft: 8 + (depth + 1) * FOLDER_INDENT + 22 }}
+                style={{ paddingLeft: 8 + (depth + 1) * FOLDER_INDENT + ICON_INSET }}
                 className="mx-2 flex h-7 items-center text-subheadline text-muted-foreground/70"
               >
                 Empty — drag a playlist here
