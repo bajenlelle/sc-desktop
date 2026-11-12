@@ -1,8 +1,9 @@
 import * as React from "react";
-import { Check, ChevronsUpDown, ListPlus, Loader2, Plus, Send } from "lucide-react";
+import { Check, ChevronDown, ChevronsUpDown, ListPlus, Loader2, Plus, Send } from "lucide-react";
 import { toast } from "sonner";
 import { playlistIsShared } from "@scoutable/shared/lib/playlist-sharing";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SearchField } from "@/components/ui/search-field";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -17,10 +18,12 @@ import type { Collect } from "./use-collect";
  * list puts the playlists that already hold this game's clips first, and its
  * search field doubles as the name of a new one (the mechanics of the
  * editor's "Add to another playlist"). Beside it, the way to the playlist:
- * "Open playlist", or "Send n clips…" while players are waiting for some.
+ * "Open playlist", or "Send n clips…" while players are waiting for some, in
+ * the target or in another shared playlist holding this game's plays; with
+ * several such playlists, the button opens a menu of them.
  */
 export function CollectControl({ collect, highlight }: { collect: Collect; highlight?: boolean }) {
-  const { target, candidates, loading, pickerOpen, pickerAnchor, setPickerOpen, unsent } = collect;
+  const { target, candidates, loading, pickerOpen, pickerAnchor, setPickerOpen, held } = collect;
   // Asked for by a row's plus or the Now bar's Add, the picker grows from that control, not from here.
   const anchorRef = React.useMemo(() => ({ current: pickerAnchor }), [pickerAnchor]);
   const [search, setSearch] = React.useState("");
@@ -141,26 +144,48 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
           )}
         </PopoverContent>
       </Popover>
-      {target &&
-        (unsent > 0 ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button size="sm" onClick={collect.openTarget}>
-                <Send />
-                Send {unsent} {unsent === 1 ? "clip" : "clips"}…
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              Players have this playlist. {unsent === 1 ? "1 clip isn't" : `${unsent} clips aren't`} uploaded yet: open it to send {unsent === 1 ? "it" : "them"}.
-            </TooltipContent>
-          </Tooltip>
-        ) : (
+      {held.length === 0 ? (
+        target && (
           <Button size="sm" variant="outline" onClick={collect.openTarget}>
             Open playlist
           </Button>
-        ))}
+        )
+      ) : held.length === 1 ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button size="sm" onClick={() => collect.openPlaylist(held[0].playlist.id)}>
+              <Send />
+              Send {held[0].count} {held[0].count === 1 ? "clip" : "clips"}…
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{heldTooltip(held[0].playlist.name, held[0].count)}</TooltipContent>
+        </Tooltip>
+      ) : (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm">
+              <Send />
+              Send {held.reduce((sum, h) => sum + h.count, 0)} clips…
+              <ChevronDown />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-64">
+            <DropdownMenuLabel>Not uploaded yet</DropdownMenuLabel>
+            {held.map(({ playlist, count }) => (
+              <DropdownMenuItem key={playlist.id} onSelect={() => collect.openPlaylist(playlist.id)}>
+                <span className="min-w-0 flex-1 truncate">{playlist.name}</span>
+                <span className="shrink-0 text-xs nums text-muted-foreground">{count}</span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </>
   );
+}
+
+function heldTooltip(name: string, n: number): string {
+  return `Players have ${name}. ${n === 1 ? "1 clip isn't" : `${n} clips aren't`} uploaded yet: open it to send ${n === 1 ? "it" : "them"}.`;
 }
 
 function PlaylistOption({ playlist, selected, onChoose }: { playlist: Playlist; selected: boolean; onChoose: () => void }) {

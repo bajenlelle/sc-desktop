@@ -41,6 +41,7 @@ export const GamePlayRow = memo(function GamePlayRow({
   labels,
   collect,
   targetName,
+  menuOpen,
   labelPicker,
   onPlay,
   onAdd,
@@ -60,6 +61,8 @@ export const GamePlayRow = memo(function GamePlayRow({
   labels: readonly Label[];
   collect: CollectStatus;
   targetName: string | null;
+  /** The list's menu is open on this play: the row is outlined, as Finder outlines the item a menu is about. */
+  menuOpen: boolean;
   /** The label picker, on the one row that is being labelled; the plain button otherwise. */
   labelPicker: ReactNode | null;
   onPlay: (play: TimedPlay) => void;
@@ -94,6 +97,7 @@ export const GamePlayRow = memo(function GamePlayRow({
       className={cn(
         "group relative flex min-h-11 w-full cursor-default scroll-my-16 select-none items-stretch gap-2 pr-2 text-left outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection",
         outside && "opacity-50",
+        menuOpen && "ring-2 ring-inset ring-selection",
       )}
     >
       {active && <ActiveRowPill />}

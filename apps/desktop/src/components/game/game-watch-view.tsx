@@ -37,6 +37,7 @@ import { GameFilterBar, type GamePerson } from "./game-filters";
 import { GameLabelKeys } from "./game-label-keys";
 import { GameNowBar } from "./game-now-bar";
 import { GamePlayList } from "./game-play-list";
+import { GamePlayMenuContent } from "./game-play-menu";
 import { GameTimelineStrip } from "./game-timeline-strip";
 import { useCollect } from "./use-collect";
 import { useGamePlayback } from "./use-game-playback";
@@ -950,6 +951,7 @@ export function GameWatchView({
                 onLabel={openRowLabels}
                 onMarker={onMarker}
                 onClearFilters={() => setFilters(EMPTY_GAME_FILTERS)}
+                rowMenu={(play, anchor) => <GamePlayMenuContent plays={[play]} collect={collect} moment={filters.moment} anchor={anchor} />}
               />
             </div>
           </ResizablePanel>

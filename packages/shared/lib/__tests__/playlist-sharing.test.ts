@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { newRecipients, playlistIsShared, setPlaylistRecipients } from "../playlist-sharing";
+import type { PlaylistItem } from "../../types/match";
+import { heldForPlayers, newRecipients, playlistIsShared, setPlaylistRecipients } from "../playlist-sharing";
 
 describe("playlistIsShared", () => {
   it("is shared when it has a team or a person", () => {
@@ -8,6 +9,34 @@ describe("playlistIsShared", () => {
     expect(playlistIsShared({ teamIds: [], userIds: [] })).toBe(false);
     expect(playlistIsShared({ teamIds: ["t1"] })).toBe(true);
     expect(playlistIsShared({ userIds: ["u1"] })).toBe(true);
+  });
+});
+
+describe("heldForPlayers", () => {
+  const clip = (matchId: string, eventId: number, r2Url?: string): PlaylistItem => ({ type: "clip", matchId, eventId, ...(r2Url ? { r2Url } : {}) });
+  const card: PlaylistItem = { type: "text", id: "t", text: "x", durationSeconds: 3 };
+  const pl = (id: string, items: PlaylistItem[], shared = true) => ({ id, name: id, items, teamIds: shared ? ["t1"] : [] });
+
+  it("lists nothing when no playlist is shared", () => {
+    expect(heldForPlayers([pl("a", [clip("g1", 1)], false)], "g1", "a")).toEqual([]);
+  });
+  it("counts the target's clips with no file, from any game, and no cards", () => {
+    const a = pl("a", [clip("g1", 1), clip("g2", 5), clip("g1", 2, "https://x/2.mp4"), card]);
+    expect(heldForPlayers([a], "g1", "a")).toEqual([{ playlist: a, count: 2 }]);
+  });
+  it("lists another shared playlist only when it holds one of this game's clips with no file", () => {
+    const b = pl("b", [clip("g1", 3)]);
+    const c = pl("c", [clip("g2", 4)]);
+    expect(heldForPlayers([b, c], "g1", null).map((h) => h.playlist.id)).toEqual(["b"]);
+  });
+  it("puts the target first, then the most held", () => {
+    const a = pl("a", [clip("g1", 1)]);
+    const b = pl("b", [clip("g1", 2), clip("g1", 3), clip("g1", 4)]);
+    const c = pl("c", [clip("g1", 5), clip("g1", 6)]);
+    expect(heldForPlayers([b, c, a], "g1", "a").map((h) => [h.playlist.id, h.count])).toEqual([["a", 1], ["b", 3], ["c", 2]]);
+  });
+  it("leaves out a shared target whose clips are all uploaded", () => {
+    expect(heldForPlayers([pl("a", [clip("g1", 1, "https://x/1.mp4")])], "g1", "a")).toEqual([]);
   });
 });
 

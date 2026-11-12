@@ -2,7 +2,7 @@ import { createElement, useCallback, useEffect, useMemo, useRef, useState } from
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { itemKey } from "@scoutable/shared/lib/playlist-edits";
-import { playlistIsShared } from "@scoutable/shared/lib/playlist-sharing";
+import { heldForPlayers, playlistIsShared } from "@scoutable/shared/lib/playlist-sharing";
 import type { TimedPlay } from "@scoutable/shared/lib/game-timeline";
 import { isClipItem, type Playlist, type PlaylistClipItem, type PlaylistItem, type StoredMatch } from "@/types/match";
 import { trackEvent } from "@/lib/analytics";
@@ -10,8 +10,8 @@ import { appendClips, createPlaylist, listPlaylists, writePlaylistItems } from "
 import { getCollectTarget, setAddClipsScope, setCollectTarget } from "@/lib/prefs";
 import { Sentry } from "@/lib/sentry";
 
-/** Where an add came from: a row's plus, the Now bar (or A), or "Add all". */
-export type CollectVia = "row" | "now_bar" | "bulk";
+/** Where an add came from: a row's plus, the Now bar (or A), "Add all", a row's menu, or the selected plays. */
+export type CollectVia = "row" | "now_bar" | "bulk" | "menu" | "selection";
 
 /** One toast for the whole view: the latest add replaces the one before, and its Undo is the only one on offer. */
 const COLLECT_TOAST = "game-collect";
@@ -27,9 +27,12 @@ const COLLECT_TOAST = "game-collect";
  * playlist before may carry notes, a trim or an upload, and this view has no
  * history to put those back from.
  *
- * Nothing is cut or uploaded here. When players already have the target,
- * the new clips are held: `unsent` counts them and `openTarget` hands the
- * playlist to the editor with its upload-on-arrival state.
+ * A row's menu adds to any playlist once (`addToPlaylist`, `createAndAddTo`)
+ * without changing the target.
+ *
+ * Nothing is cut or uploaded here. When players already have a playlist, the
+ * new clips are held: `held` counts them per shared playlist and
+ * `openPlaylist` hands one to the editor with its upload-on-arrival state.
  */
 export function useCollect({
   match,
@@ -125,7 +128,8 @@ export function useCollect({
     [mutate, enqueue],
   );
 
-  const addTo = useCallback(
+  /** Adds plays to one playlist. Never touches the target: the target's adds and a menu's one-time adds both come through here. */
+  const addToPlaylist = useCallback(
     (playlist: Playlist, plays: readonly TimedPlay[], via: CollectVia, moment: string | null) => {
       const present = new Set(playlist.items.filter(isClipItem).map(itemKey));
       const fresh: PlaylistClipItem[] = [];
@@ -151,7 +155,14 @@ export function useCollect({
           saved.current.set(playlist.id, [...base, ...added]);
           setAddedTotal((n) => n + added.length);
           for (const clip of added) {
-            trackEvent("clip_added_to_playlist", { playlist_id: playlist.id, match_id: clip.matchId, surface: "game_view", via, moment });
+            trackEvent("clip_added_to_playlist", {
+              playlist_id: playlist.id,
+              match_id: clip.matchId,
+              surface: "game_view",
+              via,
+              moment,
+              to_target: playlist.id === targetId,
+            });
           }
           // The editor's Add clips starts on this game next time.
           setAddClipsScope(playlist.id, { gameId: match.id, teams: [] });
@@ -167,16 +178,16 @@ export function useCollect({
         }
       });
       // Players already have this playlist: say once that new clips wait for the coach.
-      const held = playlistIsShared(playlist) && !saidHeld.current;
-      if (held) saidHeld.current = true;
+      const sayHeld = playlistIsShared(playlist) && !saidHeld.current;
+      if (sayHeld) saidHeld.current = true;
       toast(fresh.length === 1 ? `Added to ${playlist.name}` : `${fresh.length} clips added to ${playlist.name}`, {
         id: COLLECT_TOAST,
         // Sonner's own description grey is unreadable on the dark themes.
-        description: held ? createElement("span", { className: "text-muted-foreground" }, "Players see new clips once you send them.") : undefined,
+        description: sayHeld ? createElement("span", { className: "text-muted-foreground" }, "Players see new clips once you send them.") : undefined,
         action: { label: "Undo", onClick: () => undo(playlist, keys, "toast") },
       });
     },
-    [match.id, mutate, enqueue, undo],
+    [match.id, targetId, mutate, enqueue, undo],
   );
 
   /**
@@ -187,14 +198,14 @@ export function useCollect({
     (plays: readonly TimedPlay[], via: CollectVia, moment: string | null = null, anchor: HTMLElement | null = null) => {
       if (plays.length === 0) return;
       if (target) {
-        addTo(target, plays, via, moment);
+        addToPlaylist(target, plays, via, moment);
         return;
       }
       pendingRef.current = { plays, via, moment };
       setPickerAnchor(anchor);
       setPickerOpenState(true);
     },
-    [target, addTo],
+    [target, addToPlaylist],
   );
 
   /** The picker's own button and its dismissal: opened here it belongs to that button, and closing drops what was waiting. */
@@ -212,9 +223,9 @@ export function useCollect({
       setCollectTarget(match.id, playlist.id);
       setPickerOpenState(false);
       trackEvent("collect_target_set", { source, shared: playlistIsShared(playlist), via: pending?.via ?? "toolbar" });
-      if (pending) addTo(playlist, pending.plays, pending.via, pending.moment);
+      if (pending) addToPlaylist(playlist, pending.plays, pending.via, pending.moment);
     },
-    [match.id, addTo],
+    [match.id, addToPlaylist],
   );
 
   const createTarget = useCallback(
@@ -226,6 +237,18 @@ export function useCollect({
       chooseTarget(created, "new");
     },
     [orgId, chooseTarget],
+  );
+
+  /** A new playlist with these plays in it, once: the target stays as it is. Throws when the create fails. */
+  const createAndAddTo = useCallback(
+    async (name: string, plays: readonly TimedPlay[], via: CollectVia, moment: string | null) => {
+      const created = await createPlaylist(name, undefined, orgId ?? undefined);
+      trackEvent("playlist_created", { playlist_id: created.id, in_folder: false, surface: "game_view" });
+      saved.current.set(created.id, []);
+      setPlaylists((prev) => [created, ...(prev ?? [])]);
+      addToPlaylist(created, plays, via, moment);
+    },
+    [orgId, addToPlaylist],
   );
 
   /** The clip keys in the target, for the rows' checks. */
@@ -250,18 +273,26 @@ export function useCollect({
     [target, addedHere, undo],
   );
 
-  /** Clips of a shared target that players don't have yet (no uploaded file). */
-  const unsent = useMemo(
-    () => (target && playlistIsShared(target) ? target.items.filter((i) => isClipItem(i) && !i.r2Url).length : 0),
-    [target],
+  /**
+   * Shared playlists whose players are waiting for clips (no uploaded file):
+   * the target's, and any other holding this game's. Derived from the
+   * playlists, so it survives leaving the page.
+   */
+  const held = useMemo(() => heldForPlayers(playlists ?? [], match.id, targetId), [playlists, match.id, targetId]);
+
+  /** Opens a playlist in the editor; with held clips, the editor uploads them on arrival. */
+  const openPlaylist = useCallback(
+    (playlistId: string) => {
+      const waiting = held.find((h) => h.playlist.id === playlistId);
+      if (waiting) trackEvent("collect_sent", { clips: waiting.count, target: playlistId === targetId });
+      navigate("/playlists", { state: { restore: { playlistId }, ...(waiting ? { reship: true } : {}) } });
+    },
+    [held, targetId, navigate],
   );
 
-  /** Opens the target in the editor; with held clips, the editor uploads them on arrival. */
   const openTarget = useCallback(() => {
-    if (!target) return;
-    if (unsent > 0) trackEvent("collect_sent", { clips: unsent });
-    navigate("/playlists", { state: { restore: { playlistId: target.id }, ...(unsent > 0 ? { reship: true } : {}) } });
-  }, [target, unsent, navigate]);
+    if (target) openPlaylist(target.id);
+  }, [target, openPlaylist]);
 
   /** The playlists to choose from: those that already hold this game's clips first. */
   const candidates = useMemo(() => {
@@ -277,13 +308,16 @@ export function useCollect({
     inTarget,
     statusOf,
     add,
+    addToPlaylist,
+    createAndAddTo,
     removeAdded,
     chooseTarget,
     createTarget,
     pickerOpen,
     pickerAnchor,
     setPickerOpen,
-    unsent,
+    held,
+    openPlaylist,
     openTarget,
     /** How many clips this visit added (net of undos), for the closing event. */
     addedTotal,

@@ -129,11 +129,21 @@ add; G label; ⇧G the same label again; ⌥1–⌥9 the label that has that key
   the row's check are `writePlaylistItems`, and only for clips added on this
   visit: a clip that was already in the playlist may carry notes and trims.
   "Add all n" appears only while a filter or a moment is on.
+- **Any playlist, once**: a row's menu (right-click) adds the play to the
+  target or, under "Add to another playlist", to any other playlist or a new
+  one named after the game. The target doesn't change. The menu is one
+  `ContextMenu` around the list (`game-play-menu.tsx`), not one per row, so
+  adding doesn't redraw every row; markers and headers have none.
 - **A playlist players already have**: the add is the same write and nothing
-  is cut or uploaded from here. The control counts this visit's adds as not
-  sent, and "Send n clips…" opens the editor on that playlist with its
-  upload-on-arrival state (`{restore: {playlistId}, reship: true}`). Players'
-  feeds skip clips with no uploaded file, so they see nothing until then.
+  is cut or uploaded from here. The control counts, per shared playlist, the
+  clips players don't have yet: the target's, and any shared playlist holding
+  one of this game's clips without a file (`heldForPlayers` in
+  `packages/shared/lib/playlist-sharing.ts`). It is read from the playlists,
+  so it survives leaving the page. One playlist: "Send n clips…" opens the
+  editor on it with its upload-on-arrival state
+  (`{restore: {playlistId}, reship: true}`). Several: the same button opens a
+  menu of them. Players' feeds skip clips with no uploaded file, so they see
+  nothing until then.
 - Labels are independent of collecting: label now, build later through the
   label filter in Add clips.
 

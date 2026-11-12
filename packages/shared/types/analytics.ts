@@ -58,7 +58,7 @@ export type AnalyticsEvent =
   | "sync_tip_dismissed" // how (got_it | fix_sync)
   // Playlist production (desktop)
   | "playlist_created"
-  | "clip_added_to_playlist" // playlist_id, match_id; from the game view also surface (game_view), via (row | now_bar | bulk), moment
+  | "clip_added_to_playlist" // playlist_id, match_id; from the game view also surface (game_view), via (row | now_bar | bulk | menu | selection), moment, to_target (it went to the "Adding to" playlist)
   | "clip_trimmed" // desktop trim handles (props: playlist_id, in_changed, out_changed, length_seconds)
   | "playlist_filtered"
   | "clips_grouped"
@@ -98,7 +98,7 @@ export type AnalyticsEvent =
   | "game_view_closed" // seconds_played, clips_added, labels_applied
   | "collect_target_set" // source (existing | new), shared, via (toolbar | row | now_bar | bulk)
   | "collect_undone" // via (toast | row), clips
-  | "collect_sent" // clips: "Send N clips…" opened a shared target to upload what was held
+  | "collect_sent" // clips, target (it was the "Adding to" playlist): "Send N clips…" opened a shared playlist to upload what was held
   | "game_marks_filled" // outcome (filled | unsaved | failed | skipped), timeouts, error
   // Distribution & virality
   | "video_exported"
