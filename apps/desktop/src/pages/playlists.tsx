@@ -57,7 +57,8 @@ import { generateScoutingReport, type GenerateOutcome } from "@/lib/scouting-rep
 import { getMyScoutingReport, type MyScoutingReport } from "@/lib/scouting-reports-db";
 import { isLiveReport, sharedStatusLabel } from "@scoutable/shared/lib/scouting-reports-db";
 import { defaultOpponent, type ReportDraft } from "@scoutable/shared/lib/report-draft";
-import { emptyHistory, itemsDiff, materialize, pasteIndexAfter, pasteItems, recordEdit, takeRedo, takeUndo, type History, type ItemsEdit } from "@scoutable/shared/lib/playlist-history";
+import { dropFuture, emptyHistory, itemsDiff, materialize, pasteIndexAfter, pasteItems, recordEdit, takeRedo, takeUndo, type History, type ItemsEdit } from "@scoutable/shared/lib/playlist-history";
+import { nextHistoryStep, recordSidebarEdit, takeSidebarStep, type SidebarEdit } from "@scoutable/shared/lib/sidebar-history";
 import { cardInsertKey, groupItems, insertBefore, newTextCard, ungroupItems, type CardPlace } from "@scoutable/shared/lib/playlist-edits";
 import { IS_MACOS } from "@/lib/platform";
 import { fallbackText, pickDefaultPlayer, type StatsCardPlayer, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
@@ -514,6 +515,7 @@ export function PlaylistsPage() {
   const clipDragOverPlaylistIdRef = useRef<string | null>(null);
   const clipDragOverFolderIdRef = useRef<string | null>(null);
   const playlistsRef = useRef<Playlist[]>([]);
+  const foldersRef = useRef<PlaylistFolder[]>([]);
   const expandedFoldersRef = useRef(expandedFolders);
   useEffect(() => { expandedFoldersRef.current = expandedFolders; }, [expandedFolders]);
   const uncategorizedExpandedRef = useRef(uncategorizedExpanded);
@@ -557,6 +559,12 @@ export function PlaylistsPage() {
   // playlist's writes in order, so an undo never overtakes the edit it undoes.
   const historyRef = useRef(new Map<string, History>());
   const writeChainRef = useRef(new Map<string, Promise<boolean>>());
+  // The sidebar's renames and moves (lib/sidebar-history.ts), and the one counter
+  // that orders them against the rows' edits for ⌘Z.
+  const sidebarHistoryRef = useRef(emptyHistory<SidebarEdit>());
+  const editSeqRef = useRef(0);
+  // Another space has other playlists and folders.
+  useEffect(() => { sidebarHistoryRef.current = emptyHistory(); }, [activeOrgId]);
   // The toolbar row the report view fills, so its toolbar sits where the clips toolbar does.
   const [reportToolbarSlot, setReportToolbarSlot] = useState<HTMLDivElement | null>(null);
   const [myReport, setMyReport] = useState<MyScoutingReport | null>(null);
@@ -671,6 +679,7 @@ export function PlaylistsPage() {
     return () => window.removeEventListener(CLIPS_PATCHED_EVENT, onPatched);
   }, []);
   useEffect(() => { playlistsRef.current = playlists; }, [playlists]);
+  useEffect(() => { foldersRef.current = folders; }, [folders]);
   useEffect(() => { sessionStorage.setItem("expandedFolders", JSON.stringify([...expandedFolders])); }, [expandedFolders]);
   useEffect(() => { sessionStorage.setItem("uncategorizedExpanded", String(uncategorizedExpanded)); }, [uncategorizedExpanded]);
 
@@ -3762,6 +3771,8 @@ export function PlaylistsPage() {
     setFolders((prev) => prev.map((f) => f.id === id ? { ...f, name } : f));
     try {
       await updateFolder(id, { name });
+      const edit = recordSidebar({ label: "Rename folder", target: "folder", id, field: "name", before: old, after: name });
+      toast("Folder renamed", { id: EDIT_TOAST, action: { label: "Undo", onClick: () => undoSidebarIfLatest(edit) } });
     } catch (err) {
       console.error("Failed to rename folder:", err);
       setFolders((prev) => prev.map((f) => f.id === id && f.name === name ? { ...f, name: old } : f));
@@ -3820,12 +3831,22 @@ export function PlaylistsPage() {
   }
 
   async function movePlaylistToFolder(playlistId: string, folderId: string | null) {
-    await updatePlaylist(playlistId, { folderId });
+    const before = playlistsRef.current.find((p) => p.id === playlistId)?.folderId ?? null;
+    try {
+      await updatePlaylist(playlistId, { folderId });
+    } catch (err) {
+      console.error("[playlists] Failed to move playlist:", err);
+      toast.error("Couldn't move the playlist");
+      return;
+    }
     setPlaylists((prev) => prev.map((p) =>
       p.id === playlistId ? { ...p, folderId: folderId ?? undefined } : p
     ));
     if (selected?.id === playlistId) {
       setSelected((prev) => prev ? { ...prev, folderId: folderId ?? undefined } : prev);
+    }
+    if (before !== folderId) {
+      recordSidebar({ label: "Move playlist", target: "playlist", id: playlistId, field: "parent", before, after: folderId });
     }
   }
 
@@ -3841,6 +3862,7 @@ export function PlaylistsPage() {
     ));
     try {
       await updateFolder(folderId, { parentId: newParentId });
+      recordSidebar({ label: "Move folder", target: "folder", id: folderId, field: "parent", before: current.parentId ?? null, after: newParentId });
     } catch (err) {
       console.error("Failed to move folder:", err);
       toast.error("Couldn't move the folder — reloading");
@@ -3896,6 +3918,8 @@ export function PlaylistsPage() {
     setSelected((prev) => prev?.id === playlistId ? { ...prev, name } : prev);
     try {
       await updatePlaylist(playlistId, { name });
+      const edit = recordSidebar({ label: "Rename playlist", target: "playlist", id: playlistId, field: "name", before: old, after: name });
+      toast("Playlist renamed", { id: EDIT_TOAST, action: { label: "Undo", onClick: () => undoSidebarIfLatest(edit) } });
     } catch (err) {
       console.error("[playlists] Failed to rename playlist:", err);
       setPlaylists((prev) => prev.map((p) => p.id === playlistId && p.name === name ? { ...p, name: old } : p));
@@ -4550,24 +4574,139 @@ export function PlaylistsPage() {
     setSelected(updated);
     setPlaylists((prev) => prev.map((p) => (p.id === pl.id ? updated : p)));
     if (isUnsavedId(pl.id)) return Promise.resolve(true);
-    const edit: ItemsEdit = { label, before, after };
+    const edit: ItemsEdit = { label, before, after, seq: ++editSeqRef.current };
     historyRef.current.set(pl.id, recordEdit(historyRef.current.get(pl.id) ?? emptyHistory(), edit));
+    sidebarHistoryRef.current = dropFuture(sidebarHistoryRef.current);
     if (notice) toast(notice, { id: EDIT_TOAST, action: { label: "Undo", onClick: () => undoIfLatest(pl.id, edit) } });
     return writeItems(pl.id, before, after);
   }
 
-  /** The toast's Undo: the same as ⌘Z, while the edit it names is still the last one. */
+  /** The row toast's Undo: the same as ⌘Z on the rows, while the edit it names is still the last one. */
   function undoIfLatest(playlistId: string, edit: ItemsEdit) {
     const past = historyRef.current.get(playlistId)?.past ?? [];
-    if (selectedRef.current?.id === playlistId && past[past.length - 1] === edit) stepHistory("undo");
+    if (selectedRef.current?.id === playlistId && past[past.length - 1] === edit) stepRows("undo");
   }
 
   /**
-   * ⌘Z / ⇧⌘Z: the open playlist's rows go back to (or forward to) an edit's
-   * snapshot, each row as it is now (a later note stays). What comes back is
-   * selected, as in Finder. False when there is nothing to step to.
+   * ⌘Z / ⇧⌘Z: the most recent edit across the open playlist's rows and the
+   * sidebar's renames and moves (lib/sidebar-history.ts). False when there is
+   * nothing to step to.
    */
   function stepHistory(direction: "undo" | "redo"): boolean {
+    const pl = selectedRef.current;
+    const rows = pl && !isUnsavedId(pl.id) ? historyRef.current.get(pl.id) ?? emptyHistory() : emptyHistory();
+    const next = nextHistoryStep(direction, rows, sidebarHistoryRef.current);
+    if (next === "rows") return stepRows(direction);
+    if (next === "sidebar") return stepSidebar(direction);
+    return false;
+  }
+
+  /** A sidebar edit, stamped and recorded; the rows' redo is forgotten, as after any new edit. */
+  function recordSidebar(edit: Omit<SidebarEdit, "seq">): SidebarEdit {
+    const stamped: SidebarEdit = { ...edit, seq: ++editSeqRef.current };
+    sidebarHistoryRef.current = recordSidebarEdit(sidebarHistoryRef.current, stamped);
+    for (const [id, history] of historyRef.current) historyRef.current.set(id, dropFuture(history));
+    return stamped;
+  }
+
+  /** What a sidebar edit changed, as it is now: undefined when the playlist or folder is gone. Reads the refs, so an older render's toast sees the latest. */
+  function sidebarValue(edit: SidebarEdit): string | null | undefined {
+    if (edit.target === "playlist") {
+      const p = playlistsRef.current.find((x) => x.id === edit.id);
+      if (!p) return undefined;
+      return edit.field === "name" ? p.name : p.folderId ?? null;
+    }
+    const f = foldersRef.current.find((x) => x.id === edit.id);
+    if (!f) return undefined;
+    return edit.field === "name" ? f.name : f.parentId ?? null;
+  }
+
+  /** The rename toast's Undo: the same as ⌘Z on the sidebar, while the edit it names is still the last one. */
+  function undoSidebarIfLatest(edit: SidebarEdit) {
+    const past = sidebarHistoryRef.current.past;
+    if (past[past.length - 1] === edit) stepSidebar("undo");
+  }
+
+  /**
+   * ⌘Z / ⇧⌘Z on the sidebar: a name or a place goes back (or forward), unless
+   * the playlist or folder was renamed, moved or deleted since; then nothing
+   * changes, the toast says so, and the edit is forgotten.
+   */
+  function stepSidebar(direction: "undo" | "redo"): boolean {
+    const step = takeSidebarStep(sidebarHistoryRef.current, direction, sidebarValue);
+    if (!step) return false;
+    const { edit } = step;
+    const blocked =
+      "blocked" in step ? step.blocked
+      : edit.target === "folder" && edit.field === "parent" && wouldCreateCycle(foldersRef.current, edit.id, step.to) ? "changed"
+      : null;
+    if (blocked || !("to" in step)) {
+      sidebarHistoryRef.current = {
+        past: step.history.past.filter((e) => e !== edit),
+        future: step.history.future.filter((e) => e !== edit),
+      };
+      const verb = direction === "undo" ? "undone" : "redone";
+      const message =
+        blocked === "gone" ? `The ${edit.target} was deleted, so nothing was ${verb}`
+        : edit.field === "name" ? `The name changed since, so nothing was ${verb}`
+        : `The ${edit.target} moved since, so nothing was ${verb}`;
+      toast(message, { id: EDIT_TOAST });
+      return true;
+    }
+    sidebarHistoryRef.current = step.history;
+    void writeSidebarValue(edit, step.to);
+    toast(`${direction === "undo" ? "Undo" : "Redo"}: ${edit.label}`, { id: EDIT_TOAST, duration: 2000 });
+    return true;
+  }
+
+  /** Shows a sidebar edit's value at once and saves it; a failed save takes it back. */
+  async function writeSidebarValue(edit: SidebarEdit, value: string | null): Promise<boolean> {
+    const from = sidebarValue(edit);
+    const { id, field } = edit;
+    // Puts `to` on the target; with `onlyIf`, only while it still holds that value.
+    const put = (to: string | null, onlyIf?: string | null) => {
+      if (edit.target === "playlist") {
+        const patch = (p: Playlist): Playlist => {
+          if (p.id !== id) return p;
+          if (onlyIf !== undefined && (field === "name" ? p.name : p.folderId ?? null) !== onlyIf) return p;
+          return field === "name" ? { ...p, name: to ?? p.name } : { ...p, folderId: to ?? undefined };
+        };
+        setPlaylists((prev) => prev.map(patch));
+        setSelected((prev) => (prev ? patch(prev) : prev));
+      } else {
+        setFolders((prev) => prev.map((f) => {
+          if (f.id !== id) return f;
+          if (onlyIf !== undefined && (field === "name" ? f.name : f.parentId ?? null) !== onlyIf) return f;
+          return field === "name" ? { ...f, name: to ?? f.name } : { ...f, parentId: to ?? undefined };
+        }));
+      }
+    };
+    put(value);
+    // A move back into a collapsed folder opens it, so the row is seen landing.
+    if (field === "parent" && value !== null) {
+      setExpandedFolders((prev) => (prev.has(value) ? prev : new Set([...prev, value])));
+    }
+    try {
+      if (edit.target === "playlist") {
+        await updatePlaylist(id, field === "name" ? { name: value ?? undefined } : { folderId: value });
+      } else {
+        await updateFolder(id, field === "name" ? { name: value ?? undefined } : { parentId: value });
+      }
+      return true;
+    } catch (err) {
+      console.error("[playlists] Failed to save a sidebar change:", err);
+      if (from !== undefined) put(from, value);
+      toast.error("Couldn’t save that change, so it was taken back. Check the connection and try again.", { id: EDIT_TOAST });
+      return false;
+    }
+  }
+
+  /**
+   * The open playlist's rows go back to (or forward to) an edit's snapshot,
+   * each row as it is now (a later note stays). What comes back is selected,
+   * as in Finder. False when there is nothing to step to.
+   */
+  function stepRows(direction: "undo" | "redo"): boolean {
     const pl = selectedRef.current;
     if (!pl || isUnsavedId(pl.id)) return false;
     const step = (direction === "undo" ? takeUndo : takeRedo)(historyRef.current.get(pl.id) ?? emptyHistory());
