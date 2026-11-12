@@ -15,9 +15,9 @@
  * - A toast's own Undo steps only its own history, never through the chooser.
  *
  * A step only applies while the target still holds the value the edit left
- * (undo) or found (redo). A playlist or folder renamed, moved or deleted since
- * undoes nothing, and the edit is forgotten from both stacks. Pure, so the
- * page and the tests share it.
+ * (undo) or found (redo), and a move only into a folder that still exists and
+ * would not put a folder inside itself. Otherwise it undoes nothing, and the
+ * edit is forgotten from both stacks. Pure, so the page and the tests share it.
  */
 import { pushEdit, takeRedo, takeUndo, type Edit, type History } from "./playlist-history";
 
@@ -53,29 +53,60 @@ export function nextHistoryStep(
   return rs < ss ? "rows" : "sidebar";
 }
 
+/**
+ * Why a step did nothing: the target was renamed or moved since ("changed"),
+ * deleted ("gone"), the folder it would go into was deleted ("place_gone"), or
+ * the folder would land inside itself ("cycle").
+ */
+export type SidebarBlock = "changed" | "gone" | "place_gone" | "cycle";
+
 export type SidebarStep =
   | { history: History<SidebarEdit>; edit: SidebarEdit; to: string | null }
-  | { history: History<SidebarEdit>; edit: SidebarEdit; blocked: "changed" | "gone" };
+  | { history: History<SidebarEdit>; edit: SidebarEdit; blocked: SidebarBlock };
 
-/** `current` reads the target's value now: undefined when the playlist or folder no longer exists. */
+/** The history without `edit`, on either stack. */
+function forget(history: History<SidebarEdit>, edit: SidebarEdit): History<SidebarEdit> {
+  return { past: history.past.filter((e) => e !== edit), future: history.future.filter((e) => e !== edit) };
+}
+
+/**
+ * `current` reads the target's value now: undefined when the playlist or
+ * folder no longer exists. For a move into a folder, `placeExists` says
+ * whether that folder still exists, and `wouldNest(folderId, parentId)`
+ * whether a folder would land inside itself; left out, they don't block.
+ */
 export function takeSidebarStep(
   history: History<SidebarEdit>,
   direction: "undo" | "redo",
   current: (edit: SidebarEdit) => string | null | undefined,
+  placeExists?: (folderId: string) => boolean,
+  wouldNest?: (folderId: string, parentId: string) => boolean,
 ): SidebarStep | null {
   const stack = direction === "undo" ? history.past : history.future;
   const edit = stack[stack.length - 1];
   if (!edit) return null;
-  const rest = stack.slice(0, -1);
+  const blocked = (why: SidebarBlock): SidebarStep => ({ history: forget(history, edit), edit, blocked: why });
   const expected = direction === "undo" ? edit.after : edit.before;
   const now = current(edit);
-  if (now !== expected) {
-    const forgotten =
-      direction === "undo"
-        ? { past: rest, future: history.future.filter((e) => e !== edit) }
-        : { past: history.past.filter((e) => e !== edit), future: rest };
-    return { history: forgotten, edit, blocked: now === undefined ? "gone" : "changed" };
+  if (now !== expected) return blocked(now === undefined ? "gone" : "changed");
+  const to = direction === "undo" ? edit.before : edit.after;
+  if (edit.field === "parent" && to !== null) {
+    if (placeExists && !placeExists(to)) return blocked("place_gone");
+    if (edit.target === "folder" && wouldNest?.(edit.id, to)) return blocked("cycle");
   }
   const taken = direction === "undo" ? takeUndo(history)! : takeRedo(history)!;
-  return { history: taken.history, edit, to: direction === "undo" ? edit.before : edit.after };
+  return { history: taken.history, edit, to };
+}
+
+/**
+ * The history after a step whose save failed: as it was before the step when
+ * nothing was stepped or recorded since (`now` is still the step's history),
+ * so the next ⌘Z tries the same edit again; else `now` without the edit.
+ */
+export function failedSidebarStep(
+  now: History<SidebarEdit>,
+  prior: History<SidebarEdit>,
+  step: { history: History<SidebarEdit>; edit: SidebarEdit },
+): History<SidebarEdit> {
+  return now === step.history ? prior : forget(now, step.edit);
 }
