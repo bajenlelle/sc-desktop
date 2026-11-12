@@ -13,8 +13,10 @@ import {
   forgetGameTab,
   gameTabsScope,
   neighbourGameTab,
+  recallGameView,
   recallLoadedGame,
   rememberGameTab,
+  rememberGameView,
   rememberLoadedGame,
   useGameTabs,
 } from "@/lib/game-tabs";
@@ -42,7 +44,8 @@ import { MatchDetailPage } from "./match-detail";
  * visit (lib/game-tabs.ts) until any `matches-changed`, or for ten minutes.
  *
  * The open games sit in tabs under the toolbar (from two games), per user and
- * space; switching replaces the history entry, so Back leaves the games.
+ * space; switching replaces the history entry, so Back leaves the games. A
+ * tab switch opens the view the game was left on (lib/game-tabs.ts).
  */
 export function GamePage() {
   const { id } = useParams<{ id: string }>();
@@ -65,6 +68,9 @@ export function GamePage() {
   const [view, setView] = useState<GameViewMode | null>(() => {
     if (asked === "details" || wantsQuarters) return "details";
     if (asked === "game" || startEventId) return "game";
+    // A tab switch comes back to the view the game was left on.
+    const left = viaTab ? recallGameView(matchId)?.view : null;
+    if (left) return left;
     // Nothing asked for a view: the game when there is one to watch, else its settings.
     if (loaded) return loaded.videoStatus === "ok" && loaded.match.syncPoint ? "game" : "details";
     return null;
@@ -113,13 +119,14 @@ export function GamePage() {
   const show = useCallback(
     (next: GameViewMode, state?: { openQuarters?: boolean }) => {
       setView(next);
+      rememberGameView(matchId, { view: next });
       const params = new URLSearchParams(searchParams);
       params.set("view", next);
       params.delete("play");
       // The switch replaces the entry: Back leaves the game, it doesn't flip views.
       setSearchParams(params, { replace: true, state: state ?? null });
     },
-    [searchParams, setSearchParams],
+    [matchId, searchParams, setSearchParams],
   );
 
   // This game's tab, in the space it was opened in: a space switch while the

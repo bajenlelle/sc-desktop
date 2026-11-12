@@ -23,16 +23,19 @@ stretch where a game turned.
   read again when Game is entered from Details or from outside (Library, a
   link), so a sync changed in Details shows; a tab switch serves the copy read
   on this visit until any `matches-changed`, or for 10 minutes.
-- The view (`components/game/game-watch-view.tsx`) keeps the position per game
-  for the app session (`sessionStorage`, `scoutable_game_position:<id>`), so
-  Details and back resumes where the coach was.
+- A game comes back as it was left, for the app session: its position
+  (`sessionStorage`, `scoutable_game_position:<id>`), and its filters, quarter
+  zoom, list scroll and (on a tab switch) view (`lib/game-tabs.ts`), labels and
+  playlists shown at once and read again behind. A link to a play opens without the filters.
+  Not kept: the filter sheet, the selection, and Undo for adds made on an
+  earlier visit.
 
 ### Games in tabs
 
 - **One mounted view, no hidden videos.** A tab is a remembered game, not a
   page kept alive: switching remounts the page on the other game, so there is
-  still one decoder (`lib/release-video.ts`), and the position memory above is
-  what resumes it.
+  still one decoder (`lib/release-video.ts`), and the memory above is what
+  brings it back as it was left.
 - From two open games a tab bar sits under the toolbar, inside its material
   (`Toolbar`'s `tabBar` row, `components/game/game-tab-strip.tsx`). Six at
   most: a seventh game closes the tab shown least recently, quietly. New games

@@ -20,6 +20,11 @@ import { withLabelKey } from "@scoutable/shared/lib/label-keys";
 const clipKey = (matchId: string, eventId: number) => `${matchId}:${eventId}`;
 const byName = (a: Label, b: Label) => a.name.localeCompare(b.name);
 
+type GameLabels = { labels: Label[]; assignments: Map<string, Set<string>> };
+
+/** This session's last look at each game's labels, by `${orgId}|${matchId}`: a visit shows them at once and reads again behind. */
+const lastRead = new Map<string, GameLabels>();
+
 /**
  * A game's labels, for a page that isn't the editor: the space's vocabulary
  * and which labels sit on which of the game's plays, read once and written
@@ -27,10 +32,16 @@ const byName = (a: Label, b: Label) => a.name.localeCompare(b.name);
  * the Add clips browser takes its handlers in, so the label picker works
  * unchanged. The editor keeps its own copy of this in pages/playlists.tsx;
  * only one of the two pages is ever mounted, so neither can go stale.
+ *
+ * A game seen before on this run starts from what it showed then (no flash
+ * of chips on a tab switch) and is read again behind it.
  */
 export function useClipLabels(orgId: string | null, matchId: string, surface: string) {
-  const [labels, setLabels] = useState<Label[]>([]);
-  const [assignments, setAssignments] = useState<Map<string, Set<string>>>(() => new Map());
+  const cacheKey = `${orgId}|${matchId}`;
+  const [labels, setLabels] = useState<Label[]>(() => lastRead.get(cacheKey)?.labels ?? []);
+  const [assignments, setAssignments] = useState<Map<string, Set<string>>>(() => lastRead.get(cacheKey)?.assignments ?? new Map());
+  /** The game and space the shown labels belong to, so they are never kept under another's key. */
+  const shownKey = useRef<string | null>(orgId && lastRead.has(cacheKey) ? cacheKey : null);
   // Writes read the latest sets, not the ones a handler was created with.
   const assignmentsRef = useRef(assignments);
   assignmentsRef.current = assignments;
@@ -39,13 +50,16 @@ export function useClipLabels(orgId: string | null, matchId: string, surface: st
   const [applied, setApplied] = useState(0);
 
   useEffect(() => {
-    setLabels([]);
-    setAssignments(new Map());
+    const cached = orgId ? lastRead.get(cacheKey) : undefined;
+    shownKey.current = cached ? cacheKey : null;
+    setLabels(cached?.labels ?? []);
+    setAssignments(cached?.assignments ?? new Map());
     if (!orgId) return;
     let cancelled = false;
     void Promise.all([listLabels(orgId), listAssignmentsForMatches(orgId, [matchId])])
       .then(([vocabulary, rows]) => {
         if (cancelled) return;
+        shownKey.current = cacheKey;
         setLabels([...vocabulary].sort(byName));
         const next = new Map<string, Set<string>>();
         for (const row of rows) {
@@ -62,7 +76,12 @@ export function useClipLabels(orgId: string | null, matchId: string, surface: st
     return () => {
       cancelled = true;
     };
-  }, [orgId, matchId]);
+  }, [cacheKey, orgId, matchId]);
+
+  // Kept current through every write, for the next visit.
+  useEffect(() => {
+    if (shownKey.current) lastRead.set(shownKey.current, { labels, assignments });
+  }, [labels, assignments]);
 
   const patch = useCallback((keys: string[], labelId: string, on: boolean) => {
     setAssignments((prev) => {

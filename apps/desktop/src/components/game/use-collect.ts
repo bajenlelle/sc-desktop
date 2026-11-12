@@ -16,6 +16,9 @@ export type CollectVia = "row" | "now_bar" | "bulk" | "menu" | "selection";
 /** One toast for the whole view: the latest add replaces the one before, and its Undo is the only one on offer. */
 const COLLECT_TOAST = "game-collect";
 
+/** This session's last playlists read, by `${orgId}|${includeUnscoped}`: the next visit shows them at once and reads again behind. */
+let lastList: { key: string; list: Playlist[] } | null = null;
+
 /**
  * Collecting a game's plays into a playlist from the game view: one target,
  * chosen once, then one press per play.
@@ -29,6 +32,12 @@ const COLLECT_TOAST = "game-collect";
  *
  * A row's menu adds to any playlist once (`addToPlaylist`, `createAndAddTo`)
  * without changing the target.
+ *
+ * The playlists start from this session's last read in the same space (no
+ * flash of "Choose playlist…" on a tab switch) and are read again behind.
+ * Writes wait for that fresh read: what the server holds is the only base a
+ * write goes from, and adds shown on the earlier list are shown again on the
+ * fresh one.
  *
  * Nothing is cut or uploaded here. When players already have a playlist, the
  * new clips are held: `held` counts them per shared playlist and
@@ -44,7 +53,19 @@ export function useCollect({
   includeUnscoped: boolean;
 }) {
   const navigate = useNavigate();
-  const [playlists, setPlaylists] = useState<Playlist[] | null>(null);
+  const key = `${orgId}|${includeUnscoped}`;
+  const [playlists, setPlaylists] = useState<Playlist[] | null>(() => (lastList?.key === key ? lastList.list : null));
+  /** This space's read has landed: until then the list shown may be the earlier one. */
+  const [readLanded, setReadLanded] = useState(false);
+  /** The space the shown list was read in, so a list is never kept under another's key. */
+  const listKey = useRef<string | null>(playlists ? key : null);
+  /** Changes shown before the read landed, made again on the list it brings; null once it has. */
+  const early = useRef<((list: Playlist[] | null) => Playlist[] | null)[] | null>([]);
+  /** Settles once the read has set `saved`: every write waits for it. */
+  const loadedRef = useRef<Promise<void>>(Promise.resolve());
+  /** The space this hook is in now; a read for an earlier one doesn't touch `saved`. */
+  const keyNow = useRef(key);
+  keyNow.current = key;
   const [targetId, setTargetId] = useState<string | null>(() => getCollectTarget(match.id));
   const [pickerOpen, setPickerOpenState] = useState(false);
   /** The control that asked for the picker (a row's plus, the Now bar's Add): it opens from there. Null: from its own button. */
@@ -60,37 +81,71 @@ export function useCollect({
 
   useEffect(() => {
     let cancelled = false;
-    setPlaylists(null);
-    void listPlaylists(orgId ?? undefined, { includeUnscoped })
-      .then((list) => {
-        if (cancelled) return;
-        saved.current = new Map(list.map((p) => [p.id, p.items]));
-        setPlaylists(list);
-      })
-      .catch(() => {
-        if (!cancelled) setPlaylists([]);
-      });
+    const cached = lastList?.key === key ? lastList.list : null;
+    listKey.current = cached ? key : null;
+    early.current = [];
+    setReadLanded(false);
+    setPlaylists(cached);
+    const read = listPlaylists(orgId ?? undefined, { includeUnscoped }).then((list) => {
+      // Set even when the page has gone, so writes made before it left still land. Merged: a playlist made
+      // here while the read was out keeps its entry.
+      if (keyNow.current === key) for (const p of list) saved.current.set(p.id, p.items);
+      if (cancelled) return;
+      const edits = early.current ?? [];
+      early.current = null;
+      listKey.current = key;
+      setPlaylists(edits.reduce<Playlist[] | null>((l, change) => change(l), list));
+      setReadLanded(true);
+    });
+    loadedRef.current = read.catch(() => {});
+    read.catch(() => {
+      if (cancelled) return;
+      early.current = null;
+      listKey.current = null;
+      setPlaylists([]);
+    });
     return () => {
       cancelled = true;
     };
-  }, [orgId, includeUnscoped]);
+  }, [key, orgId, includeUnscoped]);
+
+  // Kept current through every add, for the next visit.
+  useEffect(() => {
+    if (playlists && listKey.current) lastList = { key: listKey.current, list: playlists };
+  }, [playlists]);
 
   const target = useMemo(() => playlists?.find((p) => p.id === targetId) ?? null, [playlists, targetId]);
 
-  // A remembered playlist that is gone (deleted, or in another space) is forgotten.
+  // A remembered playlist that is gone (deleted, or in another space) is forgotten; an earlier list can't say so.
   useEffect(() => {
-    if (playlists && targetId && !playlists.some((p) => p.id === targetId)) {
+    if (readLanded && playlists && targetId && !playlists.some((p) => p.id === targetId)) {
       setTargetId(null);
       setCollectTarget(match.id, null);
     }
-  }, [playlists, targetId, match.id]);
+  }, [readLanded, playlists, targetId, match.id]);
 
-  const mutate = useCallback((playlistId: string, change: (items: PlaylistItem[]) => PlaylistItem[]) => {
-    setPlaylists((prev) => prev?.map((p) => (p.id === playlistId ? { ...p, items: change(p.items) } : p)) ?? prev);
+  /** Changes the shown list; before the read lands, also made again on the list it brings. */
+  const edit = useCallback((change: (list: Playlist[] | null) => Playlist[] | null) => {
+    early.current?.push(change);
+    setPlaylists(change);
   }, []);
 
+  const mutate = useCallback(
+    (playlistId: string, change: (items: PlaylistItem[]) => PlaylistItem[]) => {
+      edit((prev) => prev?.map((p) => (p.id === playlistId ? { ...p, items: change(p.items) } : p)) ?? prev);
+    },
+    [edit],
+  );
+
+  /** A playlist made here, first in the list (once: the read may already bring it). */
+  const addCreated = useCallback(
+    (created: Playlist) => edit((prev) => (prev?.some((p) => p.id === created.id) ? prev : [created, ...(prev ?? [])])),
+    [edit],
+  );
+
   const enqueue = useCallback((playlistId: string, job: () => Promise<void>) => {
-    const next = (chains.current.get(playlistId) ?? Promise.resolve()).then(job).catch(() => {});
+    // A playlist's first write waits for the read: never from the earlier list.
+    const next = (chains.current.get(playlistId) ?? loadedRef.current).then(job).catch(() => {});
     chains.current.set(playlistId, next);
   }, []);
 
@@ -152,8 +207,10 @@ export function useCollect({
       mutate(playlist.id, (items) => [...items, ...fresh]);
       setAddedHere((prev) => new Set([...prev, ...keys.map((k) => `${playlist.id}|${k}`)]));
       enqueue(playlist.id, async () => {
-        const base = saved.current.get(playlist.id) ?? [];
+        const base = saved.current.get(playlist.id);
         try {
+          // The read failed: the server's copy is unknown, and a write from a guess could misplace the clips.
+          if (!base) throw new Error("Playlist not read");
           const added = await appendClips({ id: playlist.id, items: base }, fresh);
           saved.current.set(playlist.id, [...base, ...added]);
           setAddedTotal((n) => n + added.length);
@@ -243,10 +300,10 @@ export function useCollect({
       const created = await createPlaylist(name, undefined, orgId ?? undefined);
       trackEvent("playlist_created", { playlist_id: created.id, in_folder: false, surface: "game_view" });
       saved.current.set(created.id, []);
-      setPlaylists((prev) => [created, ...(prev ?? [])]);
+      addCreated(created);
       chooseTarget(created, "new");
     },
-    [orgId, chooseTarget],
+    [orgId, addCreated, chooseTarget],
   );
 
   /** A new playlist with these plays in it, once: the target stays as it is. Throws when the create fails. */
@@ -255,10 +312,10 @@ export function useCollect({
       const created = await createPlaylist(name, undefined, orgId ?? undefined);
       trackEvent("playlist_created", { playlist_id: created.id, in_folder: false, surface: "game_view" });
       saved.current.set(created.id, []);
-      setPlaylists((prev) => [created, ...(prev ?? [])]);
+      addCreated(created);
       addToPlaylist(created, plays, via, moment, false);
     },
-    [orgId, addToPlaylist],
+    [orgId, addCreated, addToPlaylist],
   );
 
   /** The clip keys in the target, for the rows' checks. */

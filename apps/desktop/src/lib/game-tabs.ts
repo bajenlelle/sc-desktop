@@ -8,6 +8,10 @@
  * the spinner. Any `matches-changed` (a sync, a video, a title, an import, a
  * delete, a move to a club) empties that cache and reconciles the tabs with a
  * fresh read; an entry older than ten minutes is read again.
+ *
+ * And how each game was left, so it comes back that way: its filters, its
+ * quarter zoom, its list scroll and its view. In memory for the app session:
+ * filters hold Sets, and a webview reload is rare.
  */
 import { useSyncExternalStore } from "react";
 import {
@@ -21,6 +25,8 @@ import {
   type GameTab,
   type GameTabs,
 } from "@scoutable/shared/lib/game-tabs";
+import { EMPTY_GAME_FILTERS, type GameFilters } from "@scoutable/shared/lib/game-list";
+import type { GameViewMode } from "@/components/game/game-view-switch";
 import { listMatchesByIds } from "@/lib/matches-db";
 import type { VideoFileStatus } from "@/lib/video-probe";
 import type { StoredMatch } from "@/types/match";
@@ -149,4 +155,24 @@ export function rememberLoadedGame(id: string, entry: LoadedGame): void {
     if (oldest === undefined) break;
     loadedGames.delete(oldest);
   }
+}
+
+/** How a game was left. Not kept: the filter sheet's open state, the selection, and this visit's undoable adds. */
+export interface GameViewMemory {
+  filters: GameFilters;
+  zoomPeriod: number | null;
+  /** The play list's scroll, and whether it was following playback. */
+  list: { top: number; following: boolean } | null;
+  view: GameViewMode | null;
+}
+
+const gameViews = new Map<string, GameViewMemory>();
+
+export function recallGameView(matchId: string): GameViewMemory | null {
+  return gameViews.get(matchId) ?? null;
+}
+
+export function rememberGameView(matchId: string, patch: Partial<GameViewMemory>): void {
+  const was = gameViews.get(matchId) ?? { filters: EMPTY_GAME_FILTERS, zoomPeriod: null, list: null, view: null };
+  gameViews.set(matchId, { ...was, ...patch });
 }

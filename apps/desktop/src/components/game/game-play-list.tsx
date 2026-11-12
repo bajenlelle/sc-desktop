@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { periodLabel } from "@scoutable/shared/lib/events";
@@ -31,7 +31,8 @@ const LOOKAHEAD_PX = 64;
  * list themselves, following stops and a "Jump to now" pill points the way
  * back; it resumes when they press it, when they seek (a row, the timeline,
  * a key: `followSignal` changes), or when they scroll the current row back
- * into view.
+ * into view. A game coming back opens the list where it was left
+ * (`restoreScroll`), and leaving hands its scroll to `onLeave`.
  *
  * A play's menu (right-click) is one menu for the whole list, not one per
  * row: `rowMenu` draws it for the play it opened on, so the memoised rows
@@ -57,6 +58,8 @@ export function GamePlayList({
   renderLabelPicker,
   followSignal,
   reveal,
+  restoreScroll,
+  onLeave,
   onPress,
   onAdd,
   onRemove,
@@ -87,6 +90,10 @@ export function GamePlayList({
   followSignal: number;
   /** A row to bring to the top of the list: the quarter or the marker a key jumped to. */
   reveal: { key: string; nonce: number } | null;
+  /** Where the list was left on an earlier visit; null opens it following playback. */
+  restoreScroll: { top: number; following: boolean } | null;
+  /** Called once, on the way out, with where the list was. */
+  onLeave: (scroll: { top: number; following: boolean }) => void;
   /** A click or Return on a row: plain plays it, `toggle` (⌘) and `shift` change the selection. */
   onPress: (play: TimedPlay, mods: { shift: boolean; toggle: boolean }) => void;
   onAdd: (play: TimedPlay, anchor: HTMLElement) => void;
@@ -102,9 +109,13 @@ export function GamePlayList({
   selecting: boolean;
 }) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const [following, setFollowing] = useState(true);
+  const [following, setFollowing] = useState(restoreScroll ? restoreScroll.following : true);
   const [away, setAway] = useState<"up" | "down" | null>(null);
   const ownScrollUntil = useRef(0);
+  /** Where the list was at its last scroll: on the way out the list is already gone from the page. */
+  const lastScroll = useRef(restoreScroll ? { ...restoreScroll } : { top: 0, following: true });
+  const onLeaveRef = useRef(onLeave);
+  onLeaveRef.current = onLeave;
   const reduced = useReducedMotionSafe();
   /** The play the menu is open on, and its row. */
   const [menuFor, setMenuFor] = useState<{ play: TimedPlay; anchor: HTMLElement } | null>(null);
@@ -181,10 +192,34 @@ export function GamePlayList({
     else setAway(whereIsActive());
   }, [activeKey, rows, following, bringIntoView, whereIsActive]);
 
-  // A seek from anywhere means "show me that".
+  // A seek from anywhere means "show me that". Only a new one: a list brought back where it was left isn't sent back to now.
+  const seenSignal = useRef(followSignal);
   useEffect(() => {
+    if (followSignal === seenSignal.current) return;
+    seenSignal.current = followSignal;
     setFollowing(true);
   }, [followSignal]);
+
+  // Back where it was left: put there before the first paint, and the scroll that causes isn't the coach's.
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!restoreScroll || restoreScroll.following) return;
+    // Nothing listed (the filters match no play): there is no place to go back to, so the list follows once it has rows.
+    if (!scroller) {
+      setFollowing(true);
+      return;
+    }
+    scroller.scrollTop = restoreScroll.top;
+    ownScrollUntil.current = performance.now() + OWN_SCROLL_GRACE_MS;
+    // Once, on arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    lastScroll.current.following = following;
+  }, [following]);
+
+  useEffect(() => () => onLeaveRef.current(lastScroll.current), []);
 
   // A jump to a quarter or a marker shows that row, whether or not a play is current there yet.
   useEffect(() => {
@@ -207,6 +242,7 @@ export function GamePlayList({
 
   function onScroll() {
     const now = performance.now();
+    if (scrollerRef.current) lastScroll.current.top = scrollerRef.current.scrollTop;
     if (now < ownScrollUntil.current) {
       // One of the list's own scrolls, still under way: a long one outlasts the first estimate.
       ownScrollUntil.current = Math.max(ownScrollUntil.current, now + OWN_SCROLL_GRACE_MS);

@@ -24,6 +24,7 @@ import { Callout } from "@/components/ui/group";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth-context";
+import { recallGameView, rememberGameView } from "@/lib/game-tabs";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { getGameTimelineTipSeen, setGameTimelineTipSeen } from "@/lib/prefs";
@@ -125,8 +126,11 @@ export function GameWatchView({
   const playerFs = usePlayerFullscreen();
   const [speed, setSpeedState] = useState(readSpeed);
   const [duration, setDuration] = useState<number | null>(null);
-  const [filters, setFilters] = useState<GameFilters>(EMPTY_GAME_FILTERS);
-  const [zoomPeriod, setZoomPeriod] = useState<number | null>(null);
+  // How this game was left on an earlier visit; a link to a play opens without it, so the play is in the list.
+  const [remembered] = useState(() => (startEventId === null ? recallGameView(match.id) : null));
+  const [filters, setFilters] = useState<GameFilters>(() => remembered?.filters ?? EMPTY_GAME_FILTERS);
+  const [zoomPeriod, setZoomPeriod] = useState<number | null>(() => remembered?.zoomPeriod ?? null);
+  useEffect(() => rememberGameView(match.id, { filters, zoomPeriod }), [match.id, filters, zoomPeriod]);
   const [labelPickerFor, setLabelPickerFor] = useState<string | null>(null);
   // The play the Now bar's label picker was opened for: it stays that play however long the choosing takes.
   const [nowLabelFor, setNowLabelFor] = useState<TimedPlay | null>(null);
@@ -385,6 +389,7 @@ export function GameWatchView({
       score: flow.source,
       timeouts: marks?.timeouts.length ?? 0,
       entry,
+      restored: !!remembered && (gameFiltersActive(remembered.filters) || remembered.zoomPeriod !== null),
       is_demo: !!match.isDemo,
     });
     const c = closing.current;
@@ -499,8 +504,15 @@ export function GameWatchView({
 
   // Zoomed into a quarter, the strip turns the page when playback does.
   const livePeriod = playback.moment?.phase === "live" ? playback.moment.period : null;
+  // A zoom brought back from an earlier visit stays: where the game opens isn't playback crossing a period.
+  const zoomRestored = useRef(zoomPeriod !== null);
   useEffect(() => {
-    if (zoomPeriod !== null && livePeriod !== null && livePeriod !== zoomPeriod) setZoomPeriod(livePeriod);
+    if (livePeriod === null) return;
+    if (zoomRestored.current) {
+      zoomRestored.current = false;
+      return;
+    }
+    if (zoomPeriod !== null && livePeriod !== zoomPeriod) setZoomPeriod(livePeriod);
     // Only playback crossing into another period turns the page, not the coach choosing one.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [livePeriod]);
@@ -1042,6 +1054,8 @@ export function GameWatchView({
                 renderLabelPicker={renderRowLabelPicker}
                 followSignal={followSignal}
                 reveal={reveal}
+                restoreScroll={remembered?.list ?? null}
+                onLeave={(list) => rememberGameView(match.id, { list })}
                 onPress={onPress}
                 onAdd={addOne}
                 onRemove={collect.removeAdded}
