@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { ChevronLeft, Play, Tag, VideoOff } from "lucide-react";
+import { ChevronDown, ChevronLeft, ListPlus, Play, Plus, Tag, VideoOff } from "lucide-react";
 import { formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { GAME_MOMENTS, gameFlow, gameMoments, onCourtStints, scoreAfter, type GameMoment } from "@scoutable/shared/lib/game-flow";
 import { EMPTY_GAME_FILTERS, gameFiltersActive, gameRows, keepPlay, type GameFilters, type GameRow } from "@scoutable/shared/lib/game-list";
@@ -9,8 +9,11 @@ import { buildGameTimeline, PERIOD_LEAD_SECONDS, visibleOrder, type TimedPlay } 
 import { videoLooksCut } from "@scoutable/shared/lib/period-sync";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
 import { labelForKey, labelKeySlot } from "@scoutable/shared/lib/label-keys";
+import { clickSelection, extendSelection, moveFocus, pruneSelection, type FocusMove } from "@scoutable/shared/lib/list-selection";
 import { defaultPreRoll } from "@scoutable/shared/lib/provider";
+import { AddToPopover } from "@/components/editor/add-to-popover";
 import { PlayerStage, type PlayerStageHandle } from "@/components/editor/player-stage";
+import { PILL_LABEL, PillButton, SelectionBar } from "@/components/editor/selection-bar";
 import { usePersistentVideo } from "@/components/editor/use-persistent-video";
 import { LabelPickerPopover } from "@/components/labels/LabelPickerPopover";
 import { Page } from "@/components/shell/page";
@@ -30,6 +33,7 @@ import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { useClipLabels } from "@/lib/use-clip-labels";
 import { useGameMarks } from "@/lib/use-game-marks";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
+import { cn } from "@/lib/utils";
 import { videoBasename, type VideoFileStatus } from "@/lib/video-probe";
 import type { StoredMatch } from "@/types/match";
 import { CollectControl } from "./collect-control";
@@ -126,6 +130,7 @@ export function GameWatchView({
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [followSignal, setFollowSignal] = useState(0);
   const [reveal, setReveal] = useState<{ key: string; nonce: number } | null>(null);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const addButtonRef = useRef<HTMLButtonElement | null>(null);
   const [tipSeen, setTipSeen] = useState(() => getGameTimelineTipSeen(user?.id));
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -224,6 +229,51 @@ export function GameWatchView({
     },
     [playback, trackSeek, refollow],
   );
+
+  // ---- The selection: plays picked to add together, as the editor's list picks clips (list-selection.ts) ----
+  // The anchor is where Shift ranges grow from, the focus where the last Shift move landed; a plain arrow lets go of both.
+  const anchorRef = useRef<string | null>(null);
+  const extendFocusRef = useRef<string | null>(null);
+  const orderKeys = useMemo(() => order.map((i) => timeline.plays[i].key), [order, timeline]);
+  const playByKey = useMemo(() => new Map(timeline.plays.map((p) => [p.key, p])), [timeline]);
+  /** The selected plays in list order. */
+  const selectedPlays = useMemo(() => orderKeys.filter((k) => selected.has(k)).map((k) => playByKey.get(k)!), [orderKeys, selected, playByKey]);
+  // A filter that hides a play takes it out of the selection: what is picked is always what is listed.
+  useEffect(() => setSelected((prev) => pruneSelection(prev, orderKeys)), [orderKeys]);
+
+  /** A click on a row: plain plays it (keeping the selection only when the row is in it), ⌘ toggles, Shift ranges. */
+  function onPress(play: TimedPlay, { shift, toggle }: { shift: boolean; toggle: boolean }) {
+    const next = clickSelection({
+      order: orderKeys,
+      selected,
+      anchor: anchorRef.current ?? playback.activeKey,
+      focus: extendFocusRef.current,
+      key: play.key,
+      shift,
+      toggle,
+    });
+    setSelected(next.selected);
+    anchorRef.current = next.anchor;
+    extendFocusRef.current = next.focus;
+    if (!shift && !toggle) playPlay(play);
+  }
+  /** Shift+arrows: select from the anchor to the play there, and play it. */
+  function extendTo(move: FocusMove) {
+    const from = extendFocusRef.current ?? playback.activeKey;
+    const to = moveFocus(orderKeys, from, move);
+    if (to === null) return;
+    const shown = (key: string | null): key is string => key !== null && orderKeys.includes(key);
+    const anchor = shown(anchorRef.current) ? anchorRef.current : shown(from) ? from : to;
+    setSelected((prev) => extendSelection({ order: orderKeys, selected: prev, anchor, previousFocus: shown(from) ? from : null, focus: to }));
+    anchorRef.current = anchor;
+    extendFocusRef.current = to;
+    if (to !== playback.activeKey) playPlay(playByKey.get(to)!, "key");
+  }
+  function clearSelection() {
+    setSelected(new Set());
+    anchorRef.current = null;
+    extendFocusRef.current = null;
+  }
 
   const setSpeed = useCallback((next: number) => {
     setSpeedState(next);
@@ -643,17 +693,47 @@ export function GameWatchView({
         e.preventDefault();
         playback.next("key");
         refollow();
+        anchorRef.current = null;
+        extendFocusRef.current = null;
         return;
       case "prev":
         e.preventDefault();
         playback.prev("key");
         refollow();
+        anchorRef.current = null;
+        extendFocusRef.current = null;
         return;
       case "first":
       case "last":
         e.preventDefault();
         playback.toEnd(action);
         refollow();
+        anchorRef.current = null;
+        extendFocusRef.current = null;
+        return;
+      case "extend-next":
+        e.preventDefault();
+        extendTo(1);
+        return;
+      case "extend-prev":
+        e.preventDefault();
+        extendTo(-1);
+        return;
+      case "extend-first":
+        e.preventDefault();
+        extendTo("first");
+        return;
+      case "extend-last":
+        e.preventDefault();
+        extendTo("last");
+        return;
+      case "select-all":
+        if (orderKeys.length > 0) {
+          e.preventDefault();
+          setSelected(new Set(orderKeys));
+          anchorRef.current = orderKeys[0];
+          extendFocusRef.current = orderKeys[orderKeys.length - 1];
+        }
         return;
       case "toggle-play":
         e.preventDefault();
@@ -703,9 +783,13 @@ export function GameWatchView({
         toggleFullscreen();
         return;
       case "escape":
+        // Full screen lets go first; then the selection.
         if (playerFs.active) {
           e.preventDefault();
           void playerFs.exit();
+        } else if (selected.size > 0) {
+          e.preventDefault();
+          clearSelection();
         }
         return;
       default:
@@ -934,6 +1018,7 @@ export function GameWatchView({
                 rows={rows}
                 hasPlays={timeline.plays.length > 0}
                 activeKey={playback.activeKey}
+                selected={selected}
                 playing={footage}
                 flow={flow}
                 teams={teams}
@@ -945,13 +1030,67 @@ export function GameWatchView({
                 renderLabelPicker={renderRowLabelPicker}
                 followSignal={followSignal}
                 reveal={reveal}
-                onPlay={playPlay}
+                onPress={onPress}
                 onAdd={addOne}
                 onRemove={collect.removeAdded}
                 onLabel={openRowLabels}
                 onMarker={onMarker}
                 onClearFilters={() => setFilters(EMPTY_GAME_FILTERS)}
-                rowMenu={(play, anchor) => <GamePlayMenuContent plays={[play]} collect={collect} moment={filters.moment} anchor={anchor} />}
+                // Finder's rule: an action on a selected item acts on the whole selection.
+                rowMenu={(play, anchor) => (
+                  <GamePlayMenuContent
+                    plays={selected.has(play.key) ? selectedPlays : [play]}
+                    collect={collect}
+                    moment={filters.moment}
+                    anchor={anchor}
+                    onDone={selected.has(play.key) ? clearSelection : undefined}
+                  />
+                )}
+                selecting={selected.size > 0}
+                selectionBar={
+                  <SelectionBar
+                    count={selected.size}
+                    onClear={clearSelection}
+                    group={null}
+                    addTo={
+                      <>
+                        <PillButton
+                          title={collect.target ? `Add ${selected.size} ${selected.size === 1 ? "play" : "plays"} to ${collect.target.name}` : "Add to playlist…"}
+                          onClick={(e) => {
+                            collect.add(selectedPlays, "selection", filters.moment, e.currentTarget);
+                            clearSelection();
+                          }}
+                        >
+                          <Plus />
+                          {collect.target ? (
+                            <span className={cn(PILL_LABEL, "max-w-40 truncate")}>Add to {collect.target.name}</span>
+                          ) : (
+                            <span className={PILL_LABEL}>Add to playlist…</span>
+                          )}
+                        </PillButton>
+                        <AddToPopover
+                          playlists={collect.candidates}
+                          activePlaylistId={collect.target?.id ?? null}
+                          onAddToPlaylist={async (pl) => {
+                            collect.addToPlaylist(pl, selectedPlays, "selection", filters.moment);
+                            clearSelection();
+                          }}
+                          onCreatePlaylist={async (name) => {
+                            await collect.createAndAddTo(name, selectedPlays, "selection", filters.moment);
+                            clearSelection();
+                          }}
+                          trigger={
+                            <PillButton title="Add to another playlist">
+                              <ListPlus />
+                              <span className={PILL_LABEL}>Another playlist</span>
+                              <ChevronDown className="size-3 text-muted-foreground" />
+                            </PillButton>
+                          }
+                        />
+                      </>
+                    }
+                  />
+                }
               />
             </div>
           </ResizablePanel>

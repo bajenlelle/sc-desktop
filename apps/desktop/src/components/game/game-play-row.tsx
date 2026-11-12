@@ -28,12 +28,15 @@ const iconButton =
  * clock, team and what the feed says about the play), with the score beside
  * every basket so the eye runs down the score like a scoresheet, the coach's
  * labels, and the two things to do with it: label it, add it to the playlist.
- * The row itself plays the play. Memoised: while the game runs only the row
- * that stops being current and the one that becomes it are drawn again.
+ * The row itself plays the play; ⌘ and Shift pick it into the list's
+ * selection instead (`onPress`, as a Finder list does). Memoised: while
+ * the game runs only the row that stops being current and the one that
+ * becomes it are drawn again.
  */
 export const GamePlayRow = memo(function GamePlayRow({
   play,
   active,
+  selected,
   playing,
   score,
   scored,
@@ -43,13 +46,15 @@ export const GamePlayRow = memo(function GamePlayRow({
   targetName,
   menuOpen,
   labelPicker,
-  onPlay,
+  onPress,
   onAdd,
   onRemove,
   onLabel,
 }: {
   play: TimedPlay;
   active: boolean;
+  /** In the list's selection. */
+  selected: boolean;
   /** The current play, with footage on the stage (not merely selected). */
   playing: boolean;
   /** The score after the play; shown when the play scored. */
@@ -65,7 +70,8 @@ export const GamePlayRow = memo(function GamePlayRow({
   menuOpen: boolean;
   /** The label picker, on the one row that is being labelled; the plain button otherwise. */
   labelPicker: ReactNode | null;
-  onPlay: (play: TimedPlay) => void;
+  /** A click or Return on the row: plain plays it, `toggle` (⌘) and `shift` change the selection. */
+  onPress: (play: TimedPlay, mods: { shift: boolean; toggle: boolean }) => void;
   /** `anchor` is the plus that was pressed: a picker it has to open grows from there. */
   onAdd: (play: TimedPlay, anchor: HTMLElement) => void;
   onRemove: (play: TimedPlay) => void;
@@ -79,33 +85,40 @@ export const GamePlayRow = memo(function GamePlayRow({
   const words = e.qualifiers.map((q) => QUALIFIER_WORDS.get(q)).filter(Boolean);
   const number = e.player?.pno ? `#${e.player.pno} ` : "";
   const quiet = "opacity-0 group-hover:opacity-100";
+  // On the selection's fill, what is quiet elsewhere stays readable.
+  const secondary = selected ? "text-selection-foreground/80" : "text-muted-foreground";
+  const strong = selected ? "text-selection-foreground" : "text-foreground";
+  const quietIcon = selected ? "text-selection-foreground/80 hover:text-selection-foreground" : "text-muted-foreground hover:text-foreground";
   // The second line, in the order it is read. A feed with no game clock leaves the clock out, not a dash.
   const details: { key: string; node: ReactNode }[] = [];
   if (e.gameClockTime) details.push({ key: "clock", node: <span className="shrink-0">{formatGameClock(e.gameClockTime)}</span> });
   if (e.eventTeam?.teamName && e.player) details.push({ key: "team", node: <span className="truncate">{e.eventTeam.teamName}</span> });
   if (words.length > 0) details.push({ key: "words", node: <span className="shrink-0">{words.join(", ")}</span> });
-  if (note) details.push({ key: "note", node: <span className="shrink-0 font-medium text-foreground">{note}</span> });
+  if (note) details.push({ key: "note", node: <span className={cn("shrink-0 font-medium", strong)}>{note}</span> });
   if (outside) {
     details.push({ key: "reach", node: <span className="shrink-0">{play.reach === "before" ? "Before the video starts" : "After the video ends"}</span> });
   }
 
   return (
     <div
-      {...pressable(() => onPlay(play), { space: false })}
+      {...pressable(() => onPress(play, { shift: false, toggle: false }), { space: false })}
+      onClick={(ev) => onPress(play, { shift: ev.shiftKey, toggle: ev.metaKey || ev.ctrlKey })}
       // A right-click in the row's label picker (a portal) bubbles here through React: it stops at the row, so the
       // list's menu doesn't take it and the picker's field keeps the system's Cut, Copy and Paste.
       onContextMenu={(ev) => {
         if (!ev.currentTarget.contains(ev.target as Node)) ev.stopPropagation();
       }}
       data-row-key={play.key}
+      data-selected={selected || undefined}
       aria-current={active || undefined}
       className={cn(
-        "group relative flex min-h-11 w-full cursor-default scroll-my-16 select-none items-stretch gap-2 pr-2 text-left outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection",
+        "group relative flex min-h-11 w-full cursor-default scroll-my-16 select-none items-stretch gap-2 pr-2 text-left outline-none transition-colors duration-100 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection",
+        selected ? "bg-selection text-selection-foreground" : "hover:bg-fill-1 active:bg-fill-2",
         outside && "opacity-50",
         menuOpen && "ring-2 ring-inset ring-selection",
       )}
     >
-      {active && <ActiveRowPill />}
+      {active && !selected && <ActiveRowPill />}
       <span className={cn("relative z-10 w-[3px] shrink-0 self-stretch", colors.strip)} aria-hidden />
       <span className="relative z-10 flex min-w-0 flex-1 flex-col justify-center py-1.5 pl-1">
         <span className="flex min-w-0 items-center gap-1.5">
@@ -118,10 +131,10 @@ export const GamePlayRow = memo(function GamePlayRow({
           {shown.map((l) => (
             <LabelChip key={l.id} label={l} className="shrink-0 whitespace-nowrap" />
           ))}
-          {more > 0 && <span className="shrink-0 text-xs text-muted-foreground">+{more}</span>}
+          {more > 0 && <span className={cn("shrink-0 text-xs", secondary)}>+{more}</span>}
         </span>
         {details.length > 0 && (
-          <span className="flex min-w-0 items-center gap-1 text-subheadline text-muted-foreground nums">
+          <span className={cn("flex min-w-0 items-center gap-1 text-subheadline nums", secondary)}>
             {details.map((d, i) => (
               <Fragment key={d.key}>
                 {i > 0 && <span aria-hidden>·</span>}
@@ -132,21 +145,21 @@ export const GamePlayRow = memo(function GamePlayRow({
         )}
       </span>
       {score && scored && (
-        <span className="relative z-10 flex shrink-0 items-center text-sm text-muted-foreground nums" aria-label={`${score.home} to ${score.away}`}>
-          <span className={cn(scored === 1 && "font-semibold text-foreground")}>{score.home}</span>
+        <span className={cn("relative z-10 flex shrink-0 items-center text-sm nums", secondary)} aria-label={`${score.home} to ${score.away}`}>
+          <span className={cn(scored === 1 && cn("font-semibold", strong))}>{score.home}</span>
           <span aria-hidden>–</span>
-          <span className={cn(scored === 2 && "font-semibold text-foreground")}>{score.away}</span>
+          <span className={cn(scored === 2 && cn("font-semibold", strong))}>{score.away}</span>
         </span>
       )}
       <span className="relative z-10 flex shrink-0 items-center gap-0.5" onClick={(ev) => ev.stopPropagation()}>
-        {playing && <Play aria-label="Playing" className="mr-0.5 size-3.5 fill-current text-primary" />}
+        {playing && <Play aria-label="Playing" className={cn("mr-0.5 size-3.5 fill-current", selected ? "text-selection-foreground" : "text-primary")} />}
         {labelPicker ?? (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
                 aria-label="Label this play"
-                className={cn(iconButton, "text-muted-foreground hover:text-foreground", !active && labels.length === 0 && quiet)}
+                className={cn(iconButton, quietIcon, !active && labels.length === 0 && quiet)}
                 onClick={() => onLabel(play)}
               >
                 <Tag />
@@ -161,7 +174,7 @@ export const GamePlayRow = memo(function GamePlayRow({
               <button
                 type="button"
                 aria-label={targetName ? `Add to ${targetName}` : "Add to a playlist"}
-                className={cn(iconButton, "text-muted-foreground hover:text-foreground", !active && quiet)}
+                className={cn(iconButton, quietIcon, !active && quiet)}
                 onClick={(ev) => onAdd(play, ev.currentTarget)}
               >
                 <Plus />
@@ -175,7 +188,7 @@ export const GamePlayRow = memo(function GamePlayRow({
               <button
                 type="button"
                 aria-label={`In ${targetName ?? "the playlist"}. Remove`}
-                className={cn(iconButton, "text-primary")}
+                className={cn(iconButton, selected ? "text-selection-foreground" : "text-primary")}
                 onClick={() => onRemove(play)}
               >
                 {/* The add, confirmed where it was made: the check arrives, it doesn't just appear. */}
@@ -189,7 +202,7 @@ export const GamePlayRow = memo(function GamePlayRow({
         ) : (
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="flex size-6 shrink-0 items-center justify-center text-muted-foreground" aria-label={`Already in ${targetName ?? "the playlist"}`}>
+              <span className={cn("flex size-6 shrink-0 items-center justify-center", selected ? "text-selection-foreground" : "text-muted-foreground")} aria-label={`Already in ${targetName ?? "the playlist"}`}>
                 <Check className="size-3.5" />
               </span>
             </TooltipTrigger>

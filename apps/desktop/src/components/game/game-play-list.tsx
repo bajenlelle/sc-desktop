@@ -36,11 +36,16 @@ const LOOKAHEAD_PX = 64;
  * A play's menu (right-click) is one menu for the whole list, not one per
  * row: `rowMenu` draws it for the play it opened on, so the memoised rows
  * don't redraw when the playlists change. Markers and headers have none.
+ *
+ * Plays the coach picks (⌘-click, Shift-click) are `selected`; what can be
+ * done with them floats over the bottom of the list (`selectionBar`), and the
+ * "Jump to now" pill rises above it while it is there.
  */
 export function GamePlayList({
   rows,
   hasPlays,
   activeKey,
+  selected,
   playing,
   flow,
   teams,
@@ -52,18 +57,22 @@ export function GamePlayList({
   renderLabelPicker,
   followSignal,
   reveal,
-  onPlay,
+  onPress,
   onAdd,
   onRemove,
   onLabel,
   onMarker,
   onClearFilters,
   rowMenu,
+  selectionBar,
+  selecting,
 }: {
   rows: readonly GameRow[];
   /** The game has plays at all (an empty list is then the filters' doing). */
   hasPlays: boolean;
   activeKey: string | null;
+  /** The plays picked into the selection, by key. */
+  selected: ReadonlySet<string>;
   /** Footage is on the stage: the current row is playing, not merely selected. */
   playing: boolean;
   flow: GameFlow;
@@ -78,7 +87,8 @@ export function GamePlayList({
   followSignal: number;
   /** A row to bring to the top of the list: the quarter or the marker a key jumped to. */
   reveal: { key: string; nonce: number } | null;
-  onPlay: (play: TimedPlay) => void;
+  /** A click or Return on a row: plain plays it, `toggle` (⌘) and `shift` change the selection. */
+  onPress: (play: TimedPlay, mods: { shift: boolean; toggle: boolean }) => void;
   onAdd: (play: TimedPlay, anchor: HTMLElement) => void;
   onRemove: (play: TimedPlay) => void;
   onLabel: (play: TimedPlay) => void;
@@ -86,6 +96,10 @@ export function GamePlayList({
   onClearFilters: () => void;
   /** A play's menu (right-click), as `ContextMenuContent`; `anchor` is its row. Without it, no menu. */
   rowMenu?: (play: TimedPlay, anchor: HTMLElement) => ReactNode;
+  /** The selection's pill (a `SelectionBar`), over the bottom of the list. */
+  selectionBar: ReactNode;
+  /** Something is selected: the pill is up. */
+  selecting: boolean;
 }) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const [following, setFollowing] = useState(true);
@@ -226,7 +240,7 @@ export function GamePlayList({
   }
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col">
+    <div className="@container relative flex min-h-0 flex-1 flex-col">
       <ContextMenu onOpenChange={(open) => !open && setMenuFor(null)}>
         <ContextMenuTrigger asChild>
           <div
@@ -247,6 +261,7 @@ export function GamePlayList({
                     key={row.key}
                     play={row.play}
                     active={active}
+                    selected={selected.has(row.key)}
                     playing={active && playing}
                     score={point ? { home: point.home, away: point.away } : null}
                     scored={point?.team ?? null}
@@ -256,7 +271,7 @@ export function GamePlayList({
                     targetName={targetName}
                     menuOpen={menuFor?.play.key === row.key}
                     labelPicker={labelPickerFor === row.key ? renderLabelPicker(row.play) : null}
-                    onPlay={onPlay}
+                    onPress={onPress}
                     onAdd={onAdd}
                     onRemove={onRemove}
                     onLabel={onLabel}
@@ -303,6 +318,7 @@ export function GamePlayList({
         </ContextMenuTrigger>
         {menuFor && rowMenu?.(menuFor.play, menuFor.anchor)}
       </ContextMenu>
+      {selectionBar}
       <AnimatePresence>
         {!following && away && (
           <motion.div
@@ -311,7 +327,7 @@ export function GamePlayList({
             initial="hidden"
             animate="visible"
             exit="exit"
-            className="pointer-events-none absolute inset-x-0 bottom-3 z-30 flex justify-center"
+            className={cn("pointer-events-none absolute inset-x-0 z-30 flex justify-center", selecting ? "bottom-14" : "bottom-3")}
           >
             <button
               type="button"

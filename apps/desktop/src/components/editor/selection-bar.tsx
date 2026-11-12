@@ -53,7 +53,8 @@ export function SelectionBar({
   addTo,
 }: {
   count: number;
-  onRemove: () => void;
+  /** Without it, no Remove: the game view's selection is of plays, not of a playlist's clips. */
+  onRemove?: () => void;
   onClear: () => void;
   group: SelectionGroupAction | null;
   labelPicker?: React.ReactNode;
@@ -80,10 +81,12 @@ export function SelectionBar({
               {count}
               <span className={cn(PILL_LABEL, "ml-1")}>selected</span>
             </span>
-            <PillButton tone="destructive" onClick={onRemove} title="Remove from playlist">
-              <Trash2 />
-              <span className={PILL_LABEL}>Remove</span>
-            </PillButton>
+            {onRemove && (
+              <PillButton tone="destructive" onClick={onRemove} title="Remove from playlist">
+                <Trash2 />
+                <span className={PILL_LABEL}>Remove</span>
+              </PillButton>
+            )}
             {group && (
               <PillButton disabled={group.disabled} title={group.reason ?? groupLabel} onClick={group.onClick}>
                 <Link2 />

@@ -117,7 +117,11 @@ released app lists each row there as a clip.
 ↑ ↓ the previous or next listed play; Page Up and Page Down the previous or
 next marker (quarter start, timeout, run); 1–9 the start of that period; A
 add; G label; ⇧G the same label again; ⌥1–⌥9 the label that has that key
-(held: which key is which label); ⌘F the player search.
+(held: which key is which label); ⌘F the player search. ⌘-click toggles a
+play into the selection and Shift-click selects a range; Shift+↑ ↓ extends it
+and plays there; ⌘A selects every listed play; Esc lets go. The pill over the
+list adds the selection to the target or another playlist; a row's menu acts
+on the selection when that row is in it.
 
 ## Collecting (`use-collect.ts`, `collect-control.tsx`)
 
@@ -250,7 +254,7 @@ Analytics events are in `packages/shared/types/analytics.ts` (`game_view_*`,
 
 ## Not built
 
-Multi-select; uploading held clips without opening the editor; "Show in game"
+Uploading held clips without opening the editor; "Show in game"
 from an editor clip (the view already accepts `?play=`); marking in and out
 around a play; substitution rows, lineup tables and a shot chart; the footage
 from a game's cloud copy; free time-range clips with no play (a schema change
