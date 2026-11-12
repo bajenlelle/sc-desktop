@@ -56,6 +56,7 @@ import { generateScoutingReport, type GenerateOutcome } from "@/lib/scouting-rep
 import { getMyScoutingReport, type MyScoutingReport } from "@/lib/scouting-reports-db";
 import { isLiveReport, sharedStatusLabel } from "@scoutable/shared/lib/scouting-reports-db";
 import { defaultOpponent, type ReportDraft } from "@scoutable/shared/lib/report-draft";
+import { addClipsGames } from "@scoutable/shared/lib/archived-games";
 import { emptyHistory, itemsDiff, materialize, pasteIndexAfter, pasteItems, recordEdit, takeRedo, takeUndo, type History, type ItemsEdit } from "@scoutable/shared/lib/playlist-history";
 import { cardInsertKey, groupItems, insertBefore, newTextCard, ungroupItems, type CardPlace } from "@scoutable/shared/lib/playlist-edits";
 import { IS_MACOS } from "@/lib/platform";
@@ -1191,11 +1192,19 @@ export function PlaylistsPage() {
   const matchLookupRef = useRef(matchLookup);
   useEffect(() => { matchLookupRef.current = matchLookup; }, [matchLookup]);
 
-  // Add clips lists games that aren't archived, plus the one a "Build a playlist" came from; all of them if that leaves none.
-  const addClipsMatches = useMemo((): StoredMatch[] => {
-    const shown = matches.filter((m) => !m.archivedAt || m.id === addClipsFrom);
-    return shown.length > 0 ? shown : matches;
-  }, [matches, addClipsFrom]);
+  // The games the open playlist holds clips from, as a stable string: every
+  // clip add replaces `selected`, the set of games rarely changes.
+  const playlistGameIdsKey = useMemo(
+    () => (selected ? [...new Set(selected.items.filter(isClipItem).map((c) => c.matchId))].sort().join(",") : ""),
+    [selected],
+  );
+  // Add clips leaves archived games out, except the one a "Build a playlist"
+  // came from and the open playlist's own (addClipsGames has the rule).
+  const addClipsMatches = useMemo(
+    (): StoredMatch[] =>
+      addClipsGames(matches, addClipsFrom, new Set(playlistGameIdsKey ? playlistGameIdsKey.split(",") : [])),
+    [matches, addClipsFrom, playlistGameIdsKey],
+  );
 
   /**
    * Event lookup by `matchId:eventId`, built once per matches change.

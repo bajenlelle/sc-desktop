@@ -76,6 +76,11 @@ function SkeletonRows({ count }: { count: number }) {
 }
 
 const RECENT_MATCH_COUNT = 3;
+/**
+ * Home's recent imports: the latest games, archived ones left out. The load
+ * fetches events for exactly these and the list shows them, so both use this.
+ */
+const recentImports = (ms: readonly StoredMatch[]) => ms.filter((m) => !m.archivedAt).slice(0, RECENT_MATCH_COUNT);
 const PLAYLIST_TILE_COUNT = 6;
 
 function CoachHomePage() {
@@ -118,7 +123,7 @@ function CoachHomePage() {
       if (cancelled) return;
       // Archived games stay in `matches` (onboarding still counts them) but
       // are not "recent imports": events load for the games shown, by id.
-      const recent = ms.filter((m) => !m.archivedAt).slice(0, RECENT_MATCH_COUNT);
+      const recent = recentImports(ms);
       const recentIds = new Set(recent.map((m) => m.id));
       const events = await listEventsForMatches(recent.map((m) => m.id)).catch(
         () => ({}) as Record<string, never[]>
@@ -218,7 +223,7 @@ function CoachHomePage() {
     }
   }
 
-  const recentMatches = matches.filter((m) => !m.archivedAt).slice(0, RECENT_MATCH_COUNT);
+  const recentMatches = recentImports(matches);
   const recentPlaylists = playlists.slice(0, PLAYLIST_TILE_COUNT);
   const noGames = !loading && matches.length === 0;
   const noPlaylists = !loading && playlists.length === 0;

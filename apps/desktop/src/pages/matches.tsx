@@ -13,6 +13,7 @@ import { Toolbar } from "@/components/shell/toolbar";
 import { listMatchesLight, setMatchArchived } from "@/lib/matches-db";
 import { probeMatches, type VideoFileStatus } from "@/lib/video-probe";
 import { useAuth } from "@/lib/auth-context";
+import { Sentry } from "@/lib/sentry";
 import type { StoredMatch } from "@/types/match";
 
 function filterBySearch(list: StoredMatch[], search: string): StoredMatch[] {
@@ -40,6 +41,9 @@ export function MatchesPage() {
   // Machine-switch detection: matches sync via the DB, but video files live
   // on the machine that imported them. Probe each local path (1-byte local
   // fetch per game) so dead references get a badge instead of a black player.
+  // Keyed on each game's video, not the array: archiving restamps `matches`
+  // twice (optimistic, then stored) and must not re-probe the library.
+  const probeKey = useMemo(() => matches.map((m) => `${m.id}:${m.videoUrl ?? ""}`).join("\n"), [matches]);
   useEffect(() => {
     if (matches.length === 0) return;
     let cancelled = false;
@@ -47,7 +51,8 @@ export function MatchesPage() {
       if (!cancelled) setVideoStatus(map);
     });
     return () => { cancelled = true; };
-  }, [matches]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the games' ids and videos are fully represented by probeKey
+  }, [probeKey]);
 
   // The Library loads archived games too and splits them here, so the toggle
   // is instant and the Archived group can show its count.
@@ -92,22 +97,23 @@ export function MatchesPage() {
 
   // Archived games stay in the list: optimistic, then the database's own stamp.
   // Undo brings the game back; bringing it back needs no toast, the row visibly moves.
-  async function setArchived(match: StoredMatch, archived: boolean) {
+  async function setArchived(match: StoredMatch, toArchived: boolean) {
     const setStamp = (archivedAt: string | undefined) =>
       setMatches((ms) => ms.map((m) => (m.id === match.id ? { ...m, archivedAt } : m)));
-    setStamp(archived ? new Date().toISOString() : undefined);
+    setStamp(toArchived ? new Date().toISOString() : undefined);
     let stored: string | null;
     try {
-      stored = await setMatchArchived(match.id, archived);
-    } catch {
+      stored = await setMatchArchived(match.id, toArchived);
+    } catch (err) {
+      Sentry.captureException(err);
       setStamp(match.archivedAt);
-      toast.error(archived ? "Couldn't archive the game" : "Couldn't bring the game back", {
+      toast.error(toArchived ? "Couldn't archive the game" : "Couldn't bring the game back", {
         description: "Check the connection and try again.",
       });
       return;
     }
     setStamp(stored ?? undefined);
-    if (archived) {
+    if (toArchived) {
       toast("Game archived", {
         // Sonner's own description grey is unreadable on the dark themes.
         description: <span className="text-muted-foreground">Clips from it stay in your playlists.</span>,
