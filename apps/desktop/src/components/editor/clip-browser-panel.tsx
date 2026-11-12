@@ -20,6 +20,7 @@ import {
   SHOT_TYPE_OPTIONS,
   SITUATION_OPTIONS,
   applyClipFilters,
+  playersByTeam,
   toggleFilter,
   type ClipFilters,
 } from "@scoutable/shared/lib/clip-filters";
@@ -331,13 +332,11 @@ export function ClipBrowserPanel({
     const kept = wanted.filter((t) => teams.includes(t));
     if (kept.length > 0) setFilters((f) => ({ ...f, teams: new Set(kept) }));
   }, [teams]);
-  const players = useMemo(() => {
+  const playerGroups = useMemo(() => {
     const source = filters.teams.size > 0
       ? allEvents.filter(({ event }) => filters.teams.has(event.eventTeam?.teamName ?? ""))
       : allEvents;
-    return Array.from(new Set(
-      source.map((x) => (x.event.player ? playerName(x.event) : null)).filter(Boolean) as string[],
-    ));
+    return playersByTeam(source.map((x) => x.event));
   }, [allEvents, filters.teams]);
   // Same Game + Team narrowing as the players list, so the Leaders popover
   // never offers a player the Team filter would immediately hide.
@@ -932,7 +931,10 @@ export function ClipBrowserPanel({
             placeholder="Team"
           />
           <MultiSelectDropdown
-            options={players.map((p) => ({ value: p, label: p }))}
+            groups={playerGroups.map((g) => ({
+              label: g.teamName || "Other players",
+              options: g.players.map((pl) => ({ value: pl.name, label: pl.number ? `#${pl.number} ${pl.name}` : pl.name, textValue: pl.name })),
+            }))}
             selected={filters.players}
             onChange={setGroup("players")}
             placeholder="Player"
