@@ -128,9 +128,12 @@ export function useCollect({
     [mutate, enqueue],
   );
 
-  /** Adds plays to one playlist. Never touches the target: the target's adds and a menu's one-time adds both come through here. */
+  /**
+   * Adds plays to one playlist. Never touches the target: the target's adds and a menu's one-time adds both come through here.
+   * `toTarget` says which, from the caller: the add that sets the target runs before `targetId` has caught up.
+   */
   const addToPlaylist = useCallback(
-    (playlist: Playlist, plays: readonly TimedPlay[], via: CollectVia, moment: string | null) => {
+    (playlist: Playlist, plays: readonly TimedPlay[], via: CollectVia, moment: string | null, toTarget = false) => {
       const present = new Set(playlist.items.filter(isClipItem).map(itemKey));
       const fresh: PlaylistClipItem[] = [];
       for (const p of plays) {
@@ -161,7 +164,7 @@ export function useCollect({
               surface: "game_view",
               via,
               moment,
-              to_target: playlist.id === targetId,
+              to_target: toTarget,
             });
           }
           // The editor's Add clips starts on this game next time.
@@ -187,7 +190,7 @@ export function useCollect({
         action: { label: "Undo", onClick: () => undo(playlist, keys, "toast") },
       });
     },
-    [match.id, targetId, mutate, enqueue, undo],
+    [match.id, mutate, enqueue, undo],
   );
 
   /**
@@ -198,7 +201,7 @@ export function useCollect({
     (plays: readonly TimedPlay[], via: CollectVia, moment: string | null = null, anchor: HTMLElement | null = null) => {
       if (plays.length === 0) return;
       if (target) {
-        addToPlaylist(target, plays, via, moment);
+        addToPlaylist(target, plays, via, moment, true);
         return;
       }
       pendingRef.current = { plays, via, moment };
@@ -223,7 +226,7 @@ export function useCollect({
       setCollectTarget(match.id, playlist.id);
       setPickerOpenState(false);
       trackEvent("collect_target_set", { source, shared: playlistIsShared(playlist), via: pending?.via ?? "toolbar" });
-      if (pending) addToPlaylist(playlist, pending.plays, pending.via, pending.moment);
+      if (pending) addToPlaylist(playlist, pending.plays, pending.via, pending.moment, true);
     },
     [match.id, addToPlaylist],
   );
@@ -246,7 +249,7 @@ export function useCollect({
       trackEvent("playlist_created", { playlist_id: created.id, in_folder: false, surface: "game_view" });
       saved.current.set(created.id, []);
       setPlaylists((prev) => [created, ...(prev ?? [])]);
-      addToPlaylist(created, plays, via, moment);
+      addToPlaylist(created, plays, via, moment, false);
     },
     [orgId, addToPlaylist],
   );

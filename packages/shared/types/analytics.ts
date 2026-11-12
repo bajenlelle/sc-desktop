@@ -96,7 +96,7 @@ export type AnalyticsEvent =
   | "game_view_seeked" // via (row | timeline | key | marker | quarter | transport | now_bar), kind (play | time | timeout | period | run), period
   | "game_view_filtered" // team, moment, groups (the filter sheet's active groups), search, on_court, visible
   | "game_view_closed" // seconds_played, clips_added, labels_applied
-  | "collect_target_set" // source (existing | new), shared, via (toolbar | row | now_bar | bulk)
+  | "collect_target_set" // source (existing | new), shared, via (toolbar | row | now_bar | bulk | menu | selection)
   | "collect_undone" // via (toast | row), clips
   | "collect_sent" // clips, target (it was the "Adding to" playlist): "Send N clips…" opened a shared playlist to upload what was held
   | "game_marks_filled" // outcome (filled | unsaved | failed | skipped), timeouts, error

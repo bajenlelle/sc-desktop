@@ -92,6 +92,11 @@ export const GamePlayRow = memo(function GamePlayRow({
   return (
     <div
       {...pressable(() => onPlay(play), { space: false })}
+      // A right-click in the row's label picker (a portal) bubbles here through React: it stops at the row, so the
+      // list's menu doesn't take it and the picker's field keeps the system's Cut, Copy and Paste.
+      onContextMenu={(ev) => {
+        if (!ev.currentTarget.contains(ev.target as Node)) ev.stopPropagation();
+      }}
       data-row-key={play.key}
       aria-current={active || undefined}
       className={cn(
