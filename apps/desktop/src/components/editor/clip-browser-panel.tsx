@@ -14,6 +14,7 @@ import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } f
 import { labelForKey, labelKeySlot } from "@scoutable/shared/lib/label-keys";
 import { clickSelection, extendSelection, moveFocus, type FocusMove } from "@scoutable/shared/lib/list-selection";
 import { orderForAdd, playerTeam, startGames } from "@scoutable/shared/lib/add-clips-games";
+import { fitPresetToGames, type FilterPreset } from "@scoutable/shared/lib/filter-presets";
 import {
   EMPTY_CLIP_FILTERS,
   EVENT_TYPE_OPTIONS,
@@ -33,12 +34,14 @@ import { LABEL_KEY_TOAST, labelKeyMessage, toastNoLabelOnKey } from "@/lib/label
 import { rememberLabelUsed } from "@/lib/recent-labels";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
+import { presetDropsGroup, useFilterPresets } from "@/lib/use-filter-presets";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import type { VideoFileStatus } from "@/lib/video-probe";
 import { cn } from "@/lib/utils";
 import { LabelChip } from "@/components/labels/LabelChip";
 import { LabelPickerPopover, type LabelTriState } from "@/components/labels/LabelPickerPopover";
+import { FilterPresetsMenu } from "@/components/filter-presets-menu";
 import { LeadersPopover } from "@/components/leaders-popover";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -447,6 +450,21 @@ export function ClipBrowserPanel({
       : allEvents;
     const validPlayers = new Set(source.map((x) => playerKey(x.event)).filter((k): k is string => k !== null));
     setFilters((f) => ({ ...f, teams: newTeams, players: new Set([...f.players].filter((p) => validPlayers.has(p))) }));
+  }
+
+  // A preset holds no games: it is fitted to the ones on screen, leaving out the teams, players and
+  // labels they don't have, so no choice is left hidden.
+  const presets = useFilterPresets(activeOrgId, "add_clips");
+  function applyPreset(p: FilterPreset) {
+    const players = new Set(allEvents.map((x) => playerKey(x.event)).filter((k): k is string => k !== null));
+    const fitted = fitPresetToGames(p.filters, { teams, players: [...players], labels: labels.map((l) => l.id) });
+    pendingTeamsRef.current = null;
+    if (gameIds.length > 0) setAddClipsScope(playlist.id, { gameIds, teams: [...fitted.teams] });
+    setFilters(fitted);
+    presets.applied(p);
+    if (presetDropsGroup(p.filters, { teams: fitted.teams.size, players: fitted.players.size, labels: fitted.labels?.size ?? 0 })) {
+      toast("Some of this preset doesn't apply to these games");
+    }
   }
 
   // "Last 5 games of …" in the Game picker: the one chosen player's team, else the one chosen team.
@@ -999,6 +1017,17 @@ export function ClipBrowserPanel({
               selected={filters.labels ?? EMPTY_CLIP_FILTERS.labels!}
               onChange={setGroup("labels")}
               placeholder="Labels"
+            />
+          )}
+          {activeOrgId && (
+            <FilterPresetsMenu
+              modal
+              presets={presets.presets}
+              current={filters}
+              onApply={applyPreset}
+              onSave={(name) => presets.save(name, filters)}
+              onRename={presets.rename}
+              onDelete={presets.remove}
             />
           )}
           <div className="ml-auto">

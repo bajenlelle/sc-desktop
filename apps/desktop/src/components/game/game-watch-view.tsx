@@ -10,9 +10,11 @@ import { videoLooksCut } from "@scoutable/shared/lib/period-sync";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
 import { labelForKey, labelKeySlot } from "@scoutable/shared/lib/label-keys";
 import { defaultPreRoll } from "@scoutable/shared/lib/provider";
+import { fitPresetToGames, gameToPreset, presetToGame, type FilterPreset, type PresetGame } from "@scoutable/shared/lib/filter-presets";
 import { PlayerStage, type PlayerStageHandle } from "@/components/editor/player-stage";
 import { usePersistentVideo } from "@/components/editor/use-persistent-video";
 import { LabelPickerPopover } from "@/components/labels/LabelPickerPopover";
+import { FilterPresetsMenu } from "@/components/filter-presets-menu";
 import { Page } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
 import { AutoHeight } from "@/components/ui/auto-height";
@@ -28,6 +30,7 @@ import { LABEL_KEY_TOAST, labelKeyMessage, toastNoLabelOnKey, useOptionHeld } fr
 import { rememberLabelUsed, useRecentLabelIds } from "@/lib/recent-labels";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { useClipLabels } from "@/lib/use-clip-labels";
+import { presetDropsGroup, useFilterPresets } from "@/lib/use-filter-presets";
 import { useGameMarks } from "@/lib/use-game-marks";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { videoBasename, type VideoFileStatus } from "@/lib/video-probe";
@@ -175,6 +178,22 @@ export function GameWatchView({
 
   // ---- Labels, the playlist, the filters ------------------------------------
   const labels = useClipLabels(activeOrgId, match.id, "game_view");
+  // Presets are shared with Add clips, so they keep players by person id (gameToPreset), never by name.
+  const presets = useFilterPresets(activeOrgId, "game_view");
+  const presetGame = useMemo<PresetGame>(
+    () => ({ home: teams.home, away: teams.away, people, labels: labels.labels.map((l) => l.id) }),
+    [teams, people, labels.labels],
+  );
+  const presetCurrent = useMemo(() => gameToPreset(filters.clip, filters.team, presetGame), [filters.clip, filters.team, presetGame]);
+  const applyPreset = (p: FilterPreset) => {
+    const { clip, team } = presetToGame(p.filters, presetGame);
+    setFilters((f) => ({ ...f, clip, team, onCourt: false }));
+    presets.applied(p);
+    const teamsKept = fitPresetToGames(p.filters, { teams: [presetGame.home, presetGame.away], players: [], labels: [] }).teams.size;
+    if (presetDropsGroup(p.filters, { teams: teamsKept, players: clip.players.size, labels: clip.labels?.size ?? 0 })) {
+      toast("Some of this preset doesn't apply to this game");
+    }
+  };
   const collect = useCollect({ match, orgId: activeOrgId, includeUnscoped: activeOrgIsPersonal });
 
   // One player chosen: their stints on the floor, for the strip and the "while on the floor" switch.
@@ -928,6 +947,16 @@ export function GameWatchView({
                 searchRef={searchRef}
                 sheetOpen={filterSheetOpen}
                 onSheetOpenChange={setFilterSheetOpen}
+                presetsMenu={activeOrgId ? (
+                  <FilterPresetsMenu
+                    presets={presets.presets}
+                    current={presetCurrent}
+                    onApply={applyPreset}
+                    onSave={(name) => presets.save(name, gameToPreset(filters.clip, filters.team, presetGame))}
+                    onRename={presets.rename}
+                    onDelete={presets.remove}
+                  />
+                ) : undefined}
               />
               <GamePlayList
                 rows={rows}

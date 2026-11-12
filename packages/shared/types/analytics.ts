@@ -88,6 +88,8 @@ export type AnalyticsEvent =
   | "scouting_report_footer_clicked" // fired by the public page's "Made with Scoutable"
   | "folder_created"
   | "label_created"
+  | "filter_preset_saved" // surface (add_clips | game_view), groups (how many groups it holds)
+  | "filter_preset_applied" // surface
   | "label_applied" // bulk; surface (game_view) where it isn't the editor
   | "label_picked" // by (key | pointer | repeat: the game view's "same label again" | hotkey: the label's own key, position then its key), position (row in the picker), recent (from its Recent group), searched, created: a label put on from the label picker or by a key
   | "label_key_set" // slot (1–9, 0 when taken away), replaced (the key was another label's): a label given its key
