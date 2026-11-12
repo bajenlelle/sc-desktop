@@ -46,8 +46,8 @@ npm run headless -- smoke --project webkit         # one browser
 | Variable | What |
 | --- | --- |
 | `VITE_HEADLESS=1` | Marks the file; nothing reads it yet. |
-| `HEADLESS_EMAIL`, `HEADLESS_PASSWORD` | The staging test account. The harness signs in through the real login form. |
-| `HEADLESS_DEVICE_ID` | The machine id the device registry sees. One per worktree, so staging gets one device per worktree, not one per run. |
+| `HEADLESS_EMAIL`, `HEADLESS_PASSWORD` | Required. The staging test account. The harness signs in through the real login form. |
+| `HEADLESS_DEVICE_ID` | Required (the global setup stops without it). The machine id the device registry sees. One per worktree, so staging gets one device per worktree, not one per run. |
 | `HEADLESS_PORT` | Optional; the shell's value wins. Default 1430. |
 
 Worktrees don't share ignored files: each worktree needs its own copy of the
@@ -104,17 +104,25 @@ app succeeds. PostHog runs as in a dev build (staging's environment tag).
 
 ## Adding a spec
 
-Put `headless/specs/<area>.spec.ts` next to `smoke.spec.ts`. Tests start
-signed in (the saved storage state). Use `openFirstGame(page)`,
+Put `headless/specs/<area>.spec.ts` next to `smoke.spec.ts`. Import `test`
+and `expect` from `../helpers`, never from `@playwright/test`: that `test`
+fails a test whose page logged a `headless:` line (an unmocked or native
+call, even one the app caught) or threw an uncaught error, and prints them.
+Tests start signed in (the saved storage state). Use
+`openFirstGame(page, { shotLibraryAs })` (returns the opened game's title),
 `shot(page, name)` and `signIn(page)` from `headless/helpers.ts`; name shots
 with the browser (`${browserName}-…`) so the two projects don't overwrite
 each other. Assert visible text, not just that nothing threw. The account is
 shared by every worktree: name what a spec creates with its port
 (`headless-1433 …`) and delete it in the same spec. Run it with
 `HEADLESS_PORT=<port> npm run headless -- <spec>` and name the screenshots in
-the task's report.
+the task's report. The harness itself is typechecked with
+`npx tsc --noEmit -p headless/tsconfig.json` in `apps/desktop` (the app's
+`npx tsc --noEmit`, and so check.yml, covers only `src`).
 
 The smoke spec (`specs/smoke.spec.ts`) is the harness's own proof: Library
 lists games, the first game's Game view draws its play list and timeline, a
 playlist's Add clips lists events. It reads only. It needs the test account
-to have at least one game and one playlist.
+to have at least one game and one playlist. No spec links a staging game to
+the test video yet: the first task that needs footage adds a helper that
+links it and restores the game's own video afterwards.
