@@ -3754,10 +3754,18 @@ export function PlaylistsPage() {
       return;
     }
 
-    if (!name) { setEditingFolderId(null); return; }
-    await updateFolder(id, { name });
-    setFolders((prev) => prev.map((f) => f.id === id ? { ...f, name } : f));
+    // The field closes and the new name shows at once; a failed write puts the old one back.
     setEditingFolderId(null);
+    const old = folders.find((f) => f.id === id)?.name;
+    if (old === undefined || !name || name === old) return;
+    setFolders((prev) => prev.map((f) => f.id === id ? { ...f, name } : f));
+    try {
+      await updateFolder(id, { name });
+    } catch (err) {
+      console.error("Failed to rename folder:", err);
+      setFolders((prev) => prev.map((f) => f.id === id && f.name === name ? { ...f, name: old } : f));
+      toast.error("Couldn't rename the folder", { description: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   /** Opens the confirm dialog for non-empty folders; empty ones delete straight away. */
@@ -3880,12 +3888,18 @@ export function PlaylistsPage() {
       return;
     }
 
-    // Normal rename path
-    if (!name) return;
-    await updatePlaylist(playlistId, { name });
+    // Normal rename path: the new name shows at once; a failed write puts the old one back.
+    const old = playlists.find((p) => p.id === playlistId)?.name;
+    if (old === undefined || !name || name === old) return;
     setPlaylists((prev) => prev.map((p) => p.id === playlistId ? { ...p, name } : p));
-    if (selected?.id === playlistId) {
-      setSelected((prev) => prev ? { ...prev, name } : prev);
+    setSelected((prev) => prev?.id === playlistId ? { ...prev, name } : prev);
+    try {
+      await updatePlaylist(playlistId, { name });
+    } catch (err) {
+      console.error("[playlists] Failed to rename playlist:", err);
+      setPlaylists((prev) => prev.map((p) => p.id === playlistId && p.name === name ? { ...p, name: old } : p));
+      setSelected((prev) => prev?.id === playlistId && prev.name === name ? { ...prev, name: old } : prev);
+      toast.error("Couldn't rename the playlist", { description: err instanceof Error ? err.message : String(err) });
     }
   }
 
@@ -4001,6 +4015,7 @@ export function PlaylistsPage() {
             {isEditingThis && editingVia === "sidebar" ? (
               <input
                 autoFocus
+                onFocus={(e) => e.currentTarget.select()}
                 className="h-5 min-w-0 flex-1 rounded-sm bg-card px-1 text-sm text-foreground ring-2 ring-selection outline-none"
                 value={editPlaylistName}
                 onChange={(e) => setEditPlaylistName(e.target.value)}
@@ -4019,7 +4034,18 @@ export function PlaylistsPage() {
               />
             ) : (
               <>
-                <span className="min-w-0 flex-1 truncate text-sm">{pl.name}</span>
+                <span
+                  className="min-w-0 flex-1 truncate text-sm"
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    if (isUnsavedId(pl.id)) return;
+                    setEditingVia("sidebar");
+                    setEditingPlaylistId(pl.id);
+                    setEditPlaylistName(pl.name);
+                  }}
+                >
+                  {pl.name}
+                </span>
                 {(pl.teamIds?.length ?? 0) > 0 && (
                   <Users className={cn("size-3 shrink-0", isActive ? "text-selection-foreground/80" : "text-muted-foreground")} />
                 )}
@@ -4258,13 +4284,14 @@ export function PlaylistsPage() {
               {isEditing ? (
                 <input
                   autoFocus
+                  onFocus={(e) => e.currentTarget.select()}
                   className="h-5 min-w-0 flex-1 rounded-sm bg-card px-1 text-sm text-foreground ring-2 ring-selection outline-none"
                   value={editFolderName}
                   onChange={(e) => setEditFolderName(e.target.value)}
                   onClick={(e) => e.stopPropagation()}
                   onBlur={() => handleRenameFolder(folder.id)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") handleRenameFolder(folder.id);
+                    if (e.key === "Enter") e.currentTarget.blur();
                     if (e.key === "Escape") {
                       if (folder.id === pendingNewFolderId) {
                         setPendingNewFolderId(null);
