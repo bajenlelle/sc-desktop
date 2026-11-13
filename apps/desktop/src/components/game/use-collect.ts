@@ -388,12 +388,12 @@ export function useCollect({
    */
   const held = useMemo(() => heldForPlayers(playlists ?? [], match.id, targetId), [playlists, match.id, targetId]);
 
-  /** Opens a playlist in the editor. */
+  /** Opens a playlist in the editor, which gets the way back to this game. */
   const openPlaylist = useCallback(
     (playlistId: string) => {
-      navigate("/playlists", { state: { restore: { playlistId } } });
+      navigate("/playlists", { state: { restore: { playlistId }, from: { matchId: match.id, title: match.title } } });
     },
-    [navigate],
+    [match.id, match.title, navigate],
   );
 
   /**

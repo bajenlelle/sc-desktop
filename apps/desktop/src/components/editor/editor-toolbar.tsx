@@ -3,6 +3,7 @@ import {
   ArrowDownUp,
   BarChart3,
   ChevronDown,
+  ChevronLeft,
   CircleX,
   Columns2,
   FileDown,
@@ -47,8 +48,26 @@ import { cn } from "@/lib/utils";
 
 export type ClockSort = "none" | "asc" | "desc";
 
+/** The game the coach came from, when they came from one: "‹ {title}" leads the toolbar and takes them back. */
+export interface BackToGame {
+  title: string;
+  onBack: () => void;
+}
+
+/** The toolbar's leading back button, the one the game page uses for "‹ Library". */
+export function BackButton({ title, onBack }: BackToGame) {
+  return (
+    <Button variant="ghost" size="sm" className="-ml-1 min-w-0 shrink text-muted-foreground" onClick={onBack}>
+      <ChevronLeft className="shrink-0" />
+      <span className="max-w-48 truncate">{title}</span>
+    </Button>
+  );
+}
+
 export interface EditorToolbarProps {
   name: string;
+  /** Set while the editor was opened from a game page. */
+  backTo?: BackToGame | null;
   itemCount: number;
   isMultiMatch: boolean;
   editing: boolean;
@@ -196,7 +215,12 @@ export function EditorToolbar(p: EditorToolbarProps) {
   return (
     <Toolbar
       variant="static"
-      leading={<PlaylistViewSwitch value="clips" onChange={(v) => v === "report" && p.onOpenReport()} sharedStatus={p.reportStatus} />}
+      leading={
+        <>
+          {p.backTo && <BackButton {...p.backTo} />}
+          <PlaylistViewSwitch value="clips" onChange={(v) => v === "report" && p.onOpenReport()} sharedStatus={p.reportStatus} />
+        </>
+      }
       title={title}
       subtitle={subtitle}
       actions={

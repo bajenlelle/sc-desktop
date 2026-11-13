@@ -574,7 +574,7 @@ export function MatchDetailPage({ viewSwitch, tabBar }: { viewSwitch?: ReactNode
             <Button
               key="build"
               size="sm"
-              onClick={() => navigate("/playlists", { state: { createNew: true, addClipsFrom: matchId, highlight: "add-clips" } })}
+              onClick={() => navigate("/playlists", { state: { createNew: true, addClipsFrom: matchId, highlight: "add-clips", from: { matchId, title: title || storedMatch.title } } })}
             >
               <ListPlus />
               Build a playlist
