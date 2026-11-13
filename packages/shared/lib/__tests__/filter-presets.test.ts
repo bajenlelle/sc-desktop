@@ -57,4 +57,9 @@ describe("filter presets", () => {
     expect([...p.players].sort()).toEqual(["id:8", "name:Nobody Known"]);
     expect([...p.teams]).toEqual(["Sollentuna"]);
   });
+  it("writes a person without a positive id by name, as playerKey does", () => {
+    const noIds: PresetGame = { ...g, people: [{ id: 0, name: "Ada Lind" }, { id: -4, name: "Finn Eriksson" }, { id: Number.NaN, name: "Eva Berg" }] };
+    const p = gameToPreset(F({ players: ["Ada Lind", "Finn Eriksson", "Eva Berg"] }), 0, noIds);
+    expect([...p.players].sort()).toEqual(["name:Ada Lind", "name:Eva Berg", "name:Finn Eriksson"]);
+  });
 });

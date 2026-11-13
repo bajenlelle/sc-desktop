@@ -166,7 +166,8 @@ export function presetToGame(p: ClipFilters, g: PresetGame): { clip: ClipFilters
 
 /**
  * The game view's filters as a preset: a player as the playerKey() of the
- * person with that name ("name:<name>" when nobody on the game has it), the
+ * person with that name ("name:<name>" when nobody on the game has it or
+ * their id isn't a positive number, as playerKey() does), the
  * Both/home/away control as the team's name. `clip.teams` is not read.
  */
 export function gameToPreset(clip: ClipFilters, team: 0 | 1 | 2, g: PresetGame): ClipFilters {
@@ -175,7 +176,7 @@ export function gameToPreset(clip: ClipFilters, team: 0 | 1 | 2, g: PresetGame):
   const players = new Set<string>();
   for (const name of clip.players) {
     const id = idByName.get(name);
-    players.add(id !== undefined ? `id:${id}` : `name:${name}`);
+    players.add(id !== undefined && Number.isFinite(id) && id > 0 ? `id:${id}` : `name:${name}`);
   }
   return {
     types: new Set(clip.types),
