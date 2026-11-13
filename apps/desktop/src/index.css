@@ -441,6 +441,11 @@ html[data-window-inactive="true"] {
   width: 12.5rem;
   padding: 2.25rem 0 0 1rem;
 }
+/* The tip-off's bubble starts level with the picker, past the chosen file's
+   row (step label, card padding, file row, separator: about 9rem). */
+.import-guide-root[data-guide-side="margin"][data-guide-step="tipoff"] .import-guide-rail[data-tall] {
+  padding-top: 9.25rem;
+}
 .import-guide-root[data-guide-side="margin"] .import-guide-rail[data-tall] .import-guide-bubble {
   position: sticky;
   top: calc(var(--toolbar-height) + 0.75rem);
