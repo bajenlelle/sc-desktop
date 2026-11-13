@@ -119,15 +119,20 @@ export function GamePage() {
   const show = useCallback(
     (next: GameViewMode, state?: { openQuarters?: boolean }) => {
       setView(next);
-      rememberGameView(matchId, { view: next });
       const params = new URLSearchParams(searchParams);
       params.set("view", next);
       params.delete("play");
       // The switch replaces the entry: Back leaves the game, it doesn't flip views.
       setSearchParams(params, { replace: true, state: state ?? null });
     },
-    [matchId, searchParams, setSearchParams],
+    [searchParams, setSearchParams],
   );
+
+  // The view the game is on, however it was chosen (a link, the switch, the
+  // game's own state), is the one a tab switch comes back to.
+  useEffect(() => {
+    if (view) rememberGameView(matchId, { view });
+  }, [matchId, view]);
 
   // This game's tab, in the space it was opened in: a space switch while the
   // page is open doesn't plant it among the new space's tabs.

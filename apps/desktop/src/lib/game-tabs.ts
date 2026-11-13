@@ -12,6 +12,10 @@
  * And how each game was left, so it comes back that way: its filters, its
  * quarter zoom, its list scroll and its view. In memory for the app session:
  * filters hold Sets, and a webview reload is rare.
+ *
+ * Signing out does not reload the webview, so these and the game page's other
+ * session caches (its playlists and labels) are dropped when the signed-in
+ * user changes: another coach in the same club never sees this one's.
  */
 import { useSyncExternalStore } from "react";
 import {
@@ -27,7 +31,10 @@ import {
 } from "@scoutable/shared/lib/game-tabs";
 import { EMPTY_GAME_FILTERS, type GameFilters } from "@scoutable/shared/lib/game-list";
 import type { GameViewMode } from "@/components/game/game-view-switch";
+import { forgetPlaylistsRead } from "@/components/game/use-collect";
 import { listMatchesByIds } from "@/lib/matches-db";
+import { createClient } from "@/lib/supabase/client";
+import { forgetLabelsRead } from "@/lib/use-clip-labels";
 import type { VideoFileStatus } from "@/lib/video-probe";
 import type { StoredMatch } from "@/types/match";
 
@@ -74,6 +81,18 @@ function write(scope: string | null, next: GameTabs) {
 }
 
 let watching = false;
+/** The user the caches belong to; undefined until the auth listener first says. */
+let cachedFor: string | null | undefined;
+
+function onAuthChanged(userId: string | null) {
+  if (cachedFor !== undefined && userId !== cachedFor) {
+    loadedGames.clear();
+    gameViews.clear();
+    forgetPlaylistsRead();
+    forgetLabelsRead();
+  }
+  cachedFor = userId;
+}
 
 function onMatchesChanged() {
   loadedGames.clear();
@@ -98,6 +117,8 @@ function subscribe(listener: () => void) {
   if (!watching) {
     watching = true;
     window.addEventListener("matches-changed", onMatchesChanged);
+    // Registered with the first game page, whose caches are its first event's user's.
+    createClient().auth.onAuthStateChange((_event, session) => onAuthChanged(session?.user.id ?? null));
   }
   listeners.add(listener);
   return () => {

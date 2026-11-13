@@ -28,7 +28,8 @@ stretch where a game turned.
   zoom, list scroll and (on a tab switch) view (`lib/game-tabs.ts`), labels and
   playlists shown at once and read again behind. A link to a play opens without the filters.
   Not kept: the filter sheet, the selection, and Undo for adds made on an
-  earlier visit.
+  earlier visit. All of it but the position is dropped when the signed-in
+  user changes (sign-out doesn't reload the webview).
 
 ### Games in tabs
 

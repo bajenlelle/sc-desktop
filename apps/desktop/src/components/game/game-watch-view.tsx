@@ -5,7 +5,7 @@ import { ChevronDown, ChevronLeft, ListPlus, Play, Plus, Tag, VideoOff } from "l
 import { formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { GAME_MOMENTS, gameFlow, gameMoments, onCourtStints, scoreAfter, type GameMoment } from "@scoutable/shared/lib/game-flow";
 import { EMPTY_GAME_FILTERS, gameFiltersActive, gameRows, keepPlay, type GameFilters, type GameRow } from "@scoutable/shared/lib/game-list";
-import { buildGameTimeline, PERIOD_LEAD_SECONDS, visibleOrder, type TimedPlay } from "@scoutable/shared/lib/game-timeline";
+import { buildGameTimeline, momentAt, PERIOD_LEAD_SECONDS, visibleOrder, type TimedPlay } from "@scoutable/shared/lib/game-timeline";
 import { videoLooksCut } from "@scoutable/shared/lib/period-sync";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
 import { labelForKey, labelKeySlot } from "@scoutable/shared/lib/label-keys";
@@ -315,14 +315,19 @@ export function GameWatchView({
   // visit's last look left it, else just before tip-off.
   const resumeAt = useRef(readPosition(match.id));
   const placed = useRef(false);
+  /** The period the game opened in (null before tip-off, in a break or after): arriving there isn't a crossing. */
+  const placedPeriod = useRef<number | null>(null);
   const firstBandStart = timeline.bands[0]?.start ?? null;
   useEffect(() => {
     if (!footage || placed.current || duration === null) return;
     placed.current = true;
     const linked = startEventId !== null ? playByEvent.get(startEventId) : undefined;
     const at = linked ? linked.start : (resumeAt.current ?? (firstBandStart !== null ? Math.max(0, firstBandStart - TIPOFF_LEAD_SECONDS) : 0));
-    video.currentTime = Math.min(at, Math.max(0, duration - 1));
-  }, [footage, duration, startEventId, playByEvent, firstBandStart, video]);
+    const to = Math.min(at, Math.max(0, duration - 1));
+    const opened = momentAt(timeline, to, PERIOD_LEAD_SECONDS);
+    placedPeriod.current = opened.phase === "live" ? opened.period : null;
+    video.currentTime = to;
+  }, [footage, duration, startEventId, playByEvent, firstBandStart, timeline, video]);
 
   // Remember where the coach was, for coming back from Details or the editor.
   // Kept as playback goes: by the time this view is torn down the video has
@@ -509,8 +514,10 @@ export function GameWatchView({
   useEffect(() => {
     if (livePeriod === null) return;
     if (zoomRestored.current) {
+      // Before the game is placed the playhead isn't where it opens yet.
+      if (!placed.current) return;
       zoomRestored.current = false;
-      return;
+      if (livePeriod === placedPeriod.current) return;
     }
     if (zoomPeriod !== null && livePeriod !== zoomPeriod) setZoomPeriod(livePeriod);
     // Only playback crossing into another period turns the page, not the coach choosing one.

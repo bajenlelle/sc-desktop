@@ -219,7 +219,7 @@ export function GamePlayList({
     lastScroll.current.following = following;
   }, [following]);
 
-  useEffect(() => () => onLeaveRef.current(lastScroll.current), []);
+  useEffect(() => () => onLeaveRef.current({ ...lastScroll.current }), []);
 
   // A jump to a quarter or a marker shows that row, whether or not a play is current there yet.
   useEffect(() => {

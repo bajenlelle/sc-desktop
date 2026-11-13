@@ -25,6 +25,11 @@ type GameLabels = { labels: Label[]; assignments: Map<string, Set<string>> };
 /** This session's last look at each game's labels, by `${orgId}|${matchId}`: a visit shows them at once and reads again behind. */
 const lastRead = new Map<string, GameLabels>();
 
+/** Forgets every game's labels, so another user signing in never sees this one's. */
+export function forgetLabelsRead(): void {
+  lastRead.clear();
+}
+
 /**
  * A game's labels, for a page that isn't the editor: the space's vocabulary
  * and which labels sit on which of the game's plays, read once and written

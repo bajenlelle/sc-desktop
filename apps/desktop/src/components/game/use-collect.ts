@@ -19,6 +19,11 @@ const COLLECT_TOAST = "game-collect";
 /** This session's last playlists read, by `${orgId}|${includeUnscoped}`: the next visit shows them at once and reads again behind. */
 let lastList: { key: string; list: Playlist[] } | null = null;
 
+/** Forgets the last read, so another user signing in never sees this one's playlists. */
+export function forgetPlaylistsRead(): void {
+  lastList = null;
+}
+
 /**
  * Collecting a game's plays into a playlist from the game view: one target,
  * chosen once, then one press per play.
@@ -63,6 +68,8 @@ export function useCollect({
   const early = useRef<((list: Playlist[] | null) => Playlist[] | null)[] | null>([]);
   /** Settles once the read has set `saved`: every write waits for it. */
   const loadedRef = useRef<Promise<void>>(Promise.resolve());
+  /** The playlists this space's read found; null until it lands (or when it failed). */
+  const readIds = useRef<ReadonlySet<string> | null>(null);
   /** The space this hook is in now; a read for an earlier one doesn't touch `saved`. */
   const keyNow = useRef(key);
   keyNow.current = key;
@@ -84,12 +91,16 @@ export function useCollect({
     const cached = lastList?.key === key ? lastList.list : null;
     listKey.current = cached ? key : null;
     early.current = [];
+    readIds.current = null;
     setReadLanded(false);
     setPlaylists(cached);
     const read = listPlaylists(orgId ?? undefined, { includeUnscoped }).then((list) => {
       // Set even when the page has gone, so writes made before it left still land. Merged: a playlist made
       // here while the read was out keeps its entry.
-      if (keyNow.current === key) for (const p of list) saved.current.set(p.id, p.items);
+      if (keyNow.current === key) {
+        for (const p of list) saved.current.set(p.id, p.items);
+        readIds.current = new Set(list.map((p) => p.id));
+      }
       if (cancelled) return;
       const edits = early.current ?? [];
       early.current = null;
@@ -204,10 +215,16 @@ export function useCollect({
         return;
       }
       const keys = fresh.map(itemKey);
-      mutate(playlist.id, (items) => [...items, ...fresh]);
+      // Made again on the fresh list, which may already hold a clip added elsewhere meanwhile.
+      mutate(playlist.id, (items) => {
+        const there = new Set(items.filter(isClipItem).map(itemKey));
+        return [...items, ...fresh.filter((c) => !there.has(itemKey(c)))];
+      });
       setAddedHere((prev) => new Set([...prev, ...keys.map((k) => `${playlist.id}|${k}`)]));
       enqueue(playlist.id, async () => {
         const base = saved.current.get(playlist.id);
+        // The read landed without it: deleted (or moved) since the earlier list was shown.
+        const gone = !base && readIds.current !== null && !readIds.current.has(playlist.id);
         try {
           // The read failed: the server's copy is unknown, and a write from a guess could misplace the clips.
           if (!base) throw new Error("Playlist not read");
@@ -227,10 +244,14 @@ export function useCollect({
           // The editor's Add clips starts on this game next time.
           setAddClipsScope(playlist.id, { gameId: match.id, teams: [] });
         } catch (e) {
-          Sentry.captureException(e);
+          if (!gone) Sentry.captureException(e);
           const failed = new Set(keys);
           mutate(playlist.id, (items) => items.filter((i) => !(isClipItem(i) && failed.has(itemKey(i)))));
           setAddedHere((prev) => new Set([...prev].filter((k) => !failed.has(k.slice(playlist.id.length + 1)))));
+          if (gone) {
+            toast.error("That playlist is gone", { id: COLLECT_TOAST, description: "It was deleted or moved elsewhere." });
+            return;
+          }
           toast.error(fresh.length === 1 ? "Couldn't add the clip" : "Couldn't add the clips", {
             id: COLLECT_TOAST,
             description: "Check the connection and try again.",
