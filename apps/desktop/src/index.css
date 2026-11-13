@@ -331,3 +331,141 @@ html[data-window-inactive="true"] {
 .animate-progress-indeterminate {
   animation: progress-indeterminate 1.4s var(--ease-out-spring) infinite;
 }
+
+/* ── First-import guide (components/import/import-guide.tsx) ────────────────
+   `data-guide-step` on the root says which step is on; the Import game
+   page's parts carry `data-tour`. The lit area is lifted over a wash that
+   covers the rest of the page's content, the button to press gets a ring,
+   and the bubble is a child of the lit area, so it follows it without any
+   measuring. Nothing here takes a click from the page.
+   Unlayered on purpose: the ring has to beat the buttons' own outline-none. */
+
+.import-guide-root {
+  --guide-wash: color-mix(in oklab, var(--background) 64%, transparent);
+  --guide-in: import-guide-in;
+  --guide-in-side: import-guide-in-side;
+  --guide-fade: import-guide-fade;
+  --guide-pulse: import-guide-pulse;
+}
+
+/* Room under the last row for the bubble that hangs below it. */
+.import-guide-root[data-guide-open] {
+  padding-bottom: 9rem;
+}
+
+.import-guide-root[data-guide-step="pick"] [data-tour="pick"],
+.import-guide-root[data-guide-step="video"] [data-tour="video"],
+.import-guide-root[data-guide-step="tipoff"] [data-tour="video"],
+.import-guide-root[data-guide-step="import"] [data-tour="submit"] {
+  position: relative;
+  z-index: 1;
+}
+
+.import-guide-root[data-guide-step="pick"] [data-tour="pick"]::after,
+.import-guide-root[data-guide-step="video"] [data-tour="video"]::after,
+.import-guide-root[data-guide-step="tipoff"] [data-tour="video"]::after,
+.import-guide-root[data-guide-step="import"] [data-tour="submit"]::after {
+  content: "";
+  position: absolute;
+  inset: -0.625rem;
+  border-radius: 1rem;
+  box-shadow: 0 0 0 200vmax var(--guide-wash);
+  pointer-events: none;
+  animation: var(--guide-fade) 220ms ease-out both;
+}
+
+.import-guide-root[data-guide-step="video"] [data-tour="video-pick"],
+.import-guide-root[data-guide-step="tipoff"] [data-tour="tipoff-use"],
+.import-guide-root[data-guide-step="tipoff"]:not(:has([data-tour="tipoff-use"])) [data-tour="tipoff-set"],
+.import-guide-root[data-guide-step="import"] [data-tour="submit-button"] {
+  outline: 2px solid var(--selection);
+  outline-offset: 3px;
+  /* Scrolled into view with the ring showing, clear of the toolbar. */
+  scroll-margin: calc(var(--toolbar-height) + 1rem) 0 1rem;
+  animation: var(--guide-pulse) 1.8s ease-in-out infinite;
+}
+
+/* Below the lit area, over the washed-out part of the page. */
+.import-guide-rail {
+  position: absolute;
+  z-index: 2;
+  top: 100%;
+  right: 0;
+  left: 0;
+  display: flex;
+  justify-content: center;
+  padding-top: 1.25rem;
+  pointer-events: none;
+}
+.import-guide-rail[data-align="start"] { justify-content: flex-start; }
+.import-guide-rail[data-align="end"] { justify-content: flex-end; }
+
+.import-guide-bubble {
+  position: relative;
+  width: 18rem;
+  max-width: 100%;
+  padding: 0.75rem 0.875rem 0.5rem;
+  border-radius: 0.75rem;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: var(--shadow-menu);
+  pointer-events: auto;
+  scroll-margin: calc(var(--toolbar-height) + 0.75rem) 0 1rem;
+  animation: var(--guide-in) 240ms var(--ease-out-spring, ease-out) both;
+}
+
+/* The pointer: a corner of the bubble turned toward the lit area. */
+.import-guide-bubble::before {
+  content: "";
+  position: absolute;
+  top: -0.3125rem;
+  left: calc(50% - 0.3125rem);
+  width: 0.625rem;
+  height: 0.625rem;
+  border-top-left-radius: 2px;
+  background: inherit;
+  box-shadow: -1px -1px 0 0 var(--separator);
+  transform: rotate(45deg);
+}
+.import-guide-rail[data-align="start"] .import-guide-bubble::before { left: 2.75rem; }
+.import-guide-rail[data-align="end"] .import-guide-bubble::before { right: 2.75rem; left: auto; }
+
+/* A tall area (the game list, the player) with room beside the column: the
+   bubble sits in the margin and stays in view as the page scrolls past. */
+.import-guide-root[data-guide-side="margin"] .import-guide-rail[data-tall] {
+  top: 0;
+  right: auto;
+  bottom: 0;
+  left: 100%;
+  display: block;
+  width: 12.5rem;
+  padding: 2.25rem 0 0 1rem;
+}
+.import-guide-root[data-guide-side="margin"] .import-guide-rail[data-tall] .import-guide-bubble {
+  position: sticky;
+  top: calc(var(--toolbar-height) + 0.75rem);
+  width: 11.5rem;
+  animation-name: var(--guide-in-side);
+}
+.import-guide-root[data-guide-side="margin"] .import-guide-rail[data-tall] .import-guide-bubble::before {
+  top: 1rem;
+  right: auto;
+  left: -0.3125rem;
+  border-radius: 0 0 0 2px;
+  box-shadow: -1px 1px 0 0 var(--separator);
+}
+
+@keyframes import-guide-fade { from { opacity: 0; } }
+@keyframes import-guide-in { from { opacity: 0; transform: translateY(-4px); } }
+@keyframes import-guide-in-side { from { opacity: 0; transform: translateX(-4px); } }
+@keyframes import-guide-pulse {
+  50% { outline-color: color-mix(in oklab, var(--selection) 30%, transparent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .import-guide-root {
+    --guide-in: import-guide-fade;
+    --guide-in-side: import-guide-fade;
+    --guide-pulse: none;
+  }
+}

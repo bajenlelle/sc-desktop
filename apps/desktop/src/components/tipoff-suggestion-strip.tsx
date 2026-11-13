@@ -75,7 +75,7 @@ export function TipoffSuggestionStrip({ state, onAccept, onReject, onCancel }: P
         <span className="min-w-0 flex-1">{text}</span>
         <span className="flex shrink-0 gap-2">
           {seconds !== null && (
-            <Button type="button" size="sm" onClick={onAccept}>
+            <Button type="button" size="sm" data-tour="tipoff-use" onClick={onAccept}>
               Use <span className="nums">{formatMSSd(seconds)}</span>
             </Button>
           )}
