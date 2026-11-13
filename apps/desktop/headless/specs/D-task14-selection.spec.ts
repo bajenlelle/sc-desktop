@@ -7,8 +7,9 @@
  */
 import type { Page } from "@playwright/test";
 import {
+  addingCount,
   chooseNewTarget,
-  deletePlaylistsNamed,
+  deleteOwnedPlaylists,
   expect,
   openLibraryGame,
   owned,
@@ -23,15 +24,17 @@ const TARGET = owned("target");
 
 const selectedRows = (page: Page) => page.getByRole("list", { name: "Plays" }).locator("[data-selected]");
 const pill = (page: Page) => page.getByRole("toolbar", { name: "Selection" });
+/** The pill's count on its own: the number, then its "selected" (hidden on a narrow list, still in the text). */
+const pillCount = (page: Page) => pill(page).locator("span.nums").first();
 
 test.afterEach(async ({ page }) => {
-  await deletePlaylistsNamed(page, [TARGET]);
+  await deleteOwnedPlaylists(page, [TARGET]);
 });
 
 test("pick plays with ⌘, Shift and ⌘A, and add them in one go", async ({ page, browserName }) => {
   const name = (step: string) => `${browserName}-D-task14-${step}`;
   await page.goto("/matches");
-  await deletePlaylistsNamed(page, [TARGET]);
+  await deleteOwnedPlaylists(page, [TARGET]);
   const game = await openLibraryGame(page, 0);
   await showGameView(page);
   await chooseNewTarget(page, TARGET);
@@ -45,17 +48,21 @@ test("pick plays with ⌘, Shift and ⌘A, and add them in one go", async ({ pag
   await expect(pill(page)).toBeVisible();
   // At 1440 wide with the sidebar shown the list is under 30rem, so the pill shows its icons only
   // (PILL_LABEL is `@min-[30rem]`): the buttons are named by their titles.
-  await expect(pill(page)).toContainText("3");
+  await expect(pillCount(page)).toHaveText(/^3\s*selected$/);
   await expect(pill(page).getByRole("button", { name: `Add 3 plays to ${TARGET}` })).toBeVisible();
   const addSelected = pill(page).locator(`[title="Add 3 plays to ${TARGET}"]`);
   await expect(pill(page).getByRole("button", { name: "Add to another playlist" })).toBeVisible();
   await shot(page, name("pill-narrow"));
-  // With the sidebar hidden the list is wide enough for the words: "3 selected", "Add to {target}", "Another playlist".
+  // A wider window with the sidebar hidden gives the list room for the words: "3 selected", "Add to {target}",
+  // "Another playlist" (at 1440 without the sidebar it would clear 30rem by a few pixels only).
+  await page.setViewportSize({ width: 1920, height: 900 });
   await page.getByRole("button", { name: "Hide sidebar" }).click();
   await expect(pill(page).getByText("selected")).toBeVisible();
   await expect(addSelected).toHaveText(`Add to ${TARGET}`);
   await expect(pill(page).getByRole("button", { name: `Add to ${TARGET}`, exact: true })).toBeVisible();
   await expect(pill(page).getByText("Another playlist")).toBeVisible();
+  await page.getByRole("button", { name: "Show sidebar" }).click();
+  await page.setViewportSize({ width: 1440, height: 900 });
   // ⌘-click toggles: a fourth on and off again.
   await rows.nth(7).click({ modifiers: ["Meta"] });
   await expect(selectedRows(page)).toHaveCount(4);
@@ -79,7 +86,7 @@ test("pick plays with ⌘, Shift and ⌘A, and add them in one go", async ({ pag
   await expect(selectedRows(page)).toHaveCount(0);
   await expect(pill(page)).toHaveCount(0);
   await expect(page.locator("[data-sonner-toast]").filter({ hasText: `3 clips added to ${TARGET}` })).toBeVisible();
-  await expect(page.getByRole("button", { name: `Adding to ${TARGET}. Change playlist` })).toContainText("3");
+  await expect(addingCount(page, TARGET)).toHaveText("3");
   await expect
     .poll(async () => (await playlistClips(page, TARGET))?.map((c) => `${c.matchId}:${c.eventId}`), { message: "the three plays are in the target, in list order" })
     .toEqual(keys);
@@ -94,7 +101,7 @@ test("pick plays with ⌘, Shift and ⌘A, and add them in one go", async ({ pag
   await expect(selectedRows(page)).toHaveCount(5);
   for (let i = 10; i <= 14; i++) await expect(rows.nth(i)).toHaveAttribute("data-selected", "true");
   await expect(rows.nth(14)).toHaveAttribute("aria-current", "true");
-  await expect(pill(page)).toContainText(/^5\s*selected/);
+  await expect(pillCount(page)).toHaveText(/^5\s*selected$/);
   await shot(page, name("shift-down"));
 
   // Esc clears.
@@ -113,7 +120,7 @@ test("pick plays with ⌘, Shift and ⌘A, and add them in one go", async ({ pag
   await rows.first().click();
   await page.keyboard.press("Meta+A");
   await expect(selectedRows(page)).toHaveCount(listed);
-  await expect(pill(page)).toContainText(new RegExp(`^${listed}\\s*selected`));
+  await expect(pillCount(page)).toHaveText(new RegExp(`^${listed}\\s*selected$`));
   await shot(page, name("select-all-filtered"));
   // Another team listed: the hidden plays leave the selection.
   await teams.nth(2).click();

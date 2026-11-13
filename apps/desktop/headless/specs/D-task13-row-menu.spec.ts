@@ -5,8 +5,9 @@
  * deletes them at the end, however the test ends.
  */
 import {
+  addingCount,
   chooseNewTarget,
-  deletePlaylistsNamed,
+  deleteOwnedPlaylists,
   expect,
   openLibraryGame,
   owned,
@@ -21,14 +22,14 @@ const TARGET = owned("target");
 const OTHER = owned("other");
 
 test.afterEach(async ({ page }) => {
-  await deletePlaylistsNamed(page, [TARGET, OTHER]);
+  await deleteOwnedPlaylists(page, [TARGET, OTHER]);
 });
 
 test("a row's menu adds to the target or once to another playlist", async ({ page, browserName }) => {
   const name = (step: string) => `${browserName}-D-task13-${step}`;
   await page.goto("/matches");
   // A run that died before its cleanup leaves these behind; they are this spec's own.
-  await deletePlaylistsNamed(page, [TARGET, OTHER]);
+  await deleteOwnedPlaylists(page, [TARGET, OTHER]);
 
   const game = await openLibraryGame(page, 0);
   await showGameView(page);
@@ -38,7 +39,7 @@ test("a row's menu adds to the target or once to another playlist", async ({ pag
   await chooseNewTarget(page, TARGET);
   const adding = page.getByRole("button", { name: `Adding to ${TARGET}. Change playlist` });
   await expect(adding).toBeVisible();
-  await expect(adding).toContainText("0");
+  await expect(addingCount(page, TARGET)).toHaveText("0");
 
   // Unshared playlists hold nothing for players: "Open playlist", no Send.
   await expect(page.getByRole("button", { name: "Open playlist" })).toBeVisible();
@@ -67,7 +68,7 @@ test("a row's menu adds to the target or once to another playlist", async ({ pag
   await expect(toast).toBeVisible();
   await expect(toast.getByRole("button", { name: "Undo" })).toBeVisible();
   await expect(adding).toBeVisible();
-  await expect(adding).toContainText("0");
+  await expect(addingCount(page, TARGET)).toHaveText("0");
   // The row's mark is about the target: it still offers the add, and no row is checked.
   await expect(first.getByRole("button", { name: `Add to ${TARGET}`, exact: true })).toBeAttached();
   await expect(page.getByRole("button", { name: `In ${TARGET}. Remove`, exact: true })).toHaveCount(0);
@@ -89,7 +90,12 @@ test("a row's menu adds to the target or once to another playlist", async ({ pag
   await second.click({ button: "right" });
   await page.getByRole("menu").first().getByRole("menuitem", { name: `Add to ${TARGET}`, exact: true }).click();
   await expect(second.getByRole("button", { name: `In ${TARGET}. Remove`, exact: true })).toBeVisible();
-  await expect(adding).toContainText("1");
+  await expect(addingCount(page, TARGET)).toHaveText("1");
+  const secondKey = (await second.getAttribute("data-row-key"))!;
+  await expect.poll(() => playlistClips(page, TARGET), { message: "the target holds the play the menu added" }).toEqual([
+    { matchId: game.id, eventId: Number(secondKey.slice(secondKey.lastIndexOf(":") + 1)) },
+  ]);
+  await expect.poll(() => playlistClips(page, OTHER), { message: "and the other playlist stays empty" }).toEqual([]);
   // Right-clicked again, the item says the play is in already.
   await second.click({ button: "right" });
   await expect(page.getByRole("menu").first().getByRole("menuitem").first()).toHaveText(`In ${TARGET}`);

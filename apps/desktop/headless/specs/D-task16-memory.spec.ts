@@ -8,8 +8,9 @@
  */
 import type { Page } from "@playwright/test";
 import {
+  addingCount,
   chooseNewTarget,
-  deletePlaylistsNamed,
+  deleteOwnedPlaylists,
   expect,
   openLibraryGame,
   owned,
@@ -101,15 +102,22 @@ const frames = (page: Page) =>
   page.evaluate(() => (window as unknown as { __frames: { adding: boolean; chips: number; team: string | null; zoom: string | null }[] }).__frames);
 
 test.afterEach(async ({ page }) => {
-  await deletePlaylistsNamed(page, [TARGET]);
-  await deleteOwnLabel(page);
+  // The label goes even when the playlist delete throws.
+  try {
+    await deleteOwnedPlaylists(page, [TARGET]);
+  } finally {
+    await deleteOwnLabel(page);
+  }
 });
 
 test("a game comes back by its tab as it was left", async ({ page, browserName }) => {
   const name = (step: string) => `${browserName}-D-task16-${step}`;
   await page.goto("/matches");
-  await deletePlaylistsNamed(page, [TARGET]);
-  await deleteOwnLabel(page);
+  try {
+    await deleteOwnedPlaylists(page, [TARGET]);
+  } finally {
+    await deleteOwnLabel(page);
+  }
 
   // Game A with a target and a label on its first plays, read fresh (a reload, so the label is in its first read).
   const a = await openLibraryGame(page, 0);
@@ -208,7 +216,7 @@ test("a game comes back by its tab as it was left", async ({ page, browserName }
   await expect(row.getByRole("button", { name: `In ${TARGET}. Remove`, exact: true })).toBeVisible();
   await page.waitForTimeout(2_500); // the background read lands behind the add
   await expect(plays(page).getByRole("button", { name: `In ${TARGET}. Remove`, exact: true })).toHaveCount(1);
-  await expect(page.getByRole("button", { name: `Adding to ${TARGET}. Change playlist` })).toContainText("1");
+  await expect(addingCount(page, TARGET)).toHaveText("1");
   await expect.poll(() => playlistClips(page, TARGET), { message: "the target holds the play once" }).toEqual([
     { matchId: a.id, eventId: eventOf(added) },
   ]);

@@ -115,8 +115,9 @@ export const playRows = (page: Page) =>
 export async function openLibraryGame(page: Page, index: number): Promise<{ id: string; title: string }> {
   const library = page.locator("header").getByRole("button", { name: "Library", exact: true });
   if (await library.isVisible()) await library.click();
-  else await page.goto("/matches");
-  await expect(page.getByRole("heading", { level: 1, name: "Library" })).toBeVisible();
+  // Already loaded at /matches (a spec's cleanup ran there): no second load.
+  else if (new URL(page.url(), BASE_URL).pathname !== "/matches" || !page.url().startsWith(BASE_URL)) await page.goto("/matches");
+  await expect(page.getByRole("heading", { level: 1, name: "Library" })).toBeVisible({ timeout: 30_000 });
   const row = page.locator('a[href^="/matches/"]').nth(index);
   await expect(row, `the test account has a game at Library row ${index}`).toBeVisible({ timeout: 30_000 });
   const id = (await row.getAttribute("href"))!.replace("/matches/", "");
@@ -146,12 +147,19 @@ export async function chooseNewTarget(page: Page, name: string): Promise<void> {
   await page.keyboard.press("Escape");
 }
 
+/** The count chip of the toolbar's "Adding to {name}" control, on its own (the control's text also holds the name). */
+export const addingCount = (page: Page, name: string) =>
+  page.getByRole("button", { name: `Adding to ${name}. Change playlist` }).locator("span").last();
+
 /**
- * Deletes the test account's playlists with these names through the app's own
- * signed-in Supabase client (Vite serves its modules). For a spec's cleanup:
- * pass only names the spec made (`owned(…)`). Returns how many went.
+ * Deletes the test account's playlists with exactly these names through the
+ * app's own signed-in Supabase client (Vite serves its modules). For a spec's
+ * cleanup: every name must be this worktree's (`owned(…)`, `headless-<port> …`),
+ * anything else is refused. Returns how many went.
  */
-export async function deletePlaylistsNamed(page: Page, names: readonly string[]): Promise<number> {
+export async function deleteOwnedPlaylists(page: Page, names: readonly string[]): Promise<number> {
+  const outside = names.filter((n) => !n.startsWith(`headless-${PORT} `));
+  if (outside.length > 0) throw new Error(`headless: refusing to delete playlists outside "headless-${PORT} …": ${outside.join(", ")}`);
   if (!page.url().startsWith(BASE_URL)) await page.goto("/matches");
   return page.evaluate(async (names) => {
     const { createClient } = await import("/src/lib/supabase/client.ts" as string);

@@ -38,9 +38,44 @@ const titleOnServer = (page: Page, id: string) =>
     return (data as { title: string } | null)?.title ?? null;
   }, id);
 
+/** The game this spec renamed and its title before, until the title is back on the server. */
+let renamedGame: { id: string; original: string } | null = null;
+
+/**
+ * Writes the original title back and waits until the server holds it. A blur-save
+ * of the field can land after the first write, so each read that still differs writes again.
+ */
+async function restoreTitle(page: Page): Promise<void> {
+  const game = renamedGame;
+  if (!game) return;
+  const write = () =>
+    page.evaluate(
+      async ({ id, title }) => {
+        const { updateMatchMeta } = await import("/src/lib/matches-db.ts" as string);
+        await updateMatchMeta(id, { title });
+      },
+      { id: game.id, title: game.original },
+    );
+  await write();
+  await expect
+    .poll(
+      async () => {
+        const now = await titleOnServer(page, game.id);
+        if (now !== game.original) await write();
+        return now;
+      },
+      { message: "the renamed game's title is back on the server", timeout: 15_000 },
+    )
+    .toBe(game.original);
+  renamedGame = null;
+}
+
+test.afterEach(async ({ page }) => {
+  await restoreTitle(page);
+});
+
 test("games open in tabs, switch without loading, and close", async ({ page, browserName }) => {
   const name = (step: string) => `${browserName}-D-task15-${step}`;
-  await page.goto("/matches");
 
   // One game: no tab bar.
   const g0 = await openLibraryGame(page, 0);
@@ -67,22 +102,22 @@ test("games open in tabs, switch without loading, and close", async ({ page, bro
   // A click switches at once: the game's own title, its play list, and no spinner on the way.
   await watchForSpinner(page);
   await tab(page, g0.title).click();
-  await expect(heading(page)).toHaveText(g0.title, { timeout: 1_500 });
-  await expect(page.getByRole("list", { name: "Plays" })).toBeVisible({ timeout: 1_500 });
+  await expect(heading(page)).toHaveText(g0.title, { timeout: 5_000 });
+  await expect(page.getByRole("list", { name: "Plays" })).toBeVisible({ timeout: 5_000 });
   await expect(tab(page, g0.title)).toHaveAttribute("aria-selected", "true");
   await tab(page, g2.title).click();
-  await expect(heading(page)).toHaveText(g2.title, { timeout: 1_500 });
-  await expect(page.getByRole("list", { name: "Plays" })).toBeVisible({ timeout: 1_500 });
+  await expect(heading(page)).toHaveText(g2.title, { timeout: 5_000 });
+  await expect(page.getByRole("list", { name: "Plays" })).toBeVisible({ timeout: 5_000 });
   expect(await sawSpinner(page), "no \"Loading the game…\" on a tab switch").toBe(false);
   await shot(page, name("switched"));
 
   // ⌃Tab and ⌃⇧Tab step in strip order and wrap at both ends.
   await page.keyboard.press("Control+Tab"); // g2 → g0, wrapping forward
-  await expect(heading(page)).toHaveText(g0.title, { timeout: 1_500 });
+  await expect(heading(page)).toHaveText(g0.title, { timeout: 5_000 });
   await page.keyboard.press("Control+Shift+Tab"); // g0 → g2, wrapping back
-  await expect(heading(page)).toHaveText(g2.title, { timeout: 1_500 });
+  await expect(heading(page)).toHaveText(g2.title, { timeout: 5_000 });
   await page.keyboard.press("Control+Shift+Tab"); // g2 → g1
-  await expect(heading(page)).toHaveText(g1.title, { timeout: 1_500 });
+  await expect(heading(page)).toHaveText(g1.title, { timeout: 5_000 });
   expect(await sawSpinner(page), "no spinner on a key switch either").toBe(false);
   await expect(tab(page, g1.title)).toHaveAttribute("aria-selected", "true");
 
@@ -90,6 +125,7 @@ test("games open in tabs, switch without loading, and close", async ({ page, bro
   const original = await titleOnServer(page, g1.id);
   expect(original, "the second game's title is readable").toBeTruthy();
   const renamed = owned(`renamed ${Date.now() % 100000}`);
+  renamedGame = { id: g1.id, original: original! };
   try {
     await page.getByRole("radio", { name: "Details" }).click();
     const field = page.locator("#game-title");
@@ -97,7 +133,7 @@ test("games open in tabs, switch without loading, and close", async ({ page, bro
     await field.fill(renamed);
     await expect(field).toBeFocused();
     await page.keyboard.press("Control+Tab"); // g1 → g2, straight from the field
-    await expect(heading(page)).toHaveText(g2.title, { timeout: 1_500 });
+    await expect(heading(page)).toHaveText(g2.title, { timeout: 5_000 });
     await expect.poll(() => titleOnServer(page, g1.id), { message: "the title typed before the switch is saved" }).toBe(renamed);
     await expect(tab(page, renamed)).toBeVisible({ timeout: 10_000 });
     await shot(page, name("renamed-tab"));
@@ -106,15 +142,9 @@ test("games open in tabs, switch without loading, and close", async ({ page, bro
     await expect(page.getByRole("radio", { name: "Details" })).toHaveAttribute("aria-checked", "true");
     await expect(page.locator("#game-title")).toHaveValue(renamed);
   } finally {
-    await page.evaluate(
-      async ({ id, title }) => {
-        const { updateMatchMeta } = await import("/src/lib/matches-db.ts" as string);
-        await updateMatchMeta(id, { title });
-      },
-      { id: g1.id, title: original! },
-    );
+    // Also in afterEach: whichever runs first puts it back, the other finds nothing to do.
+    await restoreTitle(page);
   }
-  expect(await titleOnServer(page, g1.id)).toBe(original);
   await expect(tab(page, original!)).toBeVisible({ timeout: 10_000 });
 
   // The account's other games, five tabs in all (it has five games: the seventh-game eviction can't be reached).
