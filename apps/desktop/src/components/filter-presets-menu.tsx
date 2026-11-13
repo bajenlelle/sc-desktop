@@ -117,7 +117,7 @@ export function FilterPresetsMenu({
     const isMatch = matching?.id === p.id;
     return (
       <div key={p.id}>
-        <div className="group flex items-center gap-2 rounded px-2 py-1.5 hover:bg-fill-2 has-[>button:active]:bg-fill-3">
+        <div className="group flex items-center gap-2 rounded px-2 py-1.5 hover:bg-fill-2 has-[>button:focus-visible]:bg-fill-2 has-[>button:active]:bg-fill-3">
           {isRenaming ? (
             <Input
               ref={renameInputRef}

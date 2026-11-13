@@ -284,9 +284,14 @@ export function ClipBrowserPanel({
   }, [gameIdsKey, onNeedEvents, onNeedLabels]);
 
   const [filters, setFilters] = useState<ClipFilters>(EMPTY_CLIP_FILTERS);
+  // A preset applied while the games' plays load, fitted once they are in (the prune effect below);
+  // any filter chosen in the meantime wins over it.
+  const pendingPresetRef = useRef<FilterPreset | null>(null);
   // One group's setter, for the dropdowns and chips.
-  const setGroup = (group: keyof ClipFilters) => (next: ReadonlySet<string>) =>
+  const setGroup = (group: keyof ClipFilters) => (next: ReadonlySet<string>) => {
+    pendingPresetRef.current = null;
     setFilters((f) => ({ ...f, [group]: next }));
+  };
   const [preRoll, setPreRoll] = useState(10);
   const [postRoll, setPostRoll] = useState(3);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set()); // "matchId:eventId"
@@ -373,6 +378,7 @@ export function ClipBrowserPanel({
   const handleLeaderToggle = useCallback((name: string) => {
     const keys = [...keyNames].filter(([, n]) => n === name).map(([key]) => key);
     if (keys.length === 0) return;
+    pendingPresetRef.current = null;
     setFilters((f) => {
       const next = new Set(f.players);
       const on = keys.some((k) => next.has(k));
@@ -419,7 +425,8 @@ export function ClipBrowserPanel({
 
   // A change of games keeps the chosen team and players (a player id is the
   // same in every game, so "#8, last 5 games" keeps #8) and prunes those the
-  // new games don't have once their plays are in.
+  // new games don't have once their plays are in. A preset still waiting for
+  // plays stays waiting and is fitted to the new games instead.
   const pruneRef = useRef(false);
   function handleGameChange(ids: string[], via: GamePickVia) {
     pendingTeamsRef.current = null;
@@ -431,8 +438,14 @@ export function ClipBrowserPanel({
   useEffect(() => {
     // Wait for these games' load to finish, not just for no load running: the
     // render right after a change has not started it yet.
-    if (!pruneRef.current || eventsLoading || loadedGamesKey !== gameIdsKey) return;
+    if ((!pruneRef.current && !pendingPresetRef.current) || eventsLoading || loadedGamesKey !== gameIdsKey) return;
     pruneRef.current = false;
+    const preset = pendingPresetRef.current;
+    if (preset) {
+      pendingPresetRef.current = null;
+      fitPreset(preset);
+      return;
+    }
     const keys = new Set(allEvents.map((x) => playerKey(x.event)).filter((k): k is string => k !== null));
     setFilters((f) => {
       const keptTeams = [...f.teams].filter((t) => teams.includes(t));
@@ -440,10 +453,13 @@ export function ClipBrowserPanel({
       if (keptTeams.length === f.teams.size && keptPlayers.length === f.players.size) return f;
       return { ...f, teams: new Set(keptTeams), players: new Set(keptPlayers) };
     });
+    // fitPreset reads this render's games, teams and labels; the deps above re-run it when the load lands.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventsLoading, loadedGamesKey, gameIdsKey, allEvents, teams]);
 
   function handleTeamChange(newTeams: Set<string>) {
     pendingTeamsRef.current = null;
+    pendingPresetRef.current = null;
     if (gameIds.length > 0) setAddClipsScope(playlist.id, { gameIds, teams: [...newTeams] });
     const source = newTeams.size > 0
       ? allEvents.filter(({ event }) => newTeams.has(event.eventTeam?.teamName ?? ""))
@@ -453,12 +469,21 @@ export function ClipBrowserPanel({
   }
 
   // A preset holds no games: it is fitted to the ones on screen, leaving out the teams, players and
-  // labels they don't have, so no choice is left hidden.
+  // labels they don't have, so no choice is left hidden. While those games' plays load it waits (fitting
+  // then would drop every team and player), and is fitted, counted and toasted once, when they land.
   const presets = useFilterPresets(activeOrgId, "add_clips");
   function applyPreset(p: FilterPreset) {
+    pendingTeamsRef.current = null;
+    if (eventsLoading || loadedGamesKey !== gameIdsKey) {
+      pendingPresetRef.current = p;
+      return;
+    }
+    pendingPresetRef.current = null;
+    fitPreset(p);
+  }
+  function fitPreset(p: FilterPreset) {
     const players = new Set(allEvents.map((x) => playerKey(x.event)).filter((k): k is string => k !== null));
     const fitted = fitPresetToGames(p.filters, { teams, players: [...players], labels: labels.map((l) => l.id) });
-    pendingTeamsRef.current = null;
     if (gameIds.length > 0) setAddClipsScope(playlist.id, { gameIds, teams: [...fitted.teams] });
     setFilters(fitted);
     presets.applied(p);
