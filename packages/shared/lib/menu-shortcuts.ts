@@ -15,7 +15,10 @@ export interface KeyChord {
   altKey: boolean;
 }
 
-/** Unshifted CmdOrCtrl chords → menu item id. */
+/**
+ * Unshifted CmdOrCtrl chords → menu item id. The Shift chords
+ * (fullscreen-player on F, the game tabs on [ and ]) are in menuIdForChord.
+ */
 const PLAIN: Record<string, string> = {
   ",": "settings",
   n: "new-playlist",
@@ -37,7 +40,14 @@ export function menuIdForChord(e: KeyChord): string | null {
   // "+" is the unshifted key people reach for anyway.
   if (key === "=" || key === "+") return "zoom-in";
   if (key === "-") return "zoom-out";
-  if (e.shiftKey) return key === "f" ? "fullscreen-player" : null;
+  // Shift chords: fullscreen-player, and the game tabs on Shift with [ or ].
+  // Shift turns [ and ] into { and } on US layouts, so either is accepted.
+  if (e.shiftKey) {
+    if (key === "f") return "fullscreen-player";
+    if (key === "[" || key === "{") return "game-tab-prev";
+    if (key === "]" || key === "}") return "game-tab-next";
+    return null;
+  }
   return PLAIN[key] ?? null;
 }
 

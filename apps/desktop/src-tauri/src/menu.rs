@@ -147,9 +147,15 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         .build()?;
 
     // -- Window ------------------------------------------------------------
+    // The game page's tabs, as Safari's Show Next/Previous Tab; on only there.
+    let game_tab_prev = item("game-tab-prev", "Show Previous Game Tab", Some("CmdOrCtrl+Shift+["))?;
+    let game_tab_next = item("game-tab-next", "Show Next Game Tab", Some("CmdOrCtrl+Shift+]"))?;
     let window_menu = SubmenuBuilder::new(app, "Window")
         .item(&PredefinedMenuItem::minimize(app, None)?)
         .item(&PredefinedMenuItem::maximize(app, Some("Zoom"))?)
+        .separator()
+        .item(&game_tab_prev)
+        .item(&game_tab_next)
         .build()?;
     window_menu.set_as_windows_menu_for_nsapp()?;
 

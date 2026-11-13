@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { ChevronLeft, Play, Tag, VideoOff } from "lucide-react";
+import { ChevronDown, ChevronLeft, ListPlus, Play, Plus, Tag, VideoOff } from "lucide-react";
 import { formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { GAME_MOMENTS, gameFlow, gameMoments, onCourtStints, scoreAfter, type GameMoment } from "@scoutable/shared/lib/game-flow";
 import { EMPTY_GAME_FILTERS, gameFiltersActive, gameRows, keepPlay, type GameFilters, type GameRow } from "@scoutable/shared/lib/game-list";
-import { buildGameTimeline, PERIOD_LEAD_SECONDS, visibleOrder, type TimedPlay } from "@scoutable/shared/lib/game-timeline";
+import { buildGameTimeline, momentAt, PERIOD_LEAD_SECONDS, visibleOrder, type TimedPlay } from "@scoutable/shared/lib/game-timeline";
 import { videoLooksCut } from "@scoutable/shared/lib/period-sync";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
 import { labelForKey, labelKeySlot } from "@scoutable/shared/lib/label-keys";
+import { clickSelection, extendSelection, moveFocus, pruneSelection, type FocusMove } from "@scoutable/shared/lib/list-selection";
 import { defaultPreRoll } from "@scoutable/shared/lib/provider";
+import { AddToPopover } from "@/components/editor/add-to-popover";
 import { PlayerStage, type PlayerStageHandle } from "@/components/editor/player-stage";
+import { PILL_LABEL, PillButton, SelectionBar } from "@/components/editor/selection-bar";
 import { usePersistentVideo } from "@/components/editor/use-persistent-video";
 import { LabelPickerPopover } from "@/components/labels/LabelPickerPopover";
 import { Page } from "@/components/shell/page";
@@ -21,6 +24,7 @@ import { Callout } from "@/components/ui/group";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth-context";
+import { recallGameView, rememberGameView } from "@/lib/game-tabs";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { getGameTimelineTipSeen, setGameTimelineTipSeen } from "@/lib/prefs";
@@ -30,6 +34,7 @@ import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { useClipLabels } from "@/lib/use-clip-labels";
 import { useGameMarks } from "@/lib/use-game-marks";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
+import { cn } from "@/lib/utils";
 import { videoBasename, type VideoFileStatus } from "@/lib/video-probe";
 import type { StoredMatch } from "@/types/match";
 import { CollectControl } from "./collect-control";
@@ -37,6 +42,7 @@ import { GameFilterBar, type GamePerson } from "./game-filters";
 import { GameLabelKeys } from "./game-label-keys";
 import { GameNowBar } from "./game-now-bar";
 import { GamePlayList } from "./game-play-list";
+import { GamePlayMenuContent } from "./game-play-menu";
 import { GameTimelineStrip } from "./game-timeline-strip";
 import { useCollect } from "./use-collect";
 import { useGamePlayback } from "./use-game-playback";
@@ -96,6 +102,7 @@ export function GameWatchView({
   match,
   videoStatus,
   viewSwitch,
+  tabBar,
   entry,
   startEventId,
   onOpenDetails,
@@ -104,6 +111,8 @@ export function GameWatchView({
   /** "ok": the video plays here. "missing" / "unreadable": a local file that doesn't. "none": no video linked. */
   videoStatus: VideoFileStatus | "none";
   viewSwitch: ReactNode;
+  /** The open games' tabs, under the toolbar (from two games). */
+  tabBar?: ReactNode;
   /** How the coach got here, for analytics. */
   entry: string;
   /** A play to open on (a link from elsewhere). */
@@ -117,14 +126,18 @@ export function GameWatchView({
   const playerFs = usePlayerFullscreen();
   const [speed, setSpeedState] = useState(readSpeed);
   const [duration, setDuration] = useState<number | null>(null);
-  const [filters, setFilters] = useState<GameFilters>(EMPTY_GAME_FILTERS);
-  const [zoomPeriod, setZoomPeriod] = useState<number | null>(null);
+  // How this game was left on an earlier visit; a link to a play opens without it, so the play is in the list.
+  const [remembered] = useState(() => (startEventId === null ? recallGameView(match.id) : null));
+  const [filters, setFilters] = useState<GameFilters>(() => remembered?.filters ?? EMPTY_GAME_FILTERS);
+  const [zoomPeriod, setZoomPeriod] = useState<number | null>(() => remembered?.zoomPeriod ?? null);
+  useEffect(() => rememberGameView(match.id, { filters, zoomPeriod }), [match.id, filters, zoomPeriod]);
   const [labelPickerFor, setLabelPickerFor] = useState<string | null>(null);
   // The play the Now bar's label picker was opened for: it stays that play however long the choosing takes.
   const [nowLabelFor, setNowLabelFor] = useState<TimedPlay | null>(null);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [followSignal, setFollowSignal] = useState(0);
   const [reveal, setReveal] = useState<{ key: string; nonce: number } | null>(null);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const addButtonRef = useRef<HTMLButtonElement | null>(null);
   const [tipSeen, setTipSeen] = useState(() => getGameTimelineTipSeen(user?.id));
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -224,6 +237,59 @@ export function GameWatchView({
     [playback, trackSeek, refollow],
   );
 
+  // ---- The selection: plays picked to add together, as the editor's list picks clips (list-selection.ts) ----
+  // The anchor is where Shift ranges grow from, the focus where the last Shift move landed; a plain arrow lets go of both.
+  const anchorRef = useRef<string | null>(null);
+  const extendFocusRef = useRef<string | null>(null);
+  const orderKeys = useMemo(() => order.map((i) => timeline.plays[i].key), [order, timeline]);
+  const playByKey = useMemo(() => new Map(timeline.plays.map((p) => [p.key, p])), [timeline]);
+  /** The selected plays in list order. */
+  const selectedPlays = useMemo(() => orderKeys.filter((k) => selected.has(k)).map((k) => playByKey.get(k)!), [orderKeys, selected, playByKey]);
+  // A filter that hides a play takes it out of the selection: what is picked is always what is listed.
+  useEffect(() => setSelected((prev) => pruneSelection(prev, orderKeys)), [orderKeys]);
+
+  /** A click on a row: plain plays it (keeping the selection only when the row is in it), ⌘ toggles, Shift ranges. */
+  function onPress(play: TimedPlay, { shift, toggle }: { shift: boolean; toggle: boolean }) {
+    const next = clickSelection({
+      order: orderKeys,
+      selected,
+      anchor: anchorRef.current ?? playback.activeKey,
+      focus: extendFocusRef.current,
+      key: play.key,
+      shift,
+      toggle,
+    });
+    setSelected(next.selected);
+    anchorRef.current = next.anchor;
+    extendFocusRef.current = next.focus;
+    if (!shift && !toggle) playPlay(play);
+  }
+  /** Shift+arrows: select from the anchor to the play there, and play it. */
+  function extendTo(move: FocusMove) {
+    const from = extendFocusRef.current ?? playback.activeKey;
+    const to = moveFocus(orderKeys, from, move);
+    if (to === null) return;
+    const shown = (key: string | null): key is string => key !== null && orderKeys.includes(key);
+    const anchor = shown(anchorRef.current) ? anchorRef.current : shown(from) ? from : to;
+    setSelected((prev) => extendSelection({ order: orderKeys, selected: prev, anchor, previousFocus: shown(from) ? from : null, focus: to }));
+    anchorRef.current = anchor;
+    extendFocusRef.current = to;
+    if (to !== playback.activeKey) playPlay(playByKey.get(to)!, "key");
+  }
+  function clearSelection() {
+    setSelected(new Set());
+    anchorRef.current = null;
+    extendFocusRef.current = null;
+  }
+  // Playback drives the current row: once it moves on (playing through, a marker, a quarter, the timeline), Shift+arrows
+  // extend from the play it reached, not from where the last click or Shift move left off.
+  useEffect(() => {
+    if (playback.activeKey !== extendFocusRef.current) {
+      anchorRef.current = null;
+      extendFocusRef.current = null;
+    }
+  }, [playback.activeKey]);
+
   const setSpeed = useCallback((next: number) => {
     setSpeedState(next);
     try {
@@ -249,14 +315,19 @@ export function GameWatchView({
   // visit's last look left it, else just before tip-off.
   const resumeAt = useRef(readPosition(match.id));
   const placed = useRef(false);
+  /** The period the game opened in (null before tip-off, in a break or after): arriving there isn't a crossing. */
+  const placedPeriod = useRef<number | null>(null);
   const firstBandStart = timeline.bands[0]?.start ?? null;
   useEffect(() => {
     if (!footage || placed.current || duration === null) return;
     placed.current = true;
     const linked = startEventId !== null ? playByEvent.get(startEventId) : undefined;
     const at = linked ? linked.start : (resumeAt.current ?? (firstBandStart !== null ? Math.max(0, firstBandStart - TIPOFF_LEAD_SECONDS) : 0));
-    video.currentTime = Math.min(at, Math.max(0, duration - 1));
-  }, [footage, duration, startEventId, playByEvent, firstBandStart, video]);
+    const to = Math.min(at, Math.max(0, duration - 1));
+    const opened = momentAt(timeline, to, PERIOD_LEAD_SECONDS);
+    placedPeriod.current = opened.phase === "live" ? opened.period : null;
+    video.currentTime = to;
+  }, [footage, duration, startEventId, playByEvent, firstBandStart, timeline, video]);
 
   // Remember where the coach was, for coming back from Details or the editor.
   // Kept as playback goes: by the time this view is torn down the video has
@@ -323,6 +394,7 @@ export function GameWatchView({
       score: flow.source,
       timeouts: marks?.timeouts.length ?? 0,
       entry,
+      restored: !!remembered && (gameFiltersActive(remembered.filters) || remembered.zoomPeriod !== null),
       is_demo: !!match.isDemo,
     });
     const c = closing.current;
@@ -437,8 +509,17 @@ export function GameWatchView({
 
   // Zoomed into a quarter, the strip turns the page when playback does.
   const livePeriod = playback.moment?.phase === "live" ? playback.moment.period : null;
+  // A zoom brought back from an earlier visit stays: where the game opens isn't playback crossing a period.
+  const zoomRestored = useRef(zoomPeriod !== null);
   useEffect(() => {
-    if (zoomPeriod !== null && livePeriod !== null && livePeriod !== zoomPeriod) setZoomPeriod(livePeriod);
+    if (livePeriod === null) return;
+    if (zoomRestored.current) {
+      // Before the game is placed the playhead isn't where it opens yet.
+      if (!placed.current) return;
+      zoomRestored.current = false;
+      if (livePeriod === placedPeriod.current) return;
+    }
+    if (zoomPeriod !== null && livePeriod !== zoomPeriod) setZoomPeriod(livePeriod);
     // Only playback crossing into another period turns the page, not the coach choosing one.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [livePeriod]);
@@ -642,17 +723,47 @@ export function GameWatchView({
         e.preventDefault();
         playback.next("key");
         refollow();
+        anchorRef.current = null;
+        extendFocusRef.current = null;
         return;
       case "prev":
         e.preventDefault();
         playback.prev("key");
         refollow();
+        anchorRef.current = null;
+        extendFocusRef.current = null;
         return;
       case "first":
       case "last":
         e.preventDefault();
         playback.toEnd(action);
         refollow();
+        anchorRef.current = null;
+        extendFocusRef.current = null;
+        return;
+      case "extend-next":
+        e.preventDefault();
+        extendTo(1);
+        return;
+      case "extend-prev":
+        e.preventDefault();
+        extendTo(-1);
+        return;
+      case "extend-first":
+        e.preventDefault();
+        extendTo("first");
+        return;
+      case "extend-last":
+        e.preventDefault();
+        extendTo("last");
+        return;
+      case "select-all":
+        if (orderKeys.length > 0) {
+          e.preventDefault();
+          setSelected(new Set(orderKeys));
+          anchorRef.current = orderKeys[0];
+          extendFocusRef.current = orderKeys[orderKeys.length - 1];
+        }
         return;
       case "toggle-play":
         e.preventDefault();
@@ -702,9 +813,13 @@ export function GameWatchView({
         toggleFullscreen();
         return;
       case "escape":
+        // Full screen lets go first; then the selection.
         if (playerFs.active) {
           e.preventDefault();
           void playerFs.exit();
+        } else if (selected.size > 0) {
+          e.preventDefault();
+          clearSelection();
         }
         return;
       default:
@@ -805,6 +920,7 @@ export function GameWatchView({
     <Page>
       <Toolbar
         variant="static"
+        tabBar={tabBar}
         title={match.title}
         leading={
           <>
@@ -933,6 +1049,7 @@ export function GameWatchView({
                 rows={rows}
                 hasPlays={timeline.plays.length > 0}
                 activeKey={playback.activeKey}
+                selected={selected}
                 playing={footage}
                 flow={flow}
                 teams={teams}
@@ -944,12 +1061,69 @@ export function GameWatchView({
                 renderLabelPicker={renderRowLabelPicker}
                 followSignal={followSignal}
                 reveal={reveal}
-                onPlay={playPlay}
+                restoreScroll={remembered?.list ?? null}
+                onLeave={(list) => rememberGameView(match.id, { list })}
+                onPress={onPress}
                 onAdd={addOne}
                 onRemove={collect.removeAdded}
                 onLabel={openRowLabels}
                 onMarker={onMarker}
                 onClearFilters={() => setFilters(EMPTY_GAME_FILTERS)}
+                // Finder's rule: an action on a selected item acts on the whole selection.
+                rowMenu={(play, anchor) => (
+                  <GamePlayMenuContent
+                    plays={selected.has(play.key) ? selectedPlays : [play]}
+                    collect={collect}
+                    moment={filters.moment}
+                    anchor={anchor}
+                    onDone={selected.has(play.key) ? clearSelection : undefined}
+                  />
+                )}
+                selecting={selected.size > 0}
+                selectionBar={
+                  <SelectionBar
+                    count={selected.size}
+                    onClear={clearSelection}
+                    clearTitle="Deselect all (Esc)"
+                    group={null}
+                    addTo={
+                      <>
+                        <PillButton
+                          title={collect.target ? `Add ${selected.size} ${selected.size === 1 ? "play" : "plays"} to ${collect.target.name}` : "Add to playlist…"}
+                          // With no target the picker opens from its own button (the pill leaves with the selection), and
+                          // the selection stays until a playlist is chosen and the plays are in: dismissed, nothing is lost.
+                          onClick={() => collect.add(selectedPlays, "selection", filters.moment, null, clearSelection)}
+                        >
+                          <Plus />
+                          {collect.target ? (
+                            <span className={cn(PILL_LABEL, "max-w-40 truncate")}>Add to {collect.target.name}</span>
+                          ) : (
+                            <span className={PILL_LABEL}>Add to playlist…</span>
+                          )}
+                        </PillButton>
+                        <AddToPopover
+                          playlists={collect.candidates}
+                          activePlaylistId={collect.target?.id ?? null}
+                          onAddToPlaylist={async (pl) => {
+                            collect.addToPlaylist(pl, selectedPlays, "selection", filters.moment);
+                            clearSelection();
+                          }}
+                          onCreatePlaylist={async (name) => {
+                            await collect.createAndAddTo(name, selectedPlays, "selection", filters.moment);
+                            clearSelection();
+                          }}
+                          trigger={
+                            <PillButton title="Add to another playlist">
+                              <ListPlus />
+                              <span className={PILL_LABEL}>Another playlist</span>
+                              <ChevronDown className="size-3 text-muted-foreground" />
+                            </PillButton>
+                          }
+                        />
+                      </>
+                    }
+                  />
+                }
               />
             </div>
           </ResizablePanel>

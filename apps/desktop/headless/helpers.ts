@@ -291,6 +291,99 @@ export async function sheetScrimPoint(page: Page): Promise<{ x: number; y: numbe
   throw new Error("headless: the sheet leaves no scrim to click");
 }
 
+/** A name for something a spec creates on the shared account: `headless-<port> <what>`. */
+export const owned = (what: string) => `headless-${PORT} ${what}`;
+
+/** The play rows of the game view's list (not the period headers or the marker rows). */
+export const playRows = (page: Page) =>
+  page.getByRole("list", { name: "Plays" }).locator('div[data-row-key]:not([data-row-key^="period:"])');
+
+/**
+ * Opens the Library's nth game from inside the app (the toolbar's Library
+ * button when there is one, so the app's session memory survives; a load of
+ * /matches otherwise) and waits for its page. Returns its id and title.
+ */
+export async function openLibraryGame(page: Page, index: number): Promise<{ id: string; title: string }> {
+  const library = page.locator("header").getByRole("button", { name: "Library", exact: true });
+  if (await library.isVisible()) await library.click();
+  // Already loaded at /matches (a spec's cleanup ran there): no second load.
+  else if (new URL(page.url(), BASE_URL).pathname !== "/matches" || !page.url().startsWith(BASE_URL)) await page.goto("/matches");
+  await expect(page.getByRole("heading", { level: 1, name: "Library" })).toBeVisible({ timeout: 30_000 });
+  const row = page.locator('a[href^="/matches/"]').nth(index);
+  await expect(row, `the test account has a game at Library row ${index}`).toBeVisible({ timeout: 30_000 });
+  const id = (await row.getAttribute("href"))!.replace("/matches/", "");
+  const title = (await row.locator("span").first().innerText()).trim();
+  await row.click();
+  await expect(page.getByRole("radiogroup", { name: "View" })).toBeVisible({ timeout: 30_000 });
+  return { id, title };
+}
+
+/** Puts the open game on its Game view (a staging game usually opens on Details) and waits for the play list. */
+export async function showGameView(page: Page): Promise<void> {
+  const game = page.getByRole("radio", { name: "Game" });
+  if ((await game.getAttribute("aria-checked")) !== "true") await game.click();
+  await expect(game).toHaveAttribute("aria-checked", "true");
+  await expect(playRows(page).first()).toBeVisible({ timeout: 30_000 });
+}
+
+/**
+ * In the game view, makes a new playlist the "Adding to" target through the
+ * toolbar's picker (its search field names the new playlist).
+ */
+export async function chooseNewTarget(page: Page, name: string): Promise<void> {
+  await page.getByRole("button", { name: /^(Choose the playlist to add plays to|Adding to .*\. Change playlist)$/ }).click();
+  await page.getByPlaceholder("Search or name a new playlist").fill(name);
+  await page.getByRole("button", { name: `New playlist “${name}”` }).click();
+  await expect(page.getByRole("button", { name: `Adding to ${name}. Change playlist` })).toBeVisible({ timeout: 15_000 });
+  await page.keyboard.press("Escape");
+}
+
+/** The count chip of the toolbar's "Adding to {name}" control, on its own (the control's text also holds the name). */
+export const addingCount = (page: Page, name: string) =>
+  page.getByRole("button", { name: `Adding to ${name}. Change playlist` }).locator("span").last();
+
+/**
+ * Deletes the test account's playlists with exactly these names through the
+ * app's own signed-in Supabase client (Vite serves its modules). For a spec's
+ * cleanup: every name must be this worktree's (`owned(…)`, `headless-<port> …`),
+ * anything else is refused. Returns how many went.
+ */
+export async function deleteOwnedPlaylists(page: Page, names: readonly string[]): Promise<number> {
+  const outside = names.filter((n) => !n.startsWith(`headless-${PORT} `));
+  if (outside.length > 0) throw new Error(`headless: refusing to delete playlists outside "headless-${PORT} …": ${outside.join(", ")}`);
+  if (!page.url().startsWith(BASE_URL)) await page.goto("/matches");
+  return page.evaluate(async (names) => {
+    const { createClient } = await import("/src/lib/supabase/client.ts" as string);
+    const sb = createClient();
+    const { data: auth } = await sb.auth.getUser();
+    if (!auth.user) throw new Error("headless: not signed in for the cleanup");
+    const { data, error } = await sb.from("playlists").delete().eq("user_id", auth.user.id).in("name", names).select("id");
+    if (error) throw new Error(`headless: cleanup failed: ${error.message}`);
+    return (data ?? []).length;
+  }, [...names]);
+}
+
+/** The clips of the test account's playlist of that name, as the server holds them; null when there is no such playlist. */
+export async function playlistClips(page: Page, name: string): Promise<{ matchId: string; eventId: number }[] | null> {
+  return page.evaluate(async (name) => {
+    const { createClient } = await import("/src/lib/supabase/client.ts" as string);
+    const sb = createClient();
+    const { data: auth } = await sb.auth.getUser();
+    const { data, error } = await sb
+      .from("playlists")
+      .select("id, playlist_clips(item_type, match_id, event_id, position)")
+      .eq("user_id", auth.user!.id)
+      .eq("name", name);
+    if (error) throw new Error(`headless: playlist read failed: ${error.message}`);
+    if (!data || data.length === 0) return null;
+    const rows = (data[0].playlist_clips ?? []) as { item_type: string; match_id: string; event_id: number; position: number }[];
+    return rows
+      .filter((r) => r.item_type === "clip")
+      .sort((a, b) => a.position - b.position)
+      .map((r) => ({ matchId: r.match_id, eventId: r.event_id }));
+  }, name);
+}
+
 export default async function globalSetup(): Promise<void> {
   if (!process.env.HEADLESS_DEVICE_ID) {
     throw new Error("headless: set HEADLESS_DEVICE_ID in apps/desktop/.env.headless, one per worktree (docs/headless-ui.md)");

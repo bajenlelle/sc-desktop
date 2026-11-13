@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { periodLabel } from "@scoutable/shared/lib/events";
@@ -7,6 +7,7 @@ import type { GameRow } from "@scoutable/shared/lib/game-list";
 import type { TimedPlay } from "@scoutable/shared/lib/game-timeline";
 import type { Label } from "@scoutable/shared/types/labels";
 import { Button } from "@/components/ui/button";
+import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { riseVariants, useReducedMotionSafe } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { GamePlayRow, type CollectStatus } from "./game-play-row";
@@ -30,12 +31,22 @@ const LOOKAHEAD_PX = 64;
  * list themselves, following stops and a "Jump to now" pill points the way
  * back; it resumes when they press it, when they seek (a row, the timeline,
  * a key: `followSignal` changes), or when they scroll the current row back
- * into view.
+ * into view. A game coming back opens the list where it was left
+ * (`restoreScroll`), and leaving hands its scroll to `onLeave`.
+ *
+ * A play's menu (right-click) is one menu for the whole list, not one per
+ * row: `rowMenu` draws it for the play it opened on, so the memoised rows
+ * don't redraw when the playlists change. Markers and headers have none.
+ *
+ * Plays the coach picks (⌘-click, Shift-click) are `selected`; what can be
+ * done with them floats over the bottom of the list (`selectionBar`), and the
+ * "Jump to now" pill rises above it while it is there.
  */
 export function GamePlayList({
   rows,
   hasPlays,
   activeKey,
+  selected,
   playing,
   flow,
   teams,
@@ -47,17 +58,24 @@ export function GamePlayList({
   renderLabelPicker,
   followSignal,
   reveal,
-  onPlay,
+  restoreScroll,
+  onLeave,
+  onPress,
   onAdd,
   onRemove,
   onLabel,
   onMarker,
   onClearFilters,
+  rowMenu,
+  selectionBar,
+  selecting,
 }: {
   rows: readonly GameRow[];
   /** The game has plays at all (an empty list is then the filters' doing). */
   hasPlays: boolean;
   activeKey: string | null;
+  /** The plays picked into the selection, by key. */
+  selected: ReadonlySet<string>;
   /** Footage is on the stage: the current row is playing, not merely selected. */
   playing: boolean;
   flow: GameFlow;
@@ -72,18 +90,52 @@ export function GamePlayList({
   followSignal: number;
   /** A row to bring to the top of the list: the quarter or the marker a key jumped to. */
   reveal: { key: string; nonce: number } | null;
-  onPlay: (play: TimedPlay) => void;
+  /** Where the list was left on an earlier visit; null opens it following playback. */
+  restoreScroll: { top: number; following: boolean } | null;
+  /** Called once, on the way out, with where the list was. */
+  onLeave: (scroll: { top: number; following: boolean }) => void;
+  /** A click or Return on a row: plain plays it, `toggle` (⌘) and `shift` change the selection. */
+  onPress: (play: TimedPlay, mods: { shift: boolean; toggle: boolean }) => void;
   onAdd: (play: TimedPlay, anchor: HTMLElement) => void;
   onRemove: (play: TimedPlay) => void;
   onLabel: (play: TimedPlay) => void;
   onMarker: (row: Exclude<GameRow, { kind: "play" } | { kind: "period" }>) => void;
   onClearFilters: () => void;
+  /** A play's menu (right-click), as `ContextMenuContent`; `anchor` is its row. Without it, no menu. */
+  rowMenu?: (play: TimedPlay, anchor: HTMLElement) => ReactNode;
+  /** The selection's pill (a `SelectionBar`), over the bottom of the list. */
+  selectionBar: ReactNode;
+  /** Something is selected: the pill is up. */
+  selecting: boolean;
 }) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const [following, setFollowing] = useState(true);
+  const [following, setFollowing] = useState(restoreScroll ? restoreScroll.following : true);
   const [away, setAway] = useState<"up" | "down" | null>(null);
   const ownScrollUntil = useRef(0);
+  /** Where the list was at its last scroll: on the way out the list is already gone from the page. */
+  const lastScroll = useRef(restoreScroll ? { ...restoreScroll } : { top: 0, following: true });
+  const onLeaveRef = useRef(onLeave);
+  onLeaveRef.current = onLeave;
   const reduced = useReducedMotionSafe();
+  /** The play the menu is open on, and its row. */
+  const [menuFor, setMenuFor] = useState<{ play: TimedPlay; anchor: HTMLElement } | null>(null);
+
+  const playByKey = useMemo(() => {
+    const out = new Map<string, TimedPlay>();
+    for (const row of rows) if (row.kind === "play") out.set(row.key, row.play);
+    return out;
+  }, [rows]);
+
+  /** A right-click on a play opens its menu; anywhere else in the list (a marker, a header, empty space) none opens. */
+  function onContextMenu(e: MouseEvent) {
+    const el = (e.target as Element).closest<HTMLElement>("[data-row-key]");
+    const play = el ? playByKey.get(el.dataset.rowKey ?? "") : undefined;
+    if (!el || !play || !rowMenu) {
+      e.preventDefault();
+      return;
+    }
+    setMenuFor({ play, anchor: el });
+  }
 
   const pointBy = useMemo(() => new Map<number, ScorePoint>(flow.points.map((p) => [p.eventId, p])), [flow]);
   const leadChanges = useMemo(() => new Set(flow.leadChanges), [flow]);
@@ -140,10 +192,34 @@ export function GamePlayList({
     else setAway(whereIsActive());
   }, [activeKey, rows, following, bringIntoView, whereIsActive]);
 
-  // A seek from anywhere means "show me that".
+  // A seek from anywhere means "show me that". Only a new one: a list brought back where it was left isn't sent back to now.
+  const seenSignal = useRef(followSignal);
   useEffect(() => {
+    if (followSignal === seenSignal.current) return;
+    seenSignal.current = followSignal;
     setFollowing(true);
   }, [followSignal]);
+
+  // Back where it was left: put there before the first paint, and the scroll that causes isn't the coach's.
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!restoreScroll || restoreScroll.following) return;
+    // Nothing listed (the filters match no play): there is no place to go back to, so the list follows once it has rows.
+    if (!scroller) {
+      setFollowing(true);
+      return;
+    }
+    scroller.scrollTop = restoreScroll.top;
+    ownScrollUntil.current = performance.now() + OWN_SCROLL_GRACE_MS;
+    // Once, on arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    lastScroll.current.following = following;
+  }, [following]);
+
+  useEffect(() => () => onLeaveRef.current({ ...lastScroll.current }), []);
 
   // A jump to a quarter or a marker shows that row, whether or not a play is current there yet.
   useEffect(() => {
@@ -166,6 +242,7 @@ export function GamePlayList({
 
   function onScroll() {
     const now = performance.now();
+    if (scrollerRef.current) lastScroll.current.top = scrollerRef.current.scrollTop;
     if (now < ownScrollUntil.current) {
       // One of the list's own scrolls, still under way: a long one outlasts the first estimate.
       ownScrollUntil.current = Math.max(ownScrollUntil.current, now + OWN_SCROLL_GRACE_MS);
@@ -199,70 +276,86 @@ export function GamePlayList({
   }
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col">
-      <div ref={scrollerRef} role="list" aria-label="Plays" onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto pb-4">
-        {rows.map((row) => {
-          if (row.kind === "play") {
-            const e = row.play.event;
-            const point = pointBy.get(e.eventId);
-            const active = row.key === activeKey;
-            return (
-              <GamePlayRow
-                key={row.key}
-                play={row.play}
-                active={active}
-                playing={active && playing}
-                score={point ? { home: point.home, away: point.away } : null}
-                scored={point?.team ?? null}
-                note={leadChanges.has(e.eventId) ? "Lead change" : ties.has(e.eventId) && point ? `Tied at ${point.home}` : null}
-                labels={labelsByKey.get(row.key) ?? NO_LABELS}
-                collect={statusOf(row.key)}
-                targetName={targetName}
-                labelPicker={labelPickerFor === row.key ? renderLabelPicker(row.play) : null}
-                onPlay={onPlay}
-                onAdd={onAdd}
-                onRemove={onRemove}
-                onLabel={onLabel}
-              />
-            );
-          }
-          if (row.kind === "period") {
-            return (
-              <div
-                key={row.key}
-                data-row-key={row.key}
-                className="sticky top-0 z-20 flex h-7 items-center gap-2 bg-background/90 px-3 text-subheadline backdrop-blur-md"
-              >
-                <span className="font-semibold">{periodLabel(row.period)}</span>
-                {row.score && (
-                  <span className="nums text-muted-foreground">
-                    {row.score.home}–{row.score.away}
-                  </span>
-                )}
-                <span className="ml-auto nums text-muted-foreground">
-                  {row.plays} {row.plays === 1 ? "play" : "plays"}
-                </span>
-              </div>
-            );
-          }
-          return (
-            <button
-              key={row.key}
-              type="button"
-              data-row-key={row.key}
-              onClick={() => onMarker(row)}
-              className={cn(
-                "flex h-7 w-full items-center gap-2 px-3 text-subheadline text-muted-foreground outline-none transition-colors duration-100 hover:bg-fill-1 hover:text-foreground active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection",
-                row.kind === "period_end" && "mt-1 mb-2",
-              )}
-            >
-              <span className="h-px flex-1 bg-separator" aria-hidden />
-              <span className="shrink-0 nums">{markerText(row, teams)}</span>
-              <span className="h-px flex-1 bg-separator" aria-hidden />
-            </button>
-          );
-        })}
-      </div>
+    <div className="@container relative flex min-h-0 flex-1 flex-col">
+      <ContextMenu onOpenChange={(open) => !open && setMenuFor(null)}>
+        <ContextMenuTrigger asChild>
+          <div
+            ref={scrollerRef}
+            role="list"
+            aria-label="Plays"
+            onScroll={onScroll}
+            onContextMenu={onContextMenu}
+            // Room for the selection's pill under the last row, as in the editor.
+            className={cn("min-h-0 flex-1 overflow-y-auto", selecting ? "pb-16" : "pb-4")}
+          >
+            {rows.map((row) => {
+              if (row.kind === "play") {
+                const e = row.play.event;
+                const point = pointBy.get(e.eventId);
+                const active = row.key === activeKey;
+                return (
+                  <GamePlayRow
+                    key={row.key}
+                    play={row.play}
+                    active={active}
+                    selected={selected.has(row.key)}
+                    playing={active && playing}
+                    score={point ? { home: point.home, away: point.away } : null}
+                    scored={point?.team ?? null}
+                    note={leadChanges.has(e.eventId) ? "Lead change" : ties.has(e.eventId) && point ? `Tied at ${point.home}` : null}
+                    labels={labelsByKey.get(row.key) ?? NO_LABELS}
+                    collect={statusOf(row.key)}
+                    targetName={targetName}
+                    menuOpen={menuFor?.play.key === row.key}
+                    labelPicker={labelPickerFor === row.key ? renderLabelPicker(row.play) : null}
+                    onPress={onPress}
+                    onAdd={onAdd}
+                    onRemove={onRemove}
+                    onLabel={onLabel}
+                  />
+                );
+              }
+              if (row.kind === "period") {
+                return (
+                  <div
+                    key={row.key}
+                    data-row-key={row.key}
+                    className="sticky top-0 z-20 flex h-7 items-center gap-2 bg-background/90 px-3 text-subheadline backdrop-blur-md"
+                  >
+                    <span className="font-semibold">{periodLabel(row.period)}</span>
+                    {row.score && (
+                      <span className="nums text-muted-foreground">
+                        {row.score.home}–{row.score.away}
+                      </span>
+                    )}
+                    <span className="ml-auto nums text-muted-foreground">
+                      {row.plays} {row.plays === 1 ? "play" : "plays"}
+                    </span>
+                  </div>
+                );
+              }
+              return (
+                <button
+                  key={row.key}
+                  type="button"
+                  data-row-key={row.key}
+                  onClick={() => onMarker(row)}
+                  className={cn(
+                    "flex h-7 w-full items-center gap-2 px-3 text-subheadline text-muted-foreground outline-none transition-colors duration-100 hover:bg-fill-1 hover:text-foreground active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection",
+                    row.kind === "period_end" && "mt-1 mb-2",
+                  )}
+                >
+                  <span className="h-px flex-1 bg-separator" aria-hidden />
+                  <span className="shrink-0 nums">{markerText(row, teams)}</span>
+                  <span className="h-px flex-1 bg-separator" aria-hidden />
+                </button>
+              );
+            })}
+          </div>
+        </ContextMenuTrigger>
+        {menuFor && rowMenu?.(menuFor.play, menuFor.anchor)}
+      </ContextMenu>
+      {selectionBar}
       <AnimatePresence>
         {!following && away && (
           <motion.div
@@ -271,7 +364,7 @@ export function GamePlayList({
             initial="hidden"
             animate="visible"
             exit="exit"
-            className="pointer-events-none absolute inset-x-0 bottom-3 z-30 flex justify-center"
+            className={cn("pointer-events-none absolute inset-x-0 z-30 flex justify-center", selecting ? "bottom-14" : "bottom-3")}
           >
             <button
               type="button"

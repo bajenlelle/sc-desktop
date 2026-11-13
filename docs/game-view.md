@@ -20,10 +20,41 @@ stretch where a game turned.
   on a play, and every `openQuarters` link lands on Details.
 - **Only one view is mounted.** Details' tip-off picker has a video of its
   own, and two decoders on one file is how paused frames go black. The game is
-  read again each time Game is entered, so a sync changed in Details shows.
-- The view (`components/game/game-watch-view.tsx`) keeps the position per game
-  for the app session (`sessionStorage`, `scoutable_game_position:<id>`), so
-  Details and back resumes where the coach was.
+  read again when Game is entered from Details or from outside (Library, a
+  link), so a sync changed in Details shows; a tab switch serves the copy read
+  on this visit until any `matches-changed`, or for 10 minutes.
+- A game comes back as it was left, for the app session: its position
+  (`sessionStorage`, `scoutable_game_position:<id>`), and its filters, quarter
+  zoom, list scroll and (on a tab switch) view (`lib/game-tabs.ts`), labels and
+  playlists shown at once and read again behind. A link to a play opens without the filters.
+  Not kept: the filter sheet, the selection, and Undo for adds made on an
+  earlier visit. All of it but the position is dropped when the signed-in
+  user changes (sign-out doesn't reload the webview).
+
+### Games in tabs
+
+- **One mounted view, no hidden videos.** A tab is a remembered game, not a
+  page kept alive: switching remounts the page on the other game, so there is
+  still one decoder (`lib/release-video.ts`), and the memory above is what
+  brings it back as it was left.
+- From two open games a tab bar sits under the toolbar, inside its material
+  (`Toolbar`'s `tabBar` row, `components/game/game-tab-strip.tsx`). Six at
+  most: a seventh game closes the tab shown least recently, quietly. New games
+  open on the right; no drag reordering. A tab activates on press, closes with
+  its × (on hover or focus) or a middle click; ⌘W stays Close Window.
+- The tabs are per user and space for the app session (`sessionStorage`,
+  `scoutable_game_tabs:<userId>:<orgId>`; `apps/desktop/src/lib/game-tabs.ts`
+  over the pure `packages/shared/lib/game-tabs.ts`). On any `matches-changed`
+  the store empties its loaded-game cache and reads the open games again:
+  renamed games take their new title, deleted ones and games moved to another
+  space lose their tab (an empty read is taken as a failed one).
+- ⌃Tab and ⌃⇧Tab step through the tabs and wrap (handled in the page, on every
+  layout, not while a dialog is open); the Window menu has Show Next Game Tab
+  (⌘⇧]) and Show Previous Game Tab (⌘⇧[), on only on the game page.
+- A switch replaces the history entry (`replace: true`), as the Game | Details
+  switch does: Back leaves the games. It first leaves the field being typed
+  in, so a Details title saves; and a playlist write still out from the game
+  it leaves lands before the next game reads or writes that playlist.
 
 ## What it reads from the stats (`packages/shared/lib`, pure, tested)
 
@@ -117,7 +148,11 @@ released app lists each row there as a clip.
 ↑ ↓ the previous or next listed play; Page Up and Page Down the previous or
 next marker (quarter start, timeout, run); 1–9 the start of that period; A
 add; G label; ⇧G the same label again; ⌥1–⌥9 the label that has that key
-(held: which key is which label); ⌘F the player search.
+(held: which key is which label); ⌘F the player search. ⌘-click toggles a
+play into the selection and Shift-click selects a range; Shift+↑ ↓ extends it
+and plays there; ⌘A selects every listed play; Esc lets go. The pill over the
+list adds the selection to the target or another playlist; a row's menu acts
+on the selection when that row is in it.
 
 ## Collecting (`use-collect.ts`, `collect-control.tsx`)
 
@@ -129,11 +164,27 @@ add; G label; ⇧G the same label again; ⌥1–⌥9 the label that has that key
   the row's check are `writePlaylistItems`, and only for clips added on this
   visit: a clip that was already in the playlist may carry notes and trims.
   "Add all n" appears only while a filter or a moment is on.
+- **Any playlist, once**: a row's menu (right-click) adds the play to the
+  target or, under "Add to another playlist", to any other playlist or a new
+  one named after the game. The target doesn't change. The menu is one
+  `ContextMenu` around the list (`game-play-menu.tsx`), not one per row, so
+  adding doesn't redraw every row; markers and headers have none.
 - **A playlist players already have**: the add is the same write and nothing
-  is cut or uploaded from here. The control counts this visit's adds as not
-  sent, and "Send n clips…" opens the editor on that playlist with its
-  upload-on-arrival state (`{restore: {playlistId}, reship: true}`). Players'
-  feeds skip clips with no uploaded file, so they see nothing until then.
+  is cut or uploaded from here. The control counts, per shared playlist, the
+  clips players don't have yet: the target's, and any shared playlist holding
+  one of this game's clips without a file (`heldForPlayers` in
+  `packages/shared/lib/playlist-sharing.ts`). It is read from the playlists,
+  so it survives leaving the page. One playlist: "Send n clips…" opens the
+  editor on it with its upload-on-arrival state
+  (`{restore: {playlistId}, reship: true}`). Several: the same button opens a
+  menu of them. The target's "Open playlist" button is shown whenever the
+  target itself holds nothing unsent: with no other playlist holding any it
+  is alone, and with one that does it sits before "Send" (so a target that is
+  unshared, or fully uploaded, stays one click from opening). When the target
+  holds unsent clips, "Send" shows alone, since it opens the target. With no
+  target, only "Send" shows, and only when some playlist holds unsent clips.
+  Players' feeds skip clips with no uploaded file, so they see nothing until
+  then.
 - Labels are independent of collecting: label now, build later through the
   label filter in Add clips.
 
@@ -240,7 +291,7 @@ Analytics events are in `packages/shared/types/analytics.ts` (`game_view_*`,
 
 ## Not built
 
-Multi-select; uploading held clips without opening the editor; "Show in game"
+Uploading held clips without opening the editor; "Show in game"
 from an editor clip (the view already accepts `?play=`); marking in and out
 around a play; substitution rows, lineup tables and a shot chart; the footage
 from a game's cloud copy; free time-range clips with no play (a schema change
