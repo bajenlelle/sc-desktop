@@ -1,9 +1,10 @@
 /**
- * Task 6: a note on a stats card. The inspector's Note field (Return does
- * nothing, a pasted newline becomes a space, 140 at most, "N characters left"
- * from 20), the note drawn under the numbers on the stage (the stage is an
- * <img> painted by the app's card painter; its alt is the card's fallback
- * line), the fallback line saved to text_content, the Vertical (9:16) frame
+ * Task 6: a note on a stats card. The inspector's Note field (Return starts a
+ * new line, a pasted run of newlines collapses to one empty line, 140 at most,
+ * "N characters left" from 20), the note drawn under the numbers on the stage
+ * (the stage is an <img> painted by the app's card painter; its alt is the
+ * card's fallback line, the note's lines joined with " / "), the fallback line
+ * saved to text_content, the Vertical (9:16) frame
  * through the same painter, and the note surviving a change of player and of
  * Game/Season. Creates "headless-<port> card" and deletes it. The numbers come
  * from Genius' hosted pages through the browser's fetch.
@@ -14,8 +15,10 @@ import type { Page } from "@playwright/test";
 import { deletePlaylistsNamed, expect, inScratchPage, newPlaylistWithClips, OUT_DIR, playlistIdNamed, PORT, selectRows, shot, test } from "../helpers";
 
 const NAME = `headless-${PORT} card`;
-/** 106 characters: two or three lines under the numbers (shared card-layout tests). */
-const NOTE = "Great closeouts all game and smart help from the weak side, keep talking on every switch and box out early";
+/** 106 characters, typed with one Return: two or three lines under the numbers (shared card-layout tests). */
+const NOTE = "Great closeouts all game and\nsmart help from the weak side, keep talking on every switch and box out early";
+/** The note as the fallback line carries it: one line, the break as " / ". */
+const NOTE_LINE = NOTE.replace("\n", " / ");
 
 // Genius' hosted pages can be slow on a cold read (the card's numbers, then the season's).
 test.setTimeout(120_000);
@@ -115,22 +118,22 @@ test("a stats card takes a note: inspector, stage, fallback line, cap, and it su
   expect("note" in saved0.card!, "a new card has no note").toBe(false);
   await shot(page, name("card-no-note"));
 
-  // Manual check (1): type the note; Return in the middle adds nothing.
+  // Manual check (1): type the note; Return in the middle starts a new line.
   await note.click();
-  const half = NOTE.indexOf(" smart");
-  await note.pressSequentially(NOTE.slice(0, half));
+  const [first, second] = NOTE.split("\n");
+  await note.pressSequentially(first);
   await note.press("Enter");
-  await note.pressSequentially(NOTE.slice(half));
-  await expect(note, "Return does nothing in the note").toHaveValue(NOTE);
+  await note.pressSequentially(second);
+  await expect(note, "Return starts a new line in the note").toHaveValue(NOTE);
   await expect(page.getByText(/characters? left$/), "no counter while more than 20 remain").toHaveCount(0);
-  await expect(stage, "the stage's card carries the note at the end of its line").toHaveAttribute("alt", `${altBefore} · ${NOTE}`);
+  await expect(stage, "the stage's card carries the note at the end of its line, the break as a slash").toHaveAttribute("alt", `${altBefore} · ${NOTE_LINE}`);
   await expect(stage, "the stage repainted").not.toHaveAttribute("src", srcBefore);
   await expect
     .poll(async () => {
       const row = await savedCard(page, id);
       return [row?.card?.note, row?.text_content];
-    }, { timeout: 10_000, message: "the note and the fallback line are saved" })
-    .toEqual([NOTE, `${saved0.text_content} · ${NOTE}`]);
+    }, { timeout: 10_000, message: "the note keeps its line break and the fallback line joins it with a slash" })
+    .toEqual([NOTE, `${saved0.text_content} · ${NOTE_LINE}`]);
   await shot(page, name("card-note-16x9"));
 
   // Manual check (1), 16:9 and Vertical, through the app's painter: the card's own lines keep their
@@ -159,9 +162,10 @@ test("a stats card takes a note: inspector, stage, fallback line, cap, and it su
     savePng(r.png, name(`painted-${aspect === "16:9" ? "16x9" : "9x16"}`));
   }
 
-  // A pasted newline becomes a space.
-  await note.fill("Box out\nearly");
-  await expect(note).toHaveValue("Box out early");
+  // A pasted run of newlines collapses to one empty line; a trailing Return is typed but not stored.
+  await note.fill("Box out\n\n\n\nearly\n");
+  await expect(note).toHaveValue("Box out\n\nearly\n");
+  await expect.poll(async () => (await savedCard(page, id))?.card?.note, { timeout: 10_000 }).toBe("Box out\n\nearly");
 
   // Manual check (3): the counter from 20 left, and typing stops at 140.
   await note.fill("x".repeat(119));
@@ -178,7 +182,7 @@ test("a stats card takes a note: inspector, stage, fallback line, cap, and it su
 
   // Back to the note, then manual check (2): a new player keeps it.
   await note.fill(NOTE);
-  await expect(stage).toHaveAttribute("alt", new RegExp(` · ${NOTE}$`));
+  await expect(stage).toHaveAttribute("alt", new RegExp(` · ${NOTE_LINE}$`));
   const player = page.getByRole("button", { name: "Player" });
   const firstPlayer = (await player.innerText()).trim();
   await player.click();
@@ -188,7 +192,7 @@ test("a stats card takes a note: inspector, stage, fallback line, cap, and it su
   await expect(player, "the card shows the new player").toContainText(otherName, { timeout: 30_000 });
   await expect(page.getByLabel("Reading the stats")).toHaveCount(0, { timeout: 30_000 });
   await expect(note, "the note stays with a new player").toHaveValue(NOTE);
-  await expect(stage).toHaveAttribute("alt", new RegExp(`^${otherName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.* · ${NOTE}$`));
+  await expect(stage).toHaveAttribute("alt", new RegExp(`^${otherName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.* · ${NOTE_LINE}$`));
   await shot(page, name("other-player"));
 
   // Game: the playlist's clips are from one game, so the Game pop-up has nothing to switch to.
@@ -201,7 +205,7 @@ test("a stats card takes a note: inspector, stage, fallback line, cap, and it su
   await expect(page.getByLabel("Reading the stats")).toHaveCount(0, { timeout: 30_000 });
   await expect(page.getByRole("button", { name: "Season", exact: true }), "the card shows a season").toBeVisible();
   await expect(note, "the note stays on season averages").toHaveValue(NOTE);
-  await expect(stage).toHaveAttribute("alt", new RegExp(` · ${NOTE}$`));
+  await expect(stage).toHaveAttribute("alt", new RegExp(` · ${NOTE_LINE}$`));
   await expect
     .poll(async () => (await savedCard(page, id))?.card?.scope, { timeout: 10_000, message: "the season card is saved" })
     .toBe("season");

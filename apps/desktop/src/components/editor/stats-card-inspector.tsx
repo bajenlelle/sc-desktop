@@ -353,12 +353,18 @@ export function StatsCardInspector({
           maxLength={STATS_CARD_NOTE_MAX}
           placeholder="Add a note to the card"
           value={spec.note ?? ""}
-          // Return does nothing in a one-line note. Stopping it here, rather than rewriting
-          // the value in onChange, keeps the cursor where it is; onChange only flattens pastes.
+          // Return starts a new line; at most one empty line between paragraphs. A third
+          // Return in a row is stopped here, rather than rewritten in onChange, so the
+          // cursor stays where it is; onChange only collapses pastes. The whole note is
+          // trimmed when it is saved, not while it is typed.
           onKeyDown={(e) => {
-            if (e.key === "Enter") e.preventDefault();
+            if (e.key !== "Enter") return;
+            const { value, selectionStart, selectionEnd } = e.currentTarget;
+            const before = value.slice(0, selectionStart).match(/\n*$/)![0].length;
+            const after = value.slice(selectionEnd).match(/^\n*/)![0].length;
+            if (before + after >= 2) e.preventDefault();
           }}
-          onChange={(e) => onChange({ ...spec, note: e.target.value.replace(/\s*\n\s*/g, " ") || null })}
+          onChange={(e) => onChange({ ...spec, note: e.target.value.replace(/\n{3,}/g, "\n\n") || null })}
           className="min-h-0 px-2 py-1"
         />
         {noteLeft <= 20 && (

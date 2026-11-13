@@ -174,6 +174,10 @@ describe("cardContent", () => {
     expect("note" in cardContent(gameCard())).toBe(false);
     expect("note" in cardContent(gameCard({ note: "   " }))).toBe(false);
   });
+
+  it("keeps the note's line breaks", () => {
+    expect(cardContent(gameCard({ note: "Box out early\nTalk on every switch\n" })).note).toBe("Box out early\nTalk on every switch");
+  });
 });
 
 describe("fallbackText", () => {
@@ -187,6 +191,12 @@ describe("fallbackText", () => {
   it("ends with the note", () => {
     expect(fallbackText(gameCard({ note: "Watch the closeouts" }))).toBe(
       "Alva Berg · 24 PTS · 10 REB · 5 AST · 9/14 FG · vs AIK · Watch the closeouts",
+    );
+  });
+
+  it("joins a note's lines with a slash, so the fallback stays one line", () => {
+    expect(fallbackText(gameCard({ note: "Box out early\n\nTalk on every switch" }))).toBe(
+      "Alva Berg · 24 PTS · 10 REB · 5 AST · 9/14 FG · vs AIK · Box out early / Talk on every switch",
     );
   });
 });
@@ -219,6 +229,11 @@ describe("parseCardSpec", () => {
     expect(parseCardSpec(JSON.parse(JSON.stringify(card)))).toEqual(card);
     expect(parseCardSpec({ ...gameCard(), note: "x".repeat(200) })?.note).toHaveLength(140);
     expect("note" in parseCardSpec({ ...gameCard(), note: 5 })!).toBe(false);
+  });
+
+  it("keeps a note's line breaks, still cut to the cap", () => {
+    expect(parseCardSpec({ ...gameCard(), note: "Box out\nearly" })?.note).toBe("Box out\nearly");
+    expect(parseCardSpec({ ...gameCard(), note: `${"x".repeat(139)}\nyy` })?.note).toBe(`${"x".repeat(139)}\n`);
   });
 });
 

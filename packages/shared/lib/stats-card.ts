@@ -62,7 +62,7 @@ interface StatsCardBase {
   /** Overrides; null means automatic, so a new player or game rewrites them. */
   heading: string | null;
   details: string | null;
-  /** The coach's own words under the numbers; null or absent means none. */
+  /** The coach's own words under the numbers, with their line breaks; null or absent means none. */
   note?: string | null;
   /** When the numbers were read (ISO). */
   asOf: string;
@@ -322,12 +322,16 @@ export function cardContent(card: StatsCardSpec): CardContent {
   };
 }
 
-/** One readable line for apps that don't draw specs: "Alva Berg · 24 PTS · 8 REB · vs AIK". */
+/**
+ * One readable line for apps that don't draw specs: "Alva Berg · 24 PTS · 8 REB · vs AIK".
+ * The note's lines are joined with " / " so the line stays one line.
+ */
 export function fallbackText(card: StatsCardSpec): string {
   const content = cardContent(card);
   const stats = content.cells.map((c) => `${c.value} ${c.label}`);
   const where = card.scope === "game" ? opponentLabel(card.game) : `season averages, ${card.season.label}`;
-  return [content.heading, ...stats, where, ...(content.note ? [content.note] : [])].join(" · ");
+  const note = content.note?.split("\n").map((line) => line.trim()).filter(Boolean).join(" / ");
+  return [content.heading, ...stats, where, ...(note ? [note] : [])].join(" · ");
 }
 
 // ---------------------------------------------------------------------------

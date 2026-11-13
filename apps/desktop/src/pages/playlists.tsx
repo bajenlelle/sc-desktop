@@ -5042,7 +5042,9 @@ export function PlaylistsPage() {
     updateTextCard(selected.id, id, { durationSeconds }).catch(() => {});
   }
 
-  // Stats card edits show at once and save after a pause in the typing.
+  // Stats card edits show at once and save after a pause in the typing. The note is
+  // stored trimmed (its line breaks kept) while the editor keeps what was typed, so a
+  // Return at the end opens a line to type on without being stored.
   const statsSaveTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   function handleStatsCardChange(id: string, spec: StatsCardSpec) {
     const pl = selectedRef.current;
@@ -5059,7 +5061,8 @@ export function PlaylistsPage() {
     clearTimeout(timers.get(id));
     timers.set(id, setTimeout(() => {
       timers.delete(id);
-      updateTextCard(pl.id, id, { card: spec, text }).catch(() => toast.error("Couldn't save the stats card. Try again."));
+      const card: StatsCardSpec = { ...spec, note: spec.note?.trim() || null };
+      updateTextCard(pl.id, id, { card, text }).catch(() => toast.error("Couldn't save the stats card. Try again."));
     }, 400));
   }
 

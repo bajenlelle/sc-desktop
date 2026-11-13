@@ -128,6 +128,49 @@ describe("layoutStatsCard", () => {
     const runs = layoutStatsCard({ ...content(3), note: "x".repeat(140) }, "16:9", measure);
     inFrame("16:9", runs);
   });
+
+  it("keeps a note's own line breaks: two lines on two baselines, in both aspects", () => {
+    for (const aspect of ["16:9", "9:16"] as const) {
+      const runs = layoutStatsCard({ ...content(6), note: "Box out early\nTalk on every switch" }, aspect, measure);
+      const note = runs.slice(3 + 12);
+      expect(note.map((r) => r.text)).toEqual(["Box out early", "Talk on every switch"]);
+      expect(note[1].y).toBeGreaterThan(note[0].y);
+      expect(note[0].px).toBe(note[1].px);
+      inFrame(aspect, runs);
+    }
+  });
+
+  it("wraps each line of a note on its own", () => {
+    const runs = layoutStatsCard({ ...content(6), note: `${NOTE}\nBox out early` }, "16:9", measure);
+    const note = runs.slice(3 + 12);
+    const px = note[0].px;
+    expect(note.map((r) => r.text)).toEqual([...wrapWords(NOTE, (l) => measure(l, px, "regular"), 1280 - 2 * 96), "Box out early"]);
+    expect(note).toHaveLength(3);
+  });
+
+  it("keeps one empty line between two paragraphs, as a gap and not a run", () => {
+    const runs = layoutStatsCard({ ...content(6), note: "Box out early\n\n\nTalk on every switch" }, "16:9", measure);
+    const note = runs.slice(3 + 12);
+    expect(note.map((r) => r.text)).toEqual(["Box out early", "Talk on every switch"]);
+    expect(note[1].y - note[0].y).toBe(2 * Math.round(note[0].px * 1.3));
+  });
+
+  it("never ends a cut note on a bare ellipsis line", () => {
+    const runs = layoutStatsCard({ ...content(6), note: `${NOTE}\n\nBox out early` }, "16:9", measure);
+    const note = runs.slice(3 + 12);
+    expect(note).toHaveLength(2);
+    expect(note[1].text.endsWith("…")).toBe(true);
+    expect(note[1].text.length).toBeGreaterThan(1);
+  });
+
+  it("shows the first lines and an ellipsis when a note has more line breaks than fit", () => {
+    for (const aspect of ["16:9", "9:16"] as const) {
+      const runs = layoutStatsCard({ ...content(6), note: "One\nTwo\nThree\nFour\nFive" }, aspect, measure);
+      const note = runs.slice(3 + 12);
+      expect(note.map((r) => r.text)).toEqual(["One", "Two", "Three…"]);
+      inFrame(aspect, runs);
+    }
+  });
 });
 
 describe("layoutTextCard", () => {
