@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Trash2, ChevronRight, VideoOff } from "lucide-react";
+import { Archive, ArchiveRestore, Trash2, ChevronRight, VideoOff } from "lucide-react";
 import { DeleteMatchDialog } from "@/components/delete-match-dialog";
 import type { VideoFileStatus } from "@/lib/video-probe";
 import type { StoredMatch } from "@/types/match";
@@ -13,10 +13,13 @@ import { formatDate } from "@/lib/format-date";
 export function MatchRow({
   match,
   onDelete,
+  onArchive,
   videoStatus,
 }: {
   match: StoredMatch;
   onDelete?: () => void;
+  /** Library only: archive, or bring back an archived game. */
+  onArchive?: (archived: boolean) => void;
   /** From probeMatches — undefined while probing (no badge until known). */
   videoStatus?: VideoFileStatus;
 }) {
@@ -66,6 +69,21 @@ export function MatchRow({
           <span className="size-1.5 rounded-full bg-emerald-500" />
           Synced
         </span>
+      )}
+
+      {/* Archive — hover-reveal, stops navigation */}
+      {onArchive && (
+        <div onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+          <button
+            type="button"
+            className="flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-[opacity,background-color,color] duration-100 group-hover:opacity-100 hover:bg-fill-2 hover:text-foreground focus-visible:opacity-100 active:scale-95"
+            title={match.archivedAt ? "Bring back to Library" : "Archive game"}
+            aria-label={match.archivedAt ? "Bring back to Library" : "Archive game"}
+            onClick={() => onArchive(!match.archivedAt)}
+          >
+            {match.archivedAt ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />}
+          </button>
+        </div>
       )}
 
       {/* Delete — hover-reveal, stops navigation */}

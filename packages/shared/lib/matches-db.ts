@@ -37,6 +37,8 @@ interface MatchRow {
   source_game_id?: string | null;
   /** Absent on a database the game_marks migration hasn't reached. */
   game_marks?: unknown;
+  /** Absent on a database the archive migration hasn't reached. */
+  archived_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -112,6 +114,7 @@ function rowToStoredMatch(row: MatchRow, events: EventRow[]): StoredMatch {
     isDemo: row.is_demo ?? false,
     sourceGameId: row.source_game_id ?? undefined,
     gameMarks: row.game_marks ? normalizeGameMarks(row.game_marks) : undefined,
+    archivedAt: row.archived_at ?? undefined,
     events: events.map(rowToEvent),
   };
 }
@@ -572,6 +575,31 @@ export async function deleteMatch(supabase: SupabaseClient, matchId: string): Pr
   await supabase.from("play_by_play_events").delete().eq("match_id", matchId);
   const { error } = await supabase.from("matches").delete().eq("id", matchId);
   if (error) throw new Error(`Failed to delete match: ${error.message}`);
+}
+
+// ---------------------------------------------------------------------------
+// Archive a match (hidden from the desktop's Library, Home and Add clips)
+// ---------------------------------------------------------------------------
+
+/** Archives the game (`archived: true`) or brings it back; returns the `archived_at` the database stored. */
+export async function setMatchArchived(
+  supabase: SupabaseClient,
+  matchId: string,
+  archived: boolean,
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("matches")
+    .update({ archived_at: archived ? new Date().toISOString() : null })
+    .eq("id", matchId)
+    .select("archived_at");
+  if (error) throw new Error(`Failed to change the game's archive state: ${error.message}`);
+  // Zero rows means RLS filtered the update away (not this user's game, or a
+  // stale id): without this check the game would look archived until the next
+  // load, as with updateVideoUrl.
+  if (!data || data.length === 0) {
+    throw new Error("The game wasn't changed — it may belong to another account.");
+  }
+  return (data[0] as { archived_at: string | null }).archived_at;
 }
 
 // ---------------------------------------------------------------------------

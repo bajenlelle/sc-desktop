@@ -76,6 +76,11 @@ function SkeletonRows({ count }: { count: number }) {
 }
 
 const RECENT_MATCH_COUNT = 3;
+/**
+ * Home's recent imports: the latest games, archived ones left out. The load
+ * fetches events for exactly these and the list shows them, so both use this.
+ */
+const recentImports = (ms: readonly StoredMatch[]) => ms.filter((m) => !m.archivedAt).slice(0, RECENT_MATCH_COUNT);
 const PLAYLIST_TILE_COUNT = 6;
 
 function CoachHomePage() {
@@ -116,13 +121,16 @@ function CoachHomePage() {
         listFolders(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }).catch(() => [] as PlaylistFolder[]),
       ]);
       if (cancelled) return;
-      const recent = ms.slice(0, RECENT_MATCH_COUNT);
+      // Archived games stay in `matches` (onboarding still counts them) but
+      // are not "recent imports": events load for the games shown, by id.
+      const recent = recentImports(ms);
+      const recentIds = new Set(recent.map((m) => m.id));
       const events = await listEventsForMatches(recent.map((m) => m.id)).catch(
         () => ({}) as Record<string, never[]>
       );
       if (cancelled) return;
       setMatches(
-        ms.map((m, i) => (i < RECENT_MATCH_COUNT ? { ...m, events: events[m.id] ?? [] } : m))
+        ms.map((m) => (recentIds.has(m.id) ? { ...m, events: events[m.id] ?? [] } : m))
       );
       setPlaylists(own.playlists);
       setShared(own.shared);
@@ -215,7 +223,7 @@ function CoachHomePage() {
     }
   }
 
-  const recentMatches = matches.slice(0, RECENT_MATCH_COUNT);
+  const recentMatches = recentImports(matches);
   const recentPlaylists = playlists.slice(0, PLAYLIST_TILE_COUNT);
   const noGames = !loading && matches.length === 0;
   const noPlaylists = !loading && playlists.length === 0;
@@ -350,6 +358,10 @@ function CoachHomePage() {
                     </Button>
                   }
                 />
+              </GroupedList>
+            ) : recentMatches.length === 0 ? (
+              <GroupedList>
+                <EmptyState title="Every game is archived" body="Your archived games are in the Library." />
               </GroupedList>
             ) : (
               <GroupedList>

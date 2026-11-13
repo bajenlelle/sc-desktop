@@ -66,6 +66,13 @@ export const deleteMatch = async (matchId: string) => {
   await db.deleteMatch(c(), matchId);
   window.dispatchEvent(new CustomEvent("matches-changed"));
 };
+// Announced so open pages (Library, Home, Add clips) move the game in or out of
+// their lists. Returns the stored archived_at (null = back in the library).
+export const setMatchArchived = async (matchId: string, archived: boolean) => {
+  const archivedAt = await db.setMatchArchived(c(), matchId, archived);
+  window.dispatchEvent(new CustomEvent("matches-changed"));
+  return archivedAt;
+};
 export const listFolders = (orgId?: string, opts?: { includeUnscoped?: boolean }) => db.listFolders(c(), orgId, opts);
 export const createFolder = (name: string, parentId?: string, orgId?: string) => db.createFolder(c(), name, parentId, orgId);
 export const updateFolder = (id: string, patch: { name?: string; sortOrder?: number; parentId?: string | null }) => db.updateFolder(c(), id, patch);

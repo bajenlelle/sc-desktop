@@ -57,6 +57,7 @@ import { generateScoutingReport, type GenerateOutcome } from "@/lib/scouting-rep
 import { getMyScoutingReport, type MyScoutingReport } from "@/lib/scouting-reports-db";
 import { isLiveReport, sharedStatusLabel } from "@scoutable/shared/lib/scouting-reports-db";
 import { defaultOpponent, type ReportDraft } from "@scoutable/shared/lib/report-draft";
+import { addClipsGames } from "@scoutable/shared/lib/archived-games";
 import { dropFuture, emptyHistory, itemsDiff, materialize, pasteIndexAfter, pasteItems, recordEdit, takeRedo, takeUndo, type History, type ItemsEdit } from "@scoutable/shared/lib/playlist-history";
 import { failedSidebarStep, nextHistoryStep, recordSidebarEdit, takeSidebarStep, type SidebarEdit } from "@scoutable/shared/lib/sidebar-history";
 import { cardInsertKey, groupItems, insertBefore, newTextCard, ungroupItems, type CardPlace } from "@scoutable/shared/lib/playlist-edits";
@@ -1215,6 +1216,20 @@ export function PlaylistsPage() {
   );
   const matchLookupRef = useRef(matchLookup);
   useEffect(() => { matchLookupRef.current = matchLookup; }, [matchLookup]);
+
+  // The games the open playlist holds clips from, as a stable string: every
+  // clip add replaces `selected`, the set of games rarely changes.
+  const playlistGameIdsKey = useMemo(
+    () => (selected ? [...new Set(selected.items.filter(isClipItem).map((c) => c.matchId))].sort().join(",") : ""),
+    [selected],
+  );
+  // Add clips leaves archived games out, except the one a "Build a playlist"
+  // came from and the open playlist's own (addClipsGames has the rule).
+  const addClipsMatches = useMemo(
+    (): StoredMatch[] =>
+      addClipsGames(matches, addClipsFrom, new Set(playlistGameIdsKey ? playlistGameIdsKey.split(",") : [])),
+    [matches, addClipsFrom, playlistGameIdsKey],
+  );
 
   /**
    * Event lookup by `matchId:eventId`, built once per matches change.
@@ -6381,7 +6396,7 @@ export function PlaylistsPage() {
           >
             <SheetContent onInteractOutside={(e) => e.preventDefault()}>
               <ClipBrowserPanel
-                matches={matches}
+                matches={addClipsMatches}
                 matchLookup={matchLookup}
                 playlist={selected}
                 preferredMatchId={addClipsFrom}
