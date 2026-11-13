@@ -395,6 +395,8 @@ html[data-window-inactive="true"] {
 .import-guide-rail {
   position: absolute;
   z-index: 2;
+  /* The page's space-y gives every child but the last a bottom margin, which would lift the rail's foot. */
+  margin: 0;
   top: 100%;
   right: 0;
   left: 0;
@@ -446,10 +448,40 @@ html[data-window-inactive="true"] {
   width: 12.25rem;
   padding: 2.25rem 0 0 1rem;
 }
-/* The tip-off's bubble starts level with the picker, past the chosen file's
-   row (step label, card padding, file row, separator: about 9rem). */
+/* The tip-off's bubble sits at the foot of the card, level with the button it
+   says to press: its bottom on the button's (the card's own 1rem of padding
+   below it), held to the bottom of the view while the card runs on below. */
 .import-guide-root[data-guide-side="margin"][data-guide-step="tipoff"] .import-guide-rail[data-tall] {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding-top: 0;
+  padding-bottom: 1rem;
+}
+.import-guide-root[data-guide-side="margin"][data-guide-step="tipoff"] .import-guide-rail[data-tall] .import-guide-bubble {
+  top: auto;
+  bottom: 1rem;
+}
+.import-guide-root[data-guide-side="margin"][data-guide-step="tipoff"] .import-guide-rail[data-tall] .import-guide-bubble::before {
+  top: auto;
+  bottom: 0.8125rem;
+}
+
+/* A suggested tip-off: its Use button is at the top of the picker, past the
+   chosen file's row (step label, card padding, file row, separator: about
+   9rem), so the bubble goes up there with it. */
+.import-guide-root[data-guide-side="margin"][data-guide-step="tipoff"]:has([data-tour="tipoff-use"]) .import-guide-rail[data-tall] {
+  justify-content: flex-start;
   padding-top: 9.25rem;
+  padding-bottom: 0;
+}
+.import-guide-root[data-guide-side="margin"][data-guide-step="tipoff"]:has([data-tour="tipoff-use"]) .import-guide-rail[data-tall] .import-guide-bubble {
+  top: calc(var(--toolbar-height) + 0.75rem);
+  bottom: auto;
+}
+.import-guide-root[data-guide-side="margin"][data-guide-step="tipoff"]:has([data-tour="tipoff-use"]) .import-guide-rail[data-tall] .import-guide-bubble::before {
+  top: 1rem;
+  bottom: auto;
 }
 .import-guide-root[data-guide-side="margin"] .import-guide-rail[data-tall] .import-guide-bubble {
   position: sticky;
