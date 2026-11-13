@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, MoreHorizontal } from "lucide-react";
 import { hasActiveFilters, type ClipFilters } from "@scoutable/shared/lib/clip-filters";
-import { sameFilters, type FilterPreset } from "@scoutable/shared/lib/filter-presets";
+import { presetFilters, sameFilters, type FilterPreset } from "@scoutable/shared/lib/filter-presets";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -24,7 +24,9 @@ function TakenMessage({ name }: { name: string }) {
 /**
  * The coach's saved filters, in Add clips and the game view's filter sheet:
  * pressing one applies it, and the current filters are saved under a name.
- * The trigger names the preset the filters on screen match. Laid out like
+ * A preset keeps plays, shot types, situations and labels, never the team or
+ * players (lib/filter-presets.ts): the trigger names the preset those four
+ * groups match, whatever team or player is chosen. Laid out like
  * the label picker (LabelPickerPopover): rows, a "…" menu on hover with
  * Rename and Delete, rename in place. Deleting is immediate with Undo (the
  * hook's toast); a name already taken is refused here, inline.
@@ -58,7 +60,8 @@ export function FilterPresetsMenu({
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   const matching = presets.find((p) => sameFilters(p.filters, current)) ?? null;
-  const canSave = hasActiveFilters(current);
+  // Nothing to save when only a team or players are chosen: a preset keeps neither.
+  const canSave = hasActiveFilters(presetFilters(current));
 
   useEffect(() => {
     if (!open) {
@@ -249,7 +252,7 @@ export function FilterPresetsMenu({
           <button
             type="button"
             disabled={!canSave}
-            title={canSave ? undefined : "Choose some filters first"}
+            title={canSave ? undefined : "Presets keep plays, shot types, situations and labels. Choose some first."}
             onClick={() => {
               setRenameId(null);
               setTaken(null);

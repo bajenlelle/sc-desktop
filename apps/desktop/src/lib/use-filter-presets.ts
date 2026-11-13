@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { ClipFilters } from "@scoutable/shared/lib/clip-filters";
-import type { FilterPreset } from "@scoutable/shared/lib/filter-presets";
+import { PRESET_GROUPS, presetFilters, type FilterPreset } from "@scoutable/shared/lib/filter-presets";
 import { trackEvent } from "@/lib/analytics";
 import {
   createFilterPreset,
@@ -16,28 +16,17 @@ const byName = (a: FilterPreset, b: FilterPreset) => a.name.localeCompare(b.name
 /** The unique index compares lower(name); so does the check made here before writing. */
 const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
-/** How many filter groups hold a value. */
+/** How many of the preset's groups hold a value. */
 function groupCount(f: ClipFilters): number {
-  return [f.types, f.shotTypes, f.situations, f.teams, f.players, f.labels ?? new Set()].filter((g) => g.size > 0).length;
-}
-
-/**
- * Whether fitting a preset to what is on screen emptied a group it holds: a
- * "Player X" preset applied to games without X would otherwise quietly mean
- * every player. `kept` is how many of each group's values were kept.
- */
-export function presetDropsGroup(preset: ClipFilters, kept: { teams: number; players: number; labels: number }): boolean {
-  return (
-    (preset.teams.size > 0 && kept.teams === 0) ||
-    (preset.players.size > 0 && kept.players === 0) ||
-    ((preset.labels?.size ?? 0) > 0 && kept.labels === 0)
-  );
+  return PRESET_GROUPS.filter((g) => (f[g]?.size ?? 0) > 0).length;
 }
 
 /**
  * The coach's filter presets in one space (filter_presets), read when the
  * space changes and written through at once: a failed write is taken back and
  * said. A name already in the list is refused before anything is written.
+ * `save` keeps the preset groups of the filters it is given (plays, shot
+ * types, situations, labels), never the team or players.
  */
 export function useFilterPresets(orgId: string | null, surface: FilterPresetSurface) {
   const [presets, setPresets] = useState<FilterPreset[]>([]);
@@ -70,10 +59,11 @@ export function useFilterPresets(orgId: string | null, surface: FilterPresetSurf
 
   /** Saves into `org`, the space the coach was in when they asked (Undo's may be another than the one on screen now). */
   const saveIn = useCallback(
-    async (org: string | null, name: string, filters: ClipFilters): Promise<"ok" | "duplicate_name"> => {
+    async (org: string | null, name: string, current: ClipFilters): Promise<"ok" | "duplicate_name"> => {
       const trimmed = name.trim();
       if (!org || !trimmed) return "ok";
       if (orgRef.current === org && presetsRef.current.some((p) => sameName(p.name, trimmed))) return "duplicate_name";
+      const filters = presetFilters(current);
       const pendingId = `pending:${crypto.randomUUID()}`;
       const pending: FilterPreset = { id: pendingId, name: trimmed, filters, createdAt: new Date().toISOString() };
       update(org, (prev) => [...prev, pending].sort(byName));

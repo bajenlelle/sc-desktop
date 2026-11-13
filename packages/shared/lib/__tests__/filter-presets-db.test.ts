@@ -28,14 +28,15 @@ function client(result: Result) {
 const row = (over: Record<string, unknown> = {}) => ({
   id: "p1",
   name: "Guard offence",
-  filters: { v: 1, types: ["2pt-made"], shotTypes: [], situations: [], teams: [], players: ["id:8"], labels: [] },
+  // A row from before presets dropped teams and players (2026-11-13) may still carry them.
+  filters: { v: 1, types: ["2pt-made"], shotTypes: [], situations: [], teams: ["AIK"], players: ["id:8"], labels: ["l1"] },
   created_at: "2026-11-12T00:00:00Z",
   ...over,
 });
 
 const guard: ClipFilters = {
   types: new Set(["3pt-miss", "2pt-made", "3pt-made", "2pt-miss"]),
-  shotTypes: new Set(), situations: new Set(), teams: new Set(), players: new Set(), labels: new Set(),
+  shotTypes: new Set(), situations: new Set(), teams: new Set(["AIK"]), players: new Set(["id:8"]), labels: new Set(),
 };
 
 describe("listFilterPresets", () => {
@@ -48,7 +49,9 @@ describe("listFilterPresets", () => {
     expect(presets[0].name).toBe("Guard offence");
     expect(presets[0].createdAt).toBe("2026-11-12T00:00:00Z");
     expect([...presets[0].filters.types]).toEqual(["2pt-made"]);
-    expect([...presets[0].filters.players]).toEqual(["id:8"]);
+    expect([...(presets[0].filters.labels ?? [])]).toEqual(["l1"]);
+    expect(presets[0].filters.teams.size, "an old row's teams are ignored").toBe(0);
+    expect(presets[0].filters.players.size, "an old row's players are ignored").toBe(0);
   });
 
   it("skips a row whose filters it can't read", async () => {
@@ -65,14 +68,14 @@ describe("listFilterPresets", () => {
 });
 
 describe("createFilterPreset", () => {
-  it("saves under the user with the serialised filters and a trimmed name", async () => {
+  it("saves under the user with the serialised preset groups (never the team or players) and a trimmed name", async () => {
     const { client: c, inserts } = client({ data: row(), error: null });
     await createFilterPreset(c, "o", "  Guard offence ", guard);
     expect(inserts).toEqual([{
       user_id: "u",
       org_id: "o",
       name: "Guard offence",
-      filters: { v: 1, types: ["2pt-made", "2pt-miss", "3pt-made", "3pt-miss"], shotTypes: [], situations: [], teams: [], players: [], labels: [] },
+      filters: { v: 1, types: ["2pt-made", "2pt-miss", "3pt-made", "3pt-miss"], shotTypes: [], situations: [], labels: [] },
     }]);
   });
 });

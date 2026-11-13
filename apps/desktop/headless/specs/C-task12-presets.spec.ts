@@ -2,10 +2,12 @@
  * Group C, Task 12: saved filter presets in Add clips and in the game view's
  * filter sheet. Save names the trigger, apply ticks the chips again, a taken
  * name is refused inline, delete says so with Undo and Undo brings it back;
- * the same preset applies in the game view, a preset saved there with a team
- * and a player picks that player in Add clips (by person id), and a preset
- * applied while the plays are still loading keeps its team and player once
- * they land.
+ * the same preset applies in the game view. A preset keeps plays, shot types,
+ * situations and labels, never the team or players: one saved with a player
+ * chosen applies without touching the player chosen at the time, in the game
+ * view and in Add clips, and one applied while the plays are still loading
+ * applies at once and leaves the chosen team and player alone, before and
+ * after they land.
  *
  * Needs the staging test account's games "BC Luleå vs Köping Stars" and
  * "Södertälje BBK vs Köping Stars". The account has one space, so the
@@ -41,7 +43,7 @@ const LULEA = "BC Luleå vs Köping Stars";
 const SODERTALJE = "Södertälje BBK vs Köping Stars";
 const KOPING = "Köping Stars";
 const GUARD_TYPES = ["2PT made", "2PT miss", "3PT made", "3PT miss"];
-const DOESNT_APPLY = /Some of this preset doesn't apply/;
+const LABELS_GONE = /This preset's labels no longer exist/;
 
 test.afterEach(async ({ page }) => {
   await deleteOwnRowsNamed(page, "filter_presets", PREFIX);
@@ -80,7 +82,7 @@ async function pressedChips(group: Locator): Promise<string[]> {
   return (await group.getByRole("button", { pressed: true }).allInnerTexts()).map((t) => t.trim()).sort();
 }
 
-test("presets save, apply, refuse a taken name, delete with Undo, and travel between the game view and Add clips", async ({ page, browserName }) => {
+test("presets save, apply, refuse a taken name, delete with Undo, travel to the game view, and leave the chosen player alone", async ({ page, browserName }) => {
   test.setTimeout(150_000);
   const name = (step: string) => `${browserName}-C-task12-${step}`;
   await deleteOwnRowsNamed(page, "filter_presets", PREFIX);
@@ -176,42 +178,73 @@ test("presets save, apply, refuse a taken name, delete with Undo, and travel bet
   await expect(filterSheet.getByRole("button", { name: GUARD, exact: true })).toBeVisible();
   await shot(page, name("game-view-applied"));
 
-  // Save one there with a team and a player.
+  // Save one there with a team and a player chosen: "FT made" alone becomes the preset.
   await filterSheet.getByRole("button", { name: "Clear these filters" }).click();
   await page.keyboard.press("Escape");
   await expect(filterSheet).toBeHidden();
-  await page.getByRole("radiogroup", { name: "Team" }).getByRole("radio", { name: KOPING }).click();
+  const koping = page.getByRole("radiogroup", { name: "Team" }).getByRole("radio", { name: KOPING });
+  await koping.click();
+  await expect(koping).toBeChecked();
   await page.getByRole("button", { name: /^Filters/ }).click();
   await expect(filterSheet).toBeVisible();
   const squad = filterSheet.locator("section").filter({ has: page.getByRole("heading", { name: KOPING, exact: true }) });
-  const chip = squad.getByRole("button").first();
-  const number = (await chip.locator("span.nums").innerText()).replace("#", "").trim();
-  const playerName = (await chip.innerText()).replace(/^#\d+\s*/, "").trim();
-  await chip.click();
-  await expect(chip).toHaveAttribute("aria-pressed", "true");
+  const first = squad.getByRole("button").nth(0);
+  const second = squad.getByRole("button").nth(1);
+  await first.click();
+  await expect(first).toHaveAttribute("aria-pressed", "true");
+  await plays.getByRole("button", { name: "FT made", exact: true }).click();
   menu = await openPresets(page, filterSheet);
   await savePreset(page, menu, PLAYER);
   await page.keyboard.press("Escape");
   await expect(menu).toBeHidden();
   await expect(filterSheet.getByRole("button", { name: PLAYER, exact: true }), "the sheet's trigger names it").toBeVisible();
   await shot(page, name("game-view-saved"));
-  await page.keyboard.press("Escape");
-  const playerLabel = number ? `#${number} ${playerName}` : playerName;
 
-  // Back in Add clips: the same team and player (matched by person id).
+  // Another player: the trigger still names it (a player isn't part of a preset). FT made off, then
+  // the preset applied: FT made is back, the player and team chosen in the meantime stay.
+  await first.click();
+  await second.click();
+  await expect(second).toHaveAttribute("aria-pressed", "true");
+  await expect(first).toHaveAttribute("aria-pressed", "false");
+  await expect(filterSheet.getByRole("button", { name: PLAYER, exact: true }), "a change of player keeps the preset's name on the trigger").toBeVisible();
+  await plays.getByRole("button", { name: "FT made", exact: true }).click();
+  await expect(filterSheet.getByRole("button", { name: "Presets", exact: true })).toBeVisible();
+  menu = await openPresets(page, filterSheet);
+  await menu.getByRole("button", { name: PLAYER, exact: true }).click();
+  await expect(menu).toBeHidden();
+  await expect.poll(() => pressedChips(plays), { message: "the preset ticks FT made again" }).toEqual(["FT made"]);
+  await expect(second, "the player chosen in the meantime stays").toHaveAttribute("aria-pressed", "true");
+  await expect(first, "the player chosen when the preset was saved isn't brought back").toHaveAttribute("aria-pressed", "false");
+  await expect(koping, "the team stays").toBeChecked();
+  await expect(page.getByText(LABELS_GONE)).toHaveCount(0);
+  await shot(page, name("game-view-player-kept"));
+  await page.keyboard.press("Escape");
+  await expect(filterSheet).toBeHidden();
+
+  // Back in Add clips with a team and a player chosen: the preset ticks FT made and leaves them alone.
   sheet = await openAddClips(page, playlistId);
   await waitForPlays(sheet);
+  await sheet.getByRole("button", { name: "Team", exact: true }).click();
+  await page.getByRole("menuitemcheckbox", { name: KOPING, exact: true }).click();
+  await page.keyboard.press("Escape");
+  await sheet.getByRole("button", { name: "Player", exact: true }).click();
+  const playerLabel = (await page.getByRole("menuitemcheckbox").first().innerText()).trim();
+  await page.getByRole("menuitemcheckbox").first().click();
+  await page.keyboard.press("Escape");
+  await expect(sheet.getByRole("button", { name: playerLabel, exact: true })).toBeVisible();
   menu = await openPresets(page, sheet);
   await menu.getByRole("button", { name: PLAYER, exact: true }).click();
   await expect(menu).toBeHidden();
-  await expect(sheet.getByRole("button", { name: KOPING, exact: true }), "the preset's team").toBeVisible();
-  await expect(sheet.getByRole("button", { name: playerLabel, exact: true }), "the preset's player, by person id").toBeVisible();
-  await expect(page.getByText(DOESNT_APPLY)).toHaveCount(0);
-  await shot(page, name("add-clips-player"));
+  await expect.poll(() => pressedChips(chips), { message: "the preset ticks FT made in Add clips" }).toEqual(["FT made"]);
+  await expect(sheet.getByRole("button", { name: KOPING, exact: true }), "the chosen team stays").toBeVisible();
+  await expect(sheet.getByRole("button", { name: playerLabel, exact: true }), "the chosen player stays").toBeVisible();
+  await expect(sheet.getByRole("button", { name: PLAYER, exact: true }), "the trigger names the preset with a team and a player chosen").toBeVisible();
+  await expect(page.getByText(LABELS_GONE)).toHaveCount(0);
+  await shot(page, name("add-clips-player-kept"));
 
 });
 
-test("a preset applied while the plays load keeps its team and player once they land", async ({ page, browserName }) => {
+test("a preset applied while the plays load applies at once and leaves the chosen team and player alone, before and after they land", async ({ page, browserName }) => {
   const name = (step: string) => `${browserName}-C-task12-${step}`;
   await deleteOwnRowsNamed(page, "filter_presets", PREFIX);
   await deleteOwnRowsNamed(page, "playlists", PLAYLIST);
@@ -222,39 +255,38 @@ test("a preset applied while the plays load keeps its team and player once they 
   expect(luleaId, "the Library links the Luleå game").not.toBe("");
   const playlistId = await createPlaylist(page, PLAYLIST);
 
-  // A preset with a team and a player only the Luleå game has.
+  // "2PT made" saved as a preset, with a team and a player chosen at the time (a preset keeps neither).
   const sheet = await openAddClips(page, playlistId);
   await pickOnlyGame(page, sheet, LULEA);
+  const chips = sheet.getByRole("group", { name: "Event type" });
   await sheet.getByRole("button", { name: "Team", exact: true }).click();
   await page.getByRole("menuitemcheckbox", { name: KOPING, exact: true }).click();
   await page.keyboard.press("Escape");
   await sheet.getByRole("button", { name: "Player", exact: true }).click();
-  const playerLabel = (await page.getByRole("menuitemcheckbox").first().innerText()).trim();
-  const playerName = playerLabel.replace(/^#\d+ /, "");
   await page.getByRole("menuitemcheckbox").first().click();
   await page.keyboard.press("Escape");
-  await expect(sheet.getByRole("button", { name: playerLabel, exact: true })).toBeVisible();
+  await chips.getByRole("button", { name: "2PT made", exact: true }).click();
   let menu = await openPresets(page, sheet);
   await savePreset(page, menu, PENDING);
   await page.keyboard.press("Escape");
   await expect.poll(() => ownRowNames(page, "filter_presets", PENDING)).toEqual([PENDING]);
 
-  // Two games: Luleå and Södertälje (the player isn't in Södertälje's).
+  // Two games: Luleå and Södertälje.
   await gameTrigger(sheet).click();
   await page.getByRole("combobox", { name: "Search games or teams" }).fill("");
   await page.locator(`input[type="checkbox"][aria-label="Include ${SODERTALJE}"]`).click();
   await page.keyboard.press("Escape");
   await expect(gameTrigger(sheet)).toHaveText("2 games");
   await waitForPlays(sheet);
-  // A fresh page, with Luleå's plays held back: apply the preset before they land.
-  // Luleå's plays are held back (the player is only in that game); Södertälje's come at once, so the sheet
-  // already lists some plays and "Loading clips…" doesn't show. Fitting the preset now would drop the player.
+  // A fresh page, with Luleå's plays held back. Södertälje's come at once, so the sheet already lists
+  // some plays, the remembered team (Köping, in both games) comes back, and a Köping player can be
+  // chosen from them, all while Luleå's are still on their way.
   let held = 0;
   let released = 0;
   const lulea = (url: URL) => url.href.includes("play_by_play_events") && url.href.includes(luleaId);
   await page.route(lulea, async (route) => {
     held += 1;
-    await new Promise((resolve) => setTimeout(resolve, 6_000));
+    await new Promise((resolve) => setTimeout(resolve, 10_000));
     released += 1;
     await route.continue().catch(() => {});
   });
@@ -267,21 +299,38 @@ test("a preset applied while the plays load keeps its team and player once they 
   await expect(sheet).toBeVisible();
   await expect(gameTrigger(sheet)).toHaveText("2 games");
   await expect.poll(() => held, { message: "the sheet asks for Luleå's plays" }).toBeGreaterThan(0);
+  await expect(sheet.getByRole("button", { name: KOPING, exact: true }), "the team remembered with the games is back").toBeVisible();
+  await sheet.getByRole("button", { name: "Player", exact: true }).click();
+  const playerLabel = (await page.getByRole("menuitemcheckbox").first().innerText()).trim();
+  const playerName = playerLabel.replace(/^#\d+ /, "");
+  await page.getByRole("menuitemcheckbox").first().click();
+  await page.keyboard.press("Escape");
+  await expect(sheet.getByRole("button", { name: playerLabel, exact: true })).toBeVisible();
+  expect(released, "Luleå's plays are still held back").toBe(0);
+
+  // The preset goes in before Luleå's plays land: it applies at once, nothing of it waits for them.
   menu = await openPresets(page, sheet);
   await menu.getByRole("button", { name: PENDING, exact: true }).click();
   await expect(menu).toBeHidden();
-  const fittedEarly = await page.getByText(DOESNT_APPLY).waitFor({ timeout: 1_500 }).then(() => true, () => false);
+  await expect.poll(() => pressedChips(chips), { message: "the preset ticks 2PT made at once" }).toEqual(["2PT made"]);
   expect(released, "the preset went in while Luleå's plays were still held back").toBe(0);
-  expect(fittedEarly, "the preset waits for Luleå's plays instead of being fitted to Södertälje's alone").toBe(false);
+  await expect(sheet.getByRole("button", { name: KOPING, exact: true }), "the team chosen before stays").toBeVisible();
+  await expect(sheet.getByRole("button", { name: playerLabel, exact: true }), "the player chosen before stays").toBeVisible();
+  await expect(sheet.getByRole("button", { name: PENDING, exact: true }), "the trigger names the preset").toBeVisible();
   await shot(page, name("pending"));
-  await expect.poll(() => released, { message: "Luleå's plays are let through", timeout: 20_000 }).toBeGreaterThan(0);
-  await waitForPlays(sheet);
+
+  // Luleå's plays land: the team, the player and the preset's chip all survive, and nothing is said.
+  await expect.poll(() => released, { message: "Luleå's plays are let through", timeout: 25_000 }).toBeGreaterThan(0);
+  await waitForQuiet(page);
   await page.unroute(lulea);
+  await expect(sheet.getByText("Loading clips…")).toBeHidden();
   await expect(sheet.getByRole("button", { name: KOPING, exact: true }), "the team survives the plays landing").toBeVisible();
   await expect(sheet.getByRole("button", { name: playerLabel, exact: true }), "the player survives the plays landing").toBeVisible();
-  await expect(page.getByText(DOESNT_APPLY), "no \"doesn't apply\" toast").toHaveCount(0);
+  expect(await pressedChips(chips), "the preset's chip survives the plays landing").toEqual(["2PT made"]);
+  await expect(page.getByText(LABELS_GONE), "no \"labels no longer exist\" toast").toHaveCount(0);
+  // The player may have few or no 2PT made; whatever is listed is theirs.
   const names = await sheet.getByRole("grid", { name: "Events" }).getByRole("row").evaluateAll((rows) => rows.map((r) => r.querySelector("span.truncate.text-sm")?.textContent ?? ""));
-  expect(new Set(names), `only ${playerName}'s plays`).toEqual(new Set([playerName]));
-  console.log(`${browserName} C-task12: ${playerLabel} has ${await eventCount(sheet)} plays in the two games`);
+  expect([...new Set(names)].filter((n) => n !== playerName), `only ${playerName}'s plays`).toEqual([]);
+  console.log(`${browserName} C-task12: ${playerLabel} has ${await eventCount(sheet)} 2PT made in the two games`);
   await shot(page, name("pending-landed"));
 });
