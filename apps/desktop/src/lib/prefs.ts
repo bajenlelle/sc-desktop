@@ -91,12 +91,12 @@ export function setSyncTipSeen(userId: string | undefined): void {
 }
 
 /**
- * Where the Add clips sheet was last left for a playlist: the game and the
+ * Where the Add clips sheet was last left for a playlist: the games and the
  * teams picked in it, so the next round starts there. This computer only;
- * a missing or unreadable value is null.
+ * a missing or unreadable value is null. An older build wrote one `gameId`.
  */
 export interface AddClipsScope {
-  gameId: string;
+  gameIds: string[];
   teams: string[];
 }
 
@@ -106,9 +106,11 @@ export function getAddClipsScope(playlistId: string): AddClipsScope | null {
   try {
     const raw = JSON.parse(localStorage.getItem(addClipsScopeKey(playlistId)) ?? "null") as unknown;
     if (typeof raw !== "object" || raw === null) return null;
-    const { gameId, teams } = raw as Record<string, unknown>;
-    if (typeof gameId !== "string") return null;
-    return { gameId, teams: Array.isArray(teams) ? teams.filter((t): t is string => typeof t === "string") : [] };
+    const { gameIds, gameId, teams } = raw as Record<string, unknown>;
+    const ids = Array.isArray(gameIds) ? gameIds.filter((g): g is string => typeof g === "string") : [];
+    if (ids.length === 0 && typeof gameId === "string") ids.push(gameId);
+    if (ids.length === 0) return null;
+    return { gameIds: ids, teams: Array.isArray(teams) ? teams.filter((t): t is string => typeof t === "string") : [] };
   } catch {
     return null;
   }
@@ -116,7 +118,8 @@ export function getAddClipsScope(playlistId: string): AddClipsScope | null {
 
 export function setAddClipsScope(playlistId: string, scope: AddClipsScope): void {
   try {
-    localStorage.setItem(addClipsScopeKey(playlistId), JSON.stringify(scope));
+    // `gameId` too, so a build still on the old shape starts on the first game.
+    localStorage.setItem(addClipsScopeKey(playlistId), JSON.stringify({ gameIds: scope.gameIds, gameId: scope.gameIds[0], teams: scope.teams }));
   } catch {
     // Storage is full or off: the sheet starts by its other rules next time.
   }

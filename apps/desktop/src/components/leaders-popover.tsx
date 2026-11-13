@@ -26,7 +26,7 @@ export function LeadersPopover({
   /** Events already narrowed by the browser's Game + Team filters. */
   events: PlayByPlayEvent[];
   /** The Player filter's current selection (display-name strings). */
-  selectedPlayers: Set<string>;
+  selectedPlayers: ReadonlySet<string>;
   onTogglePlayer: (name: string) => void;
 }) {
   const [metric, setMetric] = useState<LeaderMetric>("points");

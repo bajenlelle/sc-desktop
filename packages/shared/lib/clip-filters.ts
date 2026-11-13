@@ -221,3 +221,78 @@ export function toggleFilter(f: ClipFilters, group: keyof ClipFilters, value: st
   else next.add(value);
   return { ...f, [group]: next };
 }
+
+/**
+ * A player across games: "id:<personId>", the person id the play's provider
+ * gives (Genius, or Profixio: its importer sets `playerId` to the Profixio
+ * `personId`, so both providers' ids share this namespace); else
+ * "name:<playerName>" for a play with no positive id; null for a play without
+ * a player.
+ */
+export function playerKey(e: PlayByPlayEvent): string | null {
+  if (!e.player) return null;
+  const name = playerName(e);
+  if (!name || name === "—") return null;
+  const id = e.player.playerId;
+  return Number.isFinite(id) && id > 0 ? `id:${id}` : `name:${name}`;
+}
+
+export interface PlayerOption {
+  key: string;
+  name: string;
+  /** The shirt number as the feed gives it; null when no play of the player carries one (0 counts as none). */
+  number: string | null;
+}
+
+export interface PlayerGroup {
+  /** The team as the feed names it; "" for players on plays without a team (listed last). */
+  teamName: string;
+  players: PlayerOption[];
+}
+
+/**
+ * The players in the events, grouped by team in order of first appearance
+ * (the group of plays without a team last). A player is listed once per team,
+ * with the first shirt number on record; within a team the numbered players
+ * come first, by number, then those without one, each by name.
+ */
+export function playersByTeam(events: readonly PlayByPlayEvent[]): PlayerGroup[] {
+  const groups = new Map<string, Map<string, PlayerOption>>();
+  for (const e of events) {
+    const key = playerKey(e);
+    if (!key || !e.player) continue;
+    const teamName = e.eventTeam?.teamName ?? "";
+    let group = groups.get(teamName);
+    if (!group) {
+      group = new Map();
+      groups.set(teamName, group);
+    }
+    const number = e.player.pno > 0 ? String(e.player.pno) : null;
+    const seen = group.get(key);
+    if (!seen) group.set(key, { key, name: playerName(e), number });
+    else if (seen.number === null) seen.number = number;
+  }
+  const byNumberThenName = (a: PlayerOption, b: PlayerOption): number => {
+    if (a.number !== null && b.number !== null && Number(a.number) !== Number(b.number)) return Number(a.number) - Number(b.number);
+    if ((a.number === null) !== (b.number === null)) return a.number === null ? 1 : -1;
+    return a.name.localeCompare(b.name, "sv");
+  };
+  const out: PlayerGroup[] = [];
+  for (const [teamName, group] of groups) out.push({ teamName, players: [...group.values()].sort(byNumberThenName) });
+  return [...out.filter((g) => g.teamName !== ""), ...out.filter((g) => g.teamName === "")];
+}
+
+/** matchesClipFilters, reading `players` as playerKey()s instead of names. */
+export function matchesClipFiltersByKey(e: PlayByPlayEvent, f: ClipFilters): boolean {
+  return matchesClipFilters(e, { ...f, players: new Set() }) && (f.players.size === 0 || f.players.has(playerKey(e) ?? ""));
+}
+
+/** applyClipFilters, reading `players` as playerKey()s. */
+export function applyClipFiltersByKey<T extends { event: PlayByPlayEvent }>(
+  entries: readonly T[],
+  f: ClipFilters,
+  labelsOf?: (entry: T) => ReadonlySet<string> | undefined,
+): T[] {
+  if (!hasActiveFilters(f)) return [...entries];
+  return entries.filter((x) => matchesClipFiltersByKey(x.event, f) && matchesLabelFilter(labelsOf?.(x), f.labels));
+}

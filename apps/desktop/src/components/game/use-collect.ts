@@ -256,7 +256,7 @@ export function useCollect({
             });
           }
           // The editor's Add clips starts on this game next time.
-          setAddClipsScope(playlist.id, { gameId: match.id, teams: [] });
+          setAddClipsScope(playlist.id, { gameIds: [match.id], teams: [] });
         } catch (e) {
           if (!gone) Sentry.captureException(e);
           const failed = new Set(keys);

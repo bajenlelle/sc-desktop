@@ -316,7 +316,7 @@ export function PlaylistsPage() {
   // covers only the games playlists reference; the clip browser can display
   // any game, so it asks for the rest on demand via ensureEventsFor.
   const loadedEventMatchIdsRef = useRef<Set<string>>(new Set());
-  const eventFetchInFlightRef = useRef<Set<string>>(new Set());
+  const eventFetchInFlightRef = useRef<Map<string, Promise<void>>>(new Map());
   // The same bookkeeping for the games whose labels are loaded (ensureLabelsFor).
   const loadedLabelMatchIdsRef = useRef<Set<string>>(new Set());
   const labelFetchInFlightRef = useRef<Set<string>>(new Set());
@@ -911,26 +911,36 @@ export function PlaylistsPage() {
    *
    * The mount load covers only games a playlist references, so the clip
    * browser calls this for whichever game it is about to show. Already-loaded
-   * and in-flight ids are skipped, making repeat opens and re-renders free.
+   * ids are skipped, making repeat opens and re-renders free; an id already
+   * being fetched is waited for, so the promise resolves only once every
+   * asked game's plays are in `matches` (the clip browser treats it so).
    * Existing events are preserved — only the newly fetched matches change.
    */
   const ensureEventsFor = useCallback(async (matchIds: string[]) => {
-    const wanted = matchIds.filter(
-      (id) => id && !loadedEventMatchIdsRef.current.has(id) && !eventFetchInFlightRef.current.has(id),
-    );
-    if (wanted.length === 0) return;
-    for (const id of wanted) eventFetchInFlightRef.current.add(id);
-    try {
-      const eventsByMatch = await listEventsForMatches(wanted);
-      for (const id of wanted) loadedEventMatchIdsRef.current.add(id);
-      setMatches((prev) =>
-        prev.map((m) => (eventsByMatch[m.id] ? { ...m, events: eventsByMatch[m.id] } : m)),
-      );
-    } catch (e) {
-      console.error("ensureEventsFor:", e);
-    } finally {
-      for (const id of wanted) eventFetchInFlightRef.current.delete(id);
+    const inFlight = eventFetchInFlightRef.current;
+    const notLoaded = [...new Set(matchIds)].filter((id) => id && !loadedEventMatchIdsRef.current.has(id));
+    const waits = notLoaded.flatMap((id) => inFlight.get(id) ?? []);
+    const wanted = notLoaded.filter((id) => !inFlight.has(id));
+    if (wanted.length > 0) {
+      // Started a tick later, so the ids are in the map before any outcome
+      // (even a synchronous throw) takes them out again; a failure leaves the
+      // map, so the next ask fetches the game afresh. Never rejects.
+      const fetching = Promise.resolve()
+        .then(() => listEventsForMatches(wanted))
+        .then((eventsByMatch) => {
+          for (const id of wanted) loadedEventMatchIdsRef.current.add(id);
+          setMatches((prev) =>
+            prev.map((m) => (eventsByMatch[m.id] ? { ...m, events: eventsByMatch[m.id] } : m)),
+          );
+        })
+        .catch((e) => console.error("ensureEventsFor:", e))
+        .finally(() => {
+          for (const id of wanted) inFlight.delete(id);
+        });
+      for (const id of wanted) inFlight.set(id, fetching);
+      waits.push(fetching);
     }
+    await Promise.all(waits);
   }, []);
 
   /**

@@ -138,8 +138,11 @@ released app lists each row there as a clip.
   virtualised (as Add clips). The current row follows playback until the coach
   scrolls; "Jump to now", any seek, or scrolling back resumes it.
 - `game-now-bar.tsx`: the play on screen in words, with Label (G) and Add (A).
-- `game-filters.tsx`: team, moments, and the filter sheet (search, event and
-  shot types, situations, players, quarters, labels, on court).
+- `game-filters.tsx`: team, moments, and the filter sheet (presets, search,
+  event and shot types, situations, players, quarters, labels, on court).
+  Presets are saved per account and space (`filter_presets`,
+  `lib/filter-presets.ts`) and shared with Add clips; a preset keeps players
+  by Genius person id.
 - Reused as they are: `usePersistentVideo`, `PlayerStage`, `useFrameSeek`,
   `LabelPickerPopover`, the key scope (`game`) and `resolvePlayerKey`.
   `lib/use-clip-labels.ts` gives the view the labels of one game.

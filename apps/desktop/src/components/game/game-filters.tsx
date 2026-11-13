@@ -110,6 +110,7 @@ export function GameFilterBar({
   searchRef,
   sheetOpen,
   onSheetOpenChange,
+  presetsMenu,
 }: {
   filters: GameFilters;
   onChange: (next: GameFilters) => void;
@@ -131,6 +132,8 @@ export function GameFilterBar({
   searchRef: React.Ref<HTMLInputElement>;
   sheetOpen: boolean;
   onSheetOpenChange: (open: boolean) => void;
+  /** The saved filters (FilterPresetsMenu), first in the sheet. */
+  presetsMenu?: React.ReactNode;
 }) {
   const sheetCount = gameFilterCount(filters) + (filters.search.trim() ? 1 : 0);
   const setClip = (clip: ClipFilters) => onChange({ ...filters, clip });
@@ -174,6 +177,7 @@ export function GameFilterBar({
             </button>
           </PopoverTrigger>
           <PopoverContent align="end" className="flex max-h-[min(70vh,34rem)] w-80 flex-col gap-3 overflow-y-auto p-3">
+            {presetsMenu}
             <SearchField
               ref={searchRef}
               placeholder="Player name or number"

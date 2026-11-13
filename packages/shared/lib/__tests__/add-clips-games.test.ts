@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { IN_PLAYLIST_MAX, gameGroups, orderForAdd, startGame, type BrowserGame } from "../add-clips-games";
+import {
+  IN_PLAYLIST_MAX,
+  MAX_BROWSER_GAMES,
+  gameGroups,
+  latestGames,
+  orderForAdd,
+  playerTeam,
+  startGame,
+  startGames,
+  teamGames,
+  toggleGame,
+  type BrowserGame,
+} from "../add-clips-games";
 import type { PlayByPlayEvent, PlaylistItem } from "../../types/match";
 
 function game(id: string, date: string, home: string, away: string, eventIds: number[] = []): BrowserGame {
@@ -91,5 +103,53 @@ describe("orderForAdd", () => {
 
   it("drops what isn't a play of a listed game", () => {
     expect(orderForAdd(["aik:9", "gone:1", "nonsense", "ume:6"], matches)).toEqual([{ type: "clip", matchId: "ume", eventId: 6 }]);
+  });
+});
+
+describe("startGames", () => {
+  it("starts on every remembered game that still exists, in the remembered order", () => {
+    expect(startGames(matches, [], ["ume", "gone", "aik"])).toEqual({ ids: ["ume", "aik"], source: "remembered" });
+  });
+  it("starts on the game the coach came from alone", () => {
+    expect(startGames(matches, [], ["ume"], "bor")).toEqual({ ids: ["bor"], source: "preferred" });
+  });
+  it("falls back to startGame's rules when none is left", () => {
+    expect(startGames(matches, [clip("ume", 5)], ["gone"])).toEqual({ ids: ["ume"], source: "most_clips" });
+    expect(startGames([], [], [])).toEqual({ ids: [], source: "newest" });
+  });
+});
+
+describe("toggleGame", () => {
+  it("adds and removes a game", () => {
+    expect(toggleGame(["sod"], "aik")).toEqual(["sod", "aik"]);
+    expect(toggleGame(["sod", "aik"], "sod")).toEqual(["aik"]);
+  });
+  it("never leaves no game, and stops at the cap", () => {
+    expect(toggleGame(["sod"], "sod")).toEqual(["sod"]);
+    const ten = Array.from({ length: MAX_BROWSER_GAMES }, (_, i) => `g${i}`);
+    expect(toggleGame(ten, "one-more")).toEqual(ten);
+  });
+});
+
+describe("latestGames and teamGames", () => {
+  it("lists the latest games played, latest first", () => {
+    expect(latestGames(matches)).toEqual(["sod", "bor", "aik", "ume"]);
+    expect(latestGames(matches, 2)).toEqual(["sod", "bor"]);
+  });
+  it("lists a team's latest games, home or away, case and accents aside", () => {
+    const more = [...matches, game("aik2", "2026-10-25", "Fryshuset", "AIK")];
+    expect(teamGames(more, "aik")).toEqual(["aik2", "aik"]);
+    expect(teamGames(more, "djurgarden")).toEqual(["aik"]);
+    expect(teamGames(more, "Nobody")).toEqual([]);
+  });
+});
+
+describe("playerTeam", () => {
+  it("names the player's team in their latest game, from the game row", () => {
+    const play = (playerId: number, teamNumber: number) => ({ eventId: 1, player: { playerId, pno: 8, firstName: "Al", familyName: "Ek", teamNumber } }) as PlayByPlayEvent;
+    const a = { ...game("a", "2026-10-01", "AIK", "Fryshuset"), events: [play(8, 2)] };
+    const b = { ...game("b", "2026-10-08", "Fryshuset", "Umeå"), events: [play(8, 1)] };
+    expect(playerTeam([a, b], "id:8")).toBe("Fryshuset");
+    expect(playerTeam([a, b], "id:99")).toBeNull();
   });
 });
