@@ -627,13 +627,20 @@ export function UploadZone({
     }
   }
 
+  /** The tip-off belongs to the recording: another file, or none, starts without it. */
+  function changeVideo(next: string | null) {
+    if (next === videoPath) return;
+    setVideoPath(next);
+    setSyncSeconds(null);
+  }
+
   async function handlePickVideo() {
     const result = await open({
       multiple: false,
       filters: [{ name: "Video", extensions: ["mp4", "mov", "avi", "mkv", "webm", "m4v"] }],
     });
     if (typeof result === "string") {
-      setVideoPath(result);
+      changeVideo(result);
     }
   }
 
@@ -1234,7 +1241,7 @@ export function UploadZone({
                     size="icon-sm"
                     aria-label="Remove video"
                     title="Remove video"
-                    onClick={() => setVideoPath(null)}
+                    onClick={() => changeVideo(null)}
                   >
                     <X />
                   </Button>

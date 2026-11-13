@@ -85,6 +85,19 @@ async function expectBubbleBesideLitArea(page: Page, area: Locator) {
     .toBe("apart");
 }
 
+/** In the margin, the tip-off's bubble sits level with the button it tells the coach to press. */
+async function expectBubbleLevelWith(page: Page, button: Locator) {
+  await expect
+    .poll(async () => {
+      const b = await bubble(page).boundingBox();
+      const target = await button.boundingBox();
+      if (!b || !target) return "missing";
+      const middle = target.y + target.height / 2;
+      return b.y <= middle && middle <= b.y + b.height ? "level" : "apart";
+    })
+    .toBe("level");
+}
+
 /** Picks the first game of the list under All games (the account may or may not have a team). */
 async function pickFirstGame(page: Page) {
   const allGames = page.getByRole("tab", { name: "All games" });
@@ -149,6 +162,7 @@ test("the guide follows a first import step by step", async ({ page, browserName
   await expect(setTipoff).toHaveCSS("outline-style", "solid");
   await expect(setTipoff, "the page scrolls the ringed button into view").toBeInViewport({ ratio: 1 });
   await expectBubbleBesideLitArea(page, video);
+  await expectBubbleLevelWith(page, setTipoff);
   await shotLightAndDark(page, name("3-tipoff"));
 
   // The two-minute fixture is far shorter than a game, so the page asks for
@@ -175,6 +189,29 @@ test("the guide follows a first import step by step", async ({ page, browserName
   await expect(guide(page)).not.toHaveAttribute("data-guide-step", /.+/);
   await expect(showGuide(page)).toBeVisible();
   await expect(page.getByText("Ready to import.")).toBeVisible();
+});
+
+test("another video starts without the old one's tip-off", async ({ page }) => {
+  await pretendImportCount(page, 3);
+  await openImport(page);
+  await showGuide(page).click();
+  await pickFirstGame(page);
+  await page.locator('[data-tour="video-pick"]').click();
+  const setTipoff = page.locator('[data-tour="tipoff-set"]');
+  await expect(setTipoff).toBeEnabled({ timeout: 30_000 });
+  await setTipoff.click();
+  await page.locator("#breaks-cut").click();
+  await expect(page.getByText("Ready to import.")).toBeVisible();
+  await expectStep(page, "import", 4, "Import the game");
+
+  // The video is taken away and chosen again (the mock's dialog has one file):
+  // the tip-off went with it, so the page and the guide ask for it again.
+  await page.getByRole("button", { name: "Remove video" }).click();
+  await expectStep(page, "video", 2, "Choose the recording");
+  await page.locator('[data-tour="video-pick"]').click();
+  await expectStep(page, "tipoff", 3, "Set the tip-off");
+  await expect(page.getByText("Set the tip-off to continue.")).toBeVisible();
+  await expect(page.locator('[data-tour="submit-button"]')).toBeDisabled();
 });
 
 test("it starts by itself for a coach with no imports, and Skip guide is for good", async ({ page }) => {
