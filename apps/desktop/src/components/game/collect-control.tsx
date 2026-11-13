@@ -17,16 +17,15 @@ import type { Collect } from "./use-collect";
  * playlist…" until it is, then "Adding to" with its name and its count. The
  * list puts the playlists that already hold this game's clips first, and its
  * search field doubles as the name of a new one (the mechanics of the
- * editor's "Add to another playlist"). Beside it, the way to the playlist:
- * "Open playlist" for the target, unless the target itself holds clips players
- * don't have yet, and "Send n clips…" while any shared playlist holding this
- * game's plays has such clips; with several such playlists, that button opens
- * a menu of them. When the target holds none of its own but another playlist
- * does, both show, "Open playlist" first. When the target holds some, "Send"
- * shows alone (it opens the target, among others in the menu).
+ * editor's "Add to another playlist"). Beside it, "Open playlist" opens the
+ * target in the editor (with the way back here), and "Send n clips" cuts and
+ * uploads, without leaving the game, the clips players don't have yet, while
+ * any shared playlist holding this game's plays has such clips; with several
+ * such playlists, that button opens a menu of them. While a send runs, the
+ * button shows it and takes no second press.
  */
 export function CollectControl({ collect, highlight }: { collect: Collect; highlight?: boolean }) {
-  const { target, candidates, loading, pickerOpen, pickerAnchor, setPickerOpen, held } = collect;
+  const { target, candidates, loading, pickerOpen, pickerAnchor, setPickerOpen, held, sending } = collect;
   // Asked for by a row's plus or the Now bar's Add, the picker grows from that control, not from here.
   const anchorRef = React.useMemo(() => ({ current: pickerAnchor }), [pickerAnchor]);
   const [search, setSearch] = React.useState("");
@@ -55,8 +54,7 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
   }
 
   const clipCount = target ? target.items.filter((i) => i.type === "clip").length : 0;
-  // The target is first in `held` when it holds clips players lack; then Send opens it and stands alone.
-  const targetHeld = !!target && held.some((h) => h.playlist.id === target.id);
+  const heldTotal = held.reduce((sum, h) => sum + h.count, 0);
 
   return (
     <>
@@ -149,17 +147,22 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
           )}
         </PopoverContent>
       </Popover>
-      {target && !targetHeld && (
+      {target && (
         <Button size="sm" variant="outline" onClick={collect.openTarget}>
           Open playlist
         </Button>
       )}
-      {held.length === 0 ? null : held.length === 1 ? (
+      {held.length === 0 ? null : sending ? (
+        <Button size="sm" disabled aria-label={`Sending clips to ${held.find((h) => h.playlist.id === sending)?.playlist.name ?? "the playlist"}`}>
+          <Loader2 className="animate-spin" />
+          Sending…
+        </Button>
+      ) : held.length === 1 ? (
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button size="sm" onClick={() => collect.openPlaylist(held[0].playlist.id)}>
+            <Button size="sm" onClick={() => void collect.send(held[0].playlist.id)}>
               <Send />
-              Send {held[0].count} {held[0].count === 1 ? "clip" : "clips"}…
+              Send {held[0].count} {held[0].count === 1 ? "clip" : "clips"}
             </Button>
           </TooltipTrigger>
           <TooltipContent>{heldTooltip(held[0].playlist.name, held[0].count)}</TooltipContent>
@@ -169,14 +172,14 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
           <DropdownMenuTrigger asChild>
             <Button size="sm">
               <Send />
-              Send {held.reduce((sum, h) => sum + h.count, 0)} clips…
+              Send {heldTotal} clips
               <ChevronDown />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-64">
-            <DropdownMenuLabel>Not uploaded yet</DropdownMenuLabel>
+            <DropdownMenuLabel>Not sent yet</DropdownMenuLabel>
             {held.map(({ playlist, count }) => (
-              <DropdownMenuItem key={playlist.id} onSelect={() => collect.openPlaylist(playlist.id)}>
+              <DropdownMenuItem key={playlist.id} onSelect={() => void collect.send(playlist.id)}>
                 <span className="min-w-0 flex-1 truncate">{playlist.name}</span>
                 <span className="shrink-0 text-xs nums text-muted-foreground">{count}</span>
               </DropdownMenuItem>
@@ -189,7 +192,7 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
 }
 
 function heldTooltip(name: string, n: number): string {
-  return `Players have ${name}. ${n === 1 ? "1 clip isn't" : `${n} clips aren't`} uploaded yet: open it to send ${n === 1 ? "it" : "them"}.`;
+  return `Players have ${name}. ${n === 1 ? "1 clip isn't" : `${n} clips aren't`} sent yet: this cuts and uploads ${n === 1 ? "it" : "them"} from here.`;
 }
 
 function PlaylistOption({ playlist, selected, onChoose }: { playlist: Playlist; selected: boolean; onChoose: () => void }) {

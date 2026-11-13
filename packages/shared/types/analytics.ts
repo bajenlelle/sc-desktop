@@ -102,7 +102,7 @@ export type AnalyticsEvent =
   | "game_tab_closed" // via (button | middle_click), tabs (how many are left)
   | "collect_target_set" // source (existing | new), shared, via (toolbar | row | now_bar | bulk | menu | selection)
   | "collect_undone" // via (toast | row), clips
-  | "collect_sent" // clips, target (it was the "Adding to" playlist): "Send N clips…" opened a shared playlist to upload what was held
+  | "collect_sent" // clips, target (it was the "Adding to" playlist), in_place (true: cut and uploaded from the game view; absent: opened the editor to upload what was held)
   | "game_marks_filled" // outcome (filled | unsaved | failed | skipped), timeouts, error
   // Distribution & virality
   | "video_exported"

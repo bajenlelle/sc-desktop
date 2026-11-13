@@ -71,7 +71,7 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { probeMatches, probeVideoDuration, type VideoFileStatus } from "@/lib/video-probe";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { cn } from "@/lib/utils";
-import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, appendClips, writePlaylistItems, changeClipLength, type ClipLengthResult, updateClip, clearShippedClip, updateTextCard, setPlaylistRecipients, notifyPendingPlaylistShares } from "@/lib/playlists-db";
+import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, appendClips, writePlaylistItems, changeClipLength, type ClipLengthResult, updateClip, clearShippedClip, updateTextCard, setPlaylistRecipients } from "@/lib/playlists-db";
 import { newRecipients, playlistIsShared } from "@scoutable/shared/lib/playlist-sharing";
 import { groupShipFailures, mergeShipResults, type ClipShipResult } from "@scoutable/shared/lib/ship-result";
 import { listLabels, createLabel as apiCreateLabel, updateLabel as apiUpdateLabel, deleteLabel as apiDeleteLabel, seedDefaultLabels, listAssignmentsForMatches, setClipAssignments as apiSetClipAssignments, bulkAssign as apiBulkAssign, setLabelHotkey as apiSetLabelHotkey } from "@/lib/labels-db";
@@ -144,6 +144,7 @@ import { isExportCancelled, type ExportProgress } from "@scoutable/shared/lib/ex
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { getExportWatermarkDisabled, getSyncTipSeen, setHasExported, setSyncTipSeen } from "@/lib/prefs";
 import { clipAndShip } from "@/lib/clip-and-ship";
+import { buildShipSegments, DEFAULT_POST_ROLL, DEFAULT_PRE_ROLL, demoShipBlockReason, shipPlaylistClips } from "@/lib/ship-clips";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { Playlist, PlaylistFolder, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 import { isClipItem } from "@/types/match";
@@ -327,8 +328,8 @@ export function PlaylistsPage() {
   const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
   const [activeEventId, setActiveEventId] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [preRoll, setPreRoll] = useState(10);
-  const [postRoll, setPostRoll] = useState(3);
+  const [preRoll, setPreRoll] = useState(DEFAULT_PRE_ROLL);
+  const [postRoll, setPostRoll] = useState(DEFAULT_POST_ROLL);
   const [folders, setFolders] = useState<PlaylistFolder[]>([]);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => {
     const saved = sessionStorage.getItem("expandedFolders");
@@ -3393,55 +3394,11 @@ export function PlaylistsPage() {
   // Clip & Ship
   // ---------------------------------------------------------------------------
 
-  /** Segments for shipping/exporting the given playlist's clips. */
   /** Arm a deferred ship for a shared playlist; the watcher effect picks it up. */
   function queuePendingShip(pl: Playlist) {
     if (!playlistIsShared(pl)) return;
     pendingShipRef.current.add(pl.id);
     setShipNonce((n) => n + 1); // ref writes don't re-render — wake the watcher
-  }
-
-  // Built from pl.items (not the selected playlist's queue) so a deferred
-  // ship stays correct when the coach has switched focus to another playlist.
-  // Upload order doesn't matter, so no sort is applied.
-  // Shipped clips stay plain cuts: the players draw the note, the drawings and
-  // the slow motion themselves, so editing them never needs a re-upload.
-  function buildShipSegments(pl: Playlist): ExportSegment[] {
-    return pl.items
-      .filter(isClipItem)
-      .map((clip): ExportSegment | null => {
-        const m = matchLookup.get(clip.matchId);
-        if (!m?.videoUrl || !m.syncPoint) return null;
-        const event = eventByKey.get(`${clip.matchId}:${clip.eventId}`);
-        if (!event) return null;
-        const seg: ExportSegment = {
-          kind: "clip",
-          videoPath: m.videoUrl,
-          matchId: clip.matchId,
-          event,
-          syncPoint: m.syncPoint,
-        };
-        if (clip.preRollOffset !== undefined)
-          (seg as Extract<ExportSegment, { kind: "clip" }>).preRollOffset = clip.preRollOffset;
-        if (clip.postRollOffset !== undefined)
-          (seg as Extract<ExportSegment, { kind: "clip" }>).postRollOffset = clip.postRollOffset;
-        return seg;
-      })
-      .filter((x): x is ExportSegment => x !== null);
-  }
-
-  /**
-   * Sharing ships clips to the cloud, which the sample game can't do — its
-   * video is a remote stream, not a local file, so Clip & Ship's preflight
-   * would throw a raw path error. Mirror the export gate's friendly copy.
-   */
-  function demoShipBlockReason(pl: Playlist): string | null {
-    const hasDemoClip = pl.items
-      .filter(isClipItem)
-      .some((c) => matchLookup.get(c.matchId)?.isDemo);
-    return hasDemoClip
-      ? "The sample game can't be shared — import your own game to share clips with your team."
-      : null;
   }
 
   /**
@@ -3521,7 +3478,7 @@ export function PlaylistsPage() {
       return;
     }
 
-    const demoBlock = demoShipBlockReason(selected);
+    const demoBlock = demoShipBlockReason(selected, matchLookup);
     if (demoBlock) {
       setShareDialogOpen(false);
       setSharePhase({ kind: "pick" });
@@ -3529,7 +3486,7 @@ export function PlaylistsPage() {
       return;
     }
 
-    const segments = buildShipSegments(selected);
+    const segments = buildShipSegments(selected, matchLookup, eventByKey);
     setSharePhase({ kind: "uploading" });
     setIsShipping(true);
     setShipProgress(null);
@@ -3668,7 +3625,7 @@ export function PlaylistsPage() {
   // affordance. After any successful upload, pending silent shares (created
   // before the playlist had clips) finally notify their recipients.
   async function handleShip(target: Playlist) {
-    const demoBlock = demoShipBlockReason(target);
+    const demoBlock = demoShipBlockReason(target, matchLookup);
     if (demoBlock) {
       toast.error("Couldn't upload clips", { description: demoBlock });
       return;
@@ -3676,34 +3633,14 @@ export function PlaylistsPage() {
     setIsShipping(true);
     setShipProgress(null);
     try {
-      const segments = buildShipSegments(target);
-      const result = await clipAndShip(target, segments, preRoll, postRoll, {
+      await shipPlaylistClips(target, {
+        matchLookup,
+        eventByKey,
+        preRoll,
+        postRoll,
         onProgress: (done, total) => setShipProgress({ done, total }),
+        onUploaded: applyR2Urls,
       });
-      applyR2Urls(result.uploaded, target.id);
-
-      const total = segments.length;
-      const uploadedCount = result.shipped + result.skipped;
-      if (result.failures.length > 0) {
-        trackEvent("playlist_ship_failed", { playlist_id: target.id, failed: result.failures.length, total });
-        toast.error(
-          `${result.failures.length} of ${total} clips in "${target.name}" didn't upload`,
-          { description: "Recipients can't see these clips yet — try again from Shared by me." },
-        );
-      } else if (result.shipped > 0) {
-        // Silent when everything was already in the cloud (idempotent re-run).
-        toast.success(`Clips uploaded to "${target.name}"`, {
-          description: `${uploadedCount} clip${uploadedCount === 1 ? " is" : "s are"} now in the cloud.`,
-        });
-        trackEvent("playlist_shipped", { playlist_id: target.id, clip_count: uploadedCount });
-      }
-
-      if (uploadedCount > 0) {
-        // Best-effort and idempotent — a no-op unless silent pending shares exist.
-        await notifyPendingPlaylistShares(target.id).catch(() => {});
-      }
-    } catch (e) {
-      toast.error("Clip & Ship failed", { description: e instanceof Error ? e.message : String(e) });
     } finally {
       setIsShipping(false);
       setShipProgress(null);
@@ -5126,7 +5063,7 @@ export function PlaylistsPage() {
   const liveReport = isLiveReport(myReport) ? myReport : null;
 
   /** Why the report can't be shared (a demo game), else null. */
-  const reportShareDisabledReason = selected ? demoShipBlockReason(selected) : null;
+  const reportShareDisabledReason = selected ? demoShipBlockReason(selected, matchLookup) : null;
 
   /** Prepares the clips and previews and publishes the report (lib/scouting-report.ts); the report view's share sheet drives it. */
   async function runReport(draft: ReportDraft, a: ScoutingReportRun): Promise<GenerateOutcome> {
@@ -5136,7 +5073,7 @@ export function PlaylistsPage() {
       playlist: pl,
       draft,
       eventByKey,
-      shipSegments: buildShipSegments(pl),
+      shipSegments: buildShipSegments(pl, matchLookup, eventByKey),
       clipSource: (matchId) => {
         const m = matchLookup.get(matchId);
         return m?.videoUrl && m.syncPoint ? { videoPath: m.videoUrl, syncPoint: m.syncPoint } : null;

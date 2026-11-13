@@ -43,7 +43,7 @@ test("a row's menu adds to the target or once to another playlist", async ({ pag
 
   // Unshared playlists hold nothing for players: "Open playlist", no Send.
   await expect(page.getByRole("button", { name: "Open playlist" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^Send \d+ clips?…/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Send \d+ clips?/ })).toHaveCount(0);
   await shot(page, name("toolbar"));
 
   // Right-click a play: the target first, then the other playlists.

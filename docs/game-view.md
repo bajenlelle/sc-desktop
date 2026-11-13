@@ -172,22 +172,24 @@ on the selection when that row is in it.
   one named after the game. The target doesn't change. The menu is one
   `ContextMenu` around the list (`game-play-menu.tsx`), not one per row, so
   adding doesn't redraw every row; markers and headers have none.
-- **A playlist players already have**: the add is the same write and nothing
-  is cut or uploaded from here. The control counts, per shared playlist, the
-  clips players don't have yet: the target's, and any shared playlist holding
-  one of this game's clips without a file (`heldForPlayers` in
-  `packages/shared/lib/playlist-sharing.ts`). It is read from the playlists,
-  so it survives leaving the page. One playlist: "Send n clips…" opens the
-  editor on it with its upload-on-arrival state
-  (`{restore: {playlistId}, reship: true}`). Several: the same button opens a
-  menu of them. The target's "Open playlist" button is shown whenever the
-  target itself holds nothing unsent: with no other playlist holding any it
-  is alone, and with one that does it sits before "Send" (so a target that is
-  unshared, or fully uploaded, stays one click from opening). When the target
-  holds unsent clips, "Send" shows alone, since it opens the target. With no
-  target, only "Send" shows, and only when some playlist holds unsent clips.
-  Players' feeds skip clips with no uploaded file, so they see nothing until
-  then.
+- **A playlist players already have**: the add is the same write. The control
+  counts, per shared playlist, the clips players don't have yet: the target's,
+  and any shared playlist holding one of this game's clips without a file
+  (`heldForPlayers` in `packages/shared/lib/playlist-sharing.ts`). It is read
+  from the playlists, so it survives leaving the page. One playlist: "Send n
+  clips" cuts and uploads them from here, without leaving the game, through
+  the editor's own path (`apps/desktop/src/lib/ship-clips.ts`, which the
+  editor's deferred ship also runs): the writes still out for that playlist
+  land first, the footage and plays of any other game in the playlist are
+  read, one toast carries the progress and ends on "Sent n clips to
+  {playlist}", a failure is said as the editor says it, and the count comes
+  down as the files land. Several: the same button opens a menu of them.
+  "Open playlist" opens the target in the editor whenever there is one; it
+  uploads nothing on arrival. Players' feeds skip clips with no uploaded
+  file, so they see nothing until then. Both leave the game only through
+  "Open playlist", which hands the editor the way back (`state.from`, the
+  "‹ {game}" button in the editor's toolbar; so does Details' "Build a
+  playlist").
 - Labels are independent of collecting: label now, build later through the
   label filter in Add clips.
 
@@ -294,7 +296,7 @@ Analytics events are in `packages/shared/types/analytics.ts` (`game_view_*`,
 
 ## Not built
 
-Uploading held clips without opening the editor; "Show in game"
+"Show in game"
 from an editor clip (the view already accepts `?play=`); marking in and out
 around a play; substitution rows, lineup tables and a shot chart; the footage
 from a game's cloud copy; free time-range clips with no play (a schema change
