@@ -11,7 +11,7 @@ import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } f
 import { labelForKey, labelKeySlot } from "@scoutable/shared/lib/label-keys";
 import { clickSelection, extendSelection, moveFocus, pruneSelection, type FocusMove } from "@scoutable/shared/lib/list-selection";
 import { defaultPreRoll } from "@scoutable/shared/lib/provider";
-import { fitPresetToGames, gameToPreset, presetToGame, type FilterPreset, type PresetGame } from "@scoutable/shared/lib/filter-presets";
+import { applyPresetFilters, presetLabelsGone, type FilterPreset } from "@scoutable/shared/lib/filter-presets";
 import { AddToPopover } from "@/components/editor/add-to-popover";
 import { PlayerStage, type PlayerStageHandle } from "@/components/editor/player-stage";
 import { PILL_LABEL, PillButton, SelectionBar } from "@/components/editor/selection-bar";
@@ -34,7 +34,7 @@ import { LABEL_KEY_TOAST, labelKeyMessage, toastNoLabelOnKey, useOptionHeld } fr
 import { rememberLabelUsed, useRecentLabelIds } from "@/lib/recent-labels";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import { useClipLabels } from "@/lib/use-clip-labels";
-import { presetDropsGroup, useFilterPresets } from "@/lib/use-filter-presets";
+import { useFilterPresets } from "@/lib/use-filter-presets";
 import { useGameMarks } from "@/lib/use-game-marks";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { cn } from "@/lib/utils";
@@ -191,21 +191,15 @@ export function GameWatchView({
 
   // ---- Labels, the playlist, the filters ------------------------------------
   const labels = useClipLabels(activeOrgId, match.id, "game_view");
-  // Presets are shared with Add clips, so they keep players by person id (gameToPreset), never by name.
+  // Presets are shared with Add clips. One keeps plays, shot types, situations and labels, never the
+  // team or players (lib/filter-presets.ts): applying it leaves the Both/home/away control, the chosen
+  // players, "on court", the search, the moment and the quarters as they are.
   const presets = useFilterPresets(activeOrgId, "game_view");
-  const presetGame = useMemo<PresetGame>(
-    () => ({ home: teams.home, away: teams.away, people, labels: labels.labels.map((l) => l.id) }),
-    [teams, people, labels.labels],
-  );
-  const presetCurrent = useMemo(() => gameToPreset(filters.clip, filters.team, presetGame), [filters.clip, filters.team, presetGame]);
+  const labelIds = useMemo(() => labels.labels.map((l) => l.id), [labels.labels]);
   const applyPreset = (p: FilterPreset) => {
-    const { clip, team } = presetToGame(p.filters, presetGame);
-    setFilters((f) => ({ ...f, clip, team, onCourt: false }));
+    setFilters((f) => ({ ...f, clip: applyPresetFilters(f.clip, p.filters, labelIds) }));
     presets.applied(p);
-    const teamsKept = fitPresetToGames(p.filters, { teams: [presetGame.home, presetGame.away], players: [], labels: [] }).teams.size;
-    if (presetDropsGroup(p.filters, { teams: teamsKept, players: clip.players.size, labels: clip.labels?.size ?? 0 })) {
-      toast("Some of this preset doesn't apply to this game");
-    }
+    if (presetLabelsGone(p.filters, labelIds)) toast("This preset's labels no longer exist, so they weren't applied");
   };
   const collect = useCollect({ match, orgId: activeOrgId, includeUnscoped: activeOrgIsPersonal });
 
@@ -1066,9 +1060,9 @@ export function GameWatchView({
                 presetsMenu={activeOrgId ? (
                   <FilterPresetsMenu
                     presets={presets.presets}
-                    current={presetCurrent}
+                    current={filters.clip}
                     onApply={applyPreset}
-                    onSave={(name) => presets.save(name, gameToPreset(filters.clip, filters.team, presetGame))}
+                    onSave={(name) => presets.save(name, filters.clip)}
                     onRename={presets.rename}
                     onDelete={presets.remove}
                   />

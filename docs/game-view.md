@@ -141,8 +141,11 @@ released app lists each row there as a clip.
 - `game-filters.tsx`: team, moments, and the filter sheet (presets, search,
   event and shot types, situations, players, quarters, labels, on court).
   Presets are saved per account and space (`filter_presets`,
-  `lib/filter-presets.ts`) and shared with Add clips; a preset keeps players
-  by Genius person id.
+  `lib/filter-presets.ts`) and shared with Add clips; a preset keeps plays,
+  shot types, situations and labels, never the team or players, so the same
+  one applies to any player: applying it leaves the Both/home/away control,
+  the chosen players, "on court", the search, the moment and the quarters as
+  they are.
 - Reused as they are: `usePersistentVideo`, `PlayerStage`, `useFrameSeek`,
   `LabelPickerPopover`, the key scope (`game`) and `resolvePlayerKey`.
   `lib/use-clip-labels.ts` gives the view the labels of one game.

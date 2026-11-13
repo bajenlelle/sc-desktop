@@ -14,7 +14,7 @@ import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } f
 import { labelForKey, labelKeySlot } from "@scoutable/shared/lib/label-keys";
 import { clickSelection, extendSelection, moveFocus, type FocusMove } from "@scoutable/shared/lib/list-selection";
 import { orderForAdd, playerTeam, startGames } from "@scoutable/shared/lib/add-clips-games";
-import { fitPresetToGames, type FilterPreset } from "@scoutable/shared/lib/filter-presets";
+import { applyPresetFilters, presetLabelsGone, type FilterPreset } from "@scoutable/shared/lib/filter-presets";
 import {
   EMPTY_CLIP_FILTERS,
   EVENT_TYPE_OPTIONS,
@@ -34,7 +34,7 @@ import { LABEL_KEY_TOAST, labelKeyMessage, toastNoLabelOnKey } from "@/lib/label
 import { rememberLabelUsed } from "@/lib/recent-labels";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
-import { presetDropsGroup, useFilterPresets } from "@/lib/use-filter-presets";
+import { useFilterPresets } from "@/lib/use-filter-presets";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import type { VideoFileStatus } from "@/lib/video-probe";
@@ -284,12 +284,8 @@ export function ClipBrowserPanel({
   }, [gameIdsKey, onNeedEvents, onNeedLabels]);
 
   const [filters, setFilters] = useState<ClipFilters>(EMPTY_CLIP_FILTERS);
-  // A preset applied while the games' plays load, fitted once they are in (the prune effect below);
-  // any filter chosen in the meantime wins over it.
-  const pendingPresetRef = useRef<FilterPreset | null>(null);
   // One group's setter, for the dropdowns and chips.
   const setGroup = (group: keyof ClipFilters) => (next: ReadonlySet<string>) => {
-    pendingPresetRef.current = null;
     setFilters((f) => ({ ...f, [group]: next }));
   };
   const [preRoll, setPreRoll] = useState(10);
@@ -378,7 +374,6 @@ export function ClipBrowserPanel({
   const handleLeaderToggle = useCallback((name: string) => {
     const keys = [...keyNames].filter(([, n]) => n === name).map(([key]) => key);
     if (keys.length === 0) return;
-    pendingPresetRef.current = null;
     setFilters((f) => {
       const next = new Set(f.players);
       const on = keys.some((k) => next.has(k));
@@ -425,8 +420,7 @@ export function ClipBrowserPanel({
 
   // A change of games keeps the chosen team and players (a player id is the
   // same in every game, so "#8, last 5 games" keeps #8) and prunes those the
-  // new games don't have once their plays are in. A preset still waiting for
-  // plays stays waiting and is fitted to the new games instead.
+  // new games don't have once their plays are in.
   const pruneRef = useRef(false);
   function handleGameChange(ids: string[], via: GamePickVia) {
     pendingTeamsRef.current = null;
@@ -438,14 +432,8 @@ export function ClipBrowserPanel({
   useEffect(() => {
     // Wait for these games' load to finish, not just for no load running: the
     // render right after a change has not started it yet.
-    if ((!pruneRef.current && !pendingPresetRef.current) || eventsLoading || loadedGamesKey !== gameIdsKey) return;
+    if (!pruneRef.current || eventsLoading || loadedGamesKey !== gameIdsKey) return;
     pruneRef.current = false;
-    const preset = pendingPresetRef.current;
-    if (preset) {
-      pendingPresetRef.current = null;
-      fitPreset(preset);
-      return;
-    }
     const keys = new Set(allEvents.map((x) => playerKey(x.event)).filter((k): k is string => k !== null));
     setFilters((f) => {
       const keptTeams = [...f.teams].filter((t) => teams.includes(t));
@@ -453,13 +441,10 @@ export function ClipBrowserPanel({
       if (keptTeams.length === f.teams.size && keptPlayers.length === f.players.size) return f;
       return { ...f, teams: new Set(keptTeams), players: new Set(keptPlayers) };
     });
-    // fitPreset reads this render's games, teams and labels; the deps above re-run it when the load lands.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventsLoading, loadedGamesKey, gameIdsKey, allEvents, teams]);
 
   function handleTeamChange(newTeams: Set<string>) {
     pendingTeamsRef.current = null;
-    pendingPresetRef.current = null;
     if (gameIds.length > 0) setAddClipsScope(playlist.id, { gameIds, teams: [...newTeams] });
     const source = newTeams.size > 0
       ? allEvents.filter(({ event }) => newTeams.has(event.eventTeam?.teamName ?? ""))
@@ -468,28 +453,16 @@ export function ClipBrowserPanel({
     setFilters((f) => ({ ...f, teams: newTeams, players: new Set([...f.players].filter((p) => validPlayers.has(p))) }));
   }
 
-  // A preset holds no games: it is fitted to the ones on screen, leaving out the teams, players and
-  // labels they don't have, so no choice is left hidden. While those games' plays load it waits (fitting
-  // then would drop every team and player), and is fitted, counted and toasted once, when they land.
+  // A preset holds plays, shot types, situations and labels, never games, teams or players: applying
+  // one leaves the chosen games, team and players as they are, so the same preset serves any player.
+  // Nothing in it depends on the games' plays, so it applies at once, loading or not; a label the space
+  // no longer has is left out, and the coach is told when that leaves none.
   const presets = useFilterPresets(activeOrgId, "add_clips");
   function applyPreset(p: FilterPreset) {
-    pendingTeamsRef.current = null;
-    if (eventsLoading || loadedGamesKey !== gameIdsKey) {
-      pendingPresetRef.current = p;
-      return;
-    }
-    pendingPresetRef.current = null;
-    fitPreset(p);
-  }
-  function fitPreset(p: FilterPreset) {
-    const players = new Set(allEvents.map((x) => playerKey(x.event)).filter((k): k is string => k !== null));
-    const fitted = fitPresetToGames(p.filters, { teams, players: [...players], labels: labels.map((l) => l.id) });
-    if (gameIds.length > 0) setAddClipsScope(playlist.id, { gameIds, teams: [...fitted.teams] });
-    setFilters(fitted);
+    const labelIds = labels.map((l) => l.id);
+    setFilters((f) => applyPresetFilters(f, p.filters, labelIds));
     presets.applied(p);
-    if (presetDropsGroup(p.filters, { teams: fitted.teams.size, players: fitted.players.size, labels: fitted.labels?.size ?? 0 })) {
-      toast("Some of this preset doesn't apply to these games");
-    }
+    if (presetLabelsGone(p.filters, labelIds)) toast("This preset's labels no longer exist, so they weren't applied");
   }
 
   // "Last 5 games of …" in the Game picker: the one chosen player's team, else the one chosen team.
