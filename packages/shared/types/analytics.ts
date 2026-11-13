@@ -28,6 +28,13 @@ export type AnalyticsEvent =
   | "sync_point_skipped"
   | "shared_clips_recut" // game_id, clips, failed, hidden, playlists: a sync change re-cut (or hid) moved shared clips
   | "import_view_changed" // view (team | all)
+  // First-import guide (desktop). step: pick | video | tipoff | import; n: 1 to 4;
+  // trigger: auto (a first import) | manual (Show guide)
+  | "import_guide_started" // trigger
+  | "import_guide_step_shown" // step, n
+  | "import_guide_step_completed" // step, n, seconds
+  | "import_guide_skipped" // step, how (skip | escape)
+  | "import_guide_completed" // seconds, trigger
   | "demo_game_seeded"
   // Automatic tip-off detection (desktop import). Props in comments.
   // Tip-off flow (desktop). Every event carries surface (import | game_page). A suggestion's
