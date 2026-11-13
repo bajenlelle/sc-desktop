@@ -166,18 +166,16 @@ function CardMenuItem({
  * the menu beside Add clips, everything that goes into the video in one place.
  */
 export function EditorToolbar(p: EditorToolbarProps) {
-  const inputRef = React.useRef<HTMLInputElement | null>(null);
-
   const title = p.editing ? (
     <input
-      ref={inputRef}
       autoFocus
+      onFocus={(e) => e.currentTarget.select()}
       value={p.editValue}
       aria-label="Playlist name"
       onChange={(e) => p.onEditValueChange(e.target.value)}
       onBlur={p.onCommitRename}
       onKeyDown={(e) => {
-        if (e.key === "Enter") p.onCommitRename();
+        if (e.key === "Enter") e.currentTarget.blur();
         if (e.key === "Escape") p.onCancelRename();
       }}
       className="h-7 min-w-40 rounded-md bg-card px-2 text-title-3 text-foreground ring-2 ring-selection outline-none"
