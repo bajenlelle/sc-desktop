@@ -8,6 +8,8 @@ import { followsSummary, QuarterSyncPanel, quarterCopy } from "@/components/quar
 import { describePeriodSyncs, videoLooksCut } from "@scoutable/shared/lib/period-sync";
 import { newestRequest } from "@scoutable/shared/lib/latest";
 import { isSuggestionPending, TipoffSuggestionStrip } from "@/components/tipoff-suggestion-strip";
+import { ImportGuideBubble } from "@/components/import/import-guide";
+import { usePublishImportGuide } from "@/lib/import-guide-store";
 import { AutoHeight } from "@/components/ui/auto-height";
 import { SearchField } from "@/components/ui/search-field";
 import { probeVideoDuration } from "@/lib/video-probe";
@@ -625,13 +627,20 @@ export function UploadZone({
     }
   }
 
+  /** The tip-off belongs to the recording: another file, or none, starts without it. */
+  function changeVideo(next: string | null) {
+    if (next === videoPath) return;
+    setVideoPath(next);
+    setSyncSeconds(null);
+  }
+
   async function handlePickVideo() {
     const result = await open({
       multiple: false,
       filters: [{ name: "Video", extensions: ["mp4", "mov", "avi", "mkv", "webm", "m4v"] }],
     });
     if (typeof result === "string") {
-      setVideoPath(result);
+      changeVideo(result);
     }
   }
 
@@ -930,6 +939,24 @@ export function UploadZone({
 
   const isSubmitting = submitStatus === "saving";
 
+  // What the first-import guide reads its step from (lib/import-guide-store.ts).
+  usePublishImportGuide(
+    {
+      ready: !!selectedLeague,
+      hasGame: !!selectedGame && playByPlayEvents.length > 0,
+      hasVideo: !!videoPath,
+      hasTipoff: syncSeconds !== null,
+      settingQuarters: !!activeRow && !activeRow.set,
+      blocked: teamPromptOpen || importLimitDialogOpen || purchaseSheetOpen || savePhase !== null || successOpen,
+      imported: importedSummary !== null,
+    },
+    {
+      teamView: view === "team" && !!team,
+      offer: !activeRow && isSuggestionPending(tipoffSuggestion.state),
+      isUpdate: !!existingMatch,
+    },
+  );
+
   if (!selectedLeague) return null;
 
   return (
@@ -969,7 +996,8 @@ export function UploadZone({
     />
     <div className="mx-auto max-w-2xl space-y-8 pt-2">
       {/* Step 1 — Pick a game */}
-      <div className="space-y-3">
+      <div className="space-y-3" data-tour="pick">
+        <ImportGuideBubble at="pick" />
         <StepLabel step={1} title="Pick a game" done={!!selectedGame && playByPlayEvents.length > 0} />
         <Card className="py-4">
           <CardContent className="px-4">
@@ -1168,7 +1196,8 @@ export function UploadZone({
       </div>
 
       {/* Step 2 — Video and tip-off */}
-      <div className="space-y-3">
+      <div className="space-y-3" data-tour="video">
+        <ImportGuideBubble at="video" />
         <StepLabel
           step={2}
           title="Video and tip-off"
@@ -1212,7 +1241,7 @@ export function UploadZone({
                     size="icon-sm"
                     aria-label="Remove video"
                     title="Remove video"
-                    onClick={() => setVideoPath(null)}
+                    onClick={() => changeVideo(null)}
                   >
                     <X />
                   </Button>
@@ -1221,6 +1250,7 @@ export function UploadZone({
                 <motion.button
                   key="pick"
                   type="button"
+                  data-tour="video-pick"
                   variants={fadeVariants}
                   initial="hidden"
                   animate="visible"
@@ -1300,7 +1330,8 @@ export function UploadZone({
       )}
 
       {/* What the button is waiting for, in one line that changes in place. */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-4" data-tour="submit">
+        <ImportGuideBubble at="submit" />
         <div className="relative min-h-5 min-w-0 flex-1">
           <AnimatePresence mode="popLayout" initial={false}>
             {(() => {
@@ -1342,6 +1373,7 @@ export function UploadZone({
         <Button
           size="lg"
           className="shrink-0"
+          data-tour="submit-button"
           onClick={handleSubmit}
           disabled={isSubmitting || !selectedGame || !videoPath || syncSeconds === null}
         >

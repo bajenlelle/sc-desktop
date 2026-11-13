@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PauseCircle } from "lucide-react";
 import { UploadZone } from "@/components/upload-zone";
+import { ImportGuideLauncher, ImportGuideRoot } from "@/components/import/import-guide";
 import { EmptyState } from "@/components/empty-state";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
@@ -37,7 +38,11 @@ export function UploadPage() {
 
   return (
     <Page>
-      <Toolbar title="Import game" subtitle="Pick a game, link its video, set the tip-off" />
+      <Toolbar
+        title="Import game"
+        subtitle="Pick a game, link its video, set the tip-off"
+        actions={<ImportGuideLauncher />}
+      />
       <PageContent width="narrow">
         {licenseLocked ? (
           <EmptyState
@@ -46,7 +51,9 @@ export function UploadPage() {
             body={`${activeOrg?.orgName ?? "This organization"}'s license has expired. Existing games and playlists stay available — importing resumes once the license is renewed.`}
           />
         ) : (
-          <UploadZone ntMemberships={ntOrgs} hasClubAccess={hasClubAccess} />
+          <ImportGuideRoot>
+            <UploadZone ntMemberships={ntOrgs} hasClubAccess={hasClubAccess} />
+          </ImportGuideRoot>
         )}
       </PageContent>
     </Page>

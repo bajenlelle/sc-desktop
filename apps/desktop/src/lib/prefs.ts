@@ -91,6 +91,28 @@ export function setSyncTipSeen(userId: string | undefined): void {
 }
 
 /**
+ * Whether this user is done with the first-import guide on this device: they
+ * skipped it, finished it, or had already imported a game. Per user, like the
+ * flags above. It only stops the guide starting by itself; "Show guide" on the
+ * Import game page still opens it.
+ */
+export function getImportGuideDone(userId: string | undefined): boolean {
+  try {
+    return !!userId && localStorage.getItem(`scoutable_import_guide_done:${userId}`) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function setImportGuideDone(userId: string | undefined): void {
+  try {
+    if (userId) localStorage.setItem(`scoutable_import_guide_done:${userId}`, "1");
+  } catch {
+    // Storage is full or off: the guide may start again next time, which is harmless.
+  }
+}
+
+/**
  * Where the Add clips sheet was last left for a playlist: the game and the
  * teams picked in it, so the next round starts there. This computer only;
  * a missing or unreadable value is null.

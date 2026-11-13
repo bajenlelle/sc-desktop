@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { Link, useLocation } from "react-router-dom";
-import { BookOpen, FileText, Film, Home, ListVideo, Share2 } from "lucide-react";
+import { BookOpen, FileText, Film, Home, ListVideo, Plus, Share2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { UpdateCard } from "@/components/UpdateChecker";
 import { useAuth } from "@/lib/auth-context";
 import { useImportQuota } from "@/lib/use-import-quota";
@@ -131,6 +132,19 @@ export function Sidebar() {
               <NavItem to="/matches" icon={Film} label="Library" active={pathname.startsWith("/matches")} />
             )}
           </nav>
+        )}
+
+        {/* The one action a coach reaches for from any page, under the list as in Reminders' "Add List":
+            the same link as the Library's Import game button (the import page gates licenses and roles). */}
+        {ready && isCoachOrAdmin && (
+          <div className="mt-2 px-2">
+            <Button variant="ghost" size="sm" asChild className="w-full justify-start px-2 has-[>svg]:px-2">
+              <Link to="/upload">
+                <Plus className="text-primary" />
+                Import game
+              </Link>
+            </Button>
+          </div>
         )}
 
         <div className="mt-auto flex flex-col gap-2 p-2">

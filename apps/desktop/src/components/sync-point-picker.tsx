@@ -480,6 +480,7 @@ export function SyncPointPicker({
         ) : (
           <motion.span key="unset" variants={fadeVariants} initial="hidden" animate="visible" exit="exit" className="flex items-center gap-3">
             <Button
+              data-tour="tipoff-set"
               variant={hasPendingSuggestion ? "outline" : "default"}
               disabled={videoFailed || !!confirmDisabledReason}
               title={failureMessage ?? confirmDisabledReason}

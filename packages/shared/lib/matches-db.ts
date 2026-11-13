@@ -710,6 +710,22 @@ export async function countMatchesThisMonth(supabase: SupabaseClient): Promise<n
 }
 
 /**
+ * How many games the caller has ever imported, in any space. Read from the
+ * import log: the sample game never counts and a deleted game still does.
+ * Null means unknown (no session, or the read failed), which is not zero.
+ */
+export async function countOwnImports(supabase: SupabaseClient): Promise<number | null> {
+  const uid = await currentUserId(supabase);
+  if (!uid) return null;
+  const { count, error } = await supabase
+    .from("import_log")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", uid);
+  if (error || count === null) return null;
+  return count;
+}
+
+/**
  * Copy the sample game into the caller's personal org so a brand-new user
  * can try clips → playlists with zero footage. Server-side idempotent (once
  * per user, ever); returns the new match id, or null when it no-ops
