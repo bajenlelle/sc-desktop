@@ -12,7 +12,8 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { test as base, expect, webkit, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { test as base, expect, webkit, type Locator, type Page } from "@playwright/test";
 import { loadEnv } from "vite";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -98,6 +99,105 @@ export async function openFirstGame(page: Page, options: { shotLibraryAs?: strin
   await first.click();
   await expect(page.getByRole("radiogroup", { name: "View" })).toBeVisible({ timeout: 30_000 });
   return title;
+}
+
+// ---------------------------------------------------------------------------
+// The playlists sidebar (specs/A-*)
+// ---------------------------------------------------------------------------
+
+/** A saved playlist's sidebar row (a temp row has no data-playlist-id), by its exact name. */
+export function playlistRow(page: Page, name: string): Locator {
+  return page.locator("[data-playlist-id]").filter({ has: page.getByText(name, { exact: true }) });
+}
+
+/** A folder's sidebar header row by its exact name (a temp folder's id starts with "temp-"). */
+export function folderRow(page: Page, name: string): Locator {
+  return page.locator("[data-folder-id]:not([data-folder-id^='temp-'])").filter({ has: page.getByText(name, { exact: true }) });
+}
+
+/** A Sonner toast by its text. */
+export function toastWith(page: Page, text: string | RegExp): Locator {
+  return page.locator("[data-sonner-toast]").filter({ hasText: text });
+}
+
+/** The focused element's value and selection, when it is a text field. */
+export async function focusedField(page: Page): Promise<{ value: string; start: number | null; end: number | null } | null> {
+  return page.evaluate(() => {
+    const el = document.activeElement;
+    if (!(el instanceof HTMLInputElement)) return null;
+    return { value: el.value, start: el.selectionStart, end: el.selectionEnd };
+  });
+}
+
+/** Opens /playlists and waits until the sidebar has loaded (its footer's New Playlist shows once loading ends). */
+export async function openPlaylists(page: Page): Promise<void> {
+  await page.goto("/playlists");
+  await expect(page.getByRole("button", { name: "New Playlist", exact: true })).toBeVisible({ timeout: 30_000 });
+}
+
+/**
+ * The sidebar's New Playlist (or, with `folder`, the New folder button), named
+ * through the field it opens. Waits for the saved row. Inherits the selected
+ * playlist's folder, like the button does.
+ */
+export async function createInSidebar(page: Page, kind: "playlist" | "folder", name: string): Promise<Locator> {
+  if (kind === "playlist") await page.getByRole("button", { name: "New Playlist", exact: true }).click();
+  else await page.getByRole("button", { name: "New folder", exact: true }).click();
+  const field = page.locator("input:focus");
+  await expect(field).toHaveValue(kind === "playlist" ? "New Playlist" : "New Folder");
+  await field.fill(name);
+  await field.press("Enter");
+  const row = kind === "playlist" ? playlistRow(page, name) : folderRow(page, name);
+  await expect(row, `the new ${kind} "${name}" is saved`).toBeVisible({ timeout: 15_000 });
+  return row;
+}
+
+const SUPABASE = loadEnv("headless", path.dirname(HERE), "VITE_SUPABASE_");
+
+/**
+ * The signed-in account's own rows over Supabase REST, for a spec's bookkeeping
+ * (reading what was saved, and cleaning up), never for the step under test.
+ * The token is the page's session, else the saved storage state's.
+ */
+async function rest(page: Page, method: "GET" | "DELETE", pathAndQuery: string): Promise<unknown> {
+  const url = SUPABASE.VITE_SUPABASE_URL;
+  const key = SUPABASE.VITE_SUPABASE_ANON_KEY;
+  if (!url || !key) throw new Error("headless: VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY missing from .env.headless");
+  const storageKey = `sb-${new URL(url).hostname.split(".")[0]}-auth-token`;
+  let session = await page.evaluate((k) => localStorage.getItem(k), storageKey).catch(() => null);
+  if (!session) {
+    const state = JSON.parse(readFileSync(STATE_FILE, "utf8")) as { origins: { localStorage: { name: string; value: string }[] }[] };
+    session = state.origins.flatMap((o) => o.localStorage).find((l) => l.name === storageKey)?.value ?? null;
+  }
+  const token = session ? (JSON.parse(session) as { access_token?: string }).access_token : undefined;
+  if (!token) throw new Error("headless: no signed-in session to read or clean up with");
+  const response = await page.request.fetch(`${url}/rest/v1/${pathAndQuery}`, {
+    method,
+    headers: { apikey: key, Authorization: `Bearer ${token}`, Prefer: "return=representation" },
+  });
+  if (!response.ok()) throw new Error(`headless: ${method} ${pathAndQuery} answered ${response.status()}: ${await response.text()}`);
+  return response.json();
+}
+
+type SidebarTable = "playlists" | "playlist_folders";
+
+/** The account's playlists or folders whose name starts with `prefix`, as stored. */
+export async function ownRowsNamed(page: Page, table: SidebarTable, prefix: string): Promise<Record<string, unknown>[]> {
+  return (await rest(page, "GET", `${table}?select=*&name=like.${encodeURIComponent(`${prefix}*`)}`)) as Record<string, unknown>[];
+}
+
+/**
+ * Deletes the account's playlists, then folders, whose name starts with
+ * `prefix` (a port-named prefix, `headless-<port> `, so only what a spec made).
+ * Returns how many rows went.
+ */
+export async function deleteOwnRowsNamed(page: Page, prefix: string): Promise<number> {
+  if (!prefix.startsWith(`headless-${PORT} `)) throw new Error(`headless: refusing to delete rows outside "headless-${PORT} …"`);
+  let removed = 0;
+  for (const table of ["playlists", "playlist_folders"] as const) {
+    removed += ((await rest(page, "DELETE", `${table}?name=like.${encodeURIComponent(`${prefix}*`)}`)) as unknown[]).length;
+  }
+  return removed;
 }
 
 export default async function globalSetup(): Promise<void> {

@@ -1,0 +1,189 @@
+/**
+ * Group A, Task 1: double-click a playlist (or folder) in the sidebar to
+ * rename it, the name selected, one commit per rename, the new name shown at
+ * once, and an unchanged name writes nothing. Also the New Playlist / New
+ * folder fields and the editor header's rename field start selected.
+ * Creates `headless-1431 …` rows and deletes them, pass or fail.
+ */
+import type { Page, Request } from "@playwright/test";
+import {
+  createInSidebar,
+  deleteOwnRowsNamed,
+  expect,
+  focusedField,
+  folderRow,
+  openPlaylists,
+  ownRowsNamed,
+  playlistRow,
+  PORT,
+  shot,
+  test,
+  toastWith,
+} from "../helpers";
+
+const PREFIX = `headless-${PORT} `;
+const PLAYLIST = `${PREFIX}rename me`;
+const PLAYLIST_RENAMED = `${PREFIX}renamed`;
+const FOLDER = `${PREFIX}folder`;
+const FOLDER_RENAMED = `${PREFIX}folder renamed`;
+
+/** Every write (POST/PATCH) the page sends to a sidebar table. */
+function recordWrites(page: Page): { table: string; method: string }[] {
+  const writes: { table: string; method: string }[] = [];
+  page.on("request", (request: Request) => {
+    const match = /\/rest\/v1\/(playlists|playlist_folders)\?/.exec(request.url());
+    if (match && (request.method() === "PATCH" || request.method() === "POST")) writes.push({ table: match[1], method: request.method() });
+  });
+  return writes;
+}
+
+/** Holds the next PATCH to `table` until `release()`, so a spec can look at the screen while the write is in flight. */
+async function holdNextPatch(page: Page, table: string): Promise<{ held: Promise<void>; release: () => void }> {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let markHeld!: () => void;
+  const held = new Promise<void>((resolve) => (markHeld = resolve));
+  const pattern = new RegExp(`/rest/v1/${table}\\?`);
+  await page.route(pattern, async (route) => {
+    if (route.request().method() !== "PATCH") return route.continue();
+    markHeld();
+    await gate;
+    await route.continue();
+  }, { times: 1 });
+  return { held, release };
+}
+
+/** The whole value is selected in the focused field. */
+async function expectWholeNameSelected(page: Page, name: string, what: string) {
+  await expect.poll(() => focusedField(page), { message: `${what}: the field is focused and holds the name` }).toMatchObject({ value: name });
+  const field = await focusedField(page);
+  expect(field, `${what}: the whole name is selected`).toEqual({ value: name, start: 0, end: name.length });
+}
+
+test.afterEach(async ({ page }) => {
+  await deleteOwnRowsNamed(page, PREFIX);
+});
+
+test("A task 1: double-click renames a playlist and a folder, name selected, written once", async ({ page, browserName }) => {
+  const name = (step: string) => `${browserName}-A-task1-${step}`;
+  const writes = recordWrites(page);
+  // Leftovers of an earlier, killed run.
+  await openPlaylists(page);
+  await deleteOwnRowsNamed(page, PREFIX);
+
+  // ── New Playlist: the field opens with "New Playlist" selected, so typing replaces it.
+  await page.getByRole("button", { name: "New Playlist", exact: true }).click();
+  await expectWholeNameSelected(page, "New Playlist", "New Playlist");
+  await page.keyboard.type(PLAYLIST);
+  await shot(page, name("new-playlist-typed"));
+  await page.keyboard.press("Enter");
+  const row = playlistRow(page, PLAYLIST);
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => writes.filter((w) => w.table === "playlists" && w.method === "POST").length, { message: "the playlist is created once" }).toBe(1);
+
+  // ── Double-click the sidebar name: the field opens with the whole name selected.
+  await row.getByText(PLAYLIST, { exact: true }).dblclick();
+  await expectWholeNameSelected(page, PLAYLIST, "sidebar playlist double-click");
+  await shot(page, name("playlist-dblclick-selected"));
+
+  // ── Type a new name, Enter: the row shows it at once, while the write is still in flight.
+  const gate = await holdNextPatch(page, "playlists");
+  await page.keyboard.type(PLAYLIST_RENAMED);
+  await page.keyboard.press("Enter");
+  await gate.held;
+  await expect(playlistRow(page, PLAYLIST_RENAMED), "the new name shows before the write returns").toBeVisible();
+  await expect(page.locator("input:focus"), "the field closed on Enter").toHaveCount(0);
+  await expect(toastWith(page, "Playlist renamed"), "no toast until the write succeeds").toHaveCount(0);
+  await shot(page, name("playlist-renamed-in-flight"));
+  gate.release();
+  await expect(toastWith(page, "Playlist renamed")).toBeVisible();
+  expect(writes.filter((w) => w.table === "playlists" && w.method === "PATCH"), "one write per rename").toHaveLength(1);
+  await expect.poll(async () => (await ownRowsNamed(page, "playlists", PREFIX)).map((r) => r.name)).toEqual([PLAYLIST_RENAMED]);
+
+  // ── Enter with the same name writes nothing and shows no toast.
+  await expect(toastWith(page, "Playlist renamed")).toHaveCount(0, { timeout: 10_000 });
+  const patchesBefore = writes.length;
+  await playlistRow(page, PLAYLIST_RENAMED).getByText(PLAYLIST_RENAMED, { exact: true }).dblclick();
+  await expectWholeNameSelected(page, PLAYLIST_RENAMED, "second double-click");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("input:focus")).toHaveCount(0);
+  await page.waitForTimeout(1_500);
+  expect(writes.slice(patchesBefore), "an unchanged name writes nothing").toEqual([]);
+  await expect(toastWith(page, "Playlist renamed"), "an unchanged name shows no toast").toHaveCount(0);
+  await shot(page, name("playlist-unchanged"));
+
+  // ── The editor header's name: click it, the name is selected (the created playlist is open).
+  const header = page.locator("button[title='Rename playlist']");
+  await expect(header).toHaveText(PLAYLIST_RENAMED);
+  await header.click();
+  await expect(page.getByRole("textbox", { name: "Playlist name" })).toBeFocused();
+  await expectWholeNameSelected(page, PLAYLIST_RENAMED, "editor header");
+  await shot(page, name("header-selected"));
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(1_000);
+  expect(writes.slice(patchesBefore), "the header's unchanged name writes nothing either").toEqual([]);
+
+  // ── New folder: "New Folder" selected; Enter creates it once, no error toast.
+  await page.getByRole("button", { name: "New folder", exact: true }).click();
+  await expectWholeNameSelected(page, "New Folder", "New folder");
+  await page.keyboard.type(FOLDER);
+  await page.keyboard.press("Enter");
+  const folder = folderRow(page, FOLDER);
+  await expect(folder).toBeVisible({ timeout: 15_000 });
+  await page.waitForTimeout(1_500);
+  expect(writes.filter((w) => w.table === "playlist_folders"), "a new folder named with Enter is saved once, and not updated under its temp id").toEqual([
+    { table: "playlist_folders", method: "POST" },
+  ]);
+  await expect(page.locator("[data-sonner-toast][data-type='error']"), "no error toast").toHaveCount(0);
+  await shot(page, name("folder-created"));
+
+  // ── Double-click the folder: whole name selected; rename shows at once; one write.
+  await folder.getByText(FOLDER, { exact: true }).dblclick();
+  await expectWholeNameSelected(page, FOLDER, "sidebar folder double-click");
+  await shot(page, name("folder-dblclick-selected"));
+  const folderGate = await holdNextPatch(page, "playlist_folders");
+  await page.keyboard.type(FOLDER_RENAMED);
+  await page.keyboard.press("Enter");
+  await folderGate.held;
+  await expect(folderRow(page, FOLDER_RENAMED), "the folder's new name shows before the write returns").toBeVisible();
+  folderGate.release();
+  await expect(toastWith(page, "Folder renamed")).toBeVisible();
+  expect(writes.filter((w) => w.table === "playlist_folders" && w.method === "PATCH"), "one write per folder rename").toHaveLength(1);
+  await expect.poll(async () => (await ownRowsNamed(page, "playlist_folders", PREFIX)).map((r) => r.name)).toEqual([FOLDER_RENAMED]);
+  await shot(page, name("folder-renamed"));
+
+  // ── Unchanged folder name: nothing written, no toast.
+  await expect(toastWith(page, "Folder renamed")).toHaveCount(0, { timeout: 10_000 });
+  const folderWritesBefore = writes.length;
+  await folderRow(page, FOLDER_RENAMED).getByText(FOLDER_RENAMED, { exact: true }).dblclick();
+  await expectWholeNameSelected(page, FOLDER_RENAMED, "second folder double-click");
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(1_500);
+  expect(writes.slice(folderWritesBefore), "an unchanged folder name writes nothing").toEqual([]);
+  await expect(toastWith(page, "Folder renamed")).toHaveCount(0);
+  await expect(page.locator("[data-sonner-toast][data-type='error']"), "no error toast").toHaveCount(0);
+});
+
+/**
+ * Finding A-1 (pre-existing, not from Task 1): a rename or a New… field opened
+ * from a menu (a row's right-click Rename, a folder's New Subfolder / New
+ * Playlist, the strip's New Folder, the playlist "…" menu's Rename) opens
+ * unfocused: the menu hands focus back on close (activeElement is <body>), so
+ * the name isn't selected and typing goes nowhere. Only the folder "…" menu's
+ * Rename lands focused (its trigger unmounts while editing). Marked
+ * `test.fail`: it passes while the bug stands and turns red once it is fixed —
+ * then drop the marker.
+ */
+test("A task 1 (finding A-1): Rename from a playlist's right-click menu starts with the name selected", async ({ page, browserName }) => {
+  test.fail(true, "finding A-1: a field opened from a menu is not focused");
+  await openPlaylists(page);
+  await deleteOwnRowsNamed(page, PREFIX);
+  const id = await (await createInSidebar(page, "playlist", PLAYLIST)).getAttribute("data-playlist-id");
+  const row = page.locator(`[data-playlist-id="${id}"]`);
+  await row.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
+  await expect(row.locator("input"), "the rename field opened").toHaveValue(PLAYLIST);
+  await shot(page, `${browserName}-A-task1-finding-menu-rename-unfocused`);
+  await page.waitForTimeout(500);
+  expect(await focusedField(page), "the rename field is focused with the whole name selected").toEqual({ value: PLAYLIST, start: 0, end: PLAYLIST.length });
+});
