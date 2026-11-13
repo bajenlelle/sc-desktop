@@ -214,6 +214,15 @@ test("another video starts without the old one's tip-off", async ({ page }) => {
   await expect(page.locator('[data-tour="submit-button"]')).toBeDisabled();
 });
 
+test("the sidebar's Import game opens the page, and the guide with it for a first import", async ({ page }) => {
+  await pretendImportCount(page, 0);
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1, name: "Home" })).toBeVisible({ timeout: 30_000 });
+  await page.locator("aside").getByRole("link", { name: "Import game", exact: true }).click();
+  await expect(page).toHaveURL(/\/upload$/);
+  await expectStep(page, "pick", 1, "Pick the game in your recording");
+});
+
 test("it starts by itself for a coach with no imports, and Skip guide is for good", async ({ page }) => {
   await pretendImportCount(page, 0);
   await openImport(page);
