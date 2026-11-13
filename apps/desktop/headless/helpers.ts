@@ -63,6 +63,13 @@ export async function signIn(page: Page): Promise<void> {
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  // A space with no team answer asks "Which team do you coach?" once after sign-in.
+  // The modal hides the page from the accessibility tree, so answer it first: Skip
+  // is an answer the app keeps per space, so later specs never see the prompt.
+  const skipTeam = page.getByRole("button", { name: "Skip for now" });
+  if (await skipTeam.waitFor({ state: "visible", timeout: 10_000 }).then(() => true, () => false)) {
+    await skipTeam.click();
+  }
   await expect(signedInTitle(page), "signed in and on Home or Library").toBeVisible({ timeout: 30_000 });
 }
 
