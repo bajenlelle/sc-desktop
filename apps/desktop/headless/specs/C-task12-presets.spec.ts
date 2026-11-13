@@ -138,24 +138,16 @@ test("presets save, apply, refuse a taken name, delete with Undo, and travel bet
   await expect(menu.getByRole("button", { name: GUARD, exact: true })).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(menu).toBeHidden();
-  // Finding (reported, not fixed here): over the Add clips sheet the toast sits under the sheet, so
-  // Undo can't be pressed; what is on top at Undo's centre says so. Undo's own handler is then fired
-  // directly (sonner's 4 s toast doesn't wait), which checks what Undo does.
+  // Undo is pressed through the UI over the open sheet: what is on top at its centre is the button.
   const undo = page.locator("[data-sonner-toast]").filter({ hasText: `Deleted “${GUARD}”` }).getByRole("button", { name: "Undo" });
   const onTop = await undo.evaluate((button) => {
     const box = button.getBoundingClientRect();
     const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
-    const toaster = button.closest("[data-sonner-toaster]");
-    return {
-      reachable: !!hit && button.contains(hit),
-      hit: hit ? `${hit.tagName.toLowerCase()}.${String(hit.className).split(" ").slice(0, 4).join(".")}` : "nothing",
-      toasterZ: toaster ? getComputedStyle(toaster).zIndex : "no toaster",
-    };
+    return !!hit && button.contains(hit);
   });
+  expect(onTop, "the toast's Undo can be pressed while the Add clips sheet is open").toBe(true);
   await shot(page, name("deleted"));
-  console.log(`${browserName} C-task12 ${onTop.reachable ? "Undo is on top" : `finding: Undo is covered by ${onTop.hit}`} (toaster z-index ${onTop.toasterZ})`);
-  if (onTop.reachable) await undo.click();
-  else await undo.dispatchEvent("click");
+  await undo.click();
   await expect(sheet, "Undo leaves the Add clips sheet open").toBeVisible();
   menu = await openPresets(page, sheet, GUARD);
   await expect(menu.getByRole("button", { name: GUARD, exact: true }), "Undo brings the preset back").toBeVisible({ timeout: 10_000 });
@@ -220,12 +212,6 @@ test("presets save, apply, refuse a taken name, delete with Undo, and travel bet
 });
 
 test("a preset applied while the plays load keeps its team and player once they land", async ({ page, browserName }) => {
-  // Finding (reported to the controller, app code untouched): the preset is fitted before Luleå's plays
-  // land, with the "doesn't apply" toast, and the player is dropped. ensureEventsFor (pages/playlists.tsx)
-  // returns at once for a game whose read is already in flight, so the sheet marks its games loaded too
-  // early; here the dev build's StrictMode runs the sheet's load effect twice, which makes it certain.
-  // Remove this line once that is fixed: Playwright then reports the test as passing unexpectedly.
-  test.fail(true, "a preset applied while plays load loses its player (ensureEventsFor in-flight early return)");
   const name = (step: string) => `${browserName}-C-task12-${step}`;
   await deleteOwnRowsNamed(page, "filter_presets", PREFIX);
   await deleteOwnRowsNamed(page, "playlists", PLAYLIST);
@@ -286,8 +272,8 @@ test("a preset applied while the plays load keeps its team and player once they 
   await expect(menu).toBeHidden();
   const fittedEarly = await page.getByText(DOESNT_APPLY).waitFor({ timeout: 1_500 }).then(() => true, () => false);
   expect(released, "the preset went in while Luleå's plays were still held back").toBe(0);
+  expect(fittedEarly, "the preset waits for Luleå's plays instead of being fitted to Södertälje's alone").toBe(false);
   await shot(page, name("pending"));
-  console.log(`${browserName} C-task12 pending: "doesn't apply" toast before Luleå's plays landed: ${fittedEarly}`);
   await expect.poll(() => released, { message: "Luleå's plays are let through", timeout: 20_000 }).toBeGreaterThan(0);
   await waitForPlays(sheet);
   await page.unroute(lulea);

@@ -43,19 +43,14 @@ const gameList = (page: Page) => page.getByRole("listbox", { name: "Games" });
 const triggerBehindPicker = (page: Page) => page.locator('button[aria-label="Game"]');
 
 /**
- * Opens the Game picker on every game. Finding (reported, not fixed here): a
- * row press or a footer button closes the picker without emptying its search,
- * so it reopens on the last search ("Södertälje…") listing that game alone;
- * the spec clears it to reach the other games' checkboxes. Returns the search
- * it found.
+ * Opens the Game picker. However it last closed (a row press, a footer
+ * button, Escape), it opens with an empty search on every game.
  */
-async function openPicker(page: Page, sheet: Locator): Promise<{ list: Locator; staleSearch: string }> {
+async function openPicker(page: Page, sheet: Locator): Promise<{ list: Locator }> {
   await gameTrigger(sheet).click();
   await expect(gameList(page)).toBeVisible();
-  const search = page.getByRole("combobox", { name: "Search games or teams" });
-  const staleSearch = await search.inputValue();
-  if (staleSearch) await search.fill("");
-  return { list: gameList(page), staleSearch };
+  await expect(page.getByRole("combobox", { name: "Search games or teams" }), "the picker reopens with an empty search").toHaveValue("");
+  return { list: gameList(page) };
 }
 
 /** The games ticked in the open picker, by title: an option's aria-selected is its tick. */
@@ -88,15 +83,15 @@ test("Add clips searches several games and keeps a player across them", async ({
   await pickOnlyGame(page, sheet, SODERTALJE);
   const sodertalje = await eventCount(sheet);
 
-  // A checkbox adds a game and keeps the list open; the trigger counts the games.
-  await gameTrigger(sheet).click();
-  const stale = await page.getByRole("combobox", { name: "Search games or teams" }).inputValue();
-  // Let the popover finish fading in, so the screenshot shows it.
-  await gameList(page).evaluate((el) => Promise.all((el.closest("[role=dialog]")?.getAnimations() ?? []).map((a) => a.finished)));
-  await shot(page, name("reopened-search"));
-  console.log(`${browserName} C-task9 finding: the picker reopened with the search "${stale}" (${await gameList(page).getByRole("option").count()} game listed)`);
-  await closePicker(page);
+  // After a row pick found by search, the picker reopens on every game, not just the one searched for.
   let { list } = await openPicker(page, sheet);
+  await expect(list.getByRole("group", { name: "All games" }).getByRole("option"), "every game is listed again").not.toHaveCount(1);
+  await expect(list.getByRole("option").filter({ hasText: LULEA })).toBeVisible();
+  // Let the popover finish fading in, so the screenshot shows it.
+  await list.evaluate((el) => Promise.all((el.closest("[role=dialog]")?.getAnimations() ?? []).map((a) => a.finished)));
+  await shot(page, name("reopened-search"));
+
+  // A checkbox adds a game and keeps the list open; the trigger counts the games.
   await checkbox(list, LULEA).click();
   await expect(list, "the list stays open after a tick").toBeVisible();
   await expect(triggerBehindPicker(page)).toHaveText("2 games");
