@@ -69,5 +69,6 @@ export const listMatchesLight = (orgId?: string, opts?: { ownOnly?: boolean; inc
   db.listMatchesLight(c(), orgId, opts);
 export const listMatchesByIds = (ids: readonly string[]) => db.listMatchesByIds(c(), ids);
 export const countMatchesThisMonth = () => db.countMatchesThisMonth(c());
+export const countOwnImports = () => db.countOwnImports(c());
 export const countClubMatchesThisMonth = (ntLeagueIds: string[], orgId?: string) => db.countClubMatchesThisMonth(c(), ntLeagueIds, orgId);
 export const seedDemoMatch = (orgId: string) => db.seedDemoMatch(c(), orgId);
