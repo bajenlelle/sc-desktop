@@ -45,8 +45,12 @@ export function importGuideStep(facts: ImportGuideFacts): ImportGuideStep | null
   return reached(facts);
 }
 
+/** How a showing of the guide began: by itself for a first import, or from "Show guide". */
+export type ImportGuideTrigger = "auto" | "manual";
+
 /** One showing of the guide, from its start to a skip or the import. Times are in ms. */
 export interface ImportGuideRun {
+  trigger: ImportGuideTrigger;
   startedAt: number;
   /** When each step was first shown. */
   shownAt: Partial<Record<ImportGuideStep, number>>;
@@ -54,13 +58,14 @@ export interface ImportGuideRun {
   done: boolean;
 }
 
+/** Every event says how the run began, so a first import can be told from a look by someone who knows the page. */
 export type ImportGuideEvent =
-  | { event: "import_guide_step_shown"; step: ImportGuideStep; n: number }
-  | { event: "import_guide_step_completed"; step: ImportGuideStep; n: number; seconds: number }
-  | { event: "import_guide_completed"; seconds: number };
+  | { event: "import_guide_step_shown"; step: ImportGuideStep; n: number; trigger: ImportGuideTrigger }
+  | { event: "import_guide_step_completed"; step: ImportGuideStep; n: number; seconds: number; trigger: ImportGuideTrigger }
+  | { event: "import_guide_completed"; seconds: number; trigger: ImportGuideTrigger };
 
-export function startImportGuideRun(now: number): ImportGuideRun {
-  return { startedAt: now, shownAt: {}, completed: [], done: false };
+export function startImportGuideRun(now: number, trigger: ImportGuideTrigger): ImportGuideRun {
+  return { trigger, startedAt: now, shownAt: {}, completed: [], done: false };
 }
 
 const seconds = (from: number, to: number) => Math.round((to - from) / 1000);
@@ -78,6 +83,7 @@ export function importGuideEvents(
   if (run.done || !facts.ready) return { run, events: [] };
 
   const events: ImportGuideEvent[] = [];
+  const { trigger } = run;
   const shownAt = { ...run.shownAt };
   const completed = [...run.completed];
   const position = facts.imported ? IMPORT_GUIDE_STEPS.length : IMPORT_GUIDE_STEPS.indexOf(reached(facts));
@@ -91,21 +97,59 @@ export function importGuideEvents(
       step,
       n: importGuideStepNumber(step),
       seconds: seconds(at, now),
+      trigger,
     });
   }
 
   if (facts.imported) {
-    events.push({ event: "import_guide_completed", seconds: seconds(run.startedAt, now) });
+    events.push({ event: "import_guide_completed", seconds: seconds(run.startedAt, now), trigger });
     return { run: { ...run, shownAt, completed, done: true }, events };
   }
 
   const step = importGuideStep(facts);
   if (step && shownAt[step] === undefined) {
     shownAt[step] = now;
-    events.push({ event: "import_guide_step_shown", step, n: importGuideStepNumber(step) });
+    events.push({ event: "import_guide_step_shown", step, n: importGuideStepNumber(step), trigger });
   }
 
   return { run: { ...run, shownAt, completed }, events };
+}
+
+/** A vertical extent, in px, in the same coordinates as the view it is compared with. */
+export interface GuideSpan {
+  top: number;
+  bottom: number;
+}
+
+/**
+ * How far to scroll the page (px, down is positive) so a step can be seen;
+ * 0 when it already can. The ringed button and the bubble are shown together
+ * when both fit in view; when they do not, the button wins, because a coach
+ * has to see what to press. `bubble` is null when it rides in the margin,
+ * where it stays in view by itself. `view` is what is visible now, clear of
+ * the toolbar, and `margin` the air to leave around what is shown.
+ */
+export function importGuideScrollBy(input: {
+  action: GuideSpan | null;
+  bubble: GuideSpan | null;
+  view: GuideSpan;
+  margin: number;
+}): number {
+  const { action, bubble, view, margin } = input;
+  const both =
+    action && bubble
+      ? { top: Math.min(action.top, bubble.top), bottom: Math.max(action.bottom, bubble.bottom) }
+      : null;
+  const room = view.bottom - view.top - 2 * margin;
+  const target = both && both.bottom - both.top <= room ? both : (action ?? bubble);
+  if (!target) return 0;
+  // Negative when the target starts above the view; positive when it ends below it.
+  const above = target.top - margin - view.top;
+  const below = target.bottom + margin - view.bottom;
+  if (above < 0) return above;
+  // Never past the target's own top: something taller than the view shows its start.
+  if (below > 0) return Math.min(below, above);
+  return 0;
 }
 
 /**

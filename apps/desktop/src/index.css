@@ -353,6 +353,14 @@ html[data-window-inactive="true"] {
   padding-bottom: 9rem;
 }
 
+/* Each area keeps its own layers, so what is washed out stays under the wash
+   (the player's watermark and its failure notice sit on a z-index). */
+.import-guide-root[data-guide-step] [data-tour="pick"],
+.import-guide-root[data-guide-step] [data-tour="video"],
+.import-guide-root[data-guide-step] [data-tour="submit"] {
+  isolation: isolate;
+}
+
 .import-guide-root[data-guide-step="pick"] [data-tour="pick"],
 .import-guide-root[data-guide-step="video"] [data-tour="video"],
 .import-guide-root[data-guide-step="tipoff"] [data-tour="video"],
@@ -380,8 +388,6 @@ html[data-window-inactive="true"] {
 .import-guide-root[data-guide-step="import"] [data-tour="submit-button"] {
   outline: 2px solid var(--selection);
   outline-offset: 3px;
-  /* Scrolled into view with the ring showing, clear of the toolbar. */
-  scroll-margin: calc(var(--toolbar-height) + 1rem) 0 1rem;
   animation: var(--guide-pulse) 1.8s ease-in-out infinite;
 }
 
@@ -410,7 +416,6 @@ html[data-window-inactive="true"] {
   color: var(--popover-foreground);
   box-shadow: var(--shadow-menu);
   pointer-events: auto;
-  scroll-margin: calc(var(--toolbar-height) + 0.75rem) 0 1rem;
   animation: var(--guide-in) 240ms var(--ease-out-spring, ease-out) both;
 }
 
@@ -438,7 +443,7 @@ html[data-window-inactive="true"] {
   bottom: 0;
   left: 100%;
   display: block;
-  width: 12.5rem;
+  width: 12.25rem;
   padding: 2.25rem 0 0 1rem;
 }
 /* The tip-off's bubble starts level with the picker, past the chosen file's
@@ -449,7 +454,7 @@ html[data-window-inactive="true"] {
 .import-guide-root[data-guide-side="margin"] .import-guide-rail[data-tall] .import-guide-bubble {
   position: sticky;
   top: calc(var(--toolbar-height) + 0.75rem);
-  width: 11.5rem;
+  width: 11.25rem;
   animation-name: var(--guide-in-side);
 }
 .import-guide-root[data-guide-side="margin"] .import-guide-rail[data-tall] .import-guide-bubble::before {

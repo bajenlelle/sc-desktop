@@ -14,6 +14,7 @@ import {
   type ImportGuideFacts,
   type ImportGuideRun,
   type ImportGuideStep,
+  type ImportGuideTrigger,
 } from "@scoutable/shared/lib/import-guide";
 
 /** What the bubble's wording depends on, beyond the step. */
@@ -26,13 +27,10 @@ export interface ImportGuideView {
   isUpdate: boolean;
 }
 
-export type ImportGuideTrigger = "auto" | "manual";
-
 const NO_VIEW: ImportGuideView = { teamView: false, offer: false, isUpdate: false };
 
 let facts: ImportGuideFacts | null = null;
 let view: ImportGuideView = NO_VIEW;
-let trigger: ImportGuideTrigger | null = null;
 let run: ImportGuideRun | null = null;
 
 const listeners = new Set<() => void>();
@@ -65,7 +63,6 @@ function retire() {
   if (!facts && !run) return;
   facts = null;
   view = NO_VIEW;
-  trigger = null;
   run = null;
   emit();
 }
@@ -93,22 +90,20 @@ export function usePublishImportGuide(nextFacts: ImportGuideFacts, nextView: Imp
 /** Starts a showing of the guide. False when it is already showing. */
 export function openImportGuide(how: ImportGuideTrigger): boolean {
   if (run) return false;
-  trigger = how;
-  run = startImportGuideRun(Date.now());
+  run = startImportGuideRun(Date.now(), how);
   emit();
   return true;
 }
 
 export function closeImportGuide() {
   if (!run) return;
-  trigger = null;
   run = null;
   emit();
 }
 
 /** How the showing guide was started, or null when it is not showing. */
 export function importGuideTrigger(): ImportGuideTrigger | null {
-  return trigger;
+  return run?.trigger ?? null;
 }
 
 /** The step on screen right now, for a handler that needs it once. */

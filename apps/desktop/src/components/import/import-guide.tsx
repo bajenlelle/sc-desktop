@@ -14,7 +14,6 @@ import {
   useImportGuideReady,
   useImportGuideStep,
   useImportGuideView,
-  type ImportGuideTrigger,
   type ImportGuideView,
 } from "@/lib/import-guide-store";
 import { countOwnImports } from "@/lib/matches-db";
@@ -23,8 +22,10 @@ import { getImportGuideDone, setImportGuideDone } from "@/lib/prefs";
 import {
   IMPORT_GUIDE_STEPS,
   importGuideEntry,
+  importGuideScrollBy,
   importGuideStepNumber,
   type ImportGuideStep,
+  type ImportGuideTrigger,
 } from "@scoutable/shared/lib/import-guide";
 
 /**
@@ -38,8 +39,19 @@ import {
  * here and the `data-tour` attributes in the page.
  */
 
-/** The bubble needs this much free room beside the column to sit in the margin. */
-const MARGIN_ROOM = 208;
+/**
+ * The bubble needs this much free room beside the column to sit in the margin:
+ * the rail's 12.25rem in index.css and a little air. The default window has
+ * about 218px there, about 210 with a scrollbar that takes width (Windows).
+ */
+const MARGIN_ROOM = 202;
+
+/** The page's scrolling box: the nearest ancestor that scrolls. */
+function scrollerOf(element: HTMLElement): HTMLElement | null {
+  let node = element.parentElement;
+  while (node && !/(auto|scroll)/.test(getComputedStyle(node).overflowY)) node = node.parentElement;
+  return node;
+}
 
 /** The tall steps: a list or a player the bubble must not push out of view. */
 const TALL: readonly ImportGuideStep[] = ["pick", "tipoff"];
@@ -56,9 +68,12 @@ function start(trigger: ImportGuideTrigger) {
   if (openImportGuide(trigger)) trackEvent("import_guide_started", { trigger });
 }
 
-/** Skip is for good; Escape only closes the guide for this visit. */
-function dismiss(how: "skip" | "escape", userId: string | undefined) {
-  trackEvent("import_guide_skipped", { step: currentImportGuideStep(), how });
+/**
+ * Skip is for good. Hiding a showing that was opened from the toolbar, and
+ * Escape, only close it: the guide still starts by itself next visit.
+ */
+function dismiss(how: "skip" | "hide" | "escape", userId: string | undefined) {
+  trackEvent("import_guide_skipped", { step: currentImportGuideStep(), how, trigger: importGuideTrigger() });
   if (how === "skip") setImportGuideDone(userId);
   closeImportGuide();
 }
@@ -139,14 +154,11 @@ export function ImportGuideRoot({ children }: { children: React.ReactNode }) {
   // Report each step once as the page moves; the import ends the guide.
   useEffect(() => {
     if (!open) return;
-    for (const e of takeImportGuideEvents()) {
-      if (e.event === "import_guide_completed") {
-        trackEvent(e.event, { seconds: e.seconds, trigger: importGuideTrigger() });
+    for (const { event, ...props } of takeImportGuideEvents()) {
+      trackEvent(event, props);
+      if (event === "import_guide_completed") {
         setImportGuideDone(userId);
         closeImportGuide();
-      } else {
-        const { event, ...props } = e;
-        trackEvent(event, props);
       }
     }
   }, [open, facts, userId]);
@@ -170,10 +182,8 @@ export function ImportGuideRoot({ children }: { children: React.ReactNode }) {
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!open || !root) return;
-    let scroller: HTMLElement | null = root.parentElement;
-    while (scroller && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) scroller = scroller.parentElement;
-    if (!scroller) return;
-    const page = scroller;
+    const page = scrollerOf(root);
+    if (!page) return;
     const measure = () => {
       const column = root.querySelector<HTMLElement>("[data-tour]") ?? root;
       const room = page.getBoundingClientRect().left + page.clientWidth - column.getBoundingClientRect().right;
@@ -185,28 +195,45 @@ export function ImportGuideRoot({ children }: { children: React.ReactNode }) {
     return () => observer.disconnect();
   }, [open, ready]);
 
-  // Bring the step into view: the bubble, or the ringed button when the bubble
-  // rides in the margin. Again if the lit area grows (a list arrives, a video
-  // loads), but only until the coach touches the page: after that it is theirs.
+  // Bring the step into view: the ringed button and the bubble together when
+  // they fit, else the button (importGuideScrollBy). Again if the lit area
+  // grows (a list arrives, a video loads, a suggestion appears), but only
+  // until the coach touches the page: after that the scroll is theirs.
   useEffect(() => {
     const root = rootRef.current;
     if (!step || !root) return;
     const inMargin = side === "margin" && TALL.includes(step);
+    const span = (element: Element | null | undefined) => {
+      if (!element) return null;
+      const { top, bottom } = element.getBoundingClientRect();
+      return { top, bottom };
+    };
     let timer = 0;
     const reveal = () => {
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
-        const target = inMargin
-          ? ACTIONS[step].map((selector) => root.querySelector<HTMLElement>(selector)).find(Boolean)
-          : root.querySelector<HTMLElement>("[data-guide-bubble]");
-        target?.scrollIntoView({ block: "nearest", behavior: reduceMotion ? "auto" : "smooth" });
+        const page = scrollerOf(root);
+        if (!page) return;
+        const frame = page.getBoundingClientRect();
+        // The toolbar lies over the top of the scrolling box.
+        const toolbar = page.parentElement?.querySelector(":scope > header")?.getBoundingClientRect().bottom;
+        const by = importGuideScrollBy({
+          action: span(ACTIONS[step].map((selector) => root.querySelector(selector)).find(Boolean)),
+          bubble: inMargin ? null : span(root.querySelector("[data-guide-bubble]")),
+          view: { top: Math.max(frame.top, toolbar ?? frame.top), bottom: frame.bottom },
+          margin: 16,
+        });
+        if (by) page.scrollBy({ top: by, behavior: reduceMotion ? "auto" : "smooth" });
       }, 350);
     };
     const observer = new ResizeObserver(reveal);
     const area = root.querySelector("[data-guide-bubble]")?.closest("[data-tour]");
     if (area) observer.observe(area);
     else reveal();
-    const stop = () => observer.disconnect();
+    const stop = () => {
+      window.clearTimeout(timer);
+      observer.disconnect();
+    };
     const touches = ["pointerdown", "keydown", "wheel"] as const;
     for (const type of touches) window.addEventListener(type, stop, { capture: true, passive: true });
     return () => {
@@ -263,6 +290,8 @@ export function ImportGuideBubble({ at }: { at: keyof typeof SLOTS }) {
   if (!step || !(SLOTS[at] as readonly ImportGuideStep[]).includes(step)) return null;
 
   const copy = guideCopy(step, view, !!facts?.settingQuarters);
+  // A showing opened from the toolbar is a look, not the first-import guide: closing it skips nothing.
+  const manual = importGuideTrigger() === "manual";
   return (
     <div
       key={step}
@@ -282,9 +311,9 @@ export function ImportGuideBubble({ at }: { at: keyof typeof SLOTS }) {
             variant="ghost"
             size="xs"
             className="-mr-1.5 text-muted-foreground"
-            onClick={() => dismiss("skip", user?.id)}
+            onClick={() => dismiss(manual ? "hide" : "skip", user?.id)}
           >
-            {importGuideTrigger() === "manual" ? "Hide guide" : "Skip guide"}
+            {manual ? "Hide guide" : "Skip guide"}
           </Button>
         </div>
       </aside>
