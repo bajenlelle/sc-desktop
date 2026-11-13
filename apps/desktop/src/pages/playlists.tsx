@@ -2883,6 +2883,12 @@ export function PlaylistsPage() {
           void playerFsRef.current.exit();
           return;
         }
+        // The vertical crop is a mode of the stage: Esc puts the normal stage back, and only that.
+        if (cropMode) {
+          e.preventDefault();
+          setCropMode(false);
+          return;
+        }
         if (selectedClipIds.size > 0) {
           e.preventDefault();
           setSelectedClipIds(new Set());
