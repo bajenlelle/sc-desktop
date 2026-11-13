@@ -52,7 +52,9 @@ stretch where a game turned.
   layout, not while a dialog is open); the Window menu has Show Next Game Tab
   (⌘⇧]) and Show Previous Game Tab (⌘⇧[), on only on the game page.
 - A switch replaces the history entry (`replace: true`), as the Game | Details
-  switch does: Back leaves the games.
+  switch does: Back leaves the games. It first leaves the field being typed
+  in, so a Details title saves; and a playlist write still out from the game
+  it leaves lands before the next game reads or writes that playlist.
 
 ## What it reads from the stats (`packages/shared/lib`, pure, tested)
 

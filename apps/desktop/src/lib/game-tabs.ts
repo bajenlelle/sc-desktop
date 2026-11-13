@@ -96,7 +96,9 @@ function onAuthChanged(userId: string | null) {
 
 function onMatchesChanged() {
   loadedGames.clear();
-  const open = [...states].filter(([, state]) => state.tabs.length > 0);
+  // Only the signed-in user's tabs (all, before the auth listener first says): another's games are read under this one's access.
+  const mine = (scope: string) => cachedFor === undefined || (cachedFor !== null && scope.startsWith(`${cachedFor}:`));
+  const open = [...states].filter(([scope, state]) => mine(scope) && state.tabs.length > 0);
   const ids = [...new Set(open.flatMap(([, state]) => state.tabs.map((t) => t.id)))];
   if (ids.length === 0) return;
   listMatchesByIds(ids)

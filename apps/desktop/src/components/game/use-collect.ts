@@ -19,9 +19,17 @@ const COLLECT_TOAST = "game-collect";
 /** This session's last playlists read, by `${orgId}|${includeUnscoped}`: the next visit shows them at once and reads again behind. */
 let lastList: { key: string; list: Playlist[] } | null = null;
 
+/**
+ * Each playlist's writes in flight, by playlist id, for the whole app: a game
+ * a tab switch just left may still be writing, and the next game's read and
+ * writes wait for it.
+ */
+const chains = new Map<string, Promise<void>>();
+
 /** Forgets the last read, so another user signing in never sees this one's playlists. */
 export function forgetPlaylistsRead(): void {
   lastList = null;
+  chains.clear();
 }
 
 /**
@@ -30,10 +38,10 @@ export function forgetPlaylistsRead(): void {
  *
  * Every add shows at once and is written behind it, one write after another
  * per playlist, so plays added in quick succession land in the order they
- * were pressed. A failed write is taken back and said. Undo (the toast's, or
- * a row's menu) removes what this visit added: a clip that was in the
- * playlist before may carry notes, a trim or an upload, and this view has no
- * history to put those back from.
+ * were pressed, here or in the game a tab switch just left. A failed write is
+ * taken back and said. Undo (the toast's, or a row's menu) removes what this
+ * visit added: a clip that was in the playlist before may carry notes, a
+ * trim or an upload, and this view has no history to put those back from.
  *
  * A row's menu adds to any playlist once (`addToPlaylist`, `createAndAddTo`)
  * without changing the target.
@@ -83,7 +91,6 @@ export function useCollect({
   const pendingRef = useRef<{ plays: readonly TimedPlay[]; via: CollectVia; moment: string | null; onAdded?: () => void } | null>(null);
   /** What the server holds for each playlist: the base every write goes from. */
   const saved = useRef(new Map<string, PlaylistItem[]>());
-  const chains = useRef(new Map<string, Promise<void>>());
   const saidHeld = useRef(false);
 
   useEffect(() => {
@@ -94,20 +101,23 @@ export function useCollect({
     readIds.current = null;
     setReadLanded(false);
     setPlaylists(cached);
-    const read = listPlaylists(orgId ?? undefined, { includeUnscoped }).then((list) => {
-      // Set even when the page has gone, so writes made before it left still land. Merged: a playlist made
-      // here while the read was out keeps its entry.
-      if (keyNow.current === key) {
-        for (const p of list) saved.current.set(p.id, p.items);
-        readIds.current = new Set(list.map((p) => p.id));
-      }
-      if (cancelled) return;
-      const edits = early.current ?? [];
-      early.current = null;
-      listKey.current = key;
-      setPlaylists(edits.reduce<Playlist[] | null>((l, change) => change(l), list));
-      setReadLanded(true);
-    });
+    // After the writes still in flight (from the game just left, too): never a base about to change.
+    const read = Promise.all([...chains.values()].map((c) => c.catch(() => {})))
+      .then(() => listPlaylists(orgId ?? undefined, { includeUnscoped }))
+      .then((list) => {
+        // Set even when the page has gone, so writes made before it left still land. Merged: a playlist made
+        // here while the read was out keeps its entry.
+        if (keyNow.current === key) {
+          for (const p of list) saved.current.set(p.id, p.items);
+          readIds.current = new Set(list.map((p) => p.id));
+        }
+        if (cancelled) return;
+        const edits = early.current ?? [];
+        early.current = null;
+        listKey.current = key;
+        setPlaylists(edits.reduce<Playlist[] | null>((l, change) => change(l), list));
+        setReadLanded(true);
+      });
     loadedRef.current = read.catch(() => {});
     read.catch(() => {
       if (cancelled) return;
@@ -155,9 +165,13 @@ export function useCollect({
   );
 
   const enqueue = useCallback((playlistId: string, job: () => Promise<void>) => {
-    // A playlist's first write waits for the read: never from the earlier list.
-    const next = (chains.current.get(playlistId) ?? loadedRef.current).then(job).catch(() => {});
-    chains.current.set(playlistId, next);
+    // A playlist's first write here waits for this page's read: never from the earlier list.
+    const before = chains.get(playlistId);
+    const next = (before ? Promise.all([before, loadedRef.current]) : loadedRef.current).then(job).catch(() => {});
+    chains.set(playlistId, next);
+    void next.then(() => {
+      if (chains.get(playlistId) === next) chains.delete(playlistId);
+    });
   }, []);
 
   const undo = useCallback(

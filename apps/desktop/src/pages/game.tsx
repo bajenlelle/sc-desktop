@@ -152,9 +152,13 @@ export function GamePage() {
   useEffect(() => {
     if (view !== "details" || loaded || knownTitle) return;
     let cancelled = false;
-    void listMatchesByIds([matchId]).then(([match]) => {
-      if (!cancelled && match) rememberGameTab(scopeAtMount.current, { id: matchId, title: match.title, date: match.date || null });
-    });
+    void listMatchesByIds([matchId])
+      .then(([match]) => {
+        if (!cancelled && match) rememberGameTab(scopeAtMount.current, { id: matchId, title: match.title, date: match.date || null });
+      })
+      .catch(() => {
+        /* a failed read leaves the tab unnamed until the game is read another way */
+      });
     return () => {
       cancelled = true;
     };
@@ -166,8 +170,10 @@ export function GamePage() {
   }, [missing, matchId]);
 
   const tabCount = tabs.tabs.length;
+  // A switch blurs the field being typed in first: Details saves on blur, and the page is gone after `navigate`.
   const goTo = useCallback(
     (id: string, via: "tab" | "key" | "menu") => {
+      (document.activeElement as HTMLElement | null)?.blur();
       // A switch replaces the entry: Back leaves the games, it doesn't step through them.
       navigate(`/matches/${id}`, { replace: true, state: { via: "tab" } });
       trackEvent("game_tab_switched", { via, tabs: tabCount });
@@ -180,7 +186,10 @@ export function GamePage() {
       const open = tabs.tabs.some((t) => t.id === id);
       const next = forgetGameTab(scope, id);
       trackEvent("game_tab_closed", { via, tabs: open ? tabs.tabs.length - 1 : tabs.tabs.length });
-      if (id === matchId && next) navigate(`/matches/${next}`, { replace: true, state: { via: "tab" } });
+      if (id === matchId && next) {
+        (document.activeElement as HTMLElement | null)?.blur();
+        navigate(`/matches/${next}`, { replace: true, state: { via: "tab" } });
+      }
     },
     [tabs, scope, matchId, navigate],
   );
