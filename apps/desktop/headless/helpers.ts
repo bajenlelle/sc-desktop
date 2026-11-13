@@ -114,3 +114,93 @@ export default async function globalSetup(): Promise<void> {
     await browser.close();
   }
 }
+
+/*
+ * Archive helpers (group E). The archive spec is the one spec that changes a
+ * game it didn't create: it archives one and brings it back in the same test.
+ * These read and write through the app's own signed-in Supabase client (the
+ * module the app imports, so the same session); the page has to be on the
+ * app's origin.
+ */
+
+/** Runs `body` in the page with the app's Supabase client as `sb` and the signed-in user as `user`. */
+async function archiveWithClient<A, R>(page: Page, body: string, arg: A): Promise<R> {
+  if (!page.url().startsWith(BASE_URL)) await page.goto("/");
+  return page.evaluate(
+    async ({ body, arg }) => {
+      const mod = await import(/* @vite-ignore */ "/src/lib/supabase/client.ts" as string);
+      const sb = mod.createClient();
+      const { data: { user } } = await sb.auth.getUser();
+      if (!user) throw new Error("headless: not signed in");
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval
+      return new Function("sb", "user", "arg", `return (async () => { ${body} })()`)(sb, user, arg);
+    },
+    { body, arg },
+  ) as Promise<R>;
+}
+
+/** The game's `archived_at` as the server has it (null: in the Library). */
+export async function archiveStateOnServer(page: Page, matchId: string): Promise<string | null> {
+  return archiveWithClient(page, `
+    const { data, error } = await sb.from("matches").select("archived_at").eq("id", arg).single();
+    if (error) throw new Error("headless: " + error.message);
+    return data.archived_at;
+  `, matchId);
+}
+
+/**
+ * Puts an archived game back in the Library through the app's client when the
+ * UI didn't (a failed step), then polls the server until it reads null. Safe
+ * to call when the game is already back.
+ */
+export async function archiveRestoreGame(page: Page, matchId: string): Promise<void> {
+  if ((await archiveStateOnServer(page, matchId)) !== null) {
+    await archiveWithClient(page, `
+      const { error } = await sb.from("matches").update({ archived_at: null }).eq("id", arg);
+      if (error) throw new Error("headless: " + error.message);
+    `, matchId);
+  }
+  await expect.poll(() => archiveStateOnServer(page, matchId), { message: "the game is back in the Library on the server", timeout: 15_000 }).toBeNull();
+}
+
+/**
+ * Creates an empty playlist in the active space and returns its id. Name it
+ * `headless-<port> …`; archiveDeletePlaylistsNamed removes it.
+ */
+export async function archiveCreatePlaylist(page: Page, name: string): Promise<string> {
+  return archiveWithClient(page, `
+    let orgId = localStorage.getItem("scoutable_active_org_id");
+    if (!orgId) {
+      const { data } = await sb.from("org_memberships").select("org_id").eq("user_id", user.id).limit(1);
+      orgId = data?.[0]?.org_id ?? null;
+    }
+    const { data, error } = await sb.from("playlists").insert({ user_id: user.id, name: arg, org_id: orgId }).select("id").single();
+    if (error || !data) throw new Error("headless: couldn't create the playlist: " + error?.message);
+    return data.id;
+  `, name);
+}
+
+/** Deletes the account's own playlists whose names start with `prefix` (this port's `headless-<port> `). Returns their names. */
+export async function archiveDeletePlaylistsNamed(page: Page, prefix: string): Promise<string[]> {
+  if (!prefix.startsWith(`headless-${PORT} `)) throw new Error(`headless: refusing to delete playlists outside "headless-${PORT} "`);
+  return archiveWithClient(page, `
+    const { data, error } = await sb.from("playlists").delete().eq("user_id", user.id).like("name", arg + "%").select("name");
+    if (error) throw new Error("headless: " + error.message);
+    return (data ?? []).map((p) => p.name);
+  `, prefix);
+}
+
+/** The account's own playlists whose names start with `prefix`. */
+export async function archivePlaylistNames(page: Page, prefix: string): Promise<string[]> {
+  return archiveWithClient(page, `
+    const { data, error } = await sb.from("playlists").select("name").eq("user_id", user.id).like("name", arg + "%");
+    if (error) throw new Error("headless: " + error.message);
+    return (data ?? []).map((p) => p.name);
+  `, prefix);
+}
+
+/** The Library's toolbar subtitle, "N games", as a number. */
+export async function libraryGameCount(page: Page): Promise<number> {
+  const text = await page.getByText(/^\d+ games$/).innerText();
+  return Number(text.split(" ")[0]);
+}
