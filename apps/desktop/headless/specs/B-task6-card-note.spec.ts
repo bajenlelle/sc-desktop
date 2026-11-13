@@ -11,26 +11,23 @@
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Page } from "@playwright/test";
-import { deletePlaylistsNamed, expect, newPlaylistWithClips, OUT_DIR, PORT, selectRows, shot, test } from "../helpers";
+import { deletePlaylistsNamed, expect, inScratchPage, newPlaylistWithClips, OUT_DIR, playlistIdNamed, PORT, selectRows, shot, test } from "../helpers";
 
 const NAME = `headless-${PORT} card`;
 /** 106 characters: two or three lines under the numbers (shared card-layout tests). */
 const NOTE = "Great closeouts all game and smart help from the weak side, keep talking on every switch and box out early";
 
+// Genius' hosted pages can be slow on a cold read (the card's numbers, then the season's).
+test.setTimeout(120_000);
+
 test.beforeEach(async ({ page }) => {
-  await deletePlaylistsNamed(page, NAME);
+  // A crashed run's playlist, swept in a scratch page so the test's page starts clean.
+  await inScratchPage(page, (scratch) => deletePlaylistsNamed(scratch, NAME));
 });
 
 test.afterEach(async ({ page }) => {
   await deletePlaylistsNamed(page, NAME);
 });
-
-/** The open playlist's id, from its row in the playlist list. */
-async function playlistId(page: Page): Promise<string> {
-  const id = await page.locator("[data-playlist-id]").filter({ hasText: NAME }).first().getAttribute("data-playlist-id");
-  expect(id).toBeTruthy();
-  return id!;
-}
 
 /** The card's saved row: its spec and its fallback line. */
 async function savedCard(page: Page, id: string) {
@@ -40,16 +37,56 @@ async function savedCard(page: Page, id: string) {
   return rows[0] ?? null;
 }
 
-/** The card painted at a size by the app's painter (export and send to phone use it), as a data URL. */
-async function paint(page: Page, source: { text: string; card: unknown }, aspect: "16:9" | "9:16"): Promise<string> {
+/**
+ * The card painted at an aspect by the app's painter (export and send to phone
+ * use it), without and with the note, read as bands of ink rows (one band per
+ * line of text) in the page. The layout centres its block and rounds each
+ * baseline, so the note moves the name and numbers up and may shift a line by
+ * a pixel: bands are compared by height, not pixel for pixel. Returns both
+ * cards' bands, the horizontal extent of the with-note card's extra bands, and
+ * the with-note PNG.
+ */
+async function paintBoth(page: Page, without: { text: string; card: unknown }, withNote: { text: string; card: unknown }, aspect: "16:9" | "9:16") {
   return page.evaluate(
-    async ({ source, aspect }) => {
+    async ({ without, withNote, aspect }) => {
       const modulePath = "/src/lib/card-painter.ts";
       const painter = await import(/* @vite-ignore */ modulePath);
       await painter.loadCardFonts();
-      return painter.paintCard(source, aspect).toDataURL("image/png");
+      const read = (c: HTMLCanvasElement) => {
+        const { width, height } = c;
+        const p = c.getContext("2d")!.getImageData(0, 0, width, height).data;
+        const ink = (x: number, y: number) => {
+          const i = (y * width + x) * 4;
+          return p[i] !== p[0] || p[i + 1] !== p[1] || p[i + 2] !== p[2] || p[i + 3] !== p[3]; // not the corner's colour
+        };
+        const bands: { top: number; bottom: number; minX: number; maxX: number }[] = [];
+        let open: (typeof bands)[number] | null = null;
+        for (let y = 0; y < height; y++) {
+          let minX = Infinity;
+          let maxX = -1;
+          for (let x = 0; x < width; x++) {
+            if (ink(x, y)) {
+              minX = Math.min(minX, x);
+              maxX = Math.max(maxX, x);
+            }
+          }
+          if (maxX < 0) {
+            open = null;
+            continue;
+          }
+          if (!open) bands.push((open = { top: y, bottom: y, minX, maxX }));
+          open.bottom = y;
+          open.minX = Math.min(open.minX, minX);
+          open.maxX = Math.max(open.maxX, maxX);
+        }
+        return { size: [width, height], bands };
+      };
+      const a = read(painter.paintCard(without, aspect));
+      const canvas: HTMLCanvasElement = painter.paintCard(withNote, aspect);
+      const b = read(canvas);
+      return { a, b, png: canvas.toDataURL("image/png") };
     },
-    { source, aspect },
+    { without, withNote, aspect },
   );
 }
 
@@ -60,7 +97,7 @@ function savePng(dataUrl: string, name: string): void {
 test("a stats card takes a note: inspector, stage, fallback line, cap, and it survives player and scope changes", async ({ page, browserName }) => {
   const name = (step: string) => `${browserName}-B-task6-${step}`;
   await newPlaylistWithClips(page, NAME, { count: 2 });
-  const id = await playlistId(page);
+  const id = await playlistIdNamed(page, NAME);
 
   // The toolbar's add-card menu: Add stats card reads the official numbers, then holds the card on the stage.
   await page.getByRole("button", { name: "Add a card" }).click();
@@ -96,15 +133,30 @@ test("a stats card takes a note: inspector, stage, fallback line, cap, and it su
     .toEqual([NOTE, `${saved0.text_content} · ${NOTE}`]);
   await shot(page, name("card-note-16x9"));
 
-  // The 16:9 stage and the Vertical frame through the app's painter: the note changes both.
+  // Manual check (1), 16:9 and Vertical, through the app's painter: the card's own lines keep their
+  // heights, and the note adds two or three lines under the numbers, inside the frame.
   const saved1 = (await savedCard(page, id))!;
   const withNote = { text: saved1.text_content!, card: saved1.card };
   const without = { text: saved0.text_content!, card: saved0.card };
-  for (const aspect of ["16:9", "9:16"] as const) {
-    const a = await paint(page, without, aspect);
-    const b = await paint(page, withNote, aspect);
-    expect(b, `the ${aspect} card draws the note`).not.toBe(a);
-    savePng(b, name(`painted-${aspect === "16:9" ? "16x9" : "9x16"}`));
+  for (const [aspect, frame] of [["16:9", [1280, 720]], ["9:16", [1080, 1920]]] as const) {
+    const r = await paintBoth(page, without, withNote, aspect);
+    expect([...r.a.size, ...r.b.size], `the ${aspect} frame`).toEqual([...frame, ...frame]);
+    const n = r.a.bands.length;
+    expect(n, `the ${aspect} card without a note has its lines`).toBeGreaterThanOrEqual(4);
+    // The name, details and numbers come first, each band as tall as before (±1 px for rounding)…
+    r.a.bands.forEach((band, i) => {
+      const height = r.b.bands[i].bottom - r.b.bands[i].top;
+      expect(Math.abs(height - (band.bottom - band.top)), `the ${aspect} card's line ${i + 1} is unchanged`).toBeLessThanOrEqual(1);
+    });
+    // …and the note adds two or three lines under the last one, inside the frame.
+    const noteBands = r.b.bands.slice(n);
+    expect(noteBands.length, `the ${aspect} note wraps to two or three lines under the numbers`).toBeGreaterThanOrEqual(2);
+    expect(noteBands.length).toBeLessThanOrEqual(3);
+    expect(noteBands[0].top, `the ${aspect} note starts below the numbers`).toBeGreaterThan(r.b.bands[n - 1].bottom);
+    expect(Math.min(...noteBands.map((band) => band.minX)), `the ${aspect} note is inside the frame`).toBeGreaterThan(0);
+    expect(Math.max(...noteBands.map((band) => band.maxX)), `the ${aspect} note is inside the frame`).toBeLessThan(frame[0] - 1);
+    expect(noteBands[noteBands.length - 1].bottom, `the ${aspect} note is inside the frame`).toBeLessThan(frame[1] - 1);
+    savePng(r.png, name(`painted-${aspect === "16:9" ? "16x9" : "9x16"}`));
   }
 
   // A pasted newline becomes a space.

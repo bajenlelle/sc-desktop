@@ -123,6 +123,28 @@ the task's report. The harness itself is typechecked with
 The smoke spec (`specs/smoke.spec.ts`) is the harness's own proof: Library
 lists games, the first game's Game view draws its play list and timeline, a
 playlist's Add clips lists events. It reads only. It needs the test account
-to have at least one game and one playlist. No spec links a staging game to
-the test video yet: the first task that needs footage adds a helper that
-links it and restores the game's own video afterwards.
+to have at least one game and one playlist.
+
+## Footage
+
+A staging game's video is on another computer, so a spec that needs playback
+links the game to the test video for the length of the test:
+`linkStageGameToFixture(page, matchId, track)` in `headless/helpers.ts` clicks
+the player's real Locate file… (the dialog mock picks this worktree's
+`headless/fixtures/game.mp4`). Before the click it reads the game's own
+`video_url`, writes it to a journal, `<system
+temp>/scoutable-headless-video-link-<port>.json`, and hands the link to
+`track`, so `afterEach` can call `restoreGameVideo` even when a later wait
+fails. The journal stays out of `apps/desktop`: Playwright empties `out/` when
+a run starts, and Vite reloads the open page when a watched file is removed,
+which cancels the app's requests mid-test. `restoreGameVideo` puts the old
+value back only while the game still points at this worktree's test video (it
+throws if someone else changed it) and then removes the journal;
+`restoreJournalledVideoLink` in `beforeEach` restores what a crashed run left;
+run it, and any `deletePlaylistsNamed` sweep, through `inScratchPage(page,
+…)`, a second page that is closed before the test's own page opens, so that
+page never shows a swept row or a stale link. A game that already points at
+any `…/headless/fixtures/` path is refused. The test video is two minutes
+long: pick plays that sit inside it (`specs/B-task4-this-clip-bar.spec.ts`
+picks them from the game's sync point). Both WebKit and Chrome play it through
+`/@fs`.

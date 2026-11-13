@@ -8,11 +8,14 @@
 import {
   deletePlaylistsNamed,
   expect,
+  inScratchPage,
   type FixtureLink,
   linkStageGameToFixture,
   newPlaylistWithClips,
+  playlistIdNamed,
   PORT,
   restoreGameVideo,
+  restoreJournalledVideoLink,
   selectRows,
   shot,
   test,
@@ -22,7 +25,11 @@ const NAME = `headless-${PORT} bar`;
 let link: FixtureLink | null = null;
 
 test.beforeEach(async ({ page }) => {
-  await deletePlaylistsNamed(page, NAME);
+  // What a crashed run left: its link first, then its playlist; in a scratch page, so the test's page starts clean.
+  await inScratchPage(page, async (scratch) => {
+    await restoreJournalledVideoLink(scratch);
+    await deletePlaylistsNamed(scratch, NAME);
+  });
 });
 
 test.afterEach(async ({ page }) => {
@@ -79,7 +86,7 @@ test("the This clip bar has no steppers; a trim shows Reset trim, which takes it
   await page.locator(`[role=row][data-row-key="${keys[0]}"]`).click();
   const bar = page.getByText("This clip", { exact: true }).locator("..");
   await expect(bar).toBeVisible();
-  link = await linkStageGameToFixture(page, matchId);
+  await linkStageGameToFixture(page, matchId, (l) => (link = l));
   await page.locator(`[role=row][data-row-key="${keys[0]}"]`).click();
   await expect(bar).toBeVisible();
 
@@ -109,7 +116,7 @@ test("the This clip bar has no steppers; a trim shows Reset trim, which takes it
   const reset = bar.getByRole("button", { name: "Reset trim" });
   await expect(reset, "a trimmed clip shows Reset trim").toBeVisible();
   await expect
-    .poll(async () => (await selectRows<{ pre_roll_offset: number }>(page, "playlist_clips", "pre_roll_offset", { match_id: matchId, event_id: firstEventId, playlist_id: await playlistId(page) }))[0]?.pre_roll_offset)
+    .poll(async () => (await selectRows<{ pre_roll_offset: number }>(page, "playlist_clips", "pre_roll_offset", { match_id: matchId, event_id: firstEventId, playlist_id: await playlistIdNamed(page, NAME) }))[0]?.pre_roll_offset)
     .toBeCloseTo(-2, 1);
   await reset.hover();
   const resetTip = page.getByRole("tooltip").filter({ hasText: "Back to the playlist's clip length" });
@@ -122,14 +129,40 @@ test("the This clip bar has no steppers; a trim shows Reset trim, which takes it
   await reset.click();
   await expect(reset, "Reset trim goes once the clip is back to the playlist's length").toBeHidden();
   await expect
-    .poll(async () => (await selectRows<{ pre_roll_offset: number; post_roll_offset: number }>(page, "playlist_clips", "pre_roll_offset, post_roll_offset", { match_id: matchId, event_id: firstEventId, playlist_id: await playlistId(page) }))[0])
+    .poll(async () => (await selectRows<{ pre_roll_offset: number; post_roll_offset: number }>(page, "playlist_clips", "pre_roll_offset, post_roll_offset", { match_id: matchId, event_id: firstEventId, playlist_id: await playlistIdNamed(page, NAME) }))[0])
     .toEqual({ pre_roll_offset: 0, post_roll_offset: 0 });
   await shot(page, name("after-reset"));
-});
 
-/** The open playlist's id, from the selected row in the playlist list. */
-async function playlistId(page: import("@playwright/test").Page): Promise<string> {
-  const id = await page.locator("[data-playlist-id]").filter({ hasText: NAME }).first().getAttribute("data-playlist-id");
-  expect(id).toBeTruthy();
-  return id!;
-}
+  // Manual check (4): the Clip length popovers still set a length. The toolbar's is the editor's;
+  // Add clips keeps its own for its preview (10 s and 3 s to start), so each is checked on its own.
+  const tooltipOf = async (button: import("@playwright/test").Locator) => {
+    await page.mouse.move(0, 0);
+    await button.hover();
+    const tip = page.getByRole("tooltip").filter({ hasText: "Clip length:" });
+    await expect(tip).toBeVisible();
+    return tip;
+  };
+  const seconds = async (group: string) => Number((await page.getByRole("group", { name: group }).innerText()).match(/[\d.]+/)![0]);
+  await clipLength.click();
+  await page.getByRole("button", { name: "Increase Pre-roll" }).click();
+  await expect(page.getByRole("group", { name: "Pre-roll" })).toContainText(`${Number(before) + 1} s`);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("group", { name: "Pre-roll" })).toBeHidden();
+  await expect(await tooltipOf(clipLength)).toContainText(`${Number(before) + 1} s before, ${after} s after`);
+
+  await page.getByRole("button", { name: "Add clips", exact: true }).first().click();
+  const sheet = page.getByRole("dialog");
+  const sheetLength = sheet.getByRole("button", { name: "Clip length" });
+  await sheetLength.click();
+  const pre = await seconds("Pre-roll");
+  const post = await seconds("Post-roll");
+  await page.getByRole("button", { name: "Increase Post-roll" }).click();
+  await expect(page.getByRole("group", { name: "Post-roll" })).toContainText(`${post + 1} s`);
+  await shot(page, name("clip-length-add-clips"));
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("group", { name: "Post-roll" })).toBeHidden();
+  await expect(sheet.getByRole("heading", { name: "Add clips" }), "Esc closes the popover, not the sheet").toBeVisible();
+  await expect(await tooltipOf(sheetLength)).toContainText(`${pre} s before, ${post + 1} s after`);
+  await sheet.getByRole("button", { name: "Close" }).click();
+  await expect(sheet).toBeHidden();
+});

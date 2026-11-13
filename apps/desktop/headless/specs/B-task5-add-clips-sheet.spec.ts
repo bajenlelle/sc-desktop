@@ -6,12 +6,13 @@
  * stay manual. Creates "headless-<port> sheet" with one clip and deletes it.
  */
 import type { Page } from "@playwright/test";
-import { deletePlaylistsNamed, expect, newPlaylistWithClips, PORT, sheetScrimPoint, shot, test } from "../helpers";
+import { deletePlaylistsNamed, expect, inScratchPage, newPlaylistWithClips, PORT, sheetScrimPoint, shot, test } from "../helpers";
 
 const NAME = `headless-${PORT} sheet`;
 
 test.beforeEach(async ({ page }) => {
-  await deletePlaylistsNamed(page, NAME);
+  // A crashed run's playlist, swept in a scratch page so the test's page starts clean.
+  await inScratchPage(page, (scratch) => deletePlaylistsNamed(scratch, NAME));
 });
 
 test.afterEach(async ({ page }) => {

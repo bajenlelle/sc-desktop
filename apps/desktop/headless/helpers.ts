@@ -10,6 +10,8 @@
  * native Tauri call, even one the app swallowed) or threw an uncaught error.
  */
 import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test as base, expect, webkit, type Page } from "@playwright/test";
@@ -105,7 +107,7 @@ export async function openFirstGame(page: Page, options: { shotLibraryAs?: strin
  * same Vite URL the app imports, so the same signed-in Supabase client). For
  * setup and cleanup a spec can't reach through the UI, never for what it tests.
  */
-async function withAppModule<A, R>(page: Page, modulePath: string, body: string, arg: A): Promise<R> {
+export async function withAppModule<A, R>(page: Page, modulePath: string, body: string, arg: A): Promise<R> {
   return page.evaluate(
     async ({ modulePath, body, arg }) => {
       const mod = await import(/* @vite-ignore */ modulePath);
@@ -192,42 +194,86 @@ export async function newPlaylistWithClips(
   return keys;
 }
 
+/** This worktree's test video: what the dialog mock picks for Locate file…. */
+export const FIXTURE_VIDEO = path.join(HERE, "fixtures", "game.mp4");
+
+/**
+ * The open link's journal, written before Locate file… changes a staging game
+ * and removed once the game's own video_url is back. It lives in the system's
+ * temp folder: anything under apps/desktop is in Vite's watch, and removing a
+ * file there reloads the open page (mid-test, that cancels the app's own
+ * requests); out/ is also emptied when a run starts.
+ */
+export const VIDEO_LINK_JOURNAL = path.join(tmpdir(), `scoutable-headless-video-link-${PORT}.json`);
+
 /** A game linked to the test video for a spec, and what to put back. */
 export interface FixtureLink {
   matchId: string;
   previous: string | null;
-  linked: string;
 }
 
 /**
- * Links the game on the editor's stage to the fixture through the player's
- * "Locate file…" (the dialog mock picks headless/fixtures/game.mp4), after
- * noting the game's own video_url. Refuses a game another worktree has linked.
- * Pair with restoreGameVideo in afterEach.
+ * Links the game on the editor's stage to this worktree's test video through
+ * the player's "Locate file…" (the dialog mock picks FIXTURE_VIDEO). Before
+ * the click it notes the game's own video_url, journals it, and hands the link
+ * to `track`, so afterEach can restore it even when a wait below fails.
+ * Refuses a game already pointing at a fixture (another worktree's link, or a
+ * crashed run whose journal is gone). Pair with restoreGameVideo in afterEach
+ * and restoreJournalledVideoLink in beforeEach.
  */
-export async function linkStageGameToFixture(page: Page, matchId: string): Promise<FixtureLink> {
+export async function linkStageGameToFixture(page: Page, matchId: string, track: (link: FixtureLink) => void): Promise<FixtureLink> {
   const [before] = await selectRows<{ video_url: string | null }>(page, "matches", "video_url", { id: matchId });
   expect(before, "the game is readable").toBeTruthy();
-  expect(before.video_url ?? "", "no other worktree has this game linked to its fixture").not.toContain("/headless/fixtures/");
+  expect(before.video_url ?? "", "the game isn't already linked to a headless fixture").not.toContain("/headless/fixtures/");
+  const link: FixtureLink = { matchId, previous: before.video_url };
+  writeFileSync(VIDEO_LINK_JOURNAL, JSON.stringify(link));
+  track(link);
   await page.getByRole("button", { name: "Locate file…" }).click();
   await expect(page.getByText("This game's video file can't be found")).toBeHidden({ timeout: 15_000 });
-  let linked = "";
   await expect(async () => {
     const [after] = await selectRows<{ video_url: string | null }>(page, "matches", "video_url", { id: matchId });
-    linked = after.video_url ?? "";
-    expect(linked).toContain("/headless/fixtures/game.mp4");
+    expect(after.video_url).toBe(FIXTURE_VIDEO);
   }).toPass({ timeout: 10_000 });
-  return { matchId, previous: before.video_url, linked };
+  return link;
 }
 
-/** Puts a linked game's own video_url back, only if it still holds this spec's link. */
+/**
+ * Puts a linked game's own video_url back, only while it still points at this
+ * worktree's test video, then removes the journal. Throws when that
+ * compare-and-set matched nothing and the game doesn't hold its own value
+ * either (someone else changed it meanwhile).
+ */
 export async function restoreGameVideo(page: Page, link: FixtureLink): Promise<void> {
   if (page.url() === "about:blank") await openPlaylists(page);
-  await withAppModule(page, "/src/lib/supabase/client.ts", `
-    const { error } = await mod.createClient().from("matches").update({ video_url: arg.previous })
-      .eq("id", arg.matchId).eq("video_url", arg.linked);
+  const restored = await withAppModule<FixtureLink & { linked: string }, number>(page, "/src/lib/supabase/client.ts", `
+    const { data, error } = await mod.createClient().from("matches").update({ video_url: arg.previous })
+      .eq("id", arg.matchId).eq("video_url", arg.linked).select("id");
     if (error) throw new Error("headless: " + error.message);
-  `, link);
+    return data.length;
+  `, { ...link, linked: FIXTURE_VIDEO });
+  if (restored === 0) {
+    // Nothing matched: fine only if the link never landed (a failure before the write).
+    const [now] = await selectRows<{ video_url: string | null }>(page, "matches", "video_url", { id: link.matchId });
+    if (now?.video_url !== link.previous) {
+      throw new Error(`headless: couldn't restore ${link.matchId}: its video_url is ${JSON.stringify(now?.video_url)}, not this worktree's fixture or ${JSON.stringify(link.previous)}`);
+    }
+  }
+  rmSync(VIDEO_LINK_JOURNAL, { force: true });
+}
+
+/** A link a crashed run left in the journal, restored; for beforeEach. Returns it, or null. */
+export async function restoreJournalledVideoLink(page: Page): Promise<FixtureLink | null> {
+  if (!existsSync(VIDEO_LINK_JOURNAL)) return null;
+  const link = JSON.parse(readFileSync(VIDEO_LINK_JOURNAL, "utf8")) as FixtureLink;
+  await restoreGameVideo(page, link);
+  return link;
+}
+
+/** The id of the account's playlist named `name`, from its row in the playlist list. */
+export async function playlistIdNamed(page: Page, name: string): Promise<string> {
+  const id = await page.locator("[data-playlist-id]").filter({ hasText: name }).first().getAttribute("data-playlist-id");
+  expect(id, `the playlist list has "${name}"`).toBeTruthy();
+  return id!;
 }
 
 /**
@@ -256,5 +302,22 @@ export default async function globalSetup(): Promise<void> {
     await context.storageState({ path: STATE_FILE });
   } finally {
     await browser.close();
+  }
+}
+
+/**
+ * Runs `body` in a second page of the test's context, on /playlists, then
+ * closes it: for beforeEach sweeps (deletePlaylistsNamed,
+ * restoreJournalledVideoLink). The test's own page starts fresh afterwards,
+ * so it never shows a swept row or a game's old link, and errors from
+ * requests the closed page leaves behind don't count against the test.
+ */
+export async function inScratchPage<R>(page: Page, body: (scratch: Page) => Promise<R>): Promise<R> {
+  const scratch = await page.context().newPage();
+  try {
+    await openPlaylists(scratch);
+    return await body(scratch);
+  } finally {
+    await scratch.close();
   }
 }
