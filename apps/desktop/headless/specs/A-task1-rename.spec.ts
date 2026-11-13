@@ -5,15 +5,15 @@
  * folder fields and the editor header's rename field start selected.
  * Creates `headless-1431 …` rows and deletes them, pass or fail.
  */
-import type { Locator, Page, Request } from "@playwright/test";
+import type { Locator, Page, Request, Route } from "@playwright/test";
 import {
   createInSidebar,
-  deleteOwnRowsNamed,
+  deleteSidebarRowsNamed,
   expect,
   focusedField,
   folderRow,
-  openPlaylists,
-  ownRowsNamed,
+  openPlaylistsSidebar,
+  sidebarRowsNamed,
   playlistRow,
   PORT,
   shot,
@@ -38,19 +38,25 @@ function recordWrites(page: Page): { table: string; method: string }[] {
 }
 
 /** Holds the next PATCH to `table` until `release()`, so a spec can look at the screen while the write is in flight. */
-async function holdNextPatch(page: Page, table: string): Promise<{ held: Promise<void>; release: () => void }> {
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => (release = resolve));
+async function holdNextPatch(page: Page, table: string): Promise<{ held: Promise<void>; release: () => Promise<void> }> {
+  let open!: () => void;
+  const gate = new Promise<void>((resolve) => (open = resolve));
   let markHeld!: () => void;
   const held = new Promise<void>((resolve) => (markHeld = resolve));
   const pattern = new RegExp(`/rest/v1/${table}\\?`);
-  await page.route(pattern, async (route) => {
+  let markPassed!: () => void;
+  const passed = new Promise<void>((resolve) => (markPassed = resolve));
+  // Every request to the table passes through; the first PATCH waits at the gate. Release opens the gate,
+  // waits until that PATCH has gone on, then drops the route (a stray GET can't stand in for the PATCH).
+  const handler = async (route: Route) => {
     if (route.request().method() !== "PATCH") return route.continue();
     markHeld();
     await gate;
     await route.continue();
-  }, { times: 1 });
-  return { held, release };
+    markPassed();
+  };
+  await page.route(pattern, handler);
+  return { held, release: async () => { open(); await passed; await page.unroute(pattern, handler); } };
 }
 
 /** The whole value is selected in the focused field. */
@@ -61,15 +67,15 @@ async function expectWholeNameSelected(page: Page, name: string, what: string) {
 }
 
 test.afterEach(async ({ page }) => {
-  await deleteOwnRowsNamed(page, PREFIX);
+  await deleteSidebarRowsNamed(page, PREFIX);
 });
 
 test("A task 1: double-click renames a playlist and a folder, name selected, written once", async ({ page, browserName }) => {
   const name = (step: string) => `${browserName}-A-task1-${step}`;
   const writes = recordWrites(page);
-  // Leftovers of an earlier, killed run.
-  await openPlaylists(page);
-  await deleteOwnRowsNamed(page, PREFIX);
+  // Leftovers of an earlier, killed run, cleared before the list loads.
+  await deleteSidebarRowsNamed(page, PREFIX);
+  await openPlaylistsSidebar(page);
 
   // ── New Playlist: the field opens with "New Playlist" selected, so typing replaces it.
   await page.getByRole("button", { name: "New Playlist", exact: true }).click();
@@ -95,10 +101,10 @@ test("A task 1: double-click renames a playlist and a folder, name selected, wri
   await expect(page.locator("input:focus"), "the field closed on Enter").toHaveCount(0);
   await expect(toastWith(page, "Playlist renamed"), "no toast until the write succeeds").toHaveCount(0);
   await shot(page, name("playlist-renamed-in-flight"));
-  gate.release();
+  await gate.release();
   await expect(toastWith(page, "Playlist renamed")).toBeVisible();
   expect(writes.filter((w) => w.table === "playlists" && w.method === "PATCH"), "one write per rename").toHaveLength(1);
-  await expect.poll(async () => (await ownRowsNamed(page, "playlists", PREFIX)).map((r) => r.name)).toEqual([PLAYLIST_RENAMED]);
+  await expect.poll(async () => (await sidebarRowsNamed(page, "playlists", PREFIX)).map((r) => r.name)).toEqual([PLAYLIST_RENAMED]);
 
   // ── Enter with the same name writes nothing and shows no toast.
   await expect(toastWith(page, "Playlist renamed")).toHaveCount(0, { timeout: 10_000 });
@@ -146,10 +152,10 @@ test("A task 1: double-click renames a playlist and a folder, name selected, wri
   await page.keyboard.press("Enter");
   await folderGate.held;
   await expect(folderRow(page, FOLDER_RENAMED), "the folder's new name shows before the write returns").toBeVisible();
-  folderGate.release();
+  await folderGate.release();
   await expect(toastWith(page, "Folder renamed")).toBeVisible();
   expect(writes.filter((w) => w.table === "playlist_folders" && w.method === "PATCH"), "one write per folder rename").toHaveLength(1);
-  await expect.poll(async () => (await ownRowsNamed(page, "playlist_folders", PREFIX)).map((r) => r.name)).toEqual([FOLDER_RENAMED]);
+  await expect.poll(async () => (await sidebarRowsNamed(page, "playlist_folders", PREFIX)).map((r) => r.name)).toEqual([FOLDER_RENAMED]);
   await shot(page, name("folder-renamed"));
 
   // ── Unchanged folder name: nothing written, no toast.
@@ -171,8 +177,8 @@ test("A task 1: double-click renames a playlist and a folder, name selected, wri
  * focused and the whole name selected (the folder "…" menu's Rename always did).
  */
 test("A task 1 (finding A-1): a rename or new-item field opened from a menu is focused with the name selected", async ({ page, browserName }) => {
-  await openPlaylists(page);
-  await deleteOwnRowsNamed(page, PREFIX);
+  await deleteSidebarRowsNamed(page, PREFIX);
+  await openPlaylistsSidebar(page);
   const playlistId = await (await createInSidebar(page, "playlist", PLAYLIST)).getAttribute("data-playlist-id");
   const folderId = await (await createInSidebar(page, "folder", FOLDER)).getAttribute("data-folder-id");
   const playlist = page.locator(`[data-playlist-id="${playlistId}"]`);
@@ -203,7 +209,7 @@ test("A task 1 (finding A-1): a rename or new-item field opened from a menu is f
       await page.getByRole("menuitem", { name: item, exact: true }).click();
       await expectWholeNameSelected(page, value, what);
       if (i === 0) await shot(page, `${browserName}-A-task1-finding-menu-rename-focused`);
-      // Typing goes into the field, and Escape closes it (a new item's temp row goes away).
+      // Escape closes the field (a new item's temp row goes away) and leaves the name as it was.
       await page.keyboard.press("Escape");
       await expect(page.locator("input:focus"), `${what}: Escape closed the field`).toHaveCount(0);
     });

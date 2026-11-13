@@ -13,12 +13,12 @@
 import type { Locator, Page } from "@playwright/test";
 import {
   createInSidebar,
-  deleteOwnRowsNamed,
+  deleteSidebarRowsNamed,
   expect,
   focusedField,
   folderRow,
-  openPlaylists,
-  ownRowsNamed,
+  openPlaylistsSidebar,
+  sidebarRowsNamed,
   playlistRow,
   PORT,
   shot,
@@ -40,7 +40,7 @@ const REDO = "Meta+Shift+z";
 
 /** What's stored for one of the spec's rows, by exact name (undefined when there is none). */
 async function stored(page: Page, table: "playlists" | "playlist_folders", name: string) {
-  return (await ownRowsNamed(page, table, PREFIX)).find((r) => r.name === name);
+  return (await sidebarRowsNamed(page, table, PREFIX)).find((r) => r.name === name);
 }
 
 /** Renames a sidebar row by double-click and Enter, and waits for the rename toast (the edit is recorded once it shows). */
@@ -62,15 +62,14 @@ function rowInFolder(page: Page, playlistName: string, folderName: string) {
 }
 
 test.afterEach(async ({ page }) => {
-  await deleteOwnRowsNamed(page, PREFIX);
+  await deleteSidebarRowsNamed(page, PREFIX);
 });
 
 test("A task 3: ⌘Z / ⇧⌘Z and the toast's Undo take back sidebar renames and moves", async ({ page, browserName }) => {
   const name = (step: string) => `${browserName}-A-task3-${step}`;
-  await openPlaylists(page);
-  await deleteOwnRowsNamed(page, PREFIX);
-  await page.reload();
-  await expect(page.getByRole("button", { name: "New Playlist", exact: true })).toBeVisible({ timeout: 30_000 });
+  // Leftovers of an earlier, killed run, cleared before the list loads.
+  await deleteSidebarRowsNamed(page, PREFIX);
+  await openPlaylistsSidebar(page);
 
   const folder = await createInSidebar(page, "folder", FOLDER);
   const folderId = await folder.getAttribute("data-folder-id");
@@ -102,7 +101,7 @@ test("A task 3: ⌘Z / ⇧⌘Z and the toast's Undo take back sidebar renames an
   await page.keyboard.press(UNDO);
   await expect.poll(() => focusedField(page), { message: "the field keeps focus, and its own undo takes back the typing" }).toMatchObject({ value: PL_RENAMED });
   await page.waitForTimeout(800);
-  await expect(toastWith(page, /^(Undo|Redo):/), "⌘Z in the field doesn't step the page's history").toHaveCount(0);
+  await expect(page.locator("[data-sonner-toast]"), "⌘Z in the field doesn't step the page's history (no toast at all)").toHaveCount(0);
   await page.locator("input:focus").fill(PL_RENAMED);
   await page.keyboard.press("Enter");
   await expect(playlistRow(page, PL_RENAMED), "the name is untouched").toBeVisible();
@@ -135,7 +134,12 @@ test("A task 3: ⌘Z / ⇧⌘Z and the toast's Undo take back sidebar renames an
   await expect(toastWith(page, "Undo: Move playlist")).toBeVisible();
   await expect.poll(() => rowInFolder(page, PL_RENAMED, FOLDER), { message: "⌘Z: the row is back at the top level" }).toBe(false);
   await expect(playlistRow(page, PL_RENAMED)).toBeVisible();
-  await expect.poll(async () => (await stored(page, "playlists", PL_RENAMED))?.folder_id ?? null, { message: "⌘Z stored the top level" }).toBeNull();
+  await expect
+    .poll(async () => {
+      const row = await stored(page, "playlists", PL_RENAMED);
+      return row && { id: row.id, folder: row.folder_id ?? null };
+    }, { message: "⌘Z stored the top level (the row still exists)" })
+    .toEqual({ id: playlistId, folder: null });
   await shot(page, name("cmdz-move-playlist"));
 
   // ── Move a second folder into the first (its right-click "Move to"), ⌘Z: back at the top level.
@@ -147,8 +151,12 @@ test("A task 3: ⌘Z / ⇧⌘Z and the toast's Undo take back sidebar renames an
   await expect.poll(async () => (await stored(page, "playlist_folders", FOLDER_2))?.parent_id, { message: "the folder is stored inside the first" }).toBe(folderId);
   await page.keyboard.press(UNDO);
   await expect(toastWith(page, "Undo: Move folder")).toBeVisible();
-  await expect.poll(async () => (await stored(page, "playlist_folders", FOLDER_2))?.parent_id ?? null, { message: "⌘Z stored the folder back at the top level" }).toBeNull();
-  expect((await stored(page, "playlist_folders", FOLDER_2))?.id).toBe(folder2Id);
+  await expect
+    .poll(async () => {
+      const row = await stored(page, "playlist_folders", FOLDER_2);
+      return row && { id: row.id, parent: row.parent_id ?? null };
+    }, { message: "⌘Z stored the folder back at the top level (the row still exists)" })
+    .toEqual({ id: folder2Id, parent: null });
 
   // ── Rename, delete the playlist, ⌘Z: nothing is undone, and the toast says why.
   await rename(page, playlist, PL_RENAMED, PL_DOOMED, "Playlist renamed");

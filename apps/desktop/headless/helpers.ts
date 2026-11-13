@@ -12,7 +12,7 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
+import * as sidebarFs from "node:fs";
 import { test as base, expect, webkit, type Locator, type Page } from "@playwright/test";
 import { loadEnv } from "vite";
 
@@ -101,8 +101,23 @@ export async function openFirstGame(page: Page, options: { shotLibraryAs?: strin
   return title;
 }
 
+export default async function globalSetup(): Promise<void> {
+  if (!process.env.HEADLESS_DEVICE_ID) {
+    throw new Error("headless: set HEADLESS_DEVICE_ID in apps/desktop/.env.headless, one per worktree (docs/headless-ui.md)");
+  }
+  execFileSync(path.join(HERE, "make-fixture.sh"), { stdio: "inherit" });
+  const browser = await webkit.launch();
+  try {
+    const context = await browser.newContext({ baseURL: BASE_URL });
+    await signIn(await context.newPage());
+    await context.storageState({ path: STATE_FILE });
+  } finally {
+    await browser.close();
+  }
+}
+
 // ---------------------------------------------------------------------------
-// The playlists sidebar (specs/A-*)
+// The playlists sidebar (group A, specs/A-*): kept together, appended last
 // ---------------------------------------------------------------------------
 
 /** A saved playlist's sidebar row (a temp row has no data-playlist-id), by its exact name. */
@@ -130,7 +145,7 @@ export async function focusedField(page: Page): Promise<{ value: string; start: 
 }
 
 /** Opens /playlists and waits until the sidebar has loaded (its footer's New Playlist shows once loading ends). */
-export async function openPlaylists(page: Page): Promise<void> {
+export async function openPlaylistsSidebar(page: Page): Promise<void> {
   await page.goto("/playlists");
   await expect(page.getByRole("button", { name: "New Playlist", exact: true })).toBeVisible({ timeout: 30_000 });
 }
@@ -152,21 +167,21 @@ export async function createInSidebar(page: Page, kind: "playlist" | "folder", n
   return row;
 }
 
-const SUPABASE = loadEnv("headless", path.dirname(HERE), "VITE_SUPABASE_");
+const SIDEBAR_SUPABASE = loadEnv("headless", path.dirname(HERE), "VITE_SUPABASE_");
 
 /**
  * The signed-in account's own rows over Supabase REST, for a spec's bookkeeping
  * (reading what was saved, and cleaning up), never for the step under test.
  * The token is the page's session, else the saved storage state's.
  */
-async function rest(page: Page, method: "GET" | "DELETE", pathAndQuery: string): Promise<unknown> {
-  const url = SUPABASE.VITE_SUPABASE_URL;
-  const key = SUPABASE.VITE_SUPABASE_ANON_KEY;
+async function sidebarRest(page: Page, method: "GET" | "DELETE", pathAndQuery: string): Promise<unknown> {
+  const url = SIDEBAR_SUPABASE.VITE_SUPABASE_URL;
+  const key = SIDEBAR_SUPABASE.VITE_SUPABASE_ANON_KEY;
   if (!url || !key) throw new Error("headless: VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY missing from .env.headless");
   const storageKey = `sb-${new URL(url).hostname.split(".")[0]}-auth-token`;
   let session = await page.evaluate((k) => localStorage.getItem(k), storageKey).catch(() => null);
   if (!session) {
-    const state = JSON.parse(readFileSync(STATE_FILE, "utf8")) as { origins: { localStorage: { name: string; value: string }[] }[] };
+    const state = JSON.parse(sidebarFs.readFileSync(STATE_FILE, "utf8")) as { origins: { localStorage: { name: string; value: string }[] }[] };
     session = state.origins.flatMap((o) => o.localStorage).find((l) => l.name === storageKey)?.value ?? null;
   }
   const token = session ? (JSON.parse(session) as { access_token?: string }).access_token : undefined;
@@ -182,8 +197,8 @@ async function rest(page: Page, method: "GET" | "DELETE", pathAndQuery: string):
 type SidebarTable = "playlists" | "playlist_folders";
 
 /** The account's playlists or folders whose name starts with `prefix`, as stored. */
-export async function ownRowsNamed(page: Page, table: SidebarTable, prefix: string): Promise<Record<string, unknown>[]> {
-  return (await rest(page, "GET", `${table}?select=*&name=like.${encodeURIComponent(`${prefix}*`)}`)) as Record<string, unknown>[];
+export async function sidebarRowsNamed(page: Page, table: SidebarTable, prefix: string): Promise<Record<string, unknown>[]> {
+  return (await sidebarRest(page, "GET", `${table}?select=*&name=like.${encodeURIComponent(`${prefix}*`)}`)) as Record<string, unknown>[];
 }
 
 /**
@@ -191,26 +206,11 @@ export async function ownRowsNamed(page: Page, table: SidebarTable, prefix: stri
  * `prefix` (a port-named prefix, `headless-<port> `, so only what a spec made).
  * Returns how many rows went.
  */
-export async function deleteOwnRowsNamed(page: Page, prefix: string): Promise<number> {
+export async function deleteSidebarRowsNamed(page: Page, prefix: string): Promise<number> {
   if (!prefix.startsWith(`headless-${PORT} `)) throw new Error(`headless: refusing to delete rows outside "headless-${PORT} …"`);
   let removed = 0;
   for (const table of ["playlists", "playlist_folders"] as const) {
-    removed += ((await rest(page, "DELETE", `${table}?name=like.${encodeURIComponent(`${prefix}*`)}`)) as unknown[]).length;
+    removed += ((await sidebarRest(page, "DELETE", `${table}?name=like.${encodeURIComponent(`${prefix}*`)}`)) as unknown[]).length;
   }
   return removed;
-}
-
-export default async function globalSetup(): Promise<void> {
-  if (!process.env.HEADLESS_DEVICE_ID) {
-    throw new Error("headless: set HEADLESS_DEVICE_ID in apps/desktop/.env.headless, one per worktree (docs/headless-ui.md)");
-  }
-  execFileSync(path.join(HERE, "make-fixture.sh"), { stdio: "inherit" });
-  const browser = await webkit.launch();
-  try {
-    const context = await browser.newContext({ baseURL: BASE_URL });
-    await signIn(await context.newPage());
-    await context.storageState({ path: STATE_FILE });
-  } finally {
-    await browser.close();
-  }
 }

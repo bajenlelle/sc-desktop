@@ -239,8 +239,8 @@ function isUnsavedId(id: string): boolean {
 /**
  * onCloseAutoFocus for the sidebar menus whose items open a name field
  * (Rename, New Playlist, New Folder…). The field mounts (and autofocuses) while
- * the menu still traps focus, which bounces it back; then the closing menu hands
- * focus to its trigger. When a field is open, focus it instead: its onFocus
+ * the menu is still open, and the closing menu leaves focus off the field (on
+ * its trigger, or the page). When a field is open, focus it instead: its onFocus
  * selects the name. A menu whose item opened no field keeps Radix's default.
  */
 function focusSidebarField(e: Event) {

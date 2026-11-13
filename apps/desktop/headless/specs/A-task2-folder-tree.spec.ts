@@ -9,11 +9,11 @@
 import type { Locator, Page } from "@playwright/test";
 import {
   createInSidebar,
-  deleteOwnRowsNamed,
+  deleteSidebarRowsNamed,
   expect,
   folderRow,
-  openPlaylists,
-  ownRowsNamed,
+  openPlaylistsSidebar,
+  sidebarRowsNamed,
   playlistRow,
   PORT,
   shot,
@@ -43,15 +43,14 @@ async function pixel(page: Page, x: number, y: number): Promise<Buffer> {
 }
 
 test.afterEach(async ({ page }) => {
-  await deleteOwnRowsNamed(page, PREFIX);
+  await deleteSidebarRowsNamed(page, PREFIX);
 });
 
 test("A task 2: open-folder icon, aligned indents, guide line", async ({ page, browserName }) => {
   const name = (step: string) => `${browserName}-A-task2-${step}`;
-  await openPlaylists(page);
-  await deleteOwnRowsNamed(page, PREFIX);
-  await page.reload();
-  await expect(page.getByRole("button", { name: "New Playlist", exact: true })).toBeVisible({ timeout: 30_000 });
+  // Leftovers of an earlier, killed run, cleared before the list loads.
+  await deleteSidebarRowsNamed(page, PREFIX);
+  await openPlaylistsSidebar(page);
 
   // ── A playlist at the top level, while the space has no folders: no spacer, its icon at the row's 8 px padding.
   const child = await createInSidebar(page, "playlist", CHILD);
@@ -69,7 +68,7 @@ test("A task 2: open-folder icon, aligned indents, guide line", async ({ page, b
   const tree = await createInSidebar(page, "folder", TREE);
   await tree.click({ button: "right" });
   await page.getByRole("menuitem", { name: "New Subfolder", exact: true }).click();
-  // The field opens unfocused when a menu opened it (finding A-1, see A-task1-rename.spec.ts), so fill it directly.
+  // The temp folder's field (focused since the A-1 fix; A-task1-rename.spec.ts checks that): fill it by its row, whatever has focus.
   const subField = page.locator("[data-folder-id^='temp-'] input");
   await expect(subField).toHaveValue("New Folder");
   await subField.fill(SUB);
@@ -91,7 +90,7 @@ test("A task 2: open-folder icon, aligned indents, guide line", async ({ page, b
   await expect
     .poll(async () => {
       const treeId = await tree.getAttribute("data-folder-id");
-      return (await ownRowsNamed(page, "playlists", CHILD)).map((r) => r.folder_id === treeId);
+      return (await sidebarRowsNamed(page, "playlists", CHILD)).map((r) => r.folder_id === treeId);
     }, { message: "the playlist is stored in the folder" })
     .toEqual([true]);
   const inTree = () => tree.evaluate((header, childName) => {
