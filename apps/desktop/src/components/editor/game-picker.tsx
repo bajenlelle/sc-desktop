@@ -78,9 +78,15 @@ export function GamePicker({
   const full = value.length >= MAX_BROWSER_GAMES;
   const teamIds = useMemo(() => (quickTeam ? teamGames(matches, quickTeam) : []), [matches, quickTeam]);
 
+  // However the list closes (a row, a footer button, Escape, a click outside), it reopens on every game.
+  function close() {
+    setOpen(false);
+    setQuery("");
+  }
+
   function pick(id: string) {
     onChange([id], "pick");
-    setOpen(false);
+    close();
   }
 
   function toggle(id: string) {
@@ -93,7 +99,7 @@ export function GamePicker({
   function choose(ids: string[], via: GamePickVia) {
     if (ids.length === 0) return;
     onChange(ids, via);
-    setOpen(false);
+    close();
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -167,10 +173,7 @@ export function GamePicker({
     <Popover
       modal
       open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) setQuery("");
-      }}
+      onOpenChange={(next) => (next ? setOpen(true) : close())}
     >
       <PopoverTrigger asChild>
         <TriggerButton label={label} active={value.length > 0} className="max-w-[280px]" aria-label="Game" />
