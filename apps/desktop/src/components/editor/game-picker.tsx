@@ -84,7 +84,10 @@ export function GamePicker({
   }
 
   function toggle(id: string) {
-    onChange(toggleGame(value, id), "toggle");
+    const next = toggleGame(value, id);
+    // Unticking the only game or ticking one past the cap changes nothing: no event, no scope rewrite.
+    if (next.length === value.length) return;
+    onChange(next, "toggle");
   }
 
   function choose(ids: string[], via: GamePickVia) {
@@ -188,7 +191,7 @@ export function GamePicker({
           aria-controls={listId}
           aria-activedescendant={options[active] ? optionId(active) : undefined}
         />
-        <div id={listId} role="listbox" aria-label="Games" className="max-h-80 overflow-y-auto rounded-md">
+        <div id={listId} role="listbox" aria-multiselectable="true" aria-label="Games" className="max-h-80 overflow-y-auto rounded-md">
           {options.length === 0 && <p className="px-3 py-6 text-center text-callout text-muted-foreground">No games match “{query.trim()}”.</p>}
           {inPlaylist.length > 0 && (
             <div role="group" aria-label="In this playlist">
