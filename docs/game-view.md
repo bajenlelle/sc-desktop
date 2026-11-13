@@ -177,8 +177,14 @@ on the selection when that row is in it.
   so it survives leaving the page. One playlist: "Send n clips…" opens the
   editor on it with its upload-on-arrival state
   (`{restore: {playlistId}, reship: true}`). Several: the same button opens a
-  menu of them. Players' feeds skip clips with no uploaded file, so they see
-  nothing until then.
+  menu of them. The target's "Open playlist" button is shown whenever the
+  target itself holds nothing unsent: with no other playlist holding any it
+  is alone, and with one that does it sits before "Send" (so a target that is
+  unshared, or fully uploaded, stays one click from opening). When the target
+  holds unsent clips, "Send" shows alone, since it opens the target. With no
+  target, only "Send" shows, and only when some playlist holds unsent clips.
+  Players' feeds skip clips with no uploaded file, so they see nothing until
+  then.
 - Labels are independent of collecting: label now, build later through the
   label filter in Add clips.
 

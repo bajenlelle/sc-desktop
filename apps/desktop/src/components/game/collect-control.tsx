@@ -18,9 +18,12 @@ import type { Collect } from "./use-collect";
  * list puts the playlists that already hold this game's clips first, and its
  * search field doubles as the name of a new one (the mechanics of the
  * editor's "Add to another playlist"). Beside it, the way to the playlist:
- * "Open playlist", or "Send n clips…" while players are waiting for some, in
- * the target or in another shared playlist holding this game's plays; with
- * several such playlists, the button opens a menu of them.
+ * "Open playlist" for the target, unless the target itself holds clips players
+ * don't have yet, and "Send n clips…" while any shared playlist holding this
+ * game's plays has such clips; with several such playlists, that button opens
+ * a menu of them. When the target holds none of its own but another playlist
+ * does, both show, "Open playlist" first. When the target holds some, "Send"
+ * shows alone (it opens the target, among others in the menu).
  */
 export function CollectControl({ collect, highlight }: { collect: Collect; highlight?: boolean }) {
   const { target, candidates, loading, pickerOpen, pickerAnchor, setPickerOpen, held } = collect;
@@ -52,6 +55,8 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
   }
 
   const clipCount = target ? target.items.filter((i) => i.type === "clip").length : 0;
+  // The target is first in `held` when it holds clips players lack; then Send opens it and stands alone.
+  const targetHeld = !!target && held.some((h) => h.playlist.id === target.id);
 
   return (
     <>
@@ -144,13 +149,12 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
           )}
         </PopoverContent>
       </Popover>
-      {held.length === 0 ? (
-        target && (
-          <Button size="sm" variant="outline" onClick={collect.openTarget}>
-            Open playlist
-          </Button>
-        )
-      ) : held.length === 1 ? (
+      {target && !targetHeld && (
+        <Button size="sm" variant="outline" onClick={collect.openTarget}>
+          Open playlist
+        </Button>
+      )}
+      {held.length === 0 ? null : held.length === 1 ? (
         <Tooltip>
           <TooltipTrigger asChild>
             <Button size="sm" onClick={() => collect.openPlaylist(held[0].playlist.id)}>
