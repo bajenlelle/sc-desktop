@@ -236,6 +236,20 @@ function isUnsavedId(id: string): boolean {
   return id.startsWith("temp-");
 }
 
+/**
+ * onCloseAutoFocus for the sidebar menus whose items open a name field
+ * (Rename, New Playlist, New Folder…). The field mounts (and autofocuses) while
+ * the menu still traps focus, which bounces it back; then the closing menu hands
+ * focus to its trigger. When a field is open, focus it instead: its onFocus
+ * selects the name. A menu whose item opened no field keeps Radix's default.
+ */
+function focusSidebarField(e: Event) {
+  const field = document.querySelector<HTMLInputElement>("input[data-sidebar-field]");
+  if (!field) return;
+  e.preventDefault();
+  field.focus();
+}
+
 /** The filter bar and the "Filtered" strip under the toolbar: a few points of travel, then still. */
 const revealVariants = {
   hidden: { opacity: 0, y: -6 },
@@ -4051,6 +4065,7 @@ export function PlaylistsPage() {
             {isEditingThis && editingVia === "sidebar" ? (
               <input
                 autoFocus
+                data-sidebar-field
                 onFocus={(e) => e.currentTarget.select()}
                 className="h-5 min-w-0 flex-1 rounded-sm bg-card px-1 text-sm text-foreground ring-2 ring-selection outline-none"
                 value={editPlaylistName}
@@ -4114,7 +4129,7 @@ export function PlaylistsPage() {
                     <MoreHorizontal className="size-3.5" />
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
+                <DropdownMenuContent align="end" onCloseAutoFocus={focusSidebarField}>
                   {/* Keep in lockstep with the row's ContextMenuContent below. */}
                   <>
                     <DropdownMenuItem onSelect={() => { setEditingVia("sidebar"); setEditingPlaylistId(pl.id); setEditPlaylistName(pl.name); }}>
@@ -4170,7 +4185,7 @@ export function PlaylistsPage() {
             </div>
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent>
+        <ContextMenuContent onCloseAutoFocus={focusSidebarField}>
           <ContextMenuItem onSelect={() => { setEditingVia("sidebar"); setEditingPlaylistId(pl.id); setEditPlaylistName(pl.name); }}>
             Rename
           </ContextMenuItem>
@@ -4324,6 +4339,7 @@ export function PlaylistsPage() {
               {isEditing ? (
                 <input
                   autoFocus
+                  data-sidebar-field
                   onFocus={(e) => e.currentTarget.select()}
                   className="h-5 min-w-0 flex-1 rounded-sm bg-card px-1 text-sm text-foreground ring-2 ring-selection outline-none"
                   value={editFolderName}
@@ -4375,7 +4391,7 @@ export function PlaylistsPage() {
                         <MoreHorizontal className="size-3.5" />
                       </button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
+                    <DropdownMenuContent align="end" onCloseAutoFocus={focusSidebarField}>
                       {/* Keep in lockstep with the folder header's ContextMenuContent below. */}
                       <DropdownMenuItem onSelect={() => handleNewPlaylist(folder.id)}>
                         New Playlist
@@ -4430,7 +4446,7 @@ export function PlaylistsPage() {
               )}
             </div>
           </ContextMenuTrigger>
-          <ContextMenuContent>
+          <ContextMenuContent onCloseAutoFocus={focusSidebarField}>
             <ContextMenuItem onSelect={() => handleNewPlaylist(folder.id)}>
               New Playlist
             </ContextMenuItem>
@@ -6234,7 +6250,7 @@ export function PlaylistsPage() {
                   onDrop={(e) => handleDrop(null, e)}
                 />
               </ContextMenuTrigger>
-              <ContextMenuContent>
+              <ContextMenuContent onCloseAutoFocus={focusSidebarField}>
                 <ContextMenuItem onSelect={() => handleNewPlaylist(null)}>
                   New Playlist
                 </ContextMenuItem>

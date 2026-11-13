@@ -5,7 +5,7 @@
  * folder fields and the editor header's rename field start selected.
  * Creates `headless-1431 …` rows and deletes them, pass or fail.
  */
-import type { Page, Request } from "@playwright/test";
+import type { Locator, Page, Request } from "@playwright/test";
 import {
   createInSidebar,
   deleteOwnRowsNamed,
@@ -165,25 +165,47 @@ test("A task 1: double-click renames a playlist and a folder, name selected, wri
 });
 
 /**
- * Finding A-1 (pre-existing, not from Task 1): a rename or a New… field opened
- * from a menu (a row's right-click Rename, a folder's New Subfolder / New
- * Playlist, the strip's New Folder, the playlist "…" menu's Rename) opens
- * unfocused: the menu hands focus back on close (activeElement is <body>), so
- * the name isn't selected and typing goes nowhere. Only the folder "…" menu's
- * Rename lands focused (its trigger unmounts while editing). Marked
- * `test.fail`: it passes while the bug stands and turns red once it is fixed —
- * then drop the marker.
+ * Finding A-1 (fixed): a rename or a New… field opened from a menu used to open
+ * unfocused, because the menu hands focus back to its trigger as it closes,
+ * after the field has mounted. Every menu path now lands with the field
+ * focused and the whole name selected (the folder "…" menu's Rename always did).
  */
-test("A task 1 (finding A-1): Rename from a playlist's right-click menu starts with the name selected", async ({ page, browserName }) => {
-  test.fail(true, "finding A-1: a field opened from a menu is not focused");
+test("A task 1 (finding A-1): a rename or new-item field opened from a menu is focused with the name selected", async ({ page, browserName }) => {
   await openPlaylists(page);
   await deleteOwnRowsNamed(page, PREFIX);
-  const id = await (await createInSidebar(page, "playlist", PLAYLIST)).getAttribute("data-playlist-id");
-  const row = page.locator(`[data-playlist-id="${id}"]`);
-  await row.click({ button: "right" });
-  await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
-  await expect(row.locator("input"), "the rename field opened").toHaveValue(PLAYLIST);
-  await shot(page, `${browserName}-A-task1-finding-menu-rename-unfocused`);
-  await page.waitForTimeout(500);
-  expect(await focusedField(page), "the rename field is focused with the whole name selected").toEqual({ value: PLAYLIST, start: 0, end: PLAYLIST.length });
+  const playlistId = await (await createInSidebar(page, "playlist", PLAYLIST)).getAttribute("data-playlist-id");
+  const folderId = await (await createInSidebar(page, "folder", FOLDER)).getAttribute("data-folder-id");
+  const playlist = page.locator(`[data-playlist-id="${playlistId}"]`);
+  const folder = page.locator(`[data-folder-id="${folderId}"]`);
+  // The empty strip below the sections; its right-click menu creates at the root.
+  const strip = page.locator("div.h-12[data-state]").last();
+
+  const paths: { what: string; target: Locator; via: "right-click" | "actions"; item: string; value: string }[] = [
+    { what: "playlist right-click Rename", target: playlist, via: "right-click", item: "Rename", value: PLAYLIST },
+    { what: "playlist … menu Rename", target: playlist, via: "actions", item: "Rename", value: PLAYLIST },
+    { what: "folder right-click Rename", target: folder, via: "right-click", item: "Rename", value: FOLDER },
+    { what: "folder … menu Rename", target: folder, via: "actions", item: "Rename", value: FOLDER },
+    { what: "folder right-click New Subfolder", target: folder, via: "right-click", item: "New Subfolder", value: "New Folder" },
+    { what: "folder right-click New Playlist", target: folder, via: "right-click", item: "New Playlist", value: "New Playlist" },
+    { what: "folder … menu New Subfolder", target: folder, via: "actions", item: "New Subfolder", value: "New Folder" },
+    { what: "folder … menu New Playlist", target: folder, via: "actions", item: "New Playlist", value: "New Playlist" },
+    { what: "bottom strip right-click New Folder", target: strip, via: "right-click", item: "New Folder", value: "New Folder" },
+    { what: "bottom strip right-click New Playlist", target: strip, via: "right-click", item: "New Playlist", value: "New Playlist" },
+  ];
+  for (const [i, { what, target, via, item, value }] of paths.entries()) {
+    await test.step(what, async () => {
+      if (via === "right-click") {
+        await target.click({ button: "right" });
+      } else {
+        await target.hover();
+        await target.getByRole("button", { name: /^(Playlist|Folder) actions$/ }).click();
+      }
+      await page.getByRole("menuitem", { name: item, exact: true }).click();
+      await expectWholeNameSelected(page, value, what);
+      if (i === 0) await shot(page, `${browserName}-A-task1-finding-menu-rename-focused`);
+      // Typing goes into the field, and Escape closes it (a new item's temp row goes away).
+      await page.keyboard.press("Escape");
+      await expect(page.locator("input:focus"), `${what}: Escape closed the field`).toHaveCount(0);
+    });
+  }
 });
