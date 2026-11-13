@@ -1,0 +1,5 @@
+# Headless UI harness (docs/headless-ui.md): screenshots, storage state,
+# the generated test video and Playwright's own results stay local.
+headless/out/
+headless/fixtures/
+test-results/

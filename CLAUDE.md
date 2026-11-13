@@ -127,6 +127,8 @@ playlists, and share them with teams; players watch on web/mobile.
 - Lint (web only): `npm run lint` in `apps/web`.
 - Rust: `cargo clippy --no-deps -- -D warnings` in `apps/desktop/src-tauri`.
 - Desktop dev: `npm run tauri dev` in `apps/desktop`.
+- Headless UI: `npm run headless` in `apps/desktop` (Playwright WebKit/Chrome
+  against `vite --mode headless` with Tauri mocks; `docs/headless-ui.md`).
 - Mobile dev: `npx expo start` in `apps/mobile` (dev client build required).
 
 ## CI / Releases
