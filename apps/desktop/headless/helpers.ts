@@ -100,6 +100,150 @@ export async function openFirstGame(page: Page, options: { shotLibraryAs?: strin
   return title;
 }
 
+/**
+ * Runs `body` in the page with one of the app's own modules (`/src/...`, the
+ * same Vite URL the app imports, so the same signed-in Supabase client). For
+ * setup and cleanup a spec can't reach through the UI, never for what it tests.
+ */
+async function withAppModule<A, R>(page: Page, modulePath: string, body: string, arg: A): Promise<R> {
+  return page.evaluate(
+    async ({ modulePath, body, arg }) => {
+      const mod = await import(/* @vite-ignore */ modulePath);
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval
+      return new Function("mod", "arg", `return (async () => { ${body} })()`)(mod, arg);
+    },
+    { modulePath, body, arg },
+  ) as Promise<R>;
+}
+
+/**
+ * /playlists with its list loaded; stays put when already there. Leaving a page
+ * while it still loads cancels its requests, and WebKit reports each cancelled
+ * Supabase fetch as a page error ("… due to access control checks").
+ */
+export async function openPlaylists(page: Page): Promise<void> {
+  if (new URL(page.url(), BASE_URL).pathname !== "/playlists" || page.url() === "about:blank") await page.goto("/playlists");
+  // The list loads after the toolbar: a new playlist added before that would be dropped.
+  await expect(page.locator("[data-playlist-id]").or(page.getByText("No playlists yet")).first()).toBeVisible({ timeout: 30_000 });
+}
+
+/** The account's own playlists whose names start with `prefix` (this worktree's `headless-<port> `), deleted. Returns their names. */
+export async function deletePlaylistsNamed(page: Page, prefix: string): Promise<string[]> {
+  if (!prefix.startsWith(`headless-${PORT} `)) throw new Error(`headless: refusing to delete playlists outside "headless-${PORT} "`);
+  if (page.url() === "about:blank") await openPlaylists(page);
+  return withAppModule(page, "/src/lib/supabase/client.ts", `
+    const sb = mod.createClient();
+    const { data: u } = await sb.auth.getUser();
+    if (!u.user) throw new Error("headless: not signed in");
+    const { data, error } = await sb.from("playlists").delete().eq("user_id", u.user.id).like("name", arg + "%").select("name");
+    if (error) throw new Error("headless: " + error.message);
+    return (data ?? []).map((p) => p.name);
+  `, prefix);
+}
+
+/** Reads rows through the app's signed-in client (read-only checks of what the UI saved). */
+export async function selectRows<T = Record<string, unknown>>(
+  page: Page,
+  table: string,
+  columns: string,
+  eq: Record<string, string | number>,
+): Promise<T[]> {
+  return withAppModule(page, "/src/lib/supabase/client.ts", `
+    let q = mod.createClient().from(arg.table).select(arg.columns);
+    for (const [k, v] of Object.entries(arg.eq)) q = q.eq(k, v);
+    const { data, error } = await q;
+    if (error) throw new Error("headless: " + error.message);
+    return data;
+  `, { table, columns, eq });
+}
+
+/**
+ * On /playlists: a new playlist named `name` (the toolbar's New playlist and
+ * the inline name field), then Add clips with the given Events rows ticked
+ * (`rowKeys`, `<matchId>:<eventId>`), or else the first `count`, and the
+ * sheet closed. Returns the playlist's row keys in the editor.
+ */
+export async function newPlaylistWithClips(
+  page: Page,
+  name: string,
+  options: { count?: number; pick?: (rowKeys: string[]) => Promise<string[]> | string[] } = {},
+): Promise<string[]> {
+  await openPlaylists(page);
+  await page.getByRole("button", { name: "New playlist" }).first().click();
+  const field = page.locator("input:focus");
+  await field.fill(name);
+  await field.press("Enter");
+  await expect(page.locator("[data-playlist-id]").filter({ hasText: name }), "the new playlist is in the list").toBeVisible();
+  const addClips = page.getByRole("button", { name: "Add clips", exact: true }).first();
+  await expect(addClips).toBeVisible({ timeout: 15_000 });
+  await addClips.click();
+  const sheet = page.getByRole("dialog");
+  const grid = sheet.getByRole("grid", { name: "Events" });
+  await expect(grid.getByRole("row").first()).toBeVisible({ timeout: 30_000 });
+  const all = await grid.locator("[role=row][data-row-key]").evaluateAll((rows) => rows.map((r) => r.getAttribute("data-row-key")!));
+  const keys = options.pick ? await options.pick(all) : all.slice(0, options.count ?? 2);
+  expect(keys.length, "Add clips lists the rows the spec wants").toBeGreaterThan(0);
+  for (const key of keys) await grid.locator(`[role=row][data-row-key="${key}"]`).getByRole("checkbox", { name: "Select" }).click();
+  await sheet.getByRole("button", { name: `Add ${keys.length} clip${keys.length === 1 ? "" : "s"}` }).click();
+  await sheet.getByRole("button", { name: "Close" }).click();
+  await expect(sheet).toBeHidden();
+  const editorRows = page.locator("[role=row][data-row-key]");
+  await expect(editorRows).toHaveCount(keys.length);
+  return keys;
+}
+
+/** A game linked to the test video for a spec, and what to put back. */
+export interface FixtureLink {
+  matchId: string;
+  previous: string | null;
+  linked: string;
+}
+
+/**
+ * Links the game on the editor's stage to the fixture through the player's
+ * "Locate file…" (the dialog mock picks headless/fixtures/game.mp4), after
+ * noting the game's own video_url. Refuses a game another worktree has linked.
+ * Pair with restoreGameVideo in afterEach.
+ */
+export async function linkStageGameToFixture(page: Page, matchId: string): Promise<FixtureLink> {
+  const [before] = await selectRows<{ video_url: string | null }>(page, "matches", "video_url", { id: matchId });
+  expect(before, "the game is readable").toBeTruthy();
+  expect(before.video_url ?? "", "no other worktree has this game linked to its fixture").not.toContain("/headless/fixtures/");
+  await page.getByRole("button", { name: "Locate file…" }).click();
+  await expect(page.getByText("This game's video file can't be found")).toBeHidden({ timeout: 15_000 });
+  let linked = "";
+  await expect(async () => {
+    const [after] = await selectRows<{ video_url: string | null }>(page, "matches", "video_url", { id: matchId });
+    linked = after.video_url ?? "";
+    expect(linked).toContain("/headless/fixtures/game.mp4");
+  }).toPass({ timeout: 10_000 });
+  return { matchId, previous: before.video_url, linked };
+}
+
+/** Puts a linked game's own video_url back, only if it still holds this spec's link. */
+export async function restoreGameVideo(page: Page, link: FixtureLink): Promise<void> {
+  if (page.url() === "about:blank") await openPlaylists(page);
+  await withAppModule(page, "/src/lib/supabase/client.ts", `
+    const { error } = await mod.createClient().from("matches").update({ video_url: arg.previous })
+      .eq("id", arg.matchId).eq("video_url", arg.linked);
+    if (error) throw new Error("headless: " + error.message);
+  `, link);
+}
+
+/**
+ * A point on the open sheet's dim scrim: beside the sheet if there is room,
+ * else under it, never in the title-bar strip.
+ */
+export async function sheetScrimPoint(page: Page): Promise<{ x: number; y: number }> {
+  const box = await page.locator("[data-slot=sheet-content]").boundingBox();
+  if (!box) throw new Error("headless: no sheet is open");
+  const viewport = page.viewportSize()!;
+  if (box.x >= 12) return { x: box.x / 2, y: box.y + box.height / 2 };
+  const below = viewport.height - (box.y + box.height);
+  if (below >= 8) return { x: viewport.width / 2, y: box.y + box.height + below / 2 };
+  throw new Error("headless: the sheet leaves no scrim to click");
+}
+
 export default async function globalSetup(): Promise<void> {
   if (!process.env.HEADLESS_DEVICE_ID) {
     throw new Error("headless: set HEADLESS_DEVICE_ID in apps/desktop/.env.headless, one per worktree (docs/headless-ui.md)");
