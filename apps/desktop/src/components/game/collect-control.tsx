@@ -73,7 +73,8 @@ export function CollectControl({ collect, highlight }: { collect: Collect; highl
             className={cn(
               "inline-flex h-8 max-w-64 min-w-0 items-center gap-1.5 rounded-md bg-card pr-1.5 pl-2.5 text-sm shadow-xs ring-1 ring-separator outline-none",
               "transition-[background-color,transform,box-shadow] duration-100 hover:bg-fill-1 active:scale-[0.98] active:bg-fill-2 data-[state=open]:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection",
-              highlight && !target && "ring-2 ring-primary",
+              // A first visit's nudge is a tint: a ring here is how keyboard focus is drawn.
+              highlight && !target && "bg-primary/10 text-primary ring-primary/40 hover:bg-primary/15 active:bg-primary/20 data-[state=open]:bg-primary/20",
             )}
           >
             {target ? (
