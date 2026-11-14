@@ -16,6 +16,7 @@
       ]
     },
     "core:webview:allow-set-webview-zoom",
+    "core:webview:allow-set-webview-focus",
     "core:window:allow-set-fullscreen",
     "core:window:allow-set-theme",
     "core:window:allow-start-dragging",
