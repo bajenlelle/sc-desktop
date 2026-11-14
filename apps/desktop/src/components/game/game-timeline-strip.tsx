@@ -4,6 +4,7 @@ import { describePlay, eventHue, formatGameClock, periodLabel, type EventHue } f
 import { flowChart, scoreAfter, type CourtStint, type GameFlow, type GameMoment } from "@scoutable/shared/lib/game-flow";
 import { gameScale, type GameScale, type GameTimeline, type ScaleSegment, type TimedPlay } from "@scoutable/shared/lib/game-timeline";
 import { clamp, rubberband } from "@scoutable/shared/lib/motion-math";
+import { swipeTime } from "@scoutable/shared/lib/wheel-scrub";
 import type { GameMarks } from "@scoutable/shared/types/game-marks";
 import { useFrameSeek } from "@/components/editor/use-frame-seek";
 import { PopUpButton } from "@/components/ui/pop-up-button";
@@ -215,6 +216,9 @@ const StripDrawing = memo(function StripDrawing({
     () => (zoomed ? flow.runs : [...flow.runs].sort((a, b) => b.points - a.points).slice(0, RUNS_SHOWN)),
     [flow, zoomed],
   );
+  // Past the folded stretch before tip-off, when the strip starts with one.
+  const lead = scale.segments[0];
+  const legendX = lead && lead.kind !== "period" ? lead.x1 : 0;
 
   return (
     <svg width={width} height={Y.height} className="absolute inset-0 block text-foreground" aria-hidden>
@@ -376,9 +380,10 @@ const StripDrawing = memo(function StripDrawing({
         })}
       </g>
 
-      {/* Who is above and who is below: the graph's legend, on the graph. */}
+      {/* Who is above and who is below: the graph's legend, on the graph, starting where the first quarter does
+          (a game opens with the playhead on the stretch before it). */}
       {chart && (
-        <g transform={`translate(0 ${Y.chart})`} className="text-footnote font-medium" style={{ fill: "var(--muted-foreground)" }}>
+        <g transform={`translate(${legendX} ${Y.chart})`} className="text-footnote font-medium" style={{ fill: "var(--muted-foreground)" }}>
           <rect x={4} y={3} width={7} height={7} rx="1.5" fill={tints.home} fillOpacity={0.7} />
           <text x={15} y={10} style={HALO}>
             {teams.home.name}
@@ -469,8 +474,8 @@ export function GameTimelineStrip({
   onZoom: (period: number | null) => void;
   onPlay: (play: TimedPlay) => void;
   onSeek: (t: number) => void;
-  /** A scrub is over, where `onSeek` last put it: a drag let go, or a swipe come to rest. */
-  onScrubEnd?: (via: "timeline_drag" | "wheel") => void;
+  /** The timeline moved the video, said once: a drag let go, a swipe come to rest, or a click where no play is (a click on a play is `onPlay`). */
+  onScrubEnd?: (via: "timeline" | "timeline_drag" | "wheel") => void;
   /** A first-visit line under the track, in the game facts' place; gone after the first use. */
   hint: string | null;
   className?: string;
@@ -484,8 +489,9 @@ export function GameTimelineStrip({
   const [width, setWidth] = useState(0);
   const [hover, setHover] = useState<Hover | null>(null);
   const scrubRef = useRef<{ grabOffset: number; startX: number; moved: boolean; wasPlaying: boolean } | null>(null);
-  // A sideways swipe under way: it holds the playhead as a press does.
-  const swipeRef = useRef<{ wasPlaying: boolean } | null>(null);
+  // A sideways swipe under way: it holds the playhead as a press does. `t` is where it has taken the video.
+  const swipeRef = useRef<{ wasPlaying: boolean; t: number } | null>(null);
+  const readoutRef = useRef<HTMLDivElement | null>(null);
   const frameSeek = useFrameSeek(video, onSeek);
 
   useLayoutEffect(() => {
@@ -610,9 +616,16 @@ export function GameTimelineStrip({
       scrubRef.current = { grabOffset: 0, startX: x, moved: false, wasPlaying: false };
       return;
     }
+    // A press takes over from a swipe that is still coming to rest: it is one hold now, and whether the video
+    // carries on is settled when the press ends, not under the held pointer.
+    const swipe = swipeRef.current;
+    if (swipe) {
+      swipeRef.current = null;
+      onScrubEnd?.("wheel");
+    }
     // On the playhead itself, keep hold of it where it was grabbed; anywhere else, it comes to the pointer.
     const onPlayhead = Math.abs(x - playheadX.get()) <= PLAYHEAD_HIT;
-    scrubRef.current = { grabOffset: onPlayhead ? x - playheadX.get() : 0, startX: x, moved: false, wasPlaying: !video.paused };
+    scrubRef.current = { grabOffset: onPlayhead ? x - playheadX.get() : 0, startX: x, moved: false, wasPlaying: swipe ? swipe.wasPlaying : !video.paused };
     if (!video.paused) video.pause();
     setPressed(true);
     if (!onPlayhead) scrubTo(x);
@@ -654,21 +667,24 @@ export function GameTimelineStrip({
     if (at.play && (at.snap || !video)) onPlay(at.play);
     else if (video) {
       onSeek(at.time);
+      onScrubEnd?.("timeline");
       if (s.wasPlaying) video.play().catch(() => {});
     }
   }
 
   // A sideways swipe: the playhead moves with the fingers, a pixel for a pixel on the timeline's own scale
-  // (so a zoomed quarter scrubs finer), the video catching up a frame at a time, and stops at the ends.
+  // (so a zoomed quarter scrubs finer), the video catching up a frame at a time, and stops at the ends. Zoomed
+  // on a quarter the video isn't in, the video goes on from where it is (swipeTime).
   const scrubBy = (px: number) => {
     if (!video || scrubRef.current) return;
     if (!swipeRef.current) {
-      swipeRef.current = { wasPlaying: !video.paused };
+      swipeRef.current = { wasPlaying: !video.paused, t: video.currentTime };
       if (!video.paused) video.pause();
     }
-    const x = clamp(playheadX.get() + px, 0, width);
-    playheadX.set(x);
-    frameSeek.schedule(scale.tOf(x));
+    const s = swipeRef.current;
+    s.t = swipeTime(s.t, px, scale, { min: timeline.domain.start, max: timeline.domain.end });
+    playheadX.set(scale.xOf(s.t));
+    frameSeek.schedule(s.t);
   };
   const endSwipe = () => {
     const s = swipeRef.current;
@@ -682,6 +698,14 @@ export function GameTimelineStrip({
   swipe.current = { scrubBy, endSwipe };
   useImperativeHandle(handleRef, () => ({ scrubBy: (px) => swipe.current.scrubBy(px), endScrub: () => swipe.current.endSwipe() }), []);
   useWheelScrub(trackRef, { enabled: !!video, onScrub: (px) => swipe.current.scrubBy(px), onEnd: () => swipe.current.endSwipe() });
+
+  // The readout is centred on the pointer and kept inside the strip, whatever it has to say.
+  useLayoutEffect(() => {
+    const el = readoutRef.current;
+    if (!el || !hover) return;
+    const w = el.offsetWidth;
+    el.style.transform = `translateX(${clamp(hover.x - w / 2, 0, Math.max(0, width - w))}px)`;
+  });
 
   function onDoubleClick(e: React.MouseEvent<HTMLDivElement>) {
     const at = hoverAt(localX(e.clientX));
@@ -812,20 +836,20 @@ export function GameTimelineStrip({
           />
         </motion.div>
 
+        {/* What the pointer is on, in one line in the row under the track: above the track is the footage, and when
+            the footage is as tall as the window allows there is no room for more between the track and the window's edge. */}
         {hover && tip && (
           <div
+            ref={readoutRef}
             role="presentation"
-            className="pointer-events-none absolute top-full z-30 mt-2 w-max max-w-72 -translate-x-1/2 rounded-lg bg-material-popover px-2.5 py-1.5 text-subheadline text-popover-foreground shadow-menu backdrop-blur-xl"
-            style={{ left: Math.min(Math.max(hover.x, 110), Math.max(110, width - 110)) }}
+            className="pointer-events-none absolute top-full left-0 z-30 mt-1 flex h-6 max-w-full items-center gap-2 rounded-md bg-material-popover px-2 text-subheadline whitespace-nowrap text-popover-foreground shadow-menu backdrop-blur-xl nums"
           >
-            <p className="flex items-baseline gap-2 nums">
-              {tip.head && <span className="text-callout font-semibold">{tip.head}</span>}
-              {tip.where && <span className="text-muted-foreground">{tip.where}</span>}
-            </p>
-            {tip.what && <p className="truncate">{tip.what}</p>}
-            {tip.extra && <p className="text-muted-foreground">{tip.extra}</p>}
+            {tip.head && <span className="shrink-0 font-semibold">{tip.head}</span>}
+            {tip.where && <span className="shrink-0 text-muted-foreground">{tip.where}</span>}
+            {tip.what && <span className="min-w-0 truncate">{tip.what}</span>}
+            {tip.extra && <span className="min-w-0 shrink-[4] truncate text-muted-foreground">{tip.extra}</span>}
             {timeline.axis === "video" && video && hover.segment?.kind === "period" && (
-              <p className="text-muted-foreground nums">{formatVideoTime(hover.snap && hover.play ? hover.play.time : hover.time)} in the video</p>
+              <span className="shrink-0 text-muted-foreground">{formatVideoTime(hover.snap && hover.play ? hover.play.time : hover.time)} in the video</span>
             )}
           </div>
         )}

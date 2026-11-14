@@ -77,11 +77,21 @@ stretch where a game turned.
 - **A sideways swipe scrubs**: two fingers on a trackpad, or a mouse wheel
   turned with Shift, over the timeline or the footage, in full screen too. The
   playhead moves a pixel for a pixel on the timeline's own scale, so a zoomed
-  quarter scrubs finer, and stops at the ends. A gesture keeps the direction
-  it started in: a scroll that drifts sideways never moves the video
-  (`packages/shared/lib/wheel-scrub.ts`, `components/game/use-wheel-scrub.ts`).
+  quarter scrubs finer, and stops at the ends. Zoomed on a quarter the video
+  isn't in, the video goes on from where it is at the strip's pace, never
+  back to the zoomed quarter (`swipeTime`). A notch of a wheel turned with
+  Shift is a small step (16 px), not the 100 px it reports. A gesture keeps
+  the direction it started in: a scroll that drifts sideways never moves the
+  video (`packages/shared/lib/wheel-scrub.ts`,
+  `components/game/use-wheel-scrub.ts`). A playing video holds while it is
+  swiped and plays on once the fingers have rested 400 ms; a press on the
+  timeline, K or the label picker in that moment takes over, so the video
+  never starts up under what the coach does next.
 - **A scrub is one `game_view_seeked`**, sent when it ends, not one per
-  frame: `via` is `scrubber` (the player's bar), `timeline_drag` or `wheel`.
+  frame: `via` is `scrubber` (the player's bar: a drag, or a key pressed on
+  it, once however long it is held), `timeline_drag`, `wheel` (a swipe; one
+  that rests longer than 400 ms and goes on is two), or `timeline` with kind
+  `time` for a click on the timeline where no play is.
 - **Why under the footage** (decided 2026-11-14, after the timeline as a band
   across the bottom of the page read as detached from the video): players
   made for review attach the scrubber to the picture and put their marks on
@@ -167,9 +177,12 @@ released app lists each row there as a clip.
   footage. It answers the press: the playhead goes to the pointer on
   pointer-down and follows 1:1, resists past the ends, and a release without
   movement is a click (on a play: that play from its pre-roll). Double-click a
-  quarter to zoom. What the pointer is on is said in a box under the track,
-  never over the footage above it, and the words on the graph keep a rim of
-  the page's colour so the line doesn't strike them through.
+  quarter to zoom. What the pointer is on is said in one line in the row
+  under the track, by the pointer and inside the strip: above the track is
+  the footage, and when the footage is as tall as the window allows there is
+  no room for more below. The words on the graph keep a rim of the page's
+  colour so the line doesn't strike them through, and the team names start
+  where the first quarter does, clear of the playhead when a game opens.
 - `game-play-list.tsx`, `game-play-row.tsx`: rows are memoised, not
   virtualised (as Add clips). The current row follows playback until the coach
   scrolls; "Jump to now", any seek, or scrolling back resumes it.

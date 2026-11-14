@@ -91,11 +91,12 @@ function StagePanel({ title, body, action }: { title: string; body: string; acti
 }
 
 /**
- * The game page's Game view: the whole game on one page. The footage with
- * the Now bar under it, the plays beside it in a list that follows playback,
- * and under both the timeline, which is the scrubber and the overview at
- * once (docs/game-view.md). From here a coach collects plays into a playlist
- * and labels them without leaving the game.
+ * The game page's Game view: the whole game on one page. The player is one
+ * column: the footage with its own scrubber, the Now bar under it, and under
+ * that the game's timeline at the footage's width, the story of the score and
+ * a way through the game. Beside it the plays, in a list that follows
+ * playback (docs/game-view.md). From here a coach collects plays into a
+ * playlist and labels them without leaving the game.
  *
  * Everything but the footage works without footage: a game whose video
  * isn't on this computer, or isn't synced yet, still shows its score graph,
@@ -636,6 +637,8 @@ export function GameWatchView({
   useEffect(() => {
     if (!footage) return;
     if (labelling) {
+      // A swipe still coming to rest is over: the footage holds from here, and carries on when the picker closes.
+      timelineHandle.current?.endScrub();
       if (!video.paused) {
         resumeAfterLabel.current = true;
         video.pause();
@@ -817,6 +820,8 @@ export function GameWatchView({
         return;
       case "shuttle-pause":
         e.preventDefault();
+        // A swipe still coming to rest would start the video again: it is over now.
+        timelineHandle.current?.endScrub();
         video.pause();
         return;
       case "shuttle-forward":

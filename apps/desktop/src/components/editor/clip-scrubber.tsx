@@ -59,7 +59,7 @@ export function ClipScrubber({
   selectedSlowId?: string | null;
   onSlowClick?: (id: string) => void;
   onSeek: (t: number) => void;
-  /** A drag let go, or a key's step taken: the scrub is over, where `onSeek` last put it. */
+  /** A scrub, once: a drag let go (where `onSeek` last put it), or a key pressed (not its repeats while held). */
   onScrubEnd?: () => void;
   frameSeconds?: number;
   /** Elapsed and total either side of the track; off where a larger readout sits nearby. */
@@ -235,7 +235,8 @@ export function ClipScrubber({
     e.preventDefault();
     e.stopPropagation();
     onSeek(clamp(video.currentTime + delta, start, end));
-    onScrubEnd?.();
+    // A key held down repeats: it is one scrub, said once.
+    if (!e.repeat) onScrubEnd?.();
   }
 
   const elapsedNow = clamp(video.currentTime - start, 0, duration);

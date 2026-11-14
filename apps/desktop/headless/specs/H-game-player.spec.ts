@@ -2,8 +2,9 @@
  * The game view's player as one unit (docs/game-view.md): the footage with
  * its own scrubber over the whole file, the Now bar, and the game's timeline
  * directly under them at the footage's width, with the play list beside all
- * of it. Reads only: it opens the sample game, whose video plays from the
- * network, and changes nothing on the account.
+ * of it. It writes nothing itself: it opens the sample game, whose video plays
+ * from the network, and for the switch a league game (whose Game view may fill
+ * that game's marks once, as any visit does).
  */
 import type { Locator, Page } from "@playwright/test";
 import { expect, openLibraryGame, playRows, shot, showGameView, test } from "../helpers";
@@ -79,12 +80,13 @@ test("the timeline sits under the footage at its width, and the list has the col
 
   for (const size of SIZES) {
     await page.setViewportSize(size);
-    // The stage is measured again when its column changes.
-    const timelineBottom = async () => {
-      const box = await boxOf(timeline(page), "the timeline");
-      return box.y + box.height;
+    // The stage is measured again when its column changes: wait until the two have settled on each other.
+    const settledOnEachOther = async () => {
+      const [a, b] = [await boxOf(stage(page), "the stage"), await boxOf(timeline(page), "the timeline")];
+      return Math.abs(a.x - b.x) <= 1 && Math.abs(a.width - b.width) <= 2 && b.y + b.height <= size.height + 0.5 && a.width <= size.width;
     };
-    await expect.poll(timelineBottom, { message: `the timeline is inside the window at ${size.width}×${size.height}`, timeout: 5_000 }).toBeLessThanOrEqual(size.height + 0.5);
+    await expect.poll(settledOnEachOther, { message: `the player has settled at ${size.width}×${size.height}`, timeout: 5_000 }).toBe(true);
+    await page.waitForTimeout(150);
 
     const s = await boxOf(stage(page), "the stage");
     const t = await boxOf(timeline(page), "the timeline");
@@ -119,8 +121,9 @@ test("the player has its own scrubber over the whole video, and says where the g
   const middle = await settled(page);
   expect(Math.abs(middle - duration / 2), "a click in the middle of the scrubber goes to the middle of the video").toBeLessThan(duration * 0.03);
 
-  // A play on screen: the Now bar under the footage names its quarter, clock and score.
-  await playRows(page).first().click();
+  // A play on screen: the Now bar under the footage names its quarter, clock and score. A play well into the
+  // quarter: the game's first play starts its run-up before tip-off, where the Now bar says "Before tip-off".
+  await playRows(page).nth(6).click();
   await page.keyboard.press("k");
   const where = /Q\d · \d\d:\d\d/;
   await expect(page.getByText(where).first(), "the Now bar says where the game is").toBeVisible();
@@ -149,6 +152,12 @@ test("a drag on the player's scrubber is reported once, not once a frame", async
 
   await expect.poll(seeks, { message: "one drag, one report" }).toEqual(["scrubber"]);
 
+  // The drag left the scrubber focused. A key held down on it is one report too, not one per repeat.
+  for (let i = 0; i < 6; i++) await page.keyboard.down("ArrowRight");
+  await page.keyboard.up("ArrowRight");
+  await settled(page);
+  await expect.poll(seeks, { message: "a held key, one report" }).toEqual(["scrubber", "scrubber"]);
+
   // The same on the game's timeline: a drag along it is one report, when it is let go.
   const t = await boxOf(track(page), "the timeline's track");
   await page.mouse.move(t.x + t.width * 0.3, t.y + 40);
@@ -159,7 +168,12 @@ test("a drag on the player's scrubber is reported once, not once a frame", async
   }
   await page.mouse.up();
   await settled(page);
-  await expect.poll(seeks, { message: "one drag on the timeline, one more report" }).toEqual(["scrubber", "timeline_drag"]);
+  await expect.poll(seeks, { message: "one drag on the timeline, one more report" }).toEqual(["scrubber", "scrubber", "timeline_drag"]);
+
+  // A click on the timeline where no play is (the stretch before tip-off) is a seek like any other.
+  await page.mouse.click(t.x + 6, t.y + 40);
+  await settled(page);
+  await expect.poll(seeks, { message: "a click on the timeline is reported" }).toEqual(["scrubber", "scrubber", "timeline_drag", "timeline"]);
 });
 
 test("a sideways swipe over the timeline or the footage moves the video, and a scroll doesn't", async ({ page }) => {
@@ -180,22 +194,41 @@ test("a sideways swipe over the timeline or the footage moves the video, and a s
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 3);
 
     await page.mouse.wheel(0, 240);
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(600);
     expect(await settled(page), `a scroll over ${where} leaves the video where it is`).toBeCloseTo(from, 1);
 
     await page.mouse.wheel(90, 0);
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(600);
     const later = await settled(page);
     expect(later, `a swipe over ${where} moves the video on`).toBeGreaterThan(from + 0.5);
 
     await page.mouse.wheel(-90, 0);
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(600);
     expect(Math.abs((await settled(page)) - from), `the same swipe back over ${where} returns it`).toBeLessThan(0.5);
   }
   expect(await swipes(), "each of the four swipes was reported once, and no scroll was").toBe(4);
+
+  // A swipe holds a playing video still and lets it go on once the fingers have rested. What the coach does
+  // next comes first: a press on the timeline right after a swipe holds the video for as long as it is held.
+  const paused = () => page.evaluate(() => document.querySelector("video")?.paused ?? true);
+  await page.keyboard.press("Space");
+  await expect.poll(paused, { message: "the video plays" }).toBe(false);
+  await page.mouse.move(t.x + t.width / 2, t.y + 40);
+  await page.mouse.wheel(40, 0);
+  await page.mouse.down();
+  await page.waitForTimeout(900);
+  expect(await paused(), "held on the timeline after a swipe, the video stays still").toBe(true);
+  await page.mouse.up();
+  await expect.poll(paused, { message: "let go, it plays on" }).toBe(false);
+
+  // And a pause asked for right after a swipe stays a pause.
+  await page.mouse.wheel(40, 0);
+  await page.keyboard.press("k");
+  await page.waitForTimeout(900);
+  expect(await paused(), "paused with K after a swipe, the video stays paused").toBe(true);
 });
 
-test("pointing at the timeline never covers the footage", async ({ page }) => {
+test("pointing at the timeline never covers the footage", async ({ page, browserName }) => {
   await openSampleGame(page);
   const t = await boxOf(track(page), "the timeline's track");
   const readout = timeline(page).locator('[role="presentation"]');
@@ -207,9 +240,38 @@ test("pointing at the timeline never covers the footage", async ({ page }) => {
   }
   expect(shown, "a play on the timeline shows what it is").toBe(true);
 
+  // Further along, on a play, for the screenshot.
+  await page.mouse.move(t.x + t.width * 0.62, t.y + t.height - 12);
+  await expect(readout).toBeVisible();
+  await shot(page, `${browserName}-H-player-readout`);
+
   const box = await boxOf(readout, "the timeline's readout");
   expect(overlaps(box, await boxOf(stage(page), "the stage")), "the readout is clear of the footage").toBe(false);
   expect(box.y, "the readout hangs under the track").toBeGreaterThanOrEqual(t.y + t.height);
+
+  // A wide, low window: the footage is as tall as the window allows and the timeline ends at the window's edge.
+  const low = { width: 1440, height: 700 };
+  await page.setViewportSize(low);
+  await expect.poll(async () => (await boxOf(timeline(page), "the timeline")).y + (await boxOf(timeline(page), "the timeline")).height, { timeout: 5_000 }).toBeGreaterThan(low.height - 12);
+  const tl = await boxOf(timeline(page), "the timeline");
+  const tr = await boxOf(track(page), "the timeline's track");
+  for (const at of [0.03, 0.3, 0.5, 0.75, 0.97]) {
+    await page.mouse.move(tr.x + tr.width * at, tr.y + tr.height - 12);
+    await expect(readout).toBeVisible();
+    const r = await boxOf(readout, "the timeline's readout");
+    expect(r.y + r.height, `the readout is inside the window, pointing ${at} of the way along`).toBeLessThanOrEqual(low.height);
+    expect(r.x, `the readout starts inside the timeline, pointing ${at} of the way along`).toBeGreaterThanOrEqual(tl.x - 1);
+    expect(r.x + r.width, `the readout ends inside the timeline, pointing ${at} of the way along`).toBeLessThanOrEqual(tl.x + tl.width + 1);
+    expect(overlaps(r, await boxOf(stage(page), "the stage")), "and still clear of the footage").toBe(false);
+  }
+  const scrolls = await timeline(page).evaluate((el) => {
+    for (let node = el.parentElement; node; node = node.parentElement) {
+      const overflow = getComputedStyle(node).overflowY;
+      if ((overflow === "auto" || overflow === "scroll") && node.scrollHeight > node.clientHeight + 1) return true;
+    }
+    return false;
+  });
+  expect(scrolls, "showing the readout doesn't make the player's column scroll").toBe(false);
 });
 
 test("the moment chips fade at the edge where more of them wait", async ({ page }) => {
