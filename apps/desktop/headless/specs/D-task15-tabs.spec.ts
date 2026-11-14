@@ -1,6 +1,7 @@
 /**
- * Group D, Task 15: open games sit in tabs under the toolbar and switch
- * without loading. Opens the test account's games from the Library inside
+ * Group D, Task 15: open games sit in tabs above the game's toolbar and switch
+ * without loading (the bar's own look and its +, drag and Close Tab are in
+ * I-game-tabs.spec.ts). Opens the test account's games from the Library inside
  * the app (no reload, so the session's caches are what a coach has), steps
  * with ⌃Tab / ⌃⇧Tab (Control in both browsers: the page reads `ctrlKey` and
  * `key === "Tab"`), closes by × and by middle click, and renames one game's
@@ -82,7 +83,7 @@ test("games open in tabs, switch without loading, and close", async ({ page, bro
   await showGameView(page);
   await expect(tablist(page)).toHaveCount(0);
 
-  // The second game brings the bar, under the toolbar's row, with the new game's tab selected.
+  // The second game brings the bar, above the toolbar's row, with the new game's tab selected.
   const g1 = await openLibraryGame(page, 1);
   await showGameView(page);
   await expect(tablist(page)).toBeVisible();
@@ -90,7 +91,7 @@ test("games open in tabs, switch without loading, and close", async ({ page, bro
   await expect(tab(page, g1.title)).toHaveAttribute("aria-selected", "true");
   const titleBox = (await heading(page).boundingBox())!;
   const barBox = (await tablist(page).boundingBox())!;
-  expect(barBox.y, "the tab bar is under the toolbar's title row").toBeGreaterThanOrEqual(titleBox.y + titleBox.height);
+  expect(barBox.y + barBox.height, "the tab bar is above the toolbar's title row").toBeLessThanOrEqual(titleBox.y);
   await shot(page, name("two-tabs"));
 
   const g2 = await openLibraryGame(page, 2);
