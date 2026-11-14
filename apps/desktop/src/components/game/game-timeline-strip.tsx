@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
 import { animate, motion, useMotionValue } from "framer-motion";
 import { describePlay, eventHue, formatGameClock, periodLabel, type EventHue } from "@scoutable/shared/lib/events";
 import { flowChart, scoreAfter, type CourtStint, type GameFlow, type GameMoment } from "@scoutable/shared/lib/game-flow";
@@ -10,6 +10,7 @@ import { PopUpButton } from "@/components/ui/pop-up-button";
 import { springs, useReducedMotionSafe } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { teamTints, type TeamTints } from "./team-tints";
+import { useWheelScrub } from "./use-wheel-scrub";
 
 /** The strip's lanes, top to bottom, in pixels. */
 const Y = {
@@ -392,6 +393,14 @@ const StripDrawing = memo(function StripDrawing({
   );
 });
 
+/** What the page around the timeline can ask of it. */
+export interface GameTimelineHandle {
+  /** Moves the playhead by this many of the timeline's pixels, as a sideways swipe does (positive is later). */
+  scrubBy: (px: number) => void;
+  /** The swipe is over. */
+  endScrub: () => void;
+}
+
 interface Hover {
   x: number;
   /** The play a click here would mean; null in a break or with no play near. */
@@ -412,7 +421,9 @@ interface Hover {
  * It answers the press, not the release: the playhead goes to the pointer
  * the moment the button is down and follows it 1:1 from there (from where it
  * was grabbed, when the press is on the playhead itself), the video catching
- * up a frame at a time; past either end it resists and springs back. Let go
+ * up a frame at a time; past either end it resists and springs back. A
+ * sideways swipe on a trackpad moves it the same way, a pixel for a pixel,
+ * over the timeline and (through `handleRef`) over the footage. Let go
  * without having moved and it was a click: on a play, that play from its
  * pre-roll, exactly as its row would; elsewhere, that second. Double-click a
  * quarter to give it the whole strip.
@@ -434,8 +445,10 @@ export function GameTimelineStrip({
   onZoom,
   onPlay,
   onSeek,
+  onScrubEnd,
   hint,
   className,
+  handleRef,
 }: {
   timeline: GameTimeline;
   flow: GameFlow;
@@ -456,9 +469,12 @@ export function GameTimelineStrip({
   onZoom: (period: number | null) => void;
   onPlay: (play: TimedPlay) => void;
   onSeek: (t: number) => void;
+  /** A scrub is over, where `onSeek` last put it: a drag let go, or a swipe come to rest. */
+  onScrubEnd?: (via: "timeline_drag" | "wheel") => void;
   /** A first-visit line under the track, in the game facts' place; gone after the first use. */
   hint: string | null;
   className?: string;
+  handleRef?: Ref<GameTimelineHandle>;
 }) {
   const patternId = useId().replace(/:/g, "");
   const trackRef = useRef<HTMLDivElement | null>(null);
@@ -468,6 +484,8 @@ export function GameTimelineStrip({
   const [width, setWidth] = useState(0);
   const [hover, setHover] = useState<Hover | null>(null);
   const scrubRef = useRef<{ grabOffset: number; startX: number; moved: boolean; wasPlaying: boolean } | null>(null);
+  // A sideways swipe under way: it holds the playhead as a press does.
+  const swipeRef = useRef<{ wasPlaying: boolean } | null>(null);
   const frameSeek = useFrameSeek(video, onSeek);
 
   useLayoutEffect(() => {
@@ -514,7 +532,7 @@ export function GameTimelineStrip({
     setPlayheadShown(true);
     let raf = 0;
     const paint = () => {
-      if (!scrubRef.current) playheadX.set(scale.xOf(video.currentTime));
+      if (!scrubRef.current && !swipeRef.current) playheadX.set(scale.xOf(video.currentTime));
     };
     const tick = () => {
       paint();
@@ -628,6 +646,7 @@ export function GameTimelineStrip({
     if (s.moved) {
       // A scrub: playback carries on from where it was dropped.
       if (s.wasPlaying) video?.play().catch(() => {});
+      if (video) onScrubEnd?.("timeline_drag");
       return;
     }
     // A click. (Both clicks of a double-click land here, on the same spot, before the zoom: the second changes nothing.)
@@ -638,6 +657,31 @@ export function GameTimelineStrip({
       if (s.wasPlaying) video.play().catch(() => {});
     }
   }
+
+  // A sideways swipe: the playhead moves with the fingers, a pixel for a pixel on the timeline's own scale
+  // (so a zoomed quarter scrubs finer), the video catching up a frame at a time, and stops at the ends.
+  const scrubBy = (px: number) => {
+    if (!video || scrubRef.current) return;
+    if (!swipeRef.current) {
+      swipeRef.current = { wasPlaying: !video.paused };
+      if (!video.paused) video.pause();
+    }
+    const x = clamp(playheadX.get() + px, 0, width);
+    playheadX.set(x);
+    frameSeek.schedule(scale.tOf(x));
+  };
+  const endSwipe = () => {
+    const s = swipeRef.current;
+    if (!s) return;
+    swipeRef.current = null;
+    frameSeek.settle();
+    if (s.wasPlaying) video?.play().catch(() => {});
+    onScrubEnd?.("wheel");
+  };
+  const swipe = useRef({ scrubBy, endSwipe });
+  swipe.current = { scrubBy, endSwipe };
+  useImperativeHandle(handleRef, () => ({ scrubBy: (px) => swipe.current.scrubBy(px), endScrub: () => swipe.current.endSwipe() }), []);
+  useWheelScrub(trackRef, { enabled: !!video, onScrub: (px) => swipe.current.scrubBy(px), onEnd: () => swipe.current.endSwipe() });
 
   function onDoubleClick(e: React.MouseEvent<HTMLDivElement>) {
     const at = hoverAt(localX(e.clientX));

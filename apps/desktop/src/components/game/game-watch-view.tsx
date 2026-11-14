@@ -46,9 +46,10 @@ import { GameLabelKeys } from "./game-label-keys";
 import { GameNowBar } from "./game-now-bar";
 import { GamePlayList } from "./game-play-list";
 import { GamePlayMenuContent } from "./game-play-menu";
-import { GAME_TIMELINE_HEIGHT, GameTimelineStrip } from "./game-timeline-strip";
+import { GAME_TIMELINE_HEIGHT, GameTimelineStrip, type GameTimelineHandle } from "./game-timeline-strip";
 import { useCollect } from "./use-collect";
 import { useGamePlayback } from "./use-game-playback";
+import { useWheelScrub } from "./use-wheel-scrub";
 
 /** The players' remembered speed, shared with the playlist watch view. */
 const SPEED_KEY = "scoutable_watch_speed";
@@ -126,6 +127,8 @@ export function GameWatchView({
   const { user, activeOrgId, activeOrgIsPersonal } = useAuth();
   const video = usePersistentVideo();
   const stageHandle = useRef<PlayerStageHandle | null>(null);
+  const timelineHandle = useRef<GameTimelineHandle | null>(null);
+  const stageWrapRef = useRef<HTMLDivElement | null>(null);
   const playerFs = usePlayerFullscreen();
   const [speed, setSpeedState] = useState(readSpeed);
   const [duration, setDuration] = useState<number | null>(null);
@@ -840,6 +843,13 @@ export function GameWatchView({
     }
   });
 
+  // A sideways swipe over the footage scrubs as one over the timeline does, in full screen too.
+  useWheelScrub(stageWrapRef, {
+    enabled: footage,
+    onScrub: (px) => timelineHandle.current?.scrubBy(px),
+    onEnd: () => timelineHandle.current?.endScrub(),
+  });
+
   // ---- The stage's size: as large as the column allows, 16:9 --------------------
   const stageBoxRef = useRef<HTMLDivElement | null>(null);
   const [stageWidth, setStageWidth] = useState(0);
@@ -952,7 +962,7 @@ export function GameWatchView({
             <div ref={stageBoxRef} className="flex min-h-0 flex-1 flex-col items-center">
               <div className="flex flex-col" style={{ width: stageWidth || "100%" }}>
                 <div className={playerFs.active ? "fixed inset-0 z-50 flex flex-col bg-black" : "contents"}>
-                  <div className={playerFs.active ? "relative min-h-0 flex-1" : "relative w-full"}>
+                  <div ref={stageWrapRef} className={playerFs.active ? "relative min-h-0 flex-1" : "relative w-full"}>
                     <PlayerStage
                       handleRef={stageHandle}
                       video={video}
@@ -1064,6 +1074,8 @@ export function GameWatchView({
                     playback.seekTo(t);
                     refollow();
                   }}
+                  onScrubEnd={(via) => trackSeek(via, "time", null)}
+                  handleRef={timelineHandle}
                   hint={tipSeen || timeline.plays.length === 0 ? null : "Drag the timeline to move through the game. Double-click a quarter to zoom in."}
                 />
               </div>
