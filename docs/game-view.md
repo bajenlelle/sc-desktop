@@ -167,7 +167,11 @@ released app lists each row there as a clip.
 ## The desktop pieces (`apps/desktop/src/components/game/`)
 
 - `use-game-playback.ts`: the video's position is never React state. The
-  current play is, and it changes a few times a minute. `nowKey` is the play
+  current play is, and it changes a few times a minute. A clicked play starts
+  at its pre-roll and stays the current one for as long as the video is
+  inside that run-up, whichever way it is moved there (→ and ←, a scrub, a
+  swipe), so the lit row doesn't fall back to the plays that happen during
+  the run-up; a jump to a quarter or a marker lets go of it. `nowKey` is the play
   on screen in the whole game (what the Now bar names and A adds); `activeKey`
   is the lit row, the latest play the filtered list shows.
 - `game-timeline-strip.tsx`: hand-drawn SVG, no chart library. Quarter bands

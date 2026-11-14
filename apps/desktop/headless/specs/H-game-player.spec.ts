@@ -359,3 +359,65 @@ test("a switch's thumb stays in its track while the page around it settles", asy
   await onFloor.click();
   await expect.poll(gaps, { message: "off again: back at the left" }).toEqual({ left: 2, right: 16 });
 });
+
+test("a picked play stays the current one while its run-up is stepped or scrubbed through", async ({ page }) => {
+  await openSampleGame(page);
+  const rows = playRows(page);
+  /** Which listed play is lit. */
+  const current = () => rows.evaluateAll((all) => all.findIndex((row) => row.getAttribute("aria-current") === "true"));
+  const paused = () => page.evaluate(() => document.querySelector("video")?.paused ?? false);
+  // A play with others logged in the ten seconds before it: its run-up shows them happening.
+  const PICK = 10;
+  const pick = async () => {
+    await rows.nth(PICK).click();
+    await expect(rows.nth(PICK)).toHaveAttribute("aria-current", "true");
+    await page.keyboard.press("k");
+    await expect.poll(paused).toBe(true);
+    await settled(page);
+  };
+
+  // → steps two seconds on: still inside the run-up, so still the play that was picked.
+  await pick();
+  const start = await videoTime(page);
+  await page.keyboard.press("ArrowRight");
+  await settled(page);
+  expect(await videoTime(page), "→ moved the video on").toBeGreaterThan(start + 1);
+  expect(await current(), "one step into the run-up, the picked play is still the current one").toBe(PICK);
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await settled(page);
+  expect(await current(), "three steps in, still the picked play").toBe(PICK);
+
+  // ← inside the run-up keeps it too; back out of the run-up lets go of it.
+  await page.keyboard.press("ArrowLeft");
+  await settled(page);
+  expect(await current(), "a step back inside the run-up keeps it").toBe(PICK);
+  for (let i = 0; i < 8; i++) await page.keyboard.press("ArrowLeft");
+  await settled(page);
+  expect(await current(), "stepped back before the run-up, the list shows the play that is on then").toBeLessThan(PICK);
+
+  // A sideways swipe is the same kind of move.
+  await pick();
+  const t = await boxOf(track(page), "the timeline's track");
+  await page.mouse.move(t.x + t.width / 2, t.y + 40);
+  await page.mouse.wheel(4, 0);
+  await page.waitForTimeout(600);
+  await settled(page);
+  expect(await current(), "a short swipe forward never lights a play above the picked one").toBeGreaterThanOrEqual(PICK);
+
+  // So is a drag on the player's own scrubber.
+  await pick();
+  const bar = await boxOf(scrubber(page), "the scrubber");
+  const at = bar.x + (bar.width * (await videoTime(page))) / (await videoDuration(page));
+  await page.mouse.move(at, bar.y + bar.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(at + 2, bar.y + bar.height / 2);
+  await page.mouse.up();
+  await settled(page);
+  expect(await current(), "a nudge on the scrubber inside the run-up keeps the picked play").toBe(PICK);
+
+  // A jump to another moment of the game is not a step: the quarter's start shows what is there.
+  await pick();
+  await page.keyboard.press("1");
+  await expect.poll(current, { message: "a jump to the quarter's start lets go of the picked play" }).not.toBe(PICK);
+});

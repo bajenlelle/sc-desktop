@@ -248,7 +248,7 @@ export function GameWatchView({
   const seekTo = useCallback(
     (t: number, via: string, kind = "time", play = false) => {
       trackSeek(via, kind, null);
-      playback.seekTo(t, { play });
+      playback.seekTo(t, { play, jump: true });
       refollow();
     },
     [playback, trackSeek, refollow],
@@ -486,7 +486,7 @@ export function GameWatchView({
       const target = direction > 0 ? jumps.find((j) => j.time > now + 0.5) : [...jumps].reverse().find((j) => j.time < now - 3);
       if (!target) return;
       trackSeek("key", target.kind, target.period);
-      playback.seekTo(target.time, { play: !video.paused });
+      playback.seekTo(target.time, { play: !video.paused, jump: true });
       refollow();
       revealRow(target.row);
     },
@@ -498,7 +498,7 @@ export function GameWatchView({
       const band = timeline.bands.find((b) => b.period === period);
       if (!band || !footage) return;
       trackSeek(via, "period", period);
-      playback.seekTo(Math.max(0, band.start - PERIOD_LEAD_SECONDS), { play: true });
+      playback.seekTo(Math.max(0, band.start - PERIOD_LEAD_SECONDS), { play: true, jump: true });
       refollow();
       revealRow(`period:${period}`);
     },

@@ -104,11 +104,18 @@ export function useGamePlayback({
     follow();
   }, [order, bands, follow]);
 
-  /** Moves the video to a second of the game. Lets go of any clicked play. */
+  /**
+   * Moves the video to a second of the game. A clicked play stays the current
+   * one for as long as the video is inside its run-up, whichever way it is
+   * moved there (an arrow's step, a scrub, a swipe): the pin's own rule
+   * decides (activePlay), so the lit row doesn't fall back to the plays that
+   * happen during the run-up. `jump` is a move to another moment of the game
+   * (a quarter, a marker, a skip): that lets go of the clicked play.
+   */
   const seekTo = useCallback(
-    (t: number, opts: { play?: boolean } = {}) => {
+    (t: number, opts: { play?: boolean; jump?: boolean } = {}) => {
       if (!latest.current.canPlay) return;
-      pinRef.current = null;
+      if (opts.jump) pinRef.current = null;
       const end = Number.isFinite(video.duration) && video.duration > 0 ? video.duration - 0.05 : Infinity;
       video.currentTime = clamp(t, 0, Math.max(0, end));
       if (opts.play) {
