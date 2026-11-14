@@ -92,12 +92,19 @@ export interface ClosedGameTab {
 
 /**
  * The tabs a change closed, each with its place in the strip before: a tab
- * closed by the coach, or the one that made room for a seventh game.
+ * closed by the coach, or the one that made room for a seventh game. Several
+ * closed at once (Close Other Tabs) count as closed one after the other from
+ * the left, so a place counts only the tabs still there then: reopened the
+ * last first, each is back where it stood.
  */
 export function closedGameTabs(before: GameTabs, after: GameTabs): ClosedGameTab[] {
   if (before === after) return [];
   const open = new Set(after.tabs.map((t) => t.id));
-  return before.tabs.flatMap((tab, index) => (open.has(tab.id) ? [] : [{ tab, index }]));
+  const closed: ClosedGameTab[] = [];
+  before.tabs.forEach((tab, index) => {
+    if (!open.has(tab.id)) closed.push({ tab, index: index - closed.length });
+  });
+  return closed;
 }
 
 /**

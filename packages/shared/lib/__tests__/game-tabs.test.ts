@@ -112,6 +112,22 @@ describe("closedGameTabs", () => {
     expect(closedGameTabs(before, showGameTab(before, t("g")))).toEqual([{ tab: t("a"), index: 0 }]);
   });
 
+  it("places several closed tabs so that reopening them, the last first, puts each back where it stood", () => {
+    // As if they had been closed one after the other from the left: a place counts only the tabs still there.
+    for (const kept of ["a", "b", "c", "d"]) {
+      const before = st(["a", "b", "c", "d"]);
+      const after = closeOtherGameTabs(before, kept);
+      let s = after;
+      for (const closed of closedGameTabs(before, after).reverse()) s = reopenGameTab(s, closed);
+      expect(ids(s), `with ${kept} kept`).toEqual(["a", "b", "c", "d"]);
+    }
+    const before = st(["a", "b", "c"]);
+    expect(closedGameTabs(before, closeOtherGameTabs(before, "c"))).toEqual([
+      { tab: t("a"), index: 0 },
+      { tab: t("b"), index: 0 },
+    ]);
+  });
+
   it("names nothing when no tab went", () => {
     const before = st(["a", "b"]);
     expect(closedGameTabs(before, showGameTab(before, t("c")))).toEqual([]);
