@@ -3,6 +3,7 @@ import {
   closeGameTab,
   GAME_TABS_MAX,
   NO_GAME_TABS,
+  orderGameTabs,
   parseGameTabs,
   reconcileGameTabs,
   showGameTab,
@@ -60,6 +61,37 @@ describe("closeGameTab", () => {
 
   it("closing the last game leaves none", () => {
     expect(closeGameTab(st(["a"]), "a")).toEqual({ state: NO_GAME_TABS, next: null });
+  });
+});
+
+describe("orderGameTabs", () => {
+  it("puts the tabs in the order they were dragged into", () => {
+    const s = orderGameTabs(st(["a", "b", "c"]), ["c", "a", "b"]);
+    expect(ids(s)).toEqual(["c", "a", "b"]);
+  });
+
+  it("leaves which game was shown last as it was", () => {
+    const s = orderGameTabs(st(["a", "b", "c"], ["b", "c", "a"]), ["c", "b", "a"]);
+    expect(s.recent).toEqual(["b", "c", "a"]);
+  });
+
+  it("keeps each tab's own title and date", () => {
+    const s = orderGameTabs({ tabs: [t("a", "First"), t("b", "Second")], recent: ["a", "b"] }, ["b", "a"]);
+    expect(s.tabs).toEqual([t("b", "Second"), t("a", "First")]);
+  });
+
+  it("ignores a game that has no tab", () => {
+    expect(ids(orderGameTabs(st(["a", "b"]), ["x", "b", "a"]))).toEqual(["b", "a"]);
+  });
+
+  it("keeps a tab the new order doesn't name, after the ones it does", () => {
+    // Opened while the drag was under way.
+    expect(ids(orderGameTabs(st(["a", "b", "c"]), ["b", "a"]))).toEqual(["b", "a", "c"]);
+  });
+
+  it("returns the same state when the order is the one it has", () => {
+    const state = st(["a", "b", "c"]);
+    expect(orderGameTabs(state, ["a", "b", "c"])).toBe(state);
   });
 });
 

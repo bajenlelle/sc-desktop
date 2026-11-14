@@ -26,6 +26,7 @@ describe("menuIdForChord", () => {
       ["3", "go-my-playlists"],
       ["4", "go-library"],
       ["5", "go-organization"],
+      ["w", "close-tab"],
     ];
     for (const [key, id] of table) {
       expect(menuIdForChord(chord(key, { ctrlKey: true })), key).toBe(id);

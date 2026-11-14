@@ -1,6 +1,7 @@
 /**
  * The desktop game page's tabs: the games a coach has open, in the order they
- * were opened (new ones on the right), and which were shown most recently.
+ * were opened (new ones on the right) unless the coach has dragged them into
+ * another, and which were shown most recently.
  * Pure state; the desktop keeps it per user and space for the app session.
  *
  * Every function returns the state it was given when nothing changes, so a
@@ -63,6 +64,24 @@ export function closeGameTab(state: GameTabs, id: string): { state: GameTabs; ne
   const next = state.recent[0] === id ? (state.tabs[index + 1]?.id ?? state.tabs[index - 1]?.id ?? null) : null;
   if (tabs.length === 0) return { state: NO_GAME_TABS, next: null };
   return { state: { tabs, recent: state.recent.filter((r) => r !== id) }, next };
+}
+
+/**
+ * Puts the tabs in a new strip order (a tab was dragged). `order` is the ids
+ * as they now stand; an id with no tab is ignored, and a tab it doesn't name
+ * (opened while the drag was under way) keeps its place after the ones it
+ * does. Which game was shown last doesn't change.
+ */
+export function orderGameTabs(state: GameTabs, order: readonly string[]): GameTabs {
+  const byId = new Map(state.tabs.map((t) => [t.id, t]));
+  const named = order.flatMap((id) => {
+    const tab = byId.get(id);
+    return tab ? [tab] : [];
+  });
+  const placed = new Set(named.map((t) => t.id));
+  const tabs = [...named, ...state.tabs.filter((t) => !placed.has(t.id))];
+  if (tabs.every((t, i) => t === state.tabs[i])) return state;
+  return { tabs, recent: state.recent };
 }
 
 /** The tab beside `activeId` in strip order, wrapping; null with nowhere to go. */
