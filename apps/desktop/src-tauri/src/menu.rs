@@ -28,9 +28,10 @@ const CLOSE_WINDOW: &str = "close-window";
 #[cfg(target_os = "macos")]
 const CLOSE_TAB: &str = "close-tab";
 /// Where Close Tab goes in the File menu: right above Close Window, after
-/// New Playlist, Add Game, a separator, Export Playlist and a separator.
+/// New Playlist, Add Game, a separator, Export Playlist, a separator, New Tab
+/// and Reopen Closed Tab.
 #[cfg(target_os = "macos")]
-const CLOSE_TAB_POSITION: usize = 5;
+const CLOSE_TAB_POSITION: usize = 7;
 
 /// Handles to every item the frontend can mutate after startup.
 #[cfg(target_os = "macos")]
@@ -97,12 +98,22 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     // two items in a menu must never share ⌘W.
     item(CLOSE_TAB, "Close Tab", Some("CmdOrCtrl+W"))?;
     let close_window = item(CLOSE_WINDOW, "Close Window", Some("CmdOrCtrl+W"))?;
+    // The game page's tabs, as a browser has them: New Tab opens its game
+    // picker (on only on the game page), Reopen Closed Tab brings back the
+    // tab closed last (on while there is one). Both start off; the webview
+    // turns them on (`menu_set_enabled`).
+    let new_game_tab = item("new-game-tab", "New Tab", Some("CmdOrCtrl+T"))?;
+    new_game_tab.set_enabled(false)?;
+    let reopen_game_tab = item("reopen-game-tab", "Reopen Closed Tab", Some("CmdOrCtrl+Shift+T"))?;
+    reopen_game_tab.set_enabled(false)?;
     let file_menu = SubmenuBuilder::new(app, "File")
         .item(&new_playlist)
         .item(&add_game)
         .separator()
         .item(&export_playlist)
         .separator()
+        .item(&new_game_tab)
+        .item(&reopen_game_tab)
         .item(&close_window)
         .build()?;
 
@@ -222,9 +233,14 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
 pub fn on_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
     let id = event.id().0.as_str();
     if id == CLOSE_WINDOW {
+        // Only while the main window is the one in front: with the About panel
+        // or a file dialog in front, ⌘W is not for the window behind it (which
+        // would quit the app).
         if let Some(window) = app.get_webview_window("main") {
-            if let Err(e) = window.close() {
-                eprintln!("[menu] failed to close the window: {e}");
+            if window.is_focused().unwrap_or(true) {
+                if let Err(e) = window.close() {
+                    eprintln!("[menu] failed to close the window: {e}");
+                }
             }
         }
         return;
