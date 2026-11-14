@@ -27,6 +27,7 @@ describe("menuIdForChord", () => {
       ["4", "go-library"],
       ["5", "go-organization"],
       ["w", "close-tab"],
+      ["t", "new-game-tab"],
     ];
     for (const [key, id] of table) {
       expect(menuIdForChord(chord(key, { ctrlKey: true })), key).toBe(id);
@@ -48,6 +49,12 @@ describe("menuIdForChord", () => {
 
   it("treats Cmd like Ctrl, matching CmdOrCtrl", () => {
     expect(menuIdForChord(chord("n", { metaKey: true }))).toBe("new-playlist");
+  });
+
+  it("maps Shift with T to reopening a closed game tab, and T alone to a new one", () => {
+    expect(menuIdForChord(chord("T", { ctrlKey: true, shiftKey: true }))).toBe("reopen-game-tab");
+    expect(menuIdForChord(chord("t", { ctrlKey: true, shiftKey: true }))).toBe("reopen-game-tab");
+    expect(menuIdForChord(chord("t", { ctrlKey: true }))).toBe("new-game-tab");
   });
 
   it("accepts + for zoom in — Swedish keyboards only reach = through Shift", () => {

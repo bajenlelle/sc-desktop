@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  closedGameTabs,
   closeGameTab,
+  closeOtherGameTabs,
   GAME_TABS_MAX,
+  gameTabForKey,
   NO_GAME_TABS,
   orderGameTabs,
   parseGameTabs,
   reconcileGameTabs,
+  reopenGameTab,
   showGameTab,
   stepGameTab,
+  tabTitleParts,
   type GameTab,
   type GameTabs,
 } from "../game-tabs";
@@ -92,6 +97,114 @@ describe("orderGameTabs", () => {
   it("returns the same state when the order is the one it has", () => {
     const state = st(["a", "b", "c"]);
     expect(orderGameTabs(state, ["a", "b", "c"])).toBe(state);
+  });
+});
+
+describe("closedGameTabs", () => {
+  it("names the tabs a change closed, each with the place it stood in", () => {
+    const before = st(["a", "b", "c"]);
+    const { state } = closeGameTab(before, "b");
+    expect(closedGameTabs(before, state)).toEqual([{ tab: t("b"), index: 1 }]);
+  });
+
+  it("names the tab that made room for a seventh game", () => {
+    const before = st(["a", "b", "c", "d", "e", "f"]);
+    expect(closedGameTabs(before, showGameTab(before, t("g")))).toEqual([{ tab: t("a"), index: 0 }]);
+  });
+
+  it("names nothing when no tab went", () => {
+    const before = st(["a", "b"]);
+    expect(closedGameTabs(before, showGameTab(before, t("c")))).toEqual([]);
+    expect(closedGameTabs(before, orderGameTabs(before, ["b", "a"]))).toEqual([]);
+  });
+});
+
+describe("reopenGameTab", () => {
+  it("puts a closed tab back where it stood and shows it", () => {
+    const s = reopenGameTab(st(["a", "c"]), { tab: t("b"), index: 1 });
+    expect(ids(s)).toEqual(["a", "b", "c"]);
+    expect(s.recent[0]).toBe("b");
+  });
+
+  it("puts it at the end when the strip has grown shorter than its old place", () => {
+    expect(ids(reopenGameTab(st(["a"]), { tab: t("d"), index: 3 }))).toEqual(["a", "d"]);
+  });
+
+  it("only shows a game that has been opened again meanwhile", () => {
+    const s = reopenGameTab(st(["a", "b"], ["a", "b"]), { tab: t("b"), index: 0 });
+    expect(ids(s)).toEqual(["a", "b"]);
+    expect(s.recent).toEqual(["b", "a"]);
+  });
+
+  it("at the cap, the game shown least recently makes room, never the one put back", () => {
+    const full = st(["a", "b", "c", "d", "e", "f"]);
+    const s = reopenGameTab(full, { tab: t("z"), index: 0 });
+    expect(ids(s)).toEqual(["z", "b", "c", "d", "e", "f"]);
+    expect(s.recent).toEqual(["z", "f", "e", "d", "c", "b"]);
+    expect(s.tabs).toHaveLength(GAME_TABS_MAX);
+  });
+});
+
+describe("closeOtherGameTabs", () => {
+  it("leaves the one tab", () => {
+    const s = closeOtherGameTabs(st(["a", "b", "c"]), "b");
+    expect(ids(s)).toEqual(["b"]);
+    expect(s.recent).toEqual(["b"]);
+  });
+
+  it("changes nothing when there is no other tab, or the tab isn't open", () => {
+    const one = st(["a"]);
+    expect(closeOtherGameTabs(one, "a")).toBe(one);
+    const two = st(["a", "b"]);
+    expect(closeOtherGameTabs(two, "x")).toBe(two);
+  });
+});
+
+describe("gameTabForKey", () => {
+  const strip = ["a", "b", "c"];
+
+  it("moves to the tab on the right and on the left", () => {
+    expect(gameTabForKey(strip, "a", "ArrowRight")).toBe("b");
+    expect(gameTabForKey(strip, "b", "ArrowLeft")).toBe("a");
+  });
+
+  it("wraps at both ends", () => {
+    expect(gameTabForKey(strip, "c", "ArrowRight")).toBe("a");
+    expect(gameTabForKey(strip, "a", "ArrowLeft")).toBe("c");
+  });
+
+  it("goes to the first and the last tab", () => {
+    expect(gameTabForKey(strip, "b", "Home")).toBe("a");
+    expect(gameTabForKey(strip, "b", "End")).toBe("c");
+  });
+
+  it("leaves every other key alone", () => {
+    for (const key of ["ArrowUp", "ArrowDown", "Enter", " ", "Delete", "a"]) expect(gameTabForKey(strip, "b", key)).toBeNull();
+  });
+
+  it("has nowhere to go from a tab that isn't in the strip", () => {
+    expect(gameTabForKey(strip, "x", "ArrowRight")).toBeNull();
+  });
+});
+
+describe("tabTitleParts", () => {
+  it("splits a game's title into its two teams", () => {
+    expect(tabTitleParts("Fryshuset Basketbollklubb vs AIK")).toEqual({ home: "Fryshuset Basketbollklubb", away: "AIK" });
+  });
+
+  it("splits at the first vs only", () => {
+    expect(tabTitleParts("A vs B vs C")).toEqual({ home: "A", away: "B vs C" });
+  });
+
+  it("leaves a title the coach wrote as it is", () => {
+    expect(tabTitleParts("Cup final")).toBeNull();
+    expect(tabTitleParts("Canvas")).toBeNull();
+  });
+
+  it("needs a team on both sides", () => {
+    expect(tabTitleParts(" vs AIK")).toBeNull();
+    expect(tabTitleParts("AIK vs ")).toBeNull();
+    expect(tabTitleParts("")).toBeNull();
   });
 });
 

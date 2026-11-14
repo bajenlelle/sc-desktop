@@ -84,6 +84,72 @@ export function orderGameTabs(state: GameTabs, order: readonly string[]): GameTa
   return { tabs, recent: state.recent };
 }
 
+/** A tab that was closed and the place it stood in, for putting it back. */
+export interface ClosedGameTab {
+  tab: GameTab;
+  index: number;
+}
+
+/**
+ * The tabs a change closed, each with its place in the strip before: a tab
+ * closed by the coach, or the one that made room for a seventh game.
+ */
+export function closedGameTabs(before: GameTabs, after: GameTabs): ClosedGameTab[] {
+  if (before === after) return [];
+  const open = new Set(after.tabs.map((t) => t.id));
+  return before.tabs.flatMap((tab, index) => (open.has(tab.id) ? [] : [{ tab, index }]));
+}
+
+/**
+ * Puts a closed tab back where it stood (at the end when the strip is now
+ * shorter) and shows it. At the cap the game shown least recently makes room,
+ * never the one put back. A game opened again meanwhile is only shown.
+ */
+export function reopenGameTab(state: GameTabs, closed: ClosedGameTab, max: number = GAME_TABS_MAX): GameTabs {
+  const { tab } = closed;
+  if (state.tabs.some((t) => t.id === tab.id)) return showGameTab(state, tab, max);
+  const at = Math.min(Math.max(0, closed.index), state.tabs.length);
+  const recent = [tab.id, ...state.recent.filter((id) => id !== tab.id)].slice(0, Math.max(1, max));
+  const keep = new Set(recent);
+  const tabs = [...state.tabs.slice(0, at), { id: tab.id, title: tab.title, date: tab.date }, ...state.tabs.slice(at)];
+  return { tabs: tabs.filter((t) => keep.has(t.id)), recent };
+}
+
+/** Closes every tab but one. */
+export function closeOtherGameTabs(state: GameTabs, keepId: string): GameTabs {
+  const keep = state.tabs.find((t) => t.id === keepId);
+  if (!keep || state.tabs.length < 2) return state;
+  return { tabs: [keep], recent: [keepId] };
+}
+
+/**
+ * Where a key pressed on a tab moves the keyboard's focus, as tab lists do
+ * (W3C's Tabs pattern): the arrows to the tab beside it, wrapping at the
+ * ends, Home and End to the first and the last. Null for any other key.
+ */
+export function gameTabForKey(ids: readonly string[], focusedId: string, key: string): string | null {
+  const at = ids.indexOf(focusedId);
+  if (at < 0 || ids.length === 0) return null;
+  if (key === "ArrowRight") return ids[(at + 1) % ids.length];
+  if (key === "ArrowLeft") return ids[(at - 1 + ids.length) % ids.length];
+  if (key === "Home") return ids[0];
+  if (key === "End") return ids[ids.length - 1];
+  return null;
+}
+
+/**
+ * A game's title as its two teams, when it is the "Home vs Away" a game is
+ * given: a tab then cuts each team short by itself, so two games of the same
+ * home team don't read the same. Null for a title the coach wrote.
+ */
+export function tabTitleParts(title: string): { home: string; away: string } | null {
+  const at = title.indexOf(" vs ");
+  if (at < 0) return null;
+  const home = title.slice(0, at).trim();
+  const away = title.slice(at + 4).trim();
+  return home && away ? { home, away } : null;
+}
+
 /** The tab beside `activeId` in strip order, wrapping; null with nowhere to go. */
 export function stepGameTab(state: GameTabs, activeId: string, step: 1 | -1): string | null {
   const n = state.tabs.length;

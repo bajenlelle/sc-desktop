@@ -17,7 +17,8 @@ export interface KeyChord {
 
 /**
  * Unshifted CmdOrCtrl chords → menu item id. The Shift chords
- * (fullscreen-player on F, the game tabs on [ and ]) are in menuIdForChord.
+ * (fullscreen-player on F, the game tabs on [ and ], reopening a closed game
+ * tab on T) are in menuIdForChord.
  */
 const PLAIN: Record<string, string> = {
   ",": "settings",
@@ -27,6 +28,8 @@ const PLAIN: Record<string, string> = {
   b: "toggle-playlist-browser",
   // On only while the game page shows its tabs; elsewhere the chord is left alone.
   w: "close-tab",
+  // The game page's tab picker; on only on the game page.
+  t: "new-game-tab",
   "0": "zoom-reset",
   "1": "go-home",
   "2": "go-playlists",
@@ -42,10 +45,11 @@ export function menuIdForChord(e: KeyChord): string | null {
   // "+" is the unshifted key people reach for anyway.
   if (key === "=" || key === "+") return "zoom-in";
   if (key === "-") return "zoom-out";
-  // Shift chords: fullscreen-player, and the game tabs on Shift with [ or ].
+  // Shift chords: fullscreen-player, a closed game tab back, and the game tabs on Shift with [ or ].
   // Shift turns [ and ] into { and } on US layouts, so either is accepted.
   if (e.shiftKey) {
     if (key === "f") return "fullscreen-player";
+    if (key === "t") return "reopen-game-tab";
     if (key === "[" || key === "{") return "game-tab-prev";
     if (key === "]" || key === "}") return "game-tab-next";
     return null;
