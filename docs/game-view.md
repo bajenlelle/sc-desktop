@@ -53,9 +53,12 @@ stretch where a game turned.
   bar is not. That is what lets a tab that is pressed be dragged on, and why
   the bar doesn't redraw on a switch.
 - Six at most: a seventh game closes the tab shown least recently, and a
-  notice says which, with Reopen. New games open on the right. A tab
-  activates on press and closes with its ×, a middle click, or its menu
-  (right-click: Close Tab, Close Other Tabs).
+  notice says which, with Reopen. The notice stays eight seconds, twice the
+  app's others: nobody asked for that tab to close. New games open on the
+  right. A tab activates on press and closes with its ×, a middle click, or
+  its menu (right-click: Close Tab, Close Other Tabs). A click on a tab
+  doesn't take the keyboard's focus: with the focus on a tab, Space and the
+  arrows would be the tab list's and not the game's.
 - **A tab drags into another place** (framer-motion's `Reorder`): it follows
   the pointer, the others slide out of its way on the app's springs, and a
   tab let go past an end springs back. The press that chose the tab can carry
@@ -67,9 +70,9 @@ stretch where a game turned.
   stops once, on the shown game's tab; ← and → move the focus along the tabs
   and round the ends, Home and End go to the first and the last; Return or
   Space chooses the tab the focus is on (the arrows only move the focus: a
-  game takes a moment to open); Delete closes it and the focus goes to the
-  tab after it. The × buttons are for the pointer and are not Tab stops
-  (`gameTabForKey`).
+  game takes a moment to open) and the focus stays on it; Delete closes it
+  and the focus goes to the tab after it. The × buttons are for the pointer
+  and are not Tab stops (`gameTabForKey`).
 - **A title that names two teams is cut short team by team**
   ("Fryshuset Bask… vs AIK"), so two games of the same home team don't read
   the same (`tabTitleParts`); the tooltip has the whole title and the date.
@@ -77,7 +80,9 @@ stretch where a game turned.
   where there is no menu bar) puts the tab closed last back in its place, as
   it was left. The last ten, for the visit, in memory (`lib/game-tabs.ts`):
   tabs the coach closed and tabs that made room, not games that were deleted
-  or moved to another space.
+  or moved to another space. Tabs closed together (Close Other Tabs) come
+  back one at a time, each where it stood: their places are noted as if they
+  had been closed one after the other (`closedGameTabs`).
 - **The + after the last tab opens a game picker** (`game-tab-picker.tsx`,
   `packages/shared/lib/game-picker.ts`): the Library's games in the Library's
   order, archived ones left out, searched by title and team as the Library
@@ -92,8 +97,9 @@ stretch where a game turned.
   Window is ⌘W (`src-tauri/src/menu.rs`: `menu_game_tabs` puts Close Tab in
   and takes it out, because the menu library changes an item's shortcut but
   doesn't take one away). Close Window is closed natively, so it works where
-  nothing in the webview listens, and only while the main window is the one
-  in front (not with the About panel or a file dialog in front). Close Tab
+  nothing in the webview listens. Both act only while the main window is the
+  one in front: with the About panel or a file dialog in front, ⌘W is not
+  for the window behind it. Close Tab also
   waits while a dialog is open, and on a page whose game has no tab it goes
   to the game shown last. Where there is no menu bar, Ctrl+W closes the tab
   and is left alone without tabs (`packages/shared/lib/menu-shortcuts.ts`).
