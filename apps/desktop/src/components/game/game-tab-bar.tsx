@@ -1,10 +1,20 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMatch, useNavigate } from "react-router-dom";
 import type { PickableGame } from "@scoutable/shared/lib/game-picker";
-import { setGameTabsShown } from "@/components/menu-handler";
+import { setGameTabsShown, setReopenGameTabEnabled } from "@/components/menu-handler";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth-context";
-import { forgetGameTab, gameTabsScope, neighbourGameTab, reorderGameTabs, useGameTabs } from "@/lib/game-tabs";
+import {
+  announceClosedGameTab,
+  closeOtherGameTabs,
+  forgetGameTab,
+  gameTabsScope,
+  neighbourGameTab,
+  reopenClosedGameTab,
+  reorderGameTabs,
+  useGameTabs,
+  useHasClosedGameTab,
+} from "@/lib/game-tabs";
 import { IS_MACOS } from "@/lib/platform";
 import { useSidebarCollapsed } from "@/lib/sidebar-store";
 import { cn } from "@/lib/utils";
@@ -20,7 +30,8 @@ import { GameTabStrip } from "./game-tab-strip";
  * game page: the page is built again each time the game in the address
  * changes, and a bar built with it couldn't keep hold of a tab that was
  * pressed and is now being dragged. It shows only on the game page, and it
- * is where the tabs' keys and the File menu's Close Tab are answered.
+ * is where the tabs' keys and the File menu's New Tab, Close Tab and Reopen
+ * Closed Tab are answered.
  */
 export function GameTabBar() {
   const matchId = useMatch("/matches/:id")?.params.id ?? null;
@@ -30,7 +41,11 @@ export function GameTabBar() {
   const tabs = useGameTabs(scope);
   const collapsed = useSidebarCollapsed();
   const tabCount = tabs.tabs.length;
-  const shown = matchId !== null && tabCount >= 2;
+  const hasClosed = useHasClosedGameTab(scope);
+  // The picker is the bar's: with one game open and so no bar, New Tab (⌘T) brings the bar for as long as it is open.
+  const [picking, setPicking] = useState(false);
+  const tabbed = matchId !== null && tabCount >= 2;
+  const shown = matchId !== null && (tabCount >= 2 || picking);
   const openIds = useMemo(() => new Set(tabs.tabs.map((t) => t.id)), [tabs.tabs]);
 
   // A switch blurs the field being typed in first: Details saves on blur, and the page is gone after `navigate`.
@@ -45,10 +60,10 @@ export function GameTabBar() {
   );
 
   const close = useCallback(
-    (id: string, via: "button" | "middle_click" | "menu") => {
-      const open = tabs.tabs.some((t) => t.id === id);
+    (id: string, via: "button" | "middle_click" | "menu" | "key" | "tab_menu") => {
+      if (!tabs.tabs.some((t) => t.id === id)) return;
       const next = forgetGameTab(scope, id);
-      trackEvent("game_tab_closed", { via, tabs: open ? tabs.tabs.length - 1 : tabs.tabs.length });
+      trackEvent("game_tab_closed", { via, tabs: tabs.tabs.length - 1 });
       if (id === matchId && next) {
         (document.activeElement as HTMLElement | null)?.blur();
         navigate(`/matches/${next}`, { replace: true, state: { via: "tab" } });
@@ -70,11 +85,56 @@ export function GameTabBar() {
     [matchId, goTo, navigate],
   );
 
-  // ⌘W closes the tab while there are tabs, and the window otherwise (src-tauri/src/menu.rs).
+  /** A tab's menu: every other tab closes, and the one kept is the game shown. */
+  const closeOthers = useCallback(
+    (keepId: string) => {
+      closeOtherGameTabs(scope, keepId);
+      trackEvent("game_tab_closed", { via: "close_others", tabs: 1 });
+      if (keepId !== matchId) {
+        (document.activeElement as HTMLElement | null)?.blur();
+        navigate(`/matches/${keepId}`, { replace: true, state: { via: "tab" } });
+      }
+    },
+    [scope, matchId, navigate],
+  );
+
+  /** Reopen Closed Tab: the tab closed last comes back in its place, as it was left. */
+  const reopen = useCallback(() => {
+    const back = reopenClosedGameTab(scope);
+    if (!back) return;
+    trackEvent("game_tab_reopened", { tabs: tabCount + 1 });
+    if (back.evicted) announceClosedGameTab(back.evicted.title);
+    (document.activeElement as HTMLElement | null)?.blur();
+    navigate(`/matches/${back.id}`, { replace: true, state: { via: "tab" } });
+  }, [scope, tabCount, navigate]);
+
+  // ⌘W closes the tab while there are tabs to close, and the window otherwise (src-tauri/src/menu.rs).
   useEffect(() => {
-    setGameTabsShown(shown);
-  }, [shown]);
+    setGameTabsShown(tabbed);
+  }, [tabbed]);
   useEffect(() => () => setGameTabsShown(false), []);
+  // Reopen Closed Tab is on while there is one to bring back.
+  useEffect(() => {
+    setReopenGameTabEnabled(hasClosed);
+  }, [hasClosed]);
+  useEffect(() => () => setReopenGameTabEnabled(false), []);
+
+  // Reopen Closed Tab works from any page: it goes to the game. New Tab is the game page's.
+  useEffect(() => {
+    const onNew = () => {
+      if (matchId) setPicking(true);
+    };
+    window.addEventListener("menu-reopen-game-tab", reopen);
+    window.addEventListener("menu-new-game-tab", onNew);
+    return () => {
+      window.removeEventListener("menu-reopen-game-tab", reopen);
+      window.removeEventListener("menu-new-game-tab", onNew);
+    };
+  }, [matchId, reopen]);
+  // Leaving the game page closes the picker with it.
+  useEffect(() => {
+    if (!matchId) setPicking(false);
+  }, [matchId]);
 
   // ⌃Tab and ⌃⇧Tab step through the tabs on every layout; the Window menu's ⌘⇧] and ⌘⇧[ arrive as
   // "menu-game-tab", the File menu's Close Tab as "menu-close-game-tab".
@@ -92,7 +152,12 @@ export function GameTabBar() {
       if (next) goTo(next, "menu");
     };
     const onClose = () => {
-      if (shown) close(matchId, "menu");
+      if (!tabbed) return;
+      // A dialog is in front (a picker, the tip-off sheet): Close Tab is not for the page behind it.
+      if (document.querySelector('[role="dialog"][data-state="open"]')) return;
+      if (tabs.tabs.some((t) => t.id === matchId)) close(matchId, "menu");
+      // The page on screen has no tab (its game is gone, or belongs to another space): leave it for the game shown last.
+      else if (tabs.recent[0]) goTo(tabs.recent[0], "menu");
     };
     window.addEventListener("keydown", onKey);
     window.addEventListener("menu-game-tab", onStep);
@@ -102,7 +167,7 @@ export function GameTabBar() {
       window.removeEventListener("menu-game-tab", onStep);
       window.removeEventListener("menu-close-game-tab", onClose);
     };
-  }, [scope, matchId, shown, goTo, close]);
+  }, [scope, matchId, tabbed, tabs, goTo, close]);
 
   if (!shown || !matchId) return null;
   return (
@@ -120,10 +185,11 @@ export function GameTabBar() {
         activeId={matchId}
         onSelect={(id) => goTo(id, "tab")}
         onClose={close}
+        onCloseOthers={closeOthers}
         onReorder={(order) => reorderGameTabs(scope, order)}
         onReordered={() => trackEvent("game_tabs_reordered", { tabs: tabCount })}
       />
-      <GameTabPicker orgId={activeOrgId} openIds={openIds} onPick={pick} />
+      <GameTabPicker open={picking} onOpenChange={setPicking} orgId={activeOrgId} openIds={openIds} onPick={pick} />
     </div>
   );
 }

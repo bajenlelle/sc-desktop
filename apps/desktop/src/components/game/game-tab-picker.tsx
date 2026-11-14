@@ -6,6 +6,7 @@ import { SearchField } from "@/components/ui/search-field";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatDate } from "@/lib/format-date";
 import { listMatchesLight } from "@/lib/matches-db";
+import { IS_MACOS } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import type { StoredMatch } from "@/types/match";
 
@@ -17,26 +18,34 @@ import type { StoredMatch } from "@/types/match";
  * Return opens the first game listed.
  */
 export function GameTabPicker({
+  open,
+  onOpenChange,
   orgId,
   openIds,
   onPick,
 }: {
+  /** Open or not is the bar's to say: the File menu's New Tab (⌘T) opens it as the + does. */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   orgId: string | null;
   /** The games that have a tab. */
   openIds: ReadonlySet<string>;
   onPick: (game: PickableGame) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   // null while the Library is being read.
   const [games, setGames] = useState<StoredMatch[] | null>(null);
   const [failed, setFailed] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  // Read when the picker opens: a game imported a minute ago is there.
+  // Another space has other games: its list starts empty, not as the last space's.
+  useEffect(() => setGames(null), [orgId]);
+
+  // Read when the picker opens: a game imported a minute ago is there. It opens on an empty search.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+    setSearch("");
     setFailed(false);
     listMatchesLight(orgId ?? undefined, { ownOnly: true })
       .then((list) => {
@@ -52,17 +61,14 @@ export function GameTabPicker({
 
   const rows = useMemo(() => (games ? pickableGames(games, search, openIds) : []), [games, search, openIds]);
   const choose = (game: PickableGame) => {
-    setOpen(false);
+    onOpenChange(false);
     onPick(game);
   };
 
   return (
     <Popover
       open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (next) setSearch("");
-      }}
+      onOpenChange={onOpenChange}
     >
       <Tooltip>
         <TooltipTrigger asChild>
@@ -76,7 +82,9 @@ export function GameTabPicker({
             </button>
           </PopoverTrigger>
         </TooltipTrigger>
-        <TooltipContent side="bottom">Open another game</TooltipContent>
+        <TooltipContent side="bottom">
+          Open another game <span className="text-muted-foreground">{IS_MACOS ? "⌘T" : "Ctrl T"}</span>
+        </TooltipContent>
       </Tooltip>
       <PopoverContent
         align="start"
@@ -119,8 +127,8 @@ export function GameTabPicker({
                 onClick={() => choose(game)}
                 className={cn(
                   "flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:bg-fill-1",
-                  // While something is typed, the first game is the one Return opens.
-                  i === 0 && search.trim() && "bg-fill-1",
+                  // The first game is the one Return opens.
+                  i === 0 && "bg-fill-1",
                 )}
               >
                 <span className="min-w-0 flex-1 truncate">{game.title}</span>

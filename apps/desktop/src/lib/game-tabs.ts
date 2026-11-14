@@ -18,15 +18,20 @@
  * user changes: another coach in the same club never sees this one's.
  */
 import { useSyncExternalStore } from "react";
+import { toast } from "sonner";
 import {
+  closedGameTabs,
   closeGameTab,
+  closeOtherGameTabs as closeOtherTabs,
   GAME_TABS_MAX,
   NO_GAME_TABS,
   orderGameTabs,
   parseGameTabs,
   reconcileGameTabs,
+  reopenGameTab,
   showGameTab,
   stepGameTab,
+  type ClosedGameTab,
   type GameTab,
   type GameTabs,
 } from "@scoutable/shared/lib/game-tabs";
@@ -81,6 +86,27 @@ function write(scope: string | null, next: GameTabs) {
   for (const listener of listeners) listener();
 }
 
+/**
+ * The tabs closed on this visit, per scope, the last closed last: what Reopen
+ * Closed Tab brings back. Kept in memory only, and only for tabs the coach
+ * closed or that made room for another game; a game that was deleted or moved
+ * to another space is not something to reopen.
+ */
+const closedTabs = new Map<string, ClosedGameTab[]>();
+const CLOSED_TABS_MAX = 10;
+
+/** Notes what a change closed (and that a reopened game is no longer closed), then writes it. */
+function writeNoting(scope: string, next: GameTabs): ClosedGameTab[] {
+  const before = read(scope);
+  if (before === next) return [];
+  const gone = closedGameTabs(before, next);
+  const open = new Set(next.tabs.map((t) => t.id));
+  const kept = (closedTabs.get(scope) ?? []).filter((c) => !open.has(c.tab.id) && !gone.some((g) => g.tab.id === c.tab.id));
+  closedTabs.set(scope, [...kept, ...gone].slice(-CLOSED_TABS_MAX));
+  write(scope, next);
+  return gone;
+}
+
 let watching = false;
 /** The user the caches belong to; undefined until the auth listener first says. */
 let cachedFor: string | null | undefined;
@@ -89,6 +115,7 @@ function onAuthChanged(userId: string | null) {
   if (cachedFor !== undefined && userId !== cachedFor) {
     loadedGames.clear();
     gameViews.clear();
+    closedTabs.clear();
     forgetPlaylistsRead();
     forgetLabelsRead();
   }
@@ -120,7 +147,7 @@ function subscribe(listener: () => void) {
   if (!watching) {
     watching = true;
     window.addEventListener("matches-changed", onMatchesChanged);
-    // Registered with the first game page, whose caches are its first event's user's.
+    // Registered when the window's layout first draws the tab bar, at launch: the caches are that first event's user's.
     createClient().auth.onAuthStateChange((_event, session) => onAuthChanged(session?.user.id ?? null));
   }
   listeners.add(listener);
@@ -137,18 +164,56 @@ export function useGameTabs(scope: string | null): GameTabs {
   );
 }
 
-/** Shows a game in the scope's tabs: its own tab, now the most recent. */
-export function rememberGameTab(scope: string | null, tab: GameTab): void {
-  if (!scope) return;
-  write(scope, showGameTab(read(scope), tab));
+/**
+ * Shows a game in the scope's tabs: its own tab, now the most recent. Returns
+ * the tab that made room for it, when the bar was full: that one was closed
+ * without being asked, so the page says so.
+ */
+export function rememberGameTab(scope: string | null, tab: GameTab): GameTab | null {
+  if (!scope) return null;
+  return writeNoting(scope, showGameTab(read(scope), tab))[0]?.tab ?? null;
 }
 
-/** Closes a game's tab; returns the game to show instead when it was the shown one. */
-export function forgetGameTab(scope: string | null, id: string): string | null {
+/**
+ * Closes a game's tab; returns the game to show instead when it was the shown
+ * one. `reopenable: false` for a tab whose game is gone: there is nothing to
+ * bring back.
+ */
+export function forgetGameTab(scope: string | null, id: string, opts: { reopenable?: boolean } = {}): string | null {
   if (!scope) return null;
   const { state, next } = closeGameTab(read(scope), id);
-  write(scope, state);
+  if (opts.reopenable === false) write(scope, state);
+  else writeNoting(scope, state);
   return next;
+}
+
+/** Closes every tab of the scope but one. */
+export function closeOtherGameTabs(scope: string | null, keepId: string): void {
+  if (!scope) return;
+  writeNoting(scope, closeOtherTabs(read(scope), keepId));
+}
+
+/**
+ * Puts the tab closed last back in its place and shows it. Returns its game,
+ * and the tab that made room for it when the bar was full; null with nothing
+ * to reopen.
+ */
+export function reopenClosedGameTab(scope: string | null): { id: string; evicted: GameTab | null } | null {
+  if (!scope) return null;
+  const closed = closedTabs.get(scope) ?? [];
+  const last = closed[closed.length - 1];
+  if (!last) return null;
+  const gone = writeNoting(scope, reopenGameTab(read(scope), last));
+  // Already open (its tab came back another way): no longer something to reopen.
+  closedTabs.set(scope, (closedTabs.get(scope) ?? []).filter((c) => c.tab.id !== last.tab.id));
+  for (const listener of listeners) listener();
+  return { id: last.tab.id, evicted: gone[0]?.tab ?? null };
+}
+
+/** Whether the scope has a closed tab to bring back. */
+export function useHasClosedGameTab(scope: string | null): boolean {
+  const has = () => !!scope && (closedTabs.get(scope)?.length ?? 0) > 0;
+  return useSyncExternalStore(subscribe, has, has);
 }
 
 /** Puts the scope's tabs in the order they were dragged into. */
@@ -205,4 +270,16 @@ export function recallGameView(matchId: string): GameViewMemory | null {
 export function rememberGameView(matchId: string, patch: Partial<GameViewMemory>): void {
   const was = gameViews.get(matchId) ?? { filters: EMPTY_GAME_FILTERS, zoomPeriod: null, list: null, view: null };
   gameViews.set(matchId, { ...was, ...patch });
+}
+
+/**
+ * Says that a tab was closed to make room (the bar holds six), with the way
+ * to bring it back. The Reopen button asks as the File menu's item does, so
+ * the tab bar answers it.
+ */
+export function announceClosedGameTab(title: string): void {
+  toast(`Closed ${title || "a game"} to make room: six games fit in the tabs`, {
+    id: "game-tab-made-room",
+    action: { label: "Reopen", onClick: () => window.dispatchEvent(new CustomEvent("menu-reopen-game-tab")) },
+  });
 }

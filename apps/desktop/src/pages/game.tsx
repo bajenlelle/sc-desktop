@@ -8,6 +8,7 @@ import { Toolbar } from "@/components/shell/toolbar";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
 import {
+  announceClosedGameTab,
   forgetGameTab,
   gameTabsScope,
   recallGameView,
@@ -60,7 +61,7 @@ export function GamePage() {
   const wantsQuarters = !!(location.state as { openQuarters?: boolean } | null)?.openQuarters;
   const via = (location.state as { via?: string } | null)?.via;
   // A tab switch: by the tab bar, or by a game marked Open in the Library.
-  const viaTab = via === "tab";
+  const viaTab = via === "tab" || via === "library_tab";
   const startEventId = Number(searchParams.get("play")) || null;
   // A tab switch shows the game as this visit read it, without the spinner.
   const [loaded, setLoaded] = useState<{ match: StoredMatch; videoStatus: VideoFileStatus | "none" } | null>(() =>
@@ -76,7 +77,7 @@ export function GamePage() {
     if (loaded) return loaded.videoStatus === "ok" && loaded.match.syncPoint ? "game" : "details";
     return null;
   });
-  const [entry] = useState(viaTab ? "tab" : via === "picker" ? "picker" : asked || startEventId ? "link" : "library");
+  const [entry] = useState(via === "library_tab" ? "library_tab" : viaTab ? "tab" : via === "picker" ? "picker" : asked || startEventId ? "link" : "library");
   const [missing, setMissing] = useState(false);
   // The cached copy stands in for the first read only; Details and back reads afresh.
   const fromCache = useRef(loaded !== null);
@@ -142,7 +143,9 @@ export function GamePage() {
   const date = loaded?.match.date || null;
   useLayoutEffect(() => {
     scopeAtMount.current ??= scope;
-    rememberGameTab(scopeAtMount.current, { id: matchId, title, date });
+    const madeRoom = rememberGameTab(scopeAtMount.current, { id: matchId, title, date });
+    // The bar was full: a tab was closed without being asked. Say which, with the way back.
+    if (madeRoom) announceClosedGameTab(madeRoom.title);
     // The title is what changes; the date comes with it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchId, title, scope]);
@@ -166,7 +169,8 @@ export function GamePage() {
   }, [matchId, view, loaded, knownTitle]);
 
   useEffect(() => {
-    if (missing) forgetGameTab(scopeAtMount.current ?? scope, matchId);
+    // A game that isn't there has no tab, and isn't one to reopen.
+    if (missing) forgetGameTab(scopeAtMount.current ?? scope, matchId, { reopenable: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [missing, matchId]);
 

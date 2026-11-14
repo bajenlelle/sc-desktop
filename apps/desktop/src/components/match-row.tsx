@@ -31,7 +31,7 @@ export function MatchRow({
     <Link
       to={`/matches/${match.id}`}
       // A game with a tab comes back as its tab does: as it was left, with nothing to load.
-      state={openInTab ? { via: "tab" } : undefined}
+      state={openInTab ? { via: "library_tab" } : undefined}
       className="group flex min-h-11 items-center gap-3 px-4 py-2 outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection"
     >
       {/* Team colours */}
