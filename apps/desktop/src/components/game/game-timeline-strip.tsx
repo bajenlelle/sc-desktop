@@ -25,6 +25,9 @@ const Y = {
   height: 116,
 } as const;
 
+/** Everything the timeline takes under the Now bar: its track, the line of facts and zoom under it, and the air below. */
+export const GAME_TIMELINE_HEIGHT = Y.height + 44;
+
 /** How near (px) the pointer must be to a play for a click to mean that play. */
 const SNAP_PX = 4;
 /** Movement (px) that makes a press a scrub and not a click. */
@@ -48,6 +51,9 @@ const TICK_FILL: Record<EventHue, string> = {
 };
 
 const SHOTS = new Set(["2pt", "3pt", "freethrow"]);
+
+/** A word on the graph keeps a rim of the page's colour, so the line it crosses doesn't strike it through. */
+const HALO = { paintOrder: "stroke", stroke: "var(--background)", strokeWidth: 3, strokeLinejoin: "round" } as const;
 
 function formatVideoTime(seconds: number): string {
   const s = Math.max(0, Math.round(seconds));
@@ -313,7 +319,7 @@ const StripDrawing = memo(function StripDrawing({
                   y={peak.side === 1 ? chart.yOf(peak.lead) + 12 : chart.yOf(-peak.lead) - 5}
                   textAnchor="middle"
                   className="text-caption font-semibold nums"
-                  style={{ fill: "var(--foreground)" }}
+                  style={{ fill: "var(--foreground)", ...HALO }}
                 >
                   +{peak.lead}
                 </text>
@@ -373,11 +379,11 @@ const StripDrawing = memo(function StripDrawing({
       {chart && (
         <g transform={`translate(0 ${Y.chart})`} className="text-footnote font-medium" style={{ fill: "var(--muted-foreground)" }}>
           <rect x={4} y={3} width={7} height={7} rx="1.5" fill={tints.home} fillOpacity={0.7} />
-          <text x={15} y={10}>
+          <text x={15} y={10} style={HALO}>
             {teams.home.name}
           </text>
           <rect x={4} y={Y.chartH - 11} width={7} height={7} rx="1.5" fill={tints.away} fillOpacity={0.6} />
-          <text x={15} y={Y.chartH - 4}>
+          <text x={15} y={Y.chartH - 4} style={HALO}>
             {teams.away.name}
           </text>
         </g>
@@ -450,7 +456,7 @@ export function GameTimelineStrip({
   onZoom: (period: number | null) => void;
   onPlay: (play: TimedPlay) => void;
   onSeek: (t: number) => void;
-  /** A first-visit line in the header, in the game facts' place; gone after the first use. */
+  /** A first-visit line under the track, in the game facts' place; gone after the first use. */
   hint: string | null;
   className?: string;
 }) {
@@ -678,6 +684,7 @@ export function GameTimelineStrip({
       ? `${teams.away.name} +${flow.largestLead.away.lead}`
       : null;
   const facts = flow.source === "none" ? [] : [
+    final ? `Final ${final.home}–${final.away}` : null,
     `${flow.leadChanges.length} lead ${flow.leadChanges.length === 1 ? "change" : "changes"}`,
     `${flow.ties.length} ${flow.ties.length === 1 ? "tie" : "ties"}`,
     lead ? `Largest lead ${lead}` : null,
@@ -696,34 +703,7 @@ export function GameTimelineStrip({
     : "Before the first play";
 
   return (
-    <section aria-label="Game timeline" className={cn("@container/strip relative z-10 shrink-0 border-t border-separator bg-background px-4 pt-2 pb-3 select-none", className)}>
-      <div className="flex h-7 items-center gap-3">
-        {final && (
-          <p className="flex min-w-0 shrink items-baseline gap-1.5 text-callout">
-            <span className="truncate">{teams.home.name}</span>
-            <span className="shrink-0 font-semibold nums">
-              {final.home}–{final.away}
-            </span>
-            <span className="truncate">{teams.away.name}</span>
-          </p>
-        )}
-        {/* The game's facts; on a first visit, how the strip works, in the same place, so nothing moves when it goes. */}
-        {(hint || facts.length > 0) && (
-          <p className="hidden min-w-0 truncate text-subheadline text-muted-foreground nums @min-[760px]/strip:block">{hint ?? facts.join(" · ")}</p>
-        )}
-        {timeline.bands.length > 1 && (
-          <PopUpButton
-            aria-label="Timeline zoom"
-            size="sm"
-            align="end"
-            className="ml-auto"
-            value={zoomPeriod === null ? "all" : String(zoomPeriod)}
-            onValueChange={(v) => onZoom(v === "all" ? null : Number(v))}
-            options={zoomOptions}
-          />
-        )}
-      </div>
-
+    <section aria-label="Game timeline" className={cn("relative z-10 shrink-0 pb-3 select-none", className)}>
       <div
         ref={trackRef}
         role="slider"
@@ -747,7 +727,7 @@ export function GameTimelineStrip({
           if (!scrubRef.current) setHover(null);
         }}
         onDoubleClick={onDoubleClick}
-        className="relative mt-1 cursor-default touch-none rounded-md outline-none focus-visible:ring-2 focus-visible:ring-selection"
+        className="relative cursor-default touch-none rounded-md outline-none focus-visible:ring-2 focus-visible:ring-selection"
         style={{ height: Y.height }}
       >
         {width > 0 && (
@@ -791,7 +771,7 @@ export function GameTimelineStrip({
         {hover && tip && (
           <div
             role="presentation"
-            className="pointer-events-none absolute bottom-full z-30 mb-2 w-max max-w-72 -translate-x-1/2 rounded-lg bg-material-popover px-2.5 py-1.5 text-subheadline text-popover-foreground shadow-menu backdrop-blur-xl"
+            className="pointer-events-none absolute top-full z-30 mt-2 w-max max-w-72 -translate-x-1/2 rounded-lg bg-material-popover px-2.5 py-1.5 text-subheadline text-popover-foreground shadow-menu backdrop-blur-xl"
             style={{ left: Math.min(Math.max(hover.x, 110), Math.max(110, width - 110)) }}
           >
             <p className="flex items-baseline gap-2 nums">
@@ -804,6 +784,22 @@ export function GameTimelineStrip({
               <p className="text-muted-foreground nums">{formatVideoTime(hover.snap && hover.play ? hover.play.time : hover.time)} in the video</p>
             )}
           </div>
+        )}
+      </div>
+
+      {/* Under the track, as a chart's legend is: the game in a line (on a first visit, how the timeline works, in the same place) and the zoom. */}
+      <div className="mt-1 flex h-7 items-center gap-3">
+        {(hint || facts.length > 0) && <p className="min-w-0 truncate text-subheadline text-muted-foreground nums">{hint ?? facts.join(" · ")}</p>}
+        {timeline.bands.length > 1 && (
+          <PopUpButton
+            aria-label="Timeline zoom"
+            size="sm"
+            align="end"
+            className="ml-auto shrink-0"
+            value={zoomPeriod === null ? "all" : String(zoomPeriod)}
+            onValueChange={(v) => onZoom(v === "all" ? null : Number(v))}
+            options={zoomOptions}
+          />
         )}
       </div>
     </section>

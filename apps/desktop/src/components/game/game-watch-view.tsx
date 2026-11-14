@@ -46,14 +46,14 @@ import { GameLabelKeys } from "./game-label-keys";
 import { GameNowBar } from "./game-now-bar";
 import { GamePlayList } from "./game-play-list";
 import { GamePlayMenuContent } from "./game-play-menu";
-import { GameTimelineStrip } from "./game-timeline-strip";
+import { GAME_TIMELINE_HEIGHT, GameTimelineStrip } from "./game-timeline-strip";
 import { useCollect } from "./use-collect";
 import { useGamePlayback } from "./use-game-playback";
 
 /** The players' remembered speed, shared with the playlist watch view. */
 const SPEED_KEY = "scoutable_watch_speed";
-/** Under the stage: the Now bar and the gap above it. */
-const NOW_BAR_HEIGHT = 52;
+/** Under the stage, in its column: the Now bar with its air, then the timeline. */
+const UNDER_STAGE = 52 + GAME_TIMELINE_HEIGHT;
 /** Where a game opens: this long before tip-off, so the jump ball is seen. */
 const TIPOFF_LEAD_SECONDS = 5;
 
@@ -848,7 +848,7 @@ export function GameWatchView({
     if (!el) return;
     const measure = () => {
       const w = el.clientWidth;
-      const h = el.clientHeight - NOW_BAR_HEIGHT;
+      const h = el.clientHeight - UNDER_STAGE;
       setStageWidth(Math.max(240, Math.floor(Math.min(w, (h * 16) / 9))));
     };
     measure();
@@ -946,247 +946,246 @@ export function GameWatchView({
         }
         actions={<CollectControl collect={collect} highlight={!tipSeen} />}
       />
-      <div className="flex min-h-0 flex-1 flex-col">
-        <ResizablePanelGroup direction="horizontal" autoSaveId="game-view" className="min-h-0 flex-1">
-          <ResizablePanel defaultSize="66" minSize="45">
-            <div className="flex h-full min-h-0 flex-col px-4 pt-4">
-              <div ref={stageBoxRef} className="flex min-h-0 flex-1 flex-col items-center">
-                <div className="flex flex-col" style={{ width: stageWidth || "100%" }}>
-                  <div className={playerFs.active ? "fixed inset-0 z-50 flex flex-col bg-black" : "contents"}>
-                    <div className={playerFs.active ? "relative min-h-0 flex-1" : "relative w-full"}>
-                      <PlayerStage
-                        handleRef={stageHandle}
-                        video={video}
-                        src={src}
-                        fileMissing={!footage}
-                        fullscreen={playerFs.active}
-                        onToggleFullscreen={toggleFullscreen}
-                        onExitFullscreen={() => void playerFs.exit()}
-                        title={match.title}
-                        // In a window the Now bar under the footage says where the game is; in full screen the stage has to.
-                        readout={playerFs.active ? readout : undefined}
-                        // The player's own scrubber, as every player in the app has: the whole file on a straight scale.
-                        clipWindow={duration !== null ? { start: 0, end: duration } : null}
-                        scrubLabel="Position in the video"
-                        longTimes
-                        ticks={timeline.bands.map((b) => b.start)}
-                        // A drag seeks once a frame; it is reported once, when it is let go.
-                        onSeek={(t) => {
-                          playback.seekTo(t);
+      <ResizablePanelGroup direction="horizontal" autoSaveId="game-view" className="min-h-0 flex-1">
+        <ResizablePanel defaultSize="66" minSize="45">
+          <div className="flex h-full min-h-0 flex-col px-4 pt-4">
+            <div ref={stageBoxRef} className="flex min-h-0 flex-1 flex-col items-center">
+              <div className="flex flex-col" style={{ width: stageWidth || "100%" }}>
+                <div className={playerFs.active ? "fixed inset-0 z-50 flex flex-col bg-black" : "contents"}>
+                  <div className={playerFs.active ? "relative min-h-0 flex-1" : "relative w-full"}>
+                    <PlayerStage
+                      handleRef={stageHandle}
+                      video={video}
+                      src={src}
+                      fileMissing={!footage}
+                      fullscreen={playerFs.active}
+                      onToggleFullscreen={toggleFullscreen}
+                      onExitFullscreen={() => void playerFs.exit()}
+                      title={match.title}
+                      // In a window the Now bar under the footage says where the game is; in full screen the stage has to.
+                      readout={playerFs.active ? readout : undefined}
+                      // The player's own scrubber, as every player in the app has: the whole file on a straight scale.
+                      clipWindow={duration !== null ? { start: 0, end: duration } : null}
+                      scrubLabel="Position in the video"
+                      longTimes
+                      ticks={timeline.bands.map((b) => b.start)}
+                      // A drag seeks once a frame; it is reported once, when it is let go.
+                      onSeek={(t) => {
+                        playback.seekTo(t);
+                        refollow();
+                      }}
+                      onSeekEnd={() => trackSeek("scrubber", "time", null)}
+                      transport={{
+                        canPrev: playback.canPrev,
+                        canNext: playback.canNext,
+                        isQueueActive: playback.started,
+                        onPrev: () => {
+                          playback.prev("transport");
                           refollow();
-                        }}
-                        onSeekEnd={() => trackSeek("scrubber", "time", null)}
-                        transport={{
-                          canPrev: playback.canPrev,
-                          canNext: playback.canNext,
-                          isQueueActive: playback.started,
-                          onPrev: () => {
-                            playback.prev("transport");
-                            refollow();
-                          },
-                          onNext: () => {
-                            playback.next("transport");
-                            refollow();
-                          },
-                          onReplay: () => {
-                            playback.replay();
-                            refollow();
-                          },
-                          onStop: () => video.pause(),
-                          onPlayAll: () => void video.play().catch(() => {}),
-                          labels: { prev: "Previous play", next: "Next play", replay: "Replay play" },
-                          hideStop: true,
-                        }}
-                        speed={speed}
-                        onSpeedChange={setSpeed}
-                      >
-                        {stagePanel}
-                        {footage && !playback.started && (
-                          <div className="absolute inset-0 z-10 flex items-center justify-center">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void video.play().catch(() => {});
-                              }}
-                              className="dark flex items-center gap-2 rounded-full bg-black/55 px-5 py-2.5 text-sm font-medium text-white shadow-menu ring-1 ring-white/15 backdrop-blur-xl transition-[background-color,transform] duration-100 hover:bg-black/70 active:scale-[0.97]"
-                            >
-                              <Play className="size-4 fill-current" />
-                              {resumeAt.current !== null && startEventId === null ? "Resume" : "Play"}
-                            </button>
-                          </div>
-                        )}
-                      </PlayerStage>
-                      {/* In the stage's own box, so it is there in full screen too. */}
-                      {labelKeysShown && <GameLabelKeys labels={labels.labels} on={current ? labels.assignments.get(current.key) : undefined} />}
-                    </div>
+                        },
+                        onNext: () => {
+                          playback.next("transport");
+                          refollow();
+                        },
+                        onReplay: () => {
+                          playback.replay();
+                          refollow();
+                        },
+                        onStop: () => video.pause(),
+                        onPlayAll: () => void video.play().catch(() => {}),
+                        labels: { prev: "Previous play", next: "Next play", replay: "Replay play" },
+                        hideStop: true,
+                      }}
+                      speed={speed}
+                      onSpeedChange={setSpeed}
+                    >
+                      {stagePanel}
+                      {footage && !playback.started && (
+                        <div className="absolute inset-0 z-10 flex items-center justify-center">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void video.play().catch(() => {});
+                            }}
+                            className="dark flex items-center gap-2 rounded-full bg-black/55 px-5 py-2.5 text-sm font-medium text-white shadow-menu ring-1 ring-white/15 backdrop-blur-xl transition-[background-color,transform] duration-100 hover:bg-black/70 active:scale-[0.97]"
+                          >
+                            <Play className="size-4 fill-current" />
+                            {resumeAt.current !== null && startEventId === null ? "Resume" : "Play"}
+                          </button>
+                        </div>
+                      )}
+                    </PlayerStage>
+                    {/* In the stage's own box, so it is there in full screen too. */}
+                    {labelKeysShown && <GameLabelKeys labels={labels.labels} on={current ? labels.assignments.get(current.key) : undefined} />}
                   </div>
-                  <GameNowBar
-                    play={current}
-                    footage={footage}
-                    moment={playback.moment}
-                    score={currentScore}
-                    breakScore={breakTotals ? { home: breakTotals.homeTotal, away: breakTotals.awayTotal } : null}
-                    labels={current ? [...(labels.assignments.get(current.key) ?? [])].flatMap((id) => labels.labels.filter((l) => l.id === id)) : []}
-                    collect={current ? collect.statusOf(current.key) : "none"}
-                    targetName={collect.target?.name ?? null}
-                    labelButton={(trigger) => {
-                      const target = nowLabelFor ?? current;
-                      return target ? labelPicker(target, trigger, nowLabelFor !== null, (open) => setNowLabelFor(open ? current : null), "top") : trigger;
-                    }}
-                    lastLabel={lastLabel}
-                    onLabelAgain={labelAgain}
-                    addRef={addButtonRef}
-                    onAdd={addCurrent}
-                    onSkip={skip}
-                  />
                 </div>
+                <GameNowBar
+                  play={current}
+                  footage={footage}
+                  moment={playback.moment}
+                  score={currentScore}
+                  breakScore={breakTotals ? { home: breakTotals.homeTotal, away: breakTotals.awayTotal } : null}
+                  labels={current ? [...(labels.assignments.get(current.key) ?? [])].flatMap((id) => labels.labels.filter((l) => l.id === id)) : []}
+                  collect={current ? collect.statusOf(current.key) : "none"}
+                  targetName={collect.target?.name ?? null}
+                  labelButton={(trigger) => {
+                    const target = nowLabelFor ?? current;
+                    return target ? labelPicker(target, trigger, nowLabelFor !== null, (open) => setNowLabelFor(open ? current : null), "top") : trigger;
+                  }}
+                  lastLabel={lastLabel}
+                  onLabelAgain={labelAgain}
+                  addRef={addButtonRef}
+                  onAdd={addCurrent}
+                  onSkip={skip}
+                />
+                {/* The game's timeline belongs to the player: right under it, as wide as the footage. */}
+                <GameTimelineStrip
+                  timeline={timeline}
+                  flow={flow}
+                  marks={marks}
+                  moments={moments}
+                  teams={stripTeams}
+                  video={footage ? video : null}
+                  order={order}
+                  filtered={filtered}
+                  inTarget={collect.inTarget}
+                  activeKey={playback.nowKey}
+                  stints={stints}
+                  stintName={chosenPlayer?.name ?? null}
+                  zoomPeriod={zoomPeriod}
+                  onZoom={setZoomPeriod}
+                  onPlay={(play) => {
+                    dismissTip();
+                    playPlay(play, "timeline");
+                  }}
+                  onSeek={(t) => {
+                    dismissTip();
+                    playback.seekTo(t);
+                    refollow();
+                  }}
+                  hint={tipSeen || timeline.plays.length === 0 ? null : "Drag the timeline to move through the game. Double-click a quarter to zoom in."}
+                />
               </div>
             </div>
-          </ResizablePanel>
-          <ResizableHandle />
-          <ResizablePanel defaultSize="34" minSize="26" maxSize="48">
-            <div className="flex h-full min-h-0 flex-col">
-              <GameFilterBar
-                filters={filters}
-                onChange={setFilters}
-                teams={teams}
-                momentCounts={momentCounts}
-                timeouts={marks && marks.timeouts.length > 0 ? "ready" : readingMarks ? "reading" : "none"}
-                periods={timeline.bands.map((b) => b.period)}
-                people={people}
-                labels={labels.labels}
-                visible={order.length}
-                filtered={filtered}
-                addable={addable}
-                targetName={collect.target?.name ?? null}
-                onAddAll={addAll}
-                searchRef={searchRef}
-                sheetOpen={filterSheetOpen}
-                onSheetOpenChange={setFilterSheetOpen}
-                presetsMenu={activeOrgId ? (
-                  <FilterPresetsMenu
-                    presets={presets.presets}
-                    current={filters.clip}
-                    onApply={applyPreset}
-                    onSave={(name) => presets.save(name, filters.clip)}
-                    onRename={presets.rename}
-                    onDelete={presets.remove}
-                  />
-                ) : undefined}
-              />
-              <GamePlayList
-                rows={rows}
-                hasPlays={timeline.plays.length > 0}
-                activeKey={playback.activeKey}
-                selected={selected}
-                playing={footage}
-                flow={flow}
-                teams={teams}
-                labels={labels.labels}
-                assignments={labels.assignments}
-                statusOf={collect.statusOf}
-                targetName={collect.target?.name ?? null}
-                labelPickerFor={labelPickerFor}
-                renderLabelPicker={renderRowLabelPicker}
-                followSignal={followSignal}
-                reveal={reveal}
-                restoreScroll={remembered?.list ?? null}
-                onLeave={(list) => rememberGameView(match.id, { list })}
-                onPress={onPress}
-                onAdd={addOne}
-                onRemove={collect.removeAdded}
-                onLabel={openRowLabels}
-                onMarker={onMarker}
-                onClearFilters={() => setFilters(EMPTY_GAME_FILTERS)}
-                // Finder's rule: an action on a selected item acts on the whole selection.
-                rowMenu={(play, anchor) => (
-                  <GamePlayMenuContent
-                    plays={selected.has(play.key) ? selectedPlays : [play]}
-                    collect={collect}
-                    moment={filters.moment}
-                    anchor={anchor}
-                    onDone={selected.has(play.key) ? clearSelection : undefined}
-                  />
-                )}
-                selecting={selected.size > 0}
-                selectionBar={
-                  <SelectionBar
-                    count={selected.size}
-                    onClear={clearSelection}
-                    clearTitle="Deselect all (Esc)"
-                    group={null}
-                    addTo={
-                      <>
-                        <PillButton
-                          title={collect.target ? `Add ${selected.size} ${selected.size === 1 ? "play" : "plays"} to ${collect.target.name}` : "Add to playlist…"}
-                          // With no target the picker opens from its own button (the pill leaves with the selection), and
-                          // the selection stays until a playlist is chosen and the plays are in: dismissed, nothing is lost.
-                          onClick={() => collect.add(selectedPlays, "selection", filters.moment, null, clearSelection)}
-                        >
-                          <Plus />
-                          {collect.target ? (
-                            <span className={cn(PILL_LABEL, "max-w-40 truncate")}>Add to {collect.target.name}</span>
-                          ) : (
-                            <span className={PILL_LABEL}>Add to playlist…</span>
-                          )}
-                        </PillButton>
-                        <AddToPopover
-                          playlists={collect.candidates}
-                          activePlaylistId={collect.target?.id ?? null}
-                          onAddToPlaylist={async (pl) => {
-                            collect.addToPlaylist(pl, selectedPlays, "selection", filters.moment);
-                            clearSelection();
-                          }}
-                          onCreatePlaylist={async (name) => {
-                            await collect.createAndAddTo(name, selectedPlays, "selection", filters.moment);
-                            clearSelection();
-                          }}
-                          trigger={
-                            <PillButton title="Add to another playlist">
-                              <ListPlus />
-                              <span className={PILL_LABEL}>Another playlist</span>
-                              <ChevronDown className="size-3 text-muted-foreground" />
-                            </PillButton>
-                          }
-                        />
-                      </>
-                    }
-                  />
-                }
-              />
-            </div>
-          </ResizablePanel>
-        </ResizablePanelGroup>
-        {/* A warning about the sync opens its own room: the footage above gives way, it doesn't jump. */}
-        <AutoHeight className="shrink-0">{banner && <div className="px-4 pb-2">{banner}</div>}</AutoHeight>
-        <GameTimelineStrip
-          timeline={timeline}
-          flow={flow}
-          marks={marks}
-          moments={moments}
-          teams={stripTeams}
-          video={footage ? video : null}
-          order={order}
-          filtered={filtered}
-          inTarget={collect.inTarget}
-          activeKey={playback.nowKey}
-          stints={stints}
-          stintName={chosenPlayer?.name ?? null}
-          zoomPeriod={zoomPeriod}
-          onZoom={setZoomPeriod}
-          onPlay={(play) => {
-            dismissTip();
-            playPlay(play, "timeline");
-          }}
-          onSeek={(t) => {
-            dismissTip();
-            playback.seekTo(t);
-            refollow();
-          }}
-          hint={tipSeen || timeline.plays.length === 0 ? null : "Click or drag anywhere on the timeline to move through the game. Double-click a quarter to zoom in."}
-        />
-      </div>
+            {/* A warning about the sync opens its own room at the foot of the column: the footage gives way, it doesn't jump. */}
+            <AutoHeight className="shrink-0">{banner && <div className="pb-3">{banner}</div>}</AutoHeight>
+          </div>
+        </ResizablePanel>
+        <ResizableHandle />
+        <ResizablePanel defaultSize="34" minSize="26" maxSize="48">
+          <div className="flex h-full min-h-0 flex-col">
+            <GameFilterBar
+              filters={filters}
+              onChange={setFilters}
+              teams={teams}
+              momentCounts={momentCounts}
+              timeouts={marks && marks.timeouts.length > 0 ? "ready" : readingMarks ? "reading" : "none"}
+              periods={timeline.bands.map((b) => b.period)}
+              people={people}
+              labels={labels.labels}
+              visible={order.length}
+              filtered={filtered}
+              addable={addable}
+              targetName={collect.target?.name ?? null}
+              onAddAll={addAll}
+              searchRef={searchRef}
+              sheetOpen={filterSheetOpen}
+              onSheetOpenChange={setFilterSheetOpen}
+              presetsMenu={activeOrgId ? (
+                <FilterPresetsMenu
+                  presets={presets.presets}
+                  current={filters.clip}
+                  onApply={applyPreset}
+                  onSave={(name) => presets.save(name, filters.clip)}
+                  onRename={presets.rename}
+                  onDelete={presets.remove}
+                />
+              ) : undefined}
+            />
+            <GamePlayList
+              rows={rows}
+              hasPlays={timeline.plays.length > 0}
+              activeKey={playback.activeKey}
+              selected={selected}
+              playing={footage}
+              flow={flow}
+              teams={teams}
+              labels={labels.labels}
+              assignments={labels.assignments}
+              statusOf={collect.statusOf}
+              targetName={collect.target?.name ?? null}
+              labelPickerFor={labelPickerFor}
+              renderLabelPicker={renderRowLabelPicker}
+              followSignal={followSignal}
+              reveal={reveal}
+              restoreScroll={remembered?.list ?? null}
+              onLeave={(list) => rememberGameView(match.id, { list })}
+              onPress={onPress}
+              onAdd={addOne}
+              onRemove={collect.removeAdded}
+              onLabel={openRowLabels}
+              onMarker={onMarker}
+              onClearFilters={() => setFilters(EMPTY_GAME_FILTERS)}
+              // Finder's rule: an action on a selected item acts on the whole selection.
+              rowMenu={(play, anchor) => (
+                <GamePlayMenuContent
+                  plays={selected.has(play.key) ? selectedPlays : [play]}
+                  collect={collect}
+                  moment={filters.moment}
+                  anchor={anchor}
+                  onDone={selected.has(play.key) ? clearSelection : undefined}
+                />
+              )}
+              selecting={selected.size > 0}
+              selectionBar={
+                <SelectionBar
+                  count={selected.size}
+                  onClear={clearSelection}
+                  clearTitle="Deselect all (Esc)"
+                  group={null}
+                  addTo={
+                    <>
+                      <PillButton
+                        title={collect.target ? `Add ${selected.size} ${selected.size === 1 ? "play" : "plays"} to ${collect.target.name}` : "Add to playlist…"}
+                        // With no target the picker opens from its own button (the pill leaves with the selection), and
+                        // the selection stays until a playlist is chosen and the plays are in: dismissed, nothing is lost.
+                        onClick={() => collect.add(selectedPlays, "selection", filters.moment, null, clearSelection)}
+                      >
+                        <Plus />
+                        {collect.target ? (
+                          <span className={cn(PILL_LABEL, "max-w-40 truncate")}>Add to {collect.target.name}</span>
+                        ) : (
+                          <span className={PILL_LABEL}>Add to playlist…</span>
+                        )}
+                      </PillButton>
+                      <AddToPopover
+                        playlists={collect.candidates}
+                        activePlaylistId={collect.target?.id ?? null}
+                        onAddToPlaylist={async (pl) => {
+                          collect.addToPlaylist(pl, selectedPlays, "selection", filters.moment);
+                          clearSelection();
+                        }}
+                        onCreatePlaylist={async (name) => {
+                          await collect.createAndAddTo(name, selectedPlays, "selection", filters.moment);
+                          clearSelection();
+                        }}
+                        trigger={
+                          <PillButton title="Add to another playlist">
+                            <ListPlus />
+                            <span className={PILL_LABEL}>Another playlist</span>
+                            <ChevronDown className="size-3 text-muted-foreground" />
+                          </PillButton>
+                        }
+                      />
+                    </>
+                  }
+                />
+              }
+            />
+          </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </Page>
   );
 }
