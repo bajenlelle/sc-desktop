@@ -13,7 +13,7 @@ import { expect, openLibraryGame, openSampleGame, playRows, recordAnalytics, sho
 const timeline = (page: Page) => page.getByRole("region", { name: "Game timeline" });
 const track = (page: Page) => page.getByRole("slider", { name: "Position in the game" });
 const list = (page: Page) => page.getByRole("list", { name: "Plays" });
-const drawn = (page: Page, what: "play-mark" | "run" | "run-score" | "timeout" | "timeout-mark" | "peak" | "playhead") =>
+const drawn = (page: Page, what: "play-mark" | "run" | "run-score" | "timeout" | "timeout-line" | "timeout-mark" | "peak" | "playhead") =>
   timeline(page).locator(`[data-strip="${what}"]`);
 const readout = (page: Page) => timeline(page).locator('[role="presentation"]');
 const moment = (page: Page, name: string) => page.getByRole("group", { name: "Moment" }).getByRole("button", { name, exact: true });
@@ -63,6 +63,13 @@ test("the whole game shows its story: quarters, runs with their score, timeouts,
     const under = marks.filter((m) => w.x < m.x + m.width && m.x < w.x + w.width && w.y < m.y + m.height && m.y < w.y + w.height);
     expect(under.length, `"${await word.textContent()}" isn't under a timeout's mark`).toBe(0);
   }
+  // And a timeout's hairline is painted under them, so their rim breaks it and it doesn't strike them through.
+  const lineOverWord = await timeline(page).evaluate((el) => {
+    const lines = [...el.querySelectorAll('[data-strip="timeout-line"]')];
+    const figures = [...el.querySelectorAll('[data-strip="peak"], [data-strip="run-score"]')];
+    return lines.length === 0 || lines.some((line) => figures.some((word) => !!(word.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING)));
+  });
+  expect(lineOverWord, "every timeout's hairline is drawn before the figures").toBe(false);
   // Nor on each other.
   const boxes = await Promise.all(words.map(async (word) => ({ text: await word.textContent(), box: await boxOf(word, "a figure on the graph") })));
   for (const [i, a] of boxes.entries()) {
@@ -107,11 +114,38 @@ test("zoomed into a quarter the strip marks that quarter's plays, and zoomed out
     });
   expect(inQuarter, "the second quarter has plays").toBeGreaterThan(20);
 
+  // Each frame from here: how many quarter bands the strip shows, and how many play marks.
+  await page.evaluate(() => {
+    const w = window as unknown as { __frames: { bands: number; marks: number }[] };
+    w.__frames = [];
+    const until = performance.now() + 1500;
+    const tick = () => {
+      const region = document.querySelector('[aria-label="Game timeline"]');
+      w.__frames.push({ bands: region?.querySelectorAll("svg rect[rx='4']").length ?? 0, marks: region?.querySelectorAll('[data-strip="play-mark"]').length ?? 0 });
+      if (performance.now() < until) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
   await zoomTo(page, "Q2");
+  const frames = await page.evaluate(() => (window as unknown as { __frames: { bands: number; marks: number }[] }).__frames);
+  const zoomedFrames = frames.filter((f) => f.bands === 1);
+  expect(zoomedFrames.length, "the strip was seen on one quarter").toBeGreaterThan(0);
+  expect(zoomedFrames.filter((f) => f.marks === 0).length, "the marks come with the quarter, not a moment after it").toBe(0);
   // A play with no team (a jump ball the feed gives to nobody) has no side to stand on.
   await expect.poll(() => drawn(page, "play-mark").count(), { message: "the quarter's plays are marked" }).toBeGreaterThan(inQuarter * 0.9);
   expect(await drawn(page, "play-mark").count(), "only that quarter's").toBeLessThanOrEqual(inQuarter);
   await shot(page, `${browserName}-J-strip-zoomed`);
+
+  // A quarter shows its own runs only: one from another quarter is not on the strip, nor its score.
+  const runsInThird = await list(page)
+    .locator("[data-row-key]")
+    .evaluateAll((rows) => {
+      const keys = rows.map((row) => row.getAttribute("data-row-key") ?? "");
+      return keys.slice(keys.indexOf("period:3") + 1, keys.indexOf("period:4")).filter((k) => k.startsWith("run:")).length;
+    });
+  await zoomTo(page, "Q3");
+  await expect(drawn(page, "run"), "only the third quarter's runs are on its strip").toHaveCount(runsInThird);
+  await expect(drawn(page, "run-score")).toHaveCount(runsInThird);
 
   await zoomTo(page, "Whole game");
   await expect(drawn(page, "play-mark"), "the whole game again: no marks").toHaveCount(0);
@@ -175,4 +209,39 @@ test("with no marks on the strip a click goes to the second under the pointer, n
   const kinds = (await tracked()).filter((e) => e.event === "game_view_seeked" && e.properties?.via === "timeline").map((e) => String(e.properties?.kind));
   expect(kinds.length, "every click is reported").toBe(xs.length);
   expect(kinds.filter((k) => k !== "time"), "none of them jumped to a play").toEqual([]);
+});
+
+test("with marks on the strip, a click on one plays that play", async ({ page }) => {
+  const tracked = await recordAnalytics(page);
+  await openSampleGame(page);
+  await moment(page, "Runs").click();
+  await expect.poll(() => drawn(page, "play-mark").count(), { message: "the filter's plays are marked" }).toBeGreaterThan(0);
+  const mark = await boxOf(drawn(page, "play-mark").first(), "a play's mark");
+  await page.mouse.click(mark.x + mark.width / 2, mark.y + mark.height / 2);
+  await expect
+    .poll(async () => (await tracked()).filter((e) => e.event === "game_view_seeked").map((e) => `${String(e.properties?.via)}/${String(e.properties?.kind)}`).at(-1), {
+      message: "the click is reported as a play chosen on the timeline",
+    })
+    .toBe("timeline/play");
+});
+
+test("the line under the track is about the second the pointer is on, whatever the list is filtered to", async ({ page }) => {
+  await openSampleGame(page);
+  const t = await boxOf(track(page), "the timeline's track");
+  const run = await boxOf(drawn(page, "run").first(), "the sample game's run");
+  // A point on the graph well clear of the run, so it is a time and nothing else.
+  const x = run.x - t.x > t.width / 2 ? t.x + t.width * 0.2 : t.x + t.width * 0.85;
+  const y = run.y + run.height / 2;
+  const said = async () => {
+    await page.mouse.move(x - 40, y);
+    await page.mouse.move(x, y);
+    await expect(readout(page)).toBeVisible();
+    return (await readout(page).innerText()).replace(/\s+/g, " ").trim();
+  };
+  const unfiltered = await said();
+  expect(unfiltered, "the line names a quarter and a clock").toMatch(/Q\d/);
+
+  await moment(page, "Runs").click();
+  await expect.poll(() => drawn(page, "play-mark").count()).toBeGreaterThan(0);
+  expect(await said(), "the same second, the same words, with a filter on").toBe(unfiltered);
 });

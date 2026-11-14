@@ -165,8 +165,9 @@ stretch where a game turned.
 - **A scrub is one `game_view_seeked`**, sent when it ends, not one per
   frame: `via` is `scrubber` (the player's bar: a drag, or a key pressed on
   it, once however long it is held), `timeline_drag`, `wheel` (a swipe; one
-  that rests longer than 400 ms and goes on is two), or `timeline` with kind
-  `time` for a click on the timeline where no play is.
+  that rests longer than 400 ms and goes on is two), or `timeline` for a click
+  on the timeline, with the kind of what was clicked: `time` (a second),
+  `play` (a play's mark), `run` or `timeout`.
 - **No mark per play for the whole game** (decided 2026-11-14, after an audit
   of the strip). It drew a tick per play in nine colours: some 430 in 665 px,
   a mark every other pixel, naming nothing the list beside it doesn't, while
@@ -274,7 +275,12 @@ released app lists each row there as a clip.
   largest at the whole game's width, all of them in one quarter), each
   timeout as a pause mark on the calling side's edge with a hairline through
   the graph (so a timeout that ended a run reads as one), a line under the
-  clutch stretch, the largest lead. Breaks are folded into the gaps between
+  clutch stretch, the largest lead. The figures stand clear of the team
+  names and of each other by rule (`game-strip.ts`): a run's score keeps the
+  edge, a timeout's mark goes a row in for a name, a score or another mark,
+  and the largest lead takes the row under them or, with none free, is left
+  to the line under the track. Timeouts' hairlines are painted under all of
+  them, so a figure's rim breaks the line. Breaks are folded into the gaps between
   the quarters, which still map to their footage. Under the graph is one
   lane: the playlist's plays as dots, always, and the listed plays as marks
   in one colour (home above the lane's middle, away below) when a filter is

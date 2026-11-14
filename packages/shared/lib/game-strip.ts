@@ -30,6 +30,16 @@ export interface StripRun {
   x1: number;
 }
 
+/**
+ * The runs that are on the strip, each given a width that can be seen and
+ * pointed at. Which are on it is asked of where they really are, before any
+ * widening: with one quarter on the strip the scale parks every earlier run
+ * at the left edge and every later one at the right, and those are not on it.
+ */
+export function runsOnStrip(runs: readonly StripRun[], width: number, minWidth = 4): StripRun[] {
+  return runs.filter((r) => r.x1 > 0.5 && r.x0 < width - 0.5).map((r) => ({ ...r, x1: Math.max(r.x1, r.x0 + minWidth) }));
+}
+
 export interface PlacedRunLabel {
   id: number;
   /** The middle of the printed score. */
@@ -80,33 +90,52 @@ export interface StripTimeout {
 
 /**
  * Which row each timeout's mark takes: its team's edge of the graph, or a
- * row further in where that side's team name stands. The officials' is on
- * the middle line, where no name is.
+ * row further in where something of that side already stands on the edge:
+ * the team's name, a figure (`words`: a run's score, the largest lead; a
+ * timeout called to stop a run stands right at its score), or an earlier
+ * timeout's mark. The officials' is on the middle line, where nothing is.
+ * The mark gives way, not the figure: its hairline says where it is either way.
  */
-export function placeTimeoutMarks(timeouts: readonly StripTimeout[], opts: { legend: StripLegend; markWidth?: number }): { id: number; row: 0 | 1 }[] {
+export function placeTimeoutMarks(
+  timeouts: readonly StripTimeout[],
+  opts: { legend: StripLegend; words?: readonly { team: 1 | 2; x: number; width: number; row: 0 | 1 }[]; markWidth?: number },
+): { id: number; row: 0 | 1 }[] {
   const size = opts.markWidth ?? TIMEOUT_MARK_WIDTH;
-  return timeouts.map((t) => ({ id: t.id, row: t.team !== 0 && onLegend(t.x, size, opts.legend, t.team) ? 1 : 0 }));
+  const placed: { team: 1 | 2; x: number; row: 0 | 1 }[] = [];
+  return timeouts.map((t) => {
+    if (t.team === 0) return { id: t.id, row: 0 as const };
+    const team = t.team;
+    const edgeTaken =
+      onLegend(t.x, size, opts.legend, team) ||
+      (opts.words ?? []).some((w) => w.team === team && w.row === 0 && Math.abs(w.x - t.x) < (w.width + size) / 2 + 2) ||
+      placed.some((p) => p.team === team && p.row === 0 && Math.abs(p.x - t.x) < size + 1);
+    const row = edgeTaken ? 1 : 0;
+    placed.push({ team, x: t.x, row });
+    return { id: t.id, row };
+  });
 }
 
 /**
  * Where the largest lead's figure is printed: over its peak, kept inside the
- * strip, just inside the leading side's area. That side's timeouts and its
- * runs' scores stand on the same edge (`marks`; a mark with no width is a
- * timeout's), and the largest lead is often reached as a run ends, so under
- * or beside one the figure goes a row further in. It stays over the peak,
- * where the area is tallest: moved aside it would land on the line. A mark
- * that is itself a row in (it made room for a team name) leaves the first
- * row free.
+ * strip, just inside the leading side's area. It stays over the peak, where
+ * the area is tallest: moved aside it would land on the line. That side's
+ * runs' scores and timeouts' marks have the edge (`marks`; one with no width
+ * is a timeout's), and the largest lead is often reached as a run ends, so
+ * with one of them over the peak the figure takes the row under it. It is
+ * the one that gives way, and where that row is taken as well it isn't
+ * printed: the line under the track names the largest lead too.
  */
 export function placePeakLabel(
   x: number,
   opts: { width: number; marks: readonly { x: number; row: 0 | 1; width?: number }[]; labelWidth?: number; markWidth?: number },
-): { x: number; row: 0 | 1 } {
+): { x: number; row: 0 | 1 } | null {
   const half = (opts.labelWidth ?? PEAK_LABEL_WIDTH) / 2;
   const over = Math.min(Math.max(x, half), opts.width - half);
   // How near a mark's middle the figure's middle may come: half of each, and 2 px of air.
-  const reach = (mark: { width?: number }) => half + (mark.width ?? opts.markWidth ?? TIMEOUT_MARK_WIDTH) / 2 + 2;
-  return { x: over, row: opts.marks.some((mark) => mark.row === 0 && Math.abs(mark.x - over) < reach(mark)) ? 1 : 0 };
+  const near = opts.marks.filter((mark) => Math.abs(mark.x - over) < half + (mark.width ?? opts.markWidth ?? TIMEOUT_MARK_WIDTH) / 2 + 2);
+  if (near.length === 0) return { x: over, row: 0 };
+  // On the first row the figure stands a little in from the edge, so anything near it is in its way, on either row.
+  return near.some((mark) => mark.row === 1) ? null : { x: over, row: 1 };
 }
 
 /** The strip's rows: the quarter bands, the score graph, and the lane under it where the play marks are. */

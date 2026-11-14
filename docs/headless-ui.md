@@ -108,7 +108,7 @@ a spec cannot read analytics off the network.
 
 To assert on what the app reports, a spec replaces the app's one analytics
 module at its edge before the first navigation and reads the calls from the
-page: `recordAnalytics(page)` in `specs/H-game-player.spec.ts` routes
+page: `recordAnalytics(page)` in `headless/helpers.ts` routes
 `src/lib/analytics.ts` to a module whose `trackEvent` keeps each call on
 `window.__tracked`. The stand-in must export what the real module exports; a
 new export there breaks the page loudly, which is the reminder to add it.

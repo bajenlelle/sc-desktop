@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffe
 import { animate, motion, useMotionValue } from "framer-motion";
 import { describePlay, formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { flowChart, scoreAfter, type CourtStint, type GameFlow, type GameMoment } from "@scoutable/shared/lib/game-flow";
-import { RUN_LABEL_WIDTH, placePeakLabel, placeRunLabels, placeTimeoutMarks, stripShowsPlays, stripTargetAt, type StripRun, type StripTarget, type StripTimeout, type StripZone } from "@scoutable/shared/lib/game-strip";
+import { RUN_LABEL_WIDTH, placePeakLabel, placeRunLabels, placeTimeoutMarks, runsOnStrip, stripShowsPlays, stripTargetAt, type StripRun, type StripTarget, type StripTimeout, type StripZone } from "@scoutable/shared/lib/game-strip";
 import { gameScale, playIndexAt, type GameScale, type GameTimeline, type ScaleSegment, type TimedPlay } from "@scoutable/shared/lib/game-timeline";
 import { clamp, rubberband } from "@scoutable/shared/lib/motion-math";
 import { swipeTime } from "@scoutable/shared/lib/wheel-scrub";
@@ -228,18 +228,19 @@ const StripDrawing = memo(function StripDrawing({
   }, [teams.home.name, teams.away.name, hasChart]);
   // A name starts 15 px in, after its swatch; 4 px of air after it.
   const legend = { x: legendX, home: names.home ? names.home + 19 : 0, away: names.away ? names.away + 19 : 0 };
+  // The words on the graph, in the order they give way. A run's score keeps the edge (a row in only for a team
+  // name). A timeout's mark goes a row in for a name, a score or an earlier mark: its hairline says where it is
+  // either way. The largest lead's figure takes what is left over its peak, and is left out when nothing is: the
+  // line under the track names it too.
+  const teamOfRun = new Map(runs.map((r) => [r.id, r.team]));
   const runScores = placeRunLabels(runs, { width, legend });
-  const timeoutRows = new Map(placeTimeoutMarks(timeouts, { legend }).map((t) => [t.id, t.row]));
-  // The largest lead's figure stands just inside the leading side's edge, where that side's timeouts and its runs'
-  // scores are: a row in under or beside one.
+  const scoresOf = (team: 1 | 2) => runScores.filter((score) => teamOfRun.get(score.id) === team).map((score) => ({ team, x: score.x, width: RUN_LABEL_WIDTH, row: score.row }));
+  const timeoutRows = new Map(placeTimeoutMarks(timeouts, { legend, words: [...scoresOf(1), ...scoresOf(2)] }).map((t) => [t.id, t.row]));
   const peakLabel =
     peak && peakX !== null
       ? placePeakLabel(peakX, {
           width,
-          marks: [
-            ...timeouts.filter((t) => t.team === peak.side).map((t) => ({ x: t.x, row: timeoutRows.get(t.id) ?? 0 })),
-            ...runScores.filter((score) => runs.find((r) => r.id === score.id)?.team === peak.side).map((score) => ({ x: score.x, row: score.row, width: RUN_LABEL_WIDTH })),
-          ],
+          marks: [...scoresOf(peak.side), ...timeouts.filter((t) => t.team === peak.side).map((t) => ({ x: t.x, row: timeoutRows.get(t.id) ?? 0 }))],
         })
       : null;
 
@@ -301,6 +302,11 @@ const StripDrawing = memo(function StripDrawing({
 
         {/* The score difference: home above the line, away below. */}
         <g transform={`translate(0 ${Y.chart})`}>
+          {/* A timeout's hairline through the graph, under everything else on it: the figures' rims break it, so it
+              never strikes one through. Whether a timeout ended a run is read off the line and the run's stretch. */}
+          {timeouts.map((t) => (
+            <line key={t.id} data-strip="timeout-line" x1={t.x} x2={t.x} y1={0} y2={Y.chartH} strokeWidth="1" style={{ stroke: "var(--separator-strong)" }} />
+          ))}
           {chart ? (
             <>
               {/* Runs: the stretch a team scored unanswered, shaded in its colour over the graph's whole height, as a
@@ -371,15 +377,14 @@ const StripDrawing = memo(function StripDrawing({
             </text>
           )}
 
-          {/* Timeouts: play stopped, so a pause mark, on the calling side's edge (the officials' on the line), and a
-              hairline through the graph: whether the timeout ended a run is read off the two together. */}
+          {/* Timeouts: play stopped, so a pause mark, on the calling side's edge (the officials' on the line), over
+              its hairline. */}
           {timeouts.map((t) => {
             const row = timeoutRows.get(t.id) ?? 0;
             const y = t.team === 1 ? 1 + row * 13 : t.team === 2 ? Y.chartH - 9 - row * 13 : Y.chartH / 2 - 4;
             const bar = { fill: "var(--muted-foreground)" };
             return (
               <g key={t.id} data-strip="timeout" data-id={t.id}>
-                <line x1={t.x} x2={t.x} y1={0} y2={Y.chartH} strokeWidth="1" style={{ stroke: "var(--separator-strong)" }} />
                 <rect data-strip="timeout-mark" x={t.x - 5.5} y={y - 1.5} width={11} height={11} rx="3" style={{ fill: "var(--background)" }} />
                 <rect x={t.x - 3.6} y={y} width={2.6} height={8} rx="1" style={bar} />
                 <rect x={t.x + 1} y={y} width={2.6} height={8} rx="1" style={bar} />
@@ -393,7 +398,7 @@ const StripDrawing = memo(function StripDrawing({
           const from = xOfEvent(s.fromEventId);
           const to = xOfEvent(s.toEventId);
           if (from === null || to === null || (!inside(from) && !inside(to) && to - from < 1)) return null;
-          // In the accent, so it never reads as one of the run bars just above it.
+          // In the accent, so it never reads as part of the graph just above it.
           return <rect key={s.fromEventId} x={from} y={Y.stint} width={Math.max(2, to - from)} height={Y.stintH} rx="1.5" style={{ fill: "var(--primary)" }} />;
         })}
 
@@ -540,7 +545,7 @@ export function GameTimelineStrip({
   onSeek: (t: number) => void;
   /** A click on a run or a timeout: its row in the list (`run:<first basket>`, `timeout:<event>`). */
   onLandmark: (row: string) => void;
-  /** The timeline moved the video, said once: a drag let go, a swipe come to rest, or a click where no play is (a click on a play is `onPlay`). */
+  /** The timeline moved the video, said once: a drag let go, a swipe come to rest, or a click on a second (a click on a play's mark is `onPlay`, on a run or a timeout `onLandmark`). */
   onScrubEnd?: (via: "timeline" | "timeline_drag" | "wheel") => void;
   /** A first-visit line under the track, in the game facts' place; gone after the first use. */
   hint: string | null;
@@ -572,24 +577,27 @@ export function GameTimelineStrip({
   const { scale, settled } = useZoomedScale(timeline, Math.max(1, width), zoomPeriod);
   const tints = useMemo(() => teamTints(teams.home.color, teams.away.color), [teams.home.color, teams.away.color]);
 
-  // Settled on one quarter (not the whole game, and not on the way between the two).
-  const zoomedIn = settled && zoomPeriod !== null;
-  const playsShown = stripShowsPlays({ filtered, zoomed: zoomedIn });
+  // One quarter has the strip, or is on its way to. The marks and the quarter's own runs come with it, not once
+  // the scale has come to rest: they would appear a moment after the quarter did.
+  const zoomed = zoomPeriod !== null;
+  // Settled on one quarter (not the whole game, and not on the way between the two): what the score graph is cut to.
+  const zoomedIn = settled && zoomed;
+  const playsShown = stripShowsPlays({ filtered, zoomed });
   const listed = useMemo(() => (playsShown ? new Set(order.map((i) => timeline.plays[i].key)) : null), [playsShown, order, timeline]);
 
   const playByEvent = useMemo(() => new Map(timeline.plays.map((p) => [p.event.eventId, p])), [timeline]);
   // The runs on the strip: all of them in one quarter, the largest at the whole game's width.
   const stripRuns = useMemo<StripRun[]>(() => {
-    const shown = zoomedIn ? flow.runs : [...flow.runs].sort((a, b) => b.points - a.points).slice(0, RUNS_SHOWN);
-    return shown.flatMap((run) => {
-      const first = playByEvent.get(run.fromEventId);
-      const last = playByEvent.get(run.toEventId);
-      if (!first || !last) return [];
-      const x0 = scale.xOf(first.time);
-      const x1 = Math.max(scale.xOf(last.time), x0 + 4);
-      return x1 > 0.5 && x0 < width - 0.5 ? [{ id: run.fromEventId, team: run.team, points: run.points, x0, x1 }] : [];
-    });
-  }, [flow, playByEvent, scale, width, zoomedIn]);
+    const shown = zoomed ? flow.runs : [...flow.runs].sort((a, b) => b.points - a.points).slice(0, RUNS_SHOWN);
+    return runsOnStrip(
+      shown.flatMap((run) => {
+        const first = playByEvent.get(run.fromEventId);
+        const last = playByEvent.get(run.toEventId);
+        return first && last ? [{ id: run.fromEventId, team: run.team, points: run.points, x0: scale.xOf(first.time), x1: scale.xOf(last.time) }] : [];
+      }),
+      width,
+    );
+  }, [flow, playByEvent, scale, width, zoomed]);
   const stripTimeouts = useMemo<StripTimeout[]>(
     () =>
       (marks?.timeouts ?? []).flatMap((t) => {
@@ -694,8 +702,9 @@ export function GameTimelineStrip({
     // No footage: a click selects the listed play nearest it, as it always has.
     else if (!video) play = near?.play ?? null;
     else if (segment?.kind === "period") {
-      const i = playIndexAt(timeline.plays, order, time);
-      play = i >= 0 ? timeline.plays[order[i]] : null;
+      // Of all the game's plays, not only the listed ones: the line is about this second, whatever the filter keeps.
+      const i = playIndexAt(timeline.plays, timeline.byTime, time);
+      play = i >= 0 ? timeline.plays[timeline.byTime[i]] : null;
     }
     return { x: at, target, play, snap: target.kind === "play", time, segment };
   }
@@ -771,7 +780,8 @@ export function GameTimelineStrip({
       if (video) onScrubEnd?.("timeline_drag");
       return;
     }
-    // A click. (Both clicks of a double-click land here, on the same spot, before the zoom: the second changes nothing.)
+    // A click. (Both clicks of a double-click land here, on the same spot, before the zoom: on a second the second
+    // changes nothing; on a run or a timeout it asks for the same place again.)
     const at = hoverAt(s.startX, s.startY);
     if (at.target.kind === "run" || at.target.kind === "timeout") onLandmark(`${at.target.kind}:${at.target.id}`);
     else if (at.play && (at.snap || !video)) onPlay(at.play);

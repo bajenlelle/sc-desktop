@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { placePeakLabel, placeRunLabels, placeTimeoutMarks, stripShowsPlays, stripTargetAt } from "../game-strip";
+import { placePeakLabel, placeRunLabels, placeTimeoutMarks, runsOnStrip, stripShowsPlays, stripTargetAt } from "../game-strip";
 
 const NO_LEGEND = { x: 0, home: 0, away: 0 };
 
@@ -12,6 +12,23 @@ describe("stripShowsPlays", () => {
     expect(stripShowsPlays({ filtered: true, zoomed: false })).toBe(true);
     expect(stripShowsPlays({ filtered: false, zoomed: true })).toBe(true);
     expect(stripShowsPlays({ filtered: true, zoomed: true })).toBe(true);
+  });
+});
+
+describe("runsOnStrip", () => {
+  const run = (id: number, x0: number, x1: number) => ({ id, team: 1 as const, points: 9, x0, x1 });
+
+  it("leaves out a run that lies in another quarter than the one that has the strip", () => {
+    // Zoomed into a quarter, the scale parks what is before it at the left edge and what is after it at the right.
+    expect(runsOnStrip([run(1, 0, 0), run(2, 600, 600)], 600)).toEqual([]);
+  });
+
+  it("keeps a run that reaches into the strip from either side", () => {
+    expect(runsOnStrip([run(1, 0, 44), run(2, 560, 600)], 600)).toEqual([run(1, 0, 44), run(2, 560, 600)]);
+  });
+
+  it("gives a run too short to see a width that can be seen and pointed at", () => {
+    expect(runsOnStrip([run(1, 300, 301)], 600)).toEqual([run(1, 300, 304)]);
   });
 });
 
@@ -92,10 +109,54 @@ describe("placeTimeoutMarks", () => {
       { id: 4, row: 0 },
     ]);
   });
+
+  it("goes a row in where a figure of its side stands on the edge row: a run's score, the largest lead", () => {
+    // A timeout called to stop a run stands right at the run's score.
+    const words = [
+      { team: 1 as const, x: 300, width: 34, row: 0 as const },
+      { team: 2 as const, x: 400, width: 28, row: 0 as const },
+    ];
+    const placed = placeTimeoutMarks(
+      [
+        { id: 1, team: 1, x: 312 },
+        { id: 2, team: 2, x: 312 },
+        { id: 3, team: 2, x: 410 },
+        { id: 4, team: 1, x: 330 },
+      ],
+      { legend: NO_LEGEND, words },
+    );
+    expect(placed).toEqual([
+      { id: 1, row: 1 },
+      { id: 2, row: 0 },
+      { id: 3, row: 1 },
+      { id: 4, row: 0 },
+    ]);
+  });
+
+  it("stays on the edge row beside a figure that is itself a row in", () => {
+    const words = [{ team: 1 as const, x: 300, width: 34, row: 1 as const }];
+    expect(placeTimeoutMarks([{ id: 1, team: 1, x: 300 }], { legend: NO_LEGEND, words })).toEqual([{ id: 1, row: 0 }]);
+  });
+
+  it("of two timeouts of one side that would stand on each other, puts the later a row in", () => {
+    const placed = placeTimeoutMarks(
+      [
+        { id: 1, team: 1, x: 300 },
+        { id: 2, team: 1, x: 306 },
+        { id: 3, team: 2, x: 306 },
+      ],
+      { legend: NO_LEGEND },
+    );
+    expect(placed).toEqual([
+      { id: 1, row: 0 },
+      { id: 2, row: 1 },
+      { id: 3, row: 0 },
+    ]);
+  });
 });
 
 describe("placePeakLabel", () => {
-  it("prints the largest lead over its peak, on the first row, when no mark stands there", () => {
+  it("prints the largest lead over its peak, on the first row, when nothing of its side stands there", () => {
     expect(placePeakLabel(300, { width: 600, marks: [] })).toEqual({ x: 300, row: 0 });
     expect(placePeakLabel(300, { width: 600, marks: [{ x: 100, row: 0 }, { x: 340, row: 0 }] })).toEqual({ x: 300, row: 0 });
   });
@@ -105,21 +166,23 @@ describe("placePeakLabel", () => {
     expect(placePeakLabel(598, { width: 600, marks: [] })).toEqual({ x: 586, row: 0 });
   });
 
-  it("goes a row further in, under a timeout's mark that stands over the peak", () => {
+  it("goes a row further in, under a timeout's mark on the edge over the peak", () => {
     // Still over the peak, where the side's area is tallest: beside the mark the line would run through it.
     expect(placePeakLabel(304, { width: 600, marks: [{ x: 300, row: 0 }] })).toEqual({ x: 304, row: 1 });
     expect(placePeakLabel(300, { width: 600, marks: [{ x: 320, row: 0 }] })).toEqual({ x: 300, row: 1 });
   });
 
-  it("goes a row in beside a run's score on its side too, which is wider than a mark", () => {
+  it("goes a row in under a run's score on the edge too, which is wider than a mark", () => {
     // The largest lead is often reached at the end of a run, so the two figures meet often.
     expect(placePeakLabel(300, { width: 600, marks: [{ x: 328, row: 0, width: 34 }] })).toEqual({ x: 300, row: 1 });
     expect(placePeakLabel(300, { width: 600, marks: [{ x: 328, row: 0 }] })).toEqual({ x: 300, row: 0 });
     expect(placePeakLabel(300, { width: 600, marks: [{ x: 340, row: 0, width: 34 }] })).toEqual({ x: 300, row: 0 });
   });
 
-  it("stays on the first row when the mark there is itself a row in", () => {
-    expect(placePeakLabel(304, { width: 600, marks: [{ x: 300, row: 1 }] })).toEqual({ x: 304, row: 0 });
+  it("is not printed where the row under the edge is taken as well: the line under the track names the largest lead too", () => {
+    // The figure on the first row is a little in from the edge, so something a row in is in its way there as well.
+    expect(placePeakLabel(300, { width: 600, marks: [{ x: 300, row: 1 }] })).toBeNull();
+    expect(placePeakLabel(300, { width: 600, marks: [{ x: 310, row: 0, width: 34 }, { x: 296, row: 1 }] })).toBeNull();
   });
 });
 
