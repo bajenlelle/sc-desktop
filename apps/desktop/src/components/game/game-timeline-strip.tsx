@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffe
 import { animate, motion, useMotionValue } from "framer-motion";
 import { describePlay, formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { flowChart, scoreAfter, type CourtStint, type GameFlow, type GameMoment } from "@scoutable/shared/lib/game-flow";
-import { placePeakLabel, placeRunLabels, placeTimeoutMarks, stripShowsPlays, stripTargetAt, type StripRun, type StripTarget, type StripTimeout, type StripZone } from "@scoutable/shared/lib/game-strip";
+import { RUN_LABEL_WIDTH, placePeakLabel, placeRunLabels, placeTimeoutMarks, stripShowsPlays, stripTargetAt, type StripRun, type StripTarget, type StripTimeout, type StripZone } from "@scoutable/shared/lib/game-strip";
 import { gameScale, playIndexAt, type GameScale, type GameTimeline, type ScaleSegment, type TimedPlay } from "@scoutable/shared/lib/game-timeline";
 import { clamp, rubberband } from "@scoutable/shared/lib/motion-math";
 import { swipeTime } from "@scoutable/shared/lib/wheel-scrub";
@@ -230,10 +230,17 @@ const StripDrawing = memo(function StripDrawing({
   const legend = { x: legendX, home: names.home ? names.home + 19 : 0, away: names.away ? names.away + 19 : 0 };
   const runScores = placeRunLabels(runs, { width, legend });
   const timeoutRows = new Map(placeTimeoutMarks(timeouts, { legend }).map((t) => [t.id, t.row]));
-  // The largest lead's figure stands just inside the leading side's edge, where that side's timeouts are: a row in under one.
+  // The largest lead's figure stands just inside the leading side's edge, where that side's timeouts and its runs'
+  // scores are: a row in under or beside one.
   const peakLabel =
     peak && peakX !== null
-      ? placePeakLabel(peakX, { width, marks: timeouts.filter((t) => t.team === peak.side).map((t) => ({ x: t.x, row: timeoutRows.get(t.id) ?? 0 })) })
+      ? placePeakLabel(peakX, {
+          width,
+          marks: [
+            ...timeouts.filter((t) => t.team === peak.side).map((t) => ({ x: t.x, row: timeoutRows.get(t.id) ?? 0 })),
+            ...runScores.filter((score) => runs.find((r) => r.id === score.id)?.team === peak.side).map((score) => ({ x: score.x, row: score.row, width: RUN_LABEL_WIDTH })),
+          ],
+        })
       : null;
 
   return (
@@ -328,8 +335,8 @@ const StripDrawing = memo(function StripDrawing({
                   // (under a timeout's mark, a row further in).
                   y={
                     peak.side === 1
-                      ? Math.max(chart.yOf(peak.lead) + 12, peakLabel.row ? 25 : 0)
-                      : Math.min(chart.yOf(-peak.lead) - 5, peakLabel.row ? Y.chartH - 16 : Y.chartH)
+                      ? Math.max(chart.yOf(peak.lead) + 12, peakLabel.row ? 27 : 0)
+                      : Math.min(chart.yOf(-peak.lead) - 5, peakLabel.row ? Y.chartH - 19 : Y.chartH)
                   }
                   textAnchor="middle"
                   className="text-caption font-semibold nums"

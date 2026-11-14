@@ -39,7 +39,7 @@ export interface PlacedRunLabel {
 }
 
 /** The room a run's score ("17–0") takes on the graph, air included. */
-const RUN_LABEL_WIDTH = 34;
+export const RUN_LABEL_WIDTH = 34;
 /** The room a timeout's mark takes. */
 const TIMEOUT_MARK_WIDTH = 11;
 /** The room the largest lead's figure ("+19") takes. */
@@ -90,21 +90,23 @@ export function placeTimeoutMarks(timeouts: readonly StripTimeout[], opts: { leg
 
 /**
  * Where the largest lead's figure is printed: over its peak, kept inside the
- * strip, just inside the leading side's area. A timeout's mark of that side
- * stands on the same edge, so under one the figure goes a row further in. It
- * stays over the peak, where the area is tallest: moved aside it would land
- * on the line. A mark that is itself a row in (it made room for a team name)
- * leaves the first row free.
+ * strip, just inside the leading side's area. That side's timeouts and its
+ * runs' scores stand on the same edge (`marks`; a mark with no width is a
+ * timeout's), and the largest lead is often reached as a run ends, so under
+ * or beside one the figure goes a row further in. It stays over the peak,
+ * where the area is tallest: moved aside it would land on the line. A mark
+ * that is itself a row in (it made room for a team name) leaves the first
+ * row free.
  */
 export function placePeakLabel(
   x: number,
-  opts: { width: number; marks: readonly { x: number; row: 0 | 1 }[]; labelWidth?: number; markWidth?: number },
+  opts: { width: number; marks: readonly { x: number; row: 0 | 1; width?: number }[]; labelWidth?: number; markWidth?: number },
 ): { x: number; row: 0 | 1 } {
   const half = (opts.labelWidth ?? PEAK_LABEL_WIDTH) / 2;
-  // How near a mark's middle the figure's middle may come: half of each, and 2 px of air.
-  const reach = half + (opts.markWidth ?? TIMEOUT_MARK_WIDTH) / 2 + 2;
   const over = Math.min(Math.max(x, half), opts.width - half);
-  return { x: over, row: opts.marks.some((mark) => mark.row === 0 && Math.abs(mark.x - over) < reach) ? 1 : 0 };
+  // How near a mark's middle the figure's middle may come: half of each, and 2 px of air.
+  const reach = (mark: { width?: number }) => half + (mark.width ?? opts.markWidth ?? TIMEOUT_MARK_WIDTH) / 2 + 2;
+  return { x: over, row: opts.marks.some((mark) => mark.row === 0 && Math.abs(mark.x - over) < reach(mark)) ? 1 : 0 };
 }
 
 /** The strip's rows: the quarter bands, the score graph, and the lane under it where the play marks are. */

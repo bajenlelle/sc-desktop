@@ -111,6 +111,13 @@ describe("placePeakLabel", () => {
     expect(placePeakLabel(300, { width: 600, marks: [{ x: 320, row: 0 }] })).toEqual({ x: 300, row: 1 });
   });
 
+  it("goes a row in beside a run's score on its side too, which is wider than a mark", () => {
+    // The largest lead is often reached at the end of a run, so the two figures meet often.
+    expect(placePeakLabel(300, { width: 600, marks: [{ x: 328, row: 0, width: 34 }] })).toEqual({ x: 300, row: 1 });
+    expect(placePeakLabel(300, { width: 600, marks: [{ x: 328, row: 0 }] })).toEqual({ x: 300, row: 0 });
+    expect(placePeakLabel(300, { width: 600, marks: [{ x: 340, row: 0, width: 34 }] })).toEqual({ x: 300, row: 0 });
+  });
+
   it("stays on the first row when the mark there is itself a row in", () => {
     expect(placePeakLabel(304, { width: 600, marks: [{ x: 300, row: 1 }] })).toEqual({ x: 304, row: 0 });
   });

@@ -63,6 +63,14 @@ test("the whole game shows its story: quarters, runs with their score, timeouts,
     const under = marks.filter((m) => w.x < m.x + m.width && m.x < w.x + w.width && w.y < m.y + m.height && m.y < w.y + w.height);
     expect(under.length, `"${await word.textContent()}" isn't under a timeout's mark`).toBe(0);
   }
+  // Nor on each other.
+  const boxes = await Promise.all(words.map(async (word) => ({ text: await word.textContent(), box: await boxOf(word, "a figure on the graph") })));
+  for (const [i, a] of boxes.entries()) {
+    for (const b of boxes.slice(i + 1)) {
+      const meet = a.box.x < b.box.x + b.box.width && b.box.x < a.box.x + a.box.width && a.box.y < b.box.y + b.box.height && b.box.y < a.box.y + a.box.height;
+      expect(meet, `"${a.text}" and "${b.text}" don't stand on each other`).toBe(false);
+    }
+  }
   expect(await timeline(page).locator("pattern[id$='-notch']").count(), "the breaks are gaps, not hatched fields").toBe(0);
   expect((await boxOf(track(page), "the timeline's track")).height, "the strip is 12 px lower than it was").toBe(104);
 
