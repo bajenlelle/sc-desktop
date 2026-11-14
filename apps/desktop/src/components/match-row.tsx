@@ -15,6 +15,7 @@ export function MatchRow({
   onDelete,
   onArchive,
   videoStatus,
+  openInTab,
 }: {
   match: StoredMatch;
   onDelete?: () => void;
@@ -22,11 +23,15 @@ export function MatchRow({
   onArchive?: (archived: boolean) => void;
   /** From probeMatches — undefined while probing (no badge until known). */
   videoStatus?: VideoFileStatus;
+  /** Library only: the game is open in one of the game page's tabs. */
+  openInTab?: boolean;
 }) {
   const date = formatDate(match.date);
   return (
     <Link
       to={`/matches/${match.id}`}
+      // A game with a tab comes back as its tab does: as it was left, with nothing to load.
+      state={openInTab ? { via: "tab" } : undefined}
       className="group flex min-h-11 items-center gap-3 px-4 py-2 outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection"
     >
       {/* Team colours */}
@@ -43,6 +48,7 @@ export function MatchRow({
               Sample game
             </span>
           )}
+          {openInTab && <span className="shrink-0 rounded-full bg-fill-2 px-1.5 py-px text-caption text-muted-foreground">Open</span>}
         </div>
         <div className="truncate text-subheadline nums text-muted-foreground">
           {match.homeTeam.name} – {match.awayTeam.name} · {date} · {match.eventCount ?? match.events.length} clips

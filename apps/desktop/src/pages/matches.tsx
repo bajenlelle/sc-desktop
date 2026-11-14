@@ -10,6 +10,7 @@ import { MatchRow } from "@/components/match-row";
 import { RelinkVideosDialog } from "@/components/relink-videos-dialog";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
+import { gameTabsScope, useGameTabs } from "@/lib/game-tabs";
 import { listMatchesLight, setMatchArchived } from "@/lib/matches-db";
 import { probeMatches, type VideoFileStatus } from "@/lib/video-probe";
 import { useAuth } from "@/lib/auth-context";
@@ -28,7 +29,10 @@ function filterBySearch(list: StoredMatch[], search: string): StoredMatch[] {
 }
 
 export function MatchesPage() {
-  const { activeOrgId, activeOrgRole, activeOrgIsPersonal, profileLoading } = useAuth();
+  const { user, activeOrgId, activeOrgRole, activeOrgIsPersonal, profileLoading } = useAuth();
+  // The games open in the game page's tabs, once there are tabs at all (from two games): marked in the list.
+  const gameTabs = useGameTabs(gameTabsScope(user?.id, activeOrgId));
+  const openInTabs = useMemo(() => new Set(gameTabs.tabs.length >= 2 ? gameTabs.tabs.map((t) => t.id) : []), [gameTabs.tabs]);
   const navigate = useNavigate();
   const canAccess = activeOrgIsPersonal || activeOrgRole === "coach" || activeOrgRole === "admin";
   const [matches, setMatches] = useState<StoredMatch[]>([]);
@@ -130,6 +134,7 @@ export function MatchesPage() {
       key={match.id}
       match={match}
       videoStatus={videoStatus.get(match.id)}
+      openInTab={openInTabs.has(match.id)}
       onArchive={(a) => void setArchived(match, a)}
       onDelete={() => setMatches((ms) => ms.filter((m) => m.id !== match.id))}
     />
