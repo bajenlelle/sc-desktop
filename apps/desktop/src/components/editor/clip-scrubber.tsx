@@ -39,6 +39,7 @@ export function ClipScrubber({
   selectedSlowId = null,
   onSlowClick,
   onSeek,
+  onScrubEnd,
   frameSeconds = 1 / 25,
   showTimes = true,
   longTimes = false,
@@ -58,6 +59,8 @@ export function ClipScrubber({
   selectedSlowId?: string | null;
   onSlowClick?: (id: string) => void;
   onSeek: (t: number) => void;
+  /** A drag let go, or a key's step taken: the scrub is over, where `onSeek` last put it. */
+  onScrubEnd?: () => void;
   frameSeconds?: number;
   /** Elapsed and total either side of the track; off where a larger readout sits nearby. */
   showTimes?: boolean;
@@ -217,6 +220,7 @@ export function ClipScrubber({
     const settled = clamp(thumbX.get(), 0, width);
     if (settled !== thumbX.get()) animate(thumbX, settled, springs.settle);
     if (s.wasPlaying) video.play().catch(() => {});
+    onScrubEnd?.();
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
@@ -231,6 +235,7 @@ export function ClipScrubber({
     e.preventDefault();
     e.stopPropagation();
     onSeek(clamp(video.currentTime + delta, start, end));
+    onScrubEnd?.();
   }
 
   const elapsedNow = clamp(video.currentTime - start, 0, duration);

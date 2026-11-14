@@ -963,12 +963,19 @@ export function GameWatchView({
                         onToggleFullscreen={toggleFullscreen}
                         onExitFullscreen={() => void playerFs.exit()}
                         title={match.title}
-                        readout={readout}
-                        // Windowed, the timeline below is the scrubber; in full screen the stage carries its own.
-                        clipWindow={playerFs.active && duration !== null ? { start: 0, end: duration } : null}
+                        // In a window the Now bar under the footage says where the game is; in full screen the stage has to.
+                        readout={playerFs.active ? readout : undefined}
+                        // The player's own scrubber, as every player in the app has: the whole file on a straight scale.
+                        clipWindow={duration !== null ? { start: 0, end: duration } : null}
+                        scrubLabel="Position in the video"
                         longTimes
                         ticks={timeline.bands.map((b) => b.start)}
-                        onSeek={(t) => seekTo(t, "transport")}
+                        // A drag seeks once a frame; it is reported once, when it is let go.
+                        onSeek={(t) => {
+                          playback.seekTo(t);
+                          refollow();
+                        }}
+                        onSeekEnd={() => trackSeek("scrubber", "time", null)}
                         transport={{
                           canPrev: playback.canPrev,
                           canNext: playback.canNext,

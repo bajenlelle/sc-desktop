@@ -90,6 +90,10 @@ export interface PlayerStageProps {
   longTimes?: boolean;
   /** Plain marks on the scrubber (absolute time): where each quarter starts. */
   ticks?: number[];
+  /** What the scrubber is called when it isn't a clip's ("Position in the video"). */
+  scrubLabel?: string;
+  /** A scrub on the scrubber is over (a drag let go, a key's step). */
+  onSeekEnd?: () => void;
 }
 
 /**
@@ -131,6 +135,8 @@ export function PlayerStage({
   readout: readoutOverride,
   longTimes,
   ticks,
+  scrubLabel,
+  onSeekEnd,
 }: PlayerStageProps) {
   const hostRef = React.useRef<HTMLDivElement | null>(null);
   const stageRef = React.useRef<HTMLDivElement | null>(null);
@@ -450,8 +456,10 @@ export function PlayerStage({
                 selectedSlowId={selectedSlowId}
                 onSlowClick={onSlowClick}
                 onSeek={onSeek}
+                onScrubEnd={onSeekEnd}
                 longTimes={longTimes}
                 ticks={ticks}
+                ariaLabel={scrubLabel}
               />
             )}
             <TransportBar
