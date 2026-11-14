@@ -421,3 +421,37 @@ test("a picked play stays the current one while its run-up is stepped or scrubbe
   await page.keyboard.press("1");
   await expect.poll(current, { message: "a jump to the quarter's start lets go of the picked play" }).not.toBe(PICK);
 });
+
+test("a click on a play doesn't leave the keyboard's focus ring on it", async ({ page }) => {
+  await openSampleGame(page);
+  const rows = playRows(page);
+  /** The listed play that wears the keyboard's focus ring; −1 when none does. */
+  const ringed = () => rows.evaluateAll((all) => all.findIndex((row) => row.matches(":focus-visible")));
+  const current = () => rows.evaluateAll((all) => all.findIndex((row) => row.getAttribute("aria-current") === "true"));
+
+  // A click, then a key, as a coach who picks a play and steps on with the arrows does.
+  await rows.nth(10).click();
+  await expect(rows.nth(10)).toHaveAttribute("aria-current", "true");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("k");
+  expect(await ringed(), "no play is ringed: the click didn't take the keyboard's focus").toBe(-1);
+
+  // The game moves on: the lit row is the only mark in the list.
+  await page.evaluate(() => {
+    document.querySelector("video")!.currentTime += 75;
+  });
+  await expect.poll(current, { message: "the lit row has moved on" }).toBeGreaterThan(10);
+  expect(await ringed(), "and still no play is ringed").toBe(-1);
+
+  // The keyboard keeps its ring: Tab reaches a play, the ring shows where it is, and Return plays it.
+  await page.getByRole("button", { name: "Filters" }).focus();
+  let reached = -1;
+  for (let i = 0; i < 30 && reached < 0; i++) {
+    await page.keyboard.press("Tab");
+    reached = await rows.evaluateAll((all) => all.findIndex((row) => row === document.activeElement));
+  }
+  expect(reached, "Tab reaches a play in the list").toBeGreaterThanOrEqual(0);
+  expect(await ringed(), "the play Tab reached wears the ring").toBe(reached);
+  await page.keyboard.press("Enter");
+  await expect(rows.nth(reached)).toHaveAttribute("aria-current", "true");
+});

@@ -189,7 +189,12 @@ released app lists each row there as a clip.
   where the first quarter does, clear of the playhead when a game opens.
 - `game-play-list.tsx`, `game-play-row.tsx`: rows are memoised, not
   virtualised (as Add clips). The current row follows playback until the coach
-  scrolls; "Jump to now", any seek, or scrolling back resumes it.
+  scrolls; "Jump to now", any seek, or scrolling back resumes it. A row has
+  one mark for "now" (the tinted pill) and one for "picked to add" (the
+  selection's fill). A press with the mouse doesn't take the keyboard's
+  focus, as on the timeline's track: a clicked row would otherwise wear the
+  focus ring from the next key press on, long after the game had moved past
+  it, like a third mark. Tab still reaches the rows and shows its ring.
 - `game-now-bar.tsx`: the play on screen in words, with Label (G) and Add (A).
 - `game-filters.tsx`: team, moments, and the filter sheet (presets, search,
   event and shot types, situations, players, quarters, labels, on court).

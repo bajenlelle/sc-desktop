@@ -285,6 +285,18 @@ export function GamePlayList({
             aria-label="Plays"
             onScroll={onScroll}
             onContextMenu={onContextMenu}
+            // A press with the mouse doesn't take the keyboard's focus: every key works from anywhere in the view,
+            // and a row left holding it would wear the focus ring from the next key press on, long after the game
+            // has moved past it, like a second selection. It still ends typing in a field, as a click outside one
+            // does. (The timeline's track does the same.) Tab still reaches the rows, and shows its ring there.
+            onMouseDown={(e) => {
+              const target = e.target as Element;
+              // Only a press on a row of the list itself: the label picker is a portal, and a press in its field
+              // bubbles here through React.
+              if (e.button !== 0 || !e.currentTarget.contains(target) || !target.closest("[data-row-key]")) return;
+              e.preventDefault();
+              if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+            }}
             // Room for the selection's pill under the last row, as in the editor.
             className={cn("min-h-0 flex-1 overflow-y-auto", selecting ? "pb-16" : "pb-4")}
           >
