@@ -43,10 +43,10 @@ import type { StoredMatch } from "@/types/match";
 import { CollectControl } from "./collect-control";
 import { GameFilterBar, type GamePerson } from "./game-filters";
 import { GameLabelKeys } from "./game-label-keys";
-import { GameNowBar } from "./game-now-bar";
+import { GameNowBar, betweenPlays } from "./game-now-bar";
 import { GamePlayList } from "./game-play-list";
 import { GamePlayMenuContent } from "./game-play-menu";
-import { GAME_TIMELINE_HEIGHT, GameTimelineStrip, type GameTimelineHandle } from "./game-timeline-strip";
+import { GAME_TIMELINE_HEIGHT, GameTimelineStrip, type GameTimelineHandle, type StripLandmark } from "./game-timeline-strip";
 import { useCollect } from "./use-collect";
 import { useGamePlayback } from "./use-game-playback";
 import { useWheelScrub } from "./use-wheel-scrub";
@@ -493,17 +493,35 @@ export function GameWatchView({
     [footage, video, jumps, playback, trackSeek, refollow, revealRow],
   );
 
-  /** A click on a run or a timeout on the timeline: the place Page Down stops at for it, played, with its row shown. */
+  /**
+   * A click on a run or a timeout on the timeline, with its row shown in the list. A run starts its first basket
+   * exactly as its row in the list does: from that basket's pre-roll with footage, chosen without. A timeout goes to
+   * the place Page Down stops at for it. `again` is the second click of a double-click: its press has moved the video
+   * to the pointer, so the place is asked for once more, but it is the same visit and is not reported twice.
+   */
   const toLandmark = useCallback(
-    (row: string) => {
-      const target = jumps.find((j) => j.row === row);
+    (landmark: StripLandmark, again: boolean) => {
+      const row = `${landmark.kind}:${landmark.id}`;
       revealRow(row);
+      if (landmark.kind === "run") {
+        const first = playByEvent.get(landmark.id);
+        if (!first) return;
+        playback.playPlay(first, "timeline", again ? null : "run");
+        refollow();
+        return;
+      }
+      const target = jumps.find((j) => j.row === row);
       if (!target || !footage) return;
-      trackSeek("timeline", target.kind, target.period);
+      if (!again) trackSeek("timeline", target.kind, target.period);
       playback.seekTo(target.time, { play: true, jump: true });
       refollow();
     },
-    [footage, jumps, playback, trackSeek, refollow, revealRow],
+    [footage, jumps, playByEvent, playback, trackSeek, refollow, revealRow],
+  );
+  /** Where that click goes in the video, for the line under the track. */
+  const landmarkTime = useCallback(
+    (landmark: StripLandmark) => (footage ? (jumps.find((j) => j.row === `${landmark.kind}:${landmark.id}`)?.time ?? null) : null),
+    [footage, jumps],
   );
 
   const toPeriod = useCallback(
@@ -951,11 +969,17 @@ export function GameWatchView({
       : playback.moment?.phase === "break" && playback.moment.next !== null
         ? () => toPeriod(playback.moment!.next!, "now_bar")
         : null;
-  const readout = current
-    ? [periodLabel(current.event.period), current.event.gameClockTime && formatGameClock(current.event.gameClockTime), currentScore ? `${currentScore.home}–${currentScore.away}` : null]
-        .filter(Boolean)
-        .join(" · ")
-    : undefined;
+  const breakScore = breakTotals ? { home: breakTotals.homeTotal, away: breakTotals.awayTotal } : null;
+  // What the full-screen controls say, where the Now bar is out of sight: the Now bar's own words. Between plays
+  // (before tip-off, a break, a quarter's start) that is where the video is; else the play's quarter, clock and score.
+  const nowBetween = betweenPlays({ play: current, footage, moment: playback.moment, breakScore });
+  const readout = nowBetween
+    ? nowBetween.text
+    : current
+      ? [periodLabel(current.event.period), current.event.gameClockTime && formatGameClock(current.event.gameClockTime), currentScore ? `${currentScore.home}–${currentScore.away}` : null]
+          .filter(Boolean)
+          .join(" · ")
+      : undefined;
 
   return (
     <Page>
@@ -1053,7 +1077,7 @@ export function GameWatchView({
                   footage={footage}
                   moment={playback.moment}
                   score={currentScore}
-                  breakScore={breakTotals ? { home: breakTotals.homeTotal, away: breakTotals.awayTotal } : null}
+                  breakScore={breakScore}
                   labels={current ? [...(labels.assignments.get(current.key) ?? [])].flatMap((id) => labels.labels.filter((l) => l.id === id)) : []}
                   collect={current ? collect.statusOf(current.key) : "none"}
                   targetName={collect.target?.name ?? null}
@@ -1092,10 +1116,11 @@ export function GameWatchView({
                     playback.seekTo(t);
                     refollow();
                   }}
-                  onLandmark={(row) => {
+                  onLandmark={(landmark, again) => {
                     dismissTip();
-                    toLandmark(row);
+                    toLandmark(landmark, again);
                   }}
+                  landmarkTime={landmarkTime}
                   onScrubEnd={(via) => trackSeek(via, "time", null)}
                   handleRef={timelineHandle}
                   hint={tipSeen || timeline.plays.length === 0 ? null : "Drag the timeline to move through the game. Double-click a quarter to zoom in."}

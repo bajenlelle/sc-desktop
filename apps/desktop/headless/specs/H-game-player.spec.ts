@@ -418,3 +418,33 @@ test("a click on a play doesn't leave the keyboard's focus ring on it", async ({
   await page.keyboard.press("Enter");
   await expect(rows.nth(reached)).toHaveAttribute("aria-current", "true");
 });
+
+
+test("in full screen the controls say where the video is between plays too", async ({ page }) => {
+  await openSampleGame(page);
+  // The sample game opens before its tip-off: no play is on.
+  await expect(page.getByText("Before tip-off").first(), "the Now bar says the video is before tip-off").toBeVisible();
+  await page.keyboard.press("f");
+  const full = page.locator("div.fixed.inset-0").filter({ has: page.locator("video") });
+  await expect(full, "the player has the window").toBeVisible();
+  await expect(full.getByText("Before tip-off").first(), "the full-screen controls say so as well: the Now bar is behind them").toBeVisible();
+  await page.keyboard.press("f");
+  await expect(full).toHaveCount(0);
+});
+
+test("the Now bar keeps room for the player's name in the narrowest column", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openSampleGame(page);
+  await playRows(page).nth(6).click();
+  await page.keyboard.press("k");
+  const name = page.locator('[data-now="name"]');
+  await expect(name).toBeVisible();
+  // The divider between the footage and the list, as far left as it goes.
+  const divider = await boxOf(page.getByRole("separator").first(), "the divider");
+  await page.mouse.move(divider.x + divider.width / 2, divider.y + divider.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(divider.x - 400, divider.y + divider.height / 2, { steps: 12 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  expect((await boxOf(name, "the player's name")).width, "the name is not cut down to its number sign").toBeGreaterThanOrEqual(64);
+});

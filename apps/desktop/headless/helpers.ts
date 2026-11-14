@@ -331,9 +331,11 @@ export async function sheetScrimPoint(page: Page): Promise<{ x: number; y: numbe
 /** A name for something a spec creates on the shared account: `headless-<port> <what>`. */
 export const owned = (what: string) => `headless-${PORT} ${what}`;
 
+/** What a play row of the game view's list is, as a selector: not a period header, not a marker row (those are buttons). */
+export const PLAY_ROW = 'div[data-row-key]:not([data-row-key^="period:"])';
+
 /** The play rows of the game view's list (not the period headers or the marker rows). */
-export const playRows = (page: Page) =>
-  page.getByRole("list", { name: "Plays" }).locator('div[data-row-key]:not([data-row-key^="period:"])');
+export const playRows = (page: Page) => page.getByRole("list", { name: "Plays" }).locator(PLAY_ROW);
 
 /**
  * Opens the Library's nth game from inside the app (the toolbar's Library

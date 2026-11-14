@@ -148,7 +148,10 @@ stretch where a game turned.
   whistle are reached. The timeline folds those stretches into the gaps
   between the quarters and spends its width on basketball. In a window the player's controls don't
   repeat the quarter, clock and score, which the Now bar says right below
-  them; in full screen, where there is no Now bar, they do.
+  them; in full screen, where there is no Now bar, they say what it would:
+  the play's quarter, clock and score, or between plays where the video is
+  ("Before tip-off", "Half-time · 42–51"; `betweenPlays` in
+  `game-now-bar.tsx`).
 - **A sideways swipe scrubs**: two fingers on a trackpad, or a mouse wheel
   turned with Shift, over the timeline or the footage, in full screen too. The
   playhead moves a pixel for a pixel on the timeline's own scale, so a zoomed
@@ -277,22 +280,33 @@ released app lists each row there as a clip.
   the graph (so a timeout that ended a run reads as one), a line under the
   clutch stretch, the largest lead. The figures stand clear of the team
   names and of each other by rule (`game-strip.ts`): a run's score keeps the
-  edge, a timeout's mark goes a row in for a name, a score or another mark,
+  edge (a row in where the graph's line itself lies along that edge, so it
+  stands under the line), a timeout's mark goes a row in for a name, a score
+  or another mark,
   and the largest lead takes the row under them or, with none free, is left
   to the line under the track. Timeouts' hairlines are painted under all of
   them, so a figure's rim breaks the line. Breaks are folded into the gaps between
   the quarters, which still map to their footage. Under the graph is one
   lane: the playlist's plays as dots, always, and the listed plays as marks
-  in one colour (home above the lane's middle, away below) when a filter is
-  on or one quarter has the strip. It answers the press: the playhead goes
+  in one colour (home above the lane's middle, away below, a play the feed
+  gives to neither team on it) when a filter is on or one quarter has the
+  strip; zoomed, only that quarter's plays, which ride along as the zoom
+  springs. It answers the press: the playhead goes
   to the pointer on pointer-down and follows 1:1, resists past the ends, and
   a release without movement is a click on what the pointer was on
-  (`stripTargetAt`): a run or a timeout (the place Page Down stops at for it,
-  played, its row shown in the list), a play's mark (that play from its
-  pre-roll), else that second. Double-click a quarter to zoom. What the pointer is on is said in one line in the row
-  under the track, by the pointer and inside the strip: above the track is
-  the footage, and when the footage is as tall as the window allows there is
-  no room for more below. The words on the graph keep a rim of the page's
+  (`stripTargetAt`): a run (its first basket from the pre-roll, exactly as its
+  row in the list starts it), a timeout (the place Page Down stops at for it,
+  played), each with its row shown in the list, a play's mark or a playlist
+  play's dot (that play from its pre-roll), else that second. Double-click a
+  quarter to zoom: the strip springs from the scale on screen to the
+  quarter's. The second click of a double-click on a run or a timeout is the
+  same visit, not a second one. What the pointer is on is said in one line
+  in the row under the track, by the pointer, inside the strip and clear of
+  the zoom beside it: above the track is the footage, and when the footage
+  is as tall as the window allows there is no room for more below. For a run
+  it gives the score and the clocks it went from and to (both quarters named
+  when it crossed a break), and the time in the video is where a click would
+  go. The words on the graph keep a rim of the page's
   colour so the line doesn't strike them through, and the team names start
   where the first quarter does, clear of the playhead when a game opens.
 - `game-play-list.tsx`, `game-play-row.tsx`: rows are memoised, not
@@ -304,6 +318,9 @@ released app lists each row there as a clip.
   focus ring from the next key press on, long after the game had moved past
   it, like a third mark. Tab still reaches the rows and shows its ring.
 - `game-now-bar.tsx`: the play on screen in words, with Label (G) and Add (A).
+  The player's name keeps room for its number and a few letters: in a narrow
+  column the keys' hints go first, then the same-label-again button (⇧G still
+  does it).
 - `game-filters.tsx`: team, moments, and the filter sheet (presets, search,
   event and shot types, situations, players, quarters, labels, on court).
   Presets are saved per account and space (`filter_presets`,

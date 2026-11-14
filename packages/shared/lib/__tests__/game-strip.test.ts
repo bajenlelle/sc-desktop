@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { placePeakLabel, placeRunLabels, placeTimeoutMarks, runsOnStrip, stripShowsPlays, stripTargetAt } from "../game-strip";
+import { placePeakLabel, placeRunLabels, placeTimeoutMarks, runSpanText, runsOnStrip, stripShowsPlays, stripTargetAt } from "../game-strip";
 
 const NO_LEGEND = { x: 0, home: 0, away: 0 };
 
@@ -35,7 +35,7 @@ describe("runsOnStrip", () => {
 describe("placeRunLabels", () => {
   it("prints a run's score over the middle of its stretch, on the edge row", () => {
     const labels = placeRunLabels([{ id: 1, team: 1, points: 12, x0: 200, x1: 260 }], { width: 600, legend: NO_LEGEND });
-    expect(labels).toEqual([{ id: 1, x: 230, row: 0 }]);
+    expect(labels).toEqual([{ id: 1, team: 1, x: 230, row: 0 }]);
   });
 
   it("keeps a score inside the strip when its stretch touches an end", () => {
@@ -47,8 +47,8 @@ describe("placeRunLabels", () => {
       { width: 600, legend: NO_LEGEND, labelWidth: 34 },
     );
     expect(labels).toEqual([
-      { id: 1, x: 17, row: 0 },
-      { id: 2, x: 583, row: 0 },
+      { id: 1, team: 1, x: 17, row: 0 },
+      { id: 2, team: 2, x: 583, row: 0 },
     ]);
   });
 
@@ -63,9 +63,9 @@ describe("placeRunLabels", () => {
       { width: 600, legend },
     );
     expect(labels).toEqual([
-      { id: 1, x: 80, row: 1 },
-      { id: 2, x: 180, row: 1 },
-      { id: 3, x: 320, row: 0 },
+      { id: 1, team: 1, x: 80, row: 1 },
+      { id: 2, team: 2, x: 180, row: 1 },
+      { id: 3, team: 1, x: 320, row: 0 },
     ]);
   });
 
@@ -79,8 +79,26 @@ describe("placeRunLabels", () => {
       { width: 600, legend: NO_LEGEND, labelWidth: 34 },
     );
     expect(labels).toEqual([
-      { id: 2, x: 234, row: 0 },
-      { id: 3, x: 236, row: 0 },
+      { id: 2, team: 1, x: 234, row: 0 },
+      { id: 3, team: 2, x: 236, row: 0 },
+    ]);
+  });
+
+  it("goes a row in where the graph's line lies along the edge, so the score stands under the line and not on it", () => {
+    // A side that runs while far ahead: its line is up at its edge, right where the score would go.
+    const lineOnEdge = (team: 1 | 2, x0: number, x1: number) => team === 1 && x0 < 320 && x1 > 280;
+    const labels = placeRunLabels(
+      [
+        { id: 1, team: 1, points: 10, x0: 280, x1: 320 },
+        { id: 2, team: 2, points: 10, x0: 280, x1: 320 },
+        { id: 3, team: 1, points: 10, x0: 400, x1: 440 },
+      ],
+      { width: 600, legend: NO_LEGEND, lineOnEdge },
+    );
+    expect(labels).toEqual([
+      { id: 1, team: 1, x: 300, row: 1 },
+      { id: 2, team: 2, x: 300, row: 0 },
+      { id: 3, team: 1, x: 420, row: 0 },
     ]);
   });
 
@@ -216,7 +234,38 @@ describe("stripTargetAt", () => {
     expect(stripTargetAt({ x: 250, zone: "chart" }, { ...on, playsShown: false, runs: [], timeouts: [] })).toEqual({ kind: "time" });
   });
 
+  it("in the lane, means the playlist's play whose dot it is on, whether or not marks are shown", () => {
+    const dots = [{ key: "d1", x: 250 }, { key: "d2", x: 400 }];
+    expect(stripTargetAt({ x: 252, zone: "lane" }, { ...on, play: null, playsShown: false, dots })).toEqual({ kind: "play", key: "d1" });
+    expect(stripTargetAt({ x: 320, zone: "lane" }, { ...on, play: null, playsShown: false, dots })).toEqual({ kind: "time" });
+    // On the graph a dot is not under the pointer.
+    expect(stripTargetAt({ x: 402, zone: "chart" }, { ...on, runs: [], timeouts: [], dots })).toEqual({ kind: "time" });
+  });
+
+  it("of a mark and a dot, means the nearer", () => {
+    const dots = [{ key: "d1", x: 254 }];
+    expect(stripTargetAt({ x: 250, zone: "lane" }, { ...on, play: { key: "p1", distance: 1 }, dots })).toEqual({ kind: "play", key: "p1" });
+    expect(stripTargetAt({ x: 253, zone: "lane" }, { ...on, play: { key: "p1", distance: 4 }, dots })).toEqual({ kind: "play", key: "d1" });
+  });
+
   it("on the quarter bands, is only ever a time", () => {
     expect(stripTargetAt({ x: 304, zone: "band" }, on)).toEqual({ kind: "time" });
+  });
+});
+
+
+describe("runSpanText", () => {
+  it("names the quarter once for a run inside it", () => {
+    expect(runSpanText({ period: 2, clock: "08:03" }, { period: 2, clock: "05:58" })).toBe("Q2 · 08:03 to 05:58");
+  });
+
+  it("names both quarters for a run that crosses a break", () => {
+    expect(runSpanText({ period: 2, clock: "01:11" }, { period: 3, clock: "08:27" })).toBe("Q2 · 01:11 to Q3 · 08:27");
+  });
+
+  it("does without a clock the feed doesn't keep", () => {
+    expect(runSpanText({ period: 2, clock: null }, { period: 2, clock: null })).toBe("Q2");
+    expect(runSpanText({ period: 2, clock: null }, { period: 3, clock: null })).toBe("Q2 to Q3");
+    expect(runSpanText({ period: 4, clock: "02:10" }, { period: 4, clock: null })).toBe("Q4 · 02:10");
   });
 });

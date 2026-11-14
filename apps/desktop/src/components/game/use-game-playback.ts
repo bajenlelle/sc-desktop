@@ -127,11 +127,15 @@ export function useGamePlayback({
     [video, follow],
   );
 
-  /** A click on a play: from its pre-roll, with the play held as current until it has happened. */
+  /**
+   * A click on a play: from its pre-roll, with the play held as current until it has happened. `kind` is what the
+   * click was on, for the report (a run's stretch on the timeline starts its first basket this way); null for a
+   * click that isn't one of its own (the second of a double-click).
+   */
   const playPlay = useCallback(
-    (play: TimedPlay, via = "row") => {
+    (play: TimedPlay, via = "row", kind: string | null = "play") => {
       const now = latest.current;
-      now.onSeek?.(via, "play", play.event.period);
+      if (kind !== null) now.onSeek?.(via, kind, play.event.period);
       if (!now.canPlay || play.reach !== "in") {
         pinRef.current = null;
         setActiveKey(play.key);

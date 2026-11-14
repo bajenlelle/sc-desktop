@@ -1,3 +1,5 @@
+import { periodLabel } from "./events";
+
 /**
  * The game strip's rules (the desktop's timeline under the footage): when it
  * draws a mark per play, where the words on its graph go, and what the
@@ -42,6 +44,7 @@ export function runsOnStrip(runs: readonly StripRun[], width: number, minWidth =
 
 export interface PlacedRunLabel {
   id: number;
+  team: 1 | 2;
   /** The middle of the printed score. */
   x: number;
   /** 0 on the graph's edge (the running side's), 1 a row further in. */
@@ -64,21 +67,26 @@ function onLegend(x: number, size: number, legend: StripLegend, team: 1 | 2): bo
 /**
  * Where each run's score is printed: over the middle of its stretch, kept
  * inside the strip, on the running side's edge. A score that would stand on
- * its side's team name goes a row further in. Of two that would stand on each
+ * its side's team name goes a row further in, and so does one where the
+ * graph's line lies along that edge (`lineOnEdge`: a side running while far
+ * ahead has its line up there), so it stands under the line and not on it. Of two that would stand on each
  * other, the larger run keeps its score; the other is still drawn as a
  * stretch and named by the pointer. A run off the strip prints nothing.
  */
-export function placeRunLabels(runs: readonly StripRun[], opts: { width: number; legend: StripLegend; labelWidth?: number }): PlacedRunLabel[] {
+export function placeRunLabels(
+  runs: readonly StripRun[],
+  opts: { width: number; legend: StripLegend; labelWidth?: number; lineOnEdge?: (team: 1 | 2, x0: number, x1: number) => boolean },
+): PlacedRunLabel[] {
   const size = opts.labelWidth ?? RUN_LABEL_WIDTH;
   const placed: (PlacedRunLabel & { team: 1 | 2 })[] = [];
   const bySize = runs.filter((r) => r.x1 > 0 && r.x0 < opts.width).sort((a, b) => b.points - a.points || a.x0 - b.x0);
   for (const run of bySize) {
     const x = Math.min(Math.max((run.x0 + run.x1) / 2, size / 2), opts.width - size / 2);
-    const row = onLegend(x, size, opts.legend, run.team) ? 1 : 0;
+    const row = onLegend(x, size, opts.legend, run.team) || opts.lineOnEdge?.(run.team, x - size / 2, x + size / 2) ? 1 : 0;
     if (placed.some((p) => p.team === run.team && p.row === row && Math.abs(p.x - x) < size)) continue;
     placed.push({ id: run.id, x, row, team: run.team });
   }
-  return placed.sort((a, b) => a.x - b.x || a.id - b.id).map(({ id, x, row }) => ({ id, x, row }));
+  return placed.sort((a, b) => a.x - b.x || a.id - b.id).map(({ id, team, x, row }) => ({ id, team, x, row }));
 }
 
 export interface StripTimeout {
@@ -147,7 +155,8 @@ export type StripTarget = { kind: "timeout"; id: number } | { kind: "play"; key:
  * What the pointer is on, which is what a click means and what the line
  * under the track names. On the graph: a timeout within reach, else the run
  * whose stretch it is in. In the lane: the play mark it is on, while marks
- * are shown. Anything else is the second under the pointer: with no marks on
+ * are shown, or the dot of a play in the playlist (`dots`), which is always
+ * there. Anything else is the second under the pointer: with no marks on
  * the strip a click never jumps to a play nobody can see.
  */
 export function stripTargetAt(
@@ -158,8 +167,10 @@ export function stripTargetAt(
     /** The listed play nearest the pointer, and how far away it is. */
     play: { key: string; distance: number } | null;
     playsShown: boolean;
+    dots?: readonly { key: string; x: number }[];
     snapPx?: number;
     timeoutPx?: number;
+    dotPx?: number;
   },
 ): StripTarget {
   if (point.zone === "chart") {
@@ -173,6 +184,26 @@ export function stripTargetAt(
     const run = on.runs.find((r) => point.x >= r.x0 - 1 && point.x <= r.x1 + 1);
     if (run) return { kind: "run", id: run.id };
   }
-  if (point.zone === "lane" && on.playsShown && on.play && on.play.distance <= (on.snapPx ?? 4)) return { kind: "play", key: on.play.key };
+  if (point.zone === "lane") {
+    // The nearest of what is drawn there: a listed play's mark (while marks are shown) or a playlist play's dot.
+    let nearest: { key: string; distance: number } | null = null;
+    if (on.playsShown && on.play && on.play.distance <= (on.snapPx ?? 4)) nearest = on.play;
+    for (const dot of on.dots ?? []) {
+      const distance = Math.abs(dot.x - point.x);
+      if (distance <= (on.dotPx ?? 5) && (!nearest || distance < nearest.distance)) nearest = { key: dot.key, distance };
+    }
+    if (nearest) return { kind: "play", key: nearest.key };
+  }
   return { kind: "time" };
+}
+
+
+/**
+ * From when to when a run went, for the line under the track: the quarter and
+ * the two clocks, the quarter named again where the run crossed a break.
+ */
+export function runSpanText(from: { period: number; clock: string | null }, to: { period: number; clock: string | null }): string {
+  const at = (p: { period: number; clock: string | null }) => [periodLabel(p.period), p.clock].filter(Boolean).join(" · ");
+  if (to.period !== from.period) return `${at(from)} to ${at(to)}`;
+  return from.clock && to.clock ? `${at(from)} to ${to.clock}` : at(from);
 }

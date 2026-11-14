@@ -8,7 +8,7 @@
  * and the sample game (one quarter, a run, footage from the network).
  */
 import type { Locator, Page } from "@playwright/test";
-import { expect, openLibraryGame, openSampleGame, playRows, recordAnalytics, shot, showGameView, test } from "../helpers";
+import { PLAY_ROW, expect, openLibraryGame, openSampleGame, playRows, recordAnalytics, shot, showGameView, test, videoTime } from "../helpers";
 
 const timeline = (page: Page) => page.getByRole("region", { name: "Game timeline" });
 const track = (page: Page) => page.getByRole("slider", { name: "Position in the game" });
@@ -35,12 +35,31 @@ async function openLeagueGame(page: Page): Promise<void> {
   await expect(list(page).locator('[data-row-key^="timeout:"]').first(), "the first game has a timeout on record").toBeAttached({ timeout: 30_000 });
 }
 
-/** Gives the strip to one quarter, or to the whole game again. */
+/** The quarter bands on the strip, as their widths. */
+const bandWidths = (page: Page) =>
+  timeline(page)
+    .locator("svg rect[rx='4']")
+    .evaluateAll((rects) => rects.map((r) => Number(r.getAttribute("width"))));
+
+/** Gives the strip to one quarter, or to the whole game again, and waits for the zoom to come to rest. */
 async function zoomTo(page: Page, option: string): Promise<void> {
   await page.getByRole("button", { name: "Timeline zoom" }).click();
   await page.getByRole("menuitemradio", { name: option, exact: true }).or(page.getByRole("menuitem", { name: option, exact: true })).click();
-  // The zoom is a spring; the marks are drawn once it has come to rest.
-  await page.waitForTimeout(900);
+  // The zoom is a spring: at rest the strip shows one band, or all of them, and they have stopped changing.
+  const one = option !== "Whole game";
+  let last = "";
+  await expect
+    .poll(
+      async () => {
+        // (While the zoom's menu is open the rest of the page is hidden from roles, and the strip isn't found.)
+        const widths = (await bandWidths(page)).join(",");
+        const still = widths !== "" && widths === last && (one ? !widths.includes(",") : widths.includes(","));
+        last = widths;
+        return still;
+      },
+      { message: `the strip has come to rest on ${option}`, intervals: [120], timeout: 5_000 },
+    )
+    .toBe(true);
 }
 
 test("the whole game shows its story: quarters, runs with their score, timeouts, and no mark per play", async ({ page, browserName }) => {
@@ -95,7 +114,10 @@ test("a filter brings out the plays it leaves, in one colour, and they go when i
   await expect(drawn(page, "play-mark"), "the strip marks the plays the list shows").toHaveCount(listed);
   const fills = await drawn(page, "play-mark").evaluateAll((els) => [...new Set(els.map((el) => getComputedStyle(el).fill))]);
   expect(fills.length, "the marks are one colour").toBe(1);
-  await shot(page, `${browserName}-J-strip-filtered`);
+  for (const scheme of ["dark", "light"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await shot(page, `${browserName}-J-strip-filtered-${scheme}`);
+  }
 
   await moment(page, "All plays").click();
   await expect(drawn(page, "play-mark"), "no filter, no marks").toHaveCount(0);
@@ -106,35 +128,45 @@ test("zoomed into a quarter the strip marks that quarter's plays, and zoomed out
   // The second quarter's plays: the list's play rows between its header and the next quarter's.
   const inQuarter = await list(page)
     .locator("[data-row-key]")
-    .evaluateAll((rows) => {
-      const keys = rows.map((row) => ({ key: row.getAttribute("data-row-key") ?? "", play: row.tagName === "DIV" }));
+    .evaluateAll((rows, playRow) => {
+      const keys = rows.map((row) => ({ key: row.getAttribute("data-row-key") ?? "", play: row.matches(playRow) }));
       const from = keys.findIndex((k) => k.key === "period:2");
       const to = keys.findIndex((k) => k.key === "period:3");
-      return keys.slice(from + 1, to).filter((k) => k.play && !k.key.startsWith("period:")).length;
-    });
+      return keys.slice(from + 1, to).filter((k) => k.play).length;
+    }, PLAY_ROW);
   expect(inQuarter, "the second quarter has plays").toBeGreaterThan(20);
 
   // Each frame from here: how many quarter bands the strip shows, and how many play marks.
   await page.evaluate(() => {
-    const w = window as unknown as { __frames: { bands: number; marks: number }[] };
+    const w = window as unknown as { __frames: { bands: number; widest: number; marks: number }[] };
     w.__frames = [];
     const until = performance.now() + 1500;
     const tick = () => {
       const region = document.querySelector('[aria-label="Game timeline"]');
-      w.__frames.push({ bands: region?.querySelectorAll("svg rect[rx='4']").length ?? 0, marks: region?.querySelectorAll('[data-strip="play-mark"]').length ?? 0 });
+      const widths = [...(region?.querySelectorAll("svg rect[rx='4']") ?? [])].map((r) => Number(r.getAttribute("width")));
+      w.__frames.push({ bands: widths.length, widest: Math.max(0, ...widths), marks: region?.querySelectorAll('[data-strip="play-mark"]').length ?? 0 });
       if (performance.now() < until) requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
   });
+  const before = Math.max(...(await bandWidths(page)));
   await zoomTo(page, "Q2");
-  const frames = await page.evaluate(() => (window as unknown as { __frames: { bands: number; marks: number }[] }).__frames);
-  const zoomedFrames = frames.filter((f) => f.bands === 1);
-  expect(zoomedFrames.length, "the strip was seen on one quarter").toBeGreaterThan(0);
-  expect(zoomedFrames.filter((f) => f.marks === 0).length, "the marks come with the quarter, not a moment after it").toBe(0);
-  // A play with no team (a jump ball the feed gives to nobody) has no side to stand on.
-  await expect.poll(() => drawn(page, "play-mark").count(), { message: "the quarter's plays are marked" }).toBeGreaterThan(inQuarter * 0.9);
-  expect(await drawn(page, "play-mark").count(), "only that quarter's").toBeLessThanOrEqual(inQuarter);
-  await shot(page, `${browserName}-J-strip-zoomed`);
+  const after = Math.max(...(await bandWidths(page)));
+  const frames = await page.evaluate(() => (window as unknown as { __frames: { bands: number; widest: number; marks: number }[] }).__frames);
+  // The quarter grows to fill the strip: it is seen on the way, not only before and after.
+  const onTheWay = frames.filter((f) => f.widest > before + (after - before) * 0.1 && f.widest < after - (after - before) * 0.1);
+  expect(onTheWay.length, "the zoom moves from the whole game to the quarter").toBeGreaterThan(2);
+  // The quarter's marks ride along: there from the zoom's first frame, and never the whole game's.
+  const moving = frames.filter((f) => f.widest > before + 1);
+  expect(moving.length, "the zoom was seen").toBeGreaterThan(0);
+  expect(moving.filter((f) => f.marks === 0).length, "the marks come with the quarter, not a moment after it").toBe(0);
+  expect(Math.max(...frames.map((f) => f.marks)), "only the quarter's plays are ever marked").toBeLessThanOrEqual(inQuarter);
+  // Every play the list shows in the quarter has its mark (one with no team stands on the lane's middle).
+  await expect(drawn(page, "play-mark"), "the quarter's plays are marked").toHaveCount(inQuarter);
+  for (const scheme of ["dark", "light"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await shot(page, `${browserName}-J-strip-zoomed-${scheme}`);
+  }
 
   // A quarter shows its own runs only: one from another quarter is not on the strip, nor its score.
   const runsInThird = await list(page)
@@ -244,4 +276,60 @@ test("the line under the track is about the second the pointer is on, whatever t
   await moment(page, "Runs").click();
   await expect.poll(() => drawn(page, "play-mark").count()).toBeGreaterThan(0);
   expect(await said(), "the same second, the same words, with a filter on").toBe(unfiltered);
+});
+
+
+test("a click on a run starts its first basket, exactly as its row in the list does", async ({ page }) => {
+  await openSampleGame(page);
+  const chosen = async () => `${await page.locator('[data-now="where"]').innerText()} ${await page.locator('[data-now="name"]').innerText()}`;
+  const mark = drawn(page, "run").first();
+  const id = await mark.getAttribute("data-id");
+
+  // What the run's row in the list starts: its first basket, held as the play on screen through its run-up.
+  await list(page).locator(`[data-row-key="run:${id}"]`).click();
+  await page.keyboard.press("k");
+  const fromRow = await chosen();
+  // Another play, then the run on the strip: the same play is on screen again.
+  await playRows(page).nth(6).click();
+  await page.keyboard.press("k");
+  await expect.poll(chosen, { message: "another play is on screen" }).not.toBe(fromRow);
+  const run = await boxOf(mark, "the run's stretch");
+  await page.mouse.click(run.x + run.width / 2, run.y + run.height / 2);
+  await page.keyboard.press("k");
+  await expect.poll(chosen, { message: "the run on the strip starts what its row does" }).toBe(fromRow);
+});
+
+test("the line under the track says where a click on a run will go, and a double-click goes there once", async ({ page }) => {
+  const tracked = await recordAnalytics(page);
+  await openSampleGame(page);
+  const run = await boxOf(drawn(page, "run").first(), "the sample game's run");
+  const x = run.x + run.width - 3;
+  const y = run.y + run.height / 2;
+  await page.mouse.move(x - 20, y);
+  await page.mouse.move(x, y);
+  await expect(readout(page)).toContainText("in the video");
+  const said = /(\d+):(\d\d) in the video/.exec(await readout(page).innerText());
+  expect(said, "the line gives a time in the video").not.toBeNull();
+  const saidSeconds = Number(said![1]) * 60 + Number(said![2]);
+
+  await page.mouse.dblclick(x, y);
+  await expect.poll(() => videoTime(page), { message: "the video is where the line said the click would go", timeout: 10_000 }).toBeGreaterThan(saidSeconds - 1.5);
+  expect(await videoTime(page), "at the run's start, not at the pointer").toBeLessThan(saidSeconds + 4);
+  await page.waitForTimeout(600);
+  const jumps = (await tracked()).filter((e) => e.event === "game_view_seeked" && e.properties?.kind === "run");
+  expect(jumps.length, "the two clicks of a double-click are one jump").toBe(1);
+});
+
+test("the line under the track keeps clear of the zoom", async ({ page }) => {
+  await openLeagueGame(page);
+  const t = await boxOf(track(page), "the timeline's track");
+  const zoom = await boxOf(page.getByRole("button", { name: "Timeline zoom" }), "the zoom");
+  const run = await boxOf(drawn(page, "run").first(), "the graph");
+  for (const at of [0.9, 0.97, 0.995]) {
+    await page.mouse.move(t.x + t.width * at - 10, run.y + run.height / 2);
+    await page.mouse.move(t.x + t.width * at, run.y + run.height / 2);
+    await expect(readout(page)).toBeVisible();
+    const r = await boxOf(readout(page), "the line under the track");
+    expect(r.x + r.width, `pointing ${at} of the way along, the line ends before the zoom`).toBeLessThanOrEqual(zoom.x);
+  }
 });
