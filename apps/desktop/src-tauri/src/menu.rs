@@ -33,6 +33,13 @@ const CLOSE_TAB: &str = "close-tab";
 #[cfg(target_os = "macos")]
 const CLOSE_TAB_POSITION: usize = 7;
 
+/// The items on ⌘W close what is in front, so they are for the main window
+/// only while it is the window in front (see `on_menu_event`).
+#[cfg(target_os = "macos")]
+fn closes_what_is_in_front(id: &str) -> bool {
+    id == CLOSE_WINDOW || id == CLOSE_TAB
+}
+
 /// Handles to every item the frontend can mutate after startup.
 #[cfg(target_os = "macos")]
 pub struct MenuHandles {
@@ -232,18 +239,22 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
 #[cfg(target_os = "macos")]
 pub fn on_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
     let id = event.id().0.as_str();
-    if id == CLOSE_WINDOW {
+    if closes_what_is_in_front(id) {
         // Only while the main window is the one in front: with the About panel
         // or a file dialog in front, ⌘W is not for the window behind it (which
-        // would quit the app).
-        if let Some(window) = app.get_webview_window("main") {
-            if window.is_focused().unwrap_or(true) {
-                if let Err(e) = window.close() {
-                    eprintln!("[menu] failed to close the window: {e}");
-                }
-            }
+        // would quit the app, or close a game's tab out of sight).
+        let Some(window) = app.get_webview_window("main") else {
+            return;
+        };
+        if !window.is_focused().unwrap_or(true) {
+            return;
         }
-        return;
+        if id == CLOSE_WINDOW {
+            if let Err(e) = window.close() {
+                eprintln!("[menu] failed to close the window: {e}");
+            }
+            return;
+        }
     }
     if let Err(e) = app.emit_to("main", "menu", id) {
         eprintln!("[menu] failed to emit menu event {id}: {e}");
@@ -336,5 +347,19 @@ pub fn menu_sync_theme(app: tauri::AppHandle, theme: String) {
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (app, theme);
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn close_tab_and_close_window_are_for_the_window_in_front() {
+        assert!(closes_what_is_in_front(CLOSE_WINDOW));
+        assert!(closes_what_is_in_front(CLOSE_TAB));
+        // The rest act on the main window whatever is in front of it, as in Safari.
+        assert!(!closes_what_is_in_front("new-game-tab"));
+        assert!(!closes_what_is_in_front("reopen-game-tab"));
     }
 }
