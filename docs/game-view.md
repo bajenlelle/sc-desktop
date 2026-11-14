@@ -145,8 +145,8 @@ stretch where a game turned.
   stage's floating bar, the one the editor and Add clips have) spans the whole
   file on a straight scale, with elapsed and total time and a mark where each
   quarter starts: it is how warm-up, the breaks and whatever follows the final
-  whistle are reached. The timeline folds those stretches into notches and
-  spends its width on basketball. In a window the player's controls don't
+  whistle are reached. The timeline folds those stretches into the gaps
+  between the quarters and spends its width on basketball. In a window the player's controls don't
   repeat the quarter, clock and score, which the Now bar says right below
   them; in full screen, where there is no Now bar, they do.
 - **A sideways swipe scrubs**: two fingers on a trackpad, or a mouse wheel
@@ -167,6 +167,23 @@ stretch where a game turned.
   it, once however long it is held), `timeline_drag`, `wheel` (a swipe; one
   that rests longer than 400 ms and goes on is two), or `timeline` with kind
   `time` for a click on the timeline where no play is.
+- **No mark per play for the whole game** (decided 2026-11-14, after an audit
+  of the strip). It drew a tick per play in nine colours: some 430 in 665 px,
+  a mark every other pixel, naming nothing the list beside it doesn't, while
+  runs (three-pixel grey bars) and timeouts (small triangles) were the
+  hardest things on it to see. And since a play was within four pixels of
+  every point, a click anywhere jumped to a play's pre-roll and not to where
+  it was made. The strip is the overview: Synergy's and Hoopsalytics' game
+  views are built on the score graph (in Hoopsalytics a run is a stretch the
+  coach marks), YouTube, the NBA app and Apple TV put a few chosen moments on
+  the timeline and never every one, and the rule for large data is overview
+  first, zoom and filter, then details on demand (Shneiderman). So the plays
+  come out when they answer a question: a filter shows where its plays fall
+  against the runs and timeouts, and one quarter has room for all of its own.
+  Sources: [Synergy](https://support.synergysports.com/support/solutions/articles/77000565946-game-data-page),
+  [Hoopsalytics](https://blog.hoopsalytics.com/see-what-happened-during-that-run-with-the-game-summary/),
+  [Veo](https://support.veo.com/hc/en-us/articles/4454946199057),
+  [Shneiderman](https://webspace.science.uu.nl/~telea001/uploads/VACourse/Shneiderman96.pdf).
 - **Why under the footage** (decided 2026-11-14, after the timeline as a band
   across the bottom of the page read as detached from the video): players
   made for review attach the scrubber to the picture and put their marks on
@@ -180,6 +197,7 @@ stretch where a game turned.
 |---|---|
 | `game-timeline.ts` | Where each play is on the video (`buildGameTimeline`), which play is at second T (`playIndexAt`, `activePlay`, a clicked play is held through its pre-roll by a pin), where T is in the game (`momentAt`: before, live, break, after), and the strip's folded x axis (`gameScale`) |
 | `game-flow.ts` | The score story (`gameFlow`): score after each play, quarter and final scores, lead changes, ties, largest lead, runs; which plays belong to which moment (`gameMoments`); a player's stints on the floor with each stint's score change (`onCourtStints`); the chart's geometry (`flowChart`) |
+| `game-strip.ts` | The strip's rules: when it marks the plays (`stripShowsPlays`), where a run's score, a timeout's mark and the largest lead's figure go so they stand clear of the team names and of each other (`placeRunLabels`, `placeTimeoutMarks`, `placePeakLabel`), and what the pointer is on (`stripTargetAt`) |
 | `game-marks.ts`, `game-marks-fill.ts` | Timeouts and period bounds (below) |
 | `game-list.ts` | Which plays a filter keeps (`keepPlay`) and the list's rows (`gameRows`): period headers, plays, and the timeout, run and period-end markers between them |
 | `wheel-scrub.ts` | Which wheel events are a sideways scrub and how far each one moves the playhead; a scroll up or down is never one |
@@ -191,8 +209,8 @@ stretch where a game turned.
 - **The score is counted from made shots**, in feed order (period, game clock
   descending, action number). In the 51 Genius games checked on staging the
   made shots summed to the feed's final score every time; the feed's own
-  running score is the fallback, and a game with neither draws bands and ticks
-  only.
+  running score is the fallback, and a game with neither draws the quarter
+  bands only (and the plays' marks, when they are shown).
 - **Named thresholds** in `game-flow.ts`: a run is `RUN_MIN_POINTS` (8)
   unanswered, clutch is the last `CLUTCH_SECONDS` (5:00) of the fourth quarter
   or overtime within `CLUTCH_MARGIN` (5), a quarter's start and end are its
@@ -249,14 +267,23 @@ released app lists each row there as a clip.
   the run-up; a jump to a quarter or a marker lets go of it. `nowKey` is the play
   on screen in the whole game (what the Now bar names and A adds); `activeKey`
   is the lit row, the latest play the filtered list shows.
-- `game-timeline-strip.tsx`: hand-drawn SVG, no chart library. Quarter bands
-  with their scores, the score difference around a zero line (home above), a
-  tick per play coloured by event, timeout flags, run bars, a clutch bracket,
-  the largest lead. Breaks are folded into notches that still map to their
-  footage. It answers the press: the playhead goes to the pointer on
-  pointer-down and follows 1:1, resists past the ends, and a release without
-  movement is a click (on a play: that play from its pre-roll). Double-click a
-  quarter to zoom. What the pointer is on is said in one line in the row
+- `game-timeline-strip.tsx`: hand-drawn SVG, no chart library. It draws the
+  game's landmarks: quarter bands with their scores, the score difference
+  around a zero line (home above), each run as a shaded stretch over the
+  graph's height in its team's colour with its score printed ("15–0"; the six
+  largest at the whole game's width, all of them in one quarter), each
+  timeout as a pause mark on the calling side's edge with a hairline through
+  the graph (so a timeout that ended a run reads as one), a line under the
+  clutch stretch, the largest lead. Breaks are folded into the gaps between
+  the quarters, which still map to their footage. Under the graph is one
+  lane: the playlist's plays as dots, always, and the listed plays as marks
+  in one colour (home above the lane's middle, away below) when a filter is
+  on or one quarter has the strip. It answers the press: the playhead goes
+  to the pointer on pointer-down and follows 1:1, resists past the ends, and
+  a release without movement is a click on what the pointer was on
+  (`stripTargetAt`): a run or a timeout (the place Page Down stops at for it,
+  played, its row shown in the list), a play's mark (that play from its
+  pre-roll), else that second. Double-click a quarter to zoom. What the pointer is on is said in one line in the row
   under the track, by the pointer and inside the strip: above the track is
   the footage, and when the footage is as tall as the window allows there is
   no room for more below. The words on the graph keep a rim of the page's
