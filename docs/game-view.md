@@ -38,24 +38,60 @@ stretch where a game turned.
   page kept alive: switching remounts the page on the other game, so there is
   still one decoder (`lib/release-video.ts`), and the memory above is what
   brings it back as it was left.
-- From two open games a tab bar sits under the toolbar, inside its material
-  (`Toolbar`'s `tabBar` row, `components/game/game-tab-strip.tsx`). Six at
-  most: a seventh game closes the tab shown least recently, quietly. New games
-  open on the right; no drag reordering. A tab activates on press, closes with
-  its × (on hover or focus) or a middle click; ⌘W stays Close Window.
+- **The bar is the page's top row**, above the game's own toolbar, from two
+  open games (`components/game/game-tab-bar.tsx`): everything under it belongs
+  to the shown game, as in Notion or a browser. The tabs start at the left at
+  their own width (208 px at most, shrinking together when there are many,
+  never stretched to fill the row); the shown game's tab is the page's own
+  colour and leads into the toolbar under it, the others are plain until
+  pointed at. The × is on the right: always there on the shown tab, on hover
+  or focus on the others. The row drags the window, and with the sidebar
+  hidden on macOS the traffic lights sit in it (the toolbar under it then
+  doesn't pad for them: `Toolbar`'s `underTabs`).
+- **The bar lives in the window's layout**, not in the game page
+  (`components/root-layout.tsx`): the page is built again for every game, the
+  bar is not. That is what lets a tab that is pressed be dragged on, and why
+  the bar doesn't redraw on a switch.
+- Six at most: a seventh game closes the tab shown least recently, quietly.
+  New games open on the right. A tab activates on press and closes with its ×
+  or a middle click.
+- **A tab drags into another place** (framer-motion's `Reorder`): it follows
+  the pointer, the others slide out of its way on the app's springs, the ends
+  resist. The press that chose the tab can carry on as the drag. The order is
+  the tabs' own (`orderGameTabs`), kept with them.
+- **The + after the last tab opens a game picker** (`game-tab-picker.tsx`,
+  `packages/shared/lib/game-picker.ts`): the Library's games in the Library's
+  order, archived ones left out, searched by title and team as the Library
+  is. A game that already has a tab says "Open" and choosing it goes to that
+  tab; any other opens in a new one. Return opens the first game listed.
+- **⌘W closes the shown game's tab while the bar is there**, and the window
+  otherwise. The File menu has Close Tab and Close Window, as Safari does:
+  with tabs, ⌘W and ⇧⌘W; without, Close Tab is off and Close Window is ⌘W
+  (`src-tauri/src/menu.rs`, swapped by `menu_game_tabs`; Close Window is
+  closed natively, so it works where nothing in the webview listens). Where
+  there is no menu bar, Ctrl+W closes the tab and is left alone without tabs
+  (`packages/shared/lib/menu-shortcuts.ts`).
+- **The Library marks the games that are open** ("Open", from two open
+  games, when there are tabs at all), and a click on one goes back to its tab
+  as it was left, with nothing to load.
 - The tabs are per user and space for the app session (`sessionStorage`,
   `scoutable_game_tabs:<userId>:<orgId>`; `apps/desktop/src/lib/game-tabs.ts`
   over the pure `packages/shared/lib/game-tabs.ts`). On any `matches-changed`
   the store empties its loaded-game cache and reads the open games again:
   renamed games take their new title, deleted ones and games moved to another
   space lose their tab (an empty read is taken as a failed one).
-- ⌃Tab and ⌃⇧Tab step through the tabs and wrap (handled in the page, on every
-  layout, not while a dialog is open); the Window menu has Show Next Game Tab
-  (⌘⇧]) and Show Previous Game Tab (⌘⇧[), on only on the game page.
+- ⌃Tab and ⌃⇧Tab step through the tabs and wrap (not while a dialog is
+  open); the Window menu has Show Next Game Tab (⌘⇧]) and Show Previous Game
+  Tab (⌘⇧[), on only on the game page.
 - A switch replaces the history entry (`replace: true`), as the Game | Details
   switch does: Back leaves the games. It first leaves the field being typed
   in, so a Details title saves; and a playlist write still out from the game
   it leaves lands before the next game reads or writes that playlist.
+- Why at the top (decided 2026-11-14): under the toolbar, as equal pills
+  filling the row, the tabs read as a second switch below Game | Details, and
+  the toolbar that belongs to one game sat above the row that changes games.
+  Not built: moving a tab with the keyboard, and the bar outside the game
+  page.
 
 ### The player and its timeline
 

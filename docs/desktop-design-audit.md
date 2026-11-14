@@ -289,6 +289,7 @@ The game page's Game view (`docs/game-view.md`) was built after this audit, with
 - **A nudge drawn as focus.** The first visit's "Choose playlist…" was ringed exactly as keyboard focus is; it is tinted.
 - **A thumb out of its track.** Every switch's thumb was animated by layout, so it left its track whenever the page around it moved (seen on Details). Its place comes from the switch's state.
 - **Added:** a sideways swipe on a trackpad (or Shift with a wheel) scrubs, over the timeline or the footage.
+- **Tabs that read as a switch.** The open games' tabs sat under the toolbar that belongs to one game, as equal pills filling the row, right below the Game | Details control. They are the page's top row now, at their own width from the left, the shown game's tab leading into its toolbar, with a + that opens a game picker, a × on the right, drag to reorder, ⌘W for Close Tab, and the Library marking the games that are open.
 
 **Verified:** the headless spec `H-game-player` in WebKit and Chrome at 1440×900, 1280×720 and 1024×640, light and dark. **Not verified:** the swipe on a real trackpad (its feel and direction), a two-hour recording, full screen in the app, Shift with a wheel on Windows.
 
