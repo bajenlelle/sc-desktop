@@ -13,6 +13,7 @@ import { EMPTY_GAME_FILTERS, gameFilterCount, type GameFilters } from "@scoutabl
 import type { Label } from "@scoutable/shared/types/labels";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ScrollRow } from "@/components/ui/scroll-row";
 import { SearchField } from "@/components/ui/search-field";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Switch } from "@/components/ui/switch";
@@ -260,15 +261,8 @@ export function GameFilterBar({
         </Popover>
       </div>
 
-      <div
-        role="group"
-        aria-label="Moment"
-        style={{ scrollbarWidth: "none" }}
-        className="-mx-3 flex items-center gap-1.5 overflow-x-auto px-3 py-0.5 [&::-webkit-scrollbar]:hidden"
-        onWheel={(e) => {
-          if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) e.currentTarget.scrollLeft += e.deltaY;
-        }}
-      >
+      {/* Seven chips seldom fit the column: the row scrolls, and fades where more of them wait. */}
+      <ScrollRow role="group" aria-label="Moment" className="-mx-3 gap-1.5 px-3 py-0.5">
         <Chip pressed={filters.moment === null} onClick={() => onChange({ ...filters, moment: null })}>
           All plays
         </Chip>
@@ -300,7 +294,7 @@ export function GameFilterBar({
             </Tooltip>
           );
         })}
-      </div>
+      </ScrollRow>
 
       {filtered && (
         <div className="flex h-7 items-center gap-2 text-subheadline">

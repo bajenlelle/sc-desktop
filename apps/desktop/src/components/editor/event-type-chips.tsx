@@ -1,5 +1,6 @@
 import * as React from "react";
 import { X } from "lucide-react";
+import { ScrollRow } from "@/components/ui/scroll-row";
 import { cn } from "@/lib/utils";
 
 export interface ChipOption {
@@ -16,8 +17,8 @@ function outcomeTone(value: string): string {
 
 /**
  * The event-type filter as a single row of chips that scrolls sideways:
- * every option is visible and one press away, nothing hides in a menu.
- * The edges fade where there is more to scroll.
+ * every option is visible and one press away, nothing hides in a menu
+ * (ui/scroll-row.tsx: the edges fade where there is more to scroll).
  */
 export function EventTypeChips({
   options,
@@ -30,27 +31,6 @@ export function EventTypeChips({
   onChange: (next: Set<string>) => void;
   className?: string;
 }) {
-  const ref = React.useRef<HTMLDivElement | null>(null);
-  const [edges, setEdges] = React.useState({ left: false, right: false });
-
-  const measure = React.useCallback(() => {
-    const el = ref.current;
-    if (!el) return;
-    setEdges({
-      left: el.scrollLeft > 2,
-      right: el.scrollLeft + el.clientWidth < el.scrollWidth - 2,
-    });
-  }, []);
-
-  React.useEffect(() => {
-    measure();
-    const el = ref.current;
-    if (!el) return;
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [measure]);
-
   function toggle(value: string) {
     const next = new Set(selected);
     if (next.has(value)) next.delete(value);
@@ -58,29 +38,8 @@ export function EventTypeChips({
     onChange(next);
   }
 
-  const mask =
-    edges.left && edges.right
-      ? "linear-gradient(to right, transparent, black 24px, black calc(100% - 24px), transparent)"
-      : edges.left
-        ? "linear-gradient(to right, transparent, black 24px)"
-        : edges.right
-          ? "linear-gradient(to right, black calc(100% - 24px), transparent)"
-          : undefined;
-
   return (
-    <div
-      ref={ref}
-      role="group"
-      aria-label="Event type"
-      onScroll={measure}
-      onWheel={(e) => {
-        const el = ref.current;
-        if (!el || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
-        el.scrollLeft += e.deltaY;
-      }}
-      style={{ maskImage: mask, WebkitMaskImage: mask, scrollbarWidth: "none" }}
-      className={cn("flex items-center gap-1.5 overflow-x-auto py-0.5 [&::-webkit-scrollbar]:hidden", className)}
-    >
+    <ScrollRow role="group" aria-label="Event type" className={cn("gap-1.5 py-0.5", className)}>
       {selected.size > 0 && (
         <button
           type="button"
@@ -111,6 +70,6 @@ export function EventTypeChips({
           </button>
         );
       })}
-    </div>
+    </ScrollRow>
   );
 }
