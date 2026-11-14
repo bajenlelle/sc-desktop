@@ -214,7 +214,7 @@ function RosterGroup({
  * (pages/game.tsx) shows it as the game page's Details view and hands it the
  * Game | Details switch for its toolbar.
  */
-export function MatchDetailPage({ viewSwitch, tabBar }: { viewSwitch?: ReactNode; tabBar?: ReactNode } = {}) {
+export function MatchDetailPage({ viewSwitch, underTabs }: { viewSwitch?: ReactNode; underTabs?: boolean } = {}) {
   const { id } = useParams<{ id: string }>();
   const matchId = id!;
   const navigate = useNavigate();
@@ -391,8 +391,7 @@ export function MatchDetailPage({ viewSwitch, tabBar }: { viewSwitch?: ReactNode
     return (
       <Page>
         <Toolbar
-          variant={tabBar ? "static" : "scroll"}
-          tabBar={tabBar}
+          underTabs={underTabs}
           title="Game"
           leading={
             <Button variant="ghost" size="sm" className="-ml-1 text-muted-foreground" onClick={() => navigate("/matches")}>
@@ -401,7 +400,7 @@ export function MatchDetailPage({ viewSwitch, tabBar }: { viewSwitch?: ReactNode
             </Button>
           }
         />
-        <PageContent width="narrow" className={cn(tabBar && "pt-3")}>
+        <PageContent width="narrow">
           {notFound ? (
             <EmptyState
               icon={<Film />}
@@ -542,8 +541,7 @@ export function MatchDetailPage({ viewSwitch, tabBar }: { viewSwitch?: ReactNode
   return (
     <Page>
       <Toolbar
-        variant={tabBar ? "static" : "scroll"}
-        tabBar={tabBar}
+        underTabs={underTabs}
         title={title || storedMatch.title}
         subtitle={[`${storedMatch.homeTeam.name} – ${storedMatch.awayTeam.name}`, date ? formatDate(parseISO(date)) : null]
           .filter(Boolean)
@@ -582,7 +580,7 @@ export function MatchDetailPage({ viewSwitch, tabBar }: { viewSwitch?: ReactNode
           </AnimatePresence>
         }
       />
-      <PageContent width="narrow" className={cn("space-y-7", tabBar && "pt-3")}>
+      <PageContent width="narrow" className="space-y-7">
         <section>
           <GroupHeader title="Game" />
           <GroupedList>

@@ -1,18 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ChevronLeft, Loader2 } from "lucide-react";
-import { GameTabStrip } from "@/components/game/game-tab-strip";
 import { GameViewSwitch, type GameViewMode } from "@/components/game/game-view-switch";
 import { GameWatchView } from "@/components/game/game-watch-view";
 import { Page, PageContent } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
 import { Button } from "@/components/ui/button";
-import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth-context";
 import {
   forgetGameTab,
   gameTabsScope,
-  neighbourGameTab,
   recallGameView,
   recallLoadedGame,
   rememberGameTab,
@@ -43,9 +40,11 @@ import { MatchDetailPage } from "./match-detail";
  * in Details is what it shows; a tab switch serves the copy read on this
  * visit (lib/game-tabs.ts) until any `matches-changed`, or for ten minutes.
  *
- * The open games sit in tabs under the toolbar (from two games), per user and
- * space; switching replaces the history entry, so Back leaves the games. A
- * tab switch opens the view the game was left on (lib/game-tabs.ts).
+ * The open games sit in tabs above the page (from two games), per user and
+ * space, in a bar the window's layout draws (components/game/game-tab-bar.tsx:
+ * this page is built again for every game, the bar is not). Switching
+ * replaces the history entry, so Back leaves the games. A tab switch opens
+ * the view the game was left on (lib/game-tabs.ts).
  */
 export function GamePage() {
   const { id } = useParams<{ id: string }>();
@@ -59,7 +58,9 @@ export function GamePage() {
 
   const asked = searchParams.get("view");
   const wantsQuarters = !!(location.state as { openQuarters?: boolean } | null)?.openQuarters;
-  const viaTab = (location.state as { via?: string } | null)?.via === "tab";
+  const via = (location.state as { via?: string } | null)?.via;
+  // A tab switch: by the tab bar, or by a game marked Open in the Library.
+  const viaTab = via === "tab";
   const startEventId = Number(searchParams.get("play")) || null;
   // A tab switch shows the game as this visit read it, without the spinner.
   const [loaded, setLoaded] = useState<{ match: StoredMatch; videoStatus: VideoFileStatus | "none" } | null>(() =>
@@ -75,7 +76,7 @@ export function GamePage() {
     if (loaded) return loaded.videoStatus === "ok" && loaded.match.syncPoint ? "game" : "details";
     return null;
   });
-  const [entry] = useState(viaTab ? "tab" : asked || startEventId ? "link" : "library");
+  const [entry] = useState(viaTab ? "tab" : via === "picker" ? "picker" : asked || startEventId ? "link" : "library");
   const [missing, setMissing] = useState(false);
   // The cached copy stands in for the first read only; Details and back reads afresh.
   const fromCache = useRef(loaded !== null);
@@ -169,69 +170,19 @@ export function GamePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [missing, matchId]);
 
-  const tabCount = tabs.tabs.length;
-  // A switch blurs the field being typed in first: Details saves on blur, and the page is gone after `navigate`.
-  const goTo = useCallback(
-    (id: string, via: "tab" | "key" | "menu") => {
-      (document.activeElement as HTMLElement | null)?.blur();
-      // A switch replaces the entry: Back leaves the games, it doesn't step through them.
-      navigate(`/matches/${id}`, { replace: true, state: { via: "tab" } });
-      trackEvent("game_tab_switched", { via, tabs: tabCount });
-    },
-    [navigate, tabCount],
-  );
-
-  const close = useCallback(
-    (id: string, via: "button" | "middle_click") => {
-      const open = tabs.tabs.some((t) => t.id === id);
-      const next = forgetGameTab(scope, id);
-      trackEvent("game_tab_closed", { via, tabs: open ? tabs.tabs.length - 1 : tabs.tabs.length });
-      if (id === matchId && next) {
-        (document.activeElement as HTMLElement | null)?.blur();
-        navigate(`/matches/${next}`, { replace: true, state: { via: "tab" } });
-      }
-    },
-    [tabs, scope, matchId, navigate],
-  );
-
-  // ⌃Tab and ⌃⇧Tab step through the tabs on every layout; the Window menu's
-  // ⌘⇧] and ⌘⇧[ arrive as "menu-game-tab".
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!e.ctrlKey || e.metaKey || e.altKey || e.key !== "Tab") return;
-      if (document.querySelector('[role="dialog"][data-state="open"]')) return;
-      e.preventDefault();
-      const next = neighbourGameTab(scope, matchId, e.shiftKey ? -1 : 1);
-      if (next) goTo(next, "key");
-    };
-    const onMenu = (e: Event) => {
-      const next = neighbourGameTab(scope, matchId, (e as CustomEvent<1 | -1>).detail);
-      if (next) goTo(next, "menu");
-    };
-    window.addEventListener("keydown", onKey);
-    window.addEventListener("menu-game-tab", onMenu);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("menu-game-tab", onMenu);
-    };
-  }, [scope, matchId, goTo]);
-
-  const tabBar =
-    tabs.tabs.length >= 2 ? (
-      <GameTabStrip tabs={tabs.tabs} activeId={matchId} onSelect={(id) => goTo(id, "tab")} onClose={close} />
-    ) : undefined;
+  // The tab bar itself is the row above the page (components/game/game-tab-bar.tsx), from two open games.
+  const underTabs = tabs.tabs.length >= 2;
 
   const viewSwitch = <GameViewSwitch value={view ?? "game"} onChange={(next) => show(next)} />;
 
   // A game that isn't there is the Details view's to say (it has the empty state).
-  if (view === "details" || missing) return <MatchDetailPage viewSwitch={missing ? undefined : viewSwitch} tabBar={tabBar} />;
+  if (view === "details" || missing) return <MatchDetailPage viewSwitch={missing ? undefined : viewSwitch} underTabs={underTabs} />;
 
   if (!loaded || view === null) {
     return (
       <Page>
         <Toolbar
-          variant={tabBar ? "static" : "scroll"}
-          tabBar={tabBar}
+          underTabs={underTabs}
           title="Game"
           leading={
             <Button variant="ghost" size="sm" className="-ml-1 text-muted-foreground" onClick={() => navigate("/matches")}>
@@ -240,7 +191,7 @@ export function GamePage() {
             </Button>
           }
         />
-        <PageContent width="narrow" className={tabBar ? "pt-3" : undefined}>
+        <PageContent width="narrow">
           <div className="flex items-center justify-center gap-2 py-24 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
             Loading the game…
@@ -257,7 +208,7 @@ export function GamePage() {
       match={loaded.match}
       videoStatus={loaded.videoStatus}
       viewSwitch={viewSwitch}
-      tabBar={tabBar}
+      underTabs={underTabs}
       entry={entry}
       startEventId={startEventId}
       onOpenDetails={(opts) => show("details", opts)}

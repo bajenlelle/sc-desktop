@@ -22,6 +22,7 @@ import {
   closeGameTab,
   GAME_TABS_MAX,
   NO_GAME_TABS,
+  orderGameTabs,
   parseGameTabs,
   reconcileGameTabs,
   showGameTab,
@@ -148,6 +149,12 @@ export function forgetGameTab(scope: string | null, id: string): string | null {
   const { state, next } = closeGameTab(read(scope), id);
   write(scope, state);
   return next;
+}
+
+/** Puts the scope's tabs in the order they were dragged into. */
+export function reorderGameTabs(scope: string | null, order: readonly string[]): void {
+  if (!scope) return;
+  write(scope, orderGameTabs(read(scope), order));
 }
 
 /** The tab beside `activeId` in strip order, wrapping; null with nowhere to go. */

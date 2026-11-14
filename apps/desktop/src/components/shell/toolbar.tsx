@@ -87,8 +87,9 @@ export function PlaylistBrowserToggle() {
  * sidebar is hidden on macOS the bar pads for the traffic lights.
  * `principal` is the centred item (a view switcher, as in Calendar's
  * Day/Week/Month): it sits in the space between the title and the actions.
- * `tabBar` is a second row under the bar (Finder's and Safari's tab bar),
- * inside the same material and drag region; pass it with `variant="static"`.
+ * `underTabs` says the game page's tab bar is the row above (the tabs are the
+ * page's top row, components/game/game-tab-bar.tsx): the traffic lights sit
+ * in that row then, so this bar doesn't pad for them.
  */
 export function Toolbar({
   title,
@@ -97,7 +98,7 @@ export function Toolbar({
   principal,
   search,
   actions,
-  tabBar,
+  underTabs = false,
   variant = "scroll",
   className,
 }: {
@@ -107,7 +108,7 @@ export function Toolbar({
   principal?: React.ReactNode;
   search?: React.ReactNode;
   actions?: React.ReactNode;
-  tabBar?: React.ReactNode;
+  underTabs?: boolean;
   variant?: "scroll" | "static";
   className?: string;
 }) {
@@ -115,15 +116,15 @@ export function Toolbar({
   const collapsed = useSidebarCollapsed();
   const material = variant === "static" || scrolled;
   const fade = variant === "scroll" && material;
-  const header = (
+  return (
     <header
       data-tauri-drag-region
       data-scrolled={scrolled ? "true" : undefined}
       className={cn(
         "z-20 flex h-[var(--toolbar-height)] shrink-0 items-center gap-3 pr-4 transition-[background-color] duration-200 select-none",
-        variant === "scroll" ? "absolute inset-x-0 top-0" : cn("relative", !tabBar && "border-b border-separator"),
-        tabBar ? "bg-transparent" : material ? "bg-material-toolbar backdrop-blur-xl" : "bg-transparent",
-        IS_MACOS && collapsed ? "pl-[calc(var(--traffic-lights-width)+0.75rem)]" : "pl-3",
+        variant === "scroll" ? "absolute inset-x-0 top-0" : "relative border-b border-separator",
+        material ? "bg-material-toolbar backdrop-blur-xl" : "bg-transparent",
+        IS_MACOS && collapsed && !underTabs ? "pl-[calc(var(--traffic-lights-width)+0.75rem)]" : "pl-3",
         className,
       )}
       style={
@@ -156,15 +157,5 @@ export function Toolbar({
         <div className={cn("flex shrink-0 items-center gap-2", !search && "ml-auto")}>{actions}</div>
       )}
     </header>
-  );
-  if (!tabBar) return header;
-  // The tab row shares the bar's material and hairline, and drags the window too.
-  return (
-    <div className="relative z-20 shrink-0 border-b border-separator bg-material-toolbar backdrop-blur-xl">
-      {header}
-      <div data-tauri-drag-region className="flex h-9 items-center pr-4 pl-3">
-        {tabBar}
-      </div>
-    </div>
   );
 }
