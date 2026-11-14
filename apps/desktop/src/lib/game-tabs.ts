@@ -275,11 +275,13 @@ export function rememberGameView(matchId: string, patch: Partial<GameViewMemory>
 /**
  * Says that a tab was closed to make room (the bar holds six), with the way
  * to bring it back. The Reopen button asks as the File menu's item does, so
- * the tab bar answers it.
+ * the tab bar answers it. It stays twice as long as the app's other notices:
+ * nobody asked for that tab to close, and its two lines take reading.
  */
 export function announceClosedGameTab(title: string): void {
   toast(`Closed ${title || "a game"} to make room: six games fit in the tabs`, {
     id: "game-tab-made-room",
+    duration: 8000,
     action: { label: "Reopen", onClick: () => window.dispatchEvent(new CustomEvent("menu-reopen-game-tab")) },
   });
 }

@@ -297,13 +297,24 @@ test("the keyboard works the tabs as a tab list: one stop, arrows to move, Retur
   await page.keyboard.press("Enter");
   await expect(heading(page)).toHaveText(g1.title, { timeout: 10_000 });
   await expect(tab(page, g1.title)).toHaveAttribute("aria-selected", "true");
+  expect(await focusedTab(page), "the focus stays on the tab that was chosen").toBe(g1.title);
 
   // Delete closes the tab the focus is on, and the focus goes to the one after it.
-  await tab(page, g1.title).focus();
   await page.keyboard.press("Delete");
   await expect(tabs(page)).toHaveCount(2);
   expect(await titles(page)).toEqual([g0.title, g2.title]);
   await expect.poll(() => focusedTab(page), { message: "the focus is on the tab that followed" }).toBe(g2.title);
+});
+
+test("a click on a tab leaves the keyboard with the page: Space and the arrows stay the game's", async ({ page }) => {
+  const [g0, g1] = await openGames(page, 2);
+  await tab(page, g0.title).click();
+  await expect(heading(page)).toHaveText(g0.title, { timeout: 10_000 });
+  expect(await focusedTab(page), "the clicked tab doesn't hold the keyboard's focus").toBeNull();
+  // The tab that is already shown, too.
+  await tab(page, g0.title).click();
+  expect(await focusedTab(page), "nor does the shown tab when clicked").toBeNull();
+  await expect(tab(page, g1.title)).toBeVisible();
 });
 
 test("New Tab opens the picker, from a single game too, and a closed tab comes back in its place", async ({ page }) => {
@@ -367,6 +378,9 @@ test("a seventh game says which tab it closed, and can bring it back", async ({ 
   const notice = page.locator("[data-sonner-toast]").filter({ hasText: g0.title });
   await expect(notice, "the tab that made room is named").toBeVisible();
   expect(await titles(page), "it is the game shown least recently that went").not.toContain(g0.title);
+  // Nobody asked for that tab to close: the notice stays long enough to be read and answered.
+  await page.waitForTimeout(6000);
+  await expect(notice, "the notice is still there six seconds on").toBeVisible();
   await notice.getByRole("button", { name: "Reopen" }).click();
   await expect(heading(page)).toHaveText(g0.title, { timeout: 10_000 });
   expect((await titles(page))[0], "it is back in its place").toBe(g0.title);

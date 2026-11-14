@@ -25,8 +25,9 @@ import { cn } from "@/lib/utils";
  * on the shown game's tab; ← and → move the focus along the tabs and round
  * the ends, Home and End go to the first and the last; Return or Space
  * chooses the tab the focus is on (not the arrows: a game takes a moment to
- * open); Delete closes it and the focus goes to the tab after it. The ×
- * buttons are for the pointer and aren't Tab stops.
+ * open) and the focus stays on it; Delete closes it and the focus goes to the
+ * tab after it. The × buttons are for the pointer and aren't Tab stops. A click
+ * on a tab doesn't take the focus: the game's keys go on working.
  */
 export function GameTabStrip({
   tabs,
@@ -125,6 +126,11 @@ export function GameTabStrip({
                           aria-label={tab.title || "Loading…"}
                           tabIndex={tab.id === stop ? 0 : -1}
                           onFocus={() => setStopId(tab.id)}
+                          // A click chooses the tab and leaves the keyboard where it was: with the focus on a tab,
+                          // Space and the arrows would be the tab list's and not the game's.
+                          onMouseDown={(e) => {
+                            if (e.button === 0) e.preventDefault();
+                          }}
                           onPointerDown={(e) => {
                             if (e.button === 0) select();
                           }}

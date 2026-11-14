@@ -33,6 +33,15 @@ import { GameTabStrip } from "./game-tab-strip";
  * is where the tabs' keys and the File menu's New Tab, Close Tab and Reopen
  * Closed Tab are answered.
  */
+/**
+ * Before a switch: the field being typed in is left, since Details saves on blur and the page is gone after
+ * `navigate`. A tab keeps the focus: the keyboard chose it, and goes on from it.
+ */
+function leaveField() {
+  const focused = document.activeElement;
+  if (focused instanceof HTMLElement && focused.getAttribute("role") !== "tab") focused.blur();
+}
+
 export function GameTabBar() {
   const matchId = useMatch("/matches/:id")?.params.id ?? null;
   const navigate = useNavigate();
@@ -48,10 +57,9 @@ export function GameTabBar() {
   const shown = matchId !== null && (tabCount >= 2 || picking);
   const openIds = useMemo(() => new Set(tabs.tabs.map((t) => t.id)), [tabs.tabs]);
 
-  // A switch blurs the field being typed in first: Details saves on blur, and the page is gone after `navigate`.
   const goTo = useCallback(
     (id: string, via: "tab" | "key" | "menu" | "picker") => {
-      (document.activeElement as HTMLElement | null)?.blur();
+      leaveField();
       // A switch replaces the entry: Back leaves the games, it doesn't step through them.
       navigate(`/matches/${id}`, { replace: true, state: { via: "tab" } });
       trackEvent("game_tab_switched", { via, tabs: tabCount });
@@ -65,7 +73,7 @@ export function GameTabBar() {
       const next = forgetGameTab(scope, id);
       trackEvent("game_tab_closed", { via, tabs: tabs.tabs.length - 1 });
       if (id === matchId && next) {
-        (document.activeElement as HTMLElement | null)?.blur();
+        leaveField();
         navigate(`/matches/${next}`, { replace: true, state: { via: "tab" } });
       }
     },
@@ -79,7 +87,7 @@ export function GameTabBar() {
         if (game.id !== matchId) goTo(game.id, "picker");
         return;
       }
-      (document.activeElement as HTMLElement | null)?.blur();
+      leaveField();
       navigate(`/matches/${game.id}`, { replace: true, state: { via: "picker" } });
     },
     [matchId, goTo, navigate],
@@ -91,7 +99,7 @@ export function GameTabBar() {
       closeOtherGameTabs(scope, keepId);
       trackEvent("game_tab_closed", { via: "close_others", tabs: 1 });
       if (keepId !== matchId) {
-        (document.activeElement as HTMLElement | null)?.blur();
+        leaveField();
         navigate(`/matches/${keepId}`, { replace: true, state: { via: "tab" } });
       }
     },
@@ -104,7 +112,7 @@ export function GameTabBar() {
     if (!back) return;
     trackEvent("game_tab_reopened", { tabs: tabCount + 1 });
     if (back.evicted) announceClosedGameTab(back.evicted.title);
-    (document.activeElement as HTMLElement | null)?.blur();
+    leaveField();
     navigate(`/matches/${back.id}`, { replace: true, state: { via: "tab" } });
   }, [scope, tabCount, navigate]);
 
