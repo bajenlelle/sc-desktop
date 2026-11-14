@@ -1,0 +1,299 @@
+/**
+ * The game view's player as one unit (docs/game-view.md): the footage with
+ * its own scrubber over the whole file, the Now bar, and the game's timeline
+ * directly under them at the footage's width, with the play list beside all
+ * of it. Reads only: it opens the sample game, whose video plays from the
+ * network, and changes nothing on the account.
+ */
+import type { Locator, Page } from "@playwright/test";
+import { expect, openLibraryGame, playRows, shot, showGameView, test } from "../helpers";
+
+const SIZES = [
+  { width: 1440, height: 900 },
+  { width: 1280, height: 720 },
+  { width: 1024, height: 640 },
+] as const;
+
+const stage = (page: Page) => page.locator('div[style*="aspect-ratio"]').filter({ has: page.locator("video") });
+const timeline = (page: Page) => page.getByRole("region", { name: "Game timeline" });
+const track = (page: Page) => page.getByRole("slider", { name: "Position in the game" });
+const scrubber = (page: Page) => page.getByRole("slider", { name: "Position in the video" });
+const plays = (page: Page) => page.getByRole("list", { name: "Plays" });
+
+type Box = { x: number; y: number; width: number; height: number };
+
+async function boxOf(locator: Locator, what: string): Promise<Box> {
+  const box = await locator.boundingBox();
+  expect(box, `${what} is on the page`).not.toBeNull();
+  return box!;
+}
+
+const overlaps = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+const videoTime = (page: Page) => page.evaluate(() => document.querySelector("video")?.currentTime ?? -1);
+const videoDuration = (page: Page) => page.evaluate(() => document.querySelector("video")?.duration ?? NaN);
+
+/** The sample game on its Game view, with its footage ready to seek. */
+async function openSampleGame(page: Page): Promise<number> {
+  await page.goto("/matches");
+  await expect(page.getByRole("heading", { level: 1, name: "Library" })).toBeVisible({ timeout: 30_000 });
+  const row = page.locator('a[href^="/matches/"]').filter({ hasText: "Sample game" }).first();
+  await expect(row, "the test account has the sample game").toBeVisible({ timeout: 30_000 });
+  await row.click();
+  await expect(page.getByRole("radiogroup", { name: "View" })).toBeVisible({ timeout: 30_000 });
+  await showGameView(page);
+  await expect.poll(() => videoDuration(page), { message: "the sample game's video has loaded", timeout: 45_000 }).toBeGreaterThan(0);
+  return videoDuration(page);
+}
+
+/** Waits for the video to stand still on a frame. */
+async function settled(page: Page): Promise<number> {
+  await expect.poll(() => page.evaluate(() => document.querySelector("video")?.seeking ?? true), { timeout: 15_000 }).toBe(false);
+  return videoTime(page);
+}
+
+/**
+ * Records what the app reports to analytics. PostHog drops every event from an
+ * automated browser, so nothing reaches the network to read; the app's one
+ * analytics module (src/lib/analytics.ts) is replaced at its edge with one
+ * that keeps the calls on the page. Call before the first navigation.
+ */
+async function recordAnalytics(page: Page): Promise<() => Promise<{ event: string; properties?: Record<string, unknown> }[]>> {
+  await page.route("**/src/lib/analytics.ts*", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/javascript",
+      body: `
+        export function initAnalytics() {}
+        export function identifyUser() {}
+        export function resetUser() {}
+        export function trackEvent(event, properties) { (window.__tracked ??= []).push({ event, properties }); }
+      `,
+    }),
+  );
+  return () => page.evaluate(() => (window as unknown as { __tracked?: { event: string; properties?: Record<string, unknown> }[] }).__tracked ?? []);
+}
+
+test("the timeline sits under the footage at its width, and the list has the column's whole height", async ({ page, browserName }) => {
+  await openSampleGame(page);
+
+  for (const size of SIZES) {
+    await page.setViewportSize(size);
+    // The stage is measured again when its column changes.
+    const timelineBottom = async () => {
+      const box = await boxOf(timeline(page), "the timeline");
+      return box.y + box.height;
+    };
+    await expect.poll(timelineBottom, { message: `the timeline is inside the window at ${size.width}×${size.height}`, timeout: 5_000 }).toBeLessThanOrEqual(size.height + 0.5);
+
+    const s = await boxOf(stage(page), "the stage");
+    const t = await boxOf(timeline(page), "the timeline");
+    const l = await boxOf(plays(page), "the play list");
+    const at = `at ${size.width}×${size.height}`;
+
+    expect(Math.abs(t.x - s.x), `the timeline starts where the footage starts ${at}`).toBeLessThanOrEqual(1);
+    expect(Math.abs(t.width - s.width), `the timeline is as wide as the footage ${at}`).toBeLessThanOrEqual(2);
+    expect(t.y, `the timeline is under the footage ${at}`).toBeGreaterThanOrEqual(s.y + s.height);
+    expect(t.y - (s.y + s.height), `only the Now bar is between the footage and the timeline ${at}`).toBeLessThanOrEqual(64);
+    expect(t.x + t.width, `the timeline is in the footage's column, not under the list ${at}`).toBeLessThanOrEqual(l.x + 1);
+    expect(l.y + l.height, `the list runs to the bottom of the window ${at}`).toBeGreaterThanOrEqual(size.height - 1);
+    expect(s.y, `the footage is clear of the toolbar ${at}`).toBeGreaterThanOrEqual(52);
+    expect(s.width, `the footage keeps a usable size ${at}`).toBeGreaterThanOrEqual(320);
+
+    for (const scheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await shot(page, `${browserName}-H-player-${size.width}-${scheme}`);
+    }
+    await page.emulateMedia({ colorScheme: "light" });
+  }
+});
+
+test("the player has its own scrubber over the whole video, and says where the game is only once", async ({ page }) => {
+  const duration = await openSampleGame(page);
+
+  await expect(scrubber(page), "paused in a window, the player shows its scrubber").toBeVisible();
+  expect(Number(await scrubber(page).getAttribute("aria-valuemax")), "the scrubber spans the whole file").toBeCloseTo(duration, 0);
+
+  const bar = await boxOf(scrubber(page), "the scrubber");
+  await page.mouse.click(bar.x + bar.width / 2, bar.y + bar.height / 2);
+  const middle = await settled(page);
+  expect(Math.abs(middle - duration / 2), "a click in the middle of the scrubber goes to the middle of the video").toBeLessThan(duration * 0.03);
+
+  // A play on screen: the Now bar under the footage names its quarter, clock and score.
+  await playRows(page).first().click();
+  await page.keyboard.press("k");
+  const where = /Q\d · \d\d:\d\d/;
+  await expect(page.getByText(where).first(), "the Now bar says where the game is").toBeVisible();
+  await expect(scrubber(page), "paused, the controls are showing").toBeVisible();
+  await expect(stage(page).getByText(where), "the controls over the footage don't repeat it").toHaveCount(0);
+});
+
+test("a drag on the player's scrubber is reported once, not once a frame", async ({ page }) => {
+  const tracked = await recordAnalytics(page);
+  await openSampleGame(page);
+  await expect(scrubber(page)).toBeVisible();
+  const seeks = async () => (await tracked()).filter((e) => e.event === "game_view_seeked").map((e) => e.properties?.via);
+  expect(await tracked(), "the page reports through the recorded module").not.toEqual([]);
+  expect(await seeks(), "nothing sought yet").toEqual([]);
+
+  const bar = await boxOf(scrubber(page), "the scrubber");
+  const y = bar.y + bar.height / 2;
+  await page.mouse.move(bar.x + bar.width * 0.2, y);
+  await page.mouse.down();
+  for (let i = 1; i <= 12; i++) {
+    await page.mouse.move(bar.x + bar.width * (0.2 + 0.04 * i), y);
+    await page.waitForTimeout(40);
+  }
+  await page.mouse.up();
+  await settled(page);
+
+  await expect.poll(seeks, { message: "one drag, one report" }).toEqual(["scrubber"]);
+
+  // The same on the game's timeline: a drag along it is one report, when it is let go.
+  const t = await boxOf(track(page), "the timeline's track");
+  await page.mouse.move(t.x + t.width * 0.3, t.y + 40);
+  await page.mouse.down();
+  for (let i = 1; i <= 10; i++) {
+    await page.mouse.move(t.x + t.width * (0.3 + 0.03 * i), t.y + 40);
+    await page.waitForTimeout(40);
+  }
+  await page.mouse.up();
+  await settled(page);
+  await expect.poll(seeks, { message: "one drag on the timeline, one more report" }).toEqual(["scrubber", "timeline_drag"]);
+});
+
+test("a sideways swipe over the timeline or the footage moves the video, and a scroll doesn't", async ({ page }) => {
+  const tracked = await recordAnalytics(page);
+  const swipes = async () => (await tracked()).filter((e) => e.event === "game_view_seeked" && e.properties?.via === "wheel").length;
+  await openSampleGame(page);
+  const t = await boxOf(track(page), "the timeline's track");
+  // Somewhere in the game, standing still: a click on the timeline may start the play it lands on.
+  await page.mouse.click(t.x + t.width * 0.3, t.y + 8);
+  await page.keyboard.press("k");
+  await expect.poll(() => page.evaluate(() => document.querySelector("video")?.paused ?? false)).toBe(true);
+  const from = await settled(page);
+
+  for (const [where, box] of [
+    ["the timeline", t],
+    ["the footage", await boxOf(stage(page), "the stage")],
+  ] as const) {
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 3);
+
+    await page.mouse.wheel(0, 240);
+    await page.waitForTimeout(300);
+    expect(await settled(page), `a scroll over ${where} leaves the video where it is`).toBeCloseTo(from, 1);
+
+    await page.mouse.wheel(90, 0);
+    await page.waitForTimeout(300);
+    const later = await settled(page);
+    expect(later, `a swipe over ${where} moves the video on`).toBeGreaterThan(from + 0.5);
+
+    await page.mouse.wheel(-90, 0);
+    await page.waitForTimeout(300);
+    expect(Math.abs((await settled(page)) - from), `the same swipe back over ${where} returns it`).toBeLessThan(0.5);
+  }
+  expect(await swipes(), "each of the four swipes was reported once, and no scroll was").toBe(4);
+});
+
+test("pointing at the timeline never covers the footage", async ({ page }) => {
+  await openSampleGame(page);
+  const t = await boxOf(track(page), "the timeline's track");
+  const readout = timeline(page).locator('[role="presentation"]');
+
+  let shown = false;
+  for (let i = 1; i < 40 && !shown; i++) {
+    await page.mouse.move(t.x + (t.width * i) / 40, t.y + t.height - 12);
+    shown = await readout.isVisible();
+  }
+  expect(shown, "a play on the timeline shows what it is").toBe(true);
+
+  const box = await boxOf(readout, "the timeline's readout");
+  expect(overlaps(box, await boxOf(stage(page), "the stage")), "the readout is clear of the footage").toBe(false);
+  expect(box.y, "the readout hangs under the track").toBeGreaterThanOrEqual(t.y + t.height);
+});
+
+test("the moment chips fade at the edge where more of them wait", async ({ page }) => {
+  await openSampleGame(page);
+  const row = page.getByRole("group", { name: "Moment" });
+  const fits = await row.evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
+  expect(fits, "at the window's usual width the chips don't all fit").toBe(false);
+
+  const faded = () => row.evaluate((el) => getComputedStyle(el).maskImage || getComputedStyle(el).webkitMaskImage);
+  await expect(row).toHaveAttribute("data-more", "end");
+  expect(await faded(), "the row fades out where it is cut").toContain("gradient");
+
+  await row.evaluate((el) => (el.scrollLeft = el.scrollWidth));
+  await expect(row).toHaveAttribute("data-more", "start");
+
+  await row.evaluate((el) => (el.scrollLeft = 20));
+  await expect(row).toHaveAttribute("data-more", "both");
+});
+
+test("the first visit's playlist chooser is tinted, not ringed like keyboard focus", async ({ page }) => {
+  await openSampleGame(page);
+  const chooser = page.getByRole("button", { name: "Choose the playlist to add plays to" });
+  await expect(chooser).toBeVisible();
+  const { shadow, background } = await chooser.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return { shadow: style.boxShadow, background: style.backgroundColor };
+  });
+  expect(shadow, "no 2px ring, which is how focus is drawn").not.toMatch(/0px 0px 0px 2px/);
+  const plain = await page.getByRole("button", { name: "Filters" }).evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(background, "it is tinted to draw the eye").not.toBe(plain);
+});
+
+test("a switch's thumb stays in its track while the page around it settles", async ({ page }) => {
+  // A league game's Details has the quarter switch (the sample game's doesn't).
+  await openLibraryGame(page, 0);
+  await page.getByRole("radio", { name: "Details" }).click();
+  await expect(page.locator("#breaks-cut")).toBeVisible({ timeout: 30_000 });
+  await showGameView(page);
+
+  // Back to Details, watching the switch every frame from the moment it is there: the page is still loading around it.
+  const watching = page.evaluate(
+    () =>
+      new Promise<number>((resolve) => {
+        let out = 0;
+        let until = 0;
+        const giveUp = performance.now() + 30_000;
+        const look = () => {
+          const el = document.getElementById("breaks-cut");
+          const thumb = el?.firstElementChild;
+          if (el && thumb) {
+            if (!until) until = performance.now() + 1_500;
+            const outer = el.getBoundingClientRect();
+            const inner = thumb.getBoundingClientRect();
+            out = Math.max(out, outer.left - inner.left, inner.right - outer.right, outer.top - inner.top, inner.bottom - outer.bottom);
+          }
+          if (until ? performance.now() < until : performance.now() < giveUp) requestAnimationFrame(look);
+          else resolve(until ? out : -1);
+        };
+        look();
+      }),
+  );
+  await page.getByRole("radio", { name: "Details" }).click();
+  const worst = await watching;
+  expect(worst, "the switch came back").not.toBe(-1);
+  expect(worst, "how far (px) the thumb was ever outside its track").toBeLessThanOrEqual(0.5);
+
+  // And a switch still crosses its whole track when it is switched: on the game's filter sheet, which writes nothing.
+  await showGameView(page);
+  await page.getByRole("button", { name: "Filters" }).click();
+  const sheet = page.getByRole("dialog");
+  await sheet.locator("button[aria-pressed]").filter({ hasText: /^#\d+/ }).first().click();
+  const onFloor = sheet.getByRole("switch");
+  await expect(onFloor).toHaveAttribute("aria-checked", "false");
+  /** The thumb's gap to the track's left and right edges. */
+  const gaps = () =>
+    onFloor.evaluate((el) => {
+      const outer = el.getBoundingClientRect();
+      const inner = el.firstElementChild!.getBoundingClientRect();
+      return { left: Math.round(inner.left - outer.left), right: Math.round(outer.right - inner.right) };
+    });
+  expect(await gaps(), "off: the thumb rests at the left").toEqual({ left: 2, right: 16 });
+  await onFloor.click();
+  await expect(onFloor).toHaveAttribute("aria-checked", "true");
+  await expect.poll(gaps, { message: "on: the thumb comes to rest at the right" }).toEqual({ left: 16, right: 2 });
+  await onFloor.click();
+  await expect.poll(gaps, { message: "off again: back at the left" }).toEqual({ left: 2, right: 16 });
+});
