@@ -42,6 +42,8 @@ export interface PlacedRunLabel {
 const RUN_LABEL_WIDTH = 34;
 /** The room a timeout's mark takes. */
 const TIMEOUT_MARK_WIDTH = 11;
+/** The room the largest lead's figure ("+19") takes. */
+const PEAK_LABEL_WIDTH = 28;
 
 /** Whether something `size` wide around `x` stands on the side's team name. */
 function onLegend(x: number, size: number, legend: StripLegend, team: 1 | 2): boolean {
@@ -84,6 +86,25 @@ export interface StripTimeout {
 export function placeTimeoutMarks(timeouts: readonly StripTimeout[], opts: { legend: StripLegend; markWidth?: number }): { id: number; row: 0 | 1 }[] {
   const size = opts.markWidth ?? TIMEOUT_MARK_WIDTH;
   return timeouts.map((t) => ({ id: t.id, row: t.team !== 0 && onLegend(t.x, size, opts.legend, t.team) ? 1 : 0 }));
+}
+
+/**
+ * Where the largest lead's figure is printed: over its peak, kept inside the
+ * strip, just inside the leading side's area. A timeout's mark of that side
+ * stands on the same edge, so under one the figure goes a row further in. It
+ * stays over the peak, where the area is tallest: moved aside it would land
+ * on the line. A mark that is itself a row in (it made room for a team name)
+ * leaves the first row free.
+ */
+export function placePeakLabel(
+  x: number,
+  opts: { width: number; marks: readonly { x: number; row: 0 | 1 }[]; labelWidth?: number; markWidth?: number },
+): { x: number; row: 0 | 1 } {
+  const half = (opts.labelWidth ?? PEAK_LABEL_WIDTH) / 2;
+  // How near a mark's middle the figure's middle may come: half of each, and 2 px of air.
+  const reach = half + (opts.markWidth ?? TIMEOUT_MARK_WIDTH) / 2 + 2;
+  const over = Math.min(Math.max(x, half), opts.width - half);
+  return { x: over, row: opts.marks.some((mark) => mark.row === 0 && Math.abs(mark.x - over) < reach) ? 1 : 0 };
 }
 
 /** The strip's rows: the quarter bands, the score graph, and the lane under it where the play marks are. */

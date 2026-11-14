@@ -7,7 +7,7 @@
  * that game's marks once, as any visit does).
  */
 import type { Locator, Page } from "@playwright/test";
-import { expect, openLibraryGame, playRows, shot, showGameView, test } from "../helpers";
+import { expect, openLibraryGame, openSampleGame, playRows, recordAnalytics, shot, showGameView, test, videoDuration, videoTime } from "../helpers";
 
 const SIZES = [
   { width: 1440, height: 900 },
@@ -31,49 +31,12 @@ async function boxOf(locator: Locator, what: string): Promise<Box> {
 
 const overlaps = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 
-const videoTime = (page: Page) => page.evaluate(() => document.querySelector("video")?.currentTime ?? -1);
-const videoDuration = (page: Page) => page.evaluate(() => document.querySelector("video")?.duration ?? NaN);
-
-/** The sample game on its Game view, with its footage ready to seek. */
-async function openSampleGame(page: Page): Promise<number> {
-  await page.goto("/matches");
-  await expect(page.getByRole("heading", { level: 1, name: "Library" })).toBeVisible({ timeout: 30_000 });
-  const row = page.locator('a[href^="/matches/"]').filter({ hasText: "Sample game" }).first();
-  await expect(row, "the test account has the sample game").toBeVisible({ timeout: 30_000 });
-  await row.click();
-  await expect(page.getByRole("radiogroup", { name: "View" })).toBeVisible({ timeout: 30_000 });
-  await showGameView(page);
-  await expect.poll(() => videoDuration(page), { message: "the sample game's video has loaded", timeout: 45_000 }).toBeGreaterThan(0);
-  return videoDuration(page);
-}
-
 /** Waits for the video to stand still on a frame. */
 async function settled(page: Page): Promise<number> {
   await expect.poll(() => page.evaluate(() => document.querySelector("video")?.seeking ?? true), { timeout: 15_000 }).toBe(false);
   return videoTime(page);
 }
 
-/**
- * Records what the app reports to analytics. PostHog drops every event from an
- * automated browser, so nothing reaches the network to read; the app's one
- * analytics module (src/lib/analytics.ts) is replaced at its edge with one
- * that keeps the calls on the page. Call before the first navigation.
- */
-async function recordAnalytics(page: Page): Promise<() => Promise<{ event: string; properties?: Record<string, unknown> }[]>> {
-  await page.route("**/src/lib/analytics.ts*", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "application/javascript",
-      body: `
-        export function initAnalytics() {}
-        export function identifyUser() {}
-        export function resetUser() {}
-        export function trackEvent(event, properties) { (window.__tracked ??= []).push({ event, properties }); }
-      `,
-    }),
-  );
-  return () => page.evaluate(() => (window as unknown as { __tracked?: { event: string; properties?: Record<string, unknown> }[] }).__tracked ?? []);
-}
 
 test("the timeline sits under the footage at its width, and the list has the column's whole height", async ({ page, browserName }) => {
   await openSampleGame(page);

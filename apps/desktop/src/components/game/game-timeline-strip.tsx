@@ -1,8 +1,9 @@
 import { memo, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
 import { animate, motion, useMotionValue } from "framer-motion";
-import { describePlay, eventHue, formatGameClock, periodLabel, type EventHue } from "@scoutable/shared/lib/events";
+import { describePlay, formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { flowChart, scoreAfter, type CourtStint, type GameFlow, type GameMoment } from "@scoutable/shared/lib/game-flow";
-import { gameScale, type GameScale, type GameTimeline, type ScaleSegment, type TimedPlay } from "@scoutable/shared/lib/game-timeline";
+import { placePeakLabel, placeRunLabels, placeTimeoutMarks, stripShowsPlays, stripTargetAt, type StripRun, type StripTarget, type StripTimeout, type StripZone } from "@scoutable/shared/lib/game-strip";
+import { gameScale, playIndexAt, type GameScale, type GameTimeline, type ScaleSegment, type TimedPlay } from "@scoutable/shared/lib/game-timeline";
 import { clamp, rubberband } from "@scoutable/shared/lib/motion-math";
 import { swipeTime } from "@scoutable/shared/lib/wheel-scrub";
 import type { GameMarks } from "@scoutable/shared/types/game-marks";
@@ -19,13 +20,17 @@ const Y = {
   periodsH: 18,
   chart: 22,
   chartH: 64,
-  stint: 89,
+  stint: 88,
   stintH: 3,
-  homeTicks: 95,
-  awayTicks: 106,
-  tickH: 9,
-  height: 116,
+  lane: 93,
+  laneH: 11,
+  height: 104,
 } as const;
+
+/** The middle of the lane under the graph: home's play marks stand above it, away's below, the playlist's dots on it. */
+const LANE_MID = Y.lane + Y.laneH / 2;
+/** A play's mark in the lane. */
+const MARK_H = 5;
 
 /** Everything the timeline takes under the Now bar: its track, the line of facts and zoom under it, and the air below. */
 export const GAME_TIMELINE_HEIGHT = Y.height + 44;
@@ -38,21 +43,6 @@ const DRAG_PX = 4;
 const PLAYHEAD_HIT = 10;
 /** At the whole game's width only the largest runs are drawn. */
 const RUNS_SHOWN = 6;
-
-/** Event colours for the ticks, by the family an event belongs to (the rows' colours, as SVG fills). */
-const TICK_FILL: Record<EventHue, string> = {
-  make: "fill-emerald-500",
-  miss: "fill-red-500",
-  rebound: "fill-sky-500",
-  assist: "fill-cyan-500",
-  steal: "fill-violet-500",
-  block: "fill-violet-600",
-  turnover: "fill-amber-500",
-  foul: "fill-orange-500",
-  neutral: "fill-slate-400",
-};
-
-const SHOTS = new Set(["2pt", "3pt", "freethrow"]);
 
 /** A word on the graph keeps a rim of the page's colour, so the line it crosses doesn't strike it through. */
 const HALO = { paintOrder: "stroke", stroke: "var(--background)", strokeWidth: 3, strokeLinejoin: "round" } as const;
@@ -137,17 +127,24 @@ function useZoomedScale(timeline: GameTimeline, width: number, zoomPeriod: numbe
 /**
  * Everything on the strip that doesn't move with playback, drawn once per
  * game, width, zoom and filter: the period bands with their scores, the
- * score graph, runs, timeouts, the clutch stretch, a tick per play and a
- * chosen player's stints on the floor.
+ * score graph with its runs (each a shaded stretch with its score printed)
+ * and timeouts (a pause mark on the calling side, a hairline through the
+ * graph), the clutch stretch, a chosen player's stints on the floor, and in
+ * the lane under the graph the playlist's plays as dots and, when the strip
+ * marks them, the listed plays in one colour.
+ *
+ * No mark per play for the whole unfiltered game: at that width they are a
+ * mark every other pixel, and the list beside the strip names every one.
  */
 const StripDrawing = memo(function StripDrawing({
   scale,
   timeline,
   flow,
-  marks,
   teams,
   tints,
-  dimmed,
+  runs,
+  timeouts,
+  listed,
   inTarget,
   stints,
   clutch,
@@ -157,11 +154,14 @@ const StripDrawing = memo(function StripDrawing({
   scale: GameScale;
   timeline: GameTimeline;
   flow: GameFlow;
-  marks: GameMarks | null;
   teams: Teams;
   tints: TeamTints;
-  /** Plays the filter hides, by key; null when no filter is on. */
-  dimmed: ReadonlySet<string> | null;
+  /** The runs on the strip, where they are. */
+  runs: readonly StripRun[];
+  /** The timeouts on the strip, where they are. */
+  timeouts: readonly StripTimeout[];
+  /** The plays the list shows, by key, when the strip marks them; null when it doesn't. */
+  listed: ReadonlySet<string> | null;
   inTarget: ReadonlySet<string>;
   stints: readonly CourtStint[] | null;
   /** The clutch stretch on the axis, when the game has one. */
@@ -212,20 +212,33 @@ const StripDrawing = memo(function StripDrawing({
   const peakAt = peak ? xOfEvent(peak.eventId) : null;
   const peakX = peakAt !== null && inside(peakAt) ? peakAt : null;
 
-  const runs = useMemo(
-    () => (zoomed ? flow.runs : [...flow.runs].sort((a, b) => b.points - a.points).slice(0, RUNS_SHOWN)),
-    [flow, zoomed],
-  );
   // Past the folded stretch before tip-off, when the strip starts with one.
   const lead = scale.segments[0];
   const legendX = lead && lead.kind !== "period" ? lead.x1 : 0;
 
+  // The words on the graph keep clear of the team names, which are as long as the names are.
+  const homeName = useRef<SVGTextElement | null>(null);
+  const awayName = useRef<SVGTextElement | null>(null);
+  const [names, setNames] = useState({ home: 0, away: 0 });
+  const hasChart = chart !== null;
+  useLayoutEffect(() => {
+    const home = homeName.current?.getComputedTextLength() ?? 0;
+    const away = awayName.current?.getComputedTextLength() ?? 0;
+    setNames((was) => (Math.abs(was.home - home) < 0.5 && Math.abs(was.away - away) < 0.5 ? was : { home, away }));
+  }, [teams.home.name, teams.away.name, hasChart]);
+  // A name starts 15 px in, after its swatch; 4 px of air after it.
+  const legend = { x: legendX, home: names.home ? names.home + 19 : 0, away: names.away ? names.away + 19 : 0 };
+  const runScores = placeRunLabels(runs, { width, legend });
+  const timeoutRows = new Map(placeTimeoutMarks(timeouts, { legend }).map((t) => [t.id, t.row]));
+  // The largest lead's figure stands just inside the leading side's edge, where that side's timeouts are: a row in under one.
+  const peakLabel =
+    peak && peakX !== null
+      ? placePeakLabel(peakX, { width, marks: timeouts.filter((t) => t.team === peak.side).map((t) => ({ x: t.x, row: timeoutRows.get(t.id) ?? 0 })) })
+      : null;
+
   return (
     <svg width={width} height={Y.height} className="absolute inset-0 block text-foreground" aria-hidden>
       <defs>
-        <pattern id={`${patternId}-notch`} width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-          <line x1="0" y1="0" x2="0" y2="5" strokeWidth="2" style={{ stroke: "var(--separator)" }} />
-        </pattern>
         <pattern id={`${patternId}-away`} width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(135)">
           <line x1="0" y1="0" x2="0" y2="5" strokeWidth="1.5" stroke={tints.away} strokeOpacity={0.55} />
         </pattern>
@@ -235,14 +248,13 @@ const StripDrawing = memo(function StripDrawing({
         </clipPath>
       </defs>
 
-      {/* Periods as bands; the footage around them folded into notches. */}
+      {/* Periods as bands; the footage around them (before tip-off, the breaks, after the whistle) folded into the
+          gaps between them. A stretch folded too thin to read as a gap is a line. */}
       {scale.segments.map((s, i) => {
         const w = s.x1 - s.x0;
         if (w < 0.5) return null;
         if (s.kind !== "period") {
-          return w > 3 ? (
-            <rect key={i} x={s.x0} y={0} width={w} height={Y.height} fill={`url(#${patternId}-notch)`} />
-          ) : (
+          return w > 3 ? null : (
             <line key={i} x1={s.x0 + w / 2} x2={s.x0 + w / 2} y1={0} y2={Y.height} strokeWidth="1" style={{ stroke: "var(--separator-strong)" }} />
           );
         }
@@ -276,7 +288,6 @@ const StripDrawing = memo(function StripDrawing({
             y1={Y.periods + Y.periodsH + 1.5}
             y2={Y.periods + Y.periodsH + 1.5}
             strokeWidth="1.5"
-            strokeDasharray="4 2"
             style={{ stroke: "var(--muted-foreground)" }}
           />
         )}
@@ -285,43 +296,41 @@ const StripDrawing = memo(function StripDrawing({
         <g transform={`translate(0 ${Y.chart})`}>
           {chart ? (
             <>
-              {chart.maxAbs > 10 && (
-                <>
-                  <line x1={0} x2={width} y1={chart.yOf(10)} y2={chart.yOf(10)} strokeWidth="1" style={{ stroke: "var(--separator)" }} />
-                  <line x1={0} x2={width} y1={chart.yOf(-10)} y2={chart.yOf(-10)} strokeWidth="1" style={{ stroke: "var(--separator)" }} />
-                </>
-              )}
+              {/* Runs: the stretch a team scored unanswered, shaded in its colour over the graph's whole height, as a
+                  chart marks a period. Its score is printed further down, over the line. */}
+              {runs.map((run) => (
+                <rect
+                  key={run.id}
+                  data-strip="run"
+                  data-id={run.id}
+                  x={run.x0}
+                  y={0}
+                  width={run.x1 - run.x0}
+                  height={Y.chartH}
+                  rx="3"
+                  fill={run.team === 1 ? tints.home : tints.away}
+                  // A little under the side's own fill: a grey away side is fainter to begin with, and stays so.
+                  fillOpacity={(run.team === 1 ? tints.homeOpacity : tints.awayOpacity) * 0.75}
+                />
+              ))}
               <path d={chart.home} fill={tints.home} fillOpacity={tints.homeOpacity} />
               <path d={chart.away} fill={tints.away} fillOpacity={tints.awayOpacity} />
               {tints.awayHatch && <path d={chart.away} fill={`url(#${patternId}-away)`} />}
               <line x1={0} x2={width} y1={chart.zeroY} y2={chart.zeroY} strokeWidth="1" style={{ stroke: "var(--separator-strong)" }} />
               <path d={chart.line} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
 
-              {/* Runs: a bar on the running side's edge. */}
-              {runs.map((run) => {
-                const from = xOfEvent(run.fromEventId);
-                const to = xOfEvent(run.toEventId);
-                if (from === null || to === null || (!inside(from) && !inside(to) && to - from < 1)) return null;
-                return (
-                  <rect
-                    key={run.fromEventId}
-                    x={from}
-                    y={run.team === 1 ? 0 : Y.chartH - 3}
-                    width={Math.max(3, to - from)}
-                    height={3}
-                    rx="1.5"
-                    fill="currentColor"
-                    fillOpacity={0.55}
-                  />
-                );
-              })}
-
               {/* The one number worth printing: the largest lead, at its peak. */}
-              {peak && peakX !== null && (
+              {peak && peakLabel && (
                 <text
-                  x={Math.min(Math.max(peakX, 14), width - 14)}
-                  // On the zero line's side of the peak, inside the area: the edges belong to the runs and the timeouts.
-                  y={peak.side === 1 ? chart.yOf(peak.lead) + 12 : chart.yOf(-peak.lead) - 5}
+                  data-strip="peak"
+                  x={peakLabel.x}
+                  // On the zero line's side of the peak, inside the area: the edges belong to the runs and the timeouts
+                  // (under a timeout's mark, a row further in).
+                  y={
+                    peak.side === 1
+                      ? Math.max(chart.yOf(peak.lead) + 12, peakLabel.row ? 25 : 0)
+                      : Math.min(chart.yOf(-peak.lead) - 5, peakLabel.row ? Y.chartH - 16 : Y.chartH)
+                  }
                   textAnchor="middle"
                   className="text-caption font-semibold nums"
                   style={{ fill: "var(--foreground)", ...HALO }}
@@ -329,6 +338,25 @@ const StripDrawing = memo(function StripDrawing({
                   +{peak.lead}
                 </text>
               )}
+
+              {/* A run reads as its score, on the running side's edge (a row in where a team name stands). */}
+              {runScores.map((score) => {
+                const run = runs.find((r) => r.id === score.id);
+                if (!run) return null;
+                return (
+                  <text
+                    key={score.id}
+                    data-strip="run-score"
+                    x={score.x}
+                    y={run.team === 1 ? 11 + score.row * 13 : Y.chartH - 4 - score.row * 13}
+                    textAnchor="middle"
+                    className="text-caption font-semibold nums"
+                    style={{ fill: "var(--foreground)", ...HALO }}
+                  >
+                    {run.points}–0
+                  </text>
+                );
+              })}
             </>
           ) : (
             <text x={width / 2} y={Y.chartH / 2 + 4} textAnchor="middle" className="text-callout" style={{ fill: "var(--muted-foreground)" }}>
@@ -336,16 +364,20 @@ const StripDrawing = memo(function StripDrawing({
             </text>
           )}
 
-          {/* Timeouts: a flag on the calling side's edge; the officials' on the line. */}
-          {(marks?.timeouts ?? []).map((t) => {
-            const time = timeline.timeOf(t.realWorldTime, t.period);
-            if (time === null) return null;
-            const x = scale.xOf(time);
-            if (!inside(x)) return null;
-            const fill = { fill: "var(--muted-foreground)" };
-            if (t.teamNumber === 1) return <path key={t.eventId} d={`M${x - 4} 0H${x + 4}L${x} 7Z`} style={fill} />;
-            if (t.teamNumber === 2) return <path key={t.eventId} d={`M${x - 4} ${Y.chartH}H${x + 4}L${x} ${Y.chartH - 7}Z`} style={fill} />;
-            return <circle key={t.eventId} cx={x} cy={Y.chartH / 2} r="2.5" fill="none" strokeWidth="1.5" style={{ stroke: "var(--muted-foreground)" }} />;
+          {/* Timeouts: play stopped, so a pause mark, on the calling side's edge (the officials' on the line), and a
+              hairline through the graph: whether the timeout ended a run is read off the two together. */}
+          {timeouts.map((t) => {
+            const row = timeoutRows.get(t.id) ?? 0;
+            const y = t.team === 1 ? 1 + row * 13 : t.team === 2 ? Y.chartH - 9 - row * 13 : Y.chartH / 2 - 4;
+            const bar = { fill: "var(--muted-foreground)" };
+            return (
+              <g key={t.id} data-strip="timeout" data-id={t.id}>
+                <line x1={t.x} x2={t.x} y1={0} y2={Y.chartH} strokeWidth="1" style={{ stroke: "var(--separator-strong)" }} />
+                <rect data-strip="timeout-mark" x={t.x - 5.5} y={y - 1.5} width={11} height={11} rx="3" style={{ fill: "var(--background)" }} />
+                <rect x={t.x - 3.6} y={y} width={2.6} height={8} rx="1" style={bar} />
+                <rect x={t.x + 1} y={y} width={2.6} height={8} rx="1" style={bar} />
+              </g>
+            );
           })}
         </g>
 
@@ -358,23 +390,39 @@ const StripDrawing = memo(function StripDrawing({
           return <rect key={s.fromEventId} x={from} y={Y.stint} width={Math.max(2, to - from)} height={Y.stintH} rx="1.5" style={{ fill: "var(--primary)" }} />;
         })}
 
-        {/* One tick per play: home in the upper row, away in the lower, a make taller than a miss. */}
+        {/* The plays the list shows, when the strip marks them: home above the lane's middle, away below, in one
+            colour. What kind of play each is, the list and the line under the track say. */}
+        {listed &&
+          timeline.plays.map((p) => {
+            if (p.reach !== "in" || !listed.has(p.key)) return null;
+            const side = p.event.eventTeam?.teamNumber ?? p.event.player?.teamNumber;
+            if (side !== 1 && side !== 2) return null;
+            const x = scale.xOf(p.time);
+            if (!inside(x)) return null;
+            return (
+              <rect
+                key={p.key}
+                data-strip="play-mark"
+                x={x - 0.75}
+                y={side === 1 ? LANE_MID - MARK_H - 0.5 : LANE_MID + 0.5}
+                width={1.5}
+                height={MARK_H}
+                rx="0.75"
+                fill="currentColor"
+                fillOpacity={0.6}
+              />
+            );
+          })}
+
+        {/* The plays already in the playlist, always: where the coach's own clips are in the game. */}
         {timeline.plays.map((p) => {
-          if (p.reach !== "in") return null;
-          const e = p.event;
-          const side = e.eventTeam?.teamNumber ?? e.player?.teamNumber;
-          if (side !== 1 && side !== 2) return null;
+          if (p.reach !== "in" || !inTarget.has(p.key)) return null;
           const x = scale.xOf(p.time);
           if (!inside(x)) return null;
-          const h = SHOTS.has(e.type) ? (e.isSuccessful ? Y.tickH : 5) : 6;
-          const y = side === 1 ? Y.homeTicks + Y.tickH - h : Y.awayTicks;
-          const hidden = dimmed?.has(p.key) ?? false;
           return (
-            <g key={p.key} opacity={hidden ? 0.15 : 1}>
-              <rect x={x - 0.75} y={y} width={1.5} height={h} className={TICK_FILL[eventHue(e)]} />
-              {inTarget.has(p.key) && (
-                <circle cx={x} cy={side === 1 ? Y.homeTicks - 2 : Y.awayTicks + Y.tickH + 2} r="2" style={{ fill: "var(--primary)" }} />
-              )}
+            <g key={p.key} data-strip="in-playlist">
+              <circle cx={x} cy={LANE_MID} r="3.4" style={{ fill: "var(--background)" }} />
+              <circle cx={x} cy={LANE_MID} r="2.4" style={{ fill: "var(--primary)" }} />
             </g>
           );
         })}
@@ -385,11 +433,11 @@ const StripDrawing = memo(function StripDrawing({
       {chart && (
         <g transform={`translate(${legendX} ${Y.chart})`} className="text-footnote font-medium" style={{ fill: "var(--muted-foreground)" }}>
           <rect x={4} y={3} width={7} height={7} rx="1.5" fill={tints.home} fillOpacity={0.7} />
-          <text x={15} y={10} style={HALO}>
+          <text ref={homeName} x={15} y={10} style={HALO}>
             {teams.home.name}
           </text>
           <rect x={4} y={Y.chartH - 11} width={7} height={7} rx="1.5" fill={tints.away} fillOpacity={0.6} />
-          <text x={15} y={Y.chartH - 4} style={HALO}>
+          <text ref={awayName} x={15} y={Y.chartH - 4} style={HALO}>
             {teams.away.name}
           </text>
         </g>
@@ -408,20 +456,27 @@ export interface GameTimelineHandle {
 
 interface Hover {
   x: number;
-  /** The play a click here would mean; null in a break or with no play near. */
+  /** What the pointer is on, which is what a click means (stripTargetAt). */
+  target: StripTarget;
+  /** The play the line under the track describes: the mark the pointer is on, else the play going on at that second. */
   play: TimedPlay | null;
-  /** A play close enough that a click snaps to it. */
+  /** On a play's mark: a click plays that play. */
   snap: boolean;
   time: number;
   segment: ScaleSegment | null;
 }
 
+/** Which of the strip's rows a height is in. The lane takes the thin row above it too: its marks are small. */
+const zoneOf = (y: number): StripZone => (y < Y.chart ? "band" : y < Y.stint - 2 ? "chart" : "lane");
+
 /**
  * The game on one strip: both the scrubber over the whole video and the
  * overview of how the game went. Quarters are bands (the breaks folded into
- * notches, so the strip is spent on basketball), the score difference runs
- * through them, timeouts and runs sit on its edges, every play is a tick,
- * and the playhead crosses all of it.
+ * the gaps between them, so the strip is spent on basketball), the score
+ * difference runs through them with its runs and timeouts on it, and the
+ * playhead crosses all of it. The plays themselves are marked when a filter
+ * is on or one quarter has the strip (stripShowsPlays): then they answer a
+ * question, and there is room to read them.
  *
  * It answers the press, not the release: the playhead goes to the pointer
  * the moment the button is down and follows it 1:1 from there (from where it
@@ -429,9 +484,10 @@ interface Hover {
  * up a frame at a time; past either end it resists and springs back. A
  * sideways swipe on a trackpad moves it the same way, a pixel for a pixel,
  * over the timeline and (through `handleRef`) over the footage. Let go
- * without having moved and it was a click: on a play, that play from its
- * pre-roll, exactly as its row would; elsewhere, that second. Double-click a
- * quarter to give it the whole strip.
+ * without having moved and it was a click on what the pointer was on: a
+ * run or a timeout (the place Page Down stops at), a play's mark (that play
+ * from its pre-roll, exactly as its row would), else that second.
+ * Double-click a quarter to give it the whole strip.
  */
 export function GameTimelineStrip({
   timeline,
@@ -450,6 +506,7 @@ export function GameTimelineStrip({
   onZoom,
   onPlay,
   onSeek,
+  onLandmark,
   onScrubEnd,
   hint,
   className,
@@ -474,6 +531,8 @@ export function GameTimelineStrip({
   onZoom: (period: number | null) => void;
   onPlay: (play: TimedPlay) => void;
   onSeek: (t: number) => void;
+  /** A click on a run or a timeout: its row in the list (`run:<first basket>`, `timeout:<event>`). */
+  onLandmark: (row: string) => void;
   /** The timeline moved the video, said once: a drag let go, a swipe come to rest, or a click where no play is (a click on a play is `onPlay`). */
   onScrubEnd?: (via: "timeline" | "timeline_drag" | "wheel") => void;
   /** A first-visit line under the track, in the game facts' place; gone after the first use. */
@@ -488,7 +547,7 @@ export function GameTimelineStrip({
   const [pressed, setPressed] = useState(false);
   const [width, setWidth] = useState(0);
   const [hover, setHover] = useState<Hover | null>(null);
-  const scrubRef = useRef<{ grabOffset: number; startX: number; moved: boolean; wasPlaying: boolean } | null>(null);
+  const scrubRef = useRef<{ grabOffset: number; startX: number; startY: number; moved: boolean; wasPlaying: boolean } | null>(null);
   // A sideways swipe under way: it holds the playhead as a press does. `t` is where it has taken the video.
   const swipeRef = useRef<{ wasPlaying: boolean; t: number } | null>(null);
   const readoutRef = useRef<HTMLDivElement | null>(null);
@@ -506,11 +565,34 @@ export function GameTimelineStrip({
   const { scale, settled } = useZoomedScale(timeline, Math.max(1, width), zoomPeriod);
   const tints = useMemo(() => teamTints(teams.home.color, teams.away.color), [teams.home.color, teams.away.color]);
 
-  const dimmed = useMemo(() => {
-    if (!filtered) return null;
-    const shown = new Set(order.map((i) => timeline.plays[i].key));
-    return new Set(timeline.plays.filter((p) => !shown.has(p.key)).map((p) => p.key));
-  }, [filtered, order, timeline]);
+  // Settled on one quarter (not the whole game, and not on the way between the two).
+  const zoomedIn = settled && zoomPeriod !== null;
+  const playsShown = stripShowsPlays({ filtered, zoomed: zoomedIn });
+  const listed = useMemo(() => (playsShown ? new Set(order.map((i) => timeline.plays[i].key)) : null), [playsShown, order, timeline]);
+
+  const playByEvent = useMemo(() => new Map(timeline.plays.map((p) => [p.event.eventId, p])), [timeline]);
+  // The runs on the strip: all of them in one quarter, the largest at the whole game's width.
+  const stripRuns = useMemo<StripRun[]>(() => {
+    const shown = zoomedIn ? flow.runs : [...flow.runs].sort((a, b) => b.points - a.points).slice(0, RUNS_SHOWN);
+    return shown.flatMap((run) => {
+      const first = playByEvent.get(run.fromEventId);
+      const last = playByEvent.get(run.toEventId);
+      if (!first || !last) return [];
+      const x0 = scale.xOf(first.time);
+      const x1 = Math.max(scale.xOf(last.time), x0 + 4);
+      return x1 > 0.5 && x0 < width - 0.5 ? [{ id: run.fromEventId, team: run.team, points: run.points, x0, x1 }] : [];
+    });
+  }, [flow, playByEvent, scale, width, zoomedIn]);
+  const stripTimeouts = useMemo<StripTimeout[]>(
+    () =>
+      (marks?.timeouts ?? []).flatMap((t) => {
+        const time = timeline.timeOf(t.realWorldTime, t.period);
+        if (time === null) return [];
+        const x = scale.xOf(time);
+        return x > 0.5 && x < width - 0.5 ? [{ id: t.eventId, team: t.teamNumber ?? 0, x }] : [];
+      }),
+    [marks, timeline, scale, width],
+  );
 
   const clutch = useMemo(() => {
     let from = Infinity;
@@ -589,12 +671,26 @@ export function GameTimelineStrip({
 
   /** The pointer on the track, in its own pixels; not clamped, so a drag past an end is known as one. */
   const localX = (clientX: number) => clientX - (trackRef.current?.getBoundingClientRect().left ?? 0);
+  const localY = (clientY: number) => clientY - (trackRef.current?.getBoundingClientRect().top ?? 0);
 
-  function hoverAt(x: number): Hover {
+  function hoverAt(x: number, y: number): Hover {
     const at = clamp(x, 0, width);
+    const time = scale.tOf(at);
     const segment = scale.segments.find((s) => at >= s.x0 && at <= s.x1) ?? null;
     const near = segment?.kind === "period" ? nearest(at) : null;
-    return { x: at, play: near?.play ?? null, snap: !!near && near.distance <= SNAP_PX, time: scale.tOf(at), segment };
+    const target = stripTargetAt(
+      { x: at, zone: zoneOf(y) },
+      { timeouts: stripTimeouts, runs: stripRuns, play: near ? { key: near.play.key, distance: near.distance } : null, playsShown, snapPx: SNAP_PX },
+    );
+    let play: TimedPlay | null = null;
+    if (target.kind === "play") play = near?.play ?? null;
+    // No footage: a click selects the listed play nearest it, as it always has.
+    else if (!video) play = near?.play ?? null;
+    else if (segment?.kind === "period") {
+      const i = playIndexAt(timeline.plays, order, time);
+      play = i >= 0 ? timeline.plays[order[i]] : null;
+    }
+    return { x: at, target, play, snap: target.kind === "play", time, segment };
   }
 
   /** Moves the held playhead to the pointer: 1:1 inside the strip, resisting past its ends. */
@@ -613,7 +709,7 @@ export function GameTimelineStrip({
     const x = localX(e.clientX);
     if (!video) {
       // Nothing to scrub: the release is a click that selects a play.
-      scrubRef.current = { grabOffset: 0, startX: x, moved: false, wasPlaying: false };
+      scrubRef.current = { grabOffset: 0, startX: x, startY: localY(e.clientY), moved: false, wasPlaying: false };
       return;
     }
     // A press takes over from a swipe that is still coming to rest: it is one hold now, and whether the video
@@ -625,7 +721,13 @@ export function GameTimelineStrip({
     }
     // On the playhead itself, keep hold of it where it was grabbed; anywhere else, it comes to the pointer.
     const onPlayhead = Math.abs(x - playheadX.get()) <= PLAYHEAD_HIT;
-    scrubRef.current = { grabOffset: onPlayhead ? x - playheadX.get() : 0, startX: x, moved: false, wasPlaying: swipe ? swipe.wasPlaying : !video.paused };
+    scrubRef.current = {
+      grabOffset: onPlayhead ? x - playheadX.get() : 0,
+      startX: x,
+      startY: localY(e.clientY),
+      moved: false,
+      wasPlaying: swipe ? swipe.wasPlaying : !video.paused,
+    };
     if (!video.paused) video.pause();
     setPressed(true);
     if (!onPlayhead) scrubTo(x);
@@ -638,7 +740,7 @@ export function GameTimelineStrip({
       if (Math.abs(x - s.startX) > DRAG_PX) s.moved = true;
       if (video && s.moved) scrubTo(x);
     }
-    setHover(hoverAt(x));
+    setHover(hoverAt(x, localY(e.clientY)));
   }
 
   function endPress(cancelled: boolean) {
@@ -663,8 +765,9 @@ export function GameTimelineStrip({
       return;
     }
     // A click. (Both clicks of a double-click land here, on the same spot, before the zoom: the second changes nothing.)
-    const at = hoverAt(s.startX);
-    if (at.play && (at.snap || !video)) onPlay(at.play);
+    const at = hoverAt(s.startX, s.startY);
+    if (at.target.kind === "run" || at.target.kind === "timeout") onLandmark(`${at.target.kind}:${at.target.id}`);
+    else if (at.play && (at.snap || !video)) onPlay(at.play);
     else if (video) {
       onSeek(at.time);
       onScrubEnd?.("timeline");
@@ -708,7 +811,7 @@ export function GameTimelineStrip({
   });
 
   function onDoubleClick(e: React.MouseEvent<HTMLDivElement>) {
-    const at = hoverAt(localX(e.clientX));
+    const at = hoverAt(localX(e.clientX), localY(e.clientY));
     if (zoomPeriod !== null) onZoom(null);
     else if (at.segment?.kind === "period" && at.segment.period !== undefined) onZoom(at.segment.period);
   }
@@ -716,6 +819,32 @@ export function GameTimelineStrip({
   // What the tooltip says: the score first, then where and what.
   const tip = useMemo(() => {
     if (!hover) return null;
+    const target = hover.target;
+    if (target.kind === "timeout") {
+      const t = marks?.timeouts.find((x) => x.eventId === target.id);
+      if (!t) return null;
+      return {
+        head: "Timeout",
+        where: t.teamNumber === 1 ? teams.home.name : t.teamNumber === 2 ? teams.away.name : "Officials",
+        what: [periodLabel(t.period), t.clock].filter(Boolean).join(" · "),
+        extra: t.scoreHome !== null && t.scoreAway !== null ? `${t.scoreHome}–${t.scoreAway}` : null,
+      };
+    }
+    if (target.kind === "run") {
+      const run = flow.runs.find((r) => r.fromEventId === target.id);
+      if (!run) return null;
+      const clock = (eventId: number) => {
+        const e = flow.order[flow.indexOf.get(eventId) ?? -1];
+        return e?.gameClockTime ? formatGameClock(e.gameClockTime) : null;
+      };
+      const [from, to] = [clock(run.fromEventId), clock(run.toEventId)];
+      return {
+        head: "Run",
+        where: `${run.team === 1 ? teams.home.name : teams.away.name} ${run.points}–0`,
+        what: [periodLabel(run.period), from && to ? `${from} to ${to}` : from].filter(Boolean).join(" · "),
+        extra: null,
+      };
+    }
     if (hover.segment && hover.segment.kind !== "period") {
       return { head: notchName(hover.segment), where: null, what: null, extra: null };
     }
@@ -736,6 +865,7 @@ export function GameTimelineStrip({
       flow.ties.includes(e.eventId) && score ? `Tied at ${score.home}` : null,
       run ? `Run · ${run.team === 1 ? teams.home.name : teams.away.name} ${run.points}–0` : null,
       kinds?.has("after_timeout") ? "After a timeout" : null,
+      kinds?.has("clutch") ? "Clutch time" : null,
     ].filter(Boolean).join(" · ");
     return {
       head: score ? `${score.home}–${score.away}` : null,
@@ -743,7 +873,7 @@ export function GameTimelineStrip({
       what: describePlay(e),
       extra: extra || null,
     };
-  }, [hover, flow, moments, teams, stints, stintName]);
+  }, [hover, flow, marks, moments, teams, stints, stintName]);
 
   const final = flow.final;
   const lead = flow.largestLead.home && (!flow.largestLead.away || flow.largestLead.home.lead >= flow.largestLead.away.lead)
@@ -757,6 +887,16 @@ export function GameTimelineStrip({
     `${flow.ties.length} ${flow.ties.length === 1 ? "tie" : "ties"}`,
     lead ? `Largest lead ${lead}` : null,
   ].filter(Boolean);
+
+  /** The hover line sits on what a click would mean: the play's mark, the timeout's line, else the pointer. */
+  const hoverLineX = (h: Hover) => {
+    if (h.target.kind === "play" && h.play) return scale.xOf(h.play.time);
+    if (h.target.kind === "timeout") {
+      const id = h.target.id;
+      return stripTimeouts.find((t) => t.id === id)?.x ?? h.x;
+    }
+    return h.x;
+  };
 
   const zoomOptions = [
     { value: "all", label: "Whole game" },
@@ -803,14 +943,15 @@ export function GameTimelineStrip({
             scale={scale}
             timeline={timeline}
             flow={flow}
-            marks={marks}
             teams={teams}
             tints={tints}
-            dimmed={dimmed}
+            runs={stripRuns}
+            timeouts={stripTimeouts}
+            listed={listed}
             inTarget={inTarget}
             stints={stints}
             clutch={clutch}
-            zoomed={settled && zoomPeriod !== null}
+            zoomed={zoomedIn}
             patternId={patternId}
           />
         )}
@@ -820,12 +961,13 @@ export function GameTimelineStrip({
           <div
             aria-hidden
             className="pointer-events-none absolute inset-y-0 left-0 w-px bg-foreground/35"
-            style={{ transform: `translateX(${hover.snap && hover.play ? scale.xOf(hover.play.time) : hover.x}px)` }}
+            style={{ transform: `translateX(${hoverLineX(hover)}px)` }}
           />
         )}
 
         <motion.div
           aria-hidden
+          data-strip="playhead"
           className="pointer-events-none absolute inset-y-0 left-0 -ml-px w-0.5 rounded-full bg-foreground shadow-[0_0_0_1px_var(--background)] will-change-transform"
           style={{ x: playheadX, opacity: playheadShown ? 1 : 0 }}
         >

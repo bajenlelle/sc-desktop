@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { placeRunLabels, placeTimeoutMarks, stripShowsPlays, stripTargetAt } from "../game-strip";
+import { placePeakLabel, placeRunLabels, placeTimeoutMarks, stripShowsPlays, stripTargetAt } from "../game-strip";
 
 const NO_LEGEND = { x: 0, home: 0, away: 0 };
 
@@ -91,6 +91,28 @@ describe("placeTimeoutMarks", () => {
       { id: 3, row: 0 },
       { id: 4, row: 0 },
     ]);
+  });
+});
+
+describe("placePeakLabel", () => {
+  it("prints the largest lead over its peak, on the first row, when no mark stands there", () => {
+    expect(placePeakLabel(300, { width: 600, marks: [] })).toEqual({ x: 300, row: 0 });
+    expect(placePeakLabel(300, { width: 600, marks: [{ x: 100, row: 0 }, { x: 340, row: 0 }] })).toEqual({ x: 300, row: 0 });
+  });
+
+  it("keeps it inside the strip", () => {
+    expect(placePeakLabel(4, { width: 600, marks: [] })).toEqual({ x: 14, row: 0 });
+    expect(placePeakLabel(598, { width: 600, marks: [] })).toEqual({ x: 586, row: 0 });
+  });
+
+  it("goes a row further in, under a timeout's mark that stands over the peak", () => {
+    // Still over the peak, where the side's area is tallest: beside the mark the line would run through it.
+    expect(placePeakLabel(304, { width: 600, marks: [{ x: 300, row: 0 }] })).toEqual({ x: 304, row: 1 });
+    expect(placePeakLabel(300, { width: 600, marks: [{ x: 320, row: 0 }] })).toEqual({ x: 300, row: 1 });
+  });
+
+  it("stays on the first row when the mark there is itself a row in", () => {
+    expect(placePeakLabel(304, { width: 600, marks: [{ x: 300, row: 1 }] })).toEqual({ x: 304, row: 0 });
   });
 });
 

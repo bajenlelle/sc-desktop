@@ -493,6 +493,19 @@ export function GameWatchView({
     [footage, video, jumps, playback, trackSeek, refollow, revealRow],
   );
 
+  /** A click on a run or a timeout on the timeline: the place Page Down stops at for it, played, with its row shown. */
+  const toLandmark = useCallback(
+    (row: string) => {
+      const target = jumps.find((j) => j.row === row);
+      revealRow(row);
+      if (!target || !footage) return;
+      trackSeek("timeline", target.kind, target.period);
+      playback.seekTo(target.time, { play: true, jump: true });
+      refollow();
+    },
+    [footage, jumps, playback, trackSeek, refollow, revealRow],
+  );
+
   const toPeriod = useCallback(
     (period: number, via: string) => {
       const band = timeline.bands.find((b) => b.period === period);
@@ -1078,6 +1091,10 @@ export function GameWatchView({
                     dismissTip();
                     playback.seekTo(t);
                     refollow();
+                  }}
+                  onLandmark={(row) => {
+                    dismissTip();
+                    toLandmark(row);
                   }}
                   onScrubEnd={(via) => trackSeek(via, "time", null)}
                   handleRef={timelineHandle}

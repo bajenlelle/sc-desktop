@@ -794,3 +794,41 @@ export async function libraryGameCount(page: Page): Promise<number> {
   const text = await page.getByText(/^\d+ games$/).innerText();
   return Number(text.split(" ")[0]);
 }
+
+export const videoTime = (page: Page) => page.evaluate(() => document.querySelector("video")?.currentTime ?? -1);
+export const videoDuration = (page: Page) => page.evaluate(() => document.querySelector("video")?.duration ?? NaN);
+
+/** The sample game on its Game view, with its footage ready to seek. */
+export async function openSampleGame(page: Page): Promise<number> {
+  await page.goto("/matches");
+  await expect(page.getByRole("heading", { level: 1, name: "Library" })).toBeVisible({ timeout: 30_000 });
+  const row = page.locator('a[href^="/matches/"]').filter({ hasText: "Sample game" }).first();
+  await expect(row, "the test account has the sample game").toBeVisible({ timeout: 30_000 });
+  await row.click();
+  await expect(page.getByRole("radiogroup", { name: "View" })).toBeVisible({ timeout: 30_000 });
+  await showGameView(page);
+  await expect.poll(() => videoDuration(page), { message: "the sample game's video has loaded", timeout: 45_000 }).toBeGreaterThan(0);
+  return videoDuration(page);
+}
+
+/**
+ * Records what the app reports to analytics. PostHog drops every event from an
+ * automated browser, so nothing reaches the network to read; the app's one
+ * analytics module (src/lib/analytics.ts) is replaced at its edge with one
+ * that keeps the calls on the page. Call before the first navigation.
+ */
+export async function recordAnalytics(page: Page): Promise<() => Promise<{ event: string; properties?: Record<string, unknown> }[]>> {
+  await page.route("**/src/lib/analytics.ts*", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/javascript",
+      body: `
+        export function initAnalytics() {}
+        export function identifyUser() {}
+        export function resetUser() {}
+        export function trackEvent(event, properties) { (window.__tracked ??= []).push({ event, properties }); }
+      `,
+    }),
+  );
+  return () => page.evaluate(() => (window as unknown as { __tracked?: { event: string; properties?: Record<string, unknown> }[] }).__tracked ?? []);
+}
