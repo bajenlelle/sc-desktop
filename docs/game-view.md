@@ -1,8 +1,9 @@
 # The game view
 
-`/matches/:id` on the desktop opens on the whole game: the footage, a list of
-its plays that follows it, and one timeline that is both the scrubber and the
-story of the score. From it a coach collects plays into a playlist and labels
+`/matches/:id` on the desktop opens on the whole game: the footage with the
+game's timeline right under it, and beside them a list of its plays that
+follows the footage. The timeline is the story of the score and a way through
+the game. From the page a coach collects plays into a playlist and labels
 them. The settings form the page used to be is the other side of a
 **Game | Details** switch.
 
@@ -56,6 +57,38 @@ stretch where a game turned.
   in, so a Details title saves; and a playlist write still out from the game
   it leaves lands before the next game reads or writes that playlist.
 
+### The player and its timeline
+
+- **One unit, in the left column** (`game-watch-view.tsx`): the footage, the
+  Now bar, the game's timeline, and under the track one line with the game's
+  facts and the zoom. The timeline is as wide as the footage and sits 44 px
+  under it, so the control is by what it moves; the play list has the other
+  column's whole height. The stage is as large as its column allows once the
+  Now bar and the timeline have their room (`UNDER_STAGE`). A sync warning
+  opens at the foot of the column.
+- **Two ways through the video, on purpose.** The player's own scrubber (the
+  stage's floating bar, the one the editor and Add clips have) spans the whole
+  file on a straight scale, with elapsed and total time and a mark where each
+  quarter starts: it is how warm-up, the breaks and whatever follows the final
+  whistle are reached. The timeline folds those stretches into notches and
+  spends its width on basketball. In a window the player's controls don't
+  repeat the quarter, clock and score, which the Now bar says right below
+  them; in full screen, where there is no Now bar, they do.
+- **A sideways swipe scrubs**: two fingers on a trackpad, or a mouse wheel
+  turned with Shift, over the timeline or the footage, in full screen too. The
+  playhead moves a pixel for a pixel on the timeline's own scale, so a zoomed
+  quarter scrubs finer, and stops at the ends. A gesture keeps the direction
+  it started in: a scroll that drifts sideways never moves the video
+  (`packages/shared/lib/wheel-scrub.ts`, `components/game/use-wheel-scrub.ts`).
+- **A scrub is one `game_view_seeked`**, sent when it ends, not one per
+  frame: `via` is `scrubber` (the player's bar), `timeline_drag` or `wheel`.
+- **Why under the footage** (decided 2026-11-14, after the timeline as a band
+  across the bottom of the page read as detached from the video): players
+  made for review attach the scrubber to the picture and put their marks on
+  it (YouTube's chapters, Frame.io's comments, Hudl). A timeline across the
+  bottom of the window is the editing tools' convention, where the timeline
+  is the thing being worked on; here the plays and the footage are.
+
 ## What it reads from the stats (`packages/shared/lib`, pure, tested)
 
 | Module | What it answers |
@@ -64,6 +97,7 @@ stretch where a game turned.
 | `game-flow.ts` | The score story (`gameFlow`): score after each play, quarter and final scores, lead changes, ties, largest lead, runs; which plays belong to which moment (`gameMoments`); a player's stints on the floor with each stint's score change (`onCourtStints`); the chart's geometry (`flowChart`) |
 | `game-marks.ts`, `game-marks-fill.ts` | Timeouts and period bounds (below) |
 | `game-list.ts` | Which plays a filter keeps (`keepPlay`) and the list's rows (`gameRows`): period headers, plays, and the timeout, run and period-end markers between them |
+| `wheel-scrub.ts` | Which wheel events are a sideways scrub and how far each one moves the playhead; a scroll up or down is never one |
 | `clip-filters.ts` | The Add clips filter vocabulary. Byte-identical to the file on `feat/cloud-game-videos`, so the merge sees one file; change it there too |
 
 - **The axis** is video seconds when the game is synced, wall-clock seconds
@@ -133,7 +167,9 @@ released app lists each row there as a clip.
   footage. It answers the press: the playhead goes to the pointer on
   pointer-down and follows 1:1, resists past the ends, and a release without
   movement is a click (on a play: that play from its pre-roll). Double-click a
-  quarter to zoom.
+  quarter to zoom. What the pointer is on is said in a box under the track,
+  never over the footage above it, and the words on the graph keep a rim of
+  the page's colour so the line doesn't strike them through.
 - `game-play-list.tsx`, `game-play-row.tsx`: rows are memoised, not
   virtualised (as Add clips). The current row follows playback until the coach
   scrolls; "Jump to now", any seek, or scrolling back resumes it.

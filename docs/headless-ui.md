@@ -100,7 +100,18 @@ protocol itself, real window drag and full screen, vibrancy, WKWebView's
 paused-frame purge, deep links, the updater. Requests the app sends through
 plugin-http go through the browser here, so a cross-origin one (Genius'
 hosted stats pages, R2 uploads, the web app's API) can fail on CORS where the
-app succeeds. PostHog runs as in a dev build (staging's environment tag).
+app succeeds. PostHog loads as in a dev build (staging's environment tag) and
+asks for its flags, but no event was ever seen leaving an automated browser:
+a spec cannot read analytics off the network.
+
+## Analytics
+
+To assert on what the app reports, a spec replaces the app's one analytics
+module at its edge before the first navigation and reads the calls from the
+page: `recordAnalytics(page)` in `specs/H-game-player.spec.ts` routes
+`src/lib/analytics.ts` to a module whose `trackEvent` keeps each call on
+`window.__tracked`. The stand-in must export what the real module exports; a
+new export there breaks the page loudly, which is the reminder to add it.
 
 ## Adding a spec
 
@@ -148,3 +159,8 @@ any `…/headless/fixtures/` path is refused. The test video is two minutes
 long: pick plays that sit inside it (`specs/B-task4-this-clip-bar.spec.ts`
 picks them from the game's sync point). Both WebKit and Chrome play it through
 `/@fs`.
+
+A spec that only needs footage to move through, and writes nothing, can open
+the sample game instead (the Library row marked "Sample game"): its video
+plays from the network in both browsers, about twenty minutes of it, with no
+link to make or restore (`specs/H-game-player.spec.ts`).

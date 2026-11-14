@@ -276,3 +276,20 @@ Built on `design/apple-redesign` in six commits, one per milestone, plus fixes. 
 4. Virtualise the clip list above about 1,000 items.
 
 **For release notes, if this ships:** the appearance follows macOS by default for anyone who never picked Light or Dark (a synced choice is kept); the window uses `macos-private-api`, which rules out the Mac App Store (accepted).
+
+## 8. The game view (2026-11-14)
+
+The game page's Game view (`docs/game-view.md`) was built after this audit, with the same rules. A pass over it against the same principles found these, all fixed on `design/game-player`:
+
+- **The scrubbing was not by the video.** The game's timeline was a band across the bottom of the page, under the footage and the list alike, with the Now bar and up to 190 px of empty space between it and the picture. It is now part of the player: under the Now bar, as wide as the footage. The play list has its column's whole height.
+- **The only player without a scrubber.** The stage carried its scrubber only in full screen. It carries it in a window too: the whole file on a straight scale with elapsed and total time, which is also the way into warm-up and the breaks that the timeline folds to a few pixels.
+- **The same words twice.** The controls over the footage repeated the quarter, clock and score that the Now bar says 20 px below. In a window they no longer do.
+- **Words struck through, and a box over the picture.** The team names and the largest lead sat on the graph's line; they keep a rim of the page's colour. The timeline's hover box hangs under the track, so in its new place it never covers the footage.
+- **A cut chip with no sign of more.** The moment chips scroll sideways; the row now fades at the edge where more wait, as Add clips' event chips did (one component, `ui/scroll-row.tsx`).
+- **A nudge drawn as focus.** The first visit's "Choose playlist…" was ringed exactly as keyboard focus is; it is tinted.
+- **A thumb out of its track.** Every switch's thumb was animated by layout, so it left its track whenever the page around it moved (seen on Details). Its place comes from the switch's state.
+- **Added:** a sideways swipe on a trackpad (or Shift with a wheel) scrubs, over the timeline or the footage.
+
+**Verified:** the headless spec `H-game-player` in WebKit and Chrome at 1440×900, 1280×720 and 1024×640, light and dark. **Not verified:** the swipe on a real trackpad (its feel and direction), a two-hour recording, full screen in the app, Shift with a wheel on Windows.
+
+**Kept on purpose:** the ticks' event colours (the rows' colours), the full-width selection fill (the editor's), the Play button over the first frame, two position marks on two scales (the player's bar is the file, the timeline is the game).
