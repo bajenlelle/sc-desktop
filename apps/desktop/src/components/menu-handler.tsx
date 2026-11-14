@@ -53,6 +53,21 @@ function setEnabled(id: string, enabled: boolean) {
   invoke("menu_set_enabled", { id, enabled }).catch(() => {});
 }
 
+// Until the game page shows its tabs there is no tab for ⌘W (Ctrl+W) to close.
+enabledIds.set("close-tab", false);
+
+/**
+ * The game page's tab bar came or went (components/game/game-tab-bar.tsx).
+ * While it is there the File menu has Close Tab on ⌘W and Close Window on
+ * ⇧⌘W, as Safari does; otherwise ⌘W closes the window (src-tauri/src/menu.rs
+ * swaps the two). Where there is no menu bar the same flag gates Ctrl+W.
+ */
+export function setGameTabsShown(shown: boolean) {
+  if (enabledIds.get("close-tab") === shown) return;
+  enabledIds.set("close-tab", shown);
+  invoke("menu_game_tabs", { shown }).catch(() => {});
+}
+
 /** A Show/Hide item says what it will do, so its title follows the panel. */
 function setText(id: string, text: string) {
   invoke("menu_set_text", { id, text }).catch(() => {});
@@ -130,6 +145,9 @@ export function MenuHandler() {
           break;
         case "game-tab-next":
           window.dispatchEvent(new CustomEvent("menu-game-tab", { detail: 1 }));
+          break;
+        case "close-tab":
+          window.dispatchEvent(new CustomEvent("menu-close-game-tab"));
           break;
         case "send-feedback":
           window.dispatchEvent(new CustomEvent("menu-send-feedback"));

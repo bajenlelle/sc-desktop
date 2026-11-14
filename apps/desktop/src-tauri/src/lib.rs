@@ -1342,6 +1342,7 @@ pub fn run() {
             device_identity::get_device_identity,
             menu::menu_set_enabled,
             menu::menu_set_text,
+            menu::menu_game_tabs,
             menu::menu_sync_theme
         ])
         .build(tauri::generate_context!())

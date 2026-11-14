@@ -3,7 +3,8 @@
 //! Built once at startup (before the webview loads, so there is no flash of
 //! Tauri's default menu and it survives webview reloads). Custom items emit a
 //! single "menu" event with their id; src/components/menu-handler.tsx maps ids
-//! to actions. Keep the id list below in sync with MENU_IDS there.
+//! to actions. Keep the id list below in sync with MENU_IDS there. The one
+//! exception is Close Window, which this file closes itself.
 //!
 //! macOS only: Windows would render this as an in-window menu bar, which the
 //! app has never had — the commands compile everywhere but no-op off macOS.
@@ -15,16 +16,30 @@ use std::collections::HashMap;
 use tauri::{
     menu::{
         AboutMetadata, CheckMenuItem, CheckMenuItemBuilder, MenuBuilder, MenuItem,
-        MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder,
+        MenuItemBuilder, PredefinedMenuItem, Submenu, SubmenuBuilder,
     },
     AppHandle, Emitter, Manager, Wry,
 };
+
+/// The File menu's Close Window: closed natively (see `on_menu_event`).
+#[cfg(target_os = "macos")]
+const CLOSE_WINDOW: &str = "close-window";
+/// The File menu's Close Tab, in the menu only while the game page shows its tabs.
+#[cfg(target_os = "macos")]
+const CLOSE_TAB: &str = "close-tab";
+/// Where Close Tab goes in the File menu: right above Close Window, after
+/// New Playlist, Add Game, a separator, Export Playlist and a separator.
+#[cfg(target_os = "macos")]
+const CLOSE_TAB_POSITION: usize = 5;
 
 /// Handles to every item the frontend can mutate after startup.
 #[cfg(target_os = "macos")]
 pub struct MenuHandles {
     items: HashMap<&'static str, MenuItem<Wry>>,
     appearance: HashMap<&'static str, CheckMenuItem<Wry>>,
+    /// The File menu, and whether Close Tab is in it now (`menu_game_tabs`).
+    file: Submenu<Wry>,
+    close_tab_shown: std::sync::atomic::AtomicBool,
 }
 
 #[cfg(target_os = "macos")]
@@ -72,13 +87,23 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     let new_playlist = item("new-playlist", "New Playlist", Some("CmdOrCtrl+N"))?;
     let add_game = item("add-game", "Add Game…", Some("CmdOrCtrl+O"))?;
     let export_playlist = item("export-playlist", "Export Playlist…", Some("CmdOrCtrl+E"))?;
+    // Close Tab and Close Window, as Safari has them. While the game page shows
+    // its tabs, ⌘W closes the tab and ⇧⌘W the window; otherwise there is no
+    // Close Tab and ⌘W closes the window (`menu_game_tabs`). Close Window is a
+    // custom item because a predefined item's accelerator can't be changed.
+    // Close Tab is made here, with ⌘W, and put in the menu only while there
+    // are tabs: an item's accelerator can be changed but not taken away
+    // (muda's `set_accelerator(None)` leaves the key in place on macOS), and
+    // two items in a menu must never share ⌘W.
+    item(CLOSE_TAB, "Close Tab", Some("CmdOrCtrl+W"))?;
+    let close_window = item(CLOSE_WINDOW, "Close Window", Some("CmdOrCtrl+W"))?;
     let file_menu = SubmenuBuilder::new(app, "File")
         .item(&new_playlist)
         .item(&add_game)
         .separator()
         .item(&export_playlist)
         .separator()
-        .item(&PredefinedMenuItem::close_window(app, None)?)
+        .item(&close_window)
         .build()?;
 
     // -- Edit — predefined items are mandatory: without them ⌘C/⌘V/⌘Z stop
@@ -180,15 +205,30 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         .build()?;
     app.set_menu(menu)?;
 
-    app.manage(MenuHandles { items, appearance });
+    app.manage(MenuHandles {
+        items,
+        appearance,
+        file: file_menu,
+        close_tab_shown: std::sync::atomic::AtomicBool::new(false),
+    });
     Ok(())
 }
 
 /// Custom items reach the webview as a single "menu" event carrying the id;
-/// predefined items are handled natively and never arrive here.
+/// predefined items are handled natively and never arrive here. Close Window
+/// is closed here: it has to work on every screen, also where nothing in the
+/// webview listens (sign-in, the crash screen).
 #[cfg(target_os = "macos")]
 pub fn on_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
     let id = event.id().0.as_str();
+    if id == CLOSE_WINDOW {
+        if let Some(window) = app.get_webview_window("main") {
+            if let Err(e) = window.close() {
+                eprintln!("[menu] failed to close the window: {e}");
+            }
+        }
+        return;
+    }
     if let Err(e) = app.emit_to("main", "menu", id) {
         eprintln!("[menu] failed to emit menu event {id}: {e}");
     }
@@ -211,6 +251,39 @@ pub fn menu_set_enabled(app: tauri::AppHandle, id: String, enabled: bool) {
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (app, id, enabled);
+    }
+}
+
+/// The game page's tab bar came or went. While it is there the File menu has
+/// Close Tab on ⌘W and Close Window on ⇧⌘W, as in Safari; without it there is
+/// no Close Tab and ⌘W closes the window, as everywhere else in the app.
+#[tauri::command]
+pub fn menu_game_tabs(app: tauri::AppHandle, shown: bool) {
+    #[cfg(target_os = "macos")]
+    {
+        use std::sync::atomic::Ordering;
+        let Some(handles) = app.try_state::<MenuHandles>() else {
+            return;
+        };
+        if handles.close_tab_shown.swap(shown, Ordering::SeqCst) == shown {
+            return;
+        }
+        let (Some(tab), Some(window)) = (handles.items.get(CLOSE_TAB), handles.items.get(CLOSE_WINDOW)) else {
+            return;
+        };
+        // Never both on ⌘W: Close Window gives it up before Close Tab comes
+        // in, and takes it back once Close Tab is out.
+        if shown {
+            let _ = window.set_accelerator(Some("CmdOrCtrl+Shift+W"));
+            let _ = handles.file.insert(tab, CLOSE_TAB_POSITION);
+        } else {
+            let _ = handles.file.remove(tab);
+            let _ = window.set_accelerator(Some("CmdOrCtrl+W"));
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, shown);
     }
 }
 
