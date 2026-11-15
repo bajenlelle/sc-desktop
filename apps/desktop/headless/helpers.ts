@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as sidebarFs from "node:fs";
-import { test as base, expect, webkit, type Locator, type Page, type Request } from "@playwright/test";
+import { test as base, expect, webkit, type Locator, type Page, type Request, type Route } from "@playwright/test";
 import { loadEnv } from "vite";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -833,4 +833,89 @@ export async function recordAnalytics(page: Page): Promise<() => Promise<{ event
     }),
   );
   return () => page.evaluate(() => (window as unknown as { __tracked?: { event: string; properties?: Record<string, unknown> }[] }).__tracked ?? []);
+}
+
+/** What `patchGameReads` changes in the games the page reads. */
+export interface GameReadPatch {
+  /** Both teams' names, home then away. */
+  names?: [string, string];
+  /** Both teams' colours, home then away. */
+  colors?: [string, string];
+  /** This many plays of the second quarter (turnovers and fouls) lose their team side. */
+  teamless?: number;
+  /** A home-side timeout on one game, at a wall-clock moment of one of its quarters. */
+  timeout?: { matchId: string; eventId: number; period: number; realWorldTime: string };
+}
+
+/**
+ * Changes what the page is told about its games: the answers to its own reads, rewritten in the browser. The
+ * account is never written to. For what the test account's games don't have (a timeout on the game with footage,
+ * team colours that are close, a play with no team side). Call before the game is opened.
+ */
+export async function patchGameReads(page: Page, patch: GameReadPatch): Promise<void> {
+  const unteam = (events: Record<string, unknown>[]) => {
+    let done = 0;
+    for (const e of events) {
+      if (done >= (patch.teamless ?? 0)) break;
+      if (e.period !== 2 || (e.type !== "turnover" && e.type !== "foul")) continue;
+      e.event_team = null;
+      e.player = null;
+      done++;
+    }
+  };
+  const walk = (node: unknown) => {
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (!node || typeof node !== "object") return;
+    const o = node as Record<string, unknown>;
+    if (o.home_team && typeof o.home_team === "object" && o.away_team && typeof o.away_team === "object") {
+      const home = o.home_team as { name: string; color: string };
+      const away = o.away_team as { name: string; color: string };
+      if (patch.names) [home.name, away.name] = patch.names;
+      if (patch.colors) [home.color, away.color] = patch.colors;
+      if (patch.timeout && o.id === patch.timeout.matchId) {
+        const t = patch.timeout;
+        o.game_marks = {
+          v: 1,
+          source: "genius",
+          periods: {},
+          timeouts: [{ eventId: t.eventId, period: t.period, clock: "05:00", realWorldTime: t.realWorldTime, kind: "team", teamNumber: 1, scoreHome: null, scoreAway: null }],
+        };
+      }
+    }
+    if (patch.teamless && Array.isArray(o.play_by_play_events)) unteam(o.play_by_play_events as Record<string, unknown>[]);
+    for (const v of Object.values(o)) walk(v);
+  };
+  const rewrite = (change: (body: unknown) => void) => async (route: Route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    const response = await route.fetch();
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      return route.fulfill({ response });
+    }
+    change(body);
+    await route.fulfill({ response, json: body });
+  };
+  await page.route("**/rest/v1/matches*", rewrite(walk));
+  if (patch.teamless) await page.route("**/rest/v1/play_by_play_events*", rewrite((body) => Array.isArray(body) && unteam(body as Record<string, unknown>[])));
+}
+
+/**
+ * Gives the sample game (the one game with footage here) a home-side timeout a third of the way through, in what
+ * the page reads of it. Leaves the page on the Library. Returns the timeout's id.
+ */
+export async function giveSampleGameATimeout(page: Page): Promise<number> {
+  await page.goto("/matches");
+  const row = page.locator('a[href^="/matches/"]').filter({ hasText: "Sample game" }).first();
+  await expect(row, "the test account has the sample game").toBeVisible({ timeout: 30_000 });
+  const matchId = (await row.getAttribute("href"))!.replace("/matches/", "");
+  const events = (await selectRows<{ period: number; real_world_time: string | null }>(page, "play_by_play_events", "period, real_world_time", { match_id: matchId }))
+    .filter((e) => e.real_world_time)
+    .sort((a, b) => new Date(a.real_world_time!).getTime() - new Date(b.real_world_time!).getTime());
+  expect(events.length, "the sample game has plays with a time").toBeGreaterThan(10);
+  const at = events[Math.floor(events.length / 3)];
+  const eventId = 900_001;
+  await patchGameReads(page, { timeout: { matchId, eventId, period: at.period, realWorldTime: at.real_world_time! } });
+  return eventId;
 }

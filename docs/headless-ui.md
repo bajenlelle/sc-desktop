@@ -113,6 +113,17 @@ page: `recordAnalytics(page)` in `headless/helpers.ts` routes
 `window.__tracked`. The stand-in must export what the real module exports; a
 new export there breaks the page loudly, which is the reminder to add it.
 
+## Games the test account doesn't have
+
+A spec that needs a game the account has none of (a timeout on the game with
+footage, two team colours that are close, a play with no team side, long team
+names) changes what the page is told, not the account:
+`patchGameReads(page, …)` in `headless/helpers.ts` rewrites the answers to the
+page's own reads of `matches` and `play_by_play_events` in the browser, before
+the game is opened. `giveSampleGameATimeout(page)` uses it to put one timeout
+on the sample game. Nothing is written to staging, and the game view never
+saves marks for the sample game.
+
 ## Adding a spec
 
 Put `headless/specs/<area>.spec.ts` next to `smoke.spec.ts`. Import `test`

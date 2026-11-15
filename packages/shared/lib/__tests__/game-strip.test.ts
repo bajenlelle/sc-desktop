@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { placePeakLabel, placeRunLabels, placeTimeoutMarks, runSpanText, runsOnStrip, stripShowsPlays, stripTargetAt } from "../game-strip";
+import { lineAlongEdge, placePeakLabel, placeRunLabels, placeTimeoutMarks, runSpanText, runsOnStrip, stripShowsPlays, stripTargetAt } from "../game-strip";
 
 const NO_LEGEND = { x: 0, home: 0, away: 0 };
 
@@ -267,5 +267,40 @@ describe("runSpanText", () => {
     expect(runSpanText({ period: 2, clock: null }, { period: 2, clock: null })).toBe("Q2");
     expect(runSpanText({ period: 2, clock: null }, { period: 3, clock: null })).toBe("Q2 to Q3");
     expect(runSpanText({ period: 4, clock: "02:10" }, { period: 4, clock: null })).toBe("Q4 · 02:10");
+  });
+});
+
+describe("lineAlongEdge", () => {
+  // A graph 64 px high: the home side's edge row is its top 13 px, the away side's its bottom 13.
+  const height = 64;
+  const line = (ys: [number, number][]) => ys.map(([x, y]) => ({ x, y }));
+
+  it("is true where the line stays in the side's edge row from one end of the stretch to the other", () => {
+    expect(lineAlongEdge(line([[100, 8], [140, 5], [180, 10]]), 30, { team: 1, x0: 120, x1: 170, height })).toBe(true);
+    expect(lineAlongEdge(line([[100, 58], [140, 60]]), 30, { team: 2, x0: 120, x1: 170, height })).toBe(true);
+  });
+
+  it("is false where the line leaves the edge row anywhere on the stretch", () => {
+    expect(lineAlongEdge(line([[100, 8], [140, 30], [160, 6]]), 30, { team: 1, x0: 120, x1: 170, height })).toBe(false);
+  });
+
+  it("goes by where the line stands as the stretch begins, not only by the baskets on it", () => {
+    // No basket on the stretch: the line is where the last one before it left it.
+    expect(lineAlongEdge(line([[100, 40], [300, 5]]), 30, { team: 1, x0: 120, x1: 170, height })).toBe(false);
+    expect(lineAlongEdge(line([[100, 6], [300, 40]]), 30, { team: 1, x0: 120, x1: 170, height })).toBe(true);
+    // Nothing before it either: the height the strip opens on.
+    expect(lineAlongEdge(line([[300, 5]]), 7, { team: 1, x0: 120, x1: 170, height })).toBe(true);
+    expect(lineAlongEdge(line([[300, 5]]), 30, { team: 1, x0: 120, x1: 170, height })).toBe(false);
+  });
+
+  it("leaves out what comes after the stretch", () => {
+    expect(lineAlongEdge(line([[100, 8], [171, 50]]), 30, { team: 1, x0: 120, x1: 170, height })).toBe(true);
+  });
+
+  it("counts the edge row to its last pixel, and not one further", () => {
+    expect(lineAlongEdge(line([[100, 13]]), 30, { team: 1, x0: 120, x1: 170, height })).toBe(true);
+    expect(lineAlongEdge(line([[100, 13.5]]), 30, { team: 1, x0: 120, x1: 170, height })).toBe(false);
+    expect(lineAlongEdge(line([[100, 51]]), 30, { team: 2, x0: 120, x1: 170, height })).toBe(true);
+    expect(lineAlongEdge(line([[100, 50.5]]), 30, { team: 2, x0: 120, x1: 170, height })).toBe(false);
   });
 });

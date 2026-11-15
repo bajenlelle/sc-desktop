@@ -64,6 +64,33 @@ function onLegend(x: number, size: number, legend: StripLegend, team: 1 | 2): bo
   return reach > 0 && x - size / 2 < legend.x + reach && x + size / 2 > legend.x;
 }
 
+/** How far in from a side's edge its first row of figures reaches, in px. */
+const EDGE_ROW = 13;
+
+/**
+ * Whether a graph's line lies along a side's edge row all the way from x0 to
+ * x1: a score printed on that edge would sit on it. `points` are the line's
+ * corners from left to right, in the graph's own pixels (y down from the top,
+ * `height` the graph's); `startY` is where the line stands before its first
+ * corner. Between corners the line stays where the last one left it, so a
+ * stretch with no corner on it is judged by the one before it. The home side's
+ * edge is the top, the away side's the bottom.
+ */
+export function lineAlongEdge(
+  points: readonly { x: number; y: number }[],
+  startY: number,
+  at: { team: 1 | 2; x0: number; x1: number; height: number },
+): boolean {
+  let y = startY;
+  const along: number[] = [];
+  for (const p of points) {
+    if (p.x <= at.x0) y = p.y;
+    else if (p.x <= at.x1) along.push(p.y);
+    else break;
+  }
+  return [y, ...along].every((v) => (at.team === 1 ? v <= EDGE_ROW : v >= at.height - EDGE_ROW));
+}
+
 /**
  * Where each run's score is printed: over the middle of its stretch, kept
  * inside the strip, on the running side's edge. A score that would stand on

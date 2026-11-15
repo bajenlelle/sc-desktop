@@ -40,6 +40,34 @@ fn closes_what_is_in_front(id: &str) -> bool {
     id == CLOSE_WINDOW || id == CLOSE_TAB
 }
 
+/// What choosing a menu item does.
+#[cfg(target_os = "macos")]
+#[derive(Debug, PartialEq)]
+enum MenuAct {
+    /// Not for the main window right now.
+    Nothing,
+    /// Closed here: it has to work where nothing in the webview listens.
+    CloseWindow,
+    /// Sent to the page as a "menu" event.
+    ToPage,
+}
+
+/// `main_in_front`: the main window is the one in front. With the About
+/// panel or a file dialog in front, ⌘W is not for the window behind it (which
+/// would quit the app, or close a game's tab out of sight).
+#[cfg(target_os = "macos")]
+fn menu_act(id: &str, main_in_front: bool) -> MenuAct {
+    if closes_what_is_in_front(id) {
+        if !main_in_front {
+            return MenuAct::Nothing;
+        }
+        if id == CLOSE_WINDOW {
+            return MenuAct::CloseWindow;
+        }
+    }
+    MenuAct::ToPage
+}
+
 /// Handles to every item the frontend can mutate after startup.
 #[cfg(target_os = "macos")]
 pub struct MenuHandles {
@@ -239,25 +267,22 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
 #[cfg(target_os = "macos")]
 pub fn on_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
     let id = event.id().0.as_str();
-    if closes_what_is_in_front(id) {
-        // Only while the main window is the one in front: with the About panel
-        // or a file dialog in front, ⌘W is not for the window behind it (which
-        // would quit the app, or close a game's tab out of sight).
-        let Some(window) = app.get_webview_window("main") else {
-            return;
-        };
-        if !window.is_focused().unwrap_or(true) {
-            return;
-        }
-        if id == CLOSE_WINDOW {
-            if let Err(e) = window.close() {
+    let window = app.get_webview_window("main");
+    let main_in_front = window
+        .as_ref()
+        .is_some_and(|w| w.is_focused().unwrap_or(true));
+    match menu_act(id, main_in_front) {
+        MenuAct::Nothing => {}
+        MenuAct::CloseWindow => {
+            if let Some(Err(e)) = window.map(|w| w.close()) {
                 eprintln!("[menu] failed to close the window: {e}");
             }
-            return;
         }
-    }
-    if let Err(e) = app.emit_to("main", "menu", id) {
-        eprintln!("[menu] failed to emit menu event {id}: {e}");
+        MenuAct::ToPage => {
+            if let Err(e) = app.emit_to("main", "menu", id) {
+                eprintln!("[menu] failed to emit menu event {id}: {e}");
+            }
+        }
     }
 }
 
@@ -356,10 +381,15 @@ mod tests {
 
     #[test]
     fn close_tab_and_close_window_are_for_the_window_in_front() {
-        assert!(closes_what_is_in_front(CLOSE_WINDOW));
-        assert!(closes_what_is_in_front(CLOSE_TAB));
+        // Behind the About panel or a file dialog, ⌘W is not for the main window.
+        assert_eq!(menu_act(CLOSE_TAB, false), MenuAct::Nothing);
+        assert_eq!(menu_act(CLOSE_WINDOW, false), MenuAct::Nothing);
+        // In front, Close Window closes it here and Close Tab goes to the page.
+        assert_eq!(menu_act(CLOSE_WINDOW, true), MenuAct::CloseWindow);
+        assert_eq!(menu_act(CLOSE_TAB, true), MenuAct::ToPage);
         // The rest act on the main window whatever is in front of it, as in Safari.
-        assert!(!closes_what_is_in_front("new-game-tab"));
-        assert!(!closes_what_is_in_front("reopen-game-tab"));
+        assert_eq!(menu_act("new-game-tab", false), MenuAct::ToPage);
+        assert_eq!(menu_act("reopen-game-tab", false), MenuAct::ToPage);
+        assert_eq!(menu_act("new-game-tab", true), MenuAct::ToPage);
     }
 }

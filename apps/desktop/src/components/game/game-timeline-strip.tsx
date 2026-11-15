@@ -3,6 +3,7 @@ import { animate, motion, useMotionValue } from "framer-motion";
 import { describePlay, formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
 import { flowChart, scoreAfter, type CourtStint, type GameFlow, type GameMoment } from "@scoutable/shared/lib/game-flow";
 import {
+  lineAlongEdge,
   RUN_LABEL_WIDTH,
   placePeakLabel,
   placeRunLabels,
@@ -221,17 +222,13 @@ const StripDrawing = memo(function StripDrawing({
   const chart = graph?.chart ?? null;
 
   /** Whether the graph's line lies along a side's edge row all the way from x0 to x1: a score printed there would sit on it. */
-  const lineOnEdge = (team: 1 | 2, x0: number, x1: number) => {
-    if (!graph) return false;
-    let diff = graph.startDiff;
-    const along: number[] = [];
-    for (const p of graph.points) {
-      if (p.x <= x0) diff = p.diff;
-      else if (p.x <= x1) along.push(p.diff);
-      else break;
-    }
-    return [diff, ...along].every((d) => (team === 1 ? graph.chart.yOf(d) <= 13 : graph.chart.yOf(d) >= Y.chartH - 13));
-  };
+  const lineOnEdge = (team: 1 | 2, x0: number, x1: number) =>
+    !!graph &&
+    lineAlongEdge(
+      graph.points.map((p) => ({ x: p.x, y: graph.chart.yOf(p.diff) })),
+      graph.chart.yOf(graph.startDiff),
+      { team, x0, x1, height: Y.chartH },
+    );
 
   const peak = flow.largestLead.home && flow.largestLead.away
     ? flow.largestLead.home.lead >= flow.largestLead.away.lead
@@ -350,6 +347,7 @@ const StripDrawing = memo(function StripDrawing({
                   key={run.id}
                   data-strip="run"
                   data-id={run.id}
+                  data-team={run.team}
                   x={run.x0}
                   y={0}
                   width={run.x1 - run.x0}
@@ -362,7 +360,7 @@ const StripDrawing = memo(function StripDrawing({
               ))}
               {/* Where the two sides' colours can't be told apart, the away side's runs are hatched as its area is. */}
               {tints.awayHatch &&
-                runs.filter((run) => run.team === 2).map((run) => <rect key={run.id} x={run.x0} y={0} width={run.x1 - run.x0} height={Y.chartH} rx="3" fill={`url(#${patternId}-away)`} />)}
+                runs.filter((run) => run.team === 2).map((run) => <rect key={run.id} data-strip="run-hatch" x={run.x0} y={0} width={run.x1 - run.x0} height={Y.chartH} rx="3" fill={`url(#${patternId}-away)`} />)}
               <path d={chart.home} fill={tints.home} fillOpacity={tints.homeOpacity} />
               <path d={chart.away} fill={tints.away} fillOpacity={tints.awayOpacity} />
               {tints.awayHatch && <path d={chart.away} fill={`url(#${patternId}-away)`} />}
@@ -581,8 +579,8 @@ export function GameTimelineStrip({
   onZoom: (period: number | null) => void;
   onPlay: (play: TimedPlay) => void;
   onSeek: (t: number) => void;
-  /** A click on a run or a timeout. `again` for the second click of a double-click: the same place once more, not a second visit. */
-  onLandmark: (landmark: StripLandmark, again: boolean) => void;
+  /** A click on a run or a timeout (once for a double-click: its second click is the same visit). */
+  onLandmark: (landmark: StripLandmark) => void;
   /** Where in the video a click on a run or a timeout goes; null with no footage. */
   landmarkTime: (landmark: StripLandmark) => number | null;
   /** The timeline moved the video, said once: a drag let go, a swipe come to rest, or a click on a second (a click on a play's mark is `onPlay`, on a run or a timeout `onLandmark`). */
@@ -599,13 +597,17 @@ export function GameTimelineStrip({
   const [pressed, setPressed] = useState(false);
   const [width, setWidth] = useState(0);
   const [hover, setHover] = useState<Hover | null>(null);
-  const scrubRef = useRef<{ grabOffset: number; startX: number; startY: number; moved: boolean; wasPlaying: boolean } | null>(null);
+  // A press on the track. `at` is what it is on, settled as the press is made: that is what a click will mean.
+  // `held` is whether the press has taken hold of the playhead (the video waits under it, and follows a drag).
+  const scrubRef = useRef<{ grabOffset: number; startX: number; at: Hover; moved: boolean; held: boolean; wasPlaying: boolean } | null>(null);
+  // Where the pointer is over the track, for when the strip moves under it.
+  const pointerRef = useRef<{ x: number; y: number } | null>(null);
   // A sideways swipe under way: it holds the playhead as a press does. `t` is where it has taken the video.
   const swipeRef = useRef<{ wasPlaying: boolean; t: number } | null>(null);
   const readoutRef = useRef<HTMLDivElement | null>(null);
   const zoomRef = useRef<HTMLSpanElement | null>(null);
-  // The run or timeout clicked last, and when: the second click of a double-click is the same visit.
-  const lastLandmark = useRef<{ kind: string; id: number; at: number } | null>(null);
+  // What was clicked last, where and when: the second click of a double-click is the same visit.
+  const lastClick = useRef<{ what: string; x: number; at: number } | null>(null);
   const frameSeek = useFrameSeek(video, onSeek);
 
   useLayoutEffect(() => {
@@ -735,12 +737,15 @@ export function GameTimelineStrip({
         if (i < 0 || i >= order.length) continue;
         const play = timeline.plays[order[i]];
         if (play.reach !== "in") continue;
+        // With one quarter on the strip, its plays only: the quarter before ends at the left edge, and its last
+        // play would be the nearest to a pointer there, with no mark and off the strip.
+        if (zoomPeriod !== null && play.event.period !== zoomPeriod) continue;
         const distance = Math.abs(scale.xOf(play.time) - x);
         if (!best || distance < best.distance) best = { play, distance };
       }
       return best;
     },
-    [order, scale, timeline],
+    [order, scale, timeline, zoomPeriod],
   );
 
   /** The pointer on the track, in its own pixels; not clamped, so a drag past an end is known as one. */
@@ -778,13 +783,23 @@ export function GameTimelineStrip({
     frameSeek.schedule(scale.tOf(clamp(raw, 0, width)));
   }
 
+  /** The press takes hold of the playhead: the video waits under it, and comes to the pointer when asked to. */
+  function takeHold(s: NonNullable<typeof scrubRef.current>, x: number, toPointer: boolean) {
+    if (!video) return;
+    s.held = true;
+    if (!video.paused) video.pause();
+    setPressed(true);
+    if (toPointer) scrubTo(x);
+  }
+
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (e.button !== 0) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     const x = localX(e.clientX);
+    const at = hoverAt(x, localY(e.clientY));
     if (!video) {
       // Nothing to scrub: the release is a click that selects a play.
-      scrubRef.current = { grabOffset: 0, startX: x, startY: localY(e.clientY), moved: false, wasPlaying: false };
+      scrubRef.current = { grabOffset: 0, startX: x, at, moved: false, held: false, wasPlaying: false };
       return;
     }
     // A press takes over from a swipe that is still coming to rest: it is one hold now, and whether the video
@@ -796,26 +811,30 @@ export function GameTimelineStrip({
     }
     // On the playhead itself, keep hold of it where it was grabbed; anywhere else, it comes to the pointer.
     const onPlayhead = Math.abs(x - playheadX.get()) <= PLAYHEAD_HIT;
-    scrubRef.current = {
-      grabOffset: onPlayhead ? x - playheadX.get() : 0,
-      startX: x,
-      startY: localY(e.clientY),
-      moved: false,
-      wasPlaying: swipe ? swipe.wasPlaying : !video.paused,
-    };
-    if (!video.paused) video.pause();
-    setPressed(true);
-    if (!onPlayhead) scrubTo(x);
+    const s = { grabOffset: onPlayhead ? x - playheadX.get() : 0, startX: x, at, moved: false, held: false, wasPlaying: swipe ? swipe.wasPlaying : !video.paused };
+    scrubRef.current = s;
+    // On a second, the playhead comes to the pointer at once and the video with it. On a run, a timeout or a
+    // play's mark the video is left alone until the click is made (it then goes to that place, once) or the
+    // pointer is dragged (it then follows it). Taking it to the pointer first gave it two places to go to, the
+    // second asked for while the first was under way, and WebKit now and then keeps the first: the timeout's row
+    // came up in the list and the video played from the pointer.
+    if (at.target.kind === "time") takeHold(s, x, !onPlayhead);
   }
 
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
     const x = localX(e.clientX);
+    const y = localY(e.clientY);
+    pointerRef.current = { x, y };
     const s = scrubRef.current;
     if (s) {
-      if (Math.abs(x - s.startX) > DRAG_PX) s.moved = true;
+      if (!s.moved && Math.abs(x - s.startX) > DRAG_PX) {
+        s.moved = true;
+        // A drag from a run, a timeout or a mark: the playhead is taken up here.
+        if (!s.held) takeHold(s, x, false);
+      }
       if (video && s.moved) scrubTo(x);
     }
-    setHover(hoverAt(x, localY(e.clientY)));
+    setHover(hoverAt(x, y));
   }
 
   function endPress(cancelled: boolean) {
@@ -839,19 +858,23 @@ export function GameTimelineStrip({
       if (video) onScrubEnd?.("timeline_drag");
       return;
     }
-    // A click. (Both clicks of a double-click land here, on the same spot, before the zoom: on a second the second
-    // changes nothing; on a run or a timeout it is told apart, since its press has moved the video to the pointer.)
-    const at = hoverAt(s.startX, s.startY);
+    // A click, on what the press was on. Both clicks of a double-click land here, on the same spot, before the
+    // zoom: the second is the same visit, so it asks for nothing again and is not reported again.
+    const at = s.at;
+    const what = at.target.kind === "time" ? "time" : at.target.kind === "play" ? `play:${at.target.key}` : `${at.target.kind}:${at.target.id}`;
+    const now = performance.now();
+    const was = lastClick.current;
+    const again = !!was && was.what === what && Math.abs(was.x - s.startX) <= DRAG_PX && now - was.at < 500;
+    lastClick.current = { what, x: s.startX, at: now };
     if (at.target.kind === "run" || at.target.kind === "timeout") {
-      const { kind, id } = at.target;
-      const was = lastLandmark.current;
-      const now = performance.now();
-      onLandmark({ kind, id }, !!was && was.kind === kind && was.id === id && now - was.at < 500);
-      lastLandmark.current = { kind, id, at: now };
-    } else if (at.play && (at.target.kind === "play" || !video)) onPlay(at.play);
-    else if (video) {
-      onSeek(at.time);
-      onScrubEnd?.("timeline");
+      if (!again) onLandmark({ kind: at.target.kind, id: at.target.id });
+    } else if (at.play && (at.target.kind === "play" || !video)) {
+      if (!again) onPlay(at.play);
+    } else if (video) {
+      if (!again) {
+        onSeek(at.time);
+        onScrubEnd?.("timeline");
+      }
       if (s.wasPlaying) video.play().catch(() => {});
     }
   }
@@ -883,6 +906,17 @@ export function GameTimelineStrip({
   useImperativeHandle(handleRef, () => ({ scrubBy: (px) => swipe.current.scrubBy(px), endScrub: () => swipe.current.endSwipe() }), []);
   useWheelScrub(trackRef, { enabled: !!video, onScrub: (px) => swipe.current.scrubBy(px), onEnd: () => swipe.current.endSwipe() });
 
+  // The strip moved under a still pointer (a zoom): the line under the track was about the strip as it stood. It
+  // goes while the strip moves, and comes back about what is under the pointer now.
+  useEffect(() => {
+    if (scrubRef.current) return;
+    const at = pointerRef.current;
+    if (!settled) setHover(null);
+    else if (at) setHover(hoverAt(at.x, at.y));
+    // What is under the pointer is read once the strip has come to rest on the zoom asked for.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settled, zoomPeriod]);
+
   // The readout is centred on the pointer and kept inside the strip, whatever it has to say.
   useLayoutEffect(() => {
     const el = readoutRef.current;
@@ -890,6 +924,13 @@ export function GameTimelineStrip({
     // Up to the zoom, which shares the row: the line never lies over it.
     const room = Math.max(0, width - (zoomRef.current ? zoomRef.current.offsetWidth + 8 : 0));
     el.style.maxWidth = `${room}px`;
+    // In a column too narrow for the line even with the team's name cut short, the time in the video is left
+    // out: the line ends on a whole word, not on one cut by its own edge.
+    const time = el.querySelector<HTMLElement>('[data-readout="time"]');
+    if (time) {
+      time.hidden = false;
+      if (el.scrollWidth > el.clientWidth) time.hidden = true;
+    }
     const w = el.offsetWidth;
     el.style.transform = `translateX(${clamp(hover.x - w / 2, 0, Math.max(0, room - w))}px)`;
   });
@@ -909,7 +950,8 @@ export function GameTimelineStrip({
       if (!t) return null;
       return {
         head: "Timeout",
-        where: t.teamNumber === 1 ? teams.home.name : t.teamNumber === 2 ? teams.away.name : "Officials",
+        name: t.teamNumber === 1 ? teams.home.name : t.teamNumber === 2 ? teams.away.name : "Officials",
+        where: null,
         what: [periodLabel(t.period), t.clock].filter(Boolean).join(" · "),
         extra: t.scoreHome !== null && t.scoreAway !== null ? `${t.scoreHome}–${t.scoreAway}` : null,
       };
@@ -923,13 +965,14 @@ export function GameTimelineStrip({
       };
       return {
         head: "Run",
-        where: `${run.team === 1 ? teams.home.name : teams.away.name} ${run.points}–0`,
+        name: run.team === 1 ? teams.home.name : teams.away.name,
+        where: `${run.points}–0`,
         what: runSpanText(at(run.fromEventId), at(run.toEventId)),
         extra: null,
       };
     }
     if (hover.segment && hover.segment.kind !== "period") {
-      return { head: notchName(hover.segment), where: null, what: null, extra: null };
+      return { head: notchName(hover.segment), name: null, where: null, what: null, extra: null };
     }
     const play = hover.play;
     if (!play) return null;
@@ -952,6 +995,7 @@ export function GameTimelineStrip({
     ].filter(Boolean).join(" · ");
     return {
       head: score ? `${score.home}–${score.away}` : null,
+      name: null,
       where: [periodLabel(e.period), e.gameClockTime && formatGameClock(e.gameClockTime)].filter(Boolean).join(" · "),
       what: describePlay(e),
       extra: extra || null,
@@ -971,13 +1015,13 @@ export function GameTimelineStrip({
     lead ? `Largest lead ${lead}` : null,
   ].filter(Boolean);
 
-  /** The hover line sits on what a click would mean: the play's mark, the timeout's line, else the pointer. */
-  /** The second in the video the line under the track gives: where a click would take it. */
+  /** The second in the video the line under the track gives: where a click would take it (a play starts from its run-up). */
   const hoverVideoTime = (h: Hover) => {
-    if (h.target.kind === "play" && h.play) return h.play.time;
+    if (h.target.kind === "play" && h.play) return h.play.start;
     if (h.target.kind === "run" || h.target.kind === "timeout") return landmarkTime({ kind: h.target.kind, id: h.target.id }) ?? h.time;
     return h.time;
   };
+  /** The hover line sits on what a click would mean: the play's mark, the timeout's line, else the pointer. */
   const hoverLineX = (h: Hover) => {
     if (h.target.kind === "play" && h.play) return scale.xOf(h.play.time);
     if (h.target.kind === "timeout") {
@@ -1021,7 +1065,9 @@ export function GameTimelineStrip({
         onPointerUp={() => endPress(false)}
         onPointerCancel={() => endPress(true)}
         onPointerLeave={() => {
-          if (!scrubRef.current) setHover(null);
+          if (scrubRef.current) return;
+          pointerRef.current = null;
+          setHover(null);
         }}
         onDoubleClick={onDoubleClick}
         className="relative cursor-default touch-none rounded-md outline-none focus-visible:ring-2 focus-visible:ring-selection"
@@ -1074,14 +1120,17 @@ export function GameTimelineStrip({
           <div
             ref={readoutRef}
             role="presentation"
-            className="pointer-events-none absolute top-full left-0 z-30 mt-1 flex h-6 max-w-full items-center gap-2 rounded-md bg-material-popover px-2 text-subheadline whitespace-nowrap text-popover-foreground shadow-menu backdrop-blur-xl nums"
+            className="pointer-events-none absolute top-full left-0 z-30 mt-1 flex h-6 max-w-full items-center gap-2 overflow-hidden rounded-md bg-material-popover px-2 text-subheadline whitespace-nowrap text-popover-foreground shadow-menu backdrop-blur-xl nums"
           >
-            {tip.head && <span className="shrink-0 font-semibold">{tip.head}</span>}
-            {tip.where && <span className="shrink-0 text-muted-foreground">{tip.where}</span>}
-            {tip.what && <span className="min-w-0 truncate">{tip.what}</span>}
-            {tip.extra && <span className="min-w-0 shrink-[4] truncate text-muted-foreground">{tip.extra}</span>}
+            {/* Where there isn't room for it all, a team's name gives way first, then what else is true of the
+                play, then the play's own words: the score, the quarter and clock and the time in the video stay whole. */}
+            {tip.head && <span data-readout="head" className="shrink-0 font-semibold">{tip.head}</span>}
+            {tip.name && <span data-readout="name" className="min-w-0 truncate text-muted-foreground">{tip.name}</span>}
+            {tip.where && <span data-readout="where" className="shrink-0 text-muted-foreground">{tip.where}</span>}
+            {tip.what && <span data-readout="what" className={tip.name ? "shrink-0" : "min-w-0 truncate"}>{tip.what}</span>}
+            {tip.extra && <span data-readout="extra" className="min-w-0 shrink-[4] truncate text-muted-foreground">{tip.extra}</span>}
             {timeline.axis === "video" && video && hover.segment?.kind === "period" && (
-              <span className="shrink-0 text-muted-foreground">{formatVideoTime(hoverVideoTime(hover))} in the video</span>
+              <span data-readout="time" className="shrink-0 text-muted-foreground">{formatVideoTime(hoverVideoTime(hover))} in the video</span>
             )}
           </div>
         )}

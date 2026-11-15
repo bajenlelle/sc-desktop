@@ -201,7 +201,7 @@ stretch where a game turned.
 |---|---|
 | `game-timeline.ts` | Where each play is on the video (`buildGameTimeline`), which play is at second T (`playIndexAt`, `activePlay`, a clicked play is held through its pre-roll by a pin), where T is in the game (`momentAt`: before, live, break, after), and the strip's folded x axis (`gameScale`) |
 | `game-flow.ts` | The score story (`gameFlow`): score after each play, quarter and final scores, lead changes, ties, largest lead, runs; which plays belong to which moment (`gameMoments`); a player's stints on the floor with each stint's score change (`onCourtStints`); the chart's geometry (`flowChart`) |
-| `game-strip.ts` | The strip's rules: when it marks the plays (`stripShowsPlays`), where a run's score, a timeout's mark and the largest lead's figure go so they stand clear of the team names and of each other (`placeRunLabels`, `placeTimeoutMarks`, `placePeakLabel`), and what the pointer is on (`stripTargetAt`) |
+| `game-strip.ts` | The strip's rules: when it marks the plays (`stripShowsPlays`), where a run's score, a timeout's mark and the largest lead's figure go to keep clear of the team names and of each other, as far as two rows a side allow (`placeRunLabels`, `placeTimeoutMarks`, `placePeakLabel`; `lineAlongEdge` for a score that would sit on the graph's line), and what the pointer is on (`stripTargetAt`) |
 | `game-marks.ts`, `game-marks-fill.ts` | Timeouts and period bounds (below) |
 | `game-list.ts` | Which plays a filter keeps (`keepPlay`) and the list's rows (`gameRows`): period headers, plays, and the timeout, run and period-end markers between them |
 | `wheel-scrub.ts` | Which wheel events are a sideways scrub and how far each one moves the playhead; a scroll up or down is never one |
@@ -278,35 +278,52 @@ released app lists each row there as a clip.
   largest at the whole game's width, all of them in one quarter), each
   timeout as a pause mark on the calling side's edge with a hairline through
   the graph (so a timeout that ended a run reads as one), a line under the
-  clutch stretch, the largest lead. The figures stand clear of the team
+  clutch stretch, the largest lead. The figures keep clear of the team
   names and of each other by rule (`game-strip.ts`): a run's score keeps the
   edge (a row in where the graph's line itself lies along that edge, so it
   stands under the line), a timeout's mark goes a row in for a name, a score
-  or another mark,
-  and the largest lead takes the row under them or, with none free, is left
-  to the line under the track. Timeouts' hairlines are painted under all of
+  or another mark, and the largest lead takes the row under them or, with
+  none free, is left to the line under the track. A side has two rows: a
+  third timeout of one side within a mark's width of two others stands on
+  one of them, and a mark sent a row in by a name can meet a score the line
+  sent there. Timeouts' hairlines are painted under all of
   them, so a figure's rim breaks the line. Breaks are folded into the gaps between
   the quarters, which still map to their footage. Under the graph is one
   lane: the playlist's plays as dots, always, and the listed plays as marks
   in one colour (home above the lane's middle, away below, a play the feed
   gives to neither team on it) when a filter is on or one quarter has the
-  strip; zoomed, only that quarter's plays, which ride along as the zoom
-  springs. It answers the press: the playhead goes
-  to the pointer on pointer-down and follows 1:1, resists past the ends, and
-  a release without movement is a click on what the pointer was on
-  (`stripTargetAt`): a run (its first basket from the pre-roll, exactly as its
-  row in the list starts it), a timeout (the place Page Down stops at for it,
-  played), each with its row shown in the list, a play's mark or a playlist
-  play's dot (that play from its pre-roll), else that second. Double-click a
+  strip; zoomed, only that quarter's plays, which are there from the first
+  frame of the zoom in and ride along with it (zooming out, they go as it
+  starts). It answers the press by what the press is on, settled on
+  pointer-down (`stripTargetAt`). On a second, the playhead goes to the
+  pointer at once and follows 1:1, resisting past the ends. On a run, a
+  timeout, a play's mark or a playlist play's dot the video is left where it
+  is until the click is made or the pointer has moved 4 px (a drag, which
+  takes the playhead up from there): moving it to the pointer first gave the
+  video two places to go to within a moment, and WebKit now and then kept
+  the first, so the timeout's row came up and the video played from the
+  pointer. A release without movement is a click on what was pressed: a run
+  (its first basket from the pre-roll, exactly as its row in the list starts
+  it), a timeout (the place Page Down stops at for it, played), each with its
+  row shown in the list, a play's mark or a playlist play's dot (that play
+  from its pre-roll), else that second. Zoomed, only that quarter's plays are
+  click targets: the quarter before ends at the left edge, and its last play
+  is not there to be clicked. Double-click a
   quarter to zoom: the strip springs from the scale on screen to the
-  quarter's. The second click of a double-click on a run or a timeout is the
-  same visit, not a second one. What the pointer is on is said in one line
+  quarter's. The second click of a double-click, on anything, is the
+  same visit: it asks for nothing again and is reported once. What the
+  pointer is on is said in one line
   in the row under the track, by the pointer, inside the strip and clear of
   the zoom beside it: above the track is the footage, and when the footage
   is as tall as the window allows there is no room for more below. For a run
   it gives the score and the clocks it went from and to (both quarters named
   when it crossed a break), and the time in the video is where a click would
-  go. The words on the graph keep a rim of the page's
+  go (for a play, the start of its pre-roll). Where the column is too narrow
+  for the line, the team's name is cut short first, and the time in the video
+  is left out whole when that isn't enough. When a zoom moves the strip under
+  a still pointer the line goes, and comes back about what is under the
+  pointer once the strip is at rest. The words on the graph keep a rim of
+  the page's
   colour so the line doesn't strike them through, and the team names start
   where the first quarter does, clear of the playhead when a game opens.
 - `game-play-list.tsx`, `game-play-row.tsx`: rows are memoised, not

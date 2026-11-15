@@ -496,23 +496,23 @@ export function GameWatchView({
   /**
    * A click on a run or a timeout on the timeline, with its row shown in the list. A run starts its first basket
    * exactly as its row in the list does: from that basket's pre-roll with footage, chosen without. A timeout goes to
-   * the place Page Down stops at for it. `again` is the second click of a double-click: its press has moved the video
-   * to the pointer, so the place is asked for once more, but it is the same visit and is not reported twice.
+   * the place Page Down stops at for it. The video is asked for that place once: the press that made the click
+   * left it where it was.
    */
   const toLandmark = useCallback(
-    (landmark: StripLandmark, again: boolean) => {
+    (landmark: StripLandmark) => {
       const row = `${landmark.kind}:${landmark.id}`;
       revealRow(row);
       if (landmark.kind === "run") {
         const first = playByEvent.get(landmark.id);
         if (!first) return;
-        playback.playPlay(first, "timeline", again ? null : "run");
+        playback.playPlay(first, "timeline", "run");
         refollow();
         return;
       }
       const target = jumps.find((j) => j.row === row);
       if (!target || !footage) return;
-      if (!again) trackSeek("timeline", target.kind, target.period);
+      trackSeek("timeline", target.kind, target.period);
       playback.seekTo(target.time, { play: true, jump: true });
       refollow();
     },
@@ -1116,9 +1116,9 @@ export function GameWatchView({
                     playback.seekTo(t);
                     refollow();
                   }}
-                  onLandmark={(landmark, again) => {
+                  onLandmark={(landmark) => {
                     dismissTip();
-                    toLandmark(landmark, again);
+                    toLandmark(landmark);
                   }}
                   landmarkTime={landmarkTime}
                   onScrubEnd={(via) => trackSeek(via, "time", null)}
