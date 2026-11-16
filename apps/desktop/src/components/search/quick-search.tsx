@@ -248,11 +248,14 @@ function SearchBody({ scope }: { scope: SearchScope }) {
                     // Only a pointer that moves takes the highlight: a list that changes under a resting one doesn't.
                     onPointerMove={() => setActive(i)}
                     onClick={() => choose(item, i)}
-                    className={cn("mx-1.5 flex h-9 cursor-default items-center gap-2.5 rounded-md px-2 text-sm", on ? "bg-selection text-selection-foreground" : "text-foreground")}
+                    // The highlight is where the keys or the pointer are, not a choice made: the app's neutral
+                    // fill, as under a hovered row and in the tab bar's game picker. The accent is kept for
+                    // what is selected (the open playlist, the play that is on).
+                    className={cn("mx-1.5 flex h-9 cursor-default items-center gap-2.5 rounded-md px-2 text-sm text-foreground active:bg-fill-3", on && "bg-fill-2")}
                   >
-                    <Icon className={cn("size-4 shrink-0", on ? "text-selection-foreground" : "text-primary")} />
+                    <Icon className="size-4 shrink-0 text-primary" />
                     <span className="min-w-0 flex-1 truncate">{item.title}</span>
-                    {aside && <span className={cn("max-w-[50%] shrink-0 truncate text-callout nums", on ? "text-selection-foreground/80" : "text-muted-foreground")}>{aside}</span>}
+                    {aside && <span className="max-w-[50%] shrink-0 truncate text-callout nums text-muted-foreground">{aside}</span>}
                   </div>
                 );
               })}
