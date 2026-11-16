@@ -168,6 +168,16 @@ describe("cardContent", () => {
     expect(formatCardDate("2026-01-05")).toBe("5 Jan 2026");
     expect(formatCardDate("2026-10-12T18:00:00Z")).toBe("12 Oct 2026");
   });
+
+  it("carries a trimmed note, and no note key when there is none", () => {
+    expect(cardContent(gameCard({ note: "  Watch the closeouts " })).note).toBe("Watch the closeouts");
+    expect("note" in cardContent(gameCard())).toBe(false);
+    expect("note" in cardContent(gameCard({ note: "   " }))).toBe(false);
+  });
+
+  it("keeps the note's line breaks", () => {
+    expect(cardContent(gameCard({ note: "Box out early\nTalk on every switch\n" })).note).toBe("Box out early\nTalk on every switch");
+  });
 });
 
 describe("fallbackText", () => {
@@ -175,6 +185,18 @@ describe("fallbackText", () => {
     expect(fallbackText(gameCard())).toBe("Alva Berg · 24 PTS · 10 REB · 5 AST · 9/14 FG · vs AIK");
     expect(fallbackText(seasonCard({ columns: ["pts"] }))).toBe(
       "Alva Berg · 13.3 PTS · season averages, Superettan Herr 2025/26",
+    );
+  });
+
+  it("ends with the note", () => {
+    expect(fallbackText(gameCard({ note: "Watch the closeouts" }))).toBe(
+      "Alva Berg · 24 PTS · 10 REB · 5 AST · 9/14 FG · vs AIK · Watch the closeouts",
+    );
+  });
+
+  it("joins a note's lines with a slash, so the fallback stays one line", () => {
+    expect(fallbackText(gameCard({ note: "Box out early\n\nTalk on every switch" }))).toBe(
+      "Alva Berg · 24 PTS · 10 REB · 5 AST · 9/14 FG · vs AIK · Box out early / Talk on every switch",
     );
   });
 });
@@ -200,6 +222,18 @@ describe("parseCardSpec", () => {
     expect(parseCardSpec({ ...gameCard(), line: { ...bigGame, pts: "24" } })).toBeNull();
     expect(parseCardSpec({ ...seasonCard(), season: { label: "x" } })).toBeNull();
     expect(parseCardSpec({ ...gameCard(), scope: "career" })).toBeNull();
+  });
+
+  it("keeps a note, cut to the cap, and drops one that isn't text", () => {
+    const card = gameCard({ note: "Watch the closeouts" });
+    expect(parseCardSpec(JSON.parse(JSON.stringify(card)))).toEqual(card);
+    expect(parseCardSpec({ ...gameCard(), note: "x".repeat(200) })?.note).toHaveLength(140);
+    expect("note" in parseCardSpec({ ...gameCard(), note: 5 })!).toBe(false);
+  });
+
+  it("keeps a note's line breaks, still cut to the cap", () => {
+    expect(parseCardSpec({ ...gameCard(), note: "Box out\nearly" })?.note).toBe("Box out\nearly");
+    expect(parseCardSpec({ ...gameCard(), note: `${"x".repeat(139)}\nyy` })?.note).toBe(`${"x".repeat(139)}\n`);
   });
 });
 

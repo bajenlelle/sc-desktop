@@ -84,6 +84,16 @@ export interface PlayerStageProps {
   slows?: { id: string; t: number; length: number; rate: SlowRate }[];
   selectedSlowId?: string | null;
   onSlowClick?: (id: string) => void;
+  /** Beside the transport, in place of "3 of 28": where the game is, when the stage plays a whole game. */
+  readout?: string;
+  /** The scrubber spans a whole game: its times read h:mm:ss. */
+  longTimes?: boolean;
+  /** Plain marks on the scrubber (absolute time): where each quarter starts. */
+  ticks?: number[];
+  /** What the scrubber is called when it isn't a clip's ("Position in the video"). */
+  scrubLabel?: string;
+  /** A scrub on the scrubber is over (a drag let go, a key's step). */
+  onSeekEnd?: () => void;
 }
 
 /**
@@ -122,6 +132,11 @@ export function PlayerStage({
   slows,
   selectedSlowId,
   onSlowClick,
+  readout: readoutOverride,
+  longTimes,
+  ticks,
+  scrubLabel,
+  onSeekEnd,
 }: PlayerStageProps) {
   const hostRef = React.useRef<HTMLDivElement | null>(null);
   const stageRef = React.useRef<HTMLDivElement | null>(null);
@@ -309,7 +324,7 @@ export function PlayerStage({
   };
 
   const readout =
-    position && position.total > 0 ? `${position.index + 1} of ${position.total}` : undefined;
+    readoutOverride ?? (position && position.total > 0 ? `${position.index + 1} of ${position.total}` : undefined);
   const clickable = interactive && !trimBar;
 
   return (
@@ -441,6 +456,10 @@ export function PlayerStage({
                 selectedSlowId={selectedSlowId}
                 onSlowClick={onSlowClick}
                 onSeek={onSeek}
+                onScrubEnd={onSeekEnd}
+                longTimes={longTimes}
+                ticks={ticks}
+                ariaLabel={scrubLabel}
               />
             )}
             <TransportBar

@@ -53,6 +53,35 @@ function setEnabled(id: string, enabled: boolean) {
   invoke("menu_set_enabled", { id, enabled }).catch(() => {});
 }
 
+// Until the game page has two tabs there is no tab for ⌘W (Ctrl+W) to close.
+enabledIds.set("close-tab", false);
+/** What the native menu was last told about the tabs; undefined until this page has told it anything. */
+let gameTabsShownSent: boolean | undefined;
+
+/**
+ * Whether there is a tab to close: the game page has two tabs or more (components/game/game-tab-bar.tsx; with
+ * one game its tab is there, but there is no other game to go to). While there is, the File menu has Close Tab
+ * on ⌘W and Close Window on ⇧⌘W, as Safari does; otherwise ⌘W closes the window (src-tauri/src/menu.rs swaps
+ * the two). Where there is no menu bar the same flag gates Ctrl+W.
+ */
+export function setCloseTabInMenu(shown: boolean) {
+  // The first call after the page loads always goes through: the native menu outlives a reload of the webview,
+  // and may still be as the page before it left it. The native side ignores a call that changes nothing.
+  if (gameTabsShownSent === shown) return;
+  gameTabsShownSent = shown;
+  enabledIds.set("close-tab", shown);
+  invoke("menu_game_tabs", { shown }).catch(() => {});
+}
+
+// Until a tab has been closed there is none to reopen.
+enabledIds.set("reopen-game-tab", false);
+
+/** Whether there is a closed game tab for Reopen Closed Tab (⇧⌘T, Ctrl+Shift+T) to bring back. */
+export function setReopenGameTabEnabled(enabled: boolean) {
+  if (enabledIds.get("reopen-game-tab") === enabled) return;
+  setEnabled("reopen-game-tab", enabled);
+}
+
 /** A Show/Hide item says what it will do, so its title follows the panel. */
 function setText(id: string, text: string) {
   invoke("menu_set_text", { id, text }).catch(() => {});
@@ -124,6 +153,21 @@ export function MenuHandler() {
           break;
         case "fullscreen-player":
           window.dispatchEvent(new CustomEvent("player-fullscreen-toggle"));
+          break;
+        case "game-tab-prev":
+          window.dispatchEvent(new CustomEvent("menu-game-tab", { detail: -1 }));
+          break;
+        case "game-tab-next":
+          window.dispatchEvent(new CustomEvent("menu-game-tab", { detail: 1 }));
+          break;
+        case "close-tab":
+          window.dispatchEvent(new CustomEvent("menu-close-game-tab"));
+          break;
+        case "new-game-tab":
+          window.dispatchEvent(new CustomEvent("menu-new-game-tab"));
+          break;
+        case "reopen-game-tab":
+          window.dispatchEvent(new CustomEvent("menu-reopen-game-tab"));
           break;
         case "send-feedback":
           window.dispatchEvent(new CustomEvent("menu-send-feedback"));
@@ -206,9 +250,15 @@ export function MenuHandler() {
   }, [user, isCoachOrAdmin, activeOrgIsPersonal, activeOrgCanManage]);
 
   useEffect(() => {
+    const onGame = /^\/matches\/[^/]+$/.test(pathname);
     setEnabled("toggle-playlist-browser", pathname === "/playlists");
-    // Both players: the editor and the watch view of a shared playlist.
-    setEnabled("fullscreen-player", pathname === "/playlists" || pathname === "/my-playlists");
+    // Every player: the editor, the watch view of a shared playlist, and the game view.
+    setEnabled("fullscreen-player", pathname === "/playlists" || pathname === "/my-playlists" || onGame);
+    // The game page's tabs (components/game/game-tab-bar.tsx listens for "menu-game-tab").
+    setEnabled("game-tab-prev", onGame);
+    setEnabled("game-tab-next", onGame);
+    // New Tab opens the game page's picker; there is nowhere to open it from elsewhere.
+    setEnabled("new-game-tab", onGame);
     // Export is enabled by pages/playlists.tsx while a playlist is open;
     // everywhere else it must be off. On the page itself the mirror must not
     // keep a stale "off" — the page decides, through its own listener.

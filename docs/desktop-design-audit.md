@@ -276,3 +276,24 @@ Built on `design/apple-redesign` in six commits, one per milestone, plus fixes. 
 4. Virtualise the clip list above about 1,000 items.
 
 **For release notes, if this ships:** the appearance follows macOS by default for anyone who never picked Light or Dark (a synced choice is kept); the window uses `macos-private-api`, which rules out the Mac App Store (accepted).
+
+## 8. The game view (2026-11-14)
+
+The game page's Game view (`docs/game-view.md`) was built after this audit, with the same rules. A pass over it against the same principles found these, all fixed on `design/game-player`:
+
+- **The scrubbing was not by the video.** The game's timeline was a band across the bottom of the page, under the footage and the list alike, with the Now bar and up to 190 px of empty space between it and the picture. It is now part of the player: under the Now bar, as wide as the footage. The play list has its column's whole height.
+- **The only player without a scrubber.** The stage carried its scrubber only in full screen. It carries it in a window too: the whole file on a straight scale with elapsed and total time, which is also the way into warm-up and the breaks that the timeline folds to a few pixels.
+- **The same words twice.** The controls over the footage repeated the quarter, clock and score that the Now bar says 20 px below. In a window they no longer do.
+- **Words struck through, and a box over the picture.** The team names and the largest lead sat on the graph's line; they keep a rim of the page's colour, and the names start clear of the playhead's place when a game opens. What the pointer is on is one line in the row under the track, so it never covers the footage and is never cut by the window's edge.
+- **A cut chip with no sign of more.** The moment chips scroll sideways; the row now fades at the edge where more wait, as Add clips' event chips did (one component, `ui/scroll-row.tsx`).
+- **A nudge drawn as focus.** The first visit's "Choose playlist…" was ringed exactly as keyboard focus is; it is tinted.
+- **A thumb out of its track.** Every switch's thumb was animated by layout, so it left its track whenever the page around it moved (seen on Details). Its place comes from the switch's state.
+- **A mark for every play, and none that read.** The timeline drew a coloured tick per play (a mark every other pixel in nine colours for a whole game) while its runs were three-pixel bars and its timeouts small triangles. It draws the game's landmarks now: a run is a shaded stretch with its score printed, a timeout a pause mark with a hairline through the graph, and the plays are marked only with a filter on or zoomed into one quarter, in one colour. A click means what is under it (a run, a timeout, a play's mark, else that second). The hatched breaks and two unlabelled guide lines went, and the strip is 12 px lower (`docs/game-view.md`, "No mark per play for the whole game"; spec `J-game-strip`).
+- **A zoom that cut.** The timeline's zoom was written as a spring but read its starting scale after it had already been set to the target, so from rest it moved nothing. It springs from the scale on screen, and the quarter's play marks ride along.
+- **Full screen said nothing between plays, and a narrow Now bar cut the name to "#…".** In full screen the controls say what the Now bar would, between plays too. In a narrow column the Now bar's key hints give way before the player's name does.
+- **Added:** a sideways swipe on a trackpad (or Shift with a wheel) scrubs, over the timeline or the footage.
+- **Tabs that read as a switch.** The open games' tabs sat under the toolbar that belongs to one game, as equal pills filling the row, right below the Game | Details control. They are the page's top row now, at their own width from the left, the shown game's tab leading into its toolbar, with a + that opens a game picker, a × on the right, drag to reorder, ⌘W for Close Tab, and the Library marking the games that are open. The bar is there with one game too (a single tab with the + after it, and nothing to close it by): shown only from two games, the way to a second tab was ⌘T and the File menu, and was not found.
+
+**Verified:** the headless spec `H-game-player` in WebKit and Chrome at 1440×900, 1280×720 and 1024×640, light and dark. **Not verified:** the swipe on a real trackpad (its feel and direction), a two-hour recording, full screen in the app, Shift with a wheel on Windows.
+
+**Kept on purpose:** the full-width selection fill (the editor's), the Play button over the first frame, two position marks on two scales (the player's bar is the file, the timeline is the game).

@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Trash2, ChevronRight, VideoOff } from "lucide-react";
+import { Archive, ArchiveRestore, Trash2, ChevronRight, VideoOff } from "lucide-react";
 import { DeleteMatchDialog } from "@/components/delete-match-dialog";
 import type { VideoFileStatus } from "@/lib/video-probe";
 import type { StoredMatch } from "@/types/match";
@@ -13,17 +13,25 @@ import { formatDate } from "@/lib/format-date";
 export function MatchRow({
   match,
   onDelete,
+  onArchive,
   videoStatus,
+  openInTab,
 }: {
   match: StoredMatch;
   onDelete?: () => void;
+  /** Library only: archive, or bring back an archived game. */
+  onArchive?: (archived: boolean) => void;
   /** From probeMatches — undefined while probing (no badge until known). */
   videoStatus?: VideoFileStatus;
+  /** Library only: the game is open in one of the game page's tabs. */
+  openInTab?: boolean;
 }) {
   const date = formatDate(match.date);
   return (
     <Link
       to={`/matches/${match.id}`}
+      // A game with a tab comes back as its tab does: as it was left, with nothing to load.
+      state={openInTab ? { via: "library_tab" } : undefined}
       className="group flex min-h-11 items-center gap-3 px-4 py-2 outline-none transition-colors duration-100 hover:bg-fill-1 active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection"
     >
       {/* Team colours */}
@@ -40,6 +48,7 @@ export function MatchRow({
               Sample game
             </span>
           )}
+          {openInTab && <span className="shrink-0 rounded-full bg-fill-2 px-1.5 py-px text-caption text-muted-foreground">Open</span>}
         </div>
         <div className="truncate text-subheadline nums text-muted-foreground">
           {match.homeTeam.name} – {match.awayTeam.name} · {date} · {match.eventCount ?? match.events.length} clips
@@ -66,6 +75,21 @@ export function MatchRow({
           <span className="size-1.5 rounded-full bg-emerald-500" />
           Synced
         </span>
+      )}
+
+      {/* Archive — hover-reveal, stops navigation */}
+      {onArchive && (
+        <div onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+          <button
+            type="button"
+            className="flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-[opacity,background-color,color] duration-100 group-hover:opacity-100 hover:bg-fill-2 hover:text-foreground focus-visible:opacity-100 active:scale-95"
+            title={match.archivedAt ? "Bring back to Library" : "Archive game"}
+            aria-label={match.archivedAt ? "Bring back to Library" : "Archive game"}
+            onClick={() => onArchive(!match.archivedAt)}
+          >
+            {match.archivedAt ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />}
+          </button>
+        </div>
       )}
 
       {/* Delete — hover-reveal, stops navigation */}

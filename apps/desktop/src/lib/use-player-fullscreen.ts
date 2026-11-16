@@ -12,9 +12,34 @@
  *
  * If the window was ALREADY fullscreen when the player entered (user lives
  * in ⌃⌘F fullscreen), exiting the player leaves the window as it was.
+ *
+ * A window that leaves native fullscreen on macOS keeps the keyboard for
+ * itself: the page is no longer the one keys go to, so Space, the arrows and
+ * F did nothing until a click. Once the window is out, the page takes the
+ * keyboard back.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+
+/**
+ * Gives the page the keyboard again after the window has left native
+ * fullscreen. The window lets go of the page some half a second into its
+ * animation out, and says it has left long before that, so there is no moment
+ * to wait for: for two and a half seconds, whenever the page is found without
+ * the keyboard, it is asked back.
+ */
+async function returnKeyboardToPage(): Promise<void> {
+  try {
+    const webview = getCurrentWebview();
+    for (let i = 0; i < 10; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      if (!document.hasFocus()) await webview.setFocus();
+    }
+  } catch {
+    // Best-effort: a click in the window does the same.
+  }
+}
 
 export function usePlayerFullscreen() {
   const [active, setActive] = useState(false);
@@ -40,6 +65,7 @@ export function usePlayerFullscreen() {
       } catch {
         // Best-effort: worst case the user un-fullscreens natively.
       }
+      void returnKeyboardToPage();
     }
   }, []);
 
@@ -54,7 +80,10 @@ export function usePlayerFullscreen() {
     const id = window.setInterval(async () => {
       try {
         const isFs = await getCurrentWindow().isFullscreen();
-        if (!isFs) setActive(false);
+        if (!isFs) {
+          setActive(false);
+          void returnKeyboardToPage();
+        }
       } catch {
         // ignore — next tick retries
       }

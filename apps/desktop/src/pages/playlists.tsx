@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronRight,
   Folder,
+  FolderOpen,
   FolderPlus,
   Share2,
   Users,
@@ -56,7 +57,9 @@ import { generateScoutingReport, type GenerateOutcome } from "@/lib/scouting-rep
 import { getMyScoutingReport, type MyScoutingReport } from "@/lib/scouting-reports-db";
 import { isLiveReport, sharedStatusLabel } from "@scoutable/shared/lib/scouting-reports-db";
 import { defaultOpponent, type ReportDraft } from "@scoutable/shared/lib/report-draft";
-import { emptyHistory, itemsDiff, materialize, pasteIndexAfter, pasteItems, recordEdit, takeRedo, takeUndo, type History, type ItemsEdit } from "@scoutable/shared/lib/playlist-history";
+import { addClipsGames } from "@scoutable/shared/lib/archived-games";
+import { dropFuture, emptyHistory, itemsDiff, materialize, pasteIndexAfter, pasteItems, recordEdit, takeRedo, takeUndo, type History, type ItemsEdit } from "@scoutable/shared/lib/playlist-history";
+import { failedSidebarStep, nextHistoryStep, recordSidebarEdit, takeSidebarStep, type SidebarEdit } from "@scoutable/shared/lib/sidebar-history";
 import { cardInsertKey, groupItems, insertBefore, newTextCard, ungroupItems, type CardPlace } from "@scoutable/shared/lib/playlist-edits";
 import { IS_MACOS } from "@/lib/platform";
 import { fallbackText, pickDefaultPlayer, type StatsCardPlayer, type StatsCardSpec } from "@scoutable/shared/lib/stats-card";
@@ -68,10 +71,12 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { probeMatches, probeVideoDuration, type VideoFileStatus } from "@/lib/video-probe";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { cn } from "@/lib/utils";
-import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, appendClips, writePlaylistItems, changeClipLength, type ClipLengthResult, updateClip, clearShippedClip, updateTextCard, setPlaylistRecipients, notifyPendingPlaylistShares } from "@/lib/playlists-db";
+import { listPlaylists, createPlaylist, updatePlaylist, deletePlaylist, addClips, appendClips, writePlaylistItems, changeClipLength, type ClipLengthResult, updateClip, clearShippedClip, updateTextCard, setPlaylistRecipients } from "@/lib/playlists-db";
 import { newRecipients, playlistIsShared } from "@scoutable/shared/lib/playlist-sharing";
 import { groupShipFailures, mergeShipResults, type ClipShipResult } from "@scoutable/shared/lib/ship-result";
-import { listLabels, createLabel as apiCreateLabel, updateLabel as apiUpdateLabel, deleteLabel as apiDeleteLabel, seedDefaultLabels, listAssignmentsForMatches, setClipAssignments as apiSetClipAssignments, bulkAssign as apiBulkAssign } from "@/lib/labels-db";
+import { listLabels, createLabel as apiCreateLabel, updateLabel as apiUpdateLabel, deleteLabel as apiDeleteLabel, seedDefaultLabels, listAssignmentsForMatches, setClipAssignments as apiSetClipAssignments, bulkAssign as apiBulkAssign, setLabelHotkey as apiSetLabelHotkey } from "@/lib/labels-db";
+import { LABEL_KEY_TOAST, labelKeyMessage, toastNoLabelOnKey } from "@/lib/label-keys";
+import { rememberLabelUsed } from "@/lib/recent-labels";
 import { LabelChip } from "@/components/labels/LabelChip";
 import { LabelPickerPopover, type LabelTriState } from "@/components/labels/LabelPickerPopover";
 import type { Label, LabelColor, ClipKey } from "@scoutable/shared/types/labels";
@@ -139,21 +144,23 @@ import { isExportCancelled, type ExportProgress } from "@scoutable/shared/lib/ex
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { getExportWatermarkDisabled, getSyncTipSeen, setHasExported, setSyncTipSeen } from "@/lib/prefs";
 import { clipAndShip } from "@/lib/clip-and-ship";
+import { buildShipSegments, DEFAULT_POST_ROLL, DEFAULT_PRE_ROLL, demoShipBlockReason, shipPlaylistClips } from "@/lib/ship-clips";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { Playlist, PlaylistFolder, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 import { isClipItem } from "@/types/match";
 import { toast } from "sonner";
 import { Page } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
-import { EditorToolbar } from "@/components/editor/editor-toolbar";
+import { BackButton, EditorToolbar, type BackToGame } from "@/components/editor/editor-toolbar";
 import { PlayerStage } from "@/components/editor/player-stage";
 import { usePersistentVideo } from "@/components/editor/use-persistent-video";
 import { ClipRow, TextCardRow } from "@/components/editor/clip-rows";
 import { ClipTrimmer, type TrimWindow } from "@/components/editor/clip-trimmer";
-import { formatSeconds, offsetsForTrim, shiftedClipOffsets, stepToWhole } from "@scoutable/shared/lib/trim-math";
+import { offsetsForTrim, shiftedClipOffsets } from "@scoutable/shared/lib/trim-math";
 import { Kbd } from "@/components/ui/kbd";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { NUDGE_FAR_SECONDS, NUDGE_SECONDS, nextShuttleRate, resolvePlayerKey } from "@scoutable/shared/lib/player-keys";
+import { labelForKey, labelKeySlot, withLabelKey } from "@scoutable/shared/lib/label-keys";
 import { clamp } from "@scoutable/shared/lib/motion-math";
 import { dragBlockKeys, isSameOrder, itemsIndexForGap } from "@scoutable/shared/lib/list-reorder";
 import {
@@ -168,7 +175,6 @@ import { Callout } from "@/components/ui/group";
 import { EmptyState } from "@/components/empty-state";
 import { SearchField } from "@/components/ui/search-field";
 import { ShareRecipients } from "@/components/playlist/share-recipients";
-import { Stepper } from "@/components/ui/stepper";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { AddToPopover } from "@/components/editor/add-to-popover";
 import { BROWSER_WIDTH, BrowserColumn } from "@/components/editor/browser-column";
@@ -231,6 +237,20 @@ function isUnsavedId(id: string): boolean {
   return id.startsWith("temp-");
 }
 
+/**
+ * onCloseAutoFocus for the sidebar menus whose items open a name field
+ * (Rename, New Playlist, New Folder…). The field mounts (and autofocuses) while
+ * the menu is still open, and the closing menu leaves focus off the field (on
+ * its trigger, or the page). When a field is open, focus it instead: its onFocus
+ * selects the name. A menu whose item opened no field keeps Radix's default.
+ */
+function focusSidebarField(e: Event) {
+  const field = document.querySelector<HTMLInputElement>("input[data-sidebar-field]");
+  if (!field) return;
+  e.preventDefault();
+  field.focus();
+}
+
 /** The filter bar and the "Filtered" strip under the toolbar: a few points of travel, then still. */
 const revealVariants = {
   hidden: { opacity: 0, y: -6 },
@@ -283,6 +303,19 @@ export function PlaylistsPage() {
     if (profileLoading) return;
     if (activeOrgId && !canAccess) navigate("/my-playlists", { replace: true });
   }, [activeOrgId, canAccess, profileLoading, navigate]);
+
+  // A new arrival on this page without a game behind it (the sidebar, a
+  // link) drops the way back; the page's own clearing of the state doesn't.
+  const seenLocationKeyRef = useRef(location.key);
+  useEffect(() => {
+    if (location.key === seenLocationKeyRef.current) return;
+    seenLocationKeyRef.current = location.key;
+    if (clearingStateRef.current) {
+      clearingStateRef.current = false;
+      return;
+    }
+    if (!(location.state as { from?: unknown } | null)?.from) setBackTo(null);
+  }, [location.key, location.state]);
   const [matches, setMatches] = useState<StoredMatch[]>([]);
   // Games in another space that this space's playlists have clips on: a
   // personal playlist whose game moved to a club, or a club playlist with a
@@ -297,7 +330,7 @@ export function PlaylistsPage() {
   // covers only the games playlists reference; the clip browser can display
   // any game, so it asks for the rest on demand via ensureEventsFor.
   const loadedEventMatchIdsRef = useRef<Set<string>>(new Set());
-  const eventFetchInFlightRef = useRef<Set<string>>(new Set());
+  const eventFetchInFlightRef = useRef<Map<string, Promise<void>>>(new Map());
   // The same bookkeeping for the games whose labels are loaded (ensureLabelsFor).
   const loadedLabelMatchIdsRef = useRef<Set<string>>(new Set());
   const labelFetchInFlightRef = useRef<Set<string>>(new Set());
@@ -308,8 +341,8 @@ export function PlaylistsPage() {
   const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
   const [activeEventId, setActiveEventId] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [preRoll, setPreRoll] = useState(10);
-  const [postRoll, setPostRoll] = useState(3);
+  const [preRoll, setPreRoll] = useState(DEFAULT_PRE_ROLL);
+  const [postRoll, setPostRoll] = useState(DEFAULT_POST_ROLL);
   const [folders, setFolders] = useState<PlaylistFolder[]>([]);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => {
     const saved = sessionStorage.getItem("expandedFolders");
@@ -432,6 +465,14 @@ export function PlaylistsPage() {
   }, [resumeExport, exportAllowed]);
   // Vertical-crop editor: overlay visible + "export view" dim toggle.
   const [cropMode, setCropMode] = useState(false);
+  /**
+   * The game page this visit came from (its "Open playlist" or "Build a
+   * playlist"): the toolbar leads with "‹ {game}" back to it. Only for this
+   * arrival: a reload or a sidebar navigation drops it.
+   */
+  const [backTo, setBackTo] = useState<BackToGame | null>(null);
+  /** The page's own replace that clears the one-shot state: not an arrival that drops `backTo`. */
+  const clearingStateRef = useRef(false);
   const [cropDimmed, setCropDimmed] = useState(false);
   // Trim: the playing clip's ends on handles over the player (ClipTrimmer).
   // Nothing plays or advances on its own meanwhile (trimActiveRef).
@@ -510,6 +551,7 @@ export function PlaylistsPage() {
   const clipDragOverPlaylistIdRef = useRef<string | null>(null);
   const clipDragOverFolderIdRef = useRef<string | null>(null);
   const playlistsRef = useRef<Playlist[]>([]);
+  const foldersRef = useRef<PlaylistFolder[]>([]);
   const expandedFoldersRef = useRef(expandedFolders);
   useEffect(() => { expandedFoldersRef.current = expandedFolders; }, [expandedFolders]);
   const uncategorizedExpandedRef = useRef(uncategorizedExpanded);
@@ -553,6 +595,14 @@ export function PlaylistsPage() {
   // playlist's writes in order, so an undo never overtakes the edit it undoes.
   const historyRef = useRef(new Map<string, History>());
   const writeChainRef = useRef(new Map<string, Promise<boolean>>());
+  // The sidebar's renames and moves (lib/sidebar-history.ts), and the one counter
+  // that orders them against the rows' edits for ⌘Z.
+  const sidebarHistoryRef = useRef(emptyHistory<SidebarEdit>());
+  const editSeqRef = useRef(0);
+  // The space the sidebar history belongs to, read by a rename that resolves after a switch.
+  const activeOrgIdRef = useRef(activeOrgId);
+  // Another space has other playlists and folders.
+  useEffect(() => { activeOrgIdRef.current = activeOrgId; sidebarHistoryRef.current = emptyHistory(); }, [activeOrgId]);
   // The toolbar row the report view fills, so its toolbar sits where the clips toolbar does.
   const [reportToolbarSlot, setReportToolbarSlot] = useState<HTMLDivElement | null>(null);
   const [myReport, setMyReport] = useState<MyScoutingReport | null>(null);
@@ -667,6 +717,7 @@ export function PlaylistsPage() {
     return () => window.removeEventListener(CLIPS_PATCHED_EVENT, onPatched);
   }, []);
   useEffect(() => { playlistsRef.current = playlists; }, [playlists]);
+  useEffect(() => { foldersRef.current = folders; }, [folders]);
   useEffect(() => { sessionStorage.setItem("expandedFolders", JSON.stringify([...expandedFolders])); }, [expandedFolders]);
   useEffect(() => { sessionStorage.setItem("uncategorizedExpanded", String(uncategorizedExpanded)); }, [uncategorizedExpanded]);
 
@@ -708,6 +759,8 @@ export function PlaylistsPage() {
       share?: boolean;
       /** Set by a game page's "Build a playlist": the next Add clips starts on this game. */
       addClipsFrom?: string;
+      /** Set by a game page: the toolbar's "‹ {title}" goes back to it. */
+      from?: { matchId: string; title: string };
     } | null;
     const restore = state?.restore;
     if (restore && state?.view === "report") {
@@ -717,7 +770,12 @@ export function PlaylistsPage() {
     const createNew = state?.createNew;
     // One-shot flags: clear them from the history entry once read, or a
     // remount of this page would restore/reship/create all over again.
-    if (state) navigate(location.pathname, { replace: true, state: null });
+    if (state) {
+      clearingStateRef.current = true;
+      navigate(location.pathname, { replace: true, state: null });
+    }
+    const from = state?.from;
+    setBackTo(from ? { title: from.title, onBack: () => navigate(`/matches/${from.matchId}`) } : null);
     if (state?.reship && restore) pendingShipRef.current.add(restore.playlistId);
     if (state?.addClipsFrom) setAddClipsFrom(state.addClipsFrom);
     let highlightTimer: number | undefined;
@@ -882,26 +940,36 @@ export function PlaylistsPage() {
    *
    * The mount load covers only games a playlist references, so the clip
    * browser calls this for whichever game it is about to show. Already-loaded
-   * and in-flight ids are skipped, making repeat opens and re-renders free.
+   * ids are skipped, making repeat opens and re-renders free; an id already
+   * being fetched is waited for, so the promise resolves only once every
+   * asked game's plays are in `matches` (the clip browser treats it so).
    * Existing events are preserved — only the newly fetched matches change.
    */
   const ensureEventsFor = useCallback(async (matchIds: string[]) => {
-    const wanted = matchIds.filter(
-      (id) => id && !loadedEventMatchIdsRef.current.has(id) && !eventFetchInFlightRef.current.has(id),
-    );
-    if (wanted.length === 0) return;
-    for (const id of wanted) eventFetchInFlightRef.current.add(id);
-    try {
-      const eventsByMatch = await listEventsForMatches(wanted);
-      for (const id of wanted) loadedEventMatchIdsRef.current.add(id);
-      setMatches((prev) =>
-        prev.map((m) => (eventsByMatch[m.id] ? { ...m, events: eventsByMatch[m.id] } : m)),
-      );
-    } catch (e) {
-      console.error("ensureEventsFor:", e);
-    } finally {
-      for (const id of wanted) eventFetchInFlightRef.current.delete(id);
+    const inFlight = eventFetchInFlightRef.current;
+    const notLoaded = [...new Set(matchIds)].filter((id) => id && !loadedEventMatchIdsRef.current.has(id));
+    const waits = notLoaded.flatMap((id) => inFlight.get(id) ?? []);
+    const wanted = notLoaded.filter((id) => !inFlight.has(id));
+    if (wanted.length > 0) {
+      // Started a tick later, so the ids are in the map before any outcome
+      // (even a synchronous throw) takes them out again; a failure leaves the
+      // map, so the next ask fetches the game afresh. Never rejects.
+      const fetching = Promise.resolve()
+        .then(() => listEventsForMatches(wanted))
+        .then((eventsByMatch) => {
+          for (const id of wanted) loadedEventMatchIdsRef.current.add(id);
+          setMatches((prev) =>
+            prev.map((m) => (eventsByMatch[m.id] ? { ...m, events: eventsByMatch[m.id] } : m)),
+          );
+        })
+        .catch((e) => console.error("ensureEventsFor:", e))
+        .finally(() => {
+          for (const id of wanted) inFlight.delete(id);
+        });
+      for (const id of wanted) inFlight.set(id, fetching);
+      waits.push(fetching);
     }
+    await Promise.all(waits);
   }, []);
 
   /**
@@ -1066,6 +1134,23 @@ export function PlaylistsPage() {
     setLabels((prev) => prev.map((l) => (l.id === id ? { ...l, color } : l)));
   }, []);
 
+  // A label's key (packages/shared/lib/label-keys.ts). The label that had the key loses it, here
+  // as in the database (set_label_hotkey).
+  const handleSetLabelKey = useCallback(
+    async (id: string, slot: number | null) => {
+      const before = new Map(labels.map((l) => [l.id, l.hotkey]));
+      setLabels((prev) => withLabelKey(prev, id, slot).labels);
+      try {
+        await apiSetLabelHotkey(id, slot);
+      } catch (e) {
+        console.error("set label key:", e);
+        setLabels((prev) => prev.map((l) => (before.has(l.id) ? { ...l, hotkey: before.get(l.id) ?? null } : l)));
+        toast.error("Couldn't set the key", { description: "Check the connection and try again." });
+      }
+    },
+    [labels],
+  );
+
   const handleDeleteLabel = useCallback(async (id: string) => {
     await apiDeleteLabel(id);
     setLabels((prev) => prev.filter((l) => l.id !== id));
@@ -1170,6 +1255,20 @@ export function PlaylistsPage() {
   );
   const matchLookupRef = useRef(matchLookup);
   useEffect(() => { matchLookupRef.current = matchLookup; }, [matchLookup]);
+
+  // The games the open playlist holds clips from, as a stable string: every
+  // clip add replaces `selected`, the set of games rarely changes.
+  const playlistGameIdsKey = useMemo(
+    () => (selected ? [...new Set(selected.items.filter(isClipItem).map((c) => c.matchId))].sort().join(",") : ""),
+    [selected],
+  );
+  // Add clips leaves archived games out, except the one a "Build a playlist"
+  // came from and the open playlist's own (addClipsGames has the rule).
+  const addClipsMatches = useMemo(
+    (): StoredMatch[] =>
+      addClipsGames(matches, addClipsFrom, new Set(playlistGameIdsKey ? playlistGameIdsKey.split(",") : [])),
+    [matches, addClipsFrom, playlistGameIdsKey],
+  );
 
   /**
    * Event lookup by `matchId:eventId`, built once per matches change.
@@ -1556,10 +1655,7 @@ export function PlaylistsPage() {
     videoRef.current?.pause();
   }, []);
 
-  /**
-   * The steppers and Reset: the playing clip's own length, applied to the
-   * clip while it plays.
-   */
+  /** Reset: the playing clip back to the playlist's clip length, applied while it plays. */
   function adjustActiveClip(preDelta: number, postDelta: number) {
     if (!selected || !activeClipKey) return;
     const { matchId, eventId } = activeClipKey;
@@ -1582,12 +1678,12 @@ export function PlaylistsPage() {
   }
 
   /**
-   * The one way a clip's own length changes (the steppers, Reset, a trim):
-   * applied at once, saved, and put back with a toast if the save fails.
+   * The one way a clip's own length changes (Reset, a trim, an only-this-clip Fix sync):
+   * applied at once, saved, and put back with a toast if the save fails; true once the
+   * offsets are saved (the shared upload may still be catching up).
    * An upload recipients already have was cut at the old length, so it is
    * cleared and, in a shared playlist, made again with the new cut.
    */
-  /** Saves a clip's own offsets; true once they are saved (the shared upload may still be catching up). */
   async function commitClipOffsets(matchId: string, eventId: number, pre: number, post: number): Promise<boolean> {
     const before = selectedRef.current;
     if (!before) return false;
@@ -2682,11 +2778,48 @@ export function PlaylistsPage() {
     if (slowEditRef.current) closeSlowRef.current();
   }, [playerFs.active, reportView]);
 
+  /**
+   * A label's own key (⌥1–⌥9): the label goes on the selected clips, else on the clip on screen,
+   * or comes off when all of them have it, as a click on it in the picker would do.
+   */
+  const labelByKey = (slot: number) => {
+    if (!activeOrgId) return;
+    const label = labelForKey(labels, slot);
+    if (!label) {
+      toastNoLabelOnKey(slot);
+      return;
+    }
+    const has = (c: ClipKey) => clipAssignments.get(`${c.matchId}:${c.eventId}`)?.has(label.id) ?? false;
+    const clips = selectedClipKeyPairs.length > 0 ? selectedClipKeyPairs : activeClipKey ? [activeClipKey] : [];
+    if (clips.length === 0) return;
+    const on = !clips.every(has);
+    // The clips this press changes: what Undo puts back.
+    const changed = on ? clips.filter((c) => !has(c)) : clips;
+    const write = (to: ClipKey[], state: LabelTriState) =>
+      to.length === 1 ? handleToggleClipLabel(to[0].matchId, to[0].eventId, label.id, state) : applyBulkLabel(to, label.id, state);
+    void write(clips, on ? "none" : "all");
+    if (on) {
+      rememberLabelUsed(label.id);
+      trackEvent("label_picked", { by: "hotkey", position: slot, recent: false, searched: false, created: false });
+    }
+    toast(labelKeyMessage(label.name, on, changed.length), {
+      id: LABEL_KEY_TOAST,
+      action: { label: "Undo", onClick: () => void write(changed, on ? "all" : "none") },
+    });
+  };
+
   // One key owner for the page (src/lib/key-scope.ts); the Add Clips sheet
   // registers its own scope on top while it is open. The handler closes
   // over the latest render, so no refs are needed for state.
   useKeyScope("editor", !reportView);
   useHotkeys("editor", (e) => {
+    const labelKey = labelKeySlot(e);
+    if (labelKey !== null) {
+      e.preventDefault();
+      // A held key would put the label on and take it off again.
+      if (!e.repeat) labelByKey(labelKey);
+      return;
+    }
     // Edit shortcuts for the rows. A text field keeps its own (useHotkeys skips fields), and so
     // does text selected on the page for ⌘C.
     if ((e.metaKey || e.ctrlKey) && !e.altKey) {
@@ -2748,6 +2881,12 @@ export function PlaylistsPage() {
         if (playerFsRef.current.active) {
           e.preventDefault();
           void playerFsRef.current.exit();
+          return;
+        }
+        // The vertical crop is a mode of the stage: Esc puts the normal stage back, and only that.
+        if (cropMode) {
+          e.preventDefault();
+          setCropMode(false);
           return;
         }
         if (selectedClipIds.size > 0) {
@@ -3289,55 +3428,11 @@ export function PlaylistsPage() {
   // Clip & Ship
   // ---------------------------------------------------------------------------
 
-  /** Segments for shipping/exporting the given playlist's clips. */
   /** Arm a deferred ship for a shared playlist; the watcher effect picks it up. */
   function queuePendingShip(pl: Playlist) {
     if (!playlistIsShared(pl)) return;
     pendingShipRef.current.add(pl.id);
     setShipNonce((n) => n + 1); // ref writes don't re-render — wake the watcher
-  }
-
-  // Built from pl.items (not the selected playlist's queue) so a deferred
-  // ship stays correct when the coach has switched focus to another playlist.
-  // Upload order doesn't matter, so no sort is applied.
-  // Shipped clips stay plain cuts: the players draw the note, the drawings and
-  // the slow motion themselves, so editing them never needs a re-upload.
-  function buildShipSegments(pl: Playlist): ExportSegment[] {
-    return pl.items
-      .filter(isClipItem)
-      .map((clip): ExportSegment | null => {
-        const m = matchLookup.get(clip.matchId);
-        if (!m?.videoUrl || !m.syncPoint) return null;
-        const event = eventByKey.get(`${clip.matchId}:${clip.eventId}`);
-        if (!event) return null;
-        const seg: ExportSegment = {
-          kind: "clip",
-          videoPath: m.videoUrl,
-          matchId: clip.matchId,
-          event,
-          syncPoint: m.syncPoint,
-        };
-        if (clip.preRollOffset !== undefined)
-          (seg as Extract<ExportSegment, { kind: "clip" }>).preRollOffset = clip.preRollOffset;
-        if (clip.postRollOffset !== undefined)
-          (seg as Extract<ExportSegment, { kind: "clip" }>).postRollOffset = clip.postRollOffset;
-        return seg;
-      })
-      .filter((x): x is ExportSegment => x !== null);
-  }
-
-  /**
-   * Sharing ships clips to the cloud, which the sample game can't do — its
-   * video is a remote stream, not a local file, so Clip & Ship's preflight
-   * would throw a raw path error. Mirror the export gate's friendly copy.
-   */
-  function demoShipBlockReason(pl: Playlist): string | null {
-    const hasDemoClip = pl.items
-      .filter(isClipItem)
-      .some((c) => matchLookup.get(c.matchId)?.isDemo);
-    return hasDemoClip
-      ? "The sample game can't be shared — import your own game to share clips with your team."
-      : null;
   }
 
   /**
@@ -3417,7 +3512,7 @@ export function PlaylistsPage() {
       return;
     }
 
-    const demoBlock = demoShipBlockReason(selected);
+    const demoBlock = demoShipBlockReason(selected, matchLookup);
     if (demoBlock) {
       setShareDialogOpen(false);
       setSharePhase({ kind: "pick" });
@@ -3425,7 +3520,7 @@ export function PlaylistsPage() {
       return;
     }
 
-    const segments = buildShipSegments(selected);
+    const segments = buildShipSegments(selected, matchLookup, eventByKey);
     setSharePhase({ kind: "uploading" });
     setIsShipping(true);
     setShipProgress(null);
@@ -3564,7 +3659,7 @@ export function PlaylistsPage() {
   // affordance. After any successful upload, pending silent shares (created
   // before the playlist had clips) finally notify their recipients.
   async function handleShip(target: Playlist) {
-    const demoBlock = demoShipBlockReason(target);
+    const demoBlock = demoShipBlockReason(target, matchLookup);
     if (demoBlock) {
       toast.error("Couldn't upload clips", { description: demoBlock });
       return;
@@ -3572,34 +3667,14 @@ export function PlaylistsPage() {
     setIsShipping(true);
     setShipProgress(null);
     try {
-      const segments = buildShipSegments(target);
-      const result = await clipAndShip(target, segments, preRoll, postRoll, {
+      await shipPlaylistClips(target, {
+        matchLookup,
+        eventByKey,
+        preRoll,
+        postRoll,
         onProgress: (done, total) => setShipProgress({ done, total }),
+        onUploaded: applyR2Urls,
       });
-      applyR2Urls(result.uploaded, target.id);
-
-      const total = segments.length;
-      const uploadedCount = result.shipped + result.skipped;
-      if (result.failures.length > 0) {
-        trackEvent("playlist_ship_failed", { playlist_id: target.id, failed: result.failures.length, total });
-        toast.error(
-          `${result.failures.length} of ${total} clips in "${target.name}" didn't upload`,
-          { description: "Recipients can't see these clips yet — try again from Shared by me." },
-        );
-      } else if (result.shipped > 0) {
-        // Silent when everything was already in the cloud (idempotent re-run).
-        toast.success(`Clips uploaded to "${target.name}"`, {
-          description: `${uploadedCount} clip${uploadedCount === 1 ? " is" : "s are"} now in the cloud.`,
-        });
-        trackEvent("playlist_shipped", { playlist_id: target.id, clip_count: uploadedCount });
-      }
-
-      if (uploadedCount > 0) {
-        // Best-effort and idempotent — a no-op unless silent pending shares exist.
-        await notifyPendingPlaylistShares(target.id).catch(() => {});
-      }
-    } catch (e) {
-      toast.error("Clip & Ship failed", { description: e instanceof Error ? e.message : String(e) });
     } finally {
       setIsShipping(false);
       setShipProgress(null);
@@ -3697,10 +3772,23 @@ export function PlaylistsPage() {
       return;
     }
 
-    if (!name) { setEditingFolderId(null); return; }
-    await updateFolder(id, { name });
-    setFolders((prev) => prev.map((f) => f.id === id ? { ...f, name } : f));
+    // The field closes and the new name shows at once; a failed write puts the old one back.
     setEditingFolderId(null);
+    const old = folders.find((f) => f.id === id)?.name;
+    if (old === undefined || !name || name === old) return;
+    setFolders((prev) => prev.map((f) => f.id === id ? { ...f, name } : f));
+    const space = activeOrgId;
+    try {
+      await updateFolder(id, { name });
+      // A switch to another space while saving: that space's history doesn't hold this rename.
+      if (activeOrgIdRef.current !== space) return;
+      const edit = recordSidebar({ label: "Rename folder", target: "folder", id, field: "name", before: old, after: name });
+      toast("Folder renamed", { id: EDIT_TOAST, duration: 4000, action: { label: "Undo", onClick: () => undoSidebarIfLatest(edit) } });
+    } catch (err) {
+      console.error("Failed to rename folder:", err);
+      setFolders((prev) => prev.map((f) => f.id === id && f.name === name ? { ...f, name: old } : f));
+      toast.error("Couldn't rename the folder", { description: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   /** Opens the confirm dialog for non-empty folders; empty ones delete straight away. */
@@ -3754,12 +3842,22 @@ export function PlaylistsPage() {
   }
 
   async function movePlaylistToFolder(playlistId: string, folderId: string | null) {
-    await updatePlaylist(playlistId, { folderId });
+    const before = playlistsRef.current.find((p) => p.id === playlistId)?.folderId ?? null;
+    try {
+      await updatePlaylist(playlistId, { folderId });
+    } catch (err) {
+      console.error("[playlists] Failed to move playlist:", err);
+      toast.error("Couldn't move the playlist");
+      return;
+    }
     setPlaylists((prev) => prev.map((p) =>
       p.id === playlistId ? { ...p, folderId: folderId ?? undefined } : p
     ));
     if (selected?.id === playlistId) {
       setSelected((prev) => prev ? { ...prev, folderId: folderId ?? undefined } : prev);
+    }
+    if (before !== folderId) {
+      recordSidebar({ label: "Move playlist", target: "playlist", id: playlistId, field: "parent", before, after: folderId });
     }
   }
 
@@ -3775,6 +3873,7 @@ export function PlaylistsPage() {
     ));
     try {
       await updateFolder(folderId, { parentId: newParentId });
+      recordSidebar({ label: "Move folder", target: "folder", id: folderId, field: "parent", before: current.parentId ?? null, after: newParentId });
     } catch (err) {
       console.error("Failed to move folder:", err);
       toast.error("Couldn't move the folder — reloading");
@@ -3823,12 +3922,23 @@ export function PlaylistsPage() {
       return;
     }
 
-    // Normal rename path
-    if (!name) return;
-    await updatePlaylist(playlistId, { name });
+    // Normal rename path: the new name shows at once; a failed write puts the old one back.
+    const old = playlists.find((p) => p.id === playlistId)?.name;
+    if (old === undefined || !name || name === old) return;
     setPlaylists((prev) => prev.map((p) => p.id === playlistId ? { ...p, name } : p));
-    if (selected?.id === playlistId) {
-      setSelected((prev) => prev ? { ...prev, name } : prev);
+    setSelected((prev) => prev?.id === playlistId ? { ...prev, name } : prev);
+    const space = activeOrgId;
+    try {
+      await updatePlaylist(playlistId, { name });
+      // A switch to another space while saving: that space's history doesn't hold this rename.
+      if (activeOrgIdRef.current !== space) return;
+      const edit = recordSidebar({ label: "Rename playlist", target: "playlist", id: playlistId, field: "name", before: old, after: name });
+      toast("Playlist renamed", { id: EDIT_TOAST, duration: 4000, action: { label: "Undo", onClick: () => undoSidebarIfLatest(edit) } });
+    } catch (err) {
+      console.error("[playlists] Failed to rename playlist:", err);
+      setPlaylists((prev) => prev.map((p) => p.id === playlistId && p.name === name ? { ...p, name: old } : p));
+      setSelected((prev) => prev?.id === playlistId && prev.name === name ? { ...prev, name: old } : prev);
+      toast.error("Couldn't rename the playlist", { description: err instanceof Error ? err.message : String(err) });
     }
   }
 
@@ -3879,6 +3989,8 @@ export function PlaylistsPage() {
 
   /** One step of indent per folder depth. */
   const FOLDER_INDENT = 14;
+  /** A folder row's chevron (size-3.5 = 14 px) plus its gap-1 (4 px): where every row's icon starts. */
+  const ICON_INSET = 18;
 
   function renderSectionHeader({
     id,
@@ -3932,7 +4044,7 @@ export function PlaylistsPage() {
             onDragEnd={() => setDragOverFolder(null)}
             style={{ paddingLeft: 8 + depth * FOLDER_INDENT }}
             className={cn(
-              "group mx-2 flex h-7 cursor-default select-none items-center gap-1.5 rounded-md pr-1.5 outline-none transition-[background-color,box-shadow] duration-100",
+              "group mx-2 flex h-7 cursor-default select-none items-center gap-1 rounded-md pr-1.5 outline-none transition-[background-color,box-shadow] duration-100",
               isActive ? "bg-selection text-selection-foreground" : "text-foreground hover:bg-fill-1 active:bg-fill-2",
               isDropTarget && "bg-selection/20 ring-2 ring-inset ring-selection",
               clipOpenPlaylistId === pl.id && "animate-pulse",
@@ -3940,10 +4052,13 @@ export function PlaylistsPage() {
             )}
             onClick={() => !isEditingThis && selectPlaylist(pl)}
           >
+            {folders.length > 0 && <span aria-hidden className="size-3.5 shrink-0" />}
             <ListVideo className={cn("size-4 shrink-0", isActive ? "text-selection-foreground" : "text-primary")} />
             {isEditingThis && editingVia === "sidebar" ? (
               <input
                 autoFocus
+                data-sidebar-field
+                onFocus={(e) => e.currentTarget.select()}
                 className="h-5 min-w-0 flex-1 rounded-sm bg-card px-1 text-sm text-foreground ring-2 ring-selection outline-none"
                 value={editPlaylistName}
                 onChange={(e) => setEditPlaylistName(e.target.value)}
@@ -3962,7 +4077,18 @@ export function PlaylistsPage() {
               />
             ) : (
               <>
-                <span className="min-w-0 flex-1 truncate text-sm">{pl.name}</span>
+                <span
+                  className="min-w-0 flex-1 truncate text-sm"
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    if (isUnsavedId(pl.id)) return;
+                    setEditingVia("sidebar");
+                    setEditingPlaylistId(pl.id);
+                    setEditPlaylistName(pl.name);
+                  }}
+                >
+                  {pl.name}
+                </span>
                 {(pl.teamIds?.length ?? 0) > 0 && (
                   <Users className={cn("size-3 shrink-0", isActive ? "text-selection-foreground/80" : "text-muted-foreground")} />
                 )}
@@ -3995,7 +4121,7 @@ export function PlaylistsPage() {
                     <MoreHorizontal className="size-3.5" />
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
+                <DropdownMenuContent align="end" onCloseAutoFocus={focusSidebarField}>
                   {/* Keep in lockstep with the row's ContextMenuContent below. */}
                   <>
                     <DropdownMenuItem onSelect={() => { setEditingVia("sidebar"); setEditingPlaylistId(pl.id); setEditPlaylistName(pl.name); }}>
@@ -4051,7 +4177,7 @@ export function PlaylistsPage() {
             </div>
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent>
+        <ContextMenuContent onCloseAutoFocus={focusSidebarField}>
           <ContextMenuItem onSelect={() => { setEditingVia("sidebar"); setEditingPlaylistId(pl.id); setEditPlaylistName(pl.name); }}>
             Rename
           </ContextMenuItem>
@@ -4197,17 +4323,23 @@ export function PlaylistsPage() {
                   springLoading ? "text-primary" : "text-muted-foreground",
                 )}
               />
-              <Folder className="size-4 shrink-0 text-primary" />
+              {isExpanded ? (
+                <FolderOpen className="size-4 shrink-0 text-primary" />
+              ) : (
+                <Folder className="size-4 shrink-0 text-primary" />
+              )}
               {isEditing ? (
                 <input
                   autoFocus
+                  data-sidebar-field
+                  onFocus={(e) => e.currentTarget.select()}
                   className="h-5 min-w-0 flex-1 rounded-sm bg-card px-1 text-sm text-foreground ring-2 ring-selection outline-none"
                   value={editFolderName}
                   onChange={(e) => setEditFolderName(e.target.value)}
                   onClick={(e) => e.stopPropagation()}
                   onBlur={() => handleRenameFolder(folder.id)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") handleRenameFolder(folder.id);
+                    if (e.key === "Enter") e.currentTarget.blur();
                     if (e.key === "Escape") {
                       if (folder.id === pendingNewFolderId) {
                         setPendingNewFolderId(null);
@@ -4251,7 +4383,7 @@ export function PlaylistsPage() {
                         <MoreHorizontal className="size-3.5" />
                       </button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
+                    <DropdownMenuContent align="end" onCloseAutoFocus={focusSidebarField}>
                       {/* Keep in lockstep with the folder header's ContextMenuContent below. */}
                       <DropdownMenuItem onSelect={() => handleNewPlaylist(folder.id)}>
                         New Playlist
@@ -4306,7 +4438,7 @@ export function PlaylistsPage() {
               )}
             </div>
           </ContextMenuTrigger>
-          <ContextMenuContent>
+          <ContextMenuContent onCloseAutoFocus={focusSidebarField}>
             <ContextMenuItem onSelect={() => handleNewPlaylist(folder.id)}>
               New Playlist
             </ContextMenuItem>
@@ -4359,11 +4491,17 @@ export function PlaylistsPage() {
 
         {/* Subfolders, then this folder's playlists */}
         {isExpanded && (
-          <div>
+          <div className="relative isolate">
+            {/* Guide line: 1 px under the parent's chevron centre = the row's mx-2 (8) + its padding (8 + depth * FOLDER_INDENT) + half the 14 px chevron (7), i.e. x = 23 + 14 * depth. isolate + -z-10 keep it behind the rows' backgrounds (a selected row would otherwise be cut by it). */}
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 -z-10 w-px bg-separator"
+              style={{ left: 8 + 8 + depth * FOLDER_INDENT + 7 }}
+            />
             {subfolders.map((sub) => renderFolderNode(sub, depth + 1))}
             {items.length === 0 && subfolders.length === 0 ? (
               <p
-                style={{ paddingLeft: 8 + (depth + 1) * FOLDER_INDENT + 22 }}
+                style={{ paddingLeft: 8 + (depth + 1) * FOLDER_INDENT + ICON_INSET }}
                 className="mx-2 flex h-7 items-center text-subheadline text-muted-foreground/70"
               >
                 Empty — drag a playlist here
@@ -4431,7 +4569,7 @@ export function PlaylistsPage() {
           setSelected(restored);
         }
         setPlaylists((ps) => ps.map((p) => (p.id === playlistId && p.items === to ? { ...p, items: from } : p)));
-        toast.error("Couldn’t save that change, so it was taken back. Check the connection and try again.", { id: EDIT_TOAST });
+        toast.error("Couldn’t save that change, so it was taken back. Check the connection and try again.", { id: EDIT_TOAST, action: undefined });
         return false;
       }
     });
@@ -4452,24 +4590,144 @@ export function PlaylistsPage() {
     setSelected(updated);
     setPlaylists((prev) => prev.map((p) => (p.id === pl.id ? updated : p)));
     if (isUnsavedId(pl.id)) return Promise.resolve(true);
-    const edit: ItemsEdit = { label, before, after };
+    const edit: ItemsEdit = { label, before, after, seq: ++editSeqRef.current };
     historyRef.current.set(pl.id, recordEdit(historyRef.current.get(pl.id) ?? emptyHistory(), edit));
+    sidebarHistoryRef.current = dropFuture(sidebarHistoryRef.current);
     if (notice) toast(notice, { id: EDIT_TOAST, action: { label: "Undo", onClick: () => undoIfLatest(pl.id, edit) } });
     return writeItems(pl.id, before, after);
   }
 
-  /** The toast's Undo: the same as ⌘Z, while the edit it names is still the last one. */
+  /** The row toast's Undo: the same as ⌘Z on the rows, while the edit it names is still the last one. */
   function undoIfLatest(playlistId: string, edit: ItemsEdit) {
     const past = historyRef.current.get(playlistId)?.past ?? [];
-    if (selectedRef.current?.id === playlistId && past[past.length - 1] === edit) stepHistory("undo");
+    if (selectedRef.current?.id === playlistId && past[past.length - 1] === edit) stepRows("undo");
   }
 
   /**
-   * ⌘Z / ⇧⌘Z: the open playlist's rows go back to (or forward to) an edit's
-   * snapshot, each row as it is now (a later note stays). What comes back is
-   * selected, as in Finder. False when there is nothing to step to.
+   * ⌘Z / ⇧⌘Z: the most recent edit across the open playlist's rows and the
+   * sidebar's renames and moves (lib/sidebar-history.ts). False when there is
+   * nothing to step to.
    */
   function stepHistory(direction: "undo" | "redo"): boolean {
+    const pl = selectedRef.current;
+    const rows = pl && !isUnsavedId(pl.id) ? historyRef.current.get(pl.id) ?? emptyHistory() : emptyHistory();
+    const next = nextHistoryStep(direction, rows, sidebarHistoryRef.current);
+    if (next === "rows") return stepRows(direction);
+    if (next === "sidebar") return stepSidebar(direction);
+    return false;
+  }
+
+  /** A sidebar edit, stamped and recorded; the rows' redo is forgotten, as after any new edit. */
+  function recordSidebar(edit: Omit<SidebarEdit, "seq">): SidebarEdit {
+    const stamped: SidebarEdit = { ...edit, seq: ++editSeqRef.current };
+    sidebarHistoryRef.current = recordSidebarEdit(sidebarHistoryRef.current, stamped);
+    for (const [id, history] of historyRef.current) historyRef.current.set(id, dropFuture(history));
+    return stamped;
+  }
+
+  /** What a sidebar edit changed, as it is now: undefined when the playlist or folder is gone. Reads the refs, so an older render's toast sees the latest. */
+  function sidebarValue(edit: SidebarEdit): string | null | undefined {
+    if (edit.target === "playlist") {
+      const p = playlistsRef.current.find((x) => x.id === edit.id);
+      if (!p) return undefined;
+      return edit.field === "name" ? p.name : p.folderId ?? null;
+    }
+    const f = foldersRef.current.find((x) => x.id === edit.id);
+    if (!f) return undefined;
+    return edit.field === "name" ? f.name : f.parentId ?? null;
+  }
+
+  /** The rename toast's Undo: the same as ⌘Z on the sidebar, while the edit it names is still the last one. */
+  function undoSidebarIfLatest(edit: SidebarEdit) {
+    const past = sidebarHistoryRef.current.past;
+    if (past[past.length - 1] === edit) stepSidebar("undo");
+  }
+
+  /**
+   * ⌘Z / ⇧⌘Z on the sidebar: a name or a place goes back (or forward), unless
+   * the playlist or folder was renamed, moved or deleted since, the folder it
+   * would go into was deleted, or a folder would land inside itself; then
+   * nothing changes, the toast says so, and the edit is forgotten. A failed
+   * save keeps the edit where it was, so the next ⌘Z tries it again.
+   */
+  function stepSidebar(direction: "undo" | "redo"): boolean {
+    const prior = sidebarHistoryRef.current;
+    const step = takeSidebarStep(
+      prior,
+      direction,
+      sidebarValue,
+      (folderId) => foldersRef.current.some((f) => f.id === folderId),
+      (folderId, parentId) => wouldCreateCycle(foldersRef.current, folderId, parentId),
+    );
+    if (!step) return false;
+    const { edit } = step;
+    sidebarHistoryRef.current = step.history;
+    if ("blocked" in step) {
+      const verb = direction === "undo" ? "undone" : "redone";
+      const message =
+        step.blocked === "gone" ? `The ${edit.target} was deleted, so nothing was ${verb}`
+        : step.blocked === "place_gone" ? `The folder it was in was deleted, so nothing was ${verb}`
+        : step.blocked === "cycle" ? `That would put the folder inside itself, so nothing was ${verb}`
+        : edit.field === "name" ? `The name changed since, so nothing was ${verb}`
+        : `The ${edit.target} moved since, so nothing was ${verb}`;
+      toast(message, { id: EDIT_TOAST, action: undefined });
+      return true;
+    }
+    void writeSidebarValue(edit, step.to).then((ok) => {
+      if (!ok) sidebarHistoryRef.current = failedSidebarStep(sidebarHistoryRef.current, prior, step);
+    });
+    toast(`${direction === "undo" ? "Undo" : "Redo"}: ${edit.label}`, { id: EDIT_TOAST, duration: 2000, action: undefined });
+    return true;
+  }
+
+  /** Shows a sidebar edit's value at once and saves it; a failed save takes it back. */
+  async function writeSidebarValue(edit: SidebarEdit, value: string | null): Promise<boolean> {
+    const from = sidebarValue(edit);
+    const { id, field } = edit;
+    // Puts `to` on the target; with `onlyIf`, only while it still holds that value.
+    const put = (to: string | null, onlyIf?: string | null) => {
+      if (edit.target === "playlist") {
+        const patch = (p: Playlist): Playlist => {
+          if (p.id !== id) return p;
+          if (onlyIf !== undefined && (field === "name" ? p.name : p.folderId ?? null) !== onlyIf) return p;
+          return field === "name" ? { ...p, name: to ?? p.name } : { ...p, folderId: to ?? undefined };
+        };
+        setPlaylists((prev) => prev.map(patch));
+        setSelected((prev) => (prev ? patch(prev) : prev));
+      } else {
+        setFolders((prev) => prev.map((f) => {
+          if (f.id !== id) return f;
+          if (onlyIf !== undefined && (field === "name" ? f.name : f.parentId ?? null) !== onlyIf) return f;
+          return field === "name" ? { ...f, name: to ?? f.name } : { ...f, parentId: to ?? undefined };
+        }));
+      }
+    };
+    put(value);
+    // A move back into a collapsed folder opens it, so the row is seen landing.
+    if (field === "parent" && value !== null) {
+      setExpandedFolders((prev) => (prev.has(value) ? prev : new Set([...prev, value])));
+    }
+    try {
+      if (edit.target === "playlist") {
+        await updatePlaylist(id, field === "name" ? { name: value ?? undefined } : { folderId: value });
+      } else {
+        await updateFolder(id, field === "name" ? { name: value ?? undefined } : { parentId: value });
+      }
+      return true;
+    } catch (err) {
+      console.error("[playlists] Failed to save a sidebar change:", err);
+      if (from !== undefined) put(from, value);
+      toast.error("Couldn’t save that change, so it was taken back. Check the connection and try again.", { id: EDIT_TOAST, action: undefined });
+      return false;
+    }
+  }
+
+  /**
+   * The open playlist's rows go back to (or forward to) an edit's snapshot,
+   * each row as it is now (a later note stays). What comes back is selected,
+   * as in Finder. False when there is nothing to step to.
+   */
+  function stepRows(direction: "undo" | "redo"): boolean {
     const pl = selectedRef.current;
     if (!pl || isUnsavedId(pl.id)) return false;
     const step = (direction === "undo" ? takeUndo : takeRedo)(historyRef.current.get(pl.id) ?? emptyHistory());
@@ -4488,7 +4746,7 @@ export function PlaylistsPage() {
       setFocusKey(back[0]);
       setAnchorKey(back[0]);
     }
-    toast(`${direction === "undo" ? "Undo" : "Redo"}: ${step.edit.label}`, { id: EDIT_TOAST, duration: 2000 });
+    toast(`${direction === "undo" ? "Undo" : "Redo"}: ${step.edit.label}`, { id: EDIT_TOAST, duration: 2000, action: undefined });
     void writeItems(pl.id, from, to).then((ok) => {
       if (ok && itemsDiff(from, to).addedClips.length > 0) queuePendingShip(updated);
     });
@@ -4535,7 +4793,7 @@ export function PlaylistsPage() {
     void navigator.clipboard?.writeText(rows.map(rowText).filter(Boolean).join("\n")).catch(() => {});
     const noun = `${rows.length} item${rows.length !== 1 ? "s" : ""}`;
     if (!cut) {
-      toast(`${noun} copied. Paste with ${MOD}V here or in another playlist.`, { id: EDIT_TOAST, duration: 2500 });
+      toast(`${noun} copied. Paste with ${MOD}V here or in another playlist.`, { id: EDIT_TOAST, duration: 2500, action: undefined });
       return true;
     }
     const taken = new Set(rows.map(playlistItemKey));
@@ -4553,7 +4811,7 @@ export function PlaylistsPage() {
     if (!pl || rowClipboard.length === 0) return false;
     const { items, pasted } = pasteItems(pl.items, rowClipboard, pasteIndexAfter(pl.items, focusKey));
     if (pasted.length === 0) {
-      toast("Those clips are already in this playlist", { id: EDIT_TOAST });
+      toast("Those clips are already in this playlist", { id: EDIT_TOAST, action: undefined });
       return true;
     }
     const keys = pasted.map(playlistItemKey);
@@ -4755,7 +5013,9 @@ export function PlaylistsPage() {
     updateTextCard(selected.id, id, { durationSeconds }).catch(() => {});
   }
 
-  // Stats card edits show at once and save after a pause in the typing.
+  // Stats card edits show at once and save after a pause in the typing. The note is
+  // stored trimmed (its line breaks kept) while the editor keeps what was typed, so a
+  // Return at the end opens a line to type on without being stored.
   const statsSaveTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   function handleStatsCardChange(id: string, spec: StatsCardSpec) {
     const pl = selectedRef.current;
@@ -4772,7 +5032,8 @@ export function PlaylistsPage() {
     clearTimeout(timers.get(id));
     timers.set(id, setTimeout(() => {
       timers.delete(id);
-      updateTextCard(pl.id, id, { card: spec, text }).catch(() => toast.error("Couldn't save the stats card. Try again."));
+      const card: StatsCardSpec = { ...spec, note: spec.note?.trim() || null };
+      updateTextCard(pl.id, id, { card, text }).catch(() => toast.error("Couldn't save the stats card. Try again."));
     }, 400));
   }
 
@@ -4839,7 +5100,7 @@ export function PlaylistsPage() {
   const liveReport = isLiveReport(myReport) ? myReport : null;
 
   /** Why the report can't be shared (a demo game), else null. */
-  const reportShareDisabledReason = selected ? demoShipBlockReason(selected) : null;
+  const reportShareDisabledReason = selected ? demoShipBlockReason(selected, matchLookup) : null;
 
   /** Prepares the clips and previews and publishes the report (lib/scouting-report.ts); the report view's share sheet drives it. */
   async function runReport(draft: ReportDraft, a: ScoutingReportRun): Promise<GenerateOutcome> {
@@ -4849,7 +5110,7 @@ export function PlaylistsPage() {
       playlist: pl,
       draft,
       eventByKey,
-      shipSegments: buildShipSegments(pl),
+      shipSegments: buildShipSegments(pl, matchLookup, eventByKey),
       clipSource: (matchId) => {
         const m = matchLookup.get(matchId);
         return m?.videoUrl && m.syncPoint ? { videoPath: m.videoUrl, syncPoint: m.syncPoint } : null;
@@ -5218,8 +5479,6 @@ export function PlaylistsPage() {
                 onReset={() => setActiveClipCropKeyframes(null)}
               />
             )}
-            {/* This clip's own length: the playlist's clip length plus the
-                clip's offsets, shown as the seconds that actually play. */}
             {slowSection && !draw.session && activeClipCrop.start !== null && (
               <SlowBar
                 section={slowSection}
@@ -5246,35 +5505,9 @@ export function PlaylistsPage() {
               />
             )}
             {activeEventId !== null && !draw.session && !slowSection && (() => {
-              // A trim can leave fractions: shown to the tenth, and the
-              // steppers move on to whole seconds from there.
-              const before = preRoll + activeClipOffsets.pre;
-              const after = postRoll + activeClipOffsets.post;
               return (
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1">
                   <span className="text-callout text-muted-foreground">This clip</span>
-                  <div className="flex items-center gap-1.5">
-                    <Stepper
-                      label="Seconds before the play"
-                      value={before}
-                      min={0}
-                      disabled={!!trim}
-                      onChange={(n) => adjustActiveClip(stepToWhole(before, n) - before, 0)}
-                      format={formatSeconds}
-                    />
-                    <span className="text-callout text-muted-foreground">before</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <Stepper
-                      label="Seconds after the play"
-                      value={after}
-                      min={0}
-                      disabled={!!trim}
-                      onChange={(n) => adjustActiveClip(0, stepToWhole(after, n) - after)}
-                      format={formatSeconds}
-                    />
-                    <span className="text-callout text-muted-foreground">after</span>
-                  </div>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="xs" disabled={!!trim || !!activeTextCard} onClick={() => enterDraw()}>
@@ -5330,14 +5563,20 @@ export function PlaylistsPage() {
                     <TooltipContent>Play at the wrong moment? Move this clip, or every clip of the game</TooltipContent>
                   </Tooltip>
                   {(activeClipOffsets.pre !== 0 || activeClipOffsets.post !== 0) && !trim && (
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => adjustActiveClip(-activeClipOffsets.pre, -activeClipOffsets.post)}
-                      title={`Back to the playlist's ${preRoll} s before and ${postRoll} s after. Also undoes a Fix sync made for this clip alone.`}
-                    >
-                      Reset
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          onClick={() => adjustActiveClip(-activeClipOffsets.pre, -activeClipOffsets.post)}
+                        >
+                          Reset trim
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {`Back to the playlist's clip length (${preRoll} s before, ${postRoll} s after). Also undoes a Fix sync made for this clip alone.`}
+                      </TooltipContent>
+                    </Tooltip>
                   )}
                 </div>
               );
@@ -5366,6 +5605,7 @@ export function PlaylistsPage() {
                     onRename={handleRenameLabel}
                     onRecolor={handleRecolorLabel}
                     onDelete={handleDeleteLabel}
+                    onSetKey={handleSetLabelKey}
                     onSeedDefaults={handleSeedDefaultLabels}
                     align="start"
                   />
@@ -5632,6 +5872,7 @@ export function PlaylistsPage() {
                   onRename: handleRenameLabel,
                   onRecolor: handleRecolorLabel,
                   onDelete: handleDeleteLabel,
+                  onSetKey: handleSetLabelKey,
                   onSeedDefaults: handleSeedDefaultLabels,
                 } : undefined}
                 groupPos={!filtersActive ? groupRuns.get(key)?.pos : undefined}
@@ -5688,6 +5929,7 @@ export function PlaylistsPage() {
             onRename={handleRenameLabel}
             onRecolor={handleRecolorLabel}
             onDelete={handleDeleteLabel}
+            onSetKey={handleSetLabelKey}
             onSeedDefaults={handleSeedDefaultLabels}
             side="top"
           />
@@ -5717,6 +5959,7 @@ export function PlaylistsPage() {
     {selected && !reportView ? (
       <EditorToolbar
         name={selected.name}
+        backTo={backTo}
         itemCount={selected.items.length}
         isMultiMatch={isMultiMatch}
         editing={editingPlaylistId === selected.id && editingVia === "header"}
@@ -5798,6 +6041,7 @@ export function PlaylistsPage() {
       <Toolbar
         variant="static"
         title="Playlists"
+        leading={backTo ? <BackButton {...backTo} /> : undefined}
         actions={
           <Button size="sm" onClick={() => handleNewPlaylist()}>
             <ListPlus />
@@ -5981,7 +6225,7 @@ export function PlaylistsPage() {
                   onDrop={(e) => handleDrop(null, e)}
                 />
               </ContextMenuTrigger>
-              <ContextMenuContent>
+              <ContextMenuContent onCloseAutoFocus={focusSidebarField}>
                 <ContextMenuItem onSelect={() => handleNewPlaylist(null)}>
                   New Playlist
                 </ContextMenuItem>
@@ -6136,9 +6380,9 @@ export function PlaylistsPage() {
               if (!open) setAddClipsFrom(null);
             }}
           >
-            <SheetContent>
+            <SheetContent onInteractOutside={(e) => e.preventDefault()}>
               <ClipBrowserPanel
-                matches={matches}
+                matches={addClipsMatches}
                 matchLookup={matchLookup}
                 playlist={selected}
                 preferredMatchId={addClipsFrom}
@@ -6156,6 +6400,7 @@ export function PlaylistsPage() {
                   onRename: handleRenameLabel,
                   onRecolor: handleRecolorLabel,
                   onDelete: handleDeleteLabel,
+                  onSetKey: handleSetLabelKey,
                   onSeedDefaults: handleSeedDefaultLabels,
                 }}
               />

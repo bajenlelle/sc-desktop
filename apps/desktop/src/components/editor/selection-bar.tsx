@@ -48,13 +48,17 @@ export function SelectionBar({
   count,
   onRemove,
   onClear,
+  clearTitle = "Deselect all (Esc, or click empty space in the list)",
   group,
   labelPicker,
   addTo,
 }: {
   count: number;
-  onRemove: () => void;
+  /** Without it, no Remove: the game view's selection is of plays, not of a playlist's clips. */
+  onRemove?: () => void;
   onClear: () => void;
+  /** The clear button's tooltip: the ways to let go of the selection where the bar is. */
+  clearTitle?: string;
   group: SelectionGroupAction | null;
   labelPicker?: React.ReactNode;
   addTo: React.ReactNode;
@@ -80,10 +84,12 @@ export function SelectionBar({
               {count}
               <span className={cn(PILL_LABEL, "ml-1")}>selected</span>
             </span>
-            <PillButton tone="destructive" onClick={onRemove} title="Remove from playlist">
-              <Trash2 />
-              <span className={PILL_LABEL}>Remove</span>
-            </PillButton>
+            {onRemove && (
+              <PillButton tone="destructive" onClick={onRemove} title="Remove from playlist">
+                <Trash2 />
+                <span className={PILL_LABEL}>Remove</span>
+              </PillButton>
+            )}
             {group && (
               <PillButton disabled={group.disabled} title={group.reason ?? groupLabel} onClick={group.onClick}>
                 <Link2 />
@@ -93,7 +99,7 @@ export function SelectionBar({
             {labelPicker}
             {addTo}
             <span aria-hidden className="mx-0.5 h-4 w-px shrink-0 bg-separator" />
-            <PillButton icon aria-label="Deselect all" title="Deselect all (Esc, or click empty space in the list)" onClick={onClear}>
+            <PillButton icon aria-label="Deselect all" title={clearTitle} onClick={onClear}>
               <X />
             </PillButton>
           </div>

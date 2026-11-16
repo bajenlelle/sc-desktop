@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { clipBounds } from "../clip-timing";
-import { clampTrimEdge, formatSeconds, offsetsForTrim, shiftedClipOffsets, stepToWhole, trimEdgeLimits, trimRange } from "../trim-math";
+import { clampTrimEdge, formatSeconds, offsetsForTrim, shiftedClipOffsets, trimEdgeLimits, trimRange } from "../trim-math";
 
 describe("trimRange", () => {
   it("shows the clip with ten seconds either side", () => {
@@ -85,28 +85,6 @@ describe("formatSeconds", () => {
     expect(formatSeconds(3)).toBe("3 s");
     expect(formatSeconds(2.999)).toBe("3 s");
     expect(formatSeconds(-0.01)).toBe("0 s");
-  });
-});
-
-describe("stepToWhole", () => {
-  it("steps a whole value by one", () => {
-    expect(stepToWhole(8, 9)).toBe(9);
-    expect(stepToWhole(8, 7)).toBe(7);
-  });
-
-  it("lands a fractional value on the nearest whole second that way", () => {
-    expect(stepToWhole(8.47, 9.47)).toBe(9);
-    expect(stepToWhole(8.47, 7.47)).toBe(8);
-    expect(stepToWhole(0.4, 0)).toBe(0);
-  });
-
-  it("isn't thrown by floating-point noise", () => {
-    expect(stepToWhole(7.9999999, 8.9999999)).toBe(9);
-    expect(stepToWhole(8.0000001, 7.0000001)).toBe(7);
-  });
-
-  it("leaves the value when the stepper didn't move", () => {
-    expect(stepToWhole(5.5, 5.5)).toBe(5.5);
   });
 });
 

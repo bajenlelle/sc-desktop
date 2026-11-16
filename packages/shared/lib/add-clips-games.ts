@@ -9,6 +9,7 @@
 import type { PlaylistClipItem, PlaylistItem, StoredMatch } from "../types/match";
 import { isClipItem } from "../types/match";
 import { foldForSearch } from "./league-teams";
+import { playerKey } from "./clip-filters";
 
 export type BrowserGame = Pick<StoredMatch, "id" | "title" | "date" | "homeTeam" | "awayTeam" | "events">;
 
@@ -94,4 +95,59 @@ export function orderForAdd(keys: readonly string[], matches: readonly BrowserGa
     }
   }
   return out;
+}
+
+/** The most games the sheet searches at once: each is a fetch of its plays, and the list stays readable. */
+export const MAX_BROWSER_GAMES = 10;
+
+/** How many games "Last 5 games" picks. */
+export const RECENT_GAMES = 5;
+
+/**
+ * The games to start on: the one the coach came here from alone, while it
+ * exists; else the games last browsed for this playlist that still exist, in
+ * that order; else startGame's game (most clips, else the latest played).
+ */
+export function startGames(
+  matches: readonly BrowserGame[],
+  items: readonly PlaylistItem[],
+  remembered: readonly string[],
+  preferred: string | null = null,
+): { ids: string[]; source: StartSource } {
+  if (preferred !== null && matches.some((m) => m.id === preferred)) return { ids: [preferred], source: "preferred" };
+  const kept = remembered.filter((id) => matches.some((m) => m.id === id));
+  if (kept.length > 0) return { ids: kept, source: "remembered" };
+  const s = startGame(matches, items, null);
+  return { ids: s.id !== null ? [s.id] : [], source: s.source };
+}
+
+/** The chosen games with `id` ticked or unticked; the last game can't be unticked, and none is added past `max`. */
+export function toggleGame(ids: readonly string[], id: string, max: number = MAX_BROWSER_GAMES): string[] {
+  if (ids.includes(id)) return ids.length === 1 ? [...ids] : ids.filter((x) => x !== id);
+  if (ids.length >= max) return [...ids];
+  return [...ids, id];
+}
+
+/** The latest `n` games played, latest first. */
+export function latestGames(matches: readonly BrowserGame[], n: number = RECENT_GAMES): string[] {
+  return [...matches].sort(byDateDesc).slice(0, n).map((m) => m.id);
+}
+
+/** A team's latest `n` games, home or away, latest first; the name is compared case and accents aside. */
+export function teamGames(matches: readonly BrowserGame[], team: string, n: number = RECENT_GAMES): string[] {
+  const wanted = foldForSearch(team);
+  return matches
+    .filter((m) => foldForSearch(m.homeTeam.name) === wanted || foldForSearch(m.awayTeam.name) === wanted)
+    .sort(byDateDesc)
+    .slice(0, n)
+    .map((m) => m.id);
+}
+
+/** The team (as the game row names it) of the player's latest game in these games; null if no loaded play has them. */
+export function playerTeam(matches: readonly BrowserGame[], key: string): string | null {
+  for (const m of [...matches].sort(byDateDesc)) {
+    const e = m.events.find((x) => playerKey(x) === key);
+    if (e?.player) return e.player.teamNumber === 2 ? m.awayTeam.name : m.homeTeam.name;
+  }
+  return null;
 }

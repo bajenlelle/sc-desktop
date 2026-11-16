@@ -38,6 +38,8 @@ export interface Label {
   name: string;
   color: LabelColor;
   createdAt: string;
+  /** The key (1–9) that puts this label on a clip, with Option or Alt; null when it has none (lib/label-keys.ts). */
+  hotkey: number | null;
 }
 
 export interface ClipLabelAssignment {

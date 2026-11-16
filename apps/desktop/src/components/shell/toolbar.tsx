@@ -87,6 +87,9 @@ export function PlaylistBrowserToggle() {
  * sidebar is hidden on macOS the bar pads for the traffic lights.
  * `principal` is the centred item (a view switcher, as in Calendar's
  * Day/Week/Month): it sits in the space between the title and the actions.
+ * `underTabs` says the game page's tab bar is the row above (the tabs are the
+ * page's top row, components/game/game-tab-bar.tsx): the traffic lights sit
+ * in that row then, so this bar doesn't pad for them.
  */
 export function Toolbar({
   title,
@@ -95,6 +98,7 @@ export function Toolbar({
   principal,
   search,
   actions,
+  underTabs = false,
   variant = "scroll",
   className,
 }: {
@@ -104,6 +108,7 @@ export function Toolbar({
   principal?: React.ReactNode;
   search?: React.ReactNode;
   actions?: React.ReactNode;
+  underTabs?: boolean;
   variant?: "scroll" | "static";
   className?: string;
 }) {
@@ -119,7 +124,7 @@ export function Toolbar({
         "z-20 flex h-[var(--toolbar-height)] shrink-0 items-center gap-3 pr-4 transition-[background-color] duration-200 select-none",
         variant === "scroll" ? "absolute inset-x-0 top-0" : "relative border-b border-separator",
         material ? "bg-material-toolbar backdrop-blur-xl" : "bg-transparent",
-        IS_MACOS && collapsed ? "pl-[calc(var(--traffic-lights-width)+0.75rem)]" : "pl-3",
+        IS_MACOS && collapsed && !underTabs ? "pl-[calc(var(--traffic-lights-width)+0.75rem)]" : "pl-3",
         className,
       )}
       style={
