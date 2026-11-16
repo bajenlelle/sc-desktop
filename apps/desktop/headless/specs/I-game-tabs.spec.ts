@@ -1,6 +1,6 @@
 /**
  * The game page's tab bar (docs/game-view.md, "Games in tabs"): the page's
- * top row, above the game's own toolbar, with tabs at their natural width, a
+ * top row, above the game's own toolbar, there with one game too, with tabs at their natural width, a
  * "+" that opens a game picker, tabs that drag into another order, Close Tab,
  * New Tab and Reopen Closed Tab, the keys of a tab list, a tab's menu, and the
  * Library marking the games that are open. It opens the test account's games
@@ -52,13 +52,12 @@ async function watchForSpinner(page: Page): Promise<void> {
 const sawSpinner = (page: Page) => page.evaluate(() => (window as unknown as { __sawSpinner: boolean }).__sawSpinner);
 
 test("the tabs are the page's top row, at their own width, with the shown game's tab leading into its toolbar", async ({ page, browserName }) => {
-  // One game: no tab bar, and nothing to open another from.
+  // One game is one tab (its own test is below).
   const [g0] = await openGames(page, 1);
   await expect(heading(page)).toHaveText(g0.title);
-  await expect(tablist(page)).toHaveCount(0);
-  await expect(plus(page)).toHaveCount(0);
+  await expect(tabs(page)).toHaveCount(1);
 
-  // A second game brings the bar: above the game's own toolbar, not under it.
+  // A second game is a second tab, in the bar above the game's own toolbar, not under it.
   const g1 = await openLibraryGame(page, 1);
   await expect(tabs(page)).toHaveCount(2);
   await expect(tab(page, g1.title)).toHaveAttribute("aria-selected", "true");
@@ -93,6 +92,60 @@ test("the tabs are the page's top row, at their own width, with the shown game's
     await shot(page, `${browserName}-I-tabs-two-${scheme}`);
   }
   await page.emulateMedia({ colorScheme: "light" });
+});
+
+test("one open game is a tab too: the + is there to open another from, and the lone tab has nothing to close it by", async ({ page, browserName }) => {
+  const [g0] = await openGames(page, 1);
+  await expect(heading(page)).toHaveText(g0.title);
+  await expect(tabs(page), "the one game is a tab").toHaveCount(1);
+  await expect(tab(page, g0.title)).toHaveAttribute("aria-selected", "true");
+  const bar = await boxOf(tablist(page), "the tab bar");
+  const title = await boxOf(heading(page), "the game's title");
+  expect(bar.y + bar.height, "the tab bar is above the toolbar's title row").toBeLessThanOrEqual(title.y);
+  const only = await boxOf(tab(page, g0.title), "the tab");
+  const add = await boxOf(plus(page), "the +");
+  expect(add.x, "the + comes right after the tab").toBeGreaterThanOrEqual(only.x + only.width - 1);
+  expect(add.x - (only.x + only.width), "and stays close to it").toBeLessThan(24);
+
+  for (const scheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await shot(page, `${browserName}-I-tabs-one-${scheme}`);
+  }
+  await page.emulateMedia({ colorScheme: "light" });
+
+  // There is no other game to go to: no ×, Close Tab is off in its menu, Delete and a middle click leave it.
+  await tab(page, g0.title).hover();
+  await expect(closeOf(page, g0.title), "a lone tab has no ×").toHaveCount(0);
+  await tab(page, g0.title).click({ button: "right" });
+  await expect(page.getByRole("menu").getByRole("menuitem", { name: "Close Tab", exact: true }), "Close Tab is off").toHaveAttribute("aria-disabled", "true");
+  await page.keyboard.press("Escape");
+  await tab(page, g0.title).focus();
+  await page.keyboard.press("Delete");
+  await tab(page, g0.title).click({ button: "middle" });
+  await expect(tabs(page)).toHaveCount(1);
+  await expect(heading(page)).toHaveText(g0.title);
+  // The + opens the picker, and a game chosen there is the second tab.
+  await plus(page).click();
+  await expect(picker(page)).toBeVisible();
+  await expect(page.getByPlaceholder("Search games")).toBeFocused();
+  const other = picker(page).getByRole("button").filter({ hasNotText: g0.title }).first();
+  await expect(other, "the Library's other games are offered").toBeVisible({ timeout: 30_000 });
+  await other.click();
+  await expect(picker(page)).toHaveCount(0);
+  await expect(tabs(page), "the chosen game is a second tab").toHaveCount(2);
+  // The new tab has its title once the game has loaded.
+  await expect(heading(page)).not.toHaveText(/^(Game|Loading…)?$/, { timeout: 30_000 });
+  const second = (await heading(page).innerText()).trim();
+  expect(second, "another game than the first").not.toBe(g0.title);
+  await expect(tab(page, second), "the new game's tab is the shown one").toHaveAttribute("aria-selected", "true");
+  await expect(closeOf(page, second), "with two tabs each can be closed").toHaveCount(1);
+
+  // Back to one: the bar stays, with the tab that is left and the +.
+  await closeOf(page, second).click();
+  await expect(tabs(page), "one game left: its tab stays").toHaveCount(1);
+  await expect(heading(page)).toHaveText(g0.title, { timeout: 10_000 });
+  await expect(closeOf(page, g0.title)).toHaveCount(0);
+  await expect(plus(page)).toBeVisible();
 });
 
 test("the + opens a picker of the Library's games: a new one opens in a tab, an open one goes to its tab", async ({ page, browserName }) => {
@@ -170,7 +223,7 @@ test("a tab dragged past its neighbour changes places with it, and the order sta
   expect(await titles(page), "the order after leaving the games and coming back").toEqual([g2.title, g1.title, g0.title]);
 });
 
-test("Close Tab closes the shown game's tab, and the last one left takes the bar with it", async ({ page }) => {
+test("Close Tab closes the shown game's tab, and leaves the last one", async ({ page }) => {
   const [g0, g1, g2] = await openGames(page, 3);
   await expect(heading(page)).toHaveText(g2.title);
 
@@ -182,8 +235,12 @@ test("Close Tab closes the shown game's tab, and the last one left takes the bar
   await expect(heading(page), "the neighbour's game is shown").toHaveText(g1.title, { timeout: 10_000 });
 
   await closeTab();
-  await expect(tablist(page), "one game left: no tab bar").toHaveCount(0);
+  await expect(tabs(page), "one game left: its tab stays").toHaveCount(1);
   await expect(heading(page)).toHaveText(g0.title, { timeout: 10_000 });
+  // With one tab Close Tab is not in the menu (⌘W is the window's); if it arrives all the same, the tab stays.
+  await closeTab();
+  await expect(tabs(page)).toHaveCount(1);
+  await expect(heading(page)).toHaveText(g0.title);
 });
 
 test.describe("where there is no menu bar", () => {
@@ -194,10 +251,10 @@ test.describe("where there is no menu bar", () => {
     const [g0, g1] = await openGames(page, 2);
     await expect(tabs(page)).toHaveCount(2);
     await page.keyboard.press("Control+w");
-    await expect(tablist(page)).toHaveCount(0);
+    await expect(tabs(page)).toHaveCount(1);
     await expect(heading(page)).toHaveText(g0.title, { timeout: 10_000 });
 
-    // One game, no tabs: the chord does nothing to the page.
+    // One game, one tab, nothing to close to: the chord does nothing to the page.
     await page.keyboard.press("Control+w");
     await expect(heading(page)).toHaveText(g0.title);
     await expect(page).toHaveURL(new RegExp(`/matches/${g0.id}`));
@@ -318,16 +375,15 @@ test("a click on a tab leaves the keyboard with the page: Space and the arrows s
 });
 
 test("New Tab opens the picker, from a single game too, and a closed tab comes back in its place", async ({ page }) => {
-  // One game, no bar: New Tab brings the bar for as long as the picker is open.
+  // One game: New Tab opens the same picker the + does.
   const [g0] = await openGames(page, 1);
-  await expect(tablist(page)).toHaveCount(0);
+  await expect(tabs(page)).toHaveCount(1);
   await menu(page, "menu-new-game-tab");
   await expect(picker(page)).toBeVisible();
   await expect(page.getByPlaceholder("Search games")).toBeFocused();
-  await expect(tabs(page), "the one game shows as a tab while the picker is open").toHaveCount(1);
   await page.keyboard.press("Escape");
   await expect(picker(page)).toHaveCount(0);
-  await expect(tablist(page), "dismissed, the bar goes again").toHaveCount(0);
+  await expect(tabs(page), "dismissed, the one tab is as it was").toHaveCount(1);
 
   // Two more games, then close the first: Reopen Closed Tab puts it back where it was, and shows it.
   const g1 = await openLibraryGame(page, 1);
@@ -352,8 +408,8 @@ test("a tab's menu closes it, or every other tab", async ({ page }) => {
   const tabMenu = page.getByRole("menu");
   await expect(tabMenu.getByRole("menuitem", { name: "Close Tab", exact: true })).toBeVisible();
   await tabMenu.getByRole("menuitem", { name: "Close Other Tabs", exact: true }).click();
-  await expect(tablist(page), "one game left: no tab bar").toHaveCount(0);
-  await expect(heading(page), "the tab that was kept is the game shown").toHaveText(g1.title, { timeout: 10_000 });
+  await expect(tabs(page), "one game left: the tab that was kept").toHaveCount(1);
+  await expect(heading(page), "and it is the game shown").toHaveText(g1.title, { timeout: 10_000 });
 
   // The two that were closed come back one at a time, last closed first.
   await menu(page, "menu-reopen-game-tab");
@@ -383,8 +439,9 @@ test("a seventh game says which tab it closed, and can bring it back", async ({ 
   await expect(notice, "the notice is still there six seconds on").toBeVisible();
   await notice.getByRole("button", { name: "Reopen" }).click();
   await expect(heading(page)).toHaveText(g0.title, { timeout: 10_000 });
-  expect((await titles(page))[0], "it is back in its place").toBe(g0.title);
+  // (The tab that made room this time leaves with a short fade, and is still in the row until it has.)
   await expect(tabs(page)).toHaveCount(6);
+  expect((await titles(page))[0], "it is back in its place").toBe(g0.title);
 });
 
 test("a tab cuts each team short by itself, so both stay in sight", async ({ page }) => {

@@ -38,14 +38,22 @@ stretch where a game turned.
   page kept alive: switching remounts the page on the other game, so there is
   still one decoder (`lib/release-video.ts`), and the memory above is what
   brings it back as it was left.
-- **The bar is the page's top row**, above the game's own toolbar, from two
-  open games (`components/game/game-tab-bar.tsx`): everything under it belongs
-  to the shown game, as in Notion or a browser. The tabs start at the left at
+- **The bar is the page's top row**, above the game's own toolbar
+  (`components/game/game-tab-bar.tsx`): everything under it belongs
+  to the shown game, as in Notion or a browser. It is there with one game
+  open too, as a single tab with the + after it. It used to show from two
+  games, as Safari's and Finder's bars do, and then the only ways to a second
+  tab were ⌘T and the File menu, which were not found; with the bar always
+  there the + is always in the same place, and the page doesn't move down a
+  row when the second game opens. It costs a row of 44 px, which the video
+  loses only where the window is low and wide. The tabs start at the left at
   their own width (208 px at most, shrinking together when there are many,
   never stretched to fill the row); the shown game's tab is the page's own
   colour and leads into the toolbar under it, the others are plain until
   pointed at. The × is on the right: always there on the shown tab, on hover
-  or focus on the others. The row drags the window, and with the sidebar
+  or focus on the others. A lone tab has none, and its Close Tab, Delete and
+  a middle click do nothing: there is no other game to give the page to, and
+  the toolbar's Library is the way out of the game. The row drags the window, and with the sidebar
   hidden on macOS the traffic lights sit in it (the toolbar under it then
   doesn't pad for them: `Toolbar`'s `underTabs`).
 - **The bar lives in the window's layout**, not in the game page
@@ -89,11 +97,11 @@ stretch where a game turned.
   is. A game that already has a tab says "Open" and choosing it goes to that
   tab; any other opens in a new one. Return opens the first game listed.
   New Tab (⌘T, File menu; Ctrl+T where there is no menu bar) opens the same
-  picker, on the game page; with a single game open, and so no bar, the bar
-  shows for as long as the picker is open.
-- **⌘W closes the shown game's tab while the bar is there**, and the window
-  otherwise. The File menu has Close Tab and Close Window, as Safari does:
-  with tabs, ⌘W and ⇧⌘W; without, there is no Close Tab in the menu and Close
+  picker, on the game page.
+- **⌘W closes the shown game's tab while there are two tabs or more**, and
+  the window otherwise (with one game the bar is there, but there is no tab
+  to close to). The File menu has Close Tab and Close Window, as Safari does:
+  with two tabs or more, ⌘W and ⇧⌘W; with one, there is no Close Tab in the menu and Close
   Window is ⌘W (`src-tauri/src/menu.rs`: `menu_game_tabs` puts Close Tab in
   and takes it out, because the menu library changes an item's shortcut but
   doesn't take one away). Close Window is closed natively, so it works where

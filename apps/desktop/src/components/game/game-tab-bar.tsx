@@ -22,9 +22,11 @@ import { GameTabPicker } from "./game-tab-picker";
 import { GameTabStrip } from "./game-tab-strip";
 
 /**
- * The game page's tab bar: the open games, from two of them, as the top row
- * of the content column, above the game's own toolbar. Everything under it
- * belongs to the shown game.
+ * The game page's tab bar: the open games as the top row of the content
+ * column, above the game's own toolbar. Everything under it belongs to the
+ * shown game. It is there with one game too: the + after the tab is how
+ * another game is opened beside it, and a way in that only shows once there
+ * are two tabs is not found (⌘T and the File menu were the only ones).
  *
  * It lives in the window's layout (components/root-layout.tsx), not in the
  * game page: the page is built again each time the game in the address
@@ -51,10 +53,9 @@ export function GameTabBar() {
   const collapsed = useSidebarCollapsed();
   const tabCount = tabs.tabs.length;
   const hasClosed = useHasClosedGameTab(scope);
-  // The picker is the bar's: with one game open and so no bar, New Tab (⌘T) brings the bar for as long as it is open.
   const [picking, setPicking] = useState(false);
+  // Tabs to close: from two. With one, ⌘W is the window's and the tab has no ×.
   const tabbed = matchId !== null && tabCount >= 2;
-  const shown = matchId !== null && (tabCount >= 2 || picking);
   const openIds = useMemo(() => new Set(tabs.tabs.map((t) => t.id)), [tabs.tabs]);
 
   const goTo = useCallback(
@@ -69,7 +70,8 @@ export function GameTabBar() {
 
   const close = useCallback(
     (id: string, via: "button" | "middle_click" | "menu" | "key" | "tab_menu") => {
-      if (!tabs.tabs.some((t) => t.id === id)) return;
+      // A lone tab stays: there is no other game to give the page to.
+      if (tabs.tabs.length < 2 || !tabs.tabs.some((t) => t.id === id)) return;
       const next = forgetGameTab(scope, id);
       trackEvent("game_tab_closed", { via, tabs: tabs.tabs.length - 1 });
       if (id === matchId && next) {
@@ -177,15 +179,16 @@ export function GameTabBar() {
     };
   }, [scope, matchId, tabbed, tabs, goTo, close]);
 
-  if (!shown || !matchId) return null;
+  if (!matchId) return null;
   return (
     // The row drags the window wherever a tab or the + isn't. The line along its foot is broken by the shown
     // game's tab, which is the page's own colour. With the sidebar hidden on macOS the traffic lights sit here.
+    // The first tab starts where the page's content does (the footage, the Now bar and the timeline are 16 px in).
     <div
       data-tauri-drag-region
       className={cn(
         "relative z-20 flex h-11 shrink-0 items-end bg-fill-1 pr-4 shadow-[inset_0_-1px_0_var(--separator)] select-none",
-        IS_MACOS && collapsed ? "pl-[calc(var(--traffic-lights-width)+0.75rem)]" : "pl-3",
+        IS_MACOS && collapsed ? "pl-[calc(var(--traffic-lights-width)+0.75rem)]" : "pl-4",
       )}
     >
       <GameTabStrip

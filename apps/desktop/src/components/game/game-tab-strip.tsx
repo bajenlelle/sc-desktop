@@ -19,7 +19,8 @@ import { cn } from "@/lib/utils";
  * on as a drag: the tab follows the pointer, the others slide out of its way,
  * and a tab let go past an end springs back. The × is on the right, always there on the shown tab
  * and on hover or focus on the others; a middle click closes a tab too, and a
- * right-click has Close Tab and Close Other Tabs.
+ * right-click has Close Tab and Close Other Tabs. A lone tab can't be closed (no ×, Close Tab off, Delete and
+ * a middle click leave it): there is no other game to go to, and the toolbar's Library leaves the game.
  *
  * The keyboard works them as a tab list (W3C's Tabs pattern): Tab stops once,
  * on the shown game's tab; ← and → move the focus along the tabs and round
@@ -50,6 +51,8 @@ export function GameTabStrip({
 }) {
   const [dragging, setDragging] = useState<string | null>(null);
   const ids = tabs.map((t) => t.id);
+  // A lone tab has no other game to give the page to.
+  const closable = tabs.length > 1;
   // The order a drag started from, and the order as it stands (the drag's end reads it after its last swap).
   const orderAtStart = useRef("");
   const latestIds = useRef(ids);
@@ -137,7 +140,7 @@ export function GameTabStrip({
                           onAuxClick={(e) => {
                             if (e.button !== 1) return;
                             e.preventDefault();
-                            onClose(tab.id, "middle_click");
+                            if (closable) onClose(tab.id, "middle_click");
                           }}
                           onKeyDown={(e) => {
                             if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -150,12 +153,15 @@ export function GameTabStrip({
                               select();
                             } else if (e.key === "Delete" || e.key === "Backspace") {
                               e.preventDefault();
+                              if (!closable) return;
                               focusNext.current = ids[index + 1] ?? ids[index - 1] ?? null;
                               onClose(tab.id, "key");
                             }
                           }}
                           className={cn(
-                            "h-8 w-full min-w-0 rounded-t-lg border border-b-0 pr-7 pl-3 text-left text-sm outline-none select-none transition-[background-color,color] duration-100 focus-visible:ring-2 focus-visible:ring-selection focus-visible:ring-inset",
+                            "h-8 w-full min-w-0 rounded-t-lg border border-b-0 pl-3 text-left text-sm outline-none select-none transition-[background-color,color] duration-100 focus-visible:ring-2 focus-visible:ring-selection focus-visible:ring-inset",
+                            // Room for the ×, where there is one.
+                            closable ? "pr-7" : "pr-3",
                             active
                               ? "border-separator bg-background font-medium text-foreground"
                               : "border-transparent text-muted-foreground hover:bg-fill-2 hover:text-foreground active:bg-fill-3",
@@ -180,27 +186,31 @@ export function GameTabStrip({
                         {tab.date && <span className="text-muted-foreground nums">{formatDate(tab.date, "medium")}</span>}
                       </TooltipContent>
                     </Tooltip>
-                    <button
-                      type="button"
-                      aria-label={`Close ${tab.title || "game"}`}
-                      // For the pointer: the keyboard closes a tab with Delete.
-                      tabIndex={-1}
-                      // In the capture phase: the tab's drag listens on the tab itself, below React's own handlers,
-                      // and a press on the × must be neither a choice of the tab nor the start of a drag.
-                      onPointerDownCapture={(e) => e.stopPropagation()}
-                      onClick={() => onClose(tab.id, "button")}
-                      className={cn(
-                        "absolute top-1/2 right-1.5 flex size-5 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground outline-none transition-[opacity,background-color,color] duration-100 hover:bg-fill-3 hover:text-foreground active:bg-fill-4",
-                        // The shown game can always be closed; the others show theirs when pointed at.
-                        active ? "opacity-100" : "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
-                      )}
-                    >
-                      <X className="size-3" />
-                    </button>
+                    {closable && (
+                      <button
+                        type="button"
+                        aria-label={`Close ${tab.title || "game"}`}
+                        // For the pointer: the keyboard closes a tab with Delete.
+                        tabIndex={-1}
+                        // In the capture phase: the tab's drag listens on the tab itself, below React's own handlers,
+                        // and a press on the × must be neither a choice of the tab nor the start of a drag.
+                        onPointerDownCapture={(e) => e.stopPropagation()}
+                        onClick={() => onClose(tab.id, "button")}
+                        className={cn(
+                          "absolute top-1/2 right-1.5 flex size-5 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground outline-none transition-[opacity,background-color,color] duration-100 hover:bg-fill-3 hover:text-foreground active:bg-fill-4",
+                          // The shown game can always be closed; the others show theirs when pointed at.
+                          active ? "opacity-100" : "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
+                        )}
+                      >
+                        <X className="size-3" />
+                      </button>
+                    )}
                   </div>
                 </ContextMenuTrigger>
                 <ContextMenuContent>
-                  <ContextMenuItem onSelect={() => onClose(tab.id, "tab_menu")}>Close Tab</ContextMenuItem>
+                  <ContextMenuItem disabled={!closable} onSelect={() => onClose(tab.id, "tab_menu")}>
+                    Close Tab
+                  </ContextMenuItem>
                   <ContextMenuItem disabled={tabs.length < 2} onSelect={() => onCloseOthers(tab.id)}>
                     Close Other Tabs
                   </ContextMenuItem>

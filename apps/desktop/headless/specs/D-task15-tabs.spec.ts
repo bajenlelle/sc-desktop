@@ -78,12 +78,12 @@ test.afterEach(async ({ page }) => {
 test("games open in tabs, switch without loading, and close", async ({ page, browserName }) => {
   const name = (step: string) => `${browserName}-D-task15-${step}`;
 
-  // One game: no tab bar.
+  // One game: one tab.
   const g0 = await openLibraryGame(page, 0);
   await showGameView(page);
-  await expect(tablist(page)).toHaveCount(0);
+  await expect(tablist(page).getByRole("tab")).toHaveCount(1);
 
-  // The second game brings the bar, above the toolbar's row, with the new game's tab selected.
+  // The second game is a second tab, in the bar above the toolbar's row, and the one selected.
   const g1 = await openLibraryGame(page, 1);
   await showGameView(page);
   await expect(tablist(page)).toBeVisible();

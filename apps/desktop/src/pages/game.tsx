@@ -174,8 +174,8 @@ export function GamePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [missing, matchId]);
 
-  // The tab bar itself is the row above the page (components/game/game-tab-bar.tsx), from two open games.
-  const underTabs = tabs.tabs.length >= 2;
+  // The tab bar is the row above the page (components/game/game-tab-bar.tsx), with one game open too.
+  const underTabs = true;
 
   const viewSwitch = <GameViewSwitch value={view ?? "game"} onChange={(next) => show(next)} />;
 
