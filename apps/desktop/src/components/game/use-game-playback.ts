@@ -110,14 +110,21 @@ export function useGamePlayback({
    * moved there (an arrow's step, a scrub, a swipe): the pin's own rule
    * decides (activePlay), so the lit row doesn't fall back to the plays that
    * happen during the run-up. `jump` is a move to another moment of the game
-   * (a quarter, a marker, a skip): that lets go of the clicked play.
+   * (a quarter, a marker, a skip): that lets go of the clicked play. `hold`
+   * is the play that moment leads to (a timeout's restart leads to the play
+   * out of it, a run's start to its first basket): it is the current play
+   * from here until it has happened, as a clicked play is through its
+   * run-up, so what the coach went there to see is what is named and added.
    */
   const seekTo = useCallback(
-    (t: number, opts: { play?: boolean; jump?: boolean } = {}) => {
+    (t: number, opts: { play?: boolean; jump?: boolean; hold?: TimedPlay | null } = {}) => {
       if (!latest.current.canPlay) return;
       if (opts.jump) pinRef.current = null;
       const end = Number.isFinite(video.duration) && video.duration > 0 ? video.duration - 0.05 : Infinity;
-      video.currentTime = clamp(t, 0, Math.max(0, end));
+      const to = clamp(t, 0, Math.max(0, end));
+      const hold = opts.hold;
+      if (hold && hold.reach === "in" && hold.time >= to) pinRef.current = { key: hold.key, from: to, time: hold.time };
+      video.currentTime = to;
       if (opts.play) {
         video.play().catch(() => {});
         setStarted(true);

@@ -258,6 +258,16 @@ describe("activePlay and the pin", () => {
     const pin = pinFor(plays[3]);
     expect(activePlay(plays, [0, 1], 155, pin)).toEqual({ index: 1, pin: null });
   });
+
+  it("holds the play a jump leads to from the jump's own second, through the plays that happen on the way", () => {
+    // A timeout's restart at 105 leads to the play at 160: held from there, well before that play's own run-up.
+    const pin = { key: plays[3].key, from: 105, time: plays[3].time };
+    expect(activePlay(plays, order, 105, pin)).toEqual({ index: 3, pin });
+    expect(activePlay(plays, order, 135, pin)).toEqual({ index: 3, pin });
+    expect(activePlay(plays, order, 160, pin)).toEqual({ index: 3, pin });
+    // Gone back more than a second before the jump's place: it is no longer where the video is heading.
+    expect(activePlay(plays, order, 103, pin)).toEqual({ index: 0, pin: null });
+  });
 });
 
 describe("momentAt", () => {

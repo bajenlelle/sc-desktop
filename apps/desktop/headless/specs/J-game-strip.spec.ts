@@ -549,3 +549,90 @@ test("a drag that starts on a run is a scrub: the playhead follows the pointer, 
     })
     .toEqual(["timeline_drag/time"]);
 });
+
+test("a jump to a timeout marks the play it leads to at once, whichever way it is made", async ({ page }) => {
+  const timeoutId = await giveSampleGameATimeout(page);
+  await openSampleGame(page);
+  const timeoutRow = list(page).locator(`[data-row-key="timeout:${timeoutId}"]`);
+  // The play the timeout leads to: the one the After timeouts list puts under it.
+  await moment(page, "After timeouts").click();
+  await expect(timeoutRow).toBeVisible();
+  const led = await list(page)
+    .locator("[data-row-key]")
+    .evaluateAll((rows, key) => {
+      const keys = rows.map((row) => row.getAttribute("data-row-key"));
+      return keys[keys.indexOf(key) + 1] ?? null;
+    }, `timeout:${timeoutId}`);
+  expect(led, "the timeout leads to a play").not.toBeNull();
+  await moment(page, "All plays").click();
+  await expect(playRows(page).nth(8)).toBeVisible();
+
+  const lit = () =>
+    list(page)
+      .locator('[data-row-key][aria-current="true"]')
+      .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-row-key")));
+  /** Stops the video where the jump put it: nothing happens while the list is read. */
+  const hold = async () => {
+    await page.evaluate(() => document.querySelector("video")?.pause());
+    await expect.poll(() => page.evaluate(() => { const v = document.querySelector("video"); return !!v && v.paused && !v.seeking; }), { timeout: 15_000 }).toBe(true);
+  };
+  const t = await boxOf(track(page), "the timeline's track");
+  const elsewhere = async () => {
+    await page.mouse.click(t.x + t.width * 0.93, t.y + 6);
+    await hold();
+    expect(await lit(), "somewhere else in the game, another play is the one on screen").not.toEqual([led]);
+  };
+
+  // On the strip.
+  const mark = await boxOf(timeline(page).locator(`[data-strip="timeout"][data-id="${timeoutId}"]`), "the timeout's mark");
+  const run = await boxOf(drawn(page, "run").first(), "the graph");
+  await elsewhere();
+  await page.mouse.click(mark.x + mark.width / 2, run.y + run.height / 2);
+  await hold();
+  expect(await lit(), "a click on the timeout in the timeline: the play it leads to is the one on screen").toEqual([led]);
+  const landed = await videoTime(page);
+
+  // Gone back past where the jump landed, the play is let go: it is no longer what the video is heading for.
+  await page.evaluate((to) => {
+    document.querySelector("video")!.currentTime = to;
+  }, landed - 2);
+  await expect.poll(lit, { message: "two seconds before the jump's place, the mark has let go" }).not.toEqual([led]);
+
+  // Page Down, from just before it.
+  await page.keyboard.press("PageDown");
+  await expect.poll(() => videoTime(page), { message: "Page Down stops at the timeout" }).toBeGreaterThan(landed - 0.5);
+  expect(await videoTime(page)).toBeLessThan(landed + 0.5);
+  await expect.poll(lit, { message: "Page Down to the timeout: the play it leads to is the one on screen" }).toEqual([led]);
+
+  // On its row in the list.
+  await elsewhere();
+  await timeoutRow.scrollIntoViewIfNeeded();
+  await timeoutRow.click();
+  await hold();
+  expect(await lit(), "a click on the timeout's row: the play it leads to is the one on screen").toEqual([led]);
+});
+
+test("Page Down to a run marks its first basket at once, as a click on the run does", async ({ page }) => {
+  await openSampleGame(page);
+  const lit = () =>
+    list(page)
+      .locator('[data-row-key][aria-current="true"]')
+      .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-row-key")));
+  const hold = async () => {
+    await page.evaluate(() => document.querySelector("video")?.pause());
+    await expect.poll(() => page.evaluate(() => { const v = document.querySelector("video"); return !!v && v.paused && !v.seeking; }), { timeout: 15_000 }).toBe(true);
+  };
+  const run = await boxOf(drawn(page, "run").first(), "the sample game's run");
+  await page.mouse.click(run.x + run.width / 2, run.y + run.height / 2);
+  await hold();
+  const first = await lit();
+  expect(first.length, "the run's first basket is the play on screen").toBe(1);
+  const landed = await videoTime(page);
+  await page.evaluate((to) => {
+    document.querySelector("video")!.currentTime = to;
+  }, landed - 2);
+  await expect.poll(lit, { message: "before the run's start, another play is on screen" }).not.toEqual(first);
+  await page.keyboard.press("PageDown");
+  await expect.poll(() => videoTime(page), { message: "Page Down stops at the run" }).toBeGreaterThan(landed - 0.5);
+  await expect.poll(lit, { message: "its first basket is the play on screen again" }).toEqual(first);
+});

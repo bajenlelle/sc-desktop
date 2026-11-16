@@ -843,8 +843,8 @@ export interface GameReadPatch {
   colors?: [string, string];
   /** This many plays of the second quarter (turnovers and fouls) lose their team side. */
   teamless?: number;
-  /** A home-side timeout on one game, at a wall-clock moment of one of its quarters. */
-  timeout?: { matchId: string; eventId: number; period: number; realWorldTime: string };
+  /** A home-side timeout on one game: when it was called and when play went on, as wall-clock moments of one of its quarters, and the game clock then. */
+  timeout?: { matchId: string; eventId: number; period: number; clock: string; realWorldTime: string; resumeRealWorldTime: string };
 }
 
 /**
@@ -878,7 +878,19 @@ export async function patchGameReads(page: Page, patch: GameReadPatch): Promise<
           v: 1,
           source: "genius",
           periods: {},
-          timeouts: [{ eventId: t.eventId, period: t.period, clock: "05:00", realWorldTime: t.realWorldTime, kind: "team", teamNumber: 1, scoreHome: null, scoreAway: null }],
+          timeouts: [
+            {
+              eventId: t.eventId,
+              period: t.period,
+              clock: t.clock,
+              realWorldTime: t.realWorldTime,
+              resumeRealWorldTime: t.resumeRealWorldTime,
+              kind: "team",
+              teamNumber: 1,
+              scoreHome: null,
+              scoreAway: null,
+            },
+          ],
         };
       }
     }
@@ -902,20 +914,43 @@ export async function patchGameReads(page: Page, patch: GameReadPatch): Promise<
 }
 
 /**
- * Gives the sample game (the one game with footage here) a home-side timeout a third of the way through, in what
- * the page reads of it. Leaves the page on the Library. Returns the timeout's id.
+ * Gives the sample game (the one game with footage here) a home-side timeout, in what the page reads of it: after
+ * the play, past the game's first third, that is followed by its longest wait for the next one (twelve seconds at
+ * least), with the restart six seconds after that play. So a jump to the timeout lands nine seconds or more
+ * before any play happens. Leaves the page on the Library. Returns the timeout's id.
  */
 export async function giveSampleGameATimeout(page: Page): Promise<number> {
   await page.goto("/matches");
   const row = page.locator('a[href^="/matches/"]').filter({ hasText: "Sample game" }).first();
   await expect(row, "the test account has the sample game").toBeVisible({ timeout: 30_000 });
   const matchId = (await row.getAttribute("href"))!.replace("/matches/", "");
-  const events = (await selectRows<{ period: number; real_world_time: string | null }>(page, "play_by_play_events", "period, real_world_time", { match_id: matchId }))
+  const events = (
+    await selectRows<{ period: number; real_world_time: string | null; game_clock_time: string | null }>(page, "play_by_play_events", "period, real_world_time, game_clock_time", {
+      match_id: matchId,
+    })
+  )
     .filter((e) => e.real_world_time)
-    .sort((a, b) => new Date(a.real_world_time!).getTime() - new Date(b.real_world_time!).getTime());
+    .map((e) => ({ ...e, at: new Date(e.real_world_time!).getTime() }))
+    .sort((a, b) => a.at - b.at);
   expect(events.length, "the sample game has plays with a time").toBeGreaterThan(10);
-  const at = events[Math.floor(events.length / 3)];
+  let best = -1;
+  for (let i = Math.floor(events.length / 3); i < events.length - 1; i++) {
+    if (events[i + 1].period !== events[i].period) continue;
+    if (best < 0 || events[i + 1].at - events[i].at > events[best + 1].at - events[best].at) best = i;
+  }
+  expect(best, "the sample game has two plays of one quarter after its first third").toBeGreaterThanOrEqual(0);
+  const before = events[best];
+  expect(events[best + 1].at - before.at, "the sample game has a wait of twelve seconds between two plays").toBeGreaterThanOrEqual(12_000);
   const eventId = 900_001;
-  await patchGameReads(page, { timeout: { matchId, eventId, period: at.period, realWorldTime: at.real_world_time! } });
+  await patchGameReads(page, {
+    timeout: {
+      matchId,
+      eventId,
+      period: before.period,
+      clock: before.game_clock_time ?? "",
+      realWorldTime: new Date(before.at + 1_000).toISOString(),
+      resumeRealWorldTime: new Date(before.at + 6_000).toISOString(),
+    },
+  });
   return eventId;
 }

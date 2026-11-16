@@ -268,7 +268,18 @@ released app lists each row there as a clip.
   at its pre-roll and stays the current one for as long as the video is
   inside that run-up, whichever way it is moved there (→ and ←, a scrub, a
   swipe), so the lit row doesn't fall back to the plays that happen during
-  the run-up; a jump to a quarter or a marker lets go of it. `nowKey` is the play
+  the run-up; a jump to a quarter or a marker lets go of it. A jump to a
+  place that leads to a play holds that play the same way, from the jump's
+  own second until the play has happened: a timeout's restart leads to the
+  play out of it (`afterTimeoutPlays`: the first shot, turnover or foul after
+  it in the quarter, the play the After timeouts list puts under it), a run's
+  start to its first basket. Whichever way the jump is made (the mark on the
+  timeline, the row in the list, Page Up or Page Down), that play is the one
+  on screen at once, so the Now bar names it and A, G and the label keys act
+  on it. The play before the timeout was the current one until then, which
+  read as the wrong play being marked; no play marked would have left
+  nothing to add until the play had happened. A timeout that leads to no play
+  (the quarter ended first) holds none. `nowKey` is the play
   on screen in the whole game (what the Now bar names and A adds); `activeKey`
   is the lit row, the latest play the filtered list shows.
 - `game-timeline-strip.tsx`: hand-drawn SVG, no chart library. It draws the
@@ -304,7 +315,8 @@ released app lists each row there as a clip.
   the first, so the timeout's row came up and the video played from the
   pointer. A release without movement is a click on what was pressed: a run
   (its first basket from the pre-roll, exactly as its row in the list starts
-  it), a timeout (the place Page Down stops at for it, played), each with its
+  it), a timeout (the place Page Down stops at for it, played, with the play
+  it leads to as the play on screen), each with its
   row shown in the list, a play's mark or a playlist play's dot (that play
   from its pre-roll), else that second. Zoomed, only that quarter's plays are
   click targets: the quarter before ends at the left edge, and its last play

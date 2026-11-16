@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { ChevronDown, ChevronLeft, ListPlus, Play, Plus, Tag, VideoOff } from "lucide-react";
 import { formatGameClock, periodLabel } from "@scoutable/shared/lib/events";
-import { GAME_MOMENTS, gameFlow, gameMoments, onCourtStints, scoreAfter, type GameMoment } from "@scoutable/shared/lib/game-flow";
+import { GAME_MOMENTS, afterTimeoutPlays, gameFlow, gameMoments, onCourtStints, scoreAfter, type GameMoment } from "@scoutable/shared/lib/game-flow";
 import { EMPTY_GAME_FILTERS, gameFiltersActive, gameRows, keepPlay, type GameFilters, type GameRow } from "@scoutable/shared/lib/game-list";
 import { buildGameTimeline, momentAt, PERIOD_LEAD_SECONDS, visibleOrder, type TimedPlay } from "@scoutable/shared/lib/game-timeline";
 import { videoLooksCut } from "@scoutable/shared/lib/period-sync";
@@ -464,17 +464,22 @@ export function GameWatchView({
   }, [filters]);
 
   // ---- Moving through the game ----------------------------------------------
-  /** The places Page Up and Page Down stop at: each period's start, each timeout's restart, each run's first basket. */
+  /**
+   * The places Page Up and Page Down stop at: each period's start, each timeout's restart, each run's first basket.
+   * `hold` is the play a place leads to (the play out of a timeout, a run's first basket): the play on screen from
+   * the moment the video goes there, whichever way it goes (a key, the timeline, the row in the list).
+   */
   const jumps = useMemo(() => {
-    const list: { time: number; kind: string; period: number; row: string }[] = [];
-    for (const b of timeline.bands) list.push({ time: Math.max(0, b.start - PERIOD_LEAD_SECONDS), kind: "period", period: b.period, row: `period:${b.period}` });
+    const list: { time: number; kind: string; period: number; row: string; hold: TimedPlay | null }[] = [];
+    for (const b of timeline.bands) list.push({ time: Math.max(0, b.start - PERIOD_LEAD_SECONDS), kind: "period", period: b.period, row: `period:${b.period}`, hold: null });
+    const ledTo = new Map(afterTimeoutPlays(flow, marks).map(({ timeout, eventId }) => [timeout.eventId, eventId === null ? null : (playByEvent.get(eventId) ?? null)]));
     for (const t of marks?.timeouts ?? []) {
       const at = timeline.timeOf(t.resumeRealWorldTime ?? t.realWorldTime, t.period);
-      if (at !== null) list.push({ time: Math.max(0, at - 3), kind: "timeout", period: t.period, row: `timeout:${t.eventId}` });
+      if (at !== null) list.push({ time: Math.max(0, at - 3), kind: "timeout", period: t.period, row: `timeout:${t.eventId}`, hold: ledTo.get(t.eventId) ?? null });
     }
     for (const run of flow.runs) {
       const first = playByEvent.get(run.fromEventId);
-      if (first) list.push({ time: first.start, kind: "run", period: run.period, row: `run:${run.fromEventId}` });
+      if (first) list.push({ time: first.start, kind: "run", period: run.period, row: `run:${run.fromEventId}`, hold: first });
     }
     return list.sort((a, b) => a.time - b.time);
   }, [timeline, marks, flow, playByEvent]);
@@ -486,7 +491,7 @@ export function GameWatchView({
       const target = direction > 0 ? jumps.find((j) => j.time > now + 0.5) : [...jumps].reverse().find((j) => j.time < now - 3);
       if (!target) return;
       trackSeek("key", target.kind, target.period);
-      playback.seekTo(target.time, { play: !video.paused, jump: true });
+      playback.seekTo(target.time, { play: !video.paused, jump: true, hold: target.hold });
       refollow();
       revealRow(target.row);
     },
@@ -496,8 +501,8 @@ export function GameWatchView({
   /**
    * A click on a run or a timeout on the timeline, with its row shown in the list. A run starts its first basket
    * exactly as its row in the list does: from that basket's pre-roll with footage, chosen without. A timeout goes to
-   * the place Page Down stops at for it. The video is asked for that place once: the press that made the click
-   * left it where it was.
+   * the place Page Down stops at for it, with the play it leads to as the play on screen. The video is asked for
+   * that place once: the press that made the click left it where it was.
    */
   const toLandmark = useCallback(
     (landmark: StripLandmark) => {
@@ -513,7 +518,7 @@ export function GameWatchView({
       const target = jumps.find((j) => j.row === row);
       if (!target || !footage) return;
       trackSeek("timeline", target.kind, target.period);
-      playback.seekTo(target.time, { play: true, jump: true });
+      playback.seekTo(target.time, { play: true, jump: true, hold: target.hold });
       refollow();
     },
     [footage, jumps, playByEvent, playback, trackSeek, refollow, revealRow],
@@ -545,14 +550,18 @@ export function GameWatchView({
       }
       if (!footage) return;
       if (row.kind === "timeout") {
-        const at = timeline.timeOf(row.timeout.resumeRealWorldTime ?? row.timeout.realWorldTime, row.timeout.period);
-        if (at !== null) seekTo(Math.max(0, at - 3), "marker", "timeout", true);
+        // The same place, and the same play on screen, as its mark on the timeline and Page Down give.
+        const target = jumps.find((j) => j.row === row.key);
+        if (!target) return;
+        trackSeek("marker", "timeout", null);
+        playback.seekTo(target.time, { play: true, jump: true, hold: target.hold });
+        refollow();
         return;
       }
       const band = timeline.bands.find((b) => b.period === row.period);
       if (band) seekTo(Math.max(band.start, band.end - 10), "marker", "period", true);
     },
-    [footage, timeline, playByEvent, playPlay, seekTo],
+    [footage, timeline, jumps, playByEvent, playback, playPlay, seekTo, trackSeek, refollow],
   );
 
   // Zoomed into a quarter, the strip turns the page when playback does.
