@@ -566,6 +566,11 @@ test("a jump to a timeout marks the play it leads to at once, whichever way it i
   expect(led, "the timeout leads to a play").not.toBeNull();
   await moment(page, "All plays").click();
   await expect(playRows(page).nth(8)).toBeVisible();
+  // What the Now bar says of that play: what it says when the play's own row is clicked.
+  const nowBar = async () => `${await page.locator('[data-now="where"]').innerText()} ${await page.locator('[data-now="name"]').innerText()}`;
+  await list(page).locator(`[data-row-key="${led}"]`).click();
+  await page.evaluate(() => document.querySelector("video")?.pause());
+  const ledInNowBar = await nowBar();
 
   const lit = () =>
     list(page)
@@ -590,6 +595,7 @@ test("a jump to a timeout marks the play it leads to at once, whichever way it i
   await page.mouse.click(mark.x + mark.width / 2, run.y + run.height / 2);
   await hold();
   expect(await lit(), "a click on the timeout in the timeline: the play it leads to is the one on screen").toEqual([led]);
+  expect(await nowBar(), "and the Now bar names it, so A and the label keys act on it").toBe(ledInNowBar);
   const landed = await videoTime(page);
 
   // Gone back past where the jump landed, the play is let go: it is no longer what the video is heading for.
@@ -603,6 +609,7 @@ test("a jump to a timeout marks the play it leads to at once, whichever way it i
   await expect.poll(() => videoTime(page), { message: "Page Down stops at the timeout" }).toBeGreaterThan(landed - 0.5);
   expect(await videoTime(page)).toBeLessThan(landed + 0.5);
   await expect.poll(lit, { message: "Page Down to the timeout: the play it leads to is the one on screen" }).toEqual([led]);
+  expect(await nowBar(), "named in the Now bar").toBe(ledInNowBar);
 
   // On its row in the list.
   await elsewhere();
@@ -610,6 +617,7 @@ test("a jump to a timeout marks the play it leads to at once, whichever way it i
   await timeoutRow.click();
   await hold();
   expect(await lit(), "a click on the timeout's row: the play it leads to is the one on screen").toEqual([led]);
+  expect(await nowBar(), "named in the Now bar").toBe(ledInNowBar);
 });
 
 test("Page Down to a run marks its first basket at once, as a click on the run does", async ({ page }) => {

@@ -46,7 +46,11 @@ stretch where a game turned.
   tab were ⌘T and the File menu, which were not found; with the bar always
   there the + is always in the same place, and the page doesn't move down a
   row when the second game opens. It costs a row of 44 px, which the video
-  loses only where the window is low and wide. The tabs start at the left at
+  loses only where the window is low and wide. The bar is the page's own
+  row: there is none while the window shows something in the page's place
+  (the wait at start, a refused device, an account that couldn't be read:
+  `useRouteGate`), and none over a game that isn't there when no game is
+  open. The first tab starts 16 px in, where the page's content does. The tabs start at the left at
   their own width (208 px at most, shrinking together when there are many,
   never stretched to fill the row); the shown game's tab is the page's own
   colour and leads into the toolbar under it, the others are plain until
@@ -110,9 +114,10 @@ stretch where a game turned.
   for the window behind it. Close Tab also
   waits while a dialog is open, and on a page whose game has no tab it goes
   to the game shown last. Where there is no menu bar, Ctrl+W closes the tab
-  and is left alone without tabs (`packages/shared/lib/menu-shortcuts.ts`).
+  and is left alone with fewer than two (`packages/shared/lib/menu-shortcuts.ts`).
 - **The Library marks the games that are open** ("Open", from two open
-  games, when there are tabs at all), and a click on one goes back to its tab
+  games: with one, the mark would only be on the game the coach just came
+  from), and a click on one goes back to its tab
   as it was left, with nothing to load.
 - The tabs are per user and space for the app session (`sessionStorage`,
   `scoutable_game_tabs:<userId>:<orgId>`; `apps/desktop/src/lib/game-tabs.ts`
@@ -280,14 +285,19 @@ released app lists each row there as a clip.
   place that leads to a play holds that play the same way, from the jump's
   own second until the play has happened: a timeout's restart leads to the
   play out of it (`afterTimeoutPlays`: the first shot, turnover or foul after
-  it in the quarter, the play the After timeouts list puts under it), a run's
+  it in the quarter; for a team's timeout, the play the After timeouts list
+  puts under it, and an officials' timeout, which that list leaves out, leads
+  to its play the same way), a run's
   start to its first basket. Whichever way the jump is made (the mark on the
   timeline, the row in the list, Page Up or Page Down), that play is the one
   on screen at once, so the Now bar names it and A, G and the label keys act
   on it. The play before the timeout was the current one until then, which
   read as the wrong play being marked; no play marked would have left
   nothing to add until the play had happened. A timeout that leads to no play
-  (the quarter ended first) holds none. `nowKey` is the play
+  (the quarter ended first), or to one the jump lands after, holds none
+  (`pinToward`). Until the play happens the Now bar gives its clock and
+  score, ahead of the picture: seconds from a restart, the whole timeout
+  where the feed has no restart time. `nowKey` is the play
   on screen in the whole game (what the Now bar names and A adds); `activeKey`
   is the lit row, the latest play the filtered list shows.
 - `game-timeline-strip.tsx`: hand-drawn SVG, no chart library. It draws the

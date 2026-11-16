@@ -5,6 +5,7 @@ import {
   momentAt,
   PERIOD_LEAD_SECONDS,
   pinFor,
+  pinToward,
   playIndexAt,
   type GamePhase,
   type PeriodBand,
@@ -122,8 +123,8 @@ export function useGamePlayback({
       if (opts.jump) pinRef.current = null;
       const end = Number.isFinite(video.duration) && video.duration > 0 ? video.duration - 0.05 : Infinity;
       const to = clamp(t, 0, Math.max(0, end));
-      const hold = opts.hold;
-      if (hold && hold.reach === "in" && hold.time >= to) pinRef.current = { key: hold.key, from: to, time: hold.time };
+      const held = pinToward(opts.hold, to);
+      if (held) pinRef.current = held;
       video.currentTime = to;
       if (opts.play) {
         video.play().catch(() => {});

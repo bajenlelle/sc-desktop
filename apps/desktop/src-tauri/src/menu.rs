@@ -24,7 +24,8 @@ use tauri::{
 /// The File menu's Close Window: closed natively (see `on_menu_event`).
 #[cfg(target_os = "macos")]
 const CLOSE_WINDOW: &str = "close-window";
-/// The File menu's Close Tab, in the menu only while the game page shows its tabs.
+/// The File menu's Close Tab, in the menu only while the game page has two tabs
+/// or more: with one game its tab is there, but there is no tab to close to.
 #[cfg(target_os = "macos")]
 const CLOSE_TAB: &str = "close-tab";
 /// Where Close Tab goes in the File menu: right above Close Window, after

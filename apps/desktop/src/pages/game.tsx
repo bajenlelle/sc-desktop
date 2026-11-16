@@ -41,7 +41,7 @@ import { MatchDetailPage } from "./match-detail";
  * in Details is what it shows; a tab switch serves the copy read on this
  * visit (lib/game-tabs.ts) until any `matches-changed`, or for ten minutes.
  *
- * The open games sit in tabs above the page (from two games), per user and
+ * The open games sit in tabs above the page (one game is one tab), per user and
  * space, in a bar the window's layout draws (components/game/game-tab-bar.tsx:
  * this page is built again for every game, the bar is not). Switching
  * replaces the history entry, so Back leaves the games. A tab switch opens
@@ -174,8 +174,9 @@ export function GamePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [missing, matchId]);
 
-  // The tab bar is the row above the page (components/game/game-tab-bar.tsx), with one game open too.
-  const underTabs = true;
+  // The tab bar is the row above the page whenever a game has a tab, and one is enough
+  // (components/game/game-tab-bar.tsx). A game that isn't there, with no game open, has no bar over it.
+  const underTabs = tabs.tabs.length > 0;
 
   const viewSwitch = <GameViewSwitch value={view ?? "game"} onChange={(next) => show(next)} />;
 

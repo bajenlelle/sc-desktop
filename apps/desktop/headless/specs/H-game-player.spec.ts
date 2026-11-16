@@ -215,7 +215,20 @@ test("pointing at the timeline never covers the footage", async ({ page, browser
   // A wide, low window: the footage is as tall as the window allows and the timeline ends at the window's edge.
   const low = { width: 1440, height: 700 };
   await page.setViewportSize(low);
-  await expect.poll(async () => (await boxOf(timeline(page), "the timeline")).y + (await boxOf(timeline(page), "the timeline")).height, { timeout: 5_000 }).toBeGreaterThan(low.height - 12);
+  // The player takes a few passes to settle on a resize: the timeline is at the window's foot, and has stopped moving.
+  let last = "";
+  await expect
+    .poll(
+      async () => {
+        const b = await boxOf(timeline(page), "the timeline");
+        const now = `${b.x},${b.y},${b.width},${b.height}`;
+        const still = now === last && b.y + b.height > low.height - 12;
+        last = now;
+        return still;
+      },
+      { message: "the timeline has come to rest at the window's foot", intervals: [150], timeout: 8_000 },
+    )
+    .toBe(true);
   const tl = await boxOf(timeline(page), "the timeline");
   const tr = await boxOf(track(page), "the timeline's track");
   for (const at of [0.03, 0.3, 0.5, 0.75, 0.97]) {

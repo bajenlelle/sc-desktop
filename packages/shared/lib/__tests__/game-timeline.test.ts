@@ -8,6 +8,7 @@ import {
   gameScale,
   momentAt,
   pinFor,
+  pinToward,
   playIndexAt,
   visibleOrder,
   type TimedPlay,
@@ -267,6 +268,31 @@ describe("activePlay and the pin", () => {
     expect(activePlay(plays, order, 160, pin)).toEqual({ index: 3, pin });
     // Gone back more than a second before the jump's place: it is no longer where the video is heading.
     expect(activePlay(plays, order, 103, pin)).toEqual({ index: 0, pin: null });
+  });
+});
+
+describe("pinToward", () => {
+  const plays = playsAt([100, 130, 160]);
+
+  it("holds the play a place leads to from the second the video goes to, until the play happens", () => {
+    expect(pinToward(plays[2], 105)).toEqual({ key: "m:3", from: 105, time: 160 });
+    // A play that happens at that very second is still ahead.
+    expect(pinToward(plays[2], 160)).toEqual({ key: "m:3", from: 160, time: 160 });
+  });
+
+  it("holds nothing where the place leads to no play", () => {
+    expect(pinToward(null, 105)).toBeNull();
+    expect(pinToward(undefined, 105)).toBeNull();
+  });
+
+  it("holds nothing for a play that has already happened where the video goes", () => {
+    // A restart logged after the play out of the timeout: the play is behind the jump, not ahead of it.
+    expect(pinToward(plays[0], 105)).toBeNull();
+  });
+
+  it("holds nothing for a play that isn't on the file", () => {
+    expect(pinToward({ ...plays[2], reach: "after" }, 105)).toBeNull();
+    expect(pinToward({ ...plays[2], reach: "before" }, 105)).toBeNull();
   });
 });
 

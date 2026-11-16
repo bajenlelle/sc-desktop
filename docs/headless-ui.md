@@ -38,6 +38,11 @@ npm run headless -- smoke --project webkit         # one browser
   the start of every run, so copy a screenshot out before the next run if a
   report needs it later.
 
+A `tauri dev` running from the same worktree watches these files too: it
+reloads its page when a run writes `state-<port>.json` at its start, and
+again for each trace a run writes. With someone in that app, pass
+`--trace off` (one reload at the run's start is left).
+
 ## `.env.headless`
 
 `apps/desktop/.env.headless`, never committed (`.env.*` is ignored). Copy

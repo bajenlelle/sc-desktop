@@ -247,6 +247,19 @@ export function pinFor(play: TimedPlay): PlayPin {
 }
 
 /**
+ * The pin for the play a place leads to, when the video goes to that place at
+ * second `from` (a timeout's restart leads to the play out of it, a run's
+ * start to its first basket): the play is the current one from there until it
+ * has happened. Null where the place leads to no play, to one that isn't on
+ * the file, or to one that has already happened at `from` (a restart logged
+ * after the play it led to): there is nothing ahead to hold.
+ */
+export function pinToward(play: TimedPlay | null | undefined, from: number): PlayPin | null {
+  if (!play || play.reach !== "in" || play.time < from) return null;
+  return { key: play.key, from, time: play.time };
+}
+
+/**
  * The current play at second `t`, honouring a pin: the position in `order`
  * (−1 for none) and the pin to keep (null once it has let go).
  */

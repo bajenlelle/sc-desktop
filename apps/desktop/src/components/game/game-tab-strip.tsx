@@ -60,7 +60,9 @@ export function GameTabStrip({
 
   // The one Tab stop: the tab the keyboard's focus was last on, else the shown game's.
   const [stopId, setStopId] = useState<string | null>(null);
-  const stop = stopId !== null && ids.includes(stopId) ? stopId : activeId;
+  // The Tab key's one stop in the row: the tab the focus was on last, else the shown game's, else the first (a
+  // page whose game has no tab still has a row to reach).
+  const stop = stopId !== null && ids.includes(stopId) ? stopId : ids.includes(activeId) ? activeId : (ids[0] ?? null);
   const buttons = useRef(new Map<string, HTMLButtonElement>());
   const focusTab = (id: string) => buttons.current.get(id)?.focus();
   // After Delete the focus goes to the tab that followed, once the closed one is out of the strip.

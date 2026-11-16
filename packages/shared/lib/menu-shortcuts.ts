@@ -26,7 +26,7 @@ const PLAIN: Record<string, string> = {
   o: "add-game",
   e: "export-playlist",
   b: "toggle-playlist-browser",
-  // On only while the game page shows its tabs; elsewhere the chord is left alone.
+  // On only while the game page has two tabs or more (a tab to close to); elsewhere the chord is left alone.
   w: "close-tab",
   // The game page's tab picker; on only on the game page.
   t: "new-game-tab",

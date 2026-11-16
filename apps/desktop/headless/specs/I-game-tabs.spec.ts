@@ -7,7 +7,7 @@
  * and writes nothing: the tabs live in the browser session.
  */
 import type { Locator, Page } from "@playwright/test";
-import { expect, openLibraryGame, shot, test } from "../helpers";
+import { expect, openLibraryGame, shot, showGameView, test } from "../helpers";
 
 const tablist = (page: Page) => page.getByRole("tablist", { name: "Open games" });
 const tabs = (page: Page) => tablist(page).getByRole("tab");
@@ -106,6 +106,10 @@ test("one open game is a tab too: the + is there to open another from, and the l
   const add = await boxOf(plus(page), "the +");
   expect(add.x, "the + comes right after the tab").toBeGreaterThanOrEqual(only.x + only.width - 1);
   expect(add.x - (only.x + only.width), "and stays close to it").toBeLessThan(24);
+  // The tab starts where the page's content does: the timeline under the footage has the same left edge.
+  await showGameView(page);
+  const strip = await boxOf(page.getByRole("slider", { name: "Position in the game" }), "the timeline");
+  expect(Math.abs(only.x - strip.x), "the tab and the timeline share a left edge").toBeLessThanOrEqual(1);
 
   for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
@@ -269,7 +273,7 @@ test.describe("where there is no menu bar", () => {
 });
 
 test("the Library marks the games that are open, and a click on one goes back to its tab without loading", async ({ page, browserName }) => {
-  // One game open: there are no tabs yet, so nothing is marked.
+  // One game open: it has its tab, and nothing is marked (the marks are from two open games).
   const [g0] = await openGames(page, 1);
   const library = page.locator("header").getByRole("button", { name: "Library", exact: true });
   await library.click();
@@ -530,8 +534,36 @@ test("Close Tab waits while a dialog is open, and with no tab for the page on sc
   // A game that isn't there has no tab; the bar still shows the two that are open.
   await page.goto("/matches/00000000-0000-4000-8000-0000000000aa");
   await expect(tabs(page)).toHaveCount(2, { timeout: 30_000 });
+  // None of them is the shown game, and the Tab key still reaches the row: its one stop is the first tab.
+  expect(await tabs(page).evaluateAll((els) => els.map((el) => (el as HTMLElement).tabIndex)), "the first tab is the row's stop").toEqual([0, -1]);
   await menu(page, "menu-close-game-tab");
   await expect(heading(page), "Close Tab leaves the page with no tab for the game shown last").toHaveText(g1.title, { timeout: 15_000 });
   await expect(tabs(page), "and closes neither of the open games").toHaveCount(2);
   expect(await titles(page)).toEqual([g0.title, g1.title]);
+});
+
+test("the bar is the game page's: not there while the app is still loading, nor on a game that isn't there with no game open", async ({ page }) => {
+  const [g0] = await openGames(page, 1);
+  await expect(tabs(page)).toHaveCount(1);
+
+  // A load at the game's address: while the app finds out who is signed in there is no page, and no bar over the wait.
+  await page.addInitScript(() => {
+    const w = window as unknown as { __barOverTheWait: boolean };
+    w.__barOverTheWait = false;
+    new MutationObserver(() => {
+      if (document.querySelector('[role="status"][aria-label="Loading"]') && document.querySelector('[role="tablist"]')) w.__barOverTheWait = true;
+    }).observe(document, { childList: true, subtree: true });
+  });
+  await page.goto(`/matches/${g0.id}`);
+  await expect(tabs(page), "the game's tab is there once the page is").toHaveCount(1, { timeout: 30_000 });
+  expect(await page.evaluate(() => (window as unknown as { __barOverTheWait: boolean }).__barOverTheWait), "the bar was never over the wait").toBe(false);
+
+  // A game that isn't there, and no game open: the page says so, and there is no row of tabs over it.
+  await page.evaluate(() => {
+    for (const key of Object.keys(sessionStorage)) if (key.startsWith("scoutable_game_tabs:")) sessionStorage.removeItem(key);
+  });
+  await page.goto("/matches/00000000-0000-4000-8000-0000000000ab");
+  await expect(page.getByText("Game not found").first()).toBeVisible({ timeout: 30_000 });
+  await expect(tablist(page), "no tabs, no bar").toHaveCount(0);
+  await expect(plus(page)).toHaveCount(0);
 });

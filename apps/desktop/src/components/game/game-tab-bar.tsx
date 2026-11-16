@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMatch, useNavigate } from "react-router-dom";
 import type { PickableGame } from "@scoutable/shared/lib/game-picker";
-import { setGameTabsShown, setReopenGameTabEnabled } from "@/components/menu-handler";
+import { setCloseTabInMenu, setReopenGameTabEnabled } from "@/components/menu-handler";
+import { useRouteGate } from "@/components/protected-route";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -26,7 +27,11 @@ import { GameTabStrip } from "./game-tab-strip";
  * column, above the game's own toolbar. Everything under it belongs to the
  * shown game. It is there with one game too: the + after the tab is how
  * another game is opened beside it, and a way in that only shows once there
- * are two tabs is not found (⌘T and the File menu were the only ones).
+ * are two tabs is not found (⌘T and the File menu were the only ones). It is
+ * the page's own row: while the window shows something in the page's place
+ * (the wait at start, a refused device, an account that couldn't be read)
+ * there is no bar, and none over a game that isn't there when no game is
+ * open, where it would be an empty row.
  *
  * It lives in the window's layout (components/root-layout.tsx), not in the
  * game page: the page is built again each time the game in the address
@@ -51,6 +56,7 @@ export function GameTabBar() {
   const scope = gameTabsScope(user?.id, activeOrgId);
   const tabs = useGameTabs(scope);
   const collapsed = useSidebarCollapsed();
+  const gate = useRouteGate();
   const tabCount = tabs.tabs.length;
   const hasClosed = useHasClosedGameTab(scope);
   const [picking, setPicking] = useState(false);
@@ -118,11 +124,11 @@ export function GameTabBar() {
     navigate(`/matches/${back.id}`, { replace: true, state: { via: "tab" } });
   }, [scope, tabCount, navigate]);
 
-  // ⌘W closes the tab while there are tabs to close, and the window otherwise (src-tauri/src/menu.rs).
+  // ⌘W closes the tab while there is another to go to (two or more), and the window otherwise (src-tauri/src/menu.rs).
   useEffect(() => {
-    setGameTabsShown(tabbed);
+    setCloseTabInMenu(tabbed);
   }, [tabbed]);
-  useEffect(() => () => setGameTabsShown(false), []);
+  useEffect(() => () => setCloseTabInMenu(false), []);
   // Reopen Closed Tab is on while there is one to bring back.
   useEffect(() => {
     setReopenGameTabEnabled(hasClosed);
@@ -179,11 +185,12 @@ export function GameTabBar() {
     };
   }, [scope, matchId, tabbed, tabs, goTo, close]);
 
-  if (!matchId) return null;
+  if (!matchId || gate !== "app" || (tabCount === 0 && !picking)) return null;
   return (
     // The row drags the window wherever a tab or the + isn't. The line along its foot is broken by the shown
     // game's tab, which is the page's own colour. With the sidebar hidden on macOS the traffic lights sit here.
-    // The first tab starts where the page's content does (the footage, the Now bar and the timeline are 16 px in).
+    // The first tab starts where the page's content does, 16 px in: the Now bar and the timeline always, the
+    // footage while it fills the column's width.
     <div
       data-tauri-drag-region
       className={cn(

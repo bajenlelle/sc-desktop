@@ -116,7 +116,7 @@ export function GameWatchView({
   /** "ok": the video plays here. "missing" / "unreadable": a local file that doesn't. "none": no video linked. */
   videoStatus: VideoFileStatus | "none";
   viewSwitch: ReactNode;
-  /** The open games' tabs are the row above the toolbar (from two games). */
+  /** The open games' tabs are the row above the toolbar (there with one game too). */
   underTabs?: boolean;
   /** How the coach got here, for analytics. */
   entry: string;

@@ -53,18 +53,18 @@ function setEnabled(id: string, enabled: boolean) {
   invoke("menu_set_enabled", { id, enabled }).catch(() => {});
 }
 
-// Until the game page shows its tabs there is no tab for ⌘W (Ctrl+W) to close.
+// Until the game page has two tabs there is no tab for ⌘W (Ctrl+W) to close.
 enabledIds.set("close-tab", false);
 /** What the native menu was last told about the tabs; undefined until this page has told it anything. */
 let gameTabsShownSent: boolean | undefined;
 
 /**
- * The game page's tab bar came or went (components/game/game-tab-bar.tsx).
- * While it is there the File menu has Close Tab on ⌘W and Close Window on
- * ⇧⌘W, as Safari does; otherwise ⌘W closes the window (src-tauri/src/menu.rs
- * swaps the two). Where there is no menu bar the same flag gates Ctrl+W.
+ * Whether there is a tab to close: the game page has two tabs or more (components/game/game-tab-bar.tsx; with
+ * one game its tab is there, but there is no other game to go to). While there is, the File menu has Close Tab
+ * on ⌘W and Close Window on ⇧⌘W, as Safari does; otherwise ⌘W closes the window (src-tauri/src/menu.rs swaps
+ * the two). Where there is no menu bar the same flag gates Ctrl+W.
  */
-export function setGameTabsShown(shown: boolean) {
+export function setCloseTabInMenu(shown: boolean) {
   // The first call after the page loads always goes through: the native menu outlives a reload of the webview,
   // and may still be as the page before it left it. The native side ignores a call that changes nothing.
   if (gameTabsShownSent === shown) return;

@@ -914,10 +914,11 @@ export async function patchGameReads(page: Page, patch: GameReadPatch): Promise<
 }
 
 /**
- * Gives the sample game (the one game with footage here) a home-side timeout, in what the page reads of it: after
- * the play, past the game's first third, that is followed by its longest wait for the next one (twelve seconds at
- * least), with the restart six seconds after that play. So a jump to the timeout lands nine seconds or more
- * before any play happens. Leaves the page on the Library. Returns the timeout's id.
+ * Gives the sample game (the one game with footage here) a home-side timeout, in what the page reads of it, as a
+ * real one falls: after a play, past the game's first third, that is followed twelve seconds or more later by a
+ * shot, a turnover or a foul (the play the timeout leads to), with the restart six seconds after that play. So a
+ * jump to the timeout lands nine seconds or more before the play it leads to happens, with nothing in between.
+ * Leaves the page on the Library. Returns the timeout's id.
  */
 export async function giveSampleGameATimeout(page: Page): Promise<number> {
   await page.goto("/matches");
@@ -925,29 +926,35 @@ export async function giveSampleGameATimeout(page: Page): Promise<number> {
   await expect(row, "the test account has the sample game").toBeVisible({ timeout: 30_000 });
   const matchId = (await row.getAttribute("href"))!.replace("/matches/", "");
   const events = (
-    await selectRows<{ period: number; real_world_time: string | null; game_clock_time: string | null }>(page, "play_by_play_events", "period, real_world_time, game_clock_time", {
-      match_id: matchId,
-    })
+    await selectRows<{ period: number; type: string; real_world_time: string | null; game_clock_time: string | null }>(
+      page,
+      "play_by_play_events",
+      "period, type, real_world_time, game_clock_time",
+      { match_id: matchId },
+    )
   )
     .filter((e) => e.real_world_time)
     .map((e) => ({ ...e, at: new Date(e.real_world_time!).getTime() }))
     .sort((a, b) => a.at - b.at);
   expect(events.length, "the sample game has plays with a time").toBeGreaterThan(10);
+  // What ends a possession (packages/shared/lib/game-flow.ts): the play a timeout leads to is the first of these after it.
+  const ends = new Set(["2pt", "3pt", "turnover", "foul"]);
   let best = -1;
   for (let i = Math.floor(events.length / 3); i < events.length - 1; i++) {
-    if (events[i + 1].period !== events[i].period) continue;
+    if (events[i + 1].period !== events[i].period || !ends.has(events[i + 1].type)) continue;
     if (best < 0 || events[i + 1].at - events[i].at > events[best + 1].at - events[best].at) best = i;
   }
-  expect(best, "the sample game has two plays of one quarter after its first third").toBeGreaterThanOrEqual(0);
+  expect(best, "the sample game has a play followed by a shot, a turnover or a foul, after its first third").toBeGreaterThanOrEqual(0);
   const before = events[best];
-  expect(events[best + 1].at - before.at, "the sample game has a wait of twelve seconds between two plays").toBeGreaterThanOrEqual(12_000);
+  expect(events[best + 1].at - before.at, "with a wait of twelve seconds between the two").toBeGreaterThanOrEqual(12_000);
   const eventId = 900_001;
   await patchGameReads(page, {
     timeout: {
       matchId,
       eventId,
       period: before.period,
-      clock: before.game_clock_time ?? "",
+      // The game's marks keep a clock as "MM:SS"; a play's has hundredths after it.
+      clock: (before.game_clock_time ?? "").replace(/^(\d+):(\d+):\d+$/, "$1:$2"),
       realWorldTime: new Date(before.at + 1_000).toISOString(),
       resumeRealWorldTime: new Date(before.at + 6_000).toISOString(),
     },
