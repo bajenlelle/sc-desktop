@@ -35,6 +35,7 @@ import { rememberLabelUsed } from "@/lib/recent-labels";
 import { togglePlayerMuted } from "@/lib/player-sound";
 import { useHotkeys, useKeyScope } from "@/lib/key-scope";
 import { useFilterPresets } from "@/lib/use-filter-presets";
+import { useListWindow } from "@/lib/use-list-window";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
 import { isLocalPath, streamFileSrc } from "@/lib/stream";
 import type { VideoFileStatus } from "@/lib/video-probe";
@@ -67,8 +68,12 @@ const BROWSER_TYPE_OPTIONS = EVENT_TYPE_OPTIONS.filter((o) => o.value !== "timeo
 // A row in the browser
 // ---------------------------------------------------------------------------
 
+/** Every row is this tall, so the list can draw only the rows near the view (lib/use-list-window.ts). */
+const BROWSER_ROW_HEIGHT = 45;
+
 function BrowserRow({
   rowKey,
+  index,
   event,
   matchTitle,
   showGame,
@@ -82,6 +87,8 @@ function BrowserRow({
 }: {
   /** `matchId:eventId`: event ids repeat across games. */
   rowKey: string;
+  /** The row's place in the whole list (only rows near the view are drawn). */
+  index: number;
   event: PlayByPlayEvent;
   matchTitle: string;
   showGame: boolean;
@@ -102,10 +109,15 @@ function BrowserRow({
     <div
       role="row"
       data-row-key={rowKey}
+      aria-rowindex={index + 1}
       aria-selected={isSelected}
+      aria-current={isActive ? "true" : undefined}
       onClick={onClick}
       className={cn(
-        "group relative flex min-h-10 cursor-default select-none items-stretch gap-1.5 pr-2 outline-none transition-colors duration-100 [&:not(:first-child)]:shadow-[inset_0_1px_0_var(--separator)]",
+        // One height for every row, whatever it holds: the list is windowed by it (BROWSER_ROW_HEIGHT).
+        "group relative box-border flex h-[45px] cursor-default select-none items-stretch gap-1.5 pr-2 outline-none transition-colors duration-100",
+        // The separator goes by place in the list: the first row drawn isn't always the list's first.
+        index > 0 && "shadow-[inset_0_1px_0_var(--separator)]",
         isActive
           ? "bg-primary/12"
           : isSelected
@@ -472,9 +484,23 @@ export function ClipBrowserPanel({
     return null;
   }, [matches, filters.players, filters.teams]);
 
+  // Each play's place in the list, by `matchId:eventId`: no scan of every play to find one.
+  const indexByKey = useMemo(() => {
+    const out = new Map<string, number>();
+    filtered.forEach(({ event, matchId }, i) => out.set(`${matchId}:${event.eventId}`, i));
+    return out;
+  }, [filtered]);
+  // Five games are some 1,800 plays: only the rows near the view are drawn.
+  const { scrollRef: listScrollRef, range: listRange, reveal: revealRow } = useListWindow({
+    count: filtered.length,
+    rowHeight: BROWSER_ROW_HEIGHT,
+  });
+
   // Keep ref for the key handler (avoids stale closures)
   const filteredRef = useRef(filtered);
   filteredRef.current = filtered;
+  const indexByKeyRef = useRef(indexByKey);
+  indexByKeyRef.current = indexByKey;
 
   const videoMatchId = activeEventKey ? activeEventKey.split(":")[0] : gameIds[0] ?? null;
   const localVideoUrl = useMemo(() => {
@@ -625,7 +651,7 @@ export function ClipBrowserPanel({
 
   const handleRowClick = useCallback((event: PlayByPlayEvent, matchId: string) => {
     const items = filteredRef.current;
-    const idx = items.findIndex((x) => x.event.eventId === event.eventId && x.matchId === matchId);
+    const idx = indexByKeyRef.current.get(`${matchId}:${event.eventId}`) ?? -1;
     const queue = idx >= 0 ? items.slice(idx) : [{ event, matchId, matchTitle: "" }];
 
     queueRef.current = queue;
@@ -644,9 +670,15 @@ export function ClipBrowserPanel({
   const handleRowClickRef = useRef(handleRowClick);
   handleRowClickRef.current = handleRowClick;
 
+  /** The playing play's place in the list; -1 for none, or one the filters hide. */
+  const playingIndex = () => {
+    const key = activeEventKeyRef.current;
+    return key === null ? -1 : (indexByKeyRef.current.get(key) ?? -1);
+  };
+
   function handlePrev() {
     const items = filteredRef.current;
-    const cur = items.findIndex((x) => `${x.matchId}:${x.event.eventId}` === activeEventKeyRef.current);
+    const cur = playingIndex();
     if (cur <= 0) return;
     const { event, matchId } = items[cur - 1];
     handleRowClickRef.current(event, matchId);
@@ -654,7 +686,7 @@ export function ClipBrowserPanel({
 
   function handleNext() {
     const items = filteredRef.current;
-    const cur = items.findIndex((x) => `${x.matchId}:${x.event.eventId}` === activeEventKeyRef.current);
+    const cur = playingIndex();
     if (cur === -1 || cur >= items.length - 1) return;
     const { event, matchId } = items[cur + 1];
     handleRowClickRef.current(event, matchId);
@@ -666,7 +698,7 @@ export function ClipBrowserPanel({
     handleRowClick(items[0].event, items[0].matchId);
   }
 
-  const activeIdx = filtered.findIndex(({ event, matchId }) => `${matchId}:${event.eventId}` === activeEventKey);
+  const activeIdx = activeEventKey === null ? -1 : (indexByKey.get(activeEventKey) ?? -1);
   const activeEntry = activeIdx >= 0 ? filtered[activeIdx] : null;
   const canPrev = isPlaying && activeIdx > 0;
   const canNext = isPlaying && activeIdx >= 0 && activeIdx < filtered.length - 1;
@@ -682,8 +714,10 @@ export function ClipBrowserPanel({
   const clipWindowRef = useRef(clipWindow);
   clipWindowRef.current = clipWindow;
 
-  const allSelected =
-    filtered.length > 0 && filtered.every(({ event, matchId }) => selectedIds.has(`${matchId}:${event.eventId}`));
+  const allSelected = useMemo(
+    () => filtered.length > 0 && filtered.every(({ event, matchId }) => selectedIds.has(`${matchId}:${event.eventId}`)),
+    [filtered, selectedIds],
+  );
 
   function toggleSelectAll() {
     if (allSelected) setSelectedIds(new Set());
@@ -742,7 +776,8 @@ export function ClipBrowserPanel({
     handleRowClick(event, matchId);
   }
   function playKey(key: string) {
-    const item = filteredRef.current.find(({ event, matchId }) => `${matchId}:${event.eventId}` === key);
+    const idx = indexByKeyRef.current.get(key);
+    const item = idx === undefined ? undefined : filteredRef.current[idx];
     if (item) handleRowClickRef.current(item.event, item.matchId);
   }
   /** ↑/↓, Home/End, ⌘↑/⌘↓: play the clip there. */
@@ -807,7 +842,8 @@ export function ClipBrowserPanel({
       return;
     }
     const key = activeEventKeyRef.current;
-    const playing = key ? filteredRef.current.find(({ event, matchId }) => `${matchId}:${event.eventId}` === key) : undefined;
+    const idx = key ? indexByKeyRef.current.get(key) : undefined;
+    const playing = idx === undefined ? undefined : filteredRef.current[idx];
     if (!key || !playing) return;
     const { matchId, event } = playing;
     const on = !(labelAssignments.get(key)?.has(label.id) ?? false);
@@ -913,13 +949,11 @@ export function ClipBrowserPanel({
     }
   });
 
-  // Keep the playing row in view
+  // Keep the playing row in view (it may not be drawn yet: the list scrolls to its place).
   useEffect(() => {
     if (activeEventKey === null) return;
-    panelRef.current
-      ?.querySelector(`[data-row-key="${CSS.escape(activeEventKey)}"]`)
-      ?.scrollIntoView({ block: "nearest" });
-  }, [activeEventKey]);
+    revealRow(indexByKeyRef.current.get(activeEventKey));
+  }, [activeEventKey, revealRow]);
 
   const videoMissing =
     videoMatchId !== null &&
@@ -1082,7 +1116,7 @@ export function ClipBrowserPanel({
               {filtered.length} event{filtered.length !== 1 ? "s" : ""}
             </span>
           </label>
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div ref={listScrollRef} className="min-h-0 flex-1 overflow-y-auto">
             {filtered.length === 0 ? (
               eventsLoading ? (
                 // This game's play-by-play is still arriving — without this
@@ -1106,8 +1140,15 @@ export function ClipBrowserPanel({
                 </div>
               )
             ) : (
-              <div role="grid" aria-label="Events">
-                {filtered.map(({ event, matchId, matchTitle }) => {
+              <div
+                role="grid"
+                aria-label="Events"
+                aria-rowcount={filtered.length}
+                // The rows not drawn, above and below: the list scrolls as if they were there.
+                style={{ paddingTop: listRange.padTop, paddingBottom: listRange.padBottom }}
+              >
+                {filtered.slice(listRange.start, listRange.end).map(({ event, matchId, matchTitle }, i) => {
+                  const index = listRange.start + i;
                   const key = `${matchId}:${event.eventId}`;
                   const alreadyIn = existingSet.has(key);
                   const assigned = activeOrgId ? labels.filter((l) => labelAssignments.get(key)?.has(l.id)) : [];
@@ -1115,6 +1156,7 @@ export function ClipBrowserPanel({
                     <BrowserRow
                       key={key}
                       rowKey={key}
+                      index={index}
                       event={event}
                       matchTitle={matchTitle}
                       showGame={isMultiMatch}
