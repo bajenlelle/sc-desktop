@@ -20,6 +20,7 @@ import {
   menuGroups,
   openAddClips,
   pickOnlyGame,
+  readSheetRows,
   shot,
   test,
 } from "../helpers";
@@ -65,9 +66,7 @@ test("Add clips filters narrow the list together, and a game switch clears team 
   await expect.poll(() => eventCount(sheet)).toBeGreaterThan(made2);
   const types = await eventCount(sheet);
   expect(types).toBeLessThan(all);
-  const badges = await sheet.getByRole("grid", { name: "Events" }).getByRole("row").evaluateAll((rows) =>
-    rows.map((r) => r.querySelector("span.rounded-full")?.textContent ?? ""),
-  );
+  const badges = [...(await readSheetRows(sheet)).values()].map((r) => r.badge);
   expect(new Set(badges), "only made twos and missed threes are listed").toEqual(new Set(["2PT Made", "3PT Miss"]));
   await shot(page, name("types"));
 

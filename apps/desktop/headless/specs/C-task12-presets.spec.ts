@@ -27,6 +27,7 @@ import {
   gameTrigger,
   openAddClips,
   pickOnlyGame,
+  readSheetRows,
   shot,
   test,
   waitForPlays,
@@ -329,8 +330,8 @@ test("a preset applied while the plays load applies at once and leaves the chose
   expect(await pressedChips(chips), "the preset's chip survives the plays landing").toEqual(["2PT made"]);
   await expect(page.getByText(LABELS_GONE), "no \"labels no longer exist\" toast").toHaveCount(0);
   // The player may have few or no 2PT made; whatever is listed is theirs.
-  const names = await sheet.getByRole("grid", { name: "Events" }).getByRole("row").evaluateAll((rows) => rows.map((r) => r.querySelector("span.truncate.text-sm")?.textContent ?? ""));
-  expect([...new Set(names)].filter((n) => n !== playerName), `only ${playerName}'s plays`).toEqual([]);
+  const others = [...(await readSheetRows(sheet)).values()].filter((r) => !r.text.includes(playerName));
+  expect(others.map((r) => r.text), `only ${playerName}'s plays`).toEqual([]);
   console.log(`${browserName} C-task12: ${playerLabel} has ${await eventCount(sheet)} 2PT made in the two games`);
   await shot(page, name("pending-landed"));
 });
