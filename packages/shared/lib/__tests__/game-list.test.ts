@@ -171,22 +171,48 @@ describe("gameRows", () => {
     expect(rows[2]).toMatchObject({ kind: "run", run: { team: 1, points: 8 } });
   });
 
-  it("drops the markers and the empty periods when a filter is on", () => {
-    const s = setup([ev(1, 1, 30), ev(4, 1, 200, away), ev(5, 2, 1100, away)], marksOf(timeout(3, 1, 100)));
-    expect(kinds(rowsFor(s, withFilters({ team: 1 })))).toEqual(["period:1", "play:1"]);
-    expect(rowsFor(s, withFilters({ team: 1 }))[0]).toMatchObject({ plays: 1 });
+  it("keeps a period's timeouts and its end when a filter is on, among the plays that are left", () => {
+    // Home, away, a timeout, away, home: filtered to the home team, the timeout still stands between its two plays.
+    const s = setup([ev(1, 1, 30), ev(2, 1, 60, away), ev(4, 1, 200, away), ev(6, 1, 300)], marksOf(timeout(3, 1, 100)));
+    const rows = rowsFor(s, withFilters({ team: 1 }));
+    expect(kinds(rows)).toEqual(["period:1", "play:1", "timeout:3", "play:6", "end:1"]);
+    expect(rows[0]).toMatchObject({ plays: 2 });
+    expect(rows.at(-1)).toMatchObject({ kind: "period_end", score: { home: 4, away: 4 }, final: true });
   });
 
-  it("heads each play after a timeout with its timeout", () => {
+  it("keeps a timeout that fell after the last play left in its period", () => {
+    const s = setup([ev(1, 1, 30), ev(4, 1, 200, away)], marksOf(timeout(3, 1, 100)));
+    expect(kinds(rowsFor(s, withFilters({ team: 1 })))).toEqual(["period:1", "play:1", "timeout:3", "end:1"]);
+  });
+
+  it("leaves out a period nothing is listed in, with its timeouts", () => {
+    const s = setup([ev(1, 1, 30), ev(4, 1, 200, away), ev(5, 2, 1100, away)], marksOf(timeout(3, 1, 100), timeout(6, 2, 1200)));
+    expect(kinds(rowsFor(s, withFilters({ team: 1 })))).toEqual(["period:1", "play:1", "timeout:3", "end:1"]);
+  });
+
+  it("lists only the periods a period filter asks for, each with its own timeouts", () => {
+    const s = setup([ev(1, 1, 30), ev(5, 2, 1100)], marksOf(timeout(3, 1, 100), timeout(6, 2, 1200)));
+    expect(kinds(rowsFor(s, withFilters({ periods: new Set([2]) })))).toEqual(["period:2", "play:5", "timeout:6", "end:2"]);
+  });
+
+  it("lists the plays after timeouts each under its timeout, and the other timeouts where they fell", () => {
     const events = [ev(1, 1, 30), ev(4, 1, 200, { type: "rebound", subType: "defensive" }), ev(5, 1, 210, { ...away, type: "turnover" }), ev(8, 1, 400)];
     const s = setup(events, marksOf(timeout(3, 1, 100), timeout(7, 1, 380, { kind: "officials", teamNumber: null })));
     const filters = withFilters({ moment: "after_timeout" });
-    expect(kinds(rowsFor(s, filters))).toEqual(["period:1", "timeout:3", "play:5"]);
+    const rows = kinds(rowsFor(s, filters));
+    expect(rows).toEqual(["period:1", "timeout:3", "play:5", "timeout:7", "end:1"]);
+    // No timeout is listed twice (it used to be added above its play as well).
+    expect(new Set(rows).size).toBe(rows.length);
   });
 
   it("keeps the run rows when the list is filtered to runs", () => {
     const s = setup([ev(1, 1, 30, away), ev(2, 1, 60, { type: "3pt" }), ev(3, 1, 90, { type: "3pt" }), ev(4, 1, 120), ev(5, 1, 150, away)]);
-    expect(kinds(rowsFor(s, withFilters({ moment: "run" })))).toEqual(["period:1", "run:2", "play:2", "play:3", "play:4"]);
+    expect(kinds(rowsFor(s, withFilters({ moment: "run" })))).toEqual(["period:1", "run:2", "play:2", "play:3", "play:4", "end:1"]);
+  });
+
+  it("heads no run under another filter: its baskets may not all be listed", () => {
+    const s = setup([ev(1, 1, 30, away), ev(2, 1, 60, { type: "3pt" }), ev(3, 1, 90, { type: "3pt" }), ev(4, 1, 120), ev(5, 1, 150, away)]);
+    expect(kinds(rowsFor(s, withFilters({ team: 1 })))).toEqual(["period:1", "play:2", "play:3", "play:4", "end:1"]);
   });
 
   it("is empty when nothing matches", () => {

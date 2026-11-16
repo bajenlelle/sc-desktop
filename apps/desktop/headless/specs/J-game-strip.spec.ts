@@ -23,6 +23,22 @@ async function saidInTheVideo(page: Page): Promise<number> {
   expect(said, "the line gives a time in the video").not.toBeNull();
   return Number(said![1]) * 60 + Number(said![2]);
 }
+/** The game's frame as the list shows it: under each period's header, how many timeouts it lists and whether its end closes it. */
+const listFrame = (page: Page) =>
+  list(page)
+    .locator("[data-row-key]")
+    .evaluateAll((rows) => {
+      const out: Record<string, { timeouts: number; end: boolean }> = {};
+      let period = "";
+      for (const row of rows) {
+        const key = row.getAttribute("data-row-key") ?? "";
+        if (key.startsWith("period:")) out[(period = key)] = { timeouts: 0, end: false };
+        else if (period && key.startsWith("timeout:")) out[period].timeouts++;
+        else if (period && key.startsWith("end:")) out[period].end = true;
+      }
+      return out;
+    });
+
 const moment = (page: Page, name: string) => page.getByRole("group", { name: "Moment" }).getByRole("button", { name, exact: true });
 
 type Box = { x: number; y: number; width: number; height: number };
@@ -115,9 +131,18 @@ test("the whole game shows its story: quarters, runs with their score, timeouts,
 
 test("a filter brings out the plays it leaves, in one colour, and they go when it is cleared", async ({ page, browserName }) => {
   await openLeagueGame(page);
+  const whole = await listFrame(page);
   await moment(page, "After timeouts").click();
   const listed = await playRows(page).count();
   expect(listed, "the filter leaves some plays").toBeGreaterThan(0);
+  // The game's frame stays around the plays that are left: every period listed keeps all its timeouts and its end.
+  const left = await listFrame(page);
+  expect(Object.keys(left).length, "the filtered list has periods").toBeGreaterThan(0);
+  for (const [period, frame] of Object.entries(left)) {
+    expect(frame, `${period} keeps its timeouts and its end under the filter`).toEqual(whole[period]);
+    expect(frame.end, `${period} is closed by its end`).toBe(true);
+  }
+  expect(Object.values(left).reduce((n, f) => n + f.timeouts, 0), "the timeouts are still in the list").toBeGreaterThan(0);
   await expect(drawn(page, "play-mark"), "the strip marks the plays the list shows").toHaveCount(listed);
   const fills = await drawn(page, "play-mark").evaluateAll((els) => [...new Set(els.map((el) => getComputedStyle(el).fill))]);
   expect(fills.length, "the marks are one colour").toBe(1);

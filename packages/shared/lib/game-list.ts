@@ -7,7 +7,7 @@ import type { GameMarks, GameTimeout } from "../types/game-marks";
 import type { PlayByPlayEvent } from "../types/match";
 import { EMPTY_CLIP_FILTERS, matchesClipFilters, matchesLabelFilter, type ClipFilters } from "./clip-filters";
 import { playerName } from "./events";
-import { afterTimeoutPlays, type GameFlow, type GameMoment, type PeriodScore, type Score, type ScoringRun } from "./game-flow";
+import type { GameFlow, GameMoment, PeriodScore, Score, ScoringRun } from "./game-flow";
 import type { GameTimeline, TimedPlay } from "./game-timeline";
 
 export interface GameFilters {
@@ -46,7 +46,7 @@ export function gameFilterCount(f: GameFilters): number {
   );
 }
 
-/** Whether anything narrows the list: a filtered list offers "Add all" and drops the in-between markers. */
+/** Whether anything narrows the list: a filtered list offers "Add all", and heads a run only when it is filtered to runs. */
 export function gameFiltersActive(f: GameFilters): boolean {
   return f.team !== 0 || f.search.trim() !== "" || f.moment !== null || gameFilterCount(f) > 0;
 }
@@ -107,9 +107,13 @@ export type GameRow =
 /**
  * The list's rows. Unfiltered, the game reads like a scoresheet: every play,
  * with timeouts, runs and period ends where they happened. Filtered, only
- * what matches is listed under its period, and the markers go: except the
- * ones the chosen moment is about, which head their plays (the timeout above
- * the play it led to, the run above its baskets).
+ * the plays that match are listed, and the game's frame stays around them:
+ * each period that has a listed play keeps its header, its timeouts where
+ * they fell among the plays left, and its end. A coach looking at the made
+ * twos still sees which came out of a timeout. A period with nothing listed
+ * is left out, so a narrow filter stays a short list. A run is headed only
+ * when every one of its baskets is there to stand under it: unfiltered, or
+ * filtered to runs.
  */
 export function gameRows(input: {
   timeline: Pick<GameTimeline, "plays" | "timeOf">;
@@ -132,13 +136,6 @@ export function gameRows(input: {
   const periods = [...byPeriod.keys()].sort((a, b) => a - b);
   const lastPeriod = flow.order.length > 0 ? Math.max(...flow.order.map((e) => e.period)) : 0;
 
-  // The timeout above the play it led to, for the "after timeouts" list.
-  const leadsTo = new Map<number, GameTimeout>();
-  if (filters.moment === "after_timeout") {
-    for (const { timeout, eventId } of afterTimeoutPlays(flow, marks)) {
-      if (eventId !== null && timeout.kind === "team") leadsTo.set(eventId, timeout);
-    }
-  }
   const showRuns = !filtered || filters.moment === "run";
   const runStarts = new Map<number, ScoringRun>();
   if (showRuns) for (const run of flow.runs) runStarts.set(run.fromEventId, run);
@@ -153,12 +150,11 @@ export function gameRows(input: {
       plays: plays.length,
     });
 
-    // Unfiltered, every timeout of the period sits before the first play after it.
-    const timeouts = filtered
-      ? []
-      : (marks?.timeouts ?? [])
-          .filter((t) => t.period === period)
-          .map((timeout) => ({ timeout, time: timeline.timeOf(timeout.realWorldTime, period) }));
+    // Every timeout of the period sits before the first listed play after it, filtered or not: under
+    // "after timeouts" that is the play it led to.
+    const timeouts = (marks?.timeouts ?? [])
+      .filter((t) => t.period === period)
+      .map((timeout) => ({ timeout, time: timeline.timeOf(timeout.realWorldTime, period) }));
     let nextTimeout = 0;
     const isBefore = (t: { timeout: GameTimeout; time: number | null }, play: TimedPlay) =>
       t.time !== null ? t.time <= play.time : t.timeout.eventId < play.event.eventId;
@@ -168,8 +164,6 @@ export function gameRows(input: {
         const { timeout } = timeouts[nextTimeout++];
         rows.push({ kind: "timeout", key: `timeout:${timeout.eventId}`, timeout });
       }
-      const led = leadsTo.get(play.event.eventId);
-      if (led) rows.push({ kind: "timeout", key: `timeout:${led.eventId}`, timeout: led });
       const run = runStarts.get(play.event.eventId);
       if (run) rows.push({ kind: "run", key: `run:${run.fromEventId}`, run });
       rows.push({ kind: "play", key: play.key, play });
@@ -179,17 +173,15 @@ export function gameRows(input: {
       rows.push({ kind: "timeout", key: `timeout:${timeout.eventId}`, timeout });
     }
 
-    if (!filtered) {
-      const total = flow.periods.find((p) => p.period === period);
-      rows.push({
-        kind: "period_end",
-        key: `end:${period}`,
-        period,
-        score: total ? { home: total.homeTotal, away: total.awayTotal } : null,
-        half: period === 2 && lastPeriod > 2,
-        final: period === lastPeriod,
-      });
-    }
+    const total = flow.periods.find((p) => p.period === period);
+    rows.push({
+      kind: "period_end",
+      key: `end:${period}`,
+      period,
+      score: total ? { home: total.homeTotal, away: total.awayTotal } : null,
+      half: period === 2 && lastPeriod > 2,
+      final: period === lastPeriod,
+    });
   }
   return rows;
 }
