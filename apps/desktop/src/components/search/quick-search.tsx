@@ -10,7 +10,7 @@
  * never animated and the highlight moves at once. The scrim only dims: no
  * blur is drawn over a video that keeps playing behind it.
  */
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { AnimatePresence, motion } from "framer-motion";
 import { FileText, Film, ListVideo, Search } from "lucide-react";
@@ -34,6 +34,7 @@ import {
   closeQuickSearch,
   refreshSearchIndex,
   useQuickSearchOpen,
+  useQuickSearchOpens,
   useSearchIndex,
   type SearchScope,
 } from "@/lib/quick-search-store";
@@ -67,6 +68,7 @@ function detailOf(item: SearchItem): string {
 
 export default function QuickSearch({ scope }: { scope: SearchScope }) {
   const open = useQuickSearchOpen();
+  const opens = useQuickSearchOpens();
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(next) => !next && closeQuickSearch()}>
       <AnimatePresence>
@@ -85,7 +87,9 @@ export default function QuickSearch({ scope }: { scope: SearchScope }) {
               className="pointer-events-auto fixed inset-x-0 top-0 z-50 h-[var(--titlebar-inset)]"
             />
             <div className="pointer-events-none fixed inset-0 z-50 flex items-start justify-center px-4 pt-[max(16vh,calc(var(--titlebar-inset)+0.75rem))] pb-4">
-              <SearchBody scope={scope} />
+              {/* Keyed by the open: a panel asked for again while the last one is still leaving is a new
+                  one (an empty field that has the keys), not the one that was closed. */}
+              <SearchBody key={opens} scope={scope} />
             </div>
           </DialogPrimitive.Portal>
         )}
@@ -119,6 +123,15 @@ function SearchBody({ scope }: { scope: SearchScope }) {
     else inputRef.current?.blur();
   }, [open]);
   const optionId = (i: number) => `${listId}-${i}`;
+
+  // Only a pointer that moves takes the highlight. WebKit also reports a move for a pointer at rest when
+  // the rows scroll under it, which the arrow keys make them do: the highlight would jump back to it.
+  const pointerAt = useRef<{ x: number; y: number } | null>(null);
+  function pointerMoved(e: PointerEvent<HTMLElement>): boolean {
+    const was = pointerAt.current;
+    pointerAt.current = { x: e.clientX, y: e.clientY };
+    return was !== null && (was.x !== e.clientX || was.y !== e.clientY);
+  }
 
   // What is held shows at once; it is read again behind it (lib/quick-search-store.ts).
   useEffect(() => {
@@ -201,6 +214,9 @@ function SearchBody({ scope }: { scope: SearchScope }) {
         initial="hidden"
         animate="visible"
         exit="exit"
+        // A press on the panel beside its rows (a heading, the hints) leaves the keys in the field: the
+        // panel itself can hold the focus, and would take them.
+        onMouseDown={(e) => e.target !== inputRef.current && e.preventDefault()}
         className="pointer-events-auto flex max-h-[min(60vh,34rem)] w-full max-w-[640px] origin-top flex-col overflow-hidden rounded-window bg-material-sheet text-foreground shadow-dialog outline-none"
       >
         <DialogPrimitive.Title className="sr-only">Search</DialogPrimitive.Title>
@@ -252,8 +268,8 @@ function SearchBody({ scope }: { scope: SearchScope }) {
                     id={optionId(i)}
                     role="option"
                     aria-selected={on}
-                    // Only a pointer that moves takes the highlight: a list that changes under a resting one doesn't.
-                    onPointerMove={() => setActive(i)}
+                    // A list that changes or scrolls under a resting pointer keeps its highlight (above).
+                    onPointerMove={(e) => pointerMoved(e) && setActive(i)}
                     onClick={() => choose(item, i)}
                     // The highlight is where the keys or the pointer are, not a choice made: the app's neutral
                     // fill, as under a hovered row and in the tab bar's game picker. The accent is kept for

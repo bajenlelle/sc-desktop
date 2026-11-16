@@ -23,7 +23,12 @@ in `runMenuAction("search")` in `components/menu-handler.tsx`.
 It is there for the roles the sidebar lists Home, Playlists and the Library
 for (coach or admin, a personal space included), and only once the page
 itself is shown. It stays out of the way of anything else that is open: over
-another dialog, a sheet, a popover or a menu the chord does nothing.
+another dialog, a sheet or a menu the chord does nothing. A popover (a
+filter, a picker) is not in its way: it closes as the search opens, as it
+does on any press outside it.
+
+Each open is a new panel with an empty field, also when it is asked for again
+while the last one is still leaving. A chord held down opens it once.
 
 ## What it shows
 
@@ -69,10 +74,16 @@ A game is not matched on its date: a typed date has no one form.
 ↑ and ↓ move the highlight, ↩ opens, esc closes. The field keeps the focus
 and the list is moved through with `aria-activedescendant`, the pattern of
 the Add clips game picker. A row takes the highlight from the pointer only
-when the pointer moves, not when the list changes under a resting one.
+when the pointer moves, not when the list changes or scrolls under a resting
+one (WebKit reports a move for a pointer at rest when the arrow keys scroll
+the rows under it).
+
+A press on the panel beside its rows (a heading, the hints) leaves the keys
+in the field.
 
 A press anywhere outside the panel closes it, the window's title strip
-included (the window can still be moved by it).
+included (the window can still be moved by it). So does another page coming
+up under it (a Go key, File > New Playlist).
 
 When the panel is dismissed the keys go back to where they were at once, not
 when its motion ends. After a choice they are left to the page that opens.
@@ -93,7 +104,8 @@ A playlist or report is asked for through the Playlists page's router state
 navigation to the page one is on builds nothing, so the page now also opens a
 later arrival in place, the way a click in its list does (`openAsked` in
 `pages/playlists.tsx`). A playlist newer than the page's list makes it read
-the list once more.
+the list once more and take in only what it lacks: a read that fails leaves
+the page's list as it was and says the playlist couldn't be opened.
 
 ## What was opened last
 

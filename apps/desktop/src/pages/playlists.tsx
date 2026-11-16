@@ -5082,22 +5082,29 @@ export function PlaylistsPage() {
   // nothing, so a later arrival is opened here, the way a click in the list opens it.
   async function openAsked(ask: { playlistId: string; report: boolean }) {
     let pl = playlists.find((p) => p.id === ask.playlistId);
+    let allFolders = folders;
     if (!pl) {
-      // Newer than this page's list (made from a game since it was read): read the list once more.
+      // Newer than this page's list (made from a game since it was read): read the list once more, and
+      // take in only what this page lacks. Its own copies may hold changes still being written, and a
+      // read that fails comes back empty: neither may replace what is listed.
       const [freshFolders, freshPlaylists] = await Promise.all([
         listFolders(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }),
         listPlaylists(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }),
       ]);
-      setFolders(freshFolders);
-      setPlaylists(freshPlaylists);
-      pl = freshPlaylists.find((p) => p.id === ask.playlistId);
-      if (!pl) {
-        toast.error("That playlist is no longer in this space");
+      const found = freshPlaylists.find((p) => p.id === ask.playlistId);
+      if (!found) {
+        // A read that brought playlists shows it is gone; an empty one may be a read that failed.
+        toast.error(freshPlaylists.length > 0 ? "That playlist is no longer in this space" : "Couldn’t open that playlist");
         return;
       }
+      pl = found;
+      const lacking = (have: PlaylistFolder[]) => freshFolders.filter((f) => !have.some((o) => o.id === f.id));
+      allFolders = [...folders, ...lacking(folders)];
+      setFolders((prev) => [...prev, ...lacking(prev)]);
+      setPlaylists((prev) => (prev.some((p) => p.id === found.id) ? prev : [found, ...prev]));
     }
     const folderId = pl.folderId;
-    if (folderId) setExpandedFolders((prev) => new Set([...prev, folderId, ...ancestorIds(folders, folderId)]));
+    if (folderId) setExpandedFolders((prev) => new Set([...prev, folderId, ...ancestorIds(allFolders, folderId)]));
     else setUncategorizedExpanded(true);
     if (selectedRef.current?.id === pl.id) {
       // Already the one open: only the view changes.

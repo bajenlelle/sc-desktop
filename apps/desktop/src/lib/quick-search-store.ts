@@ -46,6 +46,8 @@ function subscribe(listener: () => void) {
 }
 
 let open = false;
+/** How many times the panel has opened: each open is a panel of its own (components/search/quick-search.tsx). */
+let opens = 0;
 /** Whether the page shown has a search at all (the coach's workspace); set by the host. */
 let available = false;
 
@@ -53,15 +55,23 @@ const scopeKey = (s: SearchScope) => `${s.userId}:${s.orgId}:${s.personal}`;
 let held: { key: string; state: SearchIndexState; reading: boolean } | null = null;
 const LOADING: SearchIndexState = { status: "loading", index: null };
 
-/** Another dialog, sheet, popover or menu is open: the search stays out of its way. */
+/**
+ * Another dialog, sheet or menu is open: the search stays out of its way. A
+ * popover (a filter, a picker) is not in its way: it closes on any press
+ * outside it and when the keys leave it, so it closes as the search opens.
+ */
 function somethingElseIsOpen(): boolean {
   return !!document.querySelector(
-    '[role="dialog"][data-state="open"]:not([data-quick-search]), [role="alertdialog"][data-state="open"], [role="menu"][data-state="open"]',
+    '[role="dialog"][data-state="open"]:not([data-quick-search]):not([data-slot="popover-content"]), [role="alertdialog"][data-state="open"], [role="menu"][data-state="open"]',
   );
 }
 
 export function useQuickSearchOpen(): boolean {
   return useSyncExternalStore(subscribe, () => open, () => open);
+}
+
+export function useQuickSearchOpens(): number {
+  return useSyncExternalStore(subscribe, () => opens, () => opens);
 }
 
 /** The host says whether this page has the search; it closes with the page. */
@@ -73,6 +83,7 @@ export function setQuickSearchAvailable(next: boolean): void {
 export function openQuickSearch(via: SearchVia): void {
   if (open || !available || somethingElseIsOpen()) return;
   open = true;
+  opens += 1;
   trackEvent("search_opened", { via });
   emit();
 }

@@ -14,11 +14,14 @@ import {
   expect,
   goViaSidebar,
   openAddClips,
+  openLibraryGame,
   openSampleGame,
   owned,
   recordAnalytics,
   shot,
+  showGameView,
   test,
+  toastWith,
   videoTime,
   waitForQuiet,
   withAppModule,
@@ -303,6 +306,92 @@ test("the panel fits the smallest window, light and dark", async ({ page, browse
   await page.emulateMedia({ colorScheme: "light" });
 });
 
+test("a pointer at rest leaves the highlight to the keys when they scroll the list", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 640 });
+  for (const name of [ALPHA, BETA, GAMMA]) await createPlaylist(page, name);
+  await goViaSidebar(page, "Library");
+  await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
+  await openSearch(page);
+  await expect(options(page).first()).toBeVisible({ timeout: 15_000 });
+  // The letter that finds the most: a list longer than the panel.
+  let most = { letter: "", count: 0 };
+  for (const letter of ["a", "e", "s", "o", "i"]) {
+    await field(page).fill(letter);
+    await page.waitForTimeout(150);
+    const count = await options(page).count();
+    if (count > most.count) most = { letter, count };
+  }
+  await field(page).fill(most.letter);
+  await page.waitForTimeout(150);
+  const sizes = await panel(page).getByRole("listbox").evaluate((el) => ({ all: el.scrollHeight, shown: el.clientHeight }));
+  expect(sizes.all, `"${most.letter}" finds a list longer than the panel (${most.count} rows)`).toBeGreaterThan(sizes.shown);
+
+  // The pointer comes to rest on the third row and takes the highlight there.
+  const third = (await options(page).nth(2).boundingBox())!;
+  await page.mouse.move(third.x + 80, third.y + third.height / 2 - 3);
+  await page.mouse.move(third.x + 90, third.y + third.height / 2);
+  await expect(options(page).nth(2)).toHaveAttribute("aria-selected", "true");
+  for (let at = 3; at < most.count; at++) {
+    await page.keyboard.press("ArrowDown");
+    // WebKit tells a resting pointer of the rows that scrolled under it a moment later.
+    await page.waitForTimeout(250);
+    await expect(options(page).nth(at), `the keys moved the highlight to row ${at + 1} of ${most.count}`).toHaveAttribute("aria-selected", "true");
+  }
+
+  // A pointer that moves still takes it.
+  const other = (await options(page).nth(most.count - 2).boundingBox())!;
+  await page.mouse.move(other.x + 80, other.y + other.height / 2 - 3);
+  await page.mouse.move(other.x + 90, other.y + other.height / 2);
+  await expect(options(page).nth(most.count - 2)).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Escape");
+});
+
+test("a press on the panel beside its rows leaves the keys in the field", async ({ page }) => {
+  await goViaSidebar(page, "Library");
+  await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
+  await openSearch(page);
+  await expect(options(page).first()).toBeVisible({ timeout: 15_000 });
+  // A group's heading.
+  await panel(page).getByRole("group").first().locator('[role="presentation"]').click();
+  await expect(field(page), "the field keeps the keys after a press on a heading").toBeFocused();
+  await page.keyboard.type("q");
+  await expect(field(page)).toHaveValue("q");
+  // The hints at the foot.
+  const box = (await panel(page).boundingBox())!;
+  await page.mouse.click(box.x + box.width - 60, box.y + box.height - 12);
+  await expect(field(page), "and after a press on the hints").toBeFocused();
+  await page.keyboard.type("w");
+  await expect(field(page)).toHaveValue("qw");
+  await page.keyboard.press("Escape");
+  await expect(panel(page)).toBeHidden();
+});
+
+test("a playlist the page can't read leaves its list as it was", async ({ page }) => {
+  const alphaId = await createPlaylist(page, ALPHA);
+  await goViaSidebar(page, "Playlists");
+  const listed = page.locator(`[data-playlist-id="${alphaId}"]`).first();
+  await expect(listed).toBeVisible({ timeout: 30_000 });
+  // Made since the page read its list: the search finds it, the page has to read for it.
+  await createPlaylist(page, GAMMA);
+  await openSearch(page);
+  await field(page).pressSequentially(GAMMA);
+  const found = group(page, "Playlists").getByRole("option").filter({ hasText: GAMMA });
+  await expect(found).toBeVisible({ timeout: 15_000 });
+  await waitForQuiet(page);
+
+  // The page's own read of its playlists fails (the search's light reads are let through).
+  const pageReads = /\/rest\/v1\/playlists\?/;
+  await page.route(pageReads, (route) => {
+    const light = ["id,name,folder_id,created_at", "id,name"].includes(selectOf(route.request().url()));
+    if (route.request().method() !== "GET" || light) return route.continue();
+    return route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ message: "the read fails" }) });
+  });
+  await chooseWithKeys(page, found);
+  await expect(toastWith(page, "Couldn’t open that playlist")).toBeVisible({ timeout: 15_000 });
+  await expect(listed, "the playlists the page had are still listed").toBeVisible();
+  await page.unroute(pageReads);
+});
+
 test.describe("where there is no menu bar", () => {
   // The app's Windows build: the chord is read from the keyboard.
   test.use({ userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36" });
@@ -335,5 +424,72 @@ test.describe("where there is no menu bar", () => {
     await page.waitForTimeout(400);
     await expect(panel(page)).toHaveCount(0);
     await expect(sheet).toBeVisible();
+  });
+  test("the chord pressed again while the panel is leaving opens a new one that has the keys", async ({ page }) => {
+    await goViaSidebar(page, "Library");
+    await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
+    const own = page.getByPlaceholder("Search games");
+    await own.click();
+    await page.keyboard.press("Control+k");
+    await expect(field(page)).toBeFocused();
+    await field(page).pressSequentially("abc");
+    // Closed, and asked for again before it has left.
+    await page.keyboard.press("Control+k");
+    await page.keyboard.press("Control+k");
+    await expect(panel(page)).toBeVisible();
+    await expect(field(page), "a new panel starts empty").toHaveValue("");
+    await expect(field(page), "and has the keys").toBeFocused();
+    await page.keyboard.type("z");
+    await expect(field(page)).toHaveValue("z");
+    await expect(own, "nothing was typed into the page behind it").toHaveValue("");
+    await page.keyboard.press("Escape");
+    await expect(panel(page)).toBeHidden();
+    await expect(own, "the focus is back in the field it was first taken from").toBeFocused();
+
+    // A chord held down opens the panel once: its repeats don't close it again.
+    await page.keyboard.down("Control");
+    await page.keyboard.down("k");
+    await page.keyboard.down("k");
+    await page.keyboard.up("k");
+    await page.keyboard.up("Control");
+    await page.waitForTimeout(400);
+    await expect(panel(page)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(panel(page)).toBeHidden();
+  });
+
+  test("a number key under the open panel goes to its page, and the panel closes", async ({ page }) => {
+    await goViaSidebar(page, "Library");
+    await expect(heading(page)).toHaveText("Library", { timeout: 30_000 });
+    await page.keyboard.press("Control+k");
+    await expect(field(page)).toBeFocused();
+    await field(page).pressSequentially("ab");
+    await page.keyboard.press("Control+1");
+    await expect(heading(page)).toHaveText("Home", { timeout: 15_000 });
+    await expect(panel(page), "the panel doesn't stay over the page that opened").toBeHidden();
+  });
+
+  test("with the game's filter open, the chord and the sidebar's Search close it and open the search", async ({ page }) => {
+    await openLibraryGame(page, 0);
+    await showGameView(page);
+    const filterButton = page.getByRole("button", { name: /^Filters/ });
+    const filter = page.getByRole("dialog").filter({ has: page.getByPlaceholder("Player name or number") });
+    await filterButton.click();
+    await expect(filter).toBeVisible();
+    await page.keyboard.press("Control+k");
+    await expect(panel(page)).toBeVisible();
+    await expect(field(page)).toBeFocused();
+    await expect(filter, "the filter closed, as on any press outside it").toBeHidden();
+    await page.keyboard.press("Escape");
+    await expect(panel(page)).toBeHidden();
+
+    await filterButton.click();
+    await expect(filter).toBeVisible();
+    await searchButton(page).click();
+    await expect(panel(page)).toBeVisible();
+    await expect(field(page)).toBeFocused();
+    await expect(filter).toBeHidden();
+    await page.keyboard.press("Escape");
+    await expect(panel(page)).toBeHidden();
   });
 });

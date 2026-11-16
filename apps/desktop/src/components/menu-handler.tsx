@@ -239,6 +239,8 @@ export function MenuHandler() {
       // gated by the playlists page's own listener instead.
       if (!id || enabledIds.get(id) === false) return;
       e.preventDefault();
+      // A held chord opens the search once: its repeats would close it and open it again.
+      if (e.repeat && id === "search") return;
       runMenuAction(id);
     }
 

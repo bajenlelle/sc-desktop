@@ -6,9 +6,10 @@
  * session that never searches loads none of it.
  */
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { useRouteGate } from "@/components/protected-route";
 import { useAuth } from "@/lib/auth-context";
-import { setQuickSearchAvailable, useQuickSearchOpen, type SearchScope } from "@/lib/quick-search-store";
+import { closeQuickSearch, setQuickSearchAvailable, useQuickSearchOpen, type SearchScope } from "@/lib/quick-search-store";
 
 const QuickSearch = lazy(() => import("./quick-search"));
 
@@ -32,6 +33,10 @@ export function QuickSearchHost() {
     setQuickSearchAvailable(available);
     return () => setQuickSearchAvailable(false);
   }, [available]);
+
+  // Another page came up under the panel (a Go key, File > New Playlist): it doesn't stay over it.
+  const { pathname } = useLocation();
+  useEffect(() => closeQuickSearch(), [pathname]);
 
   // Kept once opened, so the panel can leave with its motion.
   const [opened, setOpened] = useState(false);
