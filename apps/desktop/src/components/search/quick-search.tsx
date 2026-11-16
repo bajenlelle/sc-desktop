@@ -75,8 +75,15 @@ export default function QuickSearch({ scope }: { scope: SearchScope }) {
             <DialogPrimitive.Overlay forceMount asChild>
               <motion.div variants={scrimVariants} initial="hidden" animate="visible" exit="exit" className="fixed inset-0 z-50 bg-black/35" />
             </DialogPrimitive.Overlay>
-            {/* The window stays movable by its title strip, as under a sheet (components/ui/sheet.tsx). */}
-            <div data-tauri-drag-region aria-hidden className="pointer-events-auto fixed inset-x-0 top-0 z-50 h-[var(--titlebar-inset)]" />
+            {/* The window stays movable by its title strip, as under a sheet (components/ui/sheet.tsx). Unlike a
+                sheet the panel closes on that press, as on any press outside it: the drag swallows the click
+                Radix would have closed on (components/ui/popover.tsx). */}
+            <div
+              data-tauri-drag-region
+              aria-hidden
+              onPointerDown={(e) => e.button === 0 && closeQuickSearch()}
+              className="pointer-events-auto fixed inset-x-0 top-0 z-50 h-[var(--titlebar-inset)]"
+            />
             <div className="pointer-events-none fixed inset-0 z-50 flex items-start justify-center px-4 pt-[max(16vh,calc(var(--titlebar-inset)+0.75rem))] pb-4">
               <SearchBody scope={scope} />
             </div>

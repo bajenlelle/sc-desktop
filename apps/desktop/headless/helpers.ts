@@ -835,6 +835,44 @@ export async function recordAnalytics(page: Page): Promise<() => Promise<{ event
   return () => page.evaluate(() => (window as unknown as { __tracked?: { event: string; properties?: Record<string, unknown> }[] }).__tracked ?? []);
 }
 
+/**
+ * Makes a press on a window drag region behave as it does in the real app.
+ * There Tauri's own script takes the mousedown on an element carrying
+ * `data-tauri-drag-region` (it stops the event where it stands and starts a
+ * native window drag), and the drag swallows the release: the page gets a
+ * pointerdown and nothing after it, no mouseup and no click. Call before the
+ * first navigation.
+ */
+export async function emulateWindowDragRegions(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    let dragging = false;
+    const isDragRegion = (target: EventTarget | null) => {
+      const attr = target instanceof Element ? target.getAttribute("data-tauri-drag-region") : null;
+      return attr !== null && attr !== "false";
+    };
+    // Tauri's listener: on the document, registered before any of the page's.
+    document.addEventListener("mousedown", (e) => {
+      if (!isDragRegion(e.target) || e.button !== 0) return;
+      dragging = true;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    });
+    // The native drag: the release never reaches the page.
+    for (const type of ["pointerup", "mouseup", "click"]) {
+      window.addEventListener(
+        type,
+        (e) => {
+          if (!dragging) return;
+          e.stopImmediatePropagation();
+          e.preventDefault();
+          if (type === "click") dragging = false;
+        },
+        true,
+      );
+    }
+  });
+}
+
 /** What `patchGameReads` changes in the games the page reads. */
 export interface GameReadPatch {
   /** Both teams' names, home then away. */

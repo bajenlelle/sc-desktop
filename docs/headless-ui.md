@@ -96,6 +96,18 @@ protocol. A path to any worktree's `…/headless/fixtures/<file>` resolves to
 this server's own fixtures, so worktrees that point a staging game at "their"
 fixture don't break each other.
 
+## The window's drag regions
+
+In the real app a press on an element that carries `data-tauri-drag-region`
+(the title strip, the game page's tab bar, a toolbar's empty part) is taken by
+Tauri's own script to start a native window drag: the page gets the
+pointerdown and nothing after it, no mouseup and no click. Without Tauri a
+headless page gets the whole click, so anything that waits for the click
+looks fine here and is broken there (a Radix popover closes on the click
+after a press outside it, and stayed open). `emulateWindowDragRegions(page)`
+in `helpers.ts` reproduces it: call it before the first navigation
+(`specs/L-light-dismiss.spec.ts`).
+
 ## What it can't reach
 
 These stay in the Manual check of a task: native export and everything

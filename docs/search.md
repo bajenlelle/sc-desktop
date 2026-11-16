@@ -71,6 +71,9 @@ and the list is moved through with `aria-activedescendant`, the pattern of
 the Add clips game picker. A row takes the highlight from the pointer only
 when the pointer moves, not when the list changes under a resting one.
 
+A press anywhere outside the panel closes it, the window's title strip
+included (the window can still be moved by it).
+
 When the panel is dismissed the keys go back to where they were at once, not
 when its motion ends. After a choice they are left to the page that opens.
 
