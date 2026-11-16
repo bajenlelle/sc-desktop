@@ -47,6 +47,16 @@ export const sheetVariants: Variants = {
   exit: { opacity: 0, y: -16, transition: springs.exit },
 };
 
+/**
+ * The search panel: it drops a few pixels from above and leaves the way it
+ * came. Quicker than a dialog, since it is typed into from the first frame.
+ */
+export const searchVariants: Variants = {
+  hidden: { opacity: 0, scale: 0.98, y: -8 },
+  visible: { opacity: 1, scale: 1, y: 0, transition: springs.snappy },
+  exit: { opacity: 0, scale: 0.98, y: -8, transition: springs.exit },
+};
+
 /** Floating bars that rise from the bottom edge (selection bar). */
 export const riseVariants: Variants = {
   hidden: { opacity: 0, y: 24 },

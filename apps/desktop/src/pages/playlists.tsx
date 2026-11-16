@@ -149,6 +149,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import type { Playlist, PlaylistFolder, PlaylistItem, PlaylistClipItem, PlaylistTextCard, PlayByPlayEvent, StoredMatch, SyncPoint } from "@/types/match";
 import { isClipItem } from "@/types/match";
 import { toast } from "sonner";
+import { recentOpensScope, rememberOpened } from "@/lib/recent-opens";
 import { Page } from "@/components/shell/page";
 import { Toolbar } from "@/components/shell/toolbar";
 import { BackButton, EditorToolbar, type BackToGame } from "@/components/editor/editor-toolbar";
@@ -754,8 +755,8 @@ export function PlaylistsPage() {
       highlight?: "add-clips" | "export" | "share";
       /** Set by the coach dashboard — upload this playlist's missing clips. */
       reship?: boolean;
-      /** Set by the Reports page — open the restored playlist in its Report view (`share`: with the share sheet open). */
-      view?: "report";
+      /** Set by the Reports page and the search — open the restored playlist in its Report view (`share`: with the share sheet open); "clips" (the search) is the editor. */
+      view?: "report" | "clips";
       share?: boolean;
       /** Set by a game page's "Build a playlist": the next Add clips starts on this game. */
       addClipsFrom?: string;
@@ -5042,6 +5043,16 @@ export function PlaylistsPage() {
   // The scouting report: its view, the playlist's live report, and what generating does
   // ---------------------------------------------------------------------------
 
+  // What the search offers as opened last (lib/recent-opens.ts): the playlist shown, or its report.
+  // Before the effect below, which uses up `pendingReportRef`: a report on its way is noted as the
+  // report once it shows, not as its playlist first.
+  const recentScope = recentOpensScope(user?.id, activeOrgId);
+  useEffect(() => {
+    const id = selected?.id;
+    if (!id || isUnsavedId(id) || pendingReportRef.current === id) return;
+    rememberOpened(recentScope, reportFor === id ? "report" : "playlist", id);
+  }, [selected?.id, reportFor, recentScope]);
+
   // A different playlist: the report view was the last one's (coming back opens the editor),
   // unless the Reports page asked for this playlist's report.
   useEffect(() => {
@@ -5065,6 +5076,61 @@ export function PlaylistsPage() {
     refreshMyReport();
     setReportFor(selectedRef.current?.id ?? null);
   }
+
+  // A playlist, or its report, asked for while this page is already shown (the search, ⌘K). The load
+  // effect reads `restore` only as the page is built, and a navigation to the page one is on builds
+  // nothing, so a later arrival is opened here, the way a click in the list opens it.
+  async function openAsked(ask: { playlistId: string; report: boolean }) {
+    let pl = playlists.find((p) => p.id === ask.playlistId);
+    if (!pl) {
+      // Newer than this page's list (made from a game since it was read): read the list once more.
+      const [freshFolders, freshPlaylists] = await Promise.all([
+        listFolders(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }),
+        listPlaylists(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }),
+      ]);
+      setFolders(freshFolders);
+      setPlaylists(freshPlaylists);
+      pl = freshPlaylists.find((p) => p.id === ask.playlistId);
+      if (!pl) {
+        toast.error("That playlist is no longer in this space");
+        return;
+      }
+    }
+    const folderId = pl.folderId;
+    if (folderId) setExpandedFolders((prev) => new Set([...prev, folderId, ...ancestorIds(folders, folderId)]));
+    else setUncategorizedExpanded(true);
+    if (selectedRef.current?.id === pl.id) {
+      // Already the one open: only the view changes.
+      if (ask.report) openReport();
+      else setReportFor(null);
+      return;
+    }
+    if (ask.report) pendingReportRef.current = pl.id;
+    selectPlaylist(pl);
+  }
+  const lateRestoreRef = useRef<{ playlistId: string; report: boolean } | null>(null);
+  const lateKeyRef = useRef(location.key);
+  useEffect(() => {
+    if (location.key === lateKeyRef.current) return;
+    lateKeyRef.current = location.key;
+    const state = location.state as { restore?: { playlistId: string }; view?: "report" | "clips" } | null;
+    if (!state?.restore) return;
+    // Read once, like the load effect's flags.
+    clearingStateRef.current = true;
+    navigate(location.pathname, { replace: true, state: null });
+    const ask = { playlistId: state.restore.playlistId, report: state.view === "report" };
+    // The first load is still on its way: opened when it lands, below.
+    if (loading) lateRestoreRef.current = ask;
+    else void openAsked(ask);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.key]);
+  useEffect(() => {
+    const ask = lateRestoreRef.current;
+    if (loading || !ask) return;
+    lateRestoreRef.current = null;
+    void openAsked(ask);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
 
   /** The coach's labels per clip, by name, for the report. */
   const labelNamesByClip = useMemo(() => {

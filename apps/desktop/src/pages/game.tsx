@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { recentOpensScope, rememberOpened } from "@/lib/recent-opens";
 import { ChevronLeft, Loader2 } from "lucide-react";
 import { GameViewSwitch, type GameViewMode } from "@/components/game/game-view-switch";
 import { GameWatchView } from "@/components/game/game-watch-view";
@@ -60,8 +61,8 @@ export function GamePage() {
   const asked = searchParams.get("view");
   const wantsQuarters = !!(location.state as { openQuarters?: boolean } | null)?.openQuarters;
   const via = (location.state as { via?: string } | null)?.via;
-  // A tab switch: by the tab bar, or by a game marked Open in the Library.
-  const viaTab = via === "tab" || via === "library_tab";
+  // A tab switch: by the tab bar, by a game marked Open in the Library, or by the search finding a game that has a tab.
+  const viaTab = via === "tab" || via === "library_tab" || via === "search_tab";
   const startEventId = Number(searchParams.get("play")) || null;
   // A tab switch shows the game as this visit read it, without the spinner.
   const [loaded, setLoaded] = useState<{ match: StoredMatch; videoStatus: VideoFileStatus | "none" } | null>(() =>
@@ -77,7 +78,9 @@ export function GamePage() {
     if (loaded) return loaded.videoStatus === "ok" && loaded.match.syncPoint ? "game" : "details";
     return null;
   });
-  const [entry] = useState(via === "library_tab" ? "library_tab" : viaTab ? "tab" : via === "picker" ? "picker" : asked || startEventId ? "link" : "library");
+  const [entry] = useState(
+    via === "library_tab" ? "library_tab" : via === "search" || via === "search_tab" ? "search" : viaTab ? "tab" : via === "picker" ? "picker" : asked || startEventId ? "link" : "library",
+  );
   const [missing, setMissing] = useState(false);
   // The cached copy stands in for the first read only; Details and back reads afresh.
   const fromCache = useRef(loaded !== null);
@@ -153,6 +156,11 @@ export function GamePage() {
   // Opened straight on Details, the page never reads the game itself: a light
   // read names the tab when it has no title yet.
   const knownTitle = tabs.tabs.find((t) => t.id === matchId)?.title;
+  // A game that has a name is a game that was opened: what the search offers as opened last (lib/recent-opens.ts).
+  const named = !!(title || knownTitle);
+  useEffect(() => {
+    if (named) rememberOpened(recentOpensScope(user?.id, activeOrgId), "game", matchId);
+  }, [named, matchId, user?.id, activeOrgId]);
   useEffect(() => {
     if (view !== "details" || loaded || knownTitle) return;
     let cancelled = false;

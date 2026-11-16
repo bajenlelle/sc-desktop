@@ -209,7 +209,11 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     let go_my_playlists = item("go-my-playlists", "Shared Playlists", Some("CmdOrCtrl+3"))?;
     let go_library = item("go-library", "Library", Some("CmdOrCtrl+4"))?;
     let go_organization = item("go-organization", "Organization", Some("CmdOrCtrl+5"))?;
+    // The search over the space: the page opens its panel, and the same chord closes it (docs/search.md).
+    let search = item("search", "Search…", Some("CmdOrCtrl+K"))?;
     let go_menu = SubmenuBuilder::new(app, "Go")
+        .item(&search)
+        .separator()
         .item(&go_home)
         .item(&go_playlists)
         .item(&go_my_playlists)
@@ -392,5 +396,6 @@ mod tests {
         assert_eq!(menu_act("new-game-tab", false), MenuAct::ToPage);
         assert_eq!(menu_act("reopen-game-tab", false), MenuAct::ToPage);
         assert_eq!(menu_act("new-game-tab", true), MenuAct::ToPage);
+        assert_eq!(menu_act("search", false), MenuAct::ToPage);
     }
 }

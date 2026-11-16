@@ -1,7 +1,8 @@
 import { motion } from "framer-motion";
 import { Link, useLocation } from "react-router-dom";
-import { BookOpen, FileText, Film, Home, ListVideo, Plus, Share2 } from "lucide-react";
+import { BookOpen, FileText, Film, Home, ListVideo, Plus, Search, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Kbd } from "@/components/ui/kbd";
 import { UpdateCard } from "@/components/UpdateChecker";
 import { useAuth } from "@/lib/auth-context";
 import { useImportQuota } from "@/lib/use-import-quota";
@@ -9,6 +10,7 @@ import { IS_MACOS } from "@/lib/platform";
 import { springs, useReducedMotionSafe } from "@/lib/motion";
 import { useSidebarCollapsed } from "@/lib/sidebar-store";
 import { toggleBrowser } from "@/lib/playlist-browser-store";
+import { openQuickSearch } from "@/lib/quick-search-store";
 import { cn } from "@/lib/utils";
 import { SpaceSwitcher } from "./space-switcher";
 import { UserMenu } from "./user-menu";
@@ -103,8 +105,26 @@ export function Sidebar() {
           />
         )}
 
+        {/* The search over the space, where Notion and Mail keep theirs: above the list it searches across.
+            A button, not a destination: it opens the panel (components/search/quick-search.tsx). */}
+        {ready && isCoachOrAdmin && (
+          <div className="mt-3 px-2">
+            <button
+              type="button"
+              onClick={() => openQuickSearch("sidebar")}
+              aria-label="Search"
+              aria-keyshortcuts={IS_MACOS ? "Meta+K" : "Control+K"}
+              className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm font-medium text-foreground outline-none transition-[background-color,transform] duration-100 hover:bg-fill-1 active:scale-[0.99] active:bg-fill-2 focus-visible:ring-2 focus-visible:ring-selection"
+            >
+              <Search className="size-4 shrink-0 text-primary" />
+              <span className="truncate">Search</span>
+              <Kbd aria-hidden className="ml-auto">{IS_MACOS ? "\u2318K" : "Ctrl K"}</Kbd>
+            </button>
+          </div>
+        )}
+
         {ready && (
-          <nav aria-label="Main" className="mt-3 flex flex-col gap-0.5 px-2">
+          <nav aria-label="Main" className={cn("flex flex-col gap-0.5 px-2", isCoachOrAdmin ? "mt-0.5" : "mt-3")}>
             {isCoachOrAdmin && (
               <NavItem to="/" icon={Home} label="Home" active={pathname === "/"} />
             )}

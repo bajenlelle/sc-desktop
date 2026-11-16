@@ -30,6 +30,8 @@ const PLAIN: Record<string, string> = {
   w: "close-tab",
   // The game page's tab picker; on only on the game page.
   t: "new-game-tab",
+  // The search over the space (docs/search.md); the same chord closes it.
+  k: "search",
   "0": "zoom-reset",
   "1": "go-home",
   "2": "go-playlists",

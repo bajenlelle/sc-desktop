@@ -25,6 +25,7 @@ import { IS_MACOS } from "@/lib/platform";
 import { menuAppearanceFor } from "@scoutable/shared/lib/appearance";
 import { toggleSidebar, useSidebarCollapsed } from "@/lib/sidebar-store";
 import { toggleBrowser, useBrowserCollapsed } from "@/lib/playlist-browser-store";
+import { toggleQuickSearch } from "@/lib/quick-search-store";
 
 const ZOOM_KEY = "scoutable_zoom";
 const ZOOM_MIN = 0.5;
@@ -38,7 +39,7 @@ const ZOOM_STEP = 0.1;
 const HAS_NATIVE_MENU = IS_MACOS;
 
 /** Items only coaches/admins can use (mirrors the sidebar's gating). */
-const COACH_ADMIN_IDS = ["new-playlist", "add-game", "go-home", "go-playlists", "go-library"];
+const COACH_ADMIN_IDS = ["new-playlist", "add-game", "go-home", "go-playlists", "go-library", "search"];
 
 /** Mirror of each item's native enablement, consulted by the keyboard fallback. */
 const enabledIds = new Map<string, boolean>();
@@ -119,6 +120,10 @@ export function MenuHandler() {
       switch (id) {
         case "settings":
           navigate("/settings");
+          break;
+        // The search over the space: ⌘K, Ctrl+K or Go > Search…. The chord also closes it.
+        case "search":
+          toggleQuickSearch("shortcut");
           break;
         case "add-game":
           navigate("/upload");

@@ -1,5 +1,6 @@
 import { Outlet, useLocation } from "react-router-dom";
 import { GameTabBar } from "@/components/game/game-tab-bar";
+import { QuickSearchHost } from "@/components/search/quick-search-host";
 import { Sidebar } from "@/components/shell/sidebar";
 import { LicenseBanner } from "@/components/license-banner";
 import { TeamStep } from "@/components/team-step";
@@ -26,6 +27,8 @@ export function RootLayout() {
         </div>
       </main>
       <TeamStep />
+      {/* The search over the space: ⌘K, Ctrl+K or the sidebar's Search (docs/search.md). */}
+      <QuickSearchHost />
     </div>
   );
 }
