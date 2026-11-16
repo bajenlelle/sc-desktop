@@ -1,4 +1,5 @@
 import "./lib/sentry"; // must be first so init precedes all other module code
+import "./lib/dev-measures"; // dev only: stops React's render timings piling up in the web process
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
