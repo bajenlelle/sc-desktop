@@ -135,13 +135,12 @@ test("a filter brings out the plays it leaves, in one colour, and they go when i
   await moment(page, "After timeouts").click();
   const listed = await playRows(page).count();
   expect(listed, "the filter leaves some plays").toBeGreaterThan(0);
-  // The game's frame stays around the plays that are left: every period listed keeps all its timeouts and its end.
+  // The game's frame stays around the plays that are left: every period of the game, also one with no play
+  // listed, keeps all its timeouts and its end.
   const left = await listFrame(page);
-  expect(Object.keys(left).length, "the filtered list has periods").toBeGreaterThan(0);
-  for (const [period, frame] of Object.entries(left)) {
-    expect(frame, `${period} keeps its timeouts and its end under the filter`).toEqual(whole[period]);
-    expect(frame.end, `${period} is closed by its end`).toBe(true);
-  }
+  expect(Object.keys(whole).length, "the game has periods").toBeGreaterThan(0);
+  expect(left, "every period keeps its header, its timeouts and its end under the filter").toEqual(whole);
+  for (const [period, frame] of Object.entries(left)) expect(frame.end, `${period} is closed by its end`).toBe(true);
   expect(Object.values(left).reduce((n, f) => n + f.timeouts, 0), "the timeouts are still in the list").toBeGreaterThan(0);
   await expect(drawn(page, "play-mark"), "the strip marks the plays the list shows").toHaveCount(listed);
   const fills = await drawn(page, "play-mark").evaluateAll((els) => [...new Set(els.map((el) => getComputedStyle(el).fill))]);

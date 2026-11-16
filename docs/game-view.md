@@ -240,12 +240,14 @@ stretch where a game turned.
   the first shot, turnover or foul after each team timeout in the same
   quarter.
 - **A filter keeps the game's frame.** Filtered, the list shows only the plays
-  that match, and around them every listed period keeps its header, its
+  that match, and around them every period of the game keeps its header, its
   timeouts where they fell among the plays that are left, and its end: a coach
-  looking at the made twos still sees which came out of a timeout. A period
-  with nothing listed is left out, so a narrow filter stays a short list. A
-  run's row needs all of its baskets under it, so it is there unfiltered and
-  under Runs only (`gameRows` in `game-list.ts`).
+  looking at the made twos still sees every timeout and the final score. A
+  period with no play listed keeps its frame too ("0 plays"). Only the period
+  filter takes periods away, and a filter nothing matches shows "No plays
+  match" instead of an empty frame. A run's row needs all of its baskets under
+  it, so it is there unfiltered and under Runs only (`gameRows` in
+  `game-list.ts`).
 - **On court**: with a player chosen, "While on the floor" lists the plays
   during that player's stints (from `onCourtHome` / `onCourtAway`, exact to
   the gap between two plays) and the strip shows the stints as a band.

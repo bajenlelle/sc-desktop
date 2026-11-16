@@ -185,9 +185,24 @@ describe("gameRows", () => {
     expect(kinds(rowsFor(s, withFilters({ team: 1 })))).toEqual(["period:1", "play:1", "timeout:3", "end:1"]);
   });
 
-  it("leaves out a period nothing is listed in, with its timeouts", () => {
+  it("keeps the frame of a period nothing is listed in: its header, its timeouts and its end", () => {
     const s = setup([ev(1, 1, 30), ev(4, 1, 200, away), ev(5, 2, 1100, away)], marksOf(timeout(3, 1, 100), timeout(6, 2, 1200)));
-    expect(kinds(rowsFor(s, withFilters({ team: 1 })))).toEqual(["period:1", "play:1", "timeout:3", "end:1"]);
+    const rows = rowsFor(s, withFilters({ team: 1 }));
+    expect(kinds(rows)).toEqual(["period:1", "play:1", "timeout:3", "end:1", "period:2", "timeout:6", "end:2"]);
+    expect(rows[4]).toMatchObject({ kind: "period", plays: 0, score: { home: 0, away: 2 } });
+    // The game still ends on its final score.
+    expect(rows.at(-1)).toMatchObject({ kind: "period_end", score: { home: 2, away: 4 }, final: true });
+  });
+
+  it("keeps every period of the game under a filter that only one of them answers", () => {
+    const s = setup([ev(1, 1, 30, away), ev(2, 2, 1100, away), ev(3, 3, 2100), ev(4, 4, 3100, away)]);
+    expect(kinds(rowsFor(s, withFilters({ team: 1 })))).toEqual(["period:1", "end:1", "period:2", "end:2", "period:3", "play:3", "end:3", "period:4", "end:4"]);
+  });
+
+  it("frames only the periods a period filter asks for, also one with nothing listed", () => {
+    const s = setup([ev(1, 1, 30), ev(2, 2, 1100, away), ev(3, 3, 2100)], marksOf(timeout(6, 2, 1200), timeout(7, 3, 2200)));
+    const rows = rowsFor(s, withFilters({ team: 1, periods: new Set([1, 2]) }));
+    expect(kinds(rows)).toEqual(["period:1", "play:1", "end:1", "period:2", "timeout:6", "end:2"]);
   });
 
   it("lists only the periods a period filter asks for, each with its own timeouts", () => {
@@ -215,8 +230,8 @@ describe("gameRows", () => {
     expect(kinds(rowsFor(s, withFilters({ team: 1 })))).toEqual(["period:1", "play:2", "play:3", "play:4", "end:1"]);
   });
 
-  it("is empty when nothing matches", () => {
-    const s = setup([ev(1, 1, 30)]);
+  it("is empty when nothing matches: no frame stands around nothing", () => {
+    const s = setup([ev(1, 1, 30), ev(2, 2, 1100)], marksOf(timeout(3, 1, 100)));
     expect(rowsFor(s, withFilters({ team: 2 }))).toEqual([]);
   });
 

@@ -108,11 +108,12 @@ export type GameRow =
  * The list's rows. Unfiltered, the game reads like a scoresheet: every play,
  * with timeouts, runs and period ends where they happened. Filtered, only
  * the plays that match are listed, and the game's frame stays around them:
- * each period that has a listed play keeps its header, its timeouts where
- * they fell among the plays left, and its end. A coach looking at the made
- * twos still sees which came out of a timeout. A period with nothing listed
- * is left out, so a narrow filter stays a short list. A run is headed only
- * when every one of its baskets is there to stand under it: unfiltered, or
+ * every period of the game keeps its header, its timeouts where they fell
+ * among the plays left, and its end, also a period with no play listed. A
+ * coach looking at the made twos still sees every timeout and the final
+ * score. Only a period filter takes periods away, and a filter nothing
+ * matches lists nothing (the list says so instead). A run is headed only when
+ * every one of its baskets is there to stand under it: unfiltered, or
  * filtered to runs.
  */
 export function gameRows(input: {
@@ -127,13 +128,17 @@ export function gameRows(input: {
   const rows: GameRow[] = [];
 
   const byPeriod = new Map<number, TimedPlay[]>();
+  /** Every period the game has a play in. */
+  const played = new Set<number>();
   for (const play of timeline.plays) {
+    played.add(play.event.period);
     if (!keep(play)) continue;
     const list = byPeriod.get(play.event.period) ?? [];
     list.push(play);
     byPeriod.set(play.event.period, list);
   }
-  const periods = [...byPeriod.keys()].sort((a, b) => a - b);
+  if (byPeriod.size === 0) return rows;
+  const periods = [...played].filter((p) => filters.periods.size === 0 || filters.periods.has(p)).sort((a, b) => a - b);
   const lastPeriod = flow.order.length > 0 ? Math.max(...flow.order.map((e) => e.period)) : 0;
 
   const showRuns = !filtered || filters.moment === "run";
@@ -141,7 +146,7 @@ export function gameRows(input: {
   if (showRuns) for (const run of flow.runs) runStarts.set(run.fromEventId, run);
 
   for (const period of periods) {
-    const plays = byPeriod.get(period)!;
+    const plays = byPeriod.get(period) ?? [];
     rows.push({
       kind: "period",
       key: `period:${period}`,
