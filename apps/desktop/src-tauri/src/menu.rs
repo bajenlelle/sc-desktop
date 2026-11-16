@@ -41,6 +41,30 @@ fn closes_what_is_in_front(id: &str) -> bool {
     id == CLOSE_WINDOW || id == CLOSE_TAB
 }
 
+/// The sidebar's pages in the Go menu, in the sidebar's order. Their number
+/// keys follow the rows the sidebar shows (`menu_set_go_keys`).
+#[cfg(target_os = "macos")]
+const GO_PAGES: [&str; 5] = ["go-home", "go-playlists", "go-reports", "go-my-playlists", "go-library"];
+
+/// The key each page gets when the keys go to the pages in `order`: ⌘1 to
+/// the first, ⌘2 to the second, and so on. None unless `order` is every page
+/// exactly once: a key would be lost or shared.
+#[cfg(target_os = "macos")]
+fn go_accelerators(order: &[String]) -> Option<Vec<(&'static str, String)>> {
+    if order.len() != GO_PAGES.len() {
+        return None;
+    }
+    let mut keys: Vec<(&'static str, String)> = Vec::with_capacity(GO_PAGES.len());
+    for (i, id) in order.iter().enumerate() {
+        let page = GO_PAGES.iter().copied().find(|p| *p == id.as_str())?;
+        if keys.iter().any(|(p, _)| *p == page) {
+            return None;
+        }
+        keys.push((page, format!("CmdOrCtrl+{}", i + 1)));
+    }
+    Some(keys)
+}
+
 /// What choosing a menu item does.
 #[cfg(target_os = "macos")]
 #[derive(Debug, PartialEq)]
@@ -204,9 +228,10 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         .build()?;
 
     // -- Go ------------------------------------------------------------------
-    // The sidebar's pages in the sidebar's order, numbered as they stand there: ⌘3 is the third row.
-    // (A personal space has no Shared playlists row; its key is left unused there.) Organization is
-    // not in the sidebar and comes after them. Keep packages/shared/lib/menu-shortcuts.ts in step.
+    // The sidebar's pages in the sidebar's order (GO_PAGES). ⌘n opens the nth row the sidebar shows:
+    // the keys here are for a sidebar that shows every row, and the page moves them when it shows
+    // other rows (`menu_set_go_keys`, packages/shared/lib/menu-shortcuts.ts goKeyOrder). Organization
+    // is not in the sidebar and keeps ⌘6, after the rows.
     let go_home = item("go-home", "Home", Some("CmdOrCtrl+1"))?;
     let go_playlists = item("go-playlists", "Playlists", Some("CmdOrCtrl+2"))?;
     let go_reports = item("go-reports", "Reports", Some("CmdOrCtrl+3"))?;
@@ -316,6 +341,40 @@ pub fn menu_set_enabled(app: tauri::AppHandle, id: String, enabled: bool) {
     }
 }
 
+/// The sidebar shows other rows (another space, another role), and the number
+/// keys follow them: ⌘n opens the nth row. `order` is the pages in the order
+/// of their keys, the rows shown first and the pages not shown after them
+/// (packages/shared/lib/menu-shortcuts.ts `goKeyOrder`).
+#[tauri::command]
+pub fn menu_set_go_keys(app: tauri::AppHandle, order: Vec<String>) {
+    #[cfg(target_os = "macos")]
+    {
+        let Some(handles) = app.try_state::<MenuHandles>() else {
+            return;
+        };
+        let Some(keys) = go_accelerators(&order) else {
+            return;
+        };
+        // An item's key can be moved but not taken away, and two items must
+        // never share one: every page first steps aside to a key nothing
+        // uses, then takes its new one.
+        for (i, (id, _)) in keys.iter().enumerate() {
+            if let Some(item) = handles.items.get(id) {
+                let _ = item.set_accelerator(Some(format!("Cmd+Ctrl+Alt+Shift+{}", i + 1)));
+            }
+        }
+        for (id, key) in &keys {
+            if let Some(item) = handles.items.get(id) {
+                let _ = item.set_accelerator(Some(key.as_str()));
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, order);
+    }
+}
+
 /// The game page's tab bar came or went. While it is there the File menu has
 /// Close Tab on ⌘W and Close Window on ⇧⌘W, as in Safari; without it there is
 /// no Close Tab and ⌘W closes the window, as everywhere else in the app.
@@ -402,5 +461,26 @@ mod tests {
         assert_eq!(menu_act("reopen-game-tab", false), MenuAct::ToPage);
         assert_eq!(menu_act("new-game-tab", true), MenuAct::ToPage);
         assert_eq!(menu_act("search", false), MenuAct::ToPage);
+    }
+
+    #[test]
+    fn the_number_keys_go_to_the_pages_in_the_order_given() {
+        let order = |ids: &[&str]| ids.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // A personal space: the Library is the fourth row, and Shared Playlists, not shown, takes the key after the rows.
+        let keys = go_accelerators(&order(&["go-home", "go-playlists", "go-reports", "go-library", "go-my-playlists"])).unwrap();
+        assert_eq!(
+            keys,
+            vec![
+                ("go-home", "CmdOrCtrl+1".to_string()),
+                ("go-playlists", "CmdOrCtrl+2".to_string()),
+                ("go-reports", "CmdOrCtrl+3".to_string()),
+                ("go-library", "CmdOrCtrl+4".to_string()),
+                ("go-my-playlists", "CmdOrCtrl+5".to_string()),
+            ]
+        );
+        // Anything but each page once is refused: a key would be lost or shared.
+        assert!(go_accelerators(&order(&["go-home", "go-playlists", "go-reports", "go-library"])).is_none());
+        assert!(go_accelerators(&order(&["go-home", "go-home", "go-reports", "go-library", "go-my-playlists"])).is_none());
+        assert!(go_accelerators(&order(&["go-home", "go-playlists", "go-reports", "go-library", "settings"])).is_none());
     }
 }

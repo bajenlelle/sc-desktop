@@ -17,7 +17,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useTheme } from "next-themes";
-import { isBrowserShortcut, menuIdForChord } from "@scoutable/shared/lib/menu-shortcuts";
+import { GO_PAGES, goKeyOrder, isBrowserShortcut, menuIdForChord, type GoPage } from "@scoutable/shared/lib/menu-shortcuts";
 import { useAuth } from "@/lib/auth-context";
 import { createClient } from "@/lib/supabase/client";
 import { interactiveUpdateCheck } from "@/lib/updates";
@@ -83,6 +83,20 @@ export function setReopenGameTabEnabled(enabled: boolean) {
   setEnabled("reopen-game-tab", enabled);
 }
 
+/** Which page each number key opens now (`goKeyOrder`): ⌘ or Ctrl with n is the nth row the sidebar shows. */
+let goKeys: readonly GoPage[] = GO_PAGES;
+/** What the native menu was last told; undefined until this page has told it anything (it outlives a reload). */
+let goKeysSent: string | undefined;
+
+/** The sidebar shows these rows now: the keyboard fallback reads the order, and the native menu moves its keys. */
+function setGoKeys(order: readonly GoPage[]) {
+  goKeys = order;
+  const sent = order.join(",");
+  if (goKeysSent === sent) return;
+  goKeysSent = sent;
+  invoke("menu_set_go_keys", { order }).catch(() => {});
+}
+
 /** A Show/Hide item says what it will do, so its title follows the panel. */
 function setText(id: string, text: string) {
   invoke("menu_set_text", { id, text }).catch(() => {});
@@ -91,7 +105,7 @@ function setText(id: string, text: string) {
 export function MenuHandler() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const { user, activeOrgRole, activeOrgIsPersonal, activeOrgCanManage } = useAuth();
+  const { user, activeOrgId, activeOrgRole, activeOrgIsPersonal, activeOrgCanManage, profileLoading } = useAuth();
   const { theme, setTheme } = useTheme();
   const zoomRef = useRef(storedZoom());
 
@@ -220,7 +234,7 @@ export function MenuHandler() {
         e.preventDefault();
         return;
       }
-      const id = menuIdForChord(e);
+      const id = menuIdForChord(e, goKeys);
       // Unknown ids are enabled, like a fresh native item; export-playlist is
       // gated by the playlists page's own listener instead.
       if (!id || enabledIds.get(id) === false) return;
@@ -256,6 +270,13 @@ export function MenuHandler() {
     setEnabled("go-organization", activeOrgCanManage);
     setEnabled("sign-out", !!user);
   }, [user, isCoachOrAdmin, activeOrgIsPersonal, activeOrgCanManage]);
+
+  // The number keys follow the sidebar: ⌘n (Ctrl+n) opens its nth row. Told once the space and the role
+  // are known, so the keys don't pass through a sidebar nobody sees on the way.
+  useEffect(() => {
+    if (!user || profileLoading || !activeOrgId) return;
+    setGoKeys(goKeyOrder({ staff: isCoachOrAdmin, personal: activeOrgIsPersonal }));
+  }, [user, profileLoading, activeOrgId, isCoachOrAdmin, activeOrgIsPersonal]);
 
   useEffect(() => {
     const onGame = /^\/matches\/[^/]+$/.test(pathname);

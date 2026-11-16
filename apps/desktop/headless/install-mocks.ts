@@ -75,6 +75,7 @@ const commands: Record<string, (args: Args) => unknown> = {
   menu_set_enabled: none,
   menu_set_text: none,
   menu_game_tabs: none,
+  menu_set_go_keys: none,
   menu_sync_theme: none,
   grab_frames: native("grab_frames"),
   extract_poster_frame: native("extract_poster_frame"),
