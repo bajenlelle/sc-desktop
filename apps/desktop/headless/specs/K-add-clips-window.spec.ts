@@ -3,10 +3,12 @@
  * games (about 1,790 plays) the list holds a few dozen rows, the grid says how
  * many there are, scrolling and Home/End reach both ends, a filter switched on
  * at the bottom still shows its plays, and Select all counts every play, drawn
- * or not.
+ * or not. The rows hold one label picker between them, on the row being
+ * labelled, and it closes when that row leaves the list.
  *
- * Needs the staging test account's five games. Creates the playlist
- * `headless-<port> window` and deletes it afterwards.
+ * Needs the staging test account's five games and a label in its space.
+ * Creates the playlist `headless-<port> window` and deletes it afterwards;
+ * takes off every label it puts on.
  */
 import type { Locator, Page } from "@playwright/test";
 import {
@@ -18,8 +20,10 @@ import {
   gameTrigger,
   openAddClips,
   readSheetRows,
+  sheetRow,
   test,
   waitForPlays,
+  withAppModule,
 } from "../helpers";
 
 const PLAYLIST = `headless-${PORT} window`;
@@ -39,18 +43,75 @@ async function openOnFiveGames(page: Page): Promise<{ sheet: Locator; grid: Loca
   await page.getByRole("button", { name: "Last 5 games", exact: true }).click();
   await expect(list).toBeHidden();
   await waitForPlays(sheet);
-  // The five games' plays arrive one game at a time: wait for the counter to settle.
-  let count = 0;
+  // The five games' plays arrive one game at a time, and a game can come late: the counter
+  // must read the same three times over a second before the list counts as whole.
+  const reads: number[] = [];
   await expect
     .poll(async () => {
-      const now = await eventCount(sheet);
-      const settled = now === count;
-      count = now;
-      return settled;
+      reads.push(await eventCount(sheet));
+      const [a, b, c] = reads.slice(-3);
+      return reads.length >= 3 && a === b && b === c;
     }, { message: "the five games' plays are all listed", timeout: 30_000, intervals: [500] })
     .toBe(true);
-  return { sheet, grid: sheet.getByRole("grid", { name: "Events" }), count };
+  return { sheet, grid: sheet.getByRole("grid", { name: "Events" }), count: reads.at(-1)! };
 }
+
+/*
+ * While a label picker is open it is modal and hides the sheet from role
+ * queries, so the list is found by CSS from here on.
+ */
+const GRID = '[role=grid][aria-label="Events"]';
+/** A popover trigger inside the list: only the row being labelled holds one. */
+const listTriggers = (page: Page) => page.locator(`${GRID} [data-slot="popover-trigger"]`);
+/** The open label picker's list of labels. */
+const pickerList = (page: Page) => page.getByRole("listbox", { name: "Labels" });
+/** A row's Tag button (the plain one, or the open picker's trigger). */
+const tagButton = (row: Locator) => row.locator('button[title="Labels"]');
+
+/**
+ * Labels this spec put on (each was off before). The tests take them off
+ * themselves; the afterEach makes sure, in case a test stopped halfway.
+ */
+const putOn: { matchId: string; eventId: number; labelId: string }[] = [];
+test.afterEach(async ({ page }) => {
+  for (const { matchId, eventId, labelId } of putOn.splice(0)) {
+    await withAppModule(page, "/src/lib/supabase/client.ts", `
+      const { error } = await mod.createClient().from("clip_label_assignments").delete()
+        .eq("match_id", arg.matchId).eq("event_id", arg.eventId).eq("label_id", arg.labelId);
+      if (error) throw new Error("headless: " + error.message);
+    `, { matchId, eventId, labelId });
+  }
+});
+
+/** Opens the row's label picker with its Tag button. */
+async function openPicker(page: Page, row: Locator): Promise<void> {
+  await tagButton(row).click();
+  await expect(pickerList(page), "exactly one label picker is open").toHaveCount(1);
+}
+
+/** Closes the open label picker. */
+async function closePicker(page: Page): Promise<void> {
+  await page.keyboard.press("Escape");
+  await expect(pickerList(page), "Escape closes the picker").toHaveCount(0);
+}
+
+/** In the row's open picker, puts on the first label the row doesn't have. Returns the label's name. */
+async function putFirstLabelOn(page: Page, row: Locator): Promise<string> {
+  const rowKey = (await row.getAttribute("data-row-key"))!;
+  const option = pickerList(page).getByRole("option", { selected: false }).first();
+  await expect(option, "the test account has a label this play doesn't carry").toBeVisible();
+  const name = (await option.innerText()).trim();
+  // An option's id ends with its label's id.
+  const labelId = (await option.getAttribute("id"))?.match(/[0-9a-f-]{36}$/)?.[0];
+  await option.click();
+  const [matchId, eventId] = rowKey.split(":");
+  if (labelId) putOn.push({ matchId, eventId: Number(eventId), labelId });
+  await expect(pickerList(page).getByRole("option", { name, exact: true }).first()).toHaveAttribute("aria-selected", "true");
+  return name;
+}
+
+/** In the open picker, takes the label off again. */
+const takeLabelOff = (page: Page, name: string) => pickerList(page).getByRole("option", { name, exact: true }).first().click();
 
 /**
  * A row wholly in view. The sheet around the list sits on fractions of a
@@ -137,4 +198,69 @@ test("Select all counts every play", async ({ page }) => {
   await expect(sheet.getByRole("button", { name: `Add ${count} clips`, exact: true })).toBeVisible();
   await selectAll.click();
   await expect(sheet.getByRole("button", { name: "Add clips", exact: true })).toBeVisible();
+});
+
+test("a row's Tag button opens the one label picker", async ({ page }) => {
+  await openOnFiveGames(page);
+  const row = page.locator(`${GRID} [role=row][aria-rowindex="2"]`);
+  await expect(listTriggers(page), "no row holds a picker while none is open").toHaveCount(0);
+  await openPicker(page, row);
+  await expect(listTriggers(page), "only the row being labelled holds the picker").toHaveCount(1);
+  await expect(tagButton(row), "its Tag button is the picker's trigger").toHaveAttribute("data-state", "open");
+  const name = await putFirstLabelOn(page, row);
+  await expect(row.getByText(name, { exact: true }), "the row shows the label's chip at once").toBeVisible();
+  await closePicker(page);
+  await expect(listTriggers(page), "closed, no row holds a picker").toHaveCount(0);
+  await expect(row.getByText(name, { exact: true }), "the chip stays").toBeVisible();
+
+  await openPicker(page, row);
+  await takeLabelOff(page, name);
+  await expect(pickerList(page).getByRole("option", { name, exact: true }).first()).toHaveAttribute("aria-selected", "false");
+  await closePicker(page);
+  await expect(row.getByText(name, { exact: true }), "the chip is gone").toHaveCount(0);
+});
+
+test("the picker closes when its row leaves the list", async ({ page }) => {
+  const { sheet, count } = await openOnFiveGames(page);
+  const first = page.locator(`${GRID} [role=row][aria-rowindex="1"]`);
+  const rowKey = (await first.getAttribute("data-row-key"))!;
+  await openPicker(page, first);
+  const name = await putFirstLabelOn(page, first);
+  await closePicker(page);
+
+  // Only the plays with that label: the row is one of them.
+  // The filter's trigger says "Labels", or the label chosen in it.
+  const labelsFilter = (said: string) => sheet.getByRole("button", { name: said, exact: true }).and(sheet.locator('[aria-haspopup="menu"]'));
+  const filterByLabel = async (said: string) => {
+    await labelsFilter(said).click();
+    await page.getByRole("menuitemcheckbox", { name, exact: true }).click();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toBeHidden();
+  };
+  await filterByLabel("Labels");
+  await expect.poll(() => eventCount(sheet), { message: "the label filter narrows the list" }).toBeLessThan(count);
+  const labelled = await eventCount(sheet);
+
+  // Taking the label off takes the row out of the list, and its picker with it.
+  const row = await sheetRow(sheet, rowKey);
+  await openPicker(page, row);
+  await takeLabelOff(page, name);
+  await expect(pickerList(page), "the picker closes with its row").toHaveCount(0);
+  await expect(page.locator(`${GRID} [data-row-key="${rowKey}"]`), "the row has left the list").toHaveCount(0);
+  if (labelled === 1) {
+    await expect(sheet.getByText(/^No events match the current filters/)).toBeVisible();
+  } else {
+    // Other plays of these games carry the label too.
+    await expect.poll(() => eventCount(sheet)).toBe(labelled - 1);
+  }
+  console.log(`K label filter: ${labelled} play(s) carried "${name}"`);
+  await expect(listTriggers(page)).toHaveCount(0);
+  // No error from the keys with the picker gone (the page's errors fail the test).
+  await page.keyboard.press("Meta+a");
+
+  // Clear the filter: ⌘A ticks every play, so the keys still belong to the sheet.
+  await filterByLabel(name);
+  await expect.poll(() => eventCount(sheet), { message: "the filter is off" }).toBe(count);
+  await page.keyboard.press("Meta+a");
+  await expect(sheet.getByRole("button", { name: `Add ${count} clips`, exact: true }), "⌘A ticks every play").toBeVisible();
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, ChevronDown, Play, Plus, Scissors, Tag, VideoOff, X } from "lucide-react";
 import type { ClipKey, Label, LabelColor } from "@scoutable/shared/types/labels";
@@ -71,36 +71,52 @@ const BROWSER_TYPE_OPTIONS = EVENT_TYPE_OPTIONS.filter((o) => o.value !== "timeo
 /** Every row is this tall, so the list can draw only the rows near the view (lib/use-list-window.ts). */
 const BROWSER_ROW_HEIGHT = 45;
 
-function BrowserRow({
+/** A clip with no labels: one array for every such row, so the row's memo holds. */
+const NO_LABELS: Label[] = [];
+
+/**
+ * Memoised: a tick or a press re-renders only the rows whose props changed. Every
+ * callback it gets keeps its identity across the panel's renders.
+ */
+const BrowserRow = memo(function BrowserRow({
   rowKey,
   index,
   event,
+  matchId,
   matchTitle,
   showGame,
   isSelected,
   alreadyIn,
   isActive,
   assignedLabels,
-  onToggle,
-  onClick,
+  canLabel,
   labelPicker,
+  onToggle,
+  onPress,
+  onLabel,
 }: {
   /** `matchId:eventId`: event ids repeat across games. */
   rowKey: string;
   /** The row's place in the whole list (only rows near the view are drawn). */
   index: number;
   event: PlayByPlayEvent;
+  matchId: string;
   matchTitle: string;
   showGame: boolean;
   isSelected: boolean;
   alreadyIn: boolean;
   isActive: boolean;
   assignedLabels: Label[];
+  /** Whether rows can be labelled at all (a space is active). */
+  canLabel: boolean;
+  /** The label picker, on the one row being labelled; null draws the plain Tag button. */
+  labelPicker: React.ReactNode | null;
   /** The checkbox: a tick, or with Shift the range from the anchor. */
-  onToggle: (e: React.MouseEvent) => void;
+  onToggle: (rowKey: string, e: React.MouseEvent) => void;
   /** The row: plain plays it, ⌘ ticks it, Shift ticks the range. */
-  onClick: (e: React.MouseEvent) => void;
-  labelPicker?: React.ReactNode;
+  onPress: (event: PlayByPlayEvent, matchId: string, e: React.MouseEvent) => void;
+  /** The Tag button: opens the label picker on this row. */
+  onLabel: (rowKey: string) => void;
 }) {
   const colors = eventColors(event);
   const visible = assignedLabels.slice(0, 2);
@@ -112,7 +128,7 @@ function BrowserRow({
       aria-rowindex={index + 1}
       aria-selected={isSelected}
       aria-current={isActive ? "true" : undefined}
-      onClick={onClick}
+      onClick={(e) => onPress(event, matchId, e)}
       className={cn(
         // One height for every row, whatever it holds: the list is windowed by it (BROWSER_ROW_HEIGHT).
         "group relative box-border flex h-[45px] cursor-default select-none items-stretch gap-1.5 pr-2 outline-none transition-colors duration-100",
@@ -140,7 +156,7 @@ function BrowserRow({
             onMouseDown={(e) => e.preventDefault()}
             onClick={(e) => {
               e.stopPropagation();
-              onToggle(e);
+              onToggle(rowKey, e);
             }}
             aria-label="Select"
             className="size-3.5 rounded accent-primary"
@@ -185,11 +201,23 @@ function BrowserRow({
       </div>
       <div className="flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
         {isActive && <Play className="mr-1 size-3.5 fill-current text-primary" />}
-        {labelPicker}
+        {/* A plain button until it is pressed: the picker itself is mounted on one row at a time. */}
+        {canLabel &&
+          (labelPicker ?? (
+            <button
+              type="button"
+              className="flex size-6 items-center justify-center rounded-md opacity-0 transition-[opacity,background-color] duration-100 group-hover:opacity-100 hover:bg-primary/10 hover:text-primary active:scale-95 data-[state=open]:opacity-100 data-[state=open]:text-primary"
+              title="Labels"
+              aria-label="Labels"
+              onClick={() => onLabel(rowKey)}
+            >
+              <Tag className="size-3.5" />
+            </button>
+          ))}
       </div>
     </div>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // The panel
@@ -307,6 +335,8 @@ export function ClipBrowserPanel({
   const [isPlaying, setIsPlaying] = useState(false);
   const [queueIdx, setQueueIdx] = useState(0);
   const [speed, setSpeed] = useState(1);
+  // The row whose label picker is open (`matchId:eventId`): one picker for the list, on that row.
+  const [labelPickerFor, setLabelPickerFor] = useState<string | null>(null);
 
   // One <video> for the sheet's life; the stage hosts it.
   const video = usePersistentVideo();
@@ -401,6 +431,17 @@ export function ClipBrowserPanel({
     () => applyClipFiltersByKey(allEvents, filters, (x) => labelAssignments.get(`${x.matchId}:${x.event.eventId}`)),
     [allEvents, filters, labelAssignments],
   );
+
+  // Each clip's labels, in the vocabulary's order: one array per clip, rebuilt only when the labels
+  // or what is put on the clips change (a row is memoised on it).
+  const labelsByKey = useMemo(() => {
+    const out = new Map<string, Label[]>();
+    for (const [key, ids] of labelAssignments) {
+      const on = labels.filter((l) => ids.has(l.id));
+      if (on.length > 0) out.set(key, on);
+    }
+    return out;
+  }, [labels, labelAssignments]);
 
   const selectedClipKeyPairs = useMemo<ClipKey[]>(() => {
     const out: ClipKey[] = [];
@@ -775,6 +816,20 @@ export function ClipBrowserPanel({
     setAnchor(key);
     handleRowClick(event, matchId);
   }
+  function handleRowToggle(key: string, e: React.MouseEvent) {
+    if (!existingSet.has(key)) applyClick(key, e.shiftKey, !e.shiftKey);
+  }
+  // What the rows are handed: made once, calling the latest handlers, so a row's memo holds.
+  const handleRowPressRef = useRef(handleRowPress);
+  handleRowPressRef.current = handleRowPress;
+  const handleRowToggleRef = useRef(handleRowToggle);
+  handleRowToggleRef.current = handleRowToggle;
+  const onRowPress = useCallback(
+    (event: PlayByPlayEvent, matchId: string, e: React.MouseEvent) => handleRowPressRef.current(event, matchId, e),
+    [],
+  );
+  const onRowToggle = useCallback((key: string, e: React.MouseEvent) => handleRowToggleRef.current(key, e), []);
+  const onRowLabel = useCallback((key: string) => setLabelPickerFor(key), []);
   function playKey(key: string) {
     const idx = indexByKeyRef.current.get(key);
     const item = idx === undefined ? undefined : filteredRef.current[idx];
@@ -949,11 +1004,52 @@ export function ClipBrowserPanel({
     }
   });
 
-  // Keep the playing row in view (it may not be drawn yet: the list scrolls to its place).
-  useEffect(() => {
-    if (activeEventKey === null) return;
+  // Keep the playing row in view (it may not be drawn yet: the list scrolls to its place). Before
+  // paint, so a jump (End, Home, the next clip) never shows a frame of empty list. Not while a row
+  // is being labelled: that row must stay drawn. The playing row is shown once the picker closes.
+  useLayoutEffect(() => {
+    if (activeEventKey === null || labelPickerFor !== null) return;
     revealRow(indexByKeyRef.current.get(activeEventKey));
-  }, [activeEventKey, revealRow]);
+  }, [activeEventKey, labelPickerFor, revealRow]);
+
+  // The labelled row has left the list (its label filtered it out, another game) or is no longer
+  // drawn: its picker went with it.
+  useEffect(() => {
+    if (labelPickerFor === null) return;
+    const index = indexByKey.get(labelPickerFor);
+    if (index === undefined || index < listRange.start || index >= listRange.end) setLabelPickerFor(null);
+  }, [labelPickerFor, indexByKey, listRange.start, listRange.end]);
+
+  /** The label picker, open on the row being labelled. */
+  const rowLabelPicker = (key: string, matchId: string, eventId: number) => (
+    <LabelPickerPopover
+      open
+      onOpenChange={(open) => {
+        if (!open) setLabelPickerFor(null);
+      }}
+      align="end"
+      trigger={
+        <button
+          type="button"
+          className="flex size-6 items-center justify-center rounded-md bg-fill-2 text-foreground active:scale-95"
+          title="Labels"
+          aria-label="Labels"
+        >
+          <Tag className="size-3.5" />
+        </button>
+      }
+      labels={labels}
+      assignedAllIds={labelAssignments.get(key) ?? new Set<string>()}
+      onToggle={(labelId, state) => labelHandlers.onToggleClip(matchId, eventId, labelId, state)}
+      onCreate={labelHandlers.onCreate}
+      onRename={labelHandlers.onRename}
+      onRecolor={labelHandlers.onRecolor}
+      onDelete={labelHandlers.onDelete}
+      onSetKey={labelHandlers.onSetKey}
+      onSeedDefaults={labelHandlers.onSeedDefaults}
+    />
+  );
+  const canLabel = !!activeOrgId;
 
   const videoMissing =
     videoMatchId !== null &&
@@ -1150,44 +1246,24 @@ export function ClipBrowserPanel({
                 {filtered.slice(listRange.start, listRange.end).map(({ event, matchId, matchTitle }, i) => {
                   const index = listRange.start + i;
                   const key = `${matchId}:${event.eventId}`;
-                  const alreadyIn = existingSet.has(key);
-                  const assigned = activeOrgId ? labels.filter((l) => labelAssignments.get(key)?.has(l.id)) : [];
                   return (
                     <BrowserRow
                       key={key}
                       rowKey={key}
                       index={index}
                       event={event}
+                      matchId={matchId}
                       matchTitle={matchTitle}
                       showGame={isMultiMatch}
                       isSelected={selectedIds.has(key)}
-                      alreadyIn={alreadyIn}
+                      alreadyIn={existingSet.has(key)}
                       isActive={activeEventKey === key}
-                      assignedLabels={assigned}
-                      onToggle={(e) => { if (!alreadyIn) applyClick(key, e.shiftKey, !e.shiftKey); }}
-                      onClick={(e) => handleRowPress(event, matchId, e)}
-                      labelPicker={activeOrgId ? (
-                        <LabelPickerPopover
-                          trigger={
-                            <button
-                              type="button"
-                              className="flex size-6 items-center justify-center rounded-md opacity-0 transition-[opacity,background-color] duration-100 group-hover:opacity-100 hover:bg-primary/10 hover:text-primary active:scale-95 data-[state=open]:opacity-100 data-[state=open]:text-primary"
-                              title="Labels"
-                            >
-                              <Tag className="size-3.5" />
-                            </button>
-                          }
-                          labels={labels}
-                          assignedAllIds={labelAssignments.get(key) ?? new Set<string>()}
-                          onToggle={(labelId, state) => labelHandlers.onToggleClip(matchId, event.eventId, labelId, state)}
-                          onCreate={labelHandlers.onCreate}
-                          onRename={labelHandlers.onRename}
-                          onRecolor={labelHandlers.onRecolor}
-                          onDelete={labelHandlers.onDelete}
-                          onSetKey={labelHandlers.onSetKey}
-                          onSeedDefaults={labelHandlers.onSeedDefaults}
-                        />
-                      ) : undefined}
+                      assignedLabels={canLabel ? (labelsByKey.get(key) ?? NO_LABELS) : NO_LABELS}
+                      canLabel={canLabel}
+                      labelPicker={canLabel && labelPickerFor === key ? rowLabelPicker(key, matchId, event.eventId) : null}
+                      onToggle={onRowToggle}
+                      onPress={onRowPress}
+                      onLabel={onRowLabel}
                     />
                   );
                 })}
