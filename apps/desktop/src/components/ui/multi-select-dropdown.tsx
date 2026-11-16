@@ -18,6 +18,14 @@ import { cn } from "@/lib/utils";
  * keyboard-navigable (arrows, type-ahead, Escape) and animate from their
  * trigger. Same props as the hand-rolled originals.
  */
+
+/**
+ * The highlighted row of a pop-up one picks values from takes the app's
+ * neutral fill, as a hovered row does, and a darker one while pressed. The
+ * menu primitive's accent would read here as one more chosen option, beside
+ * the ticked ones; it stays the highlight of menus of actions.
+ */
+const CHOICE = "focus:bg-fill-2 focus:text-foreground active:bg-fill-3";
 export function TriggerButton({
   label,
   active,
@@ -65,7 +73,7 @@ export function SingleSelectDropdown({
       <DropdownMenuContent align="start" className="max-h-72 min-w-(--radix-dropdown-menu-trigger-width) overflow-y-auto">
         {value && !required && (
           <>
-            <DropdownMenuItem onSelect={() => onChange(null)} className="text-muted-foreground">
+            <DropdownMenuItem onSelect={() => onChange(null)} className={cn("text-muted-foreground", CHOICE)}>
               Clear
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -73,7 +81,7 @@ export function SingleSelectDropdown({
         )}
         <DropdownMenuRadioGroup value={value ?? ""} onValueChange={(v) => onChange(v)}>
           {options.map((o) => (
-            <DropdownMenuRadioItem key={o.value} value={o.value}>
+            <DropdownMenuRadioItem key={o.value} value={o.value} className={CHOICE}>
               {o.label}
             </DropdownMenuRadioItem>
           ))}
@@ -136,6 +144,7 @@ export function MultiSelectDropdown({
         // Keep the menu open while ticking several options.
         onSelect={(e) => e.preventDefault()}
         onCheckedChange={() => toggle(o.value)}
+        className={CHOICE}
       >
         {o.label}
       </DropdownMenuCheckboxItem>
@@ -155,7 +164,7 @@ export function MultiSelectDropdown({
                 e.preventDefault();
                 onChange(new Set());
               }}
-              className="text-muted-foreground"
+              className={cn("text-muted-foreground", CHOICE)}
             >
               <Check className="invisible" />
               Clear all

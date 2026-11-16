@@ -129,10 +129,8 @@ export function GamePicker({
         aria-selected={selected}
         onPointerMove={() => setActive(i)}
         onClick={() => pick(option.game.id)}
-        className={cn(
-          "flex cursor-default items-center gap-2 px-3 py-1.5 text-sm",
-          i === active ? "bg-selection text-selection-foreground" : "text-foreground",
-        )}
+        // Where the keys or the pointer are takes the neutral fill; the tick says what is chosen.
+        className={cn("flex cursor-default items-center gap-2 px-3 py-1.5 text-sm text-foreground active:bg-fill-3", i === active && "bg-fill-2")}
       >
         {/* The wrapper holds the title and the click, so a disabled box neither hides why nor picks its row. */}
         <span className="flex shrink-0 items-center" title={capped ? "Up to 10 games at a time" : undefined} onClick={(e) => e.stopPropagation()}>
@@ -154,7 +152,7 @@ export function GamePicker({
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate">{option.game.title}</span>
-          <span className={cn("block truncate text-caption nums", i === active ? "text-selection-foreground/80" : "text-muted-foreground")}>
+          <span className="block truncate text-caption nums text-muted-foreground">
             {option.clips !== null ? `${option.clips} ${option.clips === 1 ? "clip" : "clips"} · ` : ""}
             {formatDate(option.game.date)}
           </span>
