@@ -251,7 +251,7 @@ export interface ClipBrowserLabelHandlers {
  * Several games are searched together (up to 10), and a player is one
  * person across them: the Player filter holds playerKey()s, not names.
  */
-export function ClipBrowserPanel({
+export const ClipBrowserPanel = memo(function ClipBrowserPanel({
   matches,
   matchLookup,
   playlist,
@@ -1348,4 +1348,4 @@ export function ClipBrowserPanel({
       </ResizablePanelGroup>
     </div>
   );
-}
+});

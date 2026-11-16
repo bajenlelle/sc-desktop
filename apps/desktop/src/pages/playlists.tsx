@@ -1075,6 +1075,14 @@ export function PlaylistsPage() {
   // -------------------------------------------------------------------------
   // Label handlers — vocabulary mgmt + per-clip and bulk assignment
   // -------------------------------------------------------------------------
+  // The latest labels and assignments, for the handlers below to read when they run: a handler that
+  // lists them in its deps gets a new identity on every label toggle, and with it a new
+  // labelHandlers object for the Add clips sheet.
+  const clipAssignmentsRef = useRef(clipAssignments);
+  clipAssignmentsRef.current = clipAssignments;
+  const labelsRef = useRef(labels);
+  labelsRef.current = labels;
+
   const setClipAssignmentLocal = useCallback(
     (matchId: string, eventId: number, mutator: (s: Set<string>) => Set<string>) => {
       const key = `${matchId}:${eventId}`;
@@ -1099,7 +1107,7 @@ export function PlaylistsPage() {
         return s;
       });
       try {
-        const existing = clipAssignments.get(`${matchId}:${eventId}`) ?? new Set<string>();
+        const existing = clipAssignmentsRef.current.get(`${matchId}:${eventId}`) ?? new Set<string>();
         const wanted = new Set(existing);
         if (nextAssigned) wanted.add(labelId); else wanted.delete(labelId);
         await apiSetClipAssignments(activeOrgId, matchId, eventId, Array.from(wanted));
@@ -1109,7 +1117,7 @@ export function PlaylistsPage() {
         toast.error("Failed to update label");
       }
     },
-    [activeOrgId, clipAssignments, setClipAssignmentLocal],
+    [activeOrgId, setClipAssignmentLocal],
   );
 
   const handleCreateLabel = useCallback(
@@ -1138,7 +1146,7 @@ export function PlaylistsPage() {
   // as in the database (set_label_hotkey).
   const handleSetLabelKey = useCallback(
     async (id: string, slot: number | null) => {
-      const before = new Map(labels.map((l) => [l.id, l.hotkey]));
+      const before = new Map(labelsRef.current.map((l) => [l.id, l.hotkey]));
       setLabels((prev) => withLabelKey(prev, id, slot).labels);
       try {
         await apiSetLabelHotkey(id, slot);
@@ -1148,7 +1156,7 @@ export function PlaylistsPage() {
         toast.error("Couldn't set the key", { description: "Check the connection and try again." });
       }
     },
-    [labels],
+    [],
   );
 
   const handleDeleteLabel = useCallback(async (id: string) => {
@@ -1239,6 +1247,30 @@ export function PlaylistsPage() {
   const handleBulkToggleLabel = useCallback(
     (labelId: string, state: LabelTriState) => applyBulkLabel(selectedClipKeyPairs, labelId, state),
     [applyBulkLabel, selectedClipKeyPairs],
+  );
+
+  // What the Add clips sheet is handed for its labels: one object while none of these change.
+  const clipBrowserLabelHandlers = useMemo(
+    () => ({
+      onToggleClip: handleToggleClipLabel,
+      onBulkToggle: applyBulkLabel,
+      onCreate: handleCreateLabel,
+      onRename: handleRenameLabel,
+      onRecolor: handleRecolorLabel,
+      onDelete: handleDeleteLabel,
+      onSetKey: handleSetLabelKey,
+      onSeedDefaults: handleSeedDefaultLabels,
+    }),
+    [
+      handleToggleClipLabel,
+      applyBulkLabel,
+      handleCreateLabel,
+      handleRenameLabel,
+      handleRecolorLabel,
+      handleDeleteLabel,
+      handleSetLabelKey,
+      handleSeedDefaultLabels,
+    ],
   );
 
 
@@ -4537,6 +4569,12 @@ export function PlaylistsPage() {
     queuePendingShip(pl);
   }
 
+  // The sheet is handed this one function, which calls the latest handleAddClips: that reads the
+  // `selected` of the latest render when it runs, as it did when the sheet was drawn with every render.
+  const handleAddClipsRef = useRef(handleAddClips);
+  handleAddClipsRef.current = handleAddClips;
+  const onAddClips = useCallback((clips: PlaylistClipItem[]) => handleAddClipsRef.current(clips), []);
+
   // ---------------------------------------------------------------------------
   // Clip selection helpers
   // ---------------------------------------------------------------------------
@@ -5163,7 +5201,13 @@ export function PlaylistsPage() {
     let cancelled = false;
     lastProbeAtRef.current = Date.now();
     probeMatches(clipMatches).then((map) => {
-      if (!cancelled) setVideoStatusByMatch(map);
+      // The same files with the same status keep the previous map, so a re-probe that found nothing new
+      // (a window focus) does not hand the Add clips sheet a new one.
+      if (!cancelled) {
+        setVideoStatusByMatch((prev) =>
+          prev.size === map.size && [...map].every(([id, status]) => prev.get(id) === status) ? prev : map,
+        );
+      }
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- clipMatches is fully represented by videoPathSignature for probing purposes
@@ -6386,23 +6430,14 @@ export function PlaylistsPage() {
                 matchLookup={matchLookup}
                 playlist={selected}
                 preferredMatchId={addClipsFrom}
-                onAddClips={handleAddClips}
+                onAddClips={onAddClips}
                 activeOrgId={activeOrgId}
                 labels={labels}
                 labelAssignments={clipAssignments}
                 onNeedEvents={ensureEventsFor}
                 onNeedLabels={ensureLabelsFor}
                 videoStatusByMatch={videoStatusByMatch}
-                labelHandlers={{
-                  onToggleClip: handleToggleClipLabel,
-                  onBulkToggle: applyBulkLabel,
-                  onCreate: handleCreateLabel,
-                  onRename: handleRenameLabel,
-                  onRecolor: handleRecolorLabel,
-                  onDelete: handleDeleteLabel,
-                  onSetKey: handleSetLabelKey,
-                  onSeedDefaults: handleSeedDefaultLabels,
-                }}
+                labelHandlers={clipBrowserLabelHandlers}
               />
             </SheetContent>
           </Sheet>
