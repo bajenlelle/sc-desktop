@@ -91,3 +91,18 @@ export async function listReportDrafts(supabase: SupabaseClient): Promise<Report
     players: Array.isArray(r.sections) ? r.sections.length : 0,
   }));
 }
+
+/**
+ * Every one of the caller's drafts as the search reads them
+ * (lib/quick-search.ts): title and date, without the sections the Reports
+ * list counts. `players` is not read and is 0. Throws when the read fails.
+ */
+export async function listReportDraftTitles(supabase: SupabaseClient): Promise<ReportDraftRow[]> {
+  const { data, error } = await supabase.from(TABLE).select("playlist_id, updated_at, title:content->>title");
+  if (error) {
+    reportDbError("listReportDraftTitles", error);
+    throw new Error(`Failed to load report drafts: ${error.message}`);
+  }
+  type Row = { playlist_id: string; updated_at: string; title: string | null };
+  return ((data ?? []) as Row[]).map((r) => ({ playlistId: r.playlist_id, updatedAt: r.updated_at, title: r.title || null, players: 0 }));
+}

@@ -13,6 +13,7 @@ import { reportDbError } from "./report";
 import type { PlaylistFolder, PlayByPlayEvent, StoredMatch, SyncPoint } from "../types/match";
 import { normalizeSyncPoint } from "./period-sync";
 import { normalizeGameMarks } from "./game-marks";
+import type { SearchGameRow } from "./quick-search";
 
 // ---------------------------------------------------------------------------
 // DB row types (snake_case columns from Postgres)
@@ -715,6 +716,48 @@ export async function listMatchesLight(
     if (opts?.withEventCount) match.eventCount = row.play_by_play_events?.[0]?.count ?? 0;
     return match;
   });
+}
+
+const MATCH_INDEX_COLUMNS = "id, title, game_date, home_team, away_team, created_at";
+
+/**
+ * The caller's games in the space as the search reads them
+ * (lib/quick-search.ts): the games the Library lists, with their titles,
+ * teams and dates, and none of the rosters, game marks or plays a full row
+ * carries. Throws when the read fails.
+ */
+export async function listMatchIndex(supabase: SupabaseClient, orgId?: string): Promise<SearchGameRow[]> {
+  const uid = await currentUserId(supabase);
+  if (!uid) return [];
+  const read = (columns: string) => {
+    const query = supabase.from("matches").select(columns).eq("user_id", uid);
+    return orgId ? query.eq("org_id", orgId) : query;
+  };
+  let { data, error } = await read(`${MATCH_INDEX_COLUMNS}, archived_at`);
+  // A database the archive migration (20261112100000) hasn't reached still lists its games, none of them archived.
+  if (error?.code === "42703") ({ data, error } = await read(MATCH_INDEX_COLUMNS));
+  if (error) {
+    reportDbError("listMatchIndex", error);
+    throw new Error(`Failed to load games: ${error.message}`);
+  }
+  type Row = {
+    id: string;
+    title: string;
+    game_date: string | null;
+    home_team: { name?: string } | null;
+    away_team: { name?: string } | null;
+    created_at: string | null;
+    archived_at?: string | null;
+  };
+  return ((data ?? []) as unknown as Row[]).map((r) => ({
+    id: r.id,
+    title: r.title,
+    date: r.game_date || null,
+    homeTeam: r.home_team?.name ?? "",
+    awayTeam: r.away_team?.name ?? "",
+    archivedAt: r.archived_at ?? null,
+    createdAt: r.created_at ?? null,
+  }));
 }
 
 /**

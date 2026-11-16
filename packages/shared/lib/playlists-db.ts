@@ -16,6 +16,7 @@ import type { ClipDrawing } from './clip-drawing';
 import type { SlowSection } from './clip-timeline';
 import { parseCardSpec, type StatsCardSpec } from "./stats-card";
 import { shippedStart } from "./clip-timing";
+import type { SearchPlaylistRow } from "./quick-search";
 
 // ---------------------------------------------------------------------------
 // DB row types (snake_case columns from Postgres)
@@ -281,6 +282,28 @@ export async function listPlaylistNames(
     throw new Error(`Failed to load playlists: ${error.message}`);
   }
   return (data ?? []) as { id: string; name: string }[];
+}
+
+/**
+ * The caller's playlists in the space as the search reads them
+ * (lib/quick-search.ts): names, folders and dates, never their clips. Throws
+ * when the read fails, so a failure is never read as no playlists.
+ */
+export async function listPlaylistIndex(
+  supabase: SupabaseClient,
+  orgId?: string,
+  opts?: OrgScopeOpts,
+): Promise<SearchPlaylistRow[]> {
+  const uid = await currentUserId(supabase);
+  if (!uid) return [];
+  const query = supabase.from("playlists").select("id, name, folder_id, created_at").eq("user_id", uid);
+  const { data, error } = await applyOrgScope(query, orgId, opts);
+  if (error) {
+    reportDbError("listPlaylistIndex", error);
+    throw new Error(`Failed to load playlists: ${error.message}`);
+  }
+  type Row = { id: string; name: string; folder_id: string | null; created_at: string | null };
+  return ((data ?? []) as Row[]).map((r) => ({ id: r.id, name: r.name, folderId: r.folder_id ?? null, createdAt: r.created_at ?? null }));
 }
 
 // ---------------------------------------------------------------------------
