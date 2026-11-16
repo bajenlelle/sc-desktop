@@ -33,11 +33,14 @@ const PLAIN: Record<string, string> = {
   // The search over the space (docs/search.md); the same chord closes it.
   k: "search",
   "0": "zoom-reset",
+  // The Go menu's pages, numbered in the sidebar's order (a personal space has no Shared playlists row
+  // and leaves 4 unused); Organization, which is not in the sidebar, comes after them.
   "1": "go-home",
   "2": "go-playlists",
-  "3": "go-my-playlists",
-  "4": "go-library",
-  "5": "go-organization",
+  "3": "go-reports",
+  "4": "go-my-playlists",
+  "5": "go-library",
+  "6": "go-organization",
 };
 
 export function menuIdForChord(e: KeyChord): string | null {

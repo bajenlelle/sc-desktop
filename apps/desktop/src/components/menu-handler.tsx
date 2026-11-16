@@ -39,7 +39,7 @@ const ZOOM_STEP = 0.1;
 const HAS_NATIVE_MENU = IS_MACOS;
 
 /** Items only coaches/admins can use (mirrors the sidebar's gating). */
-const COACH_ADMIN_IDS = ["new-playlist", "add-game", "go-home", "go-playlists", "go-library", "search"];
+const COACH_ADMIN_IDS = ["new-playlist", "add-game", "go-home", "go-playlists", "go-reports", "go-library", "search"];
 
 /** Mirror of each item's native enablement, consulted by the keyboard fallback. */
 const enabledIds = new Map<string, boolean>();
@@ -133,6 +133,9 @@ export function MenuHandler() {
           break;
         case "go-playlists":
           navigate("/playlists");
+          break;
+        case "go-reports":
+          navigate("/reports");
           break;
         case "go-my-playlists":
           navigate("/my-playlists");

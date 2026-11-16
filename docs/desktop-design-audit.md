@@ -200,7 +200,7 @@ Kept from DESIGN.md: no eyebrow labels above headings (Apple agrees), league nam
 ## 5. Kept on purpose
 
 - Every capability of 0.7.0: import, tip-off suggestion, reorder with multi-selection blocks and groups, drops onto sidebar playlists and folders, text cards, trims, notes, labels, grouping, filters, export in 16:9 and 9:16, send to phone, share with who-watched, fullscreen, the onboarding highlight ring.
-- Keyboard shortcuts and the native menu (⌘1–5, ⌘B, ⌘E, ⌘O, ⌘N, ⌘⇧F, zoom), extended rather than replaced.
+- Keyboard shortcuts and the native menu (⌘1–6, ⌘B, ⌘E, ⌘O, ⌘N, ⌘⇧F, zoom), extended rather than replaced. ⌘1–5 are the sidebar's pages in the sidebar's order (Home, Playlists, Reports, Shared playlists, Library), ⌘6 is Organization.
 - The eight colour themes and cross-device sync.
 - The event colour palette and the Free-plan watermark.
 - Windows: standard window, opaque sidebar, same layout.

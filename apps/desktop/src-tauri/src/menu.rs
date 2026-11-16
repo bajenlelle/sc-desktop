@@ -204,11 +204,15 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         .build()?;
 
     // -- Go ------------------------------------------------------------------
+    // The sidebar's pages in the sidebar's order, numbered as they stand there: ⌘3 is the third row.
+    // (A personal space has no Shared playlists row; its key is left unused there.) Organization is
+    // not in the sidebar and comes after them. Keep packages/shared/lib/menu-shortcuts.ts in step.
     let go_home = item("go-home", "Home", Some("CmdOrCtrl+1"))?;
     let go_playlists = item("go-playlists", "Playlists", Some("CmdOrCtrl+2"))?;
-    let go_my_playlists = item("go-my-playlists", "Shared Playlists", Some("CmdOrCtrl+3"))?;
-    let go_library = item("go-library", "Library", Some("CmdOrCtrl+4"))?;
-    let go_organization = item("go-organization", "Organization", Some("CmdOrCtrl+5"))?;
+    let go_reports = item("go-reports", "Reports", Some("CmdOrCtrl+3"))?;
+    let go_my_playlists = item("go-my-playlists", "Shared Playlists", Some("CmdOrCtrl+4"))?;
+    let go_library = item("go-library", "Library", Some("CmdOrCtrl+5"))?;
+    let go_organization = item("go-organization", "Organization", Some("CmdOrCtrl+6"))?;
     // The search over the space: the page opens its panel, and the same chord closes it (docs/search.md).
     let search = item("search", "Search…", Some("CmdOrCtrl+K"))?;
     let go_menu = SubmenuBuilder::new(app, "Go")
@@ -216,6 +220,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         .separator()
         .item(&go_home)
         .item(&go_playlists)
+        .item(&go_reports)
         .item(&go_my_playlists)
         .item(&go_library)
         .separator()

@@ -137,7 +137,7 @@ stretch where a game turned.
   the toolbar that belongs to one game sat above the row that changes games.
   Not built, and why (looked up 2026-11-14 against W3C's Tabs pattern,
   NN/g's tab guidelines, Safari, Chrome, Notion and VS Code): ⌘1–⌘9 for the
-  nth tab (⌘1–⌘5 are the Go menu); the tabs back after the app is quit (the
+  nth tab (⌘1–⌘6 are the Go menu); the tabs back after the app is quit (the
   bar shows only on the game page and the app opens on Home, so yesterday's
   tabs would turn up the next time any game is opened); a Library click that
   changes the game in the tab and doesn't open a new one (a tab per opened
@@ -486,7 +486,7 @@ opened and the footage playing on.
   label over the corner of the stage (`game-label-keys.tsx`), with a check on
   the labels the play on screen has.
 - **Option with a digit** because nothing else is free: the digits alone are
-  the quarters here and the arrow kinds while drawing, ⌘1–⌘5 are the Go menu,
+  the quarters here and the arrow kinds while drawing, ⌘1–⌘6 are the Go menu,
   Control with a digit switches desktops on a Mac, and the letters are the
   player's. By the key's place (`KeyboardEvent.code`), not its character.
   AltGr reports as Control with Alt and is left alone.
