@@ -264,3 +264,20 @@ test("the picker closes when its row leaves the list", async ({ page }) => {
   await page.keyboard.press("Meta+a");
   await expect(sheet.getByRole("button", { name: `Add ${count} clips`, exact: true }), "⌘A ticks every play").toBeVisible();
 });
+
+test("closing a row's label picker leaves the list where it was", async ({ page }) => {
+  const { grid, count } = await openOnFiveGames(page);
+  const first = grid.locator('[role=row][aria-rowindex="1"]');
+  await first.click();
+  await expect(first, "the first play is playing").toHaveAttribute("aria-current", "true");
+  await scrollToBottom(grid);
+  const scroller = page.locator(GRID).locator("xpath=..");
+  const at = await scroller.evaluate((el) => el.scrollTop);
+  expect(at, "the list is scrolled away from the playing row").toBeGreaterThan(0);
+  const last = page.locator(`${GRID} [role=row][aria-rowindex="${count}"]`);
+  await openPicker(page, last);
+  await closePicker(page);
+  // Two frames, so a scroll on close would have landed.
+  await scroller.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+  expect(await scroller.evaluate((el) => el.scrollTop), "the list stays where the coach scrolled it").toBe(at);
+});

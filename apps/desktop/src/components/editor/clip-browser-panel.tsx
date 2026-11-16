@@ -1006,9 +1006,16 @@ export function ClipBrowserPanel({
 
   // Keep the playing row in view (it may not be drawn yet: the list scrolls to its place). Before
   // paint, so a jump (End, Home, the next clip) never shows a frame of empty list. Not while a row
-  // is being labelled: that row must stay drawn. The playing row is shown once the picker closes.
+  // is being labelled: that row must stay drawn. When the picker closes, the list moves only if
+  // another clip started meanwhile; otherwise it stays where the coach scrolled it.
+  const revealedKeyRef = useRef<string | null>(null);
   useLayoutEffect(() => {
-    if (activeEventKey === null || labelPickerFor !== null) return;
+    if (activeEventKey === null) {
+      revealedKeyRef.current = null;
+      return;
+    }
+    if (labelPickerFor !== null || activeEventKey === revealedKeyRef.current) return;
+    revealedKeyRef.current = activeEventKey;
     revealRow(indexByKeyRef.current.get(activeEventKey));
   }, [activeEventKey, labelPickerFor, revealRow]);
 
