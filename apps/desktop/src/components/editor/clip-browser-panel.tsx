@@ -525,10 +525,17 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
   // them all, else when their read lands (readPlays), in one update either way.
   function handleGameChange(ids: string[], via: GamePickVia) {
     pendingTeamsRef.current = null;
+    const same = ids.join(",") === chosenKeyRef.current;
     chosenKeyRef.current = ids.join(",");
     setGameIds(ids);
     setAddClipsScope(playlist.id, { gameIds: ids, teams: [...filters.teams] });
     trackEvent("clip_browser_games_set", { games: ids.length, via });
+    // The same games again (a row press on the one chosen game, "Last 5 games" twice): no change of
+    // games, so nothing below reads them; it is a Try again for those whose read failed, else nothing.
+    if (same) {
+      retryFailed(ids);
+      return;
+    }
     // A chosen game whose read failed is read again: loading until it lands, not failed.
     setFailedGames((prev) => withGames(prev, [], ids));
     const held = playsRef.current;
@@ -538,13 +545,14 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
     }
   }
 
-  // The chosen games whose read failed, named above the list; Try again reads only them.
+  // The chosen games whose read failed, named above the list.
   const failedChosen = chosenGames.filter((m) => failedGames.has(m.id));
-  function retryFailed() {
-    const ids = failedChosen.map((m) => m.id);
+  /** Reads again only those of the chosen games whose read failed: loading until it lands, not failed. */
+  function retryFailed(chosen: string[]) {
+    const ids = chosen.filter((id) => failedGames.has(id));
     if (ids.length === 0) return;
     setFailedGames((prev) => withGames(prev, [], ids));
-    readPlays(ids, gameIds);
+    readPlays(ids, chosen);
   }
 
   function handleTeamChange(newTeams: Set<string>) {
@@ -1265,7 +1273,7 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
                   <p key={m.id}>Couldn&apos;t load plays for {m.title}.</p>
                 ))}
               </div>
-              <Button size="sm" variant="outline" onClick={retryFailed}>
+              <Button size="sm" variant="outline" onClick={() => retryFailed(gameIds)}>
                 Try again
               </Button>
             </div>
