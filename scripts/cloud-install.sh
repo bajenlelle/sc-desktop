@@ -23,4 +23,13 @@ mkdir -p apps/desktop/dist apps/desktop/src-tauri/binaries
 stub=apps/desktop/src-tauri/binaries/ffmpeg-x86_64-unknown-linux-gnu
 [ -e "$stub" ] || { touch "$stub" && chmod +x "$stub"; }
 
+# Playwright browsers for the headless harness (apps/desktop, docs/headless-ui.md).
+# The environment's setup script installs them plus their system libraries
+# into PLAYWRIGHT_BROWSERS_PATH; this only fetches a new build when the repo's
+# Playwright version moves ahead of that snapshot. A no-op when they're current.
+if [ -x node_modules/.bin/playwright ]; then
+  timeout 300 node_modules/.bin/playwright install chromium webkit \
+    || echo "cloud-install: playwright browser install failed (see setup script)" >&2
+fi
+
 exit 0
