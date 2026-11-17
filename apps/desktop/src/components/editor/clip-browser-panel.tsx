@@ -277,7 +277,7 @@ export const ClipBrowserPanel = memo(function ClipBrowserPanel({
   labelAssignments: Map<string, Set<string>>;
   labelHandlers: ClipBrowserLabelHandlers;
   /** Ask the page to load play-by-play for these matches if it hasn't yet. */
-  onNeedEvents: (matchIds: string[]) => Promise<void>;
+  onNeedEvents: (matchIds: string[]) => Promise<unknown>;
   /** The same for the labels on their clips. */
   onNeedLabels: (matchIds: string[]) => Promise<void>;
   /** Per-match video-file health from the page's probe (machine switches). */

@@ -4,7 +4,7 @@
  * separately-fetched events into light match shells, and club-badged team
  * maps for the aggregated player feed.
  */
-import { isClipItem, type Playlist, type PlayByPlayEvent, type StoredMatch } from '../types/match';
+import { isClipItem, type Playlist, type PlaylistItem, type PlayByPlayEvent, type StoredMatch } from '../types/match';
 import type { OrgTeam } from '../types/org';
 
 /**
@@ -71,6 +71,29 @@ export function collectClipMatchIds(playlists: Playlist[]): string[] {
  */
 export function missingClipMatchIds(playlists: Playlist[], knownIds: ReadonlySet<string>): string[] {
   return collectClipMatchIds(playlists).filter((id) => !knownIds.has(id));
+}
+
+/** Whether a playlist's clips can all be shown: their games' plays are read, still to come, or failed. */
+export type PlaysState = 'ready' | 'loading' | 'failed';
+
+/**
+ * Whether every game the playlist's clips are on has been read: "failed"
+ * when a read failed, "loading" while one is still to come. No playlist, or
+ * one without clips, is ready. A game in `read` counts as read even if an
+ * earlier read of it failed.
+ */
+export function playlistPlaysState(
+  items: readonly PlaylistItem[] | null,
+  read: ReadonlySet<string>,
+  failed: ReadonlySet<string>,
+): PlaysState {
+  let loading = false;
+  for (const item of items ?? []) {
+    if (!isClipItem(item) || read.has(item.matchId)) continue;
+    if (failed.has(item.matchId)) return 'failed';
+    loading = true;
+  }
+  return loading ? 'loading' : 'ready';
 }
 
 /**

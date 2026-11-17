@@ -6,6 +6,7 @@ import {
   collectReferencedPlays,
   mergeEventsIntoMatches,
   missingClipMatchIds,
+  playlistPlaysState,
 } from "../playlist-matches";
 import type {
   Playlist,
@@ -291,5 +292,34 @@ describe("missingClipMatchIds", () => {
     expect(missingClipMatchIds([pl({ items: [clip({ matchId: "m1" })] })], new Set(["m1"]))).toEqual([]);
     expect(missingClipMatchIds([pl({ items: [textCard({})] })], new Set())).toEqual([]);
     expect(missingClipMatchIds([], new Set(["m1"]))).toEqual([]);
+  });
+});
+
+describe("playlistPlaysState", () => {
+  const none = new Set<string>();
+
+  it("ready without a playlist, and for one with only cards", () => {
+    expect(playlistPlaysState(null, none, none)).toBe("ready");
+    expect(playlistPlaysState([textCard({})], none, none)).toBe("ready");
+  });
+
+  it("loading while a clip's game is unread", () => {
+    const items = [clip({ matchId: "m1" }), clip({ matchId: "m2", eventId: 2 })];
+    expect(playlistPlaysState(items, new Set(["m1"]), none)).toBe("loading");
+  });
+
+  it("failed when a clip's game failed, even with others unread", () => {
+    const items = [clip({ matchId: "m1" }), clip({ matchId: "m2", eventId: 2 }), clip({ matchId: "m3", eventId: 3 })];
+    expect(playlistPlaysState(items, none, new Set(["m2"]))).toBe("failed");
+  });
+
+  it("ready once every clip's game is read", () => {
+    const items = [clip({ matchId: "m1" }), textCard({}), clip({ matchId: "m2", eventId: 2 })];
+    expect(playlistPlaysState(items, new Set(["m1", "m2"]), none)).toBe("ready");
+  });
+
+  it("a game read again after failing counts as read", () => {
+    const items = [clip({ matchId: "m1" })];
+    expect(playlistPlaysState(items, new Set(["m1"]), new Set(["m1"]))).toBe("ready");
   });
 });

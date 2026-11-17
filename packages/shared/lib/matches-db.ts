@@ -368,7 +368,13 @@ export async function listMatches(
  */
 const EVENTS_CACHE_MS = 60 * 60_000;
 const eventsCache = new Map<string, { at: number; events: PlayByPlayEvent[] }>();
-const eventsInflight = new Map<string, Promise<PlayByPlayEvent[] | undefined>>();
+/**
+ * A game's read in flight, shared by every caller asking for it meanwhile:
+ * its plays, "absent" when the read came back without it (RLS, or deleted),
+ * "failed" when the read itself failed.
+ */
+type GameRead = PlayByPlayEvent[] | "absent" | "failed";
+const eventsInflight = new Map<string, Promise<GameRead>>();
 
 /** The plays a caller needs, by game: event ids per match id. */
 export type RequiredPlays = ReadonlyMap<string, ReadonlySet<number>>;
@@ -397,17 +403,33 @@ export function invalidateMatchEvents(matchIds?: readonly string[]): void {
 /**
  * The play-by-play of these games, from the cache where it can. `required`
  * names the plays the caller will look up; a cached (or in-flight) list
- * missing any of them is read again rather than served.
+ * missing any of them is read again rather than served. A failed read
+ * leaves its games out (listEventsForMatchesChecked names them).
  */
 export async function listEventsForMatches(
   supabase: SupabaseClient,
   matchIds: string[],
   opts?: { required?: RequiredPlays },
 ): Promise<Record<string, PlayByPlayEvent[]>> {
-  if (matchIds.length === 0) return {};
+  return (await listEventsForMatchesChecked(supabase, matchIds, opts)).byMatch;
+}
+
+/**
+ * listEventsForMatches, also naming the games whose read failed (the query
+ * errored, for this caller or for the read it shared). A game the reader may
+ * not see, or that is gone, is absent from both: it was read, and has no
+ * plays to show. A failed game is never cached: the next call reads it again.
+ */
+export async function listEventsForMatchesChecked(
+  supabase: SupabaseClient,
+  matchIds: string[],
+  opts?: { required?: RequiredPlays },
+): Promise<{ byMatch: Record<string, PlayByPlayEvent[]>; failed: string[] }> {
+  if (matchIds.length === 0) return { byMatch: {}, failed: [] };
   const uid = await currentUserId(supabase);
   const required = opts?.required;
   const byMatch: Record<string, PlayByPlayEvent[]> = {};
+  const failed = new Set<string>();
 
   /** One read for these games; registers itself so concurrent callers share it. */
   const readGames = (ids: string[]): Promise<void> => {
@@ -425,7 +447,7 @@ export async function listEventsForMatches(
     })();
     for (const id of ids) {
       const key = `${uid}:${id}`;
-      const one = read.then((fetched) => fetched?.[id]);
+      const one: Promise<GameRead> = read.then((fetched) => (fetched ? fetched[id] ?? "absent" : "failed"));
       if (uid) {
         eventsInflight.set(key, one);
         void one.finally(() => {
@@ -434,7 +456,10 @@ export async function listEventsForMatches(
       }
     }
     return read.then((fetched) => {
-      if (!fetched) return;
+      if (!fetched) {
+        for (const id of ids) failed.add(id);
+        return;
+      }
       for (const [id, events] of Object.entries(fetched)) {
         byMatch[id] = events;
         // A game RLS didn't return isn't cached: the next call asks again.
@@ -458,9 +483,11 @@ export async function listEventsForMatches(
     const pending = uid ? eventsInflight.get(key) : undefined;
     if (pending) {
       waits.push(
-        pending.then((events) => {
-          if (events && coversPlays(events, required?.get(id))) byMatch[id] = events;
-          else if (events) again.push(id);
+        pending.then((got) => {
+          if (got === "failed") failed.add(id);
+          else if (got === "absent") return;
+          else if (coversPlays(got, required?.get(id))) byMatch[id] = got;
+          else again.push(id);
         }),
       );
     } else need.push(id);
@@ -468,7 +495,7 @@ export async function listEventsForMatches(
   if (need.length > 0) waits.push(readGames(need));
   await Promise.all(waits);
   if (again.length > 0) await readGames(again);
-  return byMatch;
+  return { byMatch, failed: [...failed] };
 }
 
 // ---------------------------------------------------------------------------

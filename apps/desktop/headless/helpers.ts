@@ -981,6 +981,33 @@ export async function patchGameReads(page: Page, patch: GameReadPatch): Promise<
   if (patch.teamless) await page.route("**/rest/v1/play_by_play_events*", rewrite((body) => Array.isArray(body) && unteam(body as Record<string, unknown>[])));
 }
 
+/** The page's reads of plays: GETs of `matches` that embed `play_by_play_events` (the game list's reads don't). */
+const PLAYS_READS = "**/rest/v1/matches*";
+const isPlaysRead = (route: Route) =>
+  route.request().method() === "GET" && route.request().url().includes("play_by_play_events");
+
+/** Makes the page's reads of plays fail (HTTP 500) until the returned function is called. */
+export async function failPlaysReads(page: Page): Promise<() => Promise<void>> {
+  const handler = async (route: Route) => {
+    if (!isPlaysRead(route)) return route.fallback();
+    await route.fulfill({ status: 500, json: { code: "XX000", message: "plays read failed on purpose", details: null, hint: null } });
+  };
+  await page.route(PLAYS_READS, handler);
+  return () => page.unroute(PLAYS_READS, handler);
+}
+
+/** Holds the page's reads of plays back by `ms` until the returned function is called. */
+export async function delayPlaysReads(page: Page, ms: number): Promise<() => Promise<void>> {
+  const handler = async (route: Route) => {
+    if (!isPlaysRead(route)) return route.fallback();
+    await new Promise((resolve) => setTimeout(resolve, ms));
+    // The page may have gone meanwhile (the test ended): nothing is left to answer.
+    await route.fallback().catch(() => {});
+  };
+  await page.route(PLAYS_READS, handler);
+  return () => page.unroute(PLAYS_READS, handler);
+}
+
 /**
  * Gives the sample game (the one game with footage here) a home-side timeout, in what the page reads of it, as a
  * real one falls: after a play, past the game's first third, that is followed twelve seconds or more later by a
