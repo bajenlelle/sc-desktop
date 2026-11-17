@@ -1,13 +1,12 @@
 name: build
 on:
-  push:
-    branches: [staging]
-  # On-demand build for testing an installer that can't be verified on the
-  # dev Mac — Windows above all, which has no CI test and no local VM. The
-  # production option bakes in the real Supabase project because sc-staging
-  # has no edge functions deployed, so a staging build can't load schedules.
-  # Artifacts only: nothing here touches scoutable-releases or the updater,
-  # unlike any v* tag.
+  # Manual only. Pushing to staging builds nothing: that branch is where the
+  # dev app gets tested before main. This is the on-demand build for testing
+  # an installer that can't be verified on the dev Mac — Windows above all,
+  # which has no CI test and no local VM. The production option bakes in the
+  # real Supabase project because sc-staging has no edge functions deployed,
+  # so a staging build can't load schedules. Artifacts only: nothing here
+  # touches scoutable-releases or the updater, unlike any v* tag.
   workflow_dispatch:
     inputs:
       environment:
@@ -137,8 +136,7 @@ jobs:
           AZURE_TENANT_ID: ${{ matrix.platform == 'windows-latest' && secrets.AZURE_TENANT_ID || '' }}
           AZURE_CLIENT_ID: ${{ matrix.platform == 'windows-latest' && secrets.AZURE_CLIENT_ID || '' }}
           AZURE_CLIENT_SECRET: ${{ matrix.platform == 'windows-latest' && secrets.AZURE_CLIENT_SECRET || '' }}
-          # `inputs` is empty on push events, so the staging push keeps its
-          # old behaviour; only an explicit production dispatch flips these.
+          # Only an explicit production dispatch flips these to production.
           VITE_SUPABASE_URL: ${{ inputs.environment == 'production' && secrets.VITE_SUPABASE_URL || secrets.VITE_SUPABASE_URL_STAGING }}
           VITE_SUPABASE_ANON_KEY: ${{ inputs.environment == 'production' && secrets.VITE_SUPABASE_ANON_KEY || secrets.VITE_SUPABASE_ANON_KEY_STAGING }}
           VITE_POSTHOG_KEY: ${{ secrets.VITE_POSTHOG_KEY }}
