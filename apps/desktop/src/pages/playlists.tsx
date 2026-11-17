@@ -971,9 +971,17 @@ export function PlaylistsPage() {
       if (outside.length > 0) {
         listMatchesByIds(outside.map((m) => m.id)).then((rows) => {
           if (rows.length === 0) return;
+          // Merged into `prev`, not replaced by the answer: the answer is for
+          // the ids asked a moment ago, while ensureEventsFor may have added a
+          // row since (its game then counts as read) and a row the answer
+          // leaves out is still a game here. Dropping either hides that
+          // game's clips, and a reorder or Group would delete them.
           setOutsideMatches((prev) => {
-            const prevById = new Map(prev.map((m) => [m.id, m]));
-            return rows.map((r) => ({ ...r, events: prevById.get(r.id)?.events ?? [] }));
+            const byId = new Map(rows.map((r) => [r.id, r]));
+            return prev.map((m) => {
+              const r = byId.get(m.id);
+              return r ? { ...r, events: m.events } : m;
+            });
           });
         });
       }
@@ -3876,7 +3884,9 @@ export function PlaylistsPage() {
   // A ship whose plays couldn't be read stays queued, held at the nonce it
   // ran at: this effect's own re-runs (isShipping flipping back, the plays
   // arriving or failing) leave it be, and the next queuePendingShip (a new
-  // nonce) or a remount (a fresh ref) tries it again. One toast per try.
+  // nonce), a plays read in ensureEventsFor that succeeds and completes the
+  // held playlist (it bumps the nonce too) or a remount (a fresh ref) tries
+  // it again. One toast per try.
   const handleShipRef = useRef(handleShip);
   handleShipRef.current = handleShip;
   const shipHeldRef = useRef<Map<string, number>>(new Map());
