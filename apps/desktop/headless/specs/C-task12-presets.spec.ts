@@ -7,7 +7,10 @@
  * chosen applies without touching the player chosen at the time, in the game
  * view and in Add clips, and one applied while the plays are still loading
  * applies at once and leaves the chosen team and player alone, before and
- * after they land.
+ * after they land. The presets menu is filled at once from the last read of the
+ * space's presets: a sheet opened again lists them while the new read is still
+ * on its way, with what was saved, renamed and deleted in between, and without
+ * a save that failed.
  *
  * Needs the staging test account's games "BC Luleå vs Köping Stars" and
  * "Södertälje BBK vs Köping Stars". The account has one space, so the
@@ -15,7 +18,7 @@
  * and presets named `headless-<port> …`, and deletes them afterwards, failed
  * or not.
  */
-import type { Locator, Page } from "@playwright/test";
+import type { Locator, Page, Route } from "@playwright/test";
 import {
   PORT,
   createPlaylist,
@@ -30,6 +33,7 @@ import {
   readSheetRows,
   shot,
   test,
+  toastWith,
   waitForPlays,
   waitForQuiet,
 } from "../helpers";
@@ -40,6 +44,11 @@ const GUARD = `${PREFIX} guard`;
 const OTHER = `${PREFIX} other`;
 const PLAYER = `${PREFIX} player`;
 const PENDING = `${PREFIX} pending`;
+const KEPT = `${PREFIX} kept`;
+const DROPPED = `${PREFIX} dropped`;
+const RENAMED_FROM = `${PREFIX} renamed from`;
+const RENAMED_TO = `${PREFIX} renamed to`;
+const FAILED = `${PREFIX} failed`;
 const LULEA = "BC Luleå vs Köping Stars";
 const SODERTALJE = "Södertälje BBK vs Köping Stars";
 const KOPING = "Köping Stars";
@@ -338,4 +347,90 @@ test("a preset applied while the plays load applies at once and leaves the chose
   expect(others.map((r) => r.text), `only ${playerName}'s plays`).toEqual([]);
   console.log(`${browserName} C-task12: ${playerLabel} has ${await eventCount(sheet)} 2PT made in the two games`);
   await shot(page, name("pending-landed"));
+});
+
+test("the presets menu is filled from the last read, while the next read is still on its way", async ({ page, browserName }) => {
+  test.setTimeout(120_000);
+  const name = (step: string) => `${browserName}-C-task12-${step}`;
+  await deleteOwnRowsNamed(page, "filter_presets", PREFIX);
+  await deleteOwnRowsNamed(page, "playlists", PLAYLIST);
+  const playlistId = await createPlaylist(page, PLAYLIST);
+
+  // Three presets saved in the sheet, one of them renamed and one deleted: the kept list is what a coach
+  // would see now, not what the database held when the sheet first read it.
+  const sheet = await openAddClips(page, playlistId);
+  await pickOnlyGame(page, sheet, LULEA);
+  const chips = sheet.getByRole("group", { name: "Event type" });
+  await chips.getByRole("button", { name: "2PT made", exact: true }).click();
+  let menu = await openPresets(page, sheet);
+  await savePreset(page, menu, KEPT);
+  await savePreset(page, menu, DROPPED);
+  await savePreset(page, menu, RENAMED_FROM);
+  await rowAction(page, menu, RENAMED_FROM, "Rename");
+  const renameField = menu.getByRole("textbox", { name: "Preset name" });
+  await renameField.fill(RENAMED_TO);
+  await page.keyboard.press("Enter");
+  await expect(menu.getByRole("button", { name: RENAMED_TO, exact: true }), "the renamed preset is listed").toBeVisible();
+  await rowAction(page, menu, DROPPED, "Delete");
+  await expect(menu.getByRole("button", { name: DROPPED, exact: true })).toHaveCount(0);
+  // A save the database refuses is taken back: not listed now, nor when the sheet opens again.
+  const presetsUrl = "**/rest/v1/filter_presets*";
+  const refuseWrites = async (route: Route) => {
+    if (route.request().method() === "POST") {
+      await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ message: "refused by the spec" }) });
+    } else await route.continue();
+  };
+  await page.route(presetsUrl, refuseWrites);
+  try {
+    await menu.getByRole("button", { name: "Save current filters…" }).click();
+    await menu.getByPlaceholder("Preset name").fill(FAILED);
+    await page.keyboard.press("Enter");
+    await expect(toastWith(page, "Couldn't save the preset. Try again."), "the failed save is said").toBeVisible();
+  } finally {
+    await page.unroute(presetsUrl, refuseWrites);
+  }
+  await expect(menu.getByRole("button", { name: FAILED, exact: true }), "the failed save is taken back").toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect
+    .poll(() => ownRowNames(page, "filter_presets", PREFIX), { message: "the saves, the rename and the delete reached the database" })
+    .toEqual([KEPT, RENAMED_TO].sort());
+  await sheet.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(sheet).toBeHidden();
+
+  // Every read of the presets is held back and never answered, until the test lets them go.
+  const held: Route[] = [];
+  const hold = async (route: Route) => {
+    if (route.request().method() === "GET") held.push(route);
+    else await route.continue();
+  };
+  await page.route(presetsUrl, hold);
+  const release = async () => {
+    await page.unroute(presetsUrl, hold);
+    for (const route of held.splice(0)) await route.continue().catch(() => {});
+  };
+  try {
+    // The sheet opened again in the same page (a fresh load empties what the app keeps by design).
+    await page.getByRole("button", { name: "Add clips", exact: true }).first().click();
+    await expect(sheet).toBeVisible();
+    await expect.poll(() => held.length, { message: "the sheet still reads the presets in the background" }).toBeGreaterThan(0);
+    menu = await openPresets(page, sheet);
+    await expect(menu.getByRole("button", { name: KEPT, exact: true }), "the menu lists the saved preset before the read answers").toBeVisible();
+    await expect(menu.getByRole("button", { name: RENAMED_TO, exact: true }), "...under its new name").toBeVisible();
+    await expect(menu.getByRole("button", { name: RENAMED_FROM, exact: true }), "...not the old one").toHaveCount(0);
+    await expect(menu.getByRole("button", { name: DROPPED, exact: true }), "a deleted preset isn't listed").toHaveCount(0);
+    await expect(menu.getByRole("button", { name: FAILED, exact: true }), "a save that failed isn't listed").toHaveCount(0);
+    await expect(menu.getByText("No presets yet")).toHaveCount(0);
+    await shot(page, name("kept-list"));
+
+    // The read answers with the same presets: the menu stays as it was.
+    await release();
+    await waitForQuiet(page);
+    await expect(menu.getByRole("button", { name: KEPT, exact: true })).toBeVisible();
+    await expect(menu.getByRole("button", { name: RENAMED_TO, exact: true })).toBeVisible();
+    await expect(menu.getByRole("button", { name: DROPPED, exact: true })).toHaveCount(0);
+    await expect(menu.getByRole("button", { name: FAILED, exact: true })).toHaveCount(0);
+  } finally {
+    await release();
+  }
 });
