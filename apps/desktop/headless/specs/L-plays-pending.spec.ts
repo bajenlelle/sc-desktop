@@ -3,13 +3,15 @@
  * games' plays fails, the editor says so with a Try again instead of showing
  * an empty playlist, Export and Share are off, and nothing on the server
  * changes; Try again shows loading rows until the plays come, then the clips.
- * "No clips yet" never shows for a playlist that has clips.
+ * "No clips yet" never shows for a playlist that has clips. A clip on a game
+ * this space doesn't list (a game in another space) counts as read only once
+ * that game's row is in memory too, not when its plays alone came back.
  *
  * Needs a game with plays on the staging test account. Creates the playlist
  * `headless-<port> pending` and deletes it afterwards. The failures and delays
  * are the page's own reads, rewritten in the browser: nothing on staging fails.
  */
-import type { Page } from "@playwright/test";
+import type { Page, Route } from "@playwright/test";
 import {
   PORT,
   delayPlaysReads,
@@ -92,5 +94,49 @@ test("Try again shows loading rows, then the clips", async ({ page }) => {
   const shown = await rows.evaluateAll((els) => els.map((el) => el.getAttribute("data-row-key") ?? ""));
   expect(shown.sort(), "the playlist's own three clips").toEqual([...keys].sort());
   await expect(page.getByText(FAILED, { exact: true })).toHaveCount(0);
+  expect(await sawNoClipsYet(), "\"No clips yet\" never showed").toBe(false);
+});
+
+/**
+ * The page's reads of its games, told that these games are in another space: the game list leaves them out, so
+ * the page reads their rows by id, and those row reads (not the plays) fail until `liftRowFailure` is called.
+ */
+async function gamesInAnotherSpace(page: Page, ids: readonly string[]): Promise<{ liftRowFailure: () => void }> {
+  let failRows = true;
+  await page.route("**/rest/v1/matches*", async (route: Route) => {
+    const request = route.request();
+    if (request.method() !== "GET" || request.url().includes("play_by_play_events")) return route.fallback();
+    if (new URL(request.url()).searchParams.get("id")?.startsWith("in.")) {
+      if (!failRows) return route.fallback();
+      return route.fulfill({ status: 500, json: { code: "XX000", message: "row read failed on purpose", details: null, hint: null } });
+    }
+    const response = await route.fetch();
+    const body: unknown = await response.json().catch(() => null);
+    if (!Array.isArray(body)) return route.fulfill({ response });
+    await route.fulfill({ response, json: body.filter((row: { id?: string }) => !ids.includes(row.id ?? "")) });
+  });
+  return { liftRowFailure: () => { failRows = false; } };
+}
+
+test("a clip on a game in another space waits for that game's row, not just its plays", async ({ page }) => {
+  const keys = await newPlaylistWithClips(page, NAME, { count: 3 });
+  const id = await playlistIdNamed(page, NAME);
+  const games = [...new Set(keys.map((key) => key.slice(0, key.indexOf(":"))))];
+  const sawNoClipsYet = await watchForNoClipsYet(page);
+  const { liftRowFailure } = await gamesInAnotherSpace(page, games);
+  await openAfresh(page, id);
+
+  // The plays came back, the game's row didn't: the clips can't be shown, and the playlist says so.
+  const tryAgain = page.getByRole("button", { name: "Try again", exact: true });
+  await expect(page.getByText(FAILED, { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(tryAgain).toBeVisible();
+  expect(await playlistClips(page, NAME), "the server still holds the three clips").toHaveLength(3);
+
+  liftRowFailure();
+  await tryAgain.click();
+  const rows = page.locator("[role=row][data-row-key]");
+  await expect(rows).toHaveCount(3, { timeout: 30_000 });
+  const shown = await rows.evaluateAll((els) => els.map((el) => el.getAttribute("data-row-key") ?? ""));
+  expect(shown.sort(), "the playlist's own three clips").toEqual([...keys].sort());
   expect(await sawNoClipsYet(), "\"No clips yet\" never showed").toBe(false);
 });

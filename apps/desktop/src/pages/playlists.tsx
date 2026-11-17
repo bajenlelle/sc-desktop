@@ -107,6 +107,8 @@ import {
   mergeEventsIntoMatches,
   missingClipMatchIds,
   playlistPlaysState,
+  playlistsWithPlaysRead,
+  settlePlaysRead,
   type PlaysState,
 } from "@scoutable/shared/lib/playlist-matches";
 import { getOrgContext, getOrgContextForOrg, getOrgMembers, getTeamMemberIds } from "@/lib/profile-db";
@@ -845,9 +847,10 @@ export function PlaylistsPage() {
         // collectClipMatchIds, not collectReferencedMatchIds: the editor must
         // resolve UNSHIPPED clips too, or their rows vanish (see displayItems).
         const referencedIds = collectClipMatchIds(loadedPlaylists);
-        // Only the games whose read came back count as read. A failed game
-        // is asked again when a playlist with clips on it opens (or by its
-        // Try again); until then that playlist says its clips are missing.
+        // Only the games whose read came back, with their game's row, count
+        // as read. A failed game is asked again when a playlist with clips on
+        // it opens (or by its Try again); until then that playlist says its
+        // clips are missing.
         let eventsByMatch: Record<string, PlayByPlayEvent[]> = {};
         let failedIds: string[] = [];
         try {
@@ -861,11 +864,13 @@ export function PlaylistsPage() {
         const outsideShells = outsideIds.length > 0 ? await listMatchesByIds(outsideIds) : [];
         if (stale) return;
 
-        const failed = new Set(failedIds);
-        const read = referencedIds.filter((id) => !failed.has(id));
+        // A game in another space whose row read failed has its plays, and
+        // nowhere to put them: it failed, not read.
+        const rows = new Set([...matchShells, ...outsideShells].map((m) => m.id));
+        const { read, failed } = settlePlaysRead(referencedIds, { byMatch: eventsByMatch, failed: failedIds }, rows);
         for (const id of read) loadedEventMatchIdsRef.current.add(id);
         setPlaysRead((prev) => withIds(prev, read));
-        setPlaysFailed((prev) => withIds(prev, failedIds, read));
+        setPlaysFailed((prev) => withIds(prev, failed, read));
         setPlaylists(loadedPlaylists);
         setMatches(loadedMatches);
         setOutsideMatches(mergeEventsIntoMatches(outsideShells, eventsByMatch));
@@ -988,6 +993,10 @@ export function PlaylistsPage() {
    * preserved — only the newly fetched matches change. A failed game stays
    * unread and is fetched again the next time it is asked for; while it is
    * fetched it is no longer failed, so its playlist shows loading rows.
+   * A game this page has no row for (in another space: a clip pasted from
+   * there) has its row read too, into `outsideMatches`; it counts as read
+   * only once that row is in. A success that leaves an upload held for its
+   * plays (handleShip) with every game read lets that upload go on.
    *
    * Resolves with the asked games whose plays could not be read; empty when
    * all are in memory. Never rejects. The lookups the share and upload paths
@@ -1008,20 +1017,30 @@ export function PlaylistsPage() {
       // map, so the next ask fetches the game afresh.
       const fetching = Promise.resolve()
         .then(() => listEventsForMatchesChecked(wanted))
-        .then(({ byMatch, failed }) => {
+        .then(async ({ byMatch, failed }) => {
           if (eventsGenRef.current !== gen) return;
-          const failedIds = new Set(failed);
-          const read = wanted.filter((id) => !failedIds.has(id));
+          const rowless = Object.keys(byMatch).filter((id) => !matchLookupRef.current.has(id));
+          const fetchedRows = rowless.length > 0 ? await listMatchesByIds(rowless).catch((): StoredMatch[] => []) : [];
+          if (eventsGenRef.current !== gen) return;
+          const rows = new Set([...matchLookupRef.current.keys(), ...fetchedRows.map((m) => m.id)]);
+          const settled = settlePlaysRead(wanted, { byMatch, failed }, rows);
+          const { read } = settled;
           for (const id of read) loadedEventMatchIdsRef.current.add(id);
           const merge = (prev: StoredMatch[]) => {
             if (!prev.some((m) => byMatch[m.id])) return prev;
             return prev.map((m) => (byMatch[m.id] ? { ...m, events: byMatch[m.id] } : m));
           };
+          const added = mergeEventsIntoMatches(fetchedRows, byMatch);
           setMatches(merge);
-          setOutsideMatches(merge);
+          setOutsideMatches((prev) => {
+            const merged = merge(prev);
+            const fresh = added.filter((m) => !merged.some((o) => o.id === m.id));
+            return fresh.length > 0 ? [...merged, ...fresh] : merged;
+          });
           setPlaysRead((prev) => withIds(prev, read));
-          setPlaysFailed((prev) => withIds(prev, failed, read));
+          setPlaysFailed((prev) => withIds(prev, settled.failed, read));
           const lookup = new Map(matchLookupRef.current);
+          for (const m of added) if (!lookup.has(m.id)) lookup.set(m.id, m);
           const events = new Map(eventByKeyRef.current);
           for (const [id, evs] of Object.entries(byMatch)) {
             const m = lookup.get(id);
@@ -1031,6 +1050,16 @@ export function PlaylistsPage() {
           }
           matchLookupRef.current = lookup;
           eventByKeyRef.current = events;
+          // An upload held because these plays were missing goes on now: a
+          // real trigger (a failure never bumps the nonce, so this can't loop).
+          const held = shipHeldRef.current;
+          if (read.length > 0 && held.size > 0) {
+            const ready = playlistsWithPlaysRead(held.keys(), [selectedRef.current, ...playlistsRef.current], loadedEventMatchIdsRef.current);
+            if (ready.length > 0) {
+              for (const id of ready) held.delete(id);
+              setShipNonce((n) => n + 1);
+            }
+          }
         })
         .catch((e) => {
           console.error("ensureEventsFor:", e);

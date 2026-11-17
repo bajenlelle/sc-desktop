@@ -7,6 +7,8 @@ import {
   mergeEventsIntoMatches,
   missingClipMatchIds,
   playlistPlaysState,
+  playlistsWithPlaysRead,
+  settlePlaysRead,
 } from "../playlist-matches";
 import type {
   Playlist,
@@ -321,5 +323,57 @@ describe("playlistPlaysState", () => {
   it("a game read again after failing counts as read", () => {
     const items = [clip({ matchId: "m1" })];
     expect(playlistPlaysState(items, new Set(["m1"]), new Set(["m1"]))).toBe("ready");
+  });
+});
+
+describe("settlePlaysRead", () => {
+  const plays = { m1: [ev({})], m2: [ev({ eventId: 2 })] };
+
+  it("a game whose plays came back is read once its game is in memory", () => {
+    const out = settlePlaysRead(["m1", "m2"], { byMatch: plays, failed: [] }, new Set(["m1", "m2"]));
+    expect(out).toEqual({ read: ["m1", "m2"], failed: [] });
+  });
+
+  it("a game whose plays came back without its game in memory failed", () => {
+    const out = settlePlaysRead(["m1", "m2"], { byMatch: plays, failed: [] }, new Set(["m1"]));
+    expect(out).toEqual({ read: ["m1"], failed: ["m2"] });
+  });
+
+  it("a game whose read failed failed", () => {
+    const out = settlePlaysRead(["m1", "m3"], { byMatch: { m1: plays.m1 }, failed: ["m3"] }, new Set(["m1", "m3"]));
+    expect(out).toEqual({ read: ["m1"], failed: ["m3"] });
+  });
+
+  it("a game the reader may not see is read, with no plays to show", () => {
+    const out = settlePlaysRead(["m1", "hidden"], { byMatch: { m1: plays.m1 }, failed: [] }, new Set(["m1"]));
+    expect(out).toEqual({ read: ["m1", "hidden"], failed: [] });
+  });
+
+  it("names each game once", () => {
+    const out = settlePlaysRead(["m1", "m1", "m3", "m3"], { byMatch: { m1: plays.m1 }, failed: ["m3"] }, new Set(["m1"]));
+    expect(out).toEqual({ read: ["m1"], failed: ["m3"] });
+  });
+});
+
+describe("playlistsWithPlaysRead", () => {
+  const p1 = pl({ id: "p1", items: [clip({ matchId: "m1" }), textCard({})] });
+  const p2 = pl({ id: "p2", items: [clip({ matchId: "m1" }), clip({ matchId: "m2", eventId: 2 })] });
+
+  it("names the playlists whose clips' games are all read", () => {
+    expect(playlistsWithPlaysRead(["p1", "p2"], [p1, p2], new Set(["m1", "m2"]))).toEqual(["p1", "p2"]);
+  });
+
+  it("leaves out one with a game still unread", () => {
+    expect(playlistsWithPlaysRead(["p1", "p2"], [p1, p2], new Set(["m1"]))).toEqual(["p1"]);
+  });
+
+  it("takes the first copy of a playlist, the open one", () => {
+    const open = pl({ id: "p2", items: [clip({ matchId: "m1" })] });
+    expect(playlistsWithPlaysRead(["p2"], [open, p2], new Set(["m1"]))).toEqual(["p2"]);
+    expect(playlistsWithPlaysRead(["p2"], [null, p2], new Set(["m1"]))).toEqual([]);
+  });
+
+  it("leaves out an id with no playlist", () => {
+    expect(playlistsWithPlaysRead(["gone"], [p1], new Set(["m1"]))).toEqual([]);
   });
 });

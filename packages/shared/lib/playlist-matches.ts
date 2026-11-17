@@ -97,6 +97,50 @@ export function playlistPlaysState(
 }
 
 /**
+ * Which of the games asked for count as read after a read of their plays. A
+ * game whose plays came back counts only once its game is in memory too
+ * (`rows`): the plays read reads the game's row itself, so a game with plays
+ * but no row means the row's own read failed, and the game failed. A game
+ * whose read failed, failed. A game neither read nor failed (the reader may
+ * not see it, or it is gone) counts as read: it has no plays to show. Each
+ * game is named once, in the order asked.
+ */
+export function settlePlaysRead(
+  asked: readonly string[],
+  got: { byMatch: Readonly<Record<string, readonly PlayByPlayEvent[]>>; failed: readonly string[] },
+  rows: ReadonlySet<string>,
+): { read: string[]; failed: string[] } {
+  const failedIds = new Set(got.failed);
+  const read: string[] = [];
+  const failed: string[] = [];
+  for (const id of new Set(asked)) {
+    if (failedIds.has(id) || (got.byMatch[id] && !rows.has(id))) failed.push(id);
+    else read.push(id);
+  }
+  return { read, failed };
+}
+
+/**
+ * Of these playlists (by id), the ones whose clips' games are all read: an
+ * upload held until their plays were in memory can go on. The first playlist
+ * with an id wins, so pass the open one first (it is the freshest copy). An
+ * id with no playlist here is left out.
+ */
+export function playlistsWithPlaysRead(
+  ids: Iterable<string>,
+  playlists: readonly (Playlist | null | undefined)[],
+  read: ReadonlySet<string>,
+): string[] {
+  const none = new Set<string>();
+  const ready: string[] = [];
+  for (const id of ids) {
+    const pl = playlists.find((p) => p?.id === id);
+    if (pl && playlistPlaysState(pl.items, read, none) === 'ready') ready.push(id);
+  }
+  return ready;
+}
+
+/**
  * Fill listMatchesLight shells with events fetched via listEventsForMatches.
  * Callers must publish the merged result in ONE state update — clip rows
  * silently drop when an event lookup misses, so a light-shells-first render
