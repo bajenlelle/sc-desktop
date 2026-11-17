@@ -5,13 +5,15 @@
  * changes; Try again shows loading rows until the plays come, then the clips.
  * "No clips yet" never shows for a playlist that has clips. A clip on a game
  * this space doesn't list (a game in another space) counts as read only once
- * that game's row is in memory too, not when its plays alone came back.
+ * that game's row is in memory too, not when its plays alone came back. The
+ * playlists list shows as soon as the page's own reads of the list are in, not
+ * after the plays of every game its playlists hold clips from.
  *
  * Needs a game with plays on the staging test account. Creates the playlist
  * `headless-<port> pending` and deletes it afterwards. The failures and delays
  * are the page's own reads, rewritten in the browser: nothing on staging fails.
  */
-import type { Page, Route } from "@playwright/test";
+import type { Page, Response, Route } from "@playwright/test";
 import {
   PORT,
   delayPlaysReads,
@@ -134,6 +136,43 @@ test("a clip on a game in another space waits for that game's row, not just its 
 
   liftRowFailure();
   await tryAgain.click();
+  const rows = page.locator("[role=row][data-row-key]");
+  await expect(rows).toHaveCount(3, { timeout: 30_000 });
+  const shown = await rows.evaluateAll((els) => els.map((el) => el.getAttribute("data-row-key") ?? ""));
+  expect(shown.sort(), "the playlist's own three clips").toEqual([...keys].sort());
+  expect(await sawNoClipsYet(), "\"No clips yet\" never showed").toBe(false);
+});
+
+/** The page's own read of its playlists (with their clips), not another view's read of names or shares. */
+function isOwnListRead(response: Response): boolean {
+  const request = response.request();
+  const url = request.url();
+  return request.method() === "GET" && url.includes("/rest/v1/playlists?") && url.includes("playlist_clips") && url.includes("user_id=eq.");
+}
+
+test("the list shows before the plays are in", async ({ page }) => {
+  const keys = await newPlaylistWithClips(page, NAME, { count: 3 });
+  const id = await playlistIdNamed(page, NAME);
+  const sawNoClipsYet = await watchForNoClipsYet(page);
+  await delayPlaysReads(page, 2000);
+  await waitForQuiet(page);
+
+  // When each of the page's list reads came back (a dev double mount reads twice; the last one is the list shown).
+  const listReads: number[] = [];
+  page.on("response", (response) => {
+    if (isOwnListRead(response)) listReads.push(Date.now());
+  });
+  const firstListRead = page.waitForResponse(isOwnListRead);
+  await page.goto("/playlists");
+  await firstListRead;
+  const row = page.locator(`[data-playlist-id="${id}"]`);
+  await expect(row, "the playlist is in the list").toBeVisible({ timeout: 30_000 });
+  const shownAt = Date.now();
+  const readAt = listReads.filter((at) => at <= shownAt).at(-1) ?? shownAt;
+  expect(shownAt - readAt, "the list shows within 1 s of its own read, with the plays held back 2 s").toBeLessThan(1000);
+
+  await row.click();
+  await expect(page.locator('[aria-busy="true"][aria-label="Loading clips"]')).toBeVisible();
   const rows = page.locator("[role=row][data-row-key]");
   await expect(rows).toHaveCount(3, { timeout: 30_000 });
   const shown = await rows.evaluateAll((els) => els.map((el) => el.getAttribute("data-row-key") ?? ""));

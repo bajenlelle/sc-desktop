@@ -835,73 +835,63 @@ export function PlaylistsPage() {
     eventFetchInFlightRef.current = new Map();
     setPlaysRead(new Set());
     setPlaysFailed(new Set());
+    // Org context (teams, the members to share with) is for Share only: it
+    // must not hold back the list, so it reads on its own.
+    (activeOrgId ? getOrgContextForOrg(activeOrgId, { myOrgs }) : getOrgContext())
+      .catch(() => null)
+      .then((orgCtx) => {
+        if (stale || !orgCtx) return;
+        setUserTeams(orgCtx.myTeams);
+        // Load members of coach's teams for individual sharing (includes secondary org members)
+        const myTeamIds = orgCtx.myTeams.map((t) => t.id);
+        if (myTeamIds.length === 0) return;
+        const secondaryOrgIds = orgCtx.myOrgs.filter((o) => o.orgId !== orgCtx.org?.id).map((o) => o.orgId);
+        Promise.all([
+          getTeamMemberIds(myTeamIds),
+          ...secondaryOrgIds.map((id) => getOrgMembers(id)),
+        ]).then(([memberIds, ...secondaryMemberArrays]) => {
+          if (stale) return;
+          const memberIdSet = new Set(memberIds);
+          const currentUid = orgCtx.profile.id;
+          const allMembers = new Map<string, (typeof orgCtx.orgMembers)[0]>(
+            [...orgCtx.orgMembers, ...secondaryMemberArrays.flat()].map((m) => [m.id, m])
+          );
+          setShareableMembers(
+            [...allMembers.values()].filter((m) => memberIdSet.has(m.id) && m.id !== currentUid)
+          );
+        }).catch(() => {});
+      });
+    // The list first: playlists, the games' rows (no plays), folders and the
+    // restored playlist land in one update and end `loading`. The plays come
+    // after, through ensureEventsFor: the restored playlist's games first,
+    // then every other game a playlist here holds clips from. Until a
+    // playlist's games are read, its editor shows loading rows, and Share and
+    // uploads wait for them (ensureEventsFor in handleShip and the share path).
     // Matches take the same includeUnscoped treatment as playlists/folders:
     // a legacy unscoped playlist otherwise references matches this page
     // can't see, so its clips silently vanish from every list.
-    Promise.all([listPlaylists(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }), listMatchesLight(activeOrgId ?? undefined, { ownOnly: true, includeUnscoped: activeOrgIsPersonal }), listFolders(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }), (activeOrgId ? getOrgContextForOrg(activeOrgId, { myOrgs }) : getOrgContext()).catch(() => null)])
-      .then(async ([loadedPlaylists, matchShells, loadedFolders, orgCtx]) => {
-        // Events only for matches a playlist actually references. Passing
-        // every match id pulled the complete play-by-play of every game the
-        // coach had ever imported (~500 events each) on every mount. The clip
-        // browser reads the plays of the games it shows itself.
-        //
-        // collectClipMatchIds, not collectReferencedMatchIds: the editor must
-        // resolve UNSHIPPED clips too, or their rows vanish (see displayItems).
-        const referencedIds = collectClipMatchIds(loadedPlaylists);
-        // Only the games whose read came back, with their game's row, count
-        // as read. A failed game is asked again when a playlist with clips on
-        // it opens (or by its Try again); until then that playlist says its
-        // clips are missing.
-        let eventsByMatch: Record<string, PlayByPlayEvent[]> = {};
-        let failedIds: string[] = [];
-        try {
-          ({ byMatch: eventsByMatch, failed: failedIds } = await listEventsForMatchesChecked(referencedIds));
-        } catch {
-          failedIds = referencedIds;
-        }
-        const loadedMatches = mergeEventsIntoMatches(matchShells, eventsByMatch);
-        // referencedIds already covered their events; only the rows are missing.
+    Promise.all([listPlaylists(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }), listMatchesLight(activeOrgId ?? undefined, { ownOnly: true, includeUnscoped: activeOrgIsPersonal }), listFolders(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal })])
+      .then(async ([loadedPlaylists, matchShells, loadedFolders]) => {
+        // The rows of games in another space that clips here are on: small,
+        // and read before publishing so ensureEventsFor finds every row. A
+        // failed read leaves them to ensureEventsFor, which reads them again.
         const outsideIds = missingClipMatchIds(loadedPlaylists, new Set(matchShells.map((m) => m.id)));
-        const outsideShells = outsideIds.length > 0 ? await listMatchesByIds(outsideIds) : [];
+        const outsideShells = outsideIds.length > 0 ? await listMatchesByIds(outsideIds).catch((): StoredMatch[] => []) : [];
         if (stale) return;
 
-        // A game in another space whose row read failed has its plays, and
-        // nowhere to put them: it failed, not read.
-        const rows = new Set([...matchShells, ...outsideShells].map((m) => m.id));
-        const { read, failed } = settlePlaysRead(referencedIds, { byMatch: eventsByMatch, failed: failedIds }, rows);
-        for (const id of read) loadedEventMatchIdsRef.current.add(id);
-        setPlaysRead((prev) => withIds(prev, read));
-        setPlaysFailed((prev) => withIds(prev, failed, read));
         setPlaylists(loadedPlaylists);
-        setMatches(loadedMatches);
-        setOutsideMatches(mergeEventsIntoMatches(outsideShells, eventsByMatch));
+        setMatches(matchShells);
+        setOutsideMatches(outsideShells);
+        // ensureEventsFor below tells rows it has from rows it must read by
+        // this lookup; the render that brings the shells comes after it.
+        matchLookupRef.current = new Map([...matchShells, ...outsideShells].map((m) => [m.id, m]));
         const sorted = [...loadedFolders].sort((a, b) => a.sortOrder - b.sortOrder);
         setFolders(sorted);
-        if (orgCtx) {
-          setUserTeams(orgCtx.myTeams);
-          // Load members of coach's teams for individual sharing (includes secondary org members)
-          const myTeamIds = orgCtx.myTeams.map((t) => t.id);
-          if (myTeamIds.length > 0) {
-            const secondaryOrgIds = orgCtx.myOrgs.filter((o) => o.orgId !== orgCtx.org?.id).map((o) => o.orgId);
-            Promise.all([
-              getTeamMemberIds(myTeamIds),
-              ...secondaryOrgIds.map((id) => getOrgMembers(id)),
-            ]).then(([memberIds, ...secondaryMemberArrays]) => {
-              if (stale) return;
-              const memberIdSet = new Set(memberIds);
-              const currentUid = orgCtx.profile.id;
-              const allMembers = new Map<string, (typeof orgCtx.orgMembers)[0]>(
-                [...orgCtx.orgMembers, ...secondaryMemberArrays.flat()].map((m) => [m.id, m])
-              );
-              setShareableMembers(
-                [...allMembers.values()].filter((m) => memberIdSet.has(m.id) && m.id !== currentUid)
-              );
-            });
-          }
-        }
+        let restored: Playlist | null = null;
         if (restore) {
           const pl = loadedPlaylists.find((p) => p.id === restore.playlistId);
           if (pl) {
+            restored = pl;
             setSelected(pl);
             if (pl.folderId) {
               setExpandedFolders((prev) => new Set([...prev, pl.folderId!]));
@@ -922,6 +912,20 @@ export function PlaylistsPage() {
           setEditingPlaylistId(tempId);
           setEditPlaylistName("New Playlist");
         }
+        setLoading(false);
+
+        // Plays only for games a playlist references, never every game
+        // here (the clip browser reads the plays of the games it shows).
+        // collectClipMatchIds, not collectReferencedMatchIds: the editor must
+        // resolve UNSHIPPED clips too, or their rows vanish (see displayItems).
+        // A failed game is asked again when a playlist with clips on it opens
+        // (or by its Try again); until then that playlist says so.
+        const first = restored ? collectClipMatchIds([restored]) : [];
+        const firstIds = new Set(first);
+        const rest = collectClipMatchIds(loadedPlaylists).filter((id) => !firstIds.has(id));
+        void (first.length > 0 ? ensureEventsFor(first) : Promise.resolve([])).then(() => {
+          if (!stale && rest.length > 0) void ensureEventsFor(rest);
+        });
       })
       .catch(() => {})
       .finally(() => { if (!stale) setLoading(false); });
