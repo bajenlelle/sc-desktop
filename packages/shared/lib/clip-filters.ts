@@ -296,3 +296,24 @@ export function applyClipFiltersByKey<T extends { event: PlayByPlayEvent }>(
   if (!hasActiveFilters(f)) return [...entries];
   return entries.filter((x) => matchesClipFiltersByKey(x.event, f) && matchesLabelFilter(labelsOf?.(x), f.labels));
 }
+
+/**
+ * The filters without the teams and players the given plays don't have; the same object when nothing goes.
+ * Players are playerKey()s. After a change of games, so a chosen team or player stays only while the new
+ * games have them ("#8, last 5 games" keeps #8); the other groups never depend on the games.
+ */
+export function keepKnownChoices(f: ClipFilters, events: readonly PlayByPlayEvent[]): ClipFilters {
+  if (f.teams.size === 0 && f.players.size === 0) return f;
+  const teams = new Set<string>();
+  const players = new Set<string>();
+  for (const e of events) {
+    const team = e.eventTeam?.teamName;
+    if (team) teams.add(team);
+    const key = playerKey(e);
+    if (key) players.add(key);
+  }
+  const keptTeams = [...f.teams].filter((t) => teams.has(t));
+  const keptPlayers = [...f.players].filter((k) => players.has(k));
+  if (keptTeams.length === f.teams.size && keptPlayers.length === f.players.size) return f;
+  return { ...f, teams: new Set(keptTeams), players: new Set(keptPlayers) };
+}
