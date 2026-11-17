@@ -133,10 +133,12 @@ playlists, and share them with teams; players watch on web/mobile.
 
 ## CI / Releases
 
-- `check.yml` runs the five checks above on PRs into main/staging/develop.
+- `check.yml` runs the checks above, plus a desktop build and a typecheck of
+  `scripts/nightly-tipoff`, on PRs into main/staging/develop.
 - Desktop release: `npm version <bump> --workspace apps/desktop` (syncs
   tauri.conf.json + Cargo.toml/lock), commit "X.Y.Z", annotated tag
-  `vX.Y.Z`, `git push --follow-tags` → release.yml builds, notarizes, and
+  `vX.Y.Z`, push the branch and the tag by name (not
+  `--follow-tags`) → release.yml builds, notarizes, and
   publishes to `bajenlelle/scoutable-releases`; desktop apps self-update.
 - Windows code signing (Azure Artifact Signing) turns on in release.yml and
   build.yml once the secrets `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`,
