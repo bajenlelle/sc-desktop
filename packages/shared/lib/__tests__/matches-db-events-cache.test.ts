@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { deleteMatch, invalidateMatchEvents, listEventsForMatches } from "../matches-db";
+import { deleteMatch, invalidateMatchEvents, listEventsForMatches, listEventsForMatchesChecked } from "../matches-db";
 
 function eventRow(matchId: string, eventId: number) {
   return { match_id: matchId, event_id: eventId, type: "2pt", sub_type: null, period: 1, game_clock_time: "10:00", real_world_time: null, is_successful: 1 };
@@ -192,5 +192,60 @@ describe("listEventsForMatches cache", () => {
     const { client, reads } = mockClient();
     expect(await listEventsForMatches(client, [])).toEqual({});
     expect(reads).toEqual([]);
+  });
+});
+
+describe("listEventsForMatchesChecked", () => {
+  beforeEach(() => invalidateMatchEvents());
+
+  it("names the games whose read failed", async () => {
+    const { client, state } = mockClient();
+    state.fail = true;
+    const out = await listEventsForMatchesChecked(client, ["m1", "m2"]);
+    expect(out.byMatch).toEqual({});
+    expect([...out.failed].sort()).toEqual(["m1", "m2"]);
+  });
+
+  it("a game the reader may not see is absent, not failed", async () => {
+    const { client } = mockClient({ visible: { m1: 1 } });
+    const out = await listEventsForMatchesChecked(client, ["m1", "hidden"]);
+    expect(Object.keys(out.byMatch)).toEqual(["m1"]);
+    expect(out.failed).toEqual([]);
+  });
+
+  it("a caller sharing a read that fails gets the game as failed too", async () => {
+    const { client, reads, state } = mockClient();
+    let release!: () => void;
+    state.gate = new Promise((r) => (release = r));
+    state.fail = true;
+    const a = listEventsForMatchesChecked(client, ["m1", "m2"]);
+    const b = listEventsForMatchesChecked(client, ["m2"]);
+    await Promise.resolve();
+    release();
+    const [ra, rb] = await Promise.all([a, b]);
+    expect(reads).toEqual([["m1", "m2"]]);
+    expect([...ra.failed].sort()).toEqual(["m1", "m2"]);
+    expect(rb.failed).toEqual(["m2"]);
+    expect(rb.byMatch).toEqual({});
+  });
+
+  it("a failed read is not kept: the next call reads again", async () => {
+    const { client, reads, state } = mockClient();
+    state.fail = true;
+    expect((await listEventsForMatchesChecked(client, ["m1"])).failed).toEqual(["m1"]);
+    state.fail = false;
+    const out = await listEventsForMatchesChecked(client, ["m1"]);
+    expect(out.failed).toEqual([]);
+    expect(out.byMatch.m1).toHaveLength(2);
+    expect(reads).toEqual([["m1"], ["m1"]]);
+  });
+
+  it("listEventsForMatches still returns the plays by game", async () => {
+    const { client } = mockClient();
+    const checked = await listEventsForMatchesChecked(client, ["m1", "m2"]);
+    const plain = await listEventsForMatches(client, ["m1", "m2"]);
+    expect(plain).toEqual(checked.byMatch);
+    expect(plain.m1).toHaveLength(2);
+    expect(plain.m2).toHaveLength(1);
   });
 });

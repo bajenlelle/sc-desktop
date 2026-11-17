@@ -164,6 +164,17 @@ lists games, the first game's Game view draws its play list and timeline, a
 playlist's Add clips lists events. It reads only. It needs the test account
 to have at least one game and one playlist.
 
+## The Add clips list
+
+The Add clips list is windowed: only the rows near the view are in the DOM, so
+a spec never counts rows. It reads the list with `readSheetRows(sheet)` (every
+row by key, read by scrolling the list through) and reaches one row with
+`sheetRow(sheet, key)`, both in `headless/helpers.ts`. A spec that needs the
+page's reads of plays to fail or wait uses `failPlaysReads(page)` or
+`delayPlaysReads(page, ms)`: each answers or holds back only the page's reads
+of `matches` that embed `play_by_play_events`, until the function it returns is
+called.
+
 ## Footage
 
 A staging game's video is on another computer, so a spec that needs playback

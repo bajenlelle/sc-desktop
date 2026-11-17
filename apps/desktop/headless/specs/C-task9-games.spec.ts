@@ -23,6 +23,7 @@ import {
   menuGroups,
   openAddClips,
   pickOnlyGame,
+  readSheetRows,
   shot,
   test,
   waitForPlays,
@@ -75,7 +76,6 @@ test("Add clips searches several games and keeps a player across them", async ({
   await deleteOwnRowsNamed(page, "playlists", PLAYLIST);
   const playlistId = await createPlaylist(page, PLAYLIST);
   let sheet = await openAddClips(page, playlistId);
-  const grid = sheet.getByRole("grid", { name: "Events" });
 
   // One game at a time first, for the counts.
   await pickOnlyGame(page, sheet, LULEA);
@@ -100,7 +100,7 @@ test("Add clips searches several games and keeps a player across them", async ({
   await closePicker(page);
   await expect.poll(() => eventCount(sheet), { message: "two games list both games' plays", timeout: 30_000 }).toBe(lulea + sodertalje);
   // Every row names its game, and both games are there.
-  const rowGames = await grid.getByRole("row").evaluateAll((rows, titles) => rows.map((r) => titles.find((t) => r.textContent?.includes(t)) ?? "none"), [LULEA, SODERTALJE]);
+  const rowGames = [...(await readSheetRows(sheet)).values()].map((r) => [LULEA, SODERTALJE].find((t) => r.text.includes(t)) ?? "none");
   expect(rowGames, "every row names its game").not.toContain("none");
   expect(new Set(rowGames)).toEqual(new Set([LULEA, SODERTALJE]));
   await shot(page, name("two-games"));
@@ -142,8 +142,9 @@ test("Add clips searches several games and keeps a player across them", async ({
   await closePicker(page);
   await waitForPlays(sheet);
   await expect(playerTrigger, "the player is still picked once the plays are in").toBeVisible();
-  const players = await grid.getByRole("row").evaluateAll((rows) => rows.map((r) => r.querySelector("span.truncate.text-sm")?.textContent ?? ""));
-  expect(new Set(players), `only ${playerName}'s plays`).toEqual(new Set([playerName]));
+  const playerRows = [...(await readSheetRows(sheet)).values()];
+  expect(playerRows.length, `${playerName} has plays in these games`).toBeGreaterThan(0);
+  expect(playerRows.filter((r) => !r.text.includes(playerName)).map((r) => r.text), `only ${playerName}'s plays`).toEqual([]);
   await shot(page, name("team-games"));
 
   // A game without the player: once its plays are in the player is gone, and stays gone with their game back.

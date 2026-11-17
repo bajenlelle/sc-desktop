@@ -366,7 +366,9 @@ released app lists each row there as a clip.
   colour so the line doesn't strike them through, and the team names start
   where the first quarter does, clear of the playhead when a game opens.
 - `game-play-list.tsx`, `game-play-row.tsx`: rows are memoised, not
-  virtualised (as Add clips). The current row follows playback until the coach
+  windowed (one game's plays). Add clips, which lists every play of up to ten
+  games, draws only the rows near the view (`lib/use-list-window.ts`, rows of
+  one height). The current row follows playback until the coach
   scrolls; "Jump to now", any seek, or scrolling back resumes it. A row has
   one mark for "now" (the tinted pill) and one for "picked to add" (the
   selection's fill). A press with the mouse doesn't take the keyboard's

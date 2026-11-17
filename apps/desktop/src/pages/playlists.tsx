@@ -66,7 +66,7 @@ import { fallbackText, pickDefaultPlayer, type StatsCardPlayer, type StatsCardSp
 import { leagueSeasonsOf, loadGameStats, loadSeasonPlayer, makeGameCard, makeSeasonCard, seasonOf, statsKindOf, type GameStats } from "@/lib/stats-card-data";
 import { useLeagues } from "@/lib/use-leagues";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
-import { listMatchesLight, listMatchesByIds, listEventsForMatches, listFolders, createFolder, updateFolder, deleteFolder, updateSyncPoint, updateVideoUrl } from "@/lib/matches-db";
+import { listMatchesLight, listMatchesByIds, listEventsForMatchesChecked, listFolders, createFolder, updateFolder, deleteFolder, updateSyncPoint, updateVideoUrl } from "@/lib/matches-db";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { probeMatches, probeVideoDuration, type VideoFileStatus } from "@/lib/video-probe";
 import { usePlayerFullscreen } from "@/lib/use-player-fullscreen";
@@ -106,6 +106,10 @@ import {
   collectClipMatchIds,
   mergeEventsIntoMatches,
   missingClipMatchIds,
+  playlistPlaysState,
+  playlistsWithPlaysRead,
+  settlePlaysRead,
+  type PlaysState,
 } from "@scoutable/shared/lib/playlist-matches";
 import { getOrgContext, getOrgContextForOrg, getOrgMembers, getTeamMemberIds } from "@/lib/profile-db";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
@@ -218,6 +222,18 @@ function findRow(container: HTMLElement | null, key: string): HTMLElement | null
   return container?.querySelector<HTMLElement>(`[data-row-key="${CSS.escape(key)}"]`) ?? null;
 }
 
+/** `set` with `add` put in and `drop` taken out; the same set when that changes nothing, so the update doesn't render. */
+function withIds(set: ReadonlySet<string>, add: readonly string[], drop: readonly string[] = []): ReadonlySet<string> {
+  if (add.every((id) => set.has(id)) && drop.every((id) => !set.has(id))) return set;
+  const next = new Set(set);
+  for (const id of drop) next.delete(id);
+  for (const id of add) next.add(id);
+  return next;
+}
+
+/** What Share and uploads say when a playlist's plays couldn't be read: nothing went without them. */
+const PLAYS_FAILED_TOAST = "Couldn't load this playlist's clips. Try again.";
+
 /**
  * A new playlist keeps its `temp-` id until the save of its name returns, and
  * the database rejects that id: until then nothing may open, fill or target it.
@@ -328,10 +344,20 @@ export function PlaylistsPage() {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [loading, setLoading] = useState(true);
   // Which matches already have their play-by-play in `matches`. The mount load
-  // covers only the games playlists reference; the clip browser can display
-  // any game, so it asks for the rest on demand via ensureEventsFor.
+  // covers only the games playlists reference; the rest are asked for on
+  // demand via ensureEventsFor (the clip browser reads its own, and asks here
+  // for the games of the clips it adds).
+  // The ref is for synchronous reads; the two sets render what it knows: a
+  // game is read only when its read succeeded (a game the coach may not see
+  // counts as read, with no plays), and failed while its last read failed.
+  // All three are written together, and start over with the space.
   const loadedEventMatchIdsRef = useRef<Set<string>>(new Set());
+  const [playsRead, setPlaysRead] = useState<ReadonlySet<string>>(new Set());
+  const [playsFailed, setPlaysFailed] = useState<ReadonlySet<string>>(new Set());
   const eventFetchInFlightRef = useRef<Map<string, Promise<void>>>(new Map());
+  // Which space's reads are current: a read from before a space switch lands
+  // without touching the new space's state.
+  const eventsGenRef = useRef(0);
   // The same bookkeeping for the games whose labels are loaded (ensureLabelsFor).
   const loadedLabelMatchIdsRef = useRef<Set<string>>(new Set());
   const labelFetchInFlightRef = useRef<Set<string>>(new Set());
@@ -802,63 +828,71 @@ export function PlaylistsPage() {
     setClipAssignments(new Map());
     loadedLabelMatchIdsRef.current = new Set();
     labelFetchInFlightRef.current = new Set();
+    // So does what is known of the games' plays. A load this run outlives (a
+    // space switch, a dev double mount) changes nothing once it lands.
+    let stale = false;
+    eventsGenRef.current += 1;
+    loadedEventMatchIdsRef.current = new Set();
+    eventFetchInFlightRef.current = new Map();
+    setPlaysRead(new Set());
+    setPlaysFailed(new Set());
+    // Org context (teams, the members to share with) is for Share only: it
+    // must not hold back the list, so it reads on its own.
+    (activeOrgId ? getOrgContextForOrg(activeOrgId, { myOrgs }) : getOrgContext())
+      .catch(() => null)
+      .then((orgCtx) => {
+        if (stale || !orgCtx) return;
+        setUserTeams(orgCtx.myTeams);
+        // Load members of coach's teams for individual sharing (includes secondary org members)
+        const myTeamIds = orgCtx.myTeams.map((t) => t.id);
+        if (myTeamIds.length === 0) return;
+        const secondaryOrgIds = orgCtx.myOrgs.filter((o) => o.orgId !== orgCtx.org?.id).map((o) => o.orgId);
+        Promise.all([
+          getTeamMemberIds(myTeamIds),
+          ...secondaryOrgIds.map((id) => getOrgMembers(id)),
+        ]).then(([memberIds, ...secondaryMemberArrays]) => {
+          if (stale) return;
+          const memberIdSet = new Set(memberIds);
+          const currentUid = orgCtx.profile.id;
+          const allMembers = new Map<string, (typeof orgCtx.orgMembers)[0]>(
+            [...orgCtx.orgMembers, ...secondaryMemberArrays.flat()].map((m) => [m.id, m])
+          );
+          setShareableMembers(
+            [...allMembers.values()].filter((m) => memberIdSet.has(m.id) && m.id !== currentUid)
+          );
+        }).catch(() => {});
+      });
+    // The list first: playlists, the games' rows (no plays), folders and the
+    // restored playlist land in one update and end `loading`. The plays come
+    // after, through ensureEventsFor: the restored playlist's games first,
+    // then every other game a playlist here holds clips from. Until a
+    // playlist's games are read, its editor shows loading rows, and Share and
+    // uploads wait for them (ensureEventsFor in handleShip and the share path).
     // Matches take the same includeUnscoped treatment as playlists/folders:
     // a legacy unscoped playlist otherwise references matches this page
     // can't see, so its clips silently vanish from every list.
-    Promise.all([listPlaylists(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }), listMatchesLight(activeOrgId ?? undefined, { ownOnly: true, includeUnscoped: activeOrgIsPersonal }), listFolders(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }), (activeOrgId ? getOrgContextForOrg(activeOrgId, { myOrgs }) : getOrgContext()).catch(() => null)])
-      .then(async ([loadedPlaylists, matchShells, loadedFolders, orgCtx]) => {
-        // Events only for matches a playlist actually references. Passing
-        // every match id pulled the complete play-by-play of every game the
-        // coach had ever imported (~500 events each) on every mount. The clip
-        // browser fetches whichever game it displays via ensureEventsFor.
-        //
-        // collectClipMatchIds, not collectReferencedMatchIds: the editor must
-        // resolve UNSHIPPED clips too, or their rows vanish (see displayItems).
-        const referencedIds = collectClipMatchIds(loadedPlaylists);
-        // Mark ids loaded ONLY on success — marking them after a failed
-        // fetch disabled ensureEventsFor's retry for the whole session, so
-        // every referenced playlist rendered empty until app restart.
-        let eventsByMatch: Record<string, PlayByPlayEvent[]> = {};
-        try {
-          eventsByMatch = await listEventsForMatches(referencedIds);
-          loadedEventMatchIdsRef.current = new Set(referencedIds);
-        } catch {
-          // ensureEventsFor refetches per-game as the clip browser opens.
-        }
-        const loadedMatches = mergeEventsIntoMatches(matchShells, eventsByMatch);
-        // referencedIds already covered their events; only the rows are missing.
+    Promise.all([listPlaylists(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal }), listMatchesLight(activeOrgId ?? undefined, { ownOnly: true, includeUnscoped: activeOrgIsPersonal }), listFolders(activeOrgId ?? undefined, { includeUnscoped: activeOrgIsPersonal })])
+      .then(async ([loadedPlaylists, matchShells, loadedFolders]) => {
+        // The rows of games in another space that clips here are on: small,
+        // and read before publishing so ensureEventsFor finds every row. A
+        // failed read leaves them to ensureEventsFor, which reads them again.
         const outsideIds = missingClipMatchIds(loadedPlaylists, new Set(matchShells.map((m) => m.id)));
-        const outsideShells = outsideIds.length > 0 ? await listMatchesByIds(outsideIds) : [];
+        const outsideShells = outsideIds.length > 0 ? await listMatchesByIds(outsideIds).catch((): StoredMatch[] => []) : [];
+        if (stale) return;
 
         setPlaylists(loadedPlaylists);
-        setMatches(loadedMatches);
-        setOutsideMatches(mergeEventsIntoMatches(outsideShells, eventsByMatch));
+        setMatches(matchShells);
+        setOutsideMatches(outsideShells);
+        // ensureEventsFor below tells rows it has from rows it must read by
+        // this lookup; the render that brings the shells comes after it.
+        matchLookupRef.current = new Map([...matchShells, ...outsideShells].map((m) => [m.id, m]));
         const sorted = [...loadedFolders].sort((a, b) => a.sortOrder - b.sortOrder);
         setFolders(sorted);
-        if (orgCtx) {
-          setUserTeams(orgCtx.myTeams);
-          // Load members of coach's teams for individual sharing (includes secondary org members)
-          const myTeamIds = orgCtx.myTeams.map((t) => t.id);
-          if (myTeamIds.length > 0) {
-            const secondaryOrgIds = orgCtx.myOrgs.filter((o) => o.orgId !== orgCtx.org?.id).map((o) => o.orgId);
-            Promise.all([
-              getTeamMemberIds(myTeamIds),
-              ...secondaryOrgIds.map((id) => getOrgMembers(id)),
-            ]).then(([memberIds, ...secondaryMemberArrays]) => {
-              const memberIdSet = new Set(memberIds);
-              const currentUid = orgCtx.profile.id;
-              const allMembers = new Map<string, (typeof orgCtx.orgMembers)[0]>(
-                [...orgCtx.orgMembers, ...secondaryMemberArrays.flat()].map((m) => [m.id, m])
-              );
-              setShareableMembers(
-                [...allMembers.values()].filter((m) => memberIdSet.has(m.id) && m.id !== currentUid)
-              );
-            });
-          }
-        }
+        let restored: Playlist | null = null;
         if (restore) {
           const pl = loadedPlaylists.find((p) => p.id === restore.playlistId);
           if (pl) {
+            restored = pl;
             setSelected(pl);
             if (pl.folderId) {
               setExpandedFolders((prev) => new Set([...prev, pl.folderId!]));
@@ -879,10 +913,27 @@ export function PlaylistsPage() {
           setEditingPlaylistId(tempId);
           setEditPlaylistName("New Playlist");
         }
+        setLoading(false);
+
+        // Plays only for games a playlist references, never every game
+        // here (the clip browser reads the plays of the games it shows).
+        // collectClipMatchIds, not collectReferencedMatchIds: the editor must
+        // resolve UNSHIPPED clips too, or their rows vanish (see displayItems).
+        // A failed game is asked again when a playlist with clips on it opens
+        // (or by its Try again); until then that playlist says so.
+        const first = restored ? collectClipMatchIds([restored]) : [];
+        const firstIds = new Set(first);
+        const rest = collectClipMatchIds(loadedPlaylists).filter((id) => !firstIds.has(id));
+        void (first.length > 0 ? ensureEventsFor(first) : Promise.resolve([])).then(() => {
+          if (!stale && rest.length > 0) void ensureEventsFor(rest);
+        });
       })
       .catch(() => {})
-      .finally(() => setLoading(false));
-    return () => { if (highlightTimer !== undefined) window.clearTimeout(highlightTimer); };
+      .finally(() => { if (!stale) setLoading(false); });
+    return () => {
+      stale = true;
+      if (highlightTimer !== undefined) window.clearTimeout(highlightTimer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeOrgId]);
 
@@ -921,9 +972,17 @@ export function PlaylistsPage() {
       if (outside.length > 0) {
         listMatchesByIds(outside.map((m) => m.id)).then((rows) => {
           if (rows.length === 0) return;
+          // Merged into `prev`, not replaced by the answer: the answer is for
+          // the ids asked a moment ago, while ensureEventsFor may have added a
+          // row since (its game then counts as read) and a row the answer
+          // leaves out is still a game here. Dropping either hides that
+          // game's clips, and a reorder or Group would delete them.
           setOutsideMatches((prev) => {
-            const prevById = new Map(prev.map((m) => [m.id, m]));
-            return rows.map((r) => ({ ...r, events: prevById.get(r.id)?.events ?? [] }));
+            const byId = new Map(rows.map((r) => [r.id, r]));
+            return prev.map((m) => {
+              const r = byId.get(m.id);
+              return r ? { ...r, events: m.events } : m;
+            });
           });
         });
       }
@@ -939,31 +998,87 @@ export function PlaylistsPage() {
   /**
    * Fetch play-by-play for matches that don't have it yet and merge it in.
    *
-   * The mount load covers only games a playlist references, so the clip
-   * browser calls this for whichever game it is about to show. Already-loaded
-   * ids are skipped, making repeat opens and re-renders free; an id already
+   * The mount load covers only games a playlist references, so a clip added
+   * from the clip browser has its game asked for here before it is saved.
+   * Already-loaded ids are skipped, making repeat asks free; an id already
    * being fetched is waited for, so the promise resolves only once every
-   * asked game's plays are in `matches` (the clip browser treats it so).
-   * Existing events are preserved — only the newly fetched matches change.
+   * asked game's plays are in `matches` and `outsideMatches` (handleAddClips
+   * treats it so), or their read failed. Existing events are
+   * preserved — only the newly fetched matches change. A failed game stays
+   * unread and is fetched again the next time it is asked for; while it is
+   * fetched it is no longer failed, so its playlist shows loading rows.
+   * A game this page has no row for (in another space: a clip pasted from
+   * there) has its row read too, into `outsideMatches`; it counts as read
+   * only once that row is in. A success that leaves an upload held for its
+   * plays (handleShip) with every game read lets that upload go on.
+   *
+   * Resolves with the asked games whose plays could not be read; empty when
+   * all are in memory. Never rejects. The lookups the share and upload paths
+   * read after awaiting this (`matchLookupRef`, `eventByKeyRef`) take the
+   * plays at once, before the render that brings them.
    */
-  const ensureEventsFor = useCallback(async (matchIds: string[]) => {
+  const ensureEventsFor = useCallback(async (matchIds: string[]): Promise<string[]> => {
+    const gen = eventsGenRef.current;
     const inFlight = eventFetchInFlightRef.current;
-    const notLoaded = [...new Set(matchIds)].filter((id) => id && !loadedEventMatchIdsRef.current.has(id));
+    const asked = [...new Set(matchIds)].filter(Boolean);
+    const notLoaded = asked.filter((id) => !loadedEventMatchIdsRef.current.has(id));
     const waits = notLoaded.flatMap((id) => inFlight.get(id) ?? []);
     const wanted = notLoaded.filter((id) => !inFlight.has(id));
     if (wanted.length > 0) {
+      setPlaysFailed((prev) => withIds(prev, [], wanted));
       // Started a tick later, so the ids are in the map before any outcome
       // (even a synchronous throw) takes them out again; a failure leaves the
-      // map, so the next ask fetches the game afresh. Never rejects.
+      // map, so the next ask fetches the game afresh.
       const fetching = Promise.resolve()
-        .then(() => listEventsForMatches(wanted))
-        .then((eventsByMatch) => {
-          for (const id of wanted) loadedEventMatchIdsRef.current.add(id);
-          setMatches((prev) =>
-            prev.map((m) => (eventsByMatch[m.id] ? { ...m, events: eventsByMatch[m.id] } : m)),
-          );
+        .then(() => listEventsForMatchesChecked(wanted))
+        .then(async ({ byMatch, failed }) => {
+          if (eventsGenRef.current !== gen) return;
+          const rowless = Object.keys(byMatch).filter((id) => !matchLookupRef.current.has(id));
+          const fetchedRows = rowless.length > 0 ? await listMatchesByIds(rowless).catch((): StoredMatch[] => []) : [];
+          if (eventsGenRef.current !== gen) return;
+          const rows = new Set([...matchLookupRef.current.keys(), ...fetchedRows.map((m) => m.id)]);
+          const settled = settlePlaysRead(wanted, { byMatch, failed }, rows);
+          const { read } = settled;
+          for (const id of read) loadedEventMatchIdsRef.current.add(id);
+          const merge = (prev: StoredMatch[]) => {
+            if (!prev.some((m) => byMatch[m.id])) return prev;
+            return prev.map((m) => (byMatch[m.id] ? { ...m, events: byMatch[m.id] } : m));
+          };
+          const added = mergeEventsIntoMatches(fetchedRows, byMatch);
+          setMatches(merge);
+          setOutsideMatches((prev) => {
+            const merged = merge(prev);
+            const fresh = added.filter((m) => !merged.some((o) => o.id === m.id));
+            return fresh.length > 0 ? [...merged, ...fresh] : merged;
+          });
+          setPlaysRead((prev) => withIds(prev, read));
+          setPlaysFailed((prev) => withIds(prev, settled.failed, read));
+          const lookup = new Map(matchLookupRef.current);
+          for (const m of added) if (!lookup.has(m.id)) lookup.set(m.id, m);
+          const events = new Map(eventByKeyRef.current);
+          for (const [id, evs] of Object.entries(byMatch)) {
+            const m = lookup.get(id);
+            if (!m) continue;
+            lookup.set(id, { ...m, events: evs });
+            for (const e of evs) events.set(`${id}:${e.eventId}`, e);
+          }
+          matchLookupRef.current = lookup;
+          eventByKeyRef.current = events;
+          // An upload held because these plays were missing goes on now: a
+          // real trigger (a failure never bumps the nonce, so this can't loop).
+          const held = shipHeldRef.current;
+          if (read.length > 0 && held.size > 0) {
+            const ready = playlistsWithPlaysRead(held.keys(), [selectedRef.current, ...playlistsRef.current], loadedEventMatchIdsRef.current);
+            if (ready.length > 0) {
+              for (const id of ready) held.delete(id);
+              setShipNonce((n) => n + 1);
+            }
+          }
         })
-        .catch((e) => console.error("ensureEventsFor:", e))
+        .catch((e) => {
+          console.error("ensureEventsFor:", e);
+          if (eventsGenRef.current === gen) setPlaysFailed((prev) => withIds(prev, wanted));
+        })
         .finally(() => {
           for (const id of wanted) inFlight.delete(id);
         });
@@ -971,6 +1086,7 @@ export function PlaylistsPage() {
       waits.push(fetching);
     }
     await Promise.all(waits);
+    return asked.filter((id) => !loadedEventMatchIdsRef.current.has(id));
   }, []);
 
   /**
@@ -991,6 +1107,8 @@ export function PlaylistsPage() {
     try {
       const rows = await listAssignmentsForMatches(activeOrgId, wanted);
       for (const id of wanted) loadedLabelMatchIdsRef.current.add(id);
+      // No labels on these games: nothing changes, and nothing behind the clip browser renders again.
+      if (rows.length === 0) return;
       setClipAssignments((prev) => {
         const next = new Map(prev);
         for (const r of rows) {
@@ -1076,6 +1194,14 @@ export function PlaylistsPage() {
   // -------------------------------------------------------------------------
   // Label handlers — vocabulary mgmt + per-clip and bulk assignment
   // -------------------------------------------------------------------------
+  // The latest labels and assignments, for the handlers below to read when they run: a handler that
+  // lists them in its deps gets a new identity on every label toggle, and with it a new
+  // labelHandlers object for the Add clips sheet.
+  const clipAssignmentsRef = useRef(clipAssignments);
+  clipAssignmentsRef.current = clipAssignments;
+  const labelsRef = useRef(labels);
+  labelsRef.current = labels;
+
   const setClipAssignmentLocal = useCallback(
     (matchId: string, eventId: number, mutator: (s: Set<string>) => Set<string>) => {
       const key = `${matchId}:${eventId}`;
@@ -1100,7 +1226,7 @@ export function PlaylistsPage() {
         return s;
       });
       try {
-        const existing = clipAssignments.get(`${matchId}:${eventId}`) ?? new Set<string>();
+        const existing = clipAssignmentsRef.current.get(`${matchId}:${eventId}`) ?? new Set<string>();
         const wanted = new Set(existing);
         if (nextAssigned) wanted.add(labelId); else wanted.delete(labelId);
         await apiSetClipAssignments(activeOrgId, matchId, eventId, Array.from(wanted));
@@ -1110,7 +1236,7 @@ export function PlaylistsPage() {
         toast.error("Failed to update label");
       }
     },
-    [activeOrgId, clipAssignments, setClipAssignmentLocal],
+    [activeOrgId, setClipAssignmentLocal],
   );
 
   const handleCreateLabel = useCallback(
@@ -1139,7 +1265,7 @@ export function PlaylistsPage() {
   // as in the database (set_label_hotkey).
   const handleSetLabelKey = useCallback(
     async (id: string, slot: number | null) => {
-      const before = new Map(labels.map((l) => [l.id, l.hotkey]));
+      const before = new Map(labelsRef.current.map((l) => [l.id, l.hotkey]));
       setLabels((prev) => withLabelKey(prev, id, slot).labels);
       try {
         await apiSetLabelHotkey(id, slot);
@@ -1149,7 +1275,7 @@ export function PlaylistsPage() {
         toast.error("Couldn't set the key", { description: "Check the connection and try again." });
       }
     },
-    [labels],
+    [],
   );
 
   const handleDeleteLabel = useCallback(async (id: string) => {
@@ -1242,6 +1368,30 @@ export function PlaylistsPage() {
     [applyBulkLabel, selectedClipKeyPairs],
   );
 
+  // What the Add clips sheet is handed for its labels: one object while none of these change.
+  const clipBrowserLabelHandlers = useMemo(
+    () => ({
+      onToggleClip: handleToggleClipLabel,
+      onBulkToggle: applyBulkLabel,
+      onCreate: handleCreateLabel,
+      onRename: handleRenameLabel,
+      onRecolor: handleRecolorLabel,
+      onDelete: handleDeleteLabel,
+      onSetKey: handleSetLabelKey,
+      onSeedDefaults: handleSeedDefaultLabels,
+    }),
+    [
+      handleToggleClipLabel,
+      applyBulkLabel,
+      handleCreateLabel,
+      handleRenameLabel,
+      handleRecolorLabel,
+      handleDeleteLabel,
+      handleSetLabelKey,
+      handleSeedDefaultLabels,
+    ],
+  );
+
 
   // Every game a clip here can be on: this space's plus the outside ones.
   const clipMatches = useMemo(
@@ -1285,6 +1435,10 @@ export function PlaylistsPage() {
     }
     return map;
   }, [clipMatches]);
+  // For the share and upload paths, which build after awaiting
+  // ensureEventsFor (it puts fresh plays in here at once).
+  const eventByKeyRef = useRef(eventByKey);
+  useEffect(() => { eventByKeyRef.current = eventByKey; }, [eventByKey]);
 
   // Shared clips cut with an older sync than their game's (a re-cut cut short
   // by quitting, or a sync changed on another computer) are put right when
@@ -1521,9 +1675,18 @@ export function PlaylistsPage() {
   // Clock sort would tear group runs apart, just like it would scatter text cards.
   const clockSortLocked = hasTextCards || hasGroups;
 
+  // Whether the open playlist's games' plays are all in memory. Until they
+  // are, its list shows nothing (loading rows, or a Try again): a clip whose
+  // play is missing would be hidden, and what is built from the rows on
+  // screen (a move, Group) would save the playlist without it.
+  const openPlays: PlaysState = useMemo(
+    () => playlistPlaysState(selected?.items ?? null, playsRead, playsFailed),
+    [selected, playsRead, playsFailed],
+  );
+
   // displayItems: ordered mix of QueueItems and PlaylistTextCards
   const displayItems = useMemo((): PlaybackItem[] => {
-    if (!selected) return [];
+    if (!selected || openPlays !== "ready") return [];
     const items: PlaybackItem[] = [];
     for (const item of selected.items) {
       if (isClipItem(item)) {
@@ -1534,7 +1697,7 @@ export function PlaylistsPage() {
       }
     }
     return items;
-  }, [selected, eventByKey]);
+  }, [selected, eventByKey, openPlays]);
 
   // sortedEvents: displayItems optionally sorted by clock (only when no text cards or groups)
   const sortedEvents = useMemo((): PlaybackItem[] => {
@@ -3066,7 +3229,7 @@ export function PlaylistsPage() {
   // ---------------------------------------------------------------------------
 
   async function handleGroupSelected() {
-    if (!selected || filtersActive) return;
+    if (!selected || filtersActive || openPlays !== "ready") return;
     // Over the rows as shown: grouping materializes the visible order, same as a manual drag would.
     const newGroupId = crypto.randomUUID();
     const newItems = groupItems(mapDisplayToItems(sortedEvents), selectedClipIds, newGroupId);
@@ -3164,7 +3327,7 @@ export function PlaylistsPage() {
 
   /** A block dropped back into its own list: persist the order on screen. */
   function commitReorder(gap: number, blockKeys: readonly string[]) {
-    if (!selected) return;
+    if (!selected || openPlays !== "ready") return;
     const keySet = new Set(blockKeys);
     const blockIndices: number[] = [];
     sortedEvents.forEach((it, i) => {
@@ -3521,12 +3684,21 @@ export function PlaylistsPage() {
       return;
     }
 
-    const segments = buildShipSegments(selected, matchLookup, eventByKey);
     setSharePhase({ kind: "uploading" });
     setIsShipping(true);
     setShipProgress(null);
     const controller = new AbortController();
     shareAbortRef.current = controller;
+    // Every clip's play first: a clip without one would be left out silently.
+    const unread = await ensureEventsFor(collectClipMatchIds([selected]));
+    if (unread.length > 0) {
+      setIsShipping(false);
+      shareAbortRef.current = null;
+      setSharePhase({ kind: "pick" });
+      if (!controller.signal.aborted) toast.error(PLAYS_FAILED_TOAST);
+      return;
+    }
+    const segments = buildShipSegments(selected, matchLookupRef.current, eventByKeyRef.current);
     let result: ClipShipResult;
     try {
       result = await clipAndShip(selected, segments, preRoll, postRoll, {
@@ -3595,6 +3767,14 @@ export function PlaylistsPage() {
     setShipProgress(null);
     const controller = new AbortController();
     shareAbortRef.current = controller;
+    const unread = await ensureEventsFor(collectClipMatchIds([selected]));
+    if (unread.length > 0) {
+      setIsShipping(false);
+      shareAbortRef.current = null;
+      setSharePhase(phase);
+      if (!controller.signal.aborted) toast.error(PLAYS_FAILED_TOAST);
+      return;
+    }
     let retry: ClipShipResult;
     try {
       retry = await clipAndShip(selected, phase.failedSegments, preRoll, postRoll, {
@@ -3659,7 +3839,7 @@ export function PlaylistsPage() {
   // indicator; failures toast with counts and SharedByMe owns the recovery
   // affordance. After any successful upload, pending silent shares (created
   // before the playlist had clips) finally notify their recipients.
-  async function handleShip(target: Playlist) {
+  async function handleShip(target: Playlist, nonce: number) {
     const demoBlock = demoShipBlockReason(target, matchLookup);
     if (demoBlock) {
       toast.error("Couldn't upload clips", { description: demoBlock });
@@ -3668,9 +3848,19 @@ export function PlaylistsPage() {
     setIsShipping(true);
     setShipProgress(null);
     try {
+      // Every clip's play first (the playlist need not be open): a clip
+      // without one would be left out silently. Failed, it stays queued and
+      // waits for the next real trigger (shipHeldRef).
+      const unread = await ensureEventsFor(collectClipMatchIds([target]));
+      if (unread.length > 0) {
+        pendingShipRef.current.add(target.id);
+        shipHeldRef.current.set(target.id, nonce);
+        toast.error(PLAYS_FAILED_TOAST);
+        return;
+      }
       await shipPlaylistClips(target, {
-        matchLookup,
-        eventByKey,
+        matchLookup: matchLookupRef.current,
+        eventByKey: eventByKeyRef.current,
         preRoll,
         postRoll,
         onProgress: (done, total) => setShipProgress({ done, total }),
@@ -3691,20 +3881,29 @@ export function PlaylistsPage() {
   // fresh from state), not whatever is selected — the coach may have
   // switched focus by the time this fires. clipAndShip is idempotent: only
   // missing clips upload.
+  //
+  // A ship whose plays couldn't be read stays queued, held at the nonce it
+  // ran at: this effect's own re-runs (isShipping flipping back, the plays
+  // arriving or failing) leave it be, and the next queuePendingShip (a new
+  // nonce), a plays read in ensureEventsFor that succeeds and completes the
+  // held playlist (it bumps the nonce too) or a remount (a fresh ref) tries
+  // it again. One toast per try.
   const handleShipRef = useRef(handleShip);
   handleShipRef.current = handleShip;
+  const shipHeldRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
     if (pendingShipRef.current.size === 0 || loading || isShipping) return;
     if (matches.length === 0) return;
     // Drain one pending ship; isShipping flipping back to false re-runs this
     // effect, so multiple pending playlists ship sequentially.
     const targetId = [...pendingShipRef.current].find(
-      (id) => selected?.id === id || playlists.some((p) => p.id === id)
+      (id) => shipHeldRef.current.get(id) !== shipNonce && (selected?.id === id || playlists.some((p) => p.id === id))
     );
     if (!targetId) return;
     const target = selected?.id === targetId ? selected : playlists.find((p) => p.id === targetId)!;
     pendingShipRef.current.delete(targetId);
-    void handleShipRef.current(target);
+    shipHeldRef.current.delete(targetId);
+    void handleShipRef.current(target, shipNonce);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shipNonce, selected, playlists, matches, loading, isShipping]);
 
@@ -4522,7 +4721,17 @@ export function PlaylistsPage() {
 
   async function handleAddClips(newClips: PlaylistClipItem[]) {
     if (!selected || isUnsavedId(selected.id) || newClips.length === 0) return;
-    const pl = selected;
+    const forId = selected.id;
+    // The sheet reads its games' plays itself; the editor shows a clip once its play is here too (a
+    // cache hit: the sheet has just read them). Without them nothing is saved.
+    const unread = await ensureEventsFor([...new Set(newClips.map((c) => c.matchId))]);
+    if (unread.length > 0) {
+      toast.error("Couldn't add the clips. Try again.");
+      return;
+    }
+    // Another playlist was opened meanwhile: the clips were for this one.
+    const pl = selectedRef.current;
+    if (!pl || pl.id !== forId || isUnsavedId(pl.id)) return;
     const noun = newClips.length === 1 ? "1 clip" : `${newClips.length} clips`;
     // The Add clips sheet stays open, where ⌘Z isn't the playlist's: the toast carries the Undo.
     const ok = await commitItemsEdit(pl, [...pl.items, ...newClips], newClips.length === 1 ? "Add clip" : `Add ${newClips.length} clips`, `${noun} added`);
@@ -4537,6 +4746,12 @@ export function PlaylistsPage() {
     // after the rows exist so updateClipR2Url has something to patch.
     queuePendingShip(pl);
   }
+
+  // The sheet is handed this one function, which calls the latest handleAddClips: that reads the
+  // `selected` of the latest render when it runs, as it did when the sheet was drawn with every render.
+  const handleAddClipsRef = useRef(handleAddClips);
+  handleAddClipsRef.current = handleAddClips;
+  const onAddClips = useCallback((clips: PlaylistClipItem[]) => handleAddClipsRef.current(clips), []);
 
   // ---------------------------------------------------------------------------
   // Clip selection helpers
@@ -5236,7 +5451,13 @@ export function PlaylistsPage() {
     let cancelled = false;
     lastProbeAtRef.current = Date.now();
     probeMatches(clipMatches).then((map) => {
-      if (!cancelled) setVideoStatusByMatch(map);
+      // The same files with the same status keep the previous map, so a re-probe that found nothing new
+      // (a window focus) does not hand the Add clips sheet a new one.
+      if (!cancelled) {
+        setVideoStatusByMatch((prev) =>
+          prev.size === map.size && [...map].every(([id, status]) => prev.get(id) === status) ? prev : map,
+        );
+      }
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- clipMatches is fully represented by videoPathSignature for probing purposes
@@ -5328,6 +5549,8 @@ export function PlaylistsPage() {
   const exportLocked = !exportAllowed;
 
   const exportDisabledReason = (() => {
+    if (selected && openPlays === "loading") return "Loading clips…";
+    if (selected && openPlays === "failed") return "Clips couldn't be loaded";
     if (!selected || queueItems.length === 0) return filtersActive ? "No clips match the filters" : "Playlist is empty";
     const involvedMatchIds = new Set(
       queueItems.filter((i) => !isTextCard(i)).map((i) => (i as QueueItem).matchId)
@@ -5709,6 +5932,38 @@ export function PlaylistsPage() {
       </div>
     );
 
+  // The open playlist's list (and its report) while its games' plays aren't
+  // all in memory: loading rows, or that they couldn't be read and a Try
+  // again. Never "No clips yet" for a playlist that has clips.
+  const playsPendingView =
+    openPlays === "loading" ? (
+      <div
+        role="status"
+        aria-busy="true"
+        aria-label="Loading clips"
+        className="overflow-hidden rounded-window bg-card ring-1 ring-separator [&>*:not(:first-child)]:shadow-[inset_0_1px_0_var(--separator)]"
+      >
+        {Array.from({ length: 5 }, (_, i) => (
+          <div key={i} className="flex min-h-11 items-center px-3">
+            <div className="h-3 animate-pulse rounded bg-fill-2" style={{ width: `${45 + ((i * 37) % 35)}%` }} />
+          </div>
+        ))}
+      </div>
+    ) : openPlays === "failed" ? (
+      <div className="flex min-h-full flex-col items-center justify-center gap-3 py-16 text-center">
+        <p className="text-callout text-muted-foreground">Couldn&apos;t load this playlist&apos;s clips.</p>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            if (selected) void ensureEventsFor(collectClipMatchIds([selected]));
+          }}
+        >
+          Try again
+        </Button>
+      </div>
+    ) : null;
+
   const shownClipCount = queueItems.filter((i) => !isTextCard(i)).length;
   const totalClipCount = sortedEvents.filter((i) => !isTextCard(i)).length;
   const clipListStack = (
@@ -5828,7 +6083,7 @@ export function PlaylistsPage() {
           if (e.target === e.currentTarget && !e.metaKey && !e.shiftKey && selectedClipIds.size > 0) setSelectedClipIds(new Set());
         }}
       >
-      {queueItems.length === 0 ? (
+      {playsPendingView ?? (queueItems.length === 0 ? (
         <div
           className={cn(
             "flex min-h-full flex-col items-center justify-center rounded-window ring-2 ring-inset transition-[box-shadow,background-color] duration-150",
@@ -5958,7 +6213,7 @@ export function PlaylistsPage() {
             );
           })}
         </div>
-      )}
+      ))}
       </div>
 
       <SelectionBar
@@ -6342,7 +6597,9 @@ export function PlaylistsPage() {
           </div>
         ) : (
           <>
-          {reportView ? (
+          {reportView && playsPendingView ? (
+            <div className="flex h-full flex-col p-4">{playsPendingView}</div>
+          ) : reportView ? (
             <ReportView
               key={selected.id}
               toolbarSlot={reportToolbarSlot}
@@ -6459,23 +6716,13 @@ export function PlaylistsPage() {
                 matchLookup={matchLookup}
                 playlist={selected}
                 preferredMatchId={addClipsFrom}
-                onAddClips={handleAddClips}
+                onAddClips={onAddClips}
                 activeOrgId={activeOrgId}
                 labels={labels}
                 labelAssignments={clipAssignments}
-                onNeedEvents={ensureEventsFor}
                 onNeedLabels={ensureLabelsFor}
                 videoStatusByMatch={videoStatusByMatch}
-                labelHandlers={{
-                  onToggleClip: handleToggleClipLabel,
-                  onBulkToggle: applyBulkLabel,
-                  onCreate: handleCreateLabel,
-                  onRename: handleRenameLabel,
-                  onRecolor: handleRecolorLabel,
-                  onDelete: handleDeleteLabel,
-                  onSetKey: handleSetLabelKey,
-                  onSeedDefaults: handleSeedDefaultLabels,
-                }}
+                labelHandlers={clipBrowserLabelHandlers}
               />
             </SheetContent>
           </Sheet>

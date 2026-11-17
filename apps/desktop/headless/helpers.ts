@@ -197,6 +197,74 @@ export async function selectRows<T = Record<string, unknown>>(
   `, { table, columns, eq });
 }
 
+/** A row of the Add clips list as text: everything it says, and its event badge. */
+export interface SheetRowText { text: string; badge: string }
+
+/**
+ * Calls `visit` with the rows in the DOM at the top of the Add clips list and
+ * after each step of 80% of the list's height down it, until a step no longer
+ * moves it (the bottom; the last position is visited once more, after a step
+ * that stayed put, for rows that arrive late). Stops at once when `visit`
+ * returns true, and says so. Only the rows near the viewport are in the DOM,
+ * and nothing here assumes how tall a row is. Without a stop the list is left
+ * at the top.
+ */
+async function walkSheetList(sheet: Locator, visit: (grid: Locator) => Promise<boolean | void>): Promise<boolean> {
+  await expect(sheet, "the Add clips sheet is open").toBeVisible();
+  const grid = sheet.getByRole("grid", { name: "Events" });
+  // A list with no plays (or no match for the filters) has no grid: nothing to visit.
+  if ((await grid.count()) === 0) return false;
+  // The grid's parent is what scrolls. A scroll is followed by two frames, so the list has drawn what it moved to.
+  const scroller = grid.locator("xpath=..");
+  const scroll = (to: number | "step") =>
+    scroller.evaluate(async (el, to) => {
+      el.scrollTop = to === "step" ? el.scrollTop + Math.max(1, Math.floor(el.clientHeight * 0.8)) : to;
+      await new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())));
+      return el.scrollTop;
+    }, to);
+  let at = await scroll(0);
+  if (await visit(grid)) return true;
+  for (;;) {
+    const next = await scroll("step");
+    if (await visit(grid)) return true;
+    if (next === at) break;
+    at = next;
+  }
+  await scroll(0);
+  return false;
+}
+
+/**
+ * Every row of the Add clips list by key, in list order, read by scrolling the
+ * list through and back to the top: only rows near the viewport are in the DOM.
+ * Empty when the list has no rows (wait for "Loading clips…" first). Call it
+ * with no popover open (an open one hides the sheet from role queries).
+ */
+export async function readSheetRows(sheet: Locator): Promise<Map<string, SheetRowText>> {
+  const rows = new Map<string, SheetRowText>();
+  await walkSheetList(sheet, async (grid) => {
+    const seen = await grid.locator("[role=row][data-row-key]").evaluateAll((els) =>
+      els.map((el) => ({
+        key: el.getAttribute("data-row-key")!,
+        text: el.textContent ?? "",
+        badge: el.querySelector("span.rounded-full")?.textContent ?? "",
+      })),
+    );
+    for (const { key, ...row } of seen) if (!rows.has(key)) rows.set(key, row);
+  });
+  return rows;
+}
+
+/** Scrolls the Add clips list until the row with this key is in the DOM, and returns it. Throws when no row has the key. */
+export async function sheetRow(sheet: Locator, key: string): Promise<Locator> {
+  const row = sheet.getByRole("grid", { name: "Events" }).locator(`[role=row][data-row-key=${JSON.stringify(key)}]`);
+  // Where the list is already scrolled to may have it: no need to move then.
+  if ((await row.count()) > 0) return row;
+  const found = await walkSheetList(sheet, async () => (await row.count()) > 0);
+  if (!found) throw new Error(`headless: the Add clips list has no row ${key}`);
+  return row;
+}
+
 /**
  * On /playlists: a new playlist named `name` (the toolbar's New playlist and
  * the inline name field), then Add clips with the given Events rows ticked
@@ -220,10 +288,10 @@ export async function newPlaylistWithClips(
   const sheet = page.getByRole("dialog");
   const grid = sheet.getByRole("grid", { name: "Events" });
   await expect(grid.getByRole("row").first()).toBeVisible({ timeout: 30_000 });
-  const all = await grid.locator("[role=row][data-row-key]").evaluateAll((rows) => rows.map((r) => r.getAttribute("data-row-key")!));
+  const all = [...(await readSheetRows(sheet)).keys()];
   const keys = options.pick ? await options.pick(all) : all.slice(0, options.count ?? 2);
   expect(keys.length, "Add clips lists the rows the spec wants").toBeGreaterThan(0);
-  for (const key of keys) await grid.locator(`[role=row][data-row-key="${key}"]`).getByRole("checkbox", { name: "Select" }).click();
+  for (const key of keys) await (await sheetRow(sheet, key)).getByRole("checkbox", { name: "Select" }).click();
   await sheet.getByRole("button", { name: `Add ${keys.length} clip${keys.length === 1 ? "" : "s"}` }).click();
   await sheet.getByRole("button", { name: "Close" }).click();
   await expect(sheet).toBeHidden();
@@ -506,11 +574,9 @@ export async function goViaSidebar(page: Page, link: "Home" | "Playlists" | "Lib
 
 /**
  * Opens the playlist on a freshly loaded Playlists page and its Add clips
- * sheet; returns the sheet. A fresh load, not the sidebar: coming back to the
- * page within a session, the sheet's plays come from the in-memory cache at
- * once, and the page's own mount load (run twice in the dev build) can land
- * after them and replace them, leaving the sheet on "No events match"
- * (reported in C-specs-report.md; pages/playlists.tsx, not group C's code).
+ * sheet; returns the sheet. The sheet reads the plays of the games it shows
+ * itself, so nothing the page loads replaces them; the fresh load starts each
+ * spec with no plays in memory (the app's plays cache lives in the page).
  */
 export async function openAddClips(page: Page, playlistId: string) {
   await waitForQuiet(page);
@@ -949,6 +1015,33 @@ export async function patchGameReads(page: Page, patch: GameReadPatch): Promise<
   };
   await page.route("**/rest/v1/matches*", rewrite(walk));
   if (patch.teamless) await page.route("**/rest/v1/play_by_play_events*", rewrite((body) => Array.isArray(body) && unteam(body as Record<string, unknown>[])));
+}
+
+/** The page's reads of plays: GETs of `matches` that embed `play_by_play_events` (the game list's reads don't). */
+const PLAYS_READS = "**/rest/v1/matches*";
+const isPlaysRead = (route: Route) =>
+  route.request().method() === "GET" && route.request().url().includes("play_by_play_events");
+
+/** Makes the page's reads of plays fail (HTTP 500) until the returned function is called. */
+export async function failPlaysReads(page: Page): Promise<() => Promise<void>> {
+  const handler = async (route: Route) => {
+    if (!isPlaysRead(route)) return route.fallback();
+    await route.fulfill({ status: 500, json: { code: "XX000", message: "plays read failed on purpose", details: null, hint: null } });
+  };
+  await page.route(PLAYS_READS, handler);
+  return () => page.unroute(PLAYS_READS, handler);
+}
+
+/** Holds the page's reads of plays back by `ms` until the returned function is called. */
+export async function delayPlaysReads(page: Page, ms: number): Promise<() => Promise<void>> {
+  const handler = async (route: Route) => {
+    if (!isPlaysRead(route)) return route.fallback();
+    await new Promise((resolve) => setTimeout(resolve, ms));
+    // The page may have gone meanwhile (the test ended): nothing is left to answer.
+    await route.fallback().catch(() => {});
+  };
+  await page.route(PLAYS_READS, handler);
+  return () => page.unroute(PLAYS_READS, handler);
 }
 
 /**

@@ -34,6 +34,7 @@ export const fillGameMarks = (match: Parameters<typeof gmf.fillGameMarks>[1], co
   gmf.fillGameMarks(c(), match, competitionId);
 export const listMatches = (orgId?: string, opts?: { ownOnly?: boolean }) => db.listMatches(c(), orgId, opts);
 export const listEventsForMatches = (matchIds: string[], opts?: { required?: db.RequiredPlays }) => db.listEventsForMatches(c(), matchIds, opts);
+export const listEventsForMatchesChecked = (matchIds: string[], opts?: { required?: db.RequiredPlays }) => db.listEventsForMatchesChecked(c(), matchIds, opts);
 // Announced so open pages (playlists' matchLookup, Library badges) pick up
 // the new sync point without a remount. Returns the shared-clip invalidation
 // count so callers can tell the coach a re-upload is due.

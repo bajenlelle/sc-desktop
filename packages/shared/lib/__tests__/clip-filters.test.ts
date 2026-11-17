@@ -7,6 +7,7 @@ import {
   SITUATION_OPTIONS,
   applyClipFilters,
   hasActiveFilters,
+  keepKnownChoices,
   matchesClipFilters,
   matchesLabelFilter,
   matchesShotType,
@@ -132,5 +133,56 @@ describe("the label filter", () => {
 
   it("finds nothing by label when the labels aren't known", () => {
     expect(applyClipFilters(all, { ...EMPTY_CLIP_FILTERS, labels: new Set(["pnr"]) })).toEqual([]);
+  });
+});
+
+describe("keepKnownChoices", () => {
+  const plays = [made2, miss3, defReb, travel];
+  const pedro = "id:1";
+  const finn = "id:2";
+
+  it("keeps a team and a player the plays have", () => {
+    const f = { ...EMPTY_CLIP_FILTERS, teams: new Set(["Fryshuset"]), players: new Set([pedro]) };
+    const kept = keepKnownChoices(f, plays);
+    expect([...kept.teams]).toEqual(["Fryshuset"]);
+    expect([...kept.players]).toEqual([pedro]);
+  });
+
+  it("drops a team no play has", () => {
+    const f = { ...EMPTY_CLIP_FILTERS, teams: new Set(["Fryshuset", "Nässjö"]) };
+    expect([...keepKnownChoices(f, plays).teams]).toEqual(["Fryshuset"]);
+  });
+
+  it("drops a player (by person key) no play has", () => {
+    // Finn's only play is the missed three: without it, his key goes and Pedro's stays.
+    const f = { ...EMPTY_CLIP_FILTERS, players: new Set([pedro, finn]) };
+    expect([...keepKnownChoices(f, [made2, defReb, travel]).players]).toEqual([pedro]);
+    // A player is kept by key, not by name: the same name under another person id is someone else.
+    const namesake = ev({ eventId: 9, player: { playerId: 99, pno: 4, firstName: "Pedro", familyName: "Lelo", teamNumber: 1 } });
+    expect([...keepKnownChoices({ ...EMPTY_CLIP_FILTERS, players: new Set([pedro]) }, [namesake]).players]).toEqual([]);
+  });
+
+  it("returns the same object when nothing goes", () => {
+    const f = { ...EMPTY_CLIP_FILTERS, teams: new Set(["Sollentuna"]), players: new Set([finn]) };
+    expect(keepKnownChoices(f, plays)).toBe(f);
+    expect(keepKnownChoices(EMPTY_CLIP_FILTERS, [])).toBe(EMPTY_CLIP_FILTERS);
+  });
+
+  it("leaves plays, shot types, situations and labels alone", () => {
+    const f = {
+      types: new Set(["2pt-made"]),
+      shotTypes: new Set(["subtype:layup"]),
+      situations: new Set(["qual:fastbreak"]),
+      teams: new Set(["Nässjö"]),
+      players: new Set(["id:42"]),
+      labels: new Set(["pnr"]),
+    };
+    const kept = keepKnownChoices(f, plays);
+    expect(kept.teams.size).toBe(0);
+    expect(kept.players.size).toBe(0);
+    expect(kept.types).toBe(f.types);
+    expect(kept.shotTypes).toBe(f.shotTypes);
+    expect(kept.situations).toBe(f.situations);
+    expect(kept.labels).toBe(f.labels);
   });
 });
