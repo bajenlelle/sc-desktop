@@ -574,11 +574,9 @@ export async function goViaSidebar(page: Page, link: "Home" | "Playlists" | "Lib
 
 /**
  * Opens the playlist on a freshly loaded Playlists page and its Add clips
- * sheet; returns the sheet. A fresh load, not the sidebar: coming back to the
- * page within a session, the sheet's plays come from the in-memory cache at
- * once, and the page's own mount load (run twice in the dev build) can land
- * after them and replace them, leaving the sheet on "No events match"
- * (reported in C-specs-report.md; pages/playlists.tsx, not group C's code).
+ * sheet; returns the sheet. The sheet reads the plays of the games it shows
+ * itself, so nothing the page loads replaces them; the fresh load starts each
+ * spec with no plays in memory (the app's plays cache lives in the page).
  */
 export async function openAddClips(page: Page, playlistId: string) {
   await waitForQuiet(page);

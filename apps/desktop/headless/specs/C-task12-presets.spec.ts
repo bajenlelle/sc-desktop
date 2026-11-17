@@ -272,16 +272,13 @@ test("a preset applied while the plays load applies at once and leaves the chose
   await page.keyboard.press("Escape");
   await expect.poll(() => ownRowNames(page, "filter_presets", PENDING)).toEqual([PENDING]);
 
-  // Two games: Luleå and Södertälje.
-  await gameTrigger(sheet).click();
-  await page.getByRole("combobox", { name: "Search games or teams" }).fill("");
-  await page.locator(`input[type="checkbox"][aria-label="Include ${SODERTALJE}"]`).click();
-  await page.keyboard.press("Escape");
-  await expect(gameTrigger(sheet)).toHaveText("2 games");
-  await waitForPlays(sheet);
-  // A fresh page, with Luleå's plays held back. Södertälje's come at once, so the sheet already lists
-  // some plays, the remembered team (Köping, in both games) comes back, and a Köping player can be
-  // chosen from them, all while Luleå's are still on their way.
+  // Södertälje alone, Köping still chosen: the games and team the playlist remembers.
+  await pickOnlyGame(page, sheet, SODERTALJE);
+  await expect(sheet.getByRole("button", { name: KOPING, exact: true }), "Köping is in Södertälje's game too").toBeVisible();
+  // A fresh page, with Luleå's plays held back. The sheet reopens on Södertälje with the remembered team
+  // (Köping) back, a Köping player is chosen from its plays, and Luleå is ticked: Södertälje's plays stay
+  // listed while Luleå's are on their way. (A change of games lands in one update, so a sheet opening on
+  // both games would list nothing until both were in.)
   let held = 0;
   let released = 0;
   const lulea = (url: URL) => url.href.includes("play_by_play_events") && url.href.includes(luleaId);
@@ -298,15 +295,22 @@ test("a preset applied while the plays load applies at once and leaves the chose
   await playlistRow.click();
   await page.getByRole("button", { name: "Add clips", exact: true }).first().click();
   await expect(sheet).toBeVisible();
-  await expect(gameTrigger(sheet)).toHaveText("2 games");
-  await expect.poll(() => held, { message: "the sheet asks for Luleå's plays" }).toBeGreaterThan(0);
-  await expect(sheet.getByRole("button", { name: KOPING, exact: true }), "the team remembered with the games is back").toBeVisible();
+  await expect(gameTrigger(sheet)).toHaveText(SODERTALJE);
+  await expect(sheet.getByRole("button", { name: KOPING, exact: true }), "the team remembered with the game is back").toBeVisible();
   await sheet.getByRole("button", { name: "Player", exact: true }).click();
   const playerLabel = (await page.getByRole("menuitemcheckbox").first().innerText()).trim();
   const playerName = playerLabel.replace(/^#\d+ /, "");
   await page.getByRole("menuitemcheckbox").first().click();
   await page.keyboard.press("Escape");
   await expect(sheet.getByRole("button", { name: playerLabel, exact: true })).toBeVisible();
+  await gameTrigger(sheet).click();
+  await page.locator(`input[type="checkbox"][aria-label="Include ${LULEA}"]`).click();
+  await page.keyboard.press("Escape");
+  await expect(gameTrigger(sheet)).toHaveText("2 games");
+  await expect.poll(() => held, { message: "the sheet asks for Luleå's plays" }).toBeGreaterThan(0);
+  await expect(sheet.getByText("Loading clips…"), "Södertälje's plays stay listed").toHaveCount(0);
+  await expect(sheet.getByRole("button", { name: KOPING, exact: true }), "the team stays while Luleå's plays load").toBeVisible();
+  await expect(sheet.getByRole("button", { name: playerLabel, exact: true }), "the player stays while Luleå's plays load").toBeVisible();
   expect(released, "Luleå's plays are still held back").toBe(0);
 
   // The preset goes in before Luleå's plays land: it applies at once, nothing of it waits for them.

@@ -343,8 +343,9 @@ export function PlaylistsPage() {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [loading, setLoading] = useState(true);
   // Which matches already have their play-by-play in `matches`. The mount load
-  // covers only the games playlists reference; the clip browser can display
-  // any game, so it asks for the rest on demand via ensureEventsFor.
+  // covers only the games playlists reference; the rest are asked for on
+  // demand via ensureEventsFor (the clip browser reads its own, and asks here
+  // for the games of the clips it adds).
   // The ref is for synchronous reads; the two sets render what it knows: a
   // game is read only when its read succeeded (a game the coach may not see
   // counts as read, with no plays), and failed while its last read failed.
@@ -842,7 +843,7 @@ export function PlaylistsPage() {
         // Events only for matches a playlist actually references. Passing
         // every match id pulled the complete play-by-play of every game the
         // coach had ever imported (~500 events each) on every mount. The clip
-        // browser fetches whichever game it displays via ensureEventsFor.
+        // browser reads the plays of the games it shows itself.
         //
         // collectClipMatchIds, not collectReferencedMatchIds: the editor must
         // resolve UNSHIPPED clips too, or their rows vanish (see displayItems).
@@ -984,12 +985,12 @@ export function PlaylistsPage() {
   /**
    * Fetch play-by-play for matches that don't have it yet and merge it in.
    *
-   * The mount load covers only games a playlist references, so the clip
-   * browser calls this for whichever game it is about to show. Already-loaded
-   * ids are skipped, making repeat opens and re-renders free; an id already
+   * The mount load covers only games a playlist references, so a clip added
+   * from the clip browser has its game asked for here before it is saved.
+   * Already-loaded ids are skipped, making repeat asks free; an id already
    * being fetched is waited for, so the promise resolves only once every
-   * asked game's plays are in `matches` and `outsideMatches` (the clip
-   * browser treats it so), or their read failed. Existing events are
+   * asked game's plays are in `matches` and `outsideMatches` (handleAddClips
+   * treats it so), or their read failed. Existing events are
    * preserved — only the newly fetched matches change. A failed game stays
    * unread and is fetched again the next time it is asked for; while it is
    * fetched it is no longer failed, so its playlist shows loading rows.
@@ -1093,6 +1094,8 @@ export function PlaylistsPage() {
     try {
       const rows = await listAssignmentsForMatches(activeOrgId, wanted);
       for (const id of wanted) loadedLabelMatchIdsRef.current.add(id);
+      // No labels on these games: nothing changes, and nothing behind the clip browser renders again.
+      if (rows.length === 0) return;
       setClipAssignments((prev) => {
         const next = new Map(prev);
         for (const r of rows) {
@@ -4703,7 +4706,17 @@ export function PlaylistsPage() {
 
   async function handleAddClips(newClips: PlaylistClipItem[]) {
     if (!selected || isUnsavedId(selected.id) || newClips.length === 0) return;
-    const pl = selected;
+    const forId = selected.id;
+    // The sheet reads its games' plays itself; the editor shows a clip once its play is here too (a
+    // cache hit: the sheet has just read them). Without them nothing is saved.
+    const unread = await ensureEventsFor([...new Set(newClips.map((c) => c.matchId))]);
+    if (unread.length > 0) {
+      toast.error("Couldn't add the clips. Try again.");
+      return;
+    }
+    // Another playlist was opened meanwhile: the clips were for this one.
+    const pl = selectedRef.current;
+    if (!pl || pl.id !== forId || isUnsavedId(pl.id)) return;
     const noun = newClips.length === 1 ? "1 clip" : `${newClips.length} clips`;
     // The Add clips sheet stays open, where ⌘Z isn't the playlist's: the toast carries the Undo.
     const ok = await commitItemsEdit(pl, [...pl.items, ...newClips], newClips.length === 1 ? "Add clip" : `Add ${newClips.length} clips`, `${noun} added`);
@@ -6620,7 +6633,6 @@ export function PlaylistsPage() {
                 activeOrgId={activeOrgId}
                 labels={labels}
                 labelAssignments={clipAssignments}
-                onNeedEvents={ensureEventsFor}
                 onNeedLabels={ensureLabelsFor}
                 videoStatusByMatch={videoStatusByMatch}
                 labelHandlers={clipBrowserLabelHandlers}
