@@ -6,6 +6,8 @@ import { SearchField } from "@/components/ui/search-field";
 import { cn } from "@/lib/utils";
 import { rosterByTeam, type PlayerChoice } from "@scoutable/shared/lib/player-roster";
 import { LEADER_STATS, formatLeaderValue, leaderValue, rankBy, topN, type LeaderRow, type LeaderStat } from "@scoutable/shared/lib/report-leaders";
+import { PlayerPhoto } from "./player-photo";
+import { usePlayerPhotos } from "./use-player-photos";
 
 export type PickerSort = LeaderStat | "clips";
 
@@ -52,6 +54,8 @@ function matches(row: LeaderRow, query: string): boolean {
  * finds the opponent's leaders; unticking removes a player's section, with a
  * confirm when the section has a note.
  */
+const NO_IDS: readonly string[] = [];
+
 export function ReportPlayerPicker({
   open,
   onOpenChange,
@@ -76,6 +80,7 @@ export function ReportPlayerPicker({
   loading: boolean;
   onConfirm: (c: PickerConfirm) => void;
 }) {
+  const photos = usePlayerPhotos(open ? rows.map((r) => r.player.playerId) : NO_IDS);
   const [ticked, setTicked] = useState<Set<string>>(() => new Set(initialTicked));
   const [fromLeaders, setFromLeaders] = useState<Set<string>>(() => new Set());
   const [sort, setSort] = useState<PickerSort>("clips");
@@ -275,8 +280,13 @@ export function ReportPlayerPicker({
                             </td>
                             <td className="px-2 py-1.5 text-right text-muted-foreground nums">{row.player.number ?? ""}</td>
                             <td className="px-2 py-1.5 text-foreground">
-                              <span className="block truncate">{row.player.name}</span>
-                              {inReport.has(id) && <span className="block text-caption text-muted-foreground">In the report</span>}
+                              <div className="flex min-w-0 items-center gap-2">
+                                <PlayerPhoto photoKey={photos.get(id)} px={28} fallback={<span aria-hidden className="size-7 shrink-0 rounded-full bg-fill-1" />} />
+                                <div className="min-w-0">
+                                  <span className="block truncate">{row.player.name}</span>
+                                  {inReport.has(id) && <span className="block text-caption text-muted-foreground">In the report</span>}
+                                </div>
+                              </div>
                             </td>
                             <td className="px-2 py-1.5 text-right nums">{row.player.clips > 0 ? row.player.clips : <span className="text-muted-foreground">–</span>}</td>
                             {LEADER_STATS.map((s) => {

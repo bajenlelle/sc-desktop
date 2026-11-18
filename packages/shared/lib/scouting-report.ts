@@ -22,6 +22,7 @@ import { eventLabel, formatGameClock, periodLabel } from "./events";
 import { cyrb53 } from "./highlight-shares-db";
 import { itemKey } from "./playlist-edits";
 import { deriveReportLayout, sectionLabel, REPORT_MAX_SECTIONS, REPORT_TITLE_MAX, type ReportDraft } from "./report-draft";
+import { isPlayerPhotoKey } from "./player-photos";
 import { cardContent, type StatsCardSpec } from "./stats-card";
 import { clipWatchEffects, type WatchDrawing, type WatchSlow } from "./watch-queue";
 
@@ -66,6 +67,8 @@ export interface ReportPlayer {
   name: string;
   number: string | null;
   teamName: string;
+  /** Media key of the player's 200 px photo (lib/player-photos.ts); absent when there is none. */
+  photoKey?: string;
 }
 
 export interface ReportClip {
@@ -159,6 +162,8 @@ export interface BuildReportInput {
   posters?: ReadonlyMap<string, string>;
   /** The coach's labels by clip item key. */
   labelsByKey?: ReadonlyMap<string, readonly string[]>;
+  /** Player photo media keys by player id (lib/player-photos.ts). */
+  photos?: ReadonlyMap<string, string>;
   attribution?: boolean;
   now?: Date;
 }
@@ -222,6 +227,13 @@ function reportEffects(item: PlaylistClipItem, r2Url: string): Pick<ReportClip, 
     .map((d, i) => ({ id: `d${i + 1}`, at: d.at, hold: d.hold, shapes: d.shapes.slice(0, REPORT_MAX_SHAPES).map((s, j) => compactShape(s, `s${j + 1}`)) }));
   const slowMotion = (fx.slowMotion ?? []).slice(0, REPORT_MAX_SLOWS).map((s, i) => ({ id: `w${i + 1}`, at: s.at, length: s.length, rate: s.rate }));
   return effectsOf(drawings, slowMotion);
+}
+
+/** A report player, with the photo key only when it is one of ours. */
+function reportPlayer(p: Omit<ReportPlayer, "photoKey">, photoKey: string | undefined): ReportPlayer {
+  const player: ReportPlayer = { id: p.id, name: p.name, number: p.number, teamName: p.teamName };
+  if (photoKey && isPlayerPhotoKey(photoKey)) player.photoKey = photoKey;
+  return player;
 }
 
 function statsOf(card: StatsCardSpec): ReportStats {
@@ -295,7 +307,7 @@ export function buildScoutingReport(input: BuildReportInput): BuiltReport {
     sections.push({
       id: `p${++players}`,
       kind: "player",
-      player: { id: player.id, name: player.name, number: player.number, teamName: player.teamName },
+      player: reportPlayer(player, input.photos?.get(player.id)),
       note: note.trim(),
       stats: stats ? statsOf(stats) : null,
       blocks,
@@ -461,7 +473,10 @@ export function parseScoutingReport(raw: unknown): ScoutingReport | null {
     const p = s.player;
     const player: ReportPlayer | null =
       s.kind === "player" && isObj(p) && typeof p.name === "string"
-        ? { id: str(p.id), name: p.name, number: strOrNull(p.number), teamName: str(p.teamName) }
+        ? reportPlayer(
+            { id: str(p.id), name: p.name, number: strOrNull(p.number), teamName: str(p.teamName) },
+            typeof p.photoKey === "string" ? p.photoKey : undefined,
+          )
         : null;
     if (s.kind === "player" && !player) continue;
     sections.push({
