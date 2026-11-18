@@ -96,7 +96,9 @@ AS $$
 $$;
 
 -- The template data: {lang, role, first_name, mac_url, win_url}, plus
--- unsubscribe_url for the reminder. Missing values are left out.
+-- unsubscribe_url for the reminder. Missing values are left out. role comes
+-- from profiles.declared_role (set at sign-up or inferred from a membership),
+-- falling back to the sign-up metadata.
 CREATE OR REPLACE FUNCTION _onboarding_email_data(p_user uuid, p_kind text)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -116,7 +118,9 @@ BEGIN
   v_meta := COALESCE(v_meta, '{}'::jsonb);
 
   v_lang := CASE WHEN v_meta->>'lang' IN ('sv', 'en') THEN v_meta->>'lang' ELSE 'en' END;
-  v_role := CASE WHEN v_meta->>'declared_role' IN ('coach', 'player') THEN v_meta->>'declared_role' END;
+  v_role := COALESCE(
+    (SELECT declared_role FROM profiles WHERE id = p_user AND declared_role IN ('coach', 'player')),
+    CASE WHEN v_meta->>'declared_role' IN ('coach', 'player') THEN v_meta->>'declared_role' END);
   v_site := rtrim(COALESCE((SELECT value FROM app_config WHERE key = 'site_url'), 'https://scoutable.se'), '/');
   v_query := '?utm_source=' || CASE WHEN p_kind = 'reminder' THEN 'reminder_email' ELSE 'welcome_email' END
           || '&utm_medium=email&utm_campaign=onboarding&lang=' || v_lang;
@@ -312,8 +316,10 @@ REVOKE EXECUTE ON FUNCTION send_onboarding_reminders() FROM PUBLIC, anon, authen
 -- 6. Resend (the web button). The caller's own welcome, once per 10 minutes.
 --    Marks the welcome sent if it wasn't, so a queued one isn't sent again,
 --    and never moves an earlier sent_at (the reminder counts from it).
---    Returns 'sent' | 'too_soon' | 'disabled'. Errors raise, so the button
---    can say it failed.
+--    Returns 'sent' | 'too_soon' | 'disabled'; only not_authenticated and
+--    no_email raise. 'sent' means queued, not delivered:
+--    _send_notification_emails_batch posts asynchronously (pg_net) and turns
+--    its own errors into a WARNING, so a failed send still returns 'sent'.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION resend_welcome_email()
 RETURNS text
